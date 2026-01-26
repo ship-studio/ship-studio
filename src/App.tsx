@@ -77,7 +77,11 @@ import { checkClaudeCliStatus, ClaudeCliStatus } from "./lib/claude";
 import { getFullSetupStatus } from "./lib/setup";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { invoke } from "@tauri-apps/api/core";
+import { logger } from "./lib/logger";
 import "./styles/index.css";
+
+// Initialize logger
+logger.init();
 
 /** Interval between automatic screenshot captures (5 minutes) */
 const SCREENSHOT_INTERVAL_MS = 5 * 60 * 1000;

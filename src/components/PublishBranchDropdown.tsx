@@ -22,6 +22,8 @@ import {
   VercelIcon,
 } from "./icons";
 import { useClickOutside } from "../hooks/useClickOutside";
+import { logger } from "../lib/logger";
+import { ExponentialPoller } from "../lib/polling";
 
 interface PublishBranchDropdownProps {
   /** Current branch name */
@@ -90,40 +92,54 @@ export function PublishBranchDropdown({
     };
   }, []);
 
-  // Poll deployment status when in deploying state
+  // Poll deployment status when in deploying state (with exponential backoff)
   useEffect(() => {
     if (publishState.status !== "deploying" || !hasVercel) return;
 
     const startTime = publishState.startTime;
+    logger.info("Starting deployment polling", { projectPath, startTime });
 
     // Update elapsed time every second
     timerRef.current = setInterval(() => {
       setElapsedSeconds(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    // Poll deployment status every 3 seconds
-    const pollStatus = async () => {
-      try {
+    // Create poller with exponential backoff
+    const poller = new ExponentialPoller(
+      async () => {
         // Timeout after 5 minutes - give up and show success without URL
         const elapsed = Date.now() - startTime;
         if (elapsed > 5 * 60 * 1000) {
-          const duration = Math.floor(elapsed / 1000);
-          setPublishState({ status: "deployed", url: null, duration });
-          if (pollingRef.current) clearInterval(pollingRef.current);
-          if (timerRef.current) clearInterval(timerRef.current);
-          return;
+          logger.warn("Deployment polling timeout", { elapsed });
+          throw new Error("TIMEOUT");
         }
 
         // Pass startTime to filter out deployments created before our push
         const status = await getDeploymentStatus(projectPath, startTime);
-        console.log("[Polling] status:", status, "startTime:", startTime);
+        return status;
+      },
+      (result) => {
+        if (result.error) {
+          if (result.error.message === "TIMEOUT") {
+            const duration = Math.floor((Date.now() - startTime) / 1000);
+            setPublishState({ status: "deployed", url: null, duration });
+            poller.stop();
+            if (timerRef.current) clearInterval(timerRef.current);
+          }
+          // Other errors - continue polling with backoff
+          return;
+        }
+
+        const status = result.data;
+        logger.debug("Deployment status poll", { status, attempt: result.attempt });
+
         if (status) {
           // Only treat as READY if we have a URL (confirms it's the new deployment)
           if (status.state === "READY" && status.url) {
-            console.log("[Polling] READY detected, stopping polling");
+            logger.info("Deployment ready", { url: status.url });
             const duration = Math.floor((Date.now() - startTime) / 1000);
             setPublishState({ status: "deployed", url: status.url, duration });
-            if (pollingRef.current) clearInterval(pollingRef.current);
+            poller.stop();
             if (timerRef.current) clearInterval(timerRef.current);
             // Prevent duplicate toasts from race condition
             if (!hasShownToastRef.current) {
@@ -131,9 +147,10 @@ export function PublishBranchDropdown({
               onToast?.(`Deployed in ${duration}s`, "success");
             }
           } else if (status.state === "ERROR" || status.state === "CANCELED") {
+            logger.error("Deployment failed", { state: status.state });
             const duration = Math.floor((Date.now() - startTime) / 1000);
             setPublishState({ status: "deploy_error", duration });
-            if (pollingRef.current) clearInterval(pollingRef.current);
+            poller.stop();
             if (timerRef.current) clearInterval(timerRef.current);
             // Prevent duplicate toasts from race condition
             if (!hasShownToastRef.current) {
@@ -142,17 +159,22 @@ export function PublishBranchDropdown({
             }
           }
         }
-      } catch {
-        // Ignore polling errors
+      },
+      {
+        initialInterval: 2000,   // Start checking every 2s
+        maxInterval: 15000,      // Back off to 15s max
+        multiplier: 1.5,         // Gradual backoff
+        jitter: true,            // Prevent thundering herd
+        name: "deployment-status",
       }
-    };
+    );
 
-    // Start polling immediately
-    pollStatus();
-    pollingRef.current = setInterval(pollStatus, 3000);
+    // Store reference for cleanup
+    pollingRef.current = { clear: () => poller.stop() } as unknown as ReturnType<typeof setInterval>;
+    poller.start();
 
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      poller.stop();
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [publishState, hasVercel, projectPath, onToast]);
@@ -183,6 +205,7 @@ export function PublishBranchDropdown({
   };
 
   const handlePublish = async () => {
+    logger.info("Starting publish", { branch: currentBranch, isMainBranch, projectPath });
     setIsPublishing(true);
     setPublishState({ status: "publishing" });
 
@@ -194,6 +217,7 @@ export function PublishBranchDropdown({
         throw new Error("Failed to publish branch");
       }
 
+      logger.info("Publish succeeded", { branch: currentBranch });
       onToast?.(
         isMainBranch ? "Pushed to GitHub!" : "Changes synced to GitHub!",
         "success"
@@ -202,6 +226,7 @@ export function PublishBranchDropdown({
 
       // If Vercel is connected, start tracking deployment
       if (hasVercel) {
+        logger.debug("Starting Vercel deployment tracking");
         // Give Vercel a moment to register the deployment
         await new Promise(resolve => setTimeout(resolve, 2000));
         setElapsedSeconds(0);
@@ -223,6 +248,7 @@ export function PublishBranchDropdown({
         errorType = "auth_error";
       }
 
+      logger.error("Publish failed", { branch: currentBranch, errorType, message });
       setPublishState({ status: "error", message, errorType });
       onToast?.(isMainBranch ? "Publish failed" : "Sync failed", "error");
 

@@ -3,6 +3,7 @@
 //! Commands for Git operations, branch management, and repository management.
 
 use std::process::Command;
+use tracing::{debug, error, info, instrument, warn};
 use crate::types::{BranchInfo, BranchStatus, ChangedFile, PrerequisiteCheck, SwitchResult};
 use crate::utils::{find_executable, validate_project_path};
 
@@ -113,6 +114,7 @@ pub fn get_ahead_behind(path: &std::path::Path, branch: &str, compare_to: &str) 
 
 /// Checks if required tools (node, npm, git, gh, vercel, claude) are installed.
 #[tauri::command]
+#[instrument(name = "check_prerequisites")]
 pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
     let commands = vec!["node", "npm", "git", "gh", "vercel", "claude"];
     let mut results = Vec::new();
@@ -122,6 +124,7 @@ pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
             Some(p) => (true, Some(p.to_string_lossy().to_string())),
             None => (false, None),
         };
+        debug!(command = cmd, available, "Prerequisite check");
         results.push(PrerequisiteCheck {
             name: cmd.to_string(),
             available,
@@ -129,6 +132,11 @@ pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
         });
     }
 
+    info!(
+        total = results.len(),
+        available = results.iter().filter(|r| r.available).count(),
+        "Prerequisites checked"
+    );
     results
 }
 
@@ -154,23 +162,32 @@ pub async fn ensure_shipstudio_dir() -> Result<String, String> {
 }
 
 #[tauri::command]
+#[instrument(name = "init_git_repo", skip(project_path), fields(project = %project_path))]
 pub async fn init_git_repo(project_path: String) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
+
+    info!("Initializing git repository");
 
     // Initialize git repo
     let output = Command::new("git")
         .args(["init"])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            error!(error = %e, "Failed to execute git init");
+            e.to_string()
+        })?;
 
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        error!(error = %stderr, "git init failed");
+        return Err(stderr);
     }
 
     // Stage and commit all files
     git_stage_and_commit(&validated_path, "Initial commit from Ship Studio")?;
 
+    info!("Git repository initialized successfully");
     Ok(())
 }
 
@@ -287,11 +304,11 @@ pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, Str
             let stderr = String::from_utf8_lossy(&output.stderr);
             // Don't log if it's just a network issue or no remote
             if !stderr.contains("Could not resolve host") && !stderr.contains("Could not read from remote") {
-                eprintln!("[get_branch_status] git fetch failed: {}", stderr);
+                warn!(error = %stderr, "git fetch failed");
             }
         }
         Err(e) => {
-            eprintln!("[get_branch_status] Failed to execute git fetch: {}", e);
+            warn!(error = %e, "Failed to execute git fetch");
         }
         _ => {}
     }
@@ -400,7 +417,7 @@ pub async fn reset_to_branch(project_path: String, branch: String) -> Result<(),
         .map_err(|e| e.to_string())?;
 
     if !clean.status.success() {
-        eprintln!("Warning: git clean failed");
+        warn!("git clean failed during reset");
     }
 
     Ok(())
@@ -408,8 +425,10 @@ pub async fn reset_to_branch(project_path: String, branch: String) -> Result<(),
 
 /// List all branches (local and remote) with metadata
 #[tauri::command]
+#[instrument(name = "list_branches", skip(project_path), fields(project = %project_path))]
 pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, String> {
     let validated_path = validate_project_path(&project_path)?;
+    debug!("Listing branches");
 
     // Fetch all remotes first
     let _ = Command::new("git")
@@ -488,6 +507,7 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Stri
         b.last_commit_date.cmp(&a.last_commit_date)
     });
 
+    debug!(branch_count = branches.len(), "Branches listed");
     Ok(branches)
 }
 
@@ -543,6 +563,7 @@ fn save_project_metadata(project_path: &std::path::Path, metadata: &crate::types
 
 /// Switch to a different branch
 #[tauri::command]
+#[instrument(name = "switch_branch", skip(project_path), fields(project = %project_path, target_branch = %branch_name))]
 pub async fn switch_branch(project_path: String, branch_name: String, auto_stash: bool) -> Result<SwitchResult, String> {
     let validated_path = validate_project_path(&project_path)?;
     let mut stashed = false;
@@ -551,6 +572,7 @@ pub async fn switch_branch(project_path: String, branch_name: String, auto_stash
 
     // Get current branch name before switching
     let current_branch = get_current_branch_sync(&validated_path).unwrap_or_default();
+    info!(from_branch = %current_branch, to_branch = %branch_name, auto_stash, "Switching branch");
 
     // Load project metadata to check for existing stash info
     let mut metadata = load_project_metadata(&validated_path);
@@ -671,6 +693,13 @@ pub async fn switch_branch(project_path: String, branch_name: String, auto_stash
         }
     }
 
+    info!(
+        stashed_changes = stashed,
+        stash_applied,
+        pending_stash = pending_stash_from.is_some(),
+        "Branch switch completed successfully"
+    );
+
     Ok(SwitchResult {
         success: true,
         stashed_changes: stashed,
@@ -769,11 +798,14 @@ pub async fn discard_changes(project_path: String) -> Result<(), String> {
 
 /// Create a new branch from a base branch
 #[tauri::command]
+#[instrument(name = "create_branch", skip(project_path), fields(project = %project_path, branch = %branch_name, from = %from_branch))]
 pub async fn create_branch(project_path: String, branch_name: String, from_branch: String) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
+    info!("Creating new branch");
 
     // Validate branch name
     if branch_name.contains(' ') || branch_name.contains("..") || branch_name.starts_with('-') {
+        warn!(branch = %branch_name, "Invalid branch name");
         return Err("Invalid branch name".to_string());
     }
 
@@ -824,10 +856,12 @@ pub async fn create_branch(project_path: String, branch_name: String, from_branc
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            error!(error = %stderr, "Failed to create branch");
             return Err(stderr.to_string());
         }
     }
 
+    info!("Branch created successfully");
     Ok(())
 }
 
@@ -912,11 +946,14 @@ pub async fn pull_and_merge(project_path: String, merge_branch: Option<String>) 
 
 /// Delete a branch (local and optionally remote)
 #[tauri::command]
+#[instrument(name = "delete_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
 pub async fn delete_branch(project_path: String, branch_name: String, delete_remote: bool) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
+    info!(delete_remote, "Deleting branch");
 
     // Don't allow deleting main/master
     if branch_name == "main" || branch_name == "master" {
+        warn!("Attempted to delete main branch");
         return Err("Cannot delete the main branch".to_string());
     }
 
@@ -957,10 +994,12 @@ pub async fn delete_branch(project_path: String, branch_name: String, delete_rem
         if !remote_output.status.success() {
             let stderr = String::from_utf8_lossy(&remote_output.stderr);
             if !stderr.contains("remote ref does not exist") {
+                error!(error = %stderr, "Failed to delete remote branch");
                 return Err(format!("Failed to delete remote branch: {}", stderr));
             }
         }
     }
 
+    info!("Branch deleted successfully");
     Ok(())
 }

@@ -3,14 +3,17 @@
 //! Commands for publishing to GitHub, staging, and production.
 
 use std::process::Command;
+use tracing::{debug, error, info, instrument, warn};
 use crate::types::PublishResult;
 use crate::utils::validate_project_path;
 use crate::commands::git::git_stage_and_commit;
 
 #[tauri::command]
+#[instrument(name = "publish_to_github", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_to_github(project_path: String, commit_message: Option<String>) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
+    info!(message = %message, "Publishing to GitHub");
 
     // Get current branch name
     let branch_output = Command::new("git")
@@ -39,12 +42,13 @@ pub async fn publish_to_github(project_path: String, commit_message: Option<Stri
                 || stderr.contains("fatal: couldn't find remote ref");
 
             if !is_expected_error {
-                // Log unexpected pull errors for debugging
-                eprintln!("[publish_to_github] Unexpected pull error (continuing anyway): {}", stderr);
+                warn!(error = %stderr, "Unexpected pull error (continuing anyway)");
+            } else {
+                debug!(error = %stderr, "Expected pull error for new repo/branch");
             }
         }
         Err(e) => {
-            eprintln!("[publish_to_github] Failed to execute git pull: {}", e);
+            warn!(error = %e, "Failed to execute git pull");
         }
         _ => {}
     }
@@ -92,17 +96,21 @@ pub async fn publish_to_github(project_path: String, commit_message: Option<Stri
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("Everything up-to-date") {
+            error!(error = %stderr, branch = %branch, "Push to GitHub failed");
             return Err(stderr.to_string());
         }
     }
 
+    info!(branch = %branch, "Published to GitHub successfully");
     Ok(())
 }
 
 #[tauri::command]
+#[instrument(name = "publish_to_staging", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_to_staging(project_path: String, commit_message: Option<String>) -> Result<PublishResult, String> {
     let validated_path = validate_project_path(&project_path)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
+    info!(message = %message, "Publishing to staging");
 
     // Stage and commit any changes
     let _ = git_stage_and_commit(&validated_path, &message);
@@ -118,13 +126,16 @@ pub async fn publish_to_staging(project_path: String, commit_message: Option<Str
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
+            warn!(error = %stderr, "Push rejected - staging branch has diverged");
             return Err(format!("PUSH_REJECTED: Staging branch has diverged. Pull changes first or resolve conflicts.\n{}", stderr));
         }
         if !stderr.contains("Everything up-to-date") {
+            error!(error = %stderr, "Failed to push to staging");
             return Err(stderr.to_string());
         }
     }
 
+    info!("Published to staging successfully");
     Ok(PublishResult {
         url: String::new(),
         state: "QUEUED".to_string(),
@@ -132,9 +143,11 @@ pub async fn publish_to_staging(project_path: String, commit_message: Option<Str
 }
 
 #[tauri::command]
+#[instrument(name = "publish_to_production", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_to_production(project_path: String, commit_message: Option<String>) -> Result<PublishResult, String> {
     let validated_path = validate_project_path(&project_path)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
+    info!(message = %message, "Publishing to production");
 
     // Stage and commit any changes
     let _ = git_stage_and_commit(&validated_path, &message);
@@ -149,10 +162,12 @@ pub async fn publish_to_production(project_path: String, commit_message: Option<
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         if !stderr.contains("Everything up-to-date") {
+            error!(error = %stderr, "Failed to push to production");
             return Err(stderr.to_string());
         }
     }
 
+    info!("Published to production successfully");
     Ok(PublishResult {
         url: String::new(),
         state: "QUEUED".to_string(),
@@ -161,6 +176,7 @@ pub async fn publish_to_production(project_path: String, commit_message: Option<
 
 /// Publish (push) the current branch to origin
 #[tauri::command]
+#[instrument(name = "publish_branch", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_branch(project_path: String, commit_message: Option<String>) -> Result<PublishResult, String> {
     let validated_path = validate_project_path(&project_path)?;
     let message = commit_message.unwrap_or_else(|| "Updates from Ship Studio".to_string());
@@ -173,6 +189,7 @@ pub async fn publish_branch(project_path: String, commit_message: Option<String>
         .map_err(|e| e.to_string())?;
 
     let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+    info!(branch = %branch, message = %message, "Publishing branch");
 
     // Stage all changes
     let _ = Command::new("git")
@@ -214,16 +231,20 @@ pub async fn publish_branch(project_path: String, commit_message: Option<String>
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         // Check for common errors
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
+            warn!(error = %stderr, branch = %branch, "Push rejected");
             return Err(format!("PUSH_REJECTED:{}", stderr));
         }
         if stderr.contains("Permission denied") || stderr.contains("could not read Username") {
+            error!(error = %stderr, branch = %branch, "Authentication error");
             return Err(format!("AUTH_ERROR:{}", stderr));
         }
         if !stderr.contains("Everything up-to-date") {
+            error!(error = %stderr, branch = %branch, "Push failed");
             return Err(stderr.to_string());
         }
     }
 
+    info!(branch = %branch, "Branch published successfully");
     Ok(PublishResult {
         url: String::new(),
         state: "QUEUED".to_string(),
