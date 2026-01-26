@@ -20,15 +20,36 @@
 ## Architecture
 
 ### Backend (Rust/Tauri)
-- All Tauri commands are in `src-tauri/src/lib.rs`
+- Commands are organized in `src-tauri/src/commands/` by domain (git, vercel, github, etc.)
+- Command registration is in `src-tauri/src/lib.rs`
 - Commands validate paths to ensure they're within `~/ShipStudio` directory
-- Git operations use the `git` CLI directly
+- Git operations use the `git` CLI with TTL-based caching (`src-tauri/src/cache.rs`)
 - Vercel operations use the `vercel` CLI
+- Structured logging via `tracing` crate, logs stored at `~/Library/Logs/ShipStudio/`
 
 ### Frontend (React/TypeScript)
 - Components are in `src/components/`
 - Lib functions (Tauri invoke wrappers) are in `src/lib/`
 - Main app state is managed in `src/App.tsx`
+- Polling uses exponential backoff (`src/lib/polling.ts`)
+- Structured logging via `src/lib/logger.ts`
+
+## Testing
+
+### Frontend Tests (Vitest + React Testing Library)
+```bash
+npm test          # Run all tests
+npm run test:ui   # Run with Vitest UI
+```
+
+Tests are in `src/**/*.test.{ts,tsx}`. Uses official `@tauri-apps/api/mocks` for mocking Tauri IPC.
+
+### Backend Tests (Rust)
+```bash
+cd src-tauri && cargo test
+```
+
+Unit tests are colocated in source files using `#[cfg(test)]` modules.
 
 ## Common Patterns
 

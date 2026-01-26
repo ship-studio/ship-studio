@@ -176,10 +176,29 @@ Use these variables in your styles for consistency.
 
 ## Testing
 
+### Automated Tests
+
+**Frontend Tests (Vitest + React Testing Library):**
+```bash
+npm test              # Run all tests
+npm run test:ui       # Run with interactive UI
+npm run test:coverage # Run with coverage report
+```
+
+Tests are in `src/**/*.test.{ts,tsx}`. We use the official `@tauri-apps/api/mocks` module for mocking Tauri IPC calls.
+
+**Backend Tests (Rust):**
+```bash
+cd src-tauri && cargo test
+```
+
+Unit tests are colocated in source files using `#[cfg(test)]` modules.
+
 ### Manual Testing Checklist
 
 Before submitting a PR, verify:
 
+- [ ] All automated tests pass (`npm test && cd src-tauri && cargo test`)
 - [ ] App launches without errors
 - [ ] Can create a new project
 - [ ] Terminal works and responds to input
