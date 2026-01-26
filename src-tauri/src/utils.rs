@@ -213,7 +213,12 @@ pub fn format_relative_time(timestamp_ms: u64) -> String {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    let diff_ms = now.saturating_sub(timestamp_ms);
+    format_relative_time_from_now(timestamp_ms, now)
+}
+
+/// Internal helper for formatting relative time (testable with controlled "now" value)
+fn format_relative_time_from_now(timestamp_ms: u64, now_ms: u64) -> String {
+    let diff_ms = now_ms.saturating_sub(timestamp_ms);
     let seconds = diff_ms / 1000;
     let minutes = seconds / 60;
     let hours = minutes / 60;
@@ -227,5 +232,91 @@ pub fn format_relative_time(timestamp_ms: u64) -> String {
         format!("{}m ago", minutes)
     } else {
         "just now".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod format_relative_time {
+        use super::*;
+
+        #[test]
+        fn test_just_now() {
+            let now = 100_000_000u64;
+            assert_eq!(format_relative_time_from_now(now, now), "just now");
+            assert_eq!(format_relative_time_from_now(now - 30_000, now), "just now"); // 30 seconds ago
+            assert_eq!(format_relative_time_from_now(now - 59_000, now), "just now"); // 59 seconds ago
+        }
+
+        #[test]
+        fn test_minutes_ago() {
+            let now = 100_000_000u64; // Large enough for 59 minutes
+            assert_eq!(format_relative_time_from_now(now - 60_000, now), "1m ago");    // 1 minute ago
+            assert_eq!(format_relative_time_from_now(now - 120_000, now), "2m ago");   // 2 minutes ago
+            assert_eq!(format_relative_time_from_now(now - 59 * 60_000, now), "59m ago"); // 59 minutes ago
+        }
+
+        #[test]
+        fn test_hours_ago() {
+            let now = 1000000000u64;
+            assert_eq!(format_relative_time_from_now(now - 60 * 60_000, now), "1h ago");    // 1 hour ago
+            assert_eq!(format_relative_time_from_now(now - 2 * 60 * 60_000, now), "2h ago"); // 2 hours ago
+            assert_eq!(format_relative_time_from_now(now - 23 * 60 * 60_000, now), "23h ago"); // 23 hours ago
+        }
+
+        #[test]
+        fn test_days_ago() {
+            let now = 1000000000u64;
+            assert_eq!(format_relative_time_from_now(now - 24 * 60 * 60_000, now), "1d ago");   // 1 day ago
+            assert_eq!(format_relative_time_from_now(now - 7 * 24 * 60 * 60_000, now), "7d ago"); // 7 days ago
+        }
+
+        #[test]
+        fn test_future_timestamp() {
+            let now = 1000000u64;
+            // Future timestamps should show "just now" (saturating subtraction)
+            assert_eq!(format_relative_time_from_now(now + 60_000, now), "just now");
+        }
+    }
+
+    mod get_extended_path {
+        use super::*;
+
+        #[test]
+        fn test_includes_homebrew_paths() {
+            let path = get_extended_path();
+            assert!(path.contains("/opt/homebrew/bin"));
+            assert!(path.contains("/usr/local/bin"));
+        }
+
+        #[test]
+        fn test_preserves_existing_path() {
+            // The extended path should include the current PATH
+            let current = std::env::var("PATH").unwrap_or_default();
+            if !current.is_empty() {
+                let extended = get_extended_path();
+                assert!(extended.contains(&current));
+            }
+        }
+    }
+
+    mod find_executable {
+        use super::*;
+
+        #[test]
+        fn test_finds_git() {
+            // Git should be available on most systems
+            let result = find_executable("git");
+            assert!(result.is_some());
+            assert!(result.unwrap().exists());
+        }
+
+        #[test]
+        fn test_nonexistent_command() {
+            let result = find_executable("this-command-definitely-does-not-exist-12345");
+            assert!(result.is_none());
+        }
     }
 }
