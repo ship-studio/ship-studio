@@ -15,6 +15,7 @@ pub mod types;
 pub mod utils;
 pub mod commands;
 pub mod logging;
+pub mod cache;
 
 use std::process::Command;
 use tracing;

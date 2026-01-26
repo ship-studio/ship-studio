@@ -359,7 +359,7 @@ pub struct SwitchResult {
 }
 
 /// A file with uncommitted changes
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ChangedFile {
     /// Relative file path from project root
     pub path: String,

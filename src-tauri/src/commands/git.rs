@@ -4,6 +4,7 @@
 
 use std::process::Command;
 use tracing::{debug, error, info, instrument, warn};
+use crate::cache::GIT_CACHE;
 use crate::types::{BranchInfo, BranchStatus, ChangedFile, PrerequisiteCheck, SwitchResult};
 use crate::utils::{find_executable, validate_project_path};
 
@@ -193,6 +194,11 @@ pub async fn init_git_repo(project_path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn check_git_has_changes(project_path: String) -> Result<bool, String> {
+    // Check cache first
+    if let Some(cached) = GIT_CACHE.get_has_changes(&project_path) {
+        return Ok(cached);
+    }
+
     let project = validate_project_path(&project_path)?;
     let git_dir = project.join(".git");
 
@@ -203,6 +209,7 @@ pub async fn check_git_has_changes(project_path: String) -> Result<bool, String>
 
     // Check for uncommitted changes (staged or unstaged tracked files only)
     if git_has_uncommitted_changes(&project)? {
+        GIT_CACHE.set_has_changes(&project_path, true);
         return Ok(true);
     }
 
@@ -212,7 +219,7 @@ pub async fn check_git_has_changes(project_path: String) -> Result<bool, String>
         .current_dir(&project)
         .output();
 
-    match unpushed {
+    let result = match unpushed {
         Ok(output) => {
             let has_unpushed = !String::from_utf8_lossy(&output.stdout).trim().is_empty();
             Ok(has_unpushed)
@@ -227,12 +234,24 @@ pub async fn check_git_has_changes(project_path: String) -> Result<bool, String>
 
             Ok(!String::from_utf8_lossy(&commits.stdout).trim().is_empty())
         }
+    };
+
+    // Cache the result
+    if let Ok(has_changes) = result {
+        GIT_CACHE.set_has_changes(&project_path, has_changes);
     }
+
+    result
 }
 
 /// Get list of files with uncommitted changes (staged and unstaged, tracked files only)
 #[tauri::command]
 pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>, String> {
+    // Check cache first
+    if let Some(cached) = GIT_CACHE.get_changed_files(&project_path) {
+        return Ok(cached);
+    }
+
     let project = validate_project_path(&project_path)?;
     let git_dir = project.join(".git");
 
@@ -283,6 +302,9 @@ pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
             status: status.to_string(),
         });
     }
+
+    // Cache the result
+    GIT_CACHE.set_changed_files(&project_path, files.clone());
 
     Ok(files)
 }
@@ -514,6 +536,11 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Stri
 /// Get the current branch name
 #[tauri::command]
 pub async fn get_current_branch(project_path: String) -> Result<String, String> {
+    // Check cache first
+    if let Some(cached) = GIT_CACHE.get_current_branch(&project_path) {
+        return Ok(cached);
+    }
+
     let validated_path = validate_project_path(&project_path)?;
 
     let output = Command::new("git")
@@ -530,6 +557,9 @@ pub async fn get_current_branch(project_path: String) -> Result<String, String> 
     if branch == "HEAD" {
         return Err("Detached HEAD state".to_string());
     }
+
+    // Cache the result
+    GIT_CACHE.set_current_branch(&project_path, branch.clone());
 
     Ok(branch)
 }
@@ -693,6 +723,9 @@ pub async fn switch_branch(project_path: String, branch_name: String, auto_stash
         }
     }
 
+    // Invalidate all caches after branch switch
+    GIT_CACHE.invalidate(&project_path);
+
     info!(
         stashed_changes = stashed,
         stash_applied,
@@ -733,6 +766,8 @@ pub async fn apply_stash(project_path: String) -> Result<bool, String> {
         let mut metadata = load_project_metadata(&validated_path);
         metadata.stash_info = None;
         let _ = save_project_metadata(&validated_path, &metadata);
+        // Invalidate status cache after applying stash
+        GIT_CACHE.invalidate_status(&project_path);
         Ok(true)
     } else {
         let stderr = String::from_utf8_lossy(&pop_output.stderr);
@@ -792,6 +827,9 @@ pub async fn discard_changes(project_path: String) -> Result<(), String> {
         let stderr = String::from_utf8_lossy(&clean_output.stderr);
         return Err(format!("Failed to clean untracked files: {}", stderr));
     }
+
+    // Invalidate status caches after discarding changes
+    GIT_CACHE.invalidate_status(&project_path);
 
     Ok(())
 }
@@ -861,6 +899,9 @@ pub async fn create_branch(project_path: String, branch_name: String, from_branc
         }
     }
 
+    // Invalidate branch cache after creating a new branch
+    GIT_CACHE.invalidate(&project_path);
+
     info!("Branch created successfully");
     Ok(())
 }
@@ -899,6 +940,9 @@ pub async fn git_pull(project_path: String) -> Result<(), String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Failed to pull: {}", stderr));
     }
+
+    // Invalidate status cache after pull
+    GIT_CACHE.invalidate_status(&project_path);
 
     Ok(())
 }
