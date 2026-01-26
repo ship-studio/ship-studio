@@ -1,3 +1,5 @@
+#!/bin/sh
+
 # Lint and format staged JS/TS/CSS files
 pnpm exec lint-staged
 
@@ -5,7 +7,6 @@ pnpm exec lint-staged
 STAGED_RS=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.rs$' || true)
 if [ -n "$STAGED_RS" ]; then
   echo "Formatting Rust files..."
-  cd src-tauri && cargo fmt
-  cd ..
-  git add $STAGED_RS
+  (cd src-tauri && cargo fmt) || exit 1
+  echo "$STAGED_RS" | xargs git add
 fi

@@ -170,8 +170,10 @@ ${currentConflict.contextBefore ? `**Context before:**\n\`\`\`\n${currentConflic
 ${currentConflict.contextAfter ? `**Context after:**\n\`\`\`\n${currentConflict.contextAfter}\n\`\`\`\n` : ''}
 Please help me understand what each version does and recommend which one to keep, or suggest a manual merge if both changes are needed.`;
 
-    void navigator.clipboard.writeText(prompt);
-    onToast?.('Copied to clipboard', 'success');
+    navigator.clipboard.writeText(prompt).then(
+      () => onToast?.('Copied to clipboard', 'success'),
+      () => onToast?.('Failed to copy to clipboard', 'error')
+    );
   }, [currentFile, currentConflict, onToast]);
 
   const truncateContent = (content: string): { text: string; truncated: number } => {

@@ -38,8 +38,17 @@ pub fn find_claude_binary() -> Option<std::path::PathBuf> {
                 // Find the latest version directory
                 let mut versions: Vec<_> =
                     entries.flatten().filter(|e| e.path().is_dir()).collect();
-                // Sort by version (descending) to get latest first
-                versions.sort_by_key(|b| std::cmp::Reverse(b.file_name()));
+                // Sort by semantic version (descending) to get latest first
+                // Parse version components numerically to avoid lexicographic issues (e.g., v2.9.0 vs v2.10.0)
+                versions.sort_by_key(|entry| {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let parts: Vec<u64> = name
+                        .trim_start_matches('v')
+                        .split('.')
+                        .map(|p| p.parse().unwrap_or(0))
+                        .collect();
+                    std::cmp::Reverse(parts)
+                });
 
                 for entry in versions {
                     let claude_path = entry.path().join("claude");

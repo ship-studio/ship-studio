@@ -316,8 +316,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     if (vercelAuthenticated) {
       setFormStep('select-vercel');
       setVercelSearchQuery('');
-      // Load projects for initial scope
-      void loadVercelProjects(selectedVercelScope);
+      // Projects will be loaded by the useEffect watching formStep === 'select-vercel'
     } else {
       // Skip Vercel step if not authenticated
       void handleImport();

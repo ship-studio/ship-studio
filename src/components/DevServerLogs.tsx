@@ -126,7 +126,8 @@ export function DevServerLogs({ output, outputVersion }: DevServerLogsProps) {
         terminalRef.current = null;
       }
     };
-  }, [isReady, output]); // Only recreate terminal when isReady changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- output is intentionally excluded; incremental writes handled by separate effect below
+  }, [isReady]); // Only recreate terminal when isReady changes
 
   // Write new output when it changes
   useEffect(() => {

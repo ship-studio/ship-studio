@@ -82,8 +82,10 @@ Please help me understand what went wrong and how to fix it.`,
   const errorInfo = getErrorInfo();
 
   const handleCopyPrompt = () => {
-    void navigator.clipboard.writeText(errorInfo.claudePrompt);
-    onToast?.('Prompt copied to clipboard', 'success');
+    navigator.clipboard.writeText(errorInfo.claudePrompt).then(
+      () => onToast?.('Prompt copied to clipboard', 'success'),
+      () => onToast?.('Failed to copy to clipboard', 'error')
+    );
   };
 
   const handleSendToClaude = () => {

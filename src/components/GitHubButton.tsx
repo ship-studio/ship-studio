@@ -67,6 +67,7 @@ export function GitHubButton({
   const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
   const authPollCancelledRef = useRef(false);
   const authPollRunningRef = useRef(false);
+  const createRepoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { cliStatus, username } = githubState;
 
@@ -81,6 +82,15 @@ export function GitHubButton({
       authPollRunningRef.current = false;
     };
   }, [cliStatus.authenticated]);
+
+  // Clear fallback timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (createRepoTimeoutRef.current) {
+        clearTimeout(createRepoTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Fetch orgs when modal opens
   useEffect(() => {
@@ -333,7 +343,7 @@ export function GitHubButton({
                       onToast?.('Repository created!', 'success');
 
                       // Fallback: clear isCreatingRepo after a delay if status doesn't update
-                      setTimeout(() => {
+                      createRepoTimeoutRef.current = setTimeout(() => {
                         setIsCreatingRepo(false);
                       }, 3000);
                     } catch (e) {
