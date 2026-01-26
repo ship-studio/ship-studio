@@ -55,7 +55,6 @@ import {
   BranchIcon,
   PullRequestIcon,
   EyeIcon,
-  EyeOffIcon,
   PanelRightIcon,
   PlusIcon,
   ImageIcon,
