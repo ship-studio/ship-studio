@@ -127,6 +127,7 @@
 .workspace-tabs {
   display: flex;
   gap: 6px;
+  margin-left: auto;
 }
 
 .workspace-tab {
@@ -169,16 +170,15 @@
 .preview-tabs-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 16px 0 8px;
+  padding: 0 12px 0 8px;
   min-height: 48px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  gap: 4px;
 }
 
 .preview-tabs-bar-simple {
-  justify-content: flex-start;
   padding: 0 12px;
 }
 
@@ -241,17 +241,66 @@
   border-color: var(--border);
 }
 
+/* Preview Tabs Divider */
+.preview-tabs-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+
+/* Preview Actions Container */
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Preview Action Buttons */
+.preview-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  outline: none;
+  white-space: nowrap;
+}
+
+.preview-action-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.preview-action-btn svg {
+  flex-shrink: 0;
+}
+
+/* Preview Hidden Actions (when preview is collapsed) */
+.preview-hidden-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* Show Preview Button (when preview is hidden) */
 .show-preview-btn {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  margin-left: 8px;
-  background: transparent;
-  border: 1px dashed var(--border);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -261,9 +310,7 @@
 
 .show-preview-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border-style: solid;
-  border-color: var(--border);
+  background: var(--bg-hover);
 }
 
 .show-preview-btn svg {

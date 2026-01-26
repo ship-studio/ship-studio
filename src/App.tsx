@@ -1134,27 +1134,27 @@ function App() {
                   >
                     {isCropCapturing ? <div className="capture-spinner" /> : <CropIcon size={14} />}
                   </button>
-                  {isPreviewHidden && (
-                    <>
-                      <button
-                        className="show-preview-btn"
-                        onClick={() => setIsPreviewHidden(false)}
-                        title="Show Preview"
-                      >
-                        <PanelRightIcon size={14} />
-                        <span>Show Preview</span>
-                      </button>
-                      <button
-                        className="show-preview-btn"
-                        onClick={() => void openUrl(`http://localhost:${devServerPort}`)}
-                        title="Open in Browser"
-                      >
-                        <ExternalLinkIcon size={14} />
-                        <span>Open in Browser</span>
-                      </button>
-                    </>
-                  )}
                 </div>
+                {isPreviewHidden && (
+                  <div className="preview-hidden-actions">
+                    <button
+                      className="show-preview-btn"
+                      onClick={() => void openUrl(`http://localhost:${devServerPort}`)}
+                      title="Open in Browser"
+                    >
+                      <ExternalLinkIcon size={14} />
+                      <span>Open in Browser</span>
+                    </button>
+                    <button
+                      className="show-preview-btn"
+                      onClick={() => setIsPreviewHidden(false)}
+                      title="Show Preview"
+                    >
+                      <PanelRightIcon size={14} />
+                      <span>Show Preview</span>
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="terminal-tabs-bar">
                 <div className="terminal-tabs">
@@ -1265,14 +1265,6 @@ function App() {
                       <span>Preview</span>
                     </button>
                     <button
-                      className="workspace-tab open-in-browser-btn"
-                      onClick={() => void openUrl(`http://localhost:${devServerPort}`)}
-                      title="Open in Browser"
-                    >
-                      <ExternalLinkIcon size={14} />
-                      <span>Open in Browser</span>
-                    </button>
-                    <button
                       className={`workspace-tab ${workspaceTab === 'branches' ? 'active' : ''}`}
                       onClick={() => setWorkspaceTab('branches')}
                     >
@@ -1287,32 +1279,48 @@ function App() {
                       <span>PRs</span>
                     </button>
                   </div>
-                  <button
-                    className="hide-preview-btn"
-                    onClick={() => setIsPreviewHidden(true)}
-                    title="Hide Preview"
-                  >
-                    <EyeOffIcon size={14} />
-                  </button>
+                  <div className="preview-tabs-divider" />
+                  <div className="preview-actions">
+                    <button
+                      className="preview-action-btn"
+                      onClick={() => void openUrl(`http://localhost:${devServerPort}`)}
+                      title="Open in Browser"
+                    >
+                      <ExternalLinkIcon size={14} />
+                      <span>Open in Browser</span>
+                    </button>
+                    <button
+                      className="preview-action-btn"
+                      onClick={() => setIsPreviewHidden(true)}
+                      title="Hide Preview"
+                    >
+                      <PanelRightIcon size={14} />
+                      <span>Hide Preview</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="preview-tabs-bar preview-tabs-bar-simple">
                   <span className="preview-label">Preview</span>
-                  <button
-                    className="open-in-browser-btn"
-                    onClick={() => void openUrl(`http://localhost:${devServerPort}`)}
-                    title="Open in Browser"
-                  >
-                    <ExternalLinkIcon size={14} />
-                    <span>Open in Browser</span>
-                  </button>
-                  <button
-                    className="hide-preview-btn"
-                    onClick={() => setIsPreviewHidden(true)}
-                    title="Hide Preview"
-                  >
-                    <EyeOffIcon size={14} />
-                  </button>
+                  <div className="preview-tabs-divider" />
+                  <div className="preview-actions">
+                    <button
+                      className="preview-action-btn"
+                      onClick={() => void openUrl(`http://localhost:${devServerPort}`)}
+                      title="Open in Browser"
+                    >
+                      <ExternalLinkIcon size={14} />
+                      <span>Open in Browser</span>
+                    </button>
+                    <button
+                      className="preview-action-btn"
+                      onClick={() => setIsPreviewHidden(true)}
+                      title="Hide Preview"
+                    >
+                      <PanelRightIcon size={14} />
+                      <span>Hide Preview</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
