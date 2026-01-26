@@ -123,7 +123,16 @@ export async function startDevServer(
 
   if (onOutput) {
     pty.onData((data) => {
-      onOutput(decoder.decode(data));
+      // tauri-pty passes data as Uint8Array or array-like object
+      let text: string;
+      if (typeof data === "string") {
+        text = data;
+      } else {
+        // Convert array-like object to Uint8Array for decoding
+        const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+        text = decoder.decode(bytes);
+      }
+      onOutput(text);
     });
   }
 
