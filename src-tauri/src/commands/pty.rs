@@ -2,14 +2,14 @@
 //!
 //! Commands for pseudo-terminal management and port operations.
 
+use crate::types::SpawnPtyOptions;
+use crate::utils::get_extended_path;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use tauri::Emitter;
-use crate::types::SpawnPtyOptions;
-use crate::utils::get_extended_path;
 
 /// Counter for generating unique PTY IDs
 static PTY_ID_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -59,39 +59,37 @@ pub async fn spawn_pty(app: tauri::AppHandle, options: SpawnPtyOptions) -> Resul
 
             // Read stdout in a thread
             let app_for_stdout = app_handle.clone();
-            let stdout_handle = if let Some(stdout) = stdout {
-                Some(std::thread::spawn(move || {
+            let stdout_handle = stdout.map(|stdout| {
+                std::thread::spawn(move || {
                     let reader = BufReader::new(stdout);
-                    for line in reader.lines() {
-                        if let Ok(line) = line {
-                            let _ = app_for_stdout.emit("pty-output", serde_json::json!({
+                    for line in reader.lines().map_while(Result::ok) {
+                        let _ = app_for_stdout.emit(
+                            "pty-output",
+                            serde_json::json!({
                                 "id": id,
                                 "data": format!("{}\r\n", line)
-                            }));
-                        }
+                            }),
+                        );
                     }
-                }))
-            } else {
-                None
-            };
+                })
+            });
 
             // Read stderr in a thread
             let app_for_stderr = app_handle.clone();
-            let stderr_handle = if let Some(stderr) = stderr {
-                Some(std::thread::spawn(move || {
+            let stderr_handle = stderr.map(|stderr| {
+                std::thread::spawn(move || {
                     let reader = BufReader::new(stderr);
-                    for line in reader.lines() {
-                        if let Ok(line) = line {
-                            let _ = app_for_stderr.emit("pty-output", serde_json::json!({
+                    for line in reader.lines().map_while(Result::ok) {
+                        let _ = app_for_stderr.emit(
+                            "pty-output",
+                            serde_json::json!({
                                 "id": id,
                                 "data": format!("{}\r\n", line)
-                            }));
-                        }
+                            }),
+                        );
                     }
-                }))
-            } else {
-                None
-            };
+                })
+            });
 
             // Wait for output threads
             if let Some(h) = stdout_handle {
@@ -113,10 +111,13 @@ pub async fn spawn_pty(app: tauri::AppHandle, options: SpawnPtyOptions) -> Resul
 
         // Emit exit event
         let exit_code = result.unwrap_or(-1);
-        let _ = app_handle.emit("pty-exit", serde_json::json!({
-            "id": id,
-            "code": exit_code
-        }));
+        let _ = app_handle.emit(
+            "pty-exit",
+            serde_json::json!({
+                "id": id,
+                "code": exit_code
+            }),
+        );
     });
 
     Ok(id)
@@ -171,9 +172,7 @@ pub async fn kill_pty(id: u32) -> Result<bool, String> {
 
             // Force kill if still running after grace period
             if is_process_running(pid) {
-                let _ = Command::new("kill")
-                    .args(["-9", &pid.to_string()])
-                    .output();
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
             }
         }
 
@@ -210,9 +209,7 @@ pub async fn kill_all_pty() -> Result<u32, String> {
     for (_id, pid) in pids {
         #[cfg(unix)]
         {
-            let _ = Command::new("kill")
-                .args(["-9", &pid.to_string()])
-                .output();
+            let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
         }
 
         #[cfg(windows)]
@@ -241,26 +238,32 @@ pub async fn cleanup_orphaned_processes() -> Result<(), String> {
     {
         // Kill orphaned claude processes (parent is init/launchd - PID 1)
         let _ = Command::new("sh")
-            .args(["-c", r#"
+            .args([
+                "-c",
+                r#"
                 for pid in $(pgrep -x claude 2>/dev/null); do
                     ppid=$(ps -o ppid= -p $pid 2>/dev/null | tr -d ' ')
                     if [ "$ppid" = "1" ]; then
                         kill $pid 2>/dev/null
                     fi
                 done
-            "#])
+            "#,
+            ])
             .output();
 
         // Also kill orphaned node processes running next-server (from dev server)
         let _ = Command::new("sh")
-            .args(["-c", r#"
+            .args([
+                "-c",
+                r#"
                 for pid in $(pgrep -f 'next-server' 2>/dev/null); do
                     ppid=$(ps -o ppid= -p $pid 2>/dev/null | tr -d ' ')
                     if [ "$ppid" = "1" ]; then
                         kill $pid 2>/dev/null
                     fi
                 done
-            "#])
+            "#,
+            ])
             .output();
     }
 

@@ -12,16 +12,16 @@
  * @module components/ImportProject
  */
 
-import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import {
   getGitHubUsername,
   getGitHubOrgs,
   listGitHubRepos,
   detectPackageManager,
   GitHubRepo,
-} from "../lib/github";
+} from '../lib/github';
 import {
   checkVercelCliStatus,
   getVercelUsername,
@@ -30,7 +30,7 @@ import {
   writeVercelProjectJson,
   VercelTeam,
   VercelProject,
-} from "../lib/vercel";
+} from '../lib/vercel';
 
 /** Props for the ImportProject component */
 interface ImportProjectProps {
@@ -41,37 +41,37 @@ interface ImportProjectProps {
 }
 
 /** Form wizard steps before import starts */
-type FormStep = "select-account" | "select-repo" | "select-vercel";
+type FormStep = 'select-account' | 'select-repo' | 'select-vercel';
 /** Import progress steps */
-type Step = "clone" | "install" | "setup" | "done";
+type Step = 'clone' | 'install' | 'setup' | 'done';
 
 /** Step definitions with display labels */
 const STEPS: { id: Step; label: string }[] = [
-  { id: "clone", label: "Clone repository" },
-  { id: "install", label: "Install dependencies" },
-  { id: "setup", label: "Setup project" },
-  { id: "done", label: "Done" },
+  { id: 'clone', label: 'Clone repository' },
+  { id: 'install', label: 'Install dependencies' },
+  { id: 'setup', label: 'Setup project' },
+  { id: 'done', label: 'Done' },
 ];
 
 /** User-facing status messages for each import step */
 const STATUS_MESSAGES: Record<Step, string> = {
-  clone: "Cloning repository...",
-  install: "Installing dependencies... This may take a minute.",
-  setup: "Setting up project...",
-  done: "Almost done...",
+  clone: 'Cloning repository...',
+  install: 'Installing dependencies... This may take a minute.',
+  setup: 'Setting up project...',
+  done: 'Almost done...',
 };
 
 export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
-  const [formStep, setFormStep] = useState<FormStep>("select-account");
+  const [formStep, setFormStep] = useState<FormStep>('select-account');
   const [username, setUsername] = useState<string | null>(null);
   const [orgs, setOrgs] = useState<string[]>([]);
   const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState('');
   const [isImporting, setIsImporting] = useState(false);
-  const [currentStep, setCurrentStep] = useState<Step>("clone");
+  const [currentStep, setCurrentStep] = useState<Step>('clone');
   const [error, setError] = useState<string | null>(null);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
 
@@ -79,24 +79,21 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
   const [vercelAuthenticated, setVercelAuthenticated] = useState(false);
   const [vercelUsername, setVercelUsername] = useState<string | null>(null);
   const [vercelTeams, setVercelTeams] = useState<VercelTeam[]>([]);
-  const [selectedVercelScope, setSelectedVercelScope] = useState<string>("");
+  const [selectedVercelScope, setSelectedVercelScope] = useState<string>('');
   const [vercelProjects, setVercelProjects] = useState<VercelProject[]>([]);
   const [loadingVercelProjects, setLoadingVercelProjects] = useState(false);
   const [selectedVercelProject, setSelectedVercelProject] = useState<VercelProject | null>(null);
-  const [vercelSearchQuery, setVercelSearchQuery] = useState("");
+  const [vercelSearchQuery, setVercelSearchQuery] = useState('');
 
   // Load user and orgs on mount
   useEffect(() => {
-    loadAccounts();
+    void loadAccounts();
   }, []);
 
   const loadAccounts = async () => {
     setLoadingAccounts(true);
     try {
-      const [user, orgList] = await Promise.all([
-        getGitHubUsername(),
-        getGitHubOrgs(),
-      ]);
+      const [user, orgList] = await Promise.all([getGitHubUsername(), getGitHubOrgs()]);
       setUsername(user);
       setOrgs(orgList);
       // Auto-select personal account
@@ -113,8 +110,8 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
         setVercelUsername(vcUsername);
         setVercelTeams(vcTeams);
       }
-    } catch (e) {
-      setError("Failed to load GitHub accounts. Please check your authentication.");
+    } catch {
+      setError('Failed to load GitHub accounts. Please check your authentication.');
     } finally {
       setLoadingAccounts(false);
     }
@@ -123,14 +120,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
   // Load repos when owner changes
   useEffect(() => {
     if (selectedOwner) {
-      loadRepos(selectedOwner);
+      void loadRepos(selectedOwner);
     }
   }, [selectedOwner]);
 
   // Load Vercel projects when scope changes
   useEffect(() => {
-    if (formStep === "select-vercel" && vercelAuthenticated) {
-      loadVercelProjects(selectedVercelScope);
+    if (formStep === 'select-vercel' && vercelAuthenticated) {
+      void loadVercelProjects(selectedVercelScope);
     }
   }, [selectedVercelScope, formStep, vercelAuthenticated]);
 
@@ -142,12 +139,10 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     try {
       const repoList = await listGitHubRepos(owner);
       // Sort by updated date (most recent first)
-      repoList.sort((a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-      );
+      repoList.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       setRepos(repoList);
     } catch (e) {
-      setError(`Failed to load repositories: ${e}`);
+      setError(`Failed to load repositories: ${String(e)}`);
     } finally {
       setLoadingRepos(false);
     }
@@ -161,7 +156,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       const projects = await listVercelProjects(scope);
       setVercelProjects(projects);
     } catch (e) {
-      console.error("Failed to load Vercel projects:", e);
+      console.error('Failed to load Vercel projects:', e);
     } finally {
       setLoadingVercelProjects(false);
     }
@@ -171,7 +166,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     return new Promise((resolve, reject) => {
       let unlisten: UnlistenFn | null = null;
 
-      listen<{ id: number; code: number | null }>("pty-exit", (event) => {
+      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
         if (event.payload.id === targetId) {
           unlisten?.();
           if (event.payload.code === 0 || event.payload.code === null) {
@@ -188,25 +183,27 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
   const handleImport = async () => {
     if (!selectedRepo) {
-      setError("Please select a repository");
+      setError('Please select a repository');
       return;
     }
 
     const safeName = selectedRepo.name
       .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
 
     if (!safeName) {
-      setError("Invalid repository name");
+      setError('Invalid repository name');
       return;
     }
 
     // Check for duplicate project names
     try {
-      const existingProjects = await invoke<{ name: string; path: string }[]>("list_projects");
-      const duplicate = existingProjects.find(p => p.name.toLowerCase() === safeName.toLowerCase());
+      const existingProjects = await invoke<{ name: string; path: string }[]>('list_projects');
+      const duplicate = existingProjects.find(
+        (p) => p.name.toLowerCase() === safeName.toLowerCase()
+      );
       if (duplicate) {
         setError(`A project named "${safeName}" already exists`);
         return;
@@ -217,20 +214,20 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
     setIsImporting(true);
     setError(null);
-    setCurrentStep("clone");
+    setCurrentStep('clone');
 
     try {
       // Ensure ShipStudio directory exists
-      const shipstudioDir = await invoke<string>("ensure_shipstudio_dir");
+      const shipstudioDir = await invoke<string>('ensure_shipstudio_dir');
       const projectPath = `${shipstudioDir}/${safeName}`;
 
       // Clone repository using gh CLI (uses GitHub CLI authentication)
       const repoFullName = `${selectedOwner}/${selectedRepo.name}`;
-      const cloneId = await invoke<number>("spawn_pty", {
+      const cloneId = await invoke<number>('spawn_pty', {
         options: {
           cwd: shipstudioDir,
-          command: "gh",
-          args: ["repo", "clone", repoFullName, safeName],
+          command: 'gh',
+          args: ['repo', 'clone', repoFullName, safeName],
           rows: 10,
           cols: 80,
         },
@@ -239,14 +236,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       await waitForPtyExit(cloneId);
 
       // Detect package manager and install dependencies
-      setCurrentStep("install");
+      setCurrentStep('install');
       const packageManager = await detectPackageManager(projectPath);
 
-      const installId = await invoke<number>("spawn_pty", {
+      const installId = await invoke<number>('spawn_pty', {
         options: {
           cwd: projectPath,
           command: packageManager,
-          args: ["install"],
+          args: ['install'],
           rows: 10,
           cols: 80,
         },
@@ -255,10 +252,10 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       await waitForPtyExit(installId);
 
       // Setup project
-      setCurrentStep("setup");
+      setCurrentStep('setup');
 
       // Ensure .shipstudio is gitignored
-      await invoke("ensure_gitignore_has_shipstudio", { projectPath });
+      await invoke('ensure_gitignore_has_shipstudio', { projectPath });
 
       // Write .vercel/project.json if a Vercel project was selected
       if (selectedVercelProject) {
@@ -269,7 +266,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
         );
       }
 
-      setCurrentStep("done");
+      setCurrentStep('done');
 
       // Small delay before opening
       await new Promise((r) => setTimeout(r, 800));
@@ -279,14 +276,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     }
   };
 
-  const getStepStatus = (stepId: Step): "pending" | "active" | "done" => {
+  const getStepStatus = (stepId: Step): 'pending' | 'active' | 'done' => {
     const stepOrder = STEPS.map((s) => s.id);
     const currentIndex = stepOrder.indexOf(currentStep);
     const stepIndex = stepOrder.indexOf(stepId);
 
-    if (stepIndex < currentIndex) return "done";
-    if (stepIndex === currentIndex) return "active";
-    return "pending";
+    if (stepIndex < currentIndex) return 'done';
+    if (stepIndex === currentIndex) return 'active';
+    return 'pending';
   };
 
   // Filter repos based on search
@@ -306,9 +303,9 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
   const handleOwnerSelect = (owner: string) => {
     setSelectedOwner(owner);
-    setFormStep("select-repo");
+    setFormStep('select-repo');
     setSelectedRepo(null);
-    setSearchQuery("");
+    setSearchQuery('');
   };
 
   const handleRepoSelect = (repo: GitHubRepo) => {
@@ -317,25 +314,25 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
   const handleContinueToVercel = () => {
     if (vercelAuthenticated) {
-      setFormStep("select-vercel");
-      setVercelSearchQuery("");
+      setFormStep('select-vercel');
+      setVercelSearchQuery('');
       // Load projects for initial scope
-      loadVercelProjects(selectedVercelScope);
+      void loadVercelProjects(selectedVercelScope);
     } else {
       // Skip Vercel step if not authenticated
-      handleImport();
+      void handleImport();
     }
   };
 
   const handleBack = () => {
-    if (formStep === "select-repo") {
-      setFormStep("select-account");
+    if (formStep === 'select-repo') {
+      setFormStep('select-account');
       setSelectedRepo(null);
-      setSearchQuery("");
-    } else if (formStep === "select-vercel") {
-      setFormStep("select-repo");
+      setSearchQuery('');
+    } else if (formStep === 'select-vercel') {
+      setFormStep('select-repo');
       setSelectedVercelProject(null);
-      setVercelSearchQuery("");
+      setVercelSearchQuery('');
     }
   };
 
@@ -355,14 +352,28 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
               const status = getStepStatus(step.id);
               return (
                 <div key={step.id} className={`checklist-item ${status}`}>
-                  {status === "done" ? (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  {status === 'done' ? (
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                    >
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
-                  ) : status === "active" ? (
+                  ) : status === 'active' ? (
                     <div className="checklist-spinner" />
                   ) : (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <circle cx="12" cy="12" r="10" />
                     </svg>
                   )}
@@ -393,7 +404,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     }
 
     // Account selection step
-    if (formStep === "select-account") {
+    if (formStep === 'select-account') {
       return (
         <div className="create-modal-content">
           <div className="create-modal-header">
@@ -402,7 +413,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
               <p>Select a GitHub account</p>
             </div>
             <button className="create-modal-close" onClick={onCancel} type="button">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -412,12 +430,10 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
           <div className="import-owner-list">
             {username && (
               <button
-                className={`import-owner-btn ${selectedOwner === username ? "selected" : ""}`}
+                className={`import-owner-btn ${selectedOwner === username ? 'selected' : ''}`}
                 onClick={() => handleOwnerSelect(username)}
               >
-                <div className="import-owner-avatar">
-                  {username[0].toUpperCase()}
-                </div>
+                <div className="import-owner-avatar">{username[0].toUpperCase()}</div>
                 <div className="import-owner-info">
                   <span className="import-owner-name">{username}</span>
                   <span className="import-owner-type">Personal</span>
@@ -427,12 +443,10 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
             {orgs.map((org) => (
               <button
                 key={org}
-                className={`import-owner-btn ${selectedOwner === org ? "selected" : ""}`}
+                className={`import-owner-btn ${selectedOwner === org ? 'selected' : ''}`}
                 onClick={() => handleOwnerSelect(org)}
               >
-                <div className="import-owner-avatar org">
-                  {org[0].toUpperCase()}
-                </div>
+                <div className="import-owner-avatar org">{org[0].toUpperCase()}</div>
                 <div className="import-owner-info">
                   <span className="import-owner-name">{org}</span>
                   <span className="import-owner-type">Organization</span>
@@ -453,7 +467,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     }
 
     // Repository selection step
-    if (formStep === "select-repo") {
+    if (formStep === 'select-repo') {
       return (
         <div className="create-modal-content import-repo-step">
           <div className="create-modal-header">
@@ -464,7 +478,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
               </p>
             </div>
             <button className="create-modal-close" onClick={onCancel} type="button">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -507,18 +528,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
               filteredRepos.map((repo) => (
                 <button
                   key={repo.name}
-                  className={`import-repo-item ${selectedRepo?.name === repo.name ? "selected" : ""}`}
+                  className={`import-repo-item ${selectedRepo?.name === repo.name ? 'selected' : ''}`}
                   onClick={() => handleRepoSelect(repo)}
                 >
                   <div className="import-repo-header">
                     <span className="import-repo-name">{repo.name}</span>
-                    {repo.isPrivate && (
-                      <span className="import-repo-badge private">Private</span>
-                    )}
+                    {repo.isPrivate && <span className="import-repo-badge private">Private</span>}
                     {repo.primaryLanguage && (
-                      <span className="import-repo-badge lang">
-                        {repo.primaryLanguage.name}
-                      </span>
+                      <span className="import-repo-badge lang">{repo.primaryLanguage.name}</span>
                     )}
                   </div>
                   {repo.description && (
@@ -541,7 +558,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
               disabled={!selectedRepo}
               onClick={handleContinueToVercel}
             >
-              {vercelAuthenticated ? "Continue" : "Import Project"}
+              {vercelAuthenticated ? 'Continue' : 'Import Project'}
             </button>
           </div>
         </div>
@@ -559,7 +576,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
             </p>
           </div>
           <button className="create-modal-close" onClick={onCancel} type="button">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -571,15 +595,15 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
           <label>Vercel Account</label>
           <div className="import-scope-buttons">
             <button
-              className={`import-scope-btn ${selectedVercelScope === "" ? "selected" : ""}`}
-              onClick={() => setSelectedVercelScope("")}
+              className={`import-scope-btn ${selectedVercelScope === '' ? 'selected' : ''}`}
+              onClick={() => setSelectedVercelScope('')}
             >
-              {vercelUsername || "Personal"}
+              {vercelUsername || 'Personal'}
             </button>
             {vercelTeams.map((team) => (
               <button
                 key={team.id}
-                className={`import-scope-btn ${selectedVercelScope === team.id ? "selected" : ""}`}
+                className={`import-scope-btn ${selectedVercelScope === team.id ? 'selected' : ''}`}
                 onClick={() => setSelectedVercelScope(team.id)}
               >
                 {team.name}
@@ -619,7 +643,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
             filteredVercelProjects.map((project) => (
               <button
                 key={project.id}
-                className={`import-repo-item ${selectedVercelProject?.id === project.id ? "selected" : ""}`}
+                className={`import-repo-item ${selectedVercelProject?.id === project.id ? 'selected' : ''}`}
                 onClick={() => setSelectedVercelProject(project)}
               >
                 <div className="import-repo-header">
@@ -641,7 +665,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
             className="btn-secondary"
             onClick={() => {
               setSelectedVercelProject(null);
-              handleImport();
+              void handleImport();
             }}
           >
             Skip
@@ -650,7 +674,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
             type="button"
             className="btn-primary"
             disabled={!selectedVercelProject}
-            onClick={handleImport}
+            onClick={() => void handleImport()}
           >
             Import Project
           </button>
@@ -660,14 +684,15 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
   };
 
   return (
-    <div className="create-modal-overlay" onClick={(e) => {
-      if (e.target === e.currentTarget && !isImporting) {
-        onCancel();
-      }
-    }}>
-      <div className="create-modal import-modal">
-        {renderContent()}
-      </div>
+    <div
+      className="create-modal-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isImporting) {
+          onCancel();
+        }
+      }}
+    >
+      <div className="create-modal import-modal">{renderContent()}</div>
     </div>
   );
 }

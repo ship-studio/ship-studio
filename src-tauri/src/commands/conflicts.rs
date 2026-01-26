@@ -2,9 +2,9 @@
 //!
 //! Commands for detecting and resolving merge conflicts.
 
-use std::process::Command;
 use crate::types::{ConflictBlock, ConflictedFile};
 use crate::utils::validate_project_path;
+use std::process::Command;
 
 /// Parse git merge conflict markers from file content.
 pub fn parse_conflicts(content: &str, all_lines: &[&str]) -> (Vec<ConflictBlock>, String, String) {
@@ -61,7 +61,11 @@ pub fn parse_conflicts(content: &str, all_lines: &[&str]) -> (Vec<ConflictBlock>
             let line_end = i as u32 + 1;
 
             // Get context (3 lines before and after)
-            let context_start = if line_start > 4 { line_start as usize - 4 } else { 0 };
+            let context_start = if line_start > 4 {
+                line_start as usize - 4
+            } else {
+                0
+            };
             let context_end = std::cmp::min(line_end as usize + 3, all_lines.len());
 
             let context_before: String = if context_start < (line_start as usize - 1) {
@@ -177,14 +181,14 @@ pub async fn resolve_conflict(
     project_path: String,
     file_path: String,
     conflict_index: u32,
-    resolution: String,  // "current" or "incoming"
+    resolution: String, // "current" or "incoming"
 ) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
     let full_path = validated_path.join(&file_path);
 
     // Read the current file content
-    let content = std::fs::read_to_string(&full_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let content =
+        std::fs::read_to_string(&full_path).map_err(|e| format!("Failed to read file: {}", e))?;
 
     let lines: Vec<&str> = content.lines().collect();
     let mut result = Vec::new();

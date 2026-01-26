@@ -11,7 +11,20 @@
     "tauri": "tauri",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --report-unused-disable-directives",
+    "lint:strict": "eslint src --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
+    "typecheck": "tsc --noEmit",
+    "rust:fmt": "cd src-tauri && cargo fmt",
+    "rust:fmt:check": "cd src-tauri && cargo fmt -- --check",
+    "rust:clippy": "cd src-tauri && cargo clippy -- -A clippy::uninlined_format_args",
+    "rust:clippy:strict": "cd src-tauri && cargo clippy -- -D warnings",
+    "rust:test": "cd src-tauri && cargo test",
+    "check:all": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm rust:fmt:check && pnpm rust:clippy",
+    "prepare": "husky"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -28,6 +41,7 @@
     "tauri-pty": "^0.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
@@ -36,8 +50,16 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "@vitest/coverage-v8": "^3.0.5",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "husky": "^9.1.7",
     "jsdom": "^26.0.0",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1",
     "typescript": "~5.8.3",
+    "typescript-eslint": "^8.54.0",
     "vite": "^7.0.4",
     "vitest": "^3.0.5"
   }

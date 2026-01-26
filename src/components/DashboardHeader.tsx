@@ -9,8 +9,8 @@
  * @module components/DashboardHeader
  */
 
-import { useEffect, useRef } from "react";
-import { SearchIcon, SettingsIcon } from "./icons";
+import { useEffect, useRef } from 'react';
+import { SearchIcon, SettingsIcon } from './icons';
 
 interface DashboardHeaderProps {
   searchQuery: string;
@@ -32,14 +32,14 @@ export function DashboardHeader({
   // Cmd+K keyboard shortcut to focus search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   return (
@@ -70,11 +70,7 @@ export function DashboardHeader({
           + New Project
         </button>
         {onOpenSettings && (
-          <button
-            className="dashboard-settings-btn"
-            onClick={onOpenSettings}
-            title="Settings"
-          >
+          <button className="dashboard-settings-btn" onClick={onOpenSettings} title="Settings">
             <SettingsIcon />
           </button>
         )}

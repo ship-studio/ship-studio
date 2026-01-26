@@ -10,7 +10,7 @@
  * @module lib/claude
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 
 /** Claude CLI installation status */
 export interface ClaudeCliStatus {
@@ -25,7 +25,7 @@ export interface ClaudeCliStatus {
  * @returns CLI status with installed flag and version
  */
 export async function checkClaudeCliStatus(): Promise<ClaudeCliStatus> {
-  return invoke<ClaudeCliStatus>("check_claude_cli_status");
+  return invoke<ClaudeCliStatus>('check_claude_cli_status');
 }
 
 /**
@@ -33,5 +33,5 @@ export async function checkClaudeCliStatus(): Promise<ClaudeCliStatus> {
  * Runs: npm install -g @anthropic-ai/claude-code
  */
 export async function installClaudeCli(): Promise<void> {
-  return invoke("install_claude_cli");
+  return invoke('install_claude_cli');
 }

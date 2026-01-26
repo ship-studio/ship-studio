@@ -4,7 +4,7 @@
  * Shows a brief success message with a button to continue to projects.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
 interface CelebrationScreenProps {
   /** Called when user clicks to continue */
@@ -27,7 +27,7 @@ export function CelebrationScreen({ onContinue }: CelebrationScreenProps) {
   }, [onContinue]);
 
   return (
-    <div className={`celebration-screen ${showContent ? "visible" : ""}`}>
+    <div className={`celebration-screen ${showContent ? 'visible' : ''}`}>
       <div className="celebration-content">
         <div className="celebration-icon">
           <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
@@ -42,9 +42,7 @@ export function CelebrationScreen({ onContinue }: CelebrationScreenProps) {
           </svg>
         </div>
         <h1 className="celebration-title">You're all set!</h1>
-        <p className="celebration-subtitle">
-          Everything is installed and connected
-        </p>
+        <p className="celebration-subtitle">Everything is installed and connected</p>
         <button className="btn-primary celebration-btn" onClick={onContinue}>
           Get Started
         </button>

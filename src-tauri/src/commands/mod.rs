@@ -2,31 +2,31 @@
 //!
 //! This module re-exports all Tauri command handlers organized by category.
 
-pub mod env;
+pub mod assets;
 pub mod claude;
-pub mod pty;
-pub mod ide;
-pub mod github;
-pub mod vercel;
+pub mod conflicts;
+pub mod env;
 pub mod git;
+pub mod github;
+pub mod ide;
+pub mod projects;
+pub mod pty;
 pub mod publishing;
 pub mod pull_requests;
-pub mod conflicts;
-pub mod projects;
 pub mod setup;
-pub mod assets;
+pub mod vercel;
 
 // Re-export all commands for easy access in lib.rs
-pub use env::*;
+pub use assets::*;
 pub use claude::*;
-pub use pty::*;
-pub use ide::*;
-pub use github::*;
-pub use vercel::*;
+pub use conflicts::*;
+pub use env::*;
 pub use git::*;
+pub use github::*;
+pub use ide::*;
+pub use projects::*;
+pub use pty::*;
 pub use publishing::*;
 pub use pull_requests::*;
-pub use conflicts::*;
-pub use projects::*;
 pub use setup::*;
-pub use assets::*;
+pub use vercel::*;

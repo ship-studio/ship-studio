@@ -11,9 +11,9 @@ pub fn get_extended_path() -> String {
     let current_path = std::env::var("PATH").unwrap_or_default();
 
     let mut paths: Vec<String> = vec![
-        "/opt/homebrew/bin".to_string(),      // Homebrew (Apple Silicon)
+        "/opt/homebrew/bin".to_string(), // Homebrew (Apple Silicon)
         "/opt/homebrew/sbin".to_string(),
-        "/usr/local/bin".to_string(),         // Homebrew (Intel) / manual installs
+        "/usr/local/bin".to_string(), // Homebrew (Intel) / manual installs
         "/usr/local/sbin".to_string(),
     ];
 
@@ -46,7 +46,11 @@ pub fn get_extended_path() -> String {
                 } else {
                     // Direct version reference
                     let path = nvm_versions.join(&version);
-                    if path.exists() { Some(path) } else { None }
+                    if path.exists() {
+                        Some(path)
+                    } else {
+                        None
+                    }
                 };
 
                 if let Some(path) = version_path {
@@ -109,9 +113,9 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
 
     // Check common installation paths for macOS
     let common_paths = vec![
-        std::path::PathBuf::from("/opt/homebrew/bin").join(cmd),  // Homebrew (Apple Silicon)
-        std::path::PathBuf::from("/usr/local/bin").join(cmd),     // Homebrew (Intel) / manual
-        std::path::PathBuf::from("/usr/bin").join(cmd),           // System
+        std::path::PathBuf::from("/opt/homebrew/bin").join(cmd), // Homebrew (Apple Silicon)
+        std::path::PathBuf::from("/usr/local/bin").join(cmd),    // Homebrew (Intel) / manual
+        std::path::PathBuf::from("/usr/bin").join(cmd),          // System
     ];
 
     for path in common_paths {
@@ -124,7 +128,7 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
     if let Some(home) = dirs::home_dir() {
         let npm_paths = vec![
             home.join(".npm-global/bin").join(cmd),
-            home.join("n/bin").join(cmd),  // n version manager
+            home.join("n/bin").join(cmd), // n version manager
         ];
 
         for path in npm_paths {
@@ -154,7 +158,9 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
 /// Prevents path traversal attacks where frontend could pass arbitrary paths.
 pub fn validate_project_path(project_path: &str) -> Result<std::path::PathBuf, String> {
     let path = std::path::Path::new(project_path);
-    let canonical = path.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
 
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
@@ -247,30 +253,49 @@ mod tests {
             let now = 100_000_000u64;
             assert_eq!(format_relative_time_from_now(now, now), "just now");
             assert_eq!(format_relative_time_from_now(now - 30_000, now), "just now"); // 30 seconds ago
-            assert_eq!(format_relative_time_from_now(now - 59_000, now), "just now"); // 59 seconds ago
+            assert_eq!(format_relative_time_from_now(now - 59_000, now), "just now");
+            // 59 seconds ago
         }
 
         #[test]
         fn test_minutes_ago() {
             let now = 100_000_000u64; // Large enough for 59 minutes
-            assert_eq!(format_relative_time_from_now(now - 60_000, now), "1m ago");    // 1 minute ago
-            assert_eq!(format_relative_time_from_now(now - 120_000, now), "2m ago");   // 2 minutes ago
-            assert_eq!(format_relative_time_from_now(now - 59 * 60_000, now), "59m ago"); // 59 minutes ago
+            assert_eq!(format_relative_time_from_now(now - 60_000, now), "1m ago"); // 1 minute ago
+            assert_eq!(format_relative_time_from_now(now - 120_000, now), "2m ago"); // 2 minutes ago
+            assert_eq!(
+                format_relative_time_from_now(now - 59 * 60_000, now),
+                "59m ago"
+            ); // 59 minutes ago
         }
 
         #[test]
         fn test_hours_ago() {
             let now = 1000000000u64;
-            assert_eq!(format_relative_time_from_now(now - 60 * 60_000, now), "1h ago");    // 1 hour ago
-            assert_eq!(format_relative_time_from_now(now - 2 * 60 * 60_000, now), "2h ago"); // 2 hours ago
-            assert_eq!(format_relative_time_from_now(now - 23 * 60 * 60_000, now), "23h ago"); // 23 hours ago
+            assert_eq!(
+                format_relative_time_from_now(now - 60 * 60_000, now),
+                "1h ago"
+            ); // 1 hour ago
+            assert_eq!(
+                format_relative_time_from_now(now - 2 * 60 * 60_000, now),
+                "2h ago"
+            ); // 2 hours ago
+            assert_eq!(
+                format_relative_time_from_now(now - 23 * 60 * 60_000, now),
+                "23h ago"
+            ); // 23 hours ago
         }
 
         #[test]
         fn test_days_ago() {
             let now = 1000000000u64;
-            assert_eq!(format_relative_time_from_now(now - 24 * 60 * 60_000, now), "1d ago");   // 1 day ago
-            assert_eq!(format_relative_time_from_now(now - 7 * 24 * 60 * 60_000, now), "7d ago"); // 7 days ago
+            assert_eq!(
+                format_relative_time_from_now(now - 24 * 60 * 60_000, now),
+                "1d ago"
+            ); // 1 day ago
+            assert_eq!(
+                format_relative_time_from_now(now - 7 * 24 * 60 * 60_000, now),
+                "7d ago"
+            ); // 7 days ago
         }
 
         #[test]

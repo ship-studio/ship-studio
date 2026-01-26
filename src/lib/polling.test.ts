@@ -2,10 +2,10 @@
  * Tests for the polling utilities
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ExponentialPoller, retryWithBackoff } from "./polling";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ExponentialPoller, retryWithBackoff } from './polling';
 
-describe("ExponentialPoller", () => {
+describe('ExponentialPoller', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -14,8 +14,8 @@ describe("ExponentialPoller", () => {
     vi.useRealTimers();
   });
 
-  it("should call fetcher immediately when started", async () => {
-    const fetcher = vi.fn().mockResolvedValue("data");
+  it('should call fetcher immediately when started', async () => {
+    const fetcher = vi.fn().mockResolvedValue('data');
     const onResult = vi.fn();
 
     const poller = new ExponentialPoller(fetcher, onResult, {
@@ -31,7 +31,7 @@ describe("ExponentialPoller", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(onResult).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: "data",
+        data: 'data',
         error: null,
         attempt: 1,
       })
@@ -40,8 +40,8 @@ describe("ExponentialPoller", () => {
     poller.stop();
   });
 
-  it("should apply exponential backoff on errors", async () => {
-    const fetcher = vi.fn().mockRejectedValue(new Error("Failed"));
+  it('should apply exponential backoff on errors', async () => {
+    const fetcher = vi.fn().mockRejectedValue(new Error('Failed'));
     const onResult = vi.fn();
 
     const poller = new ExponentialPoller(fetcher, onResult, {
@@ -57,6 +57,7 @@ describe("ExponentialPoller", () => {
     expect(onResult).toHaveBeenLastCalledWith(
       expect.objectContaining({
         data: null,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         error: expect.any(Error),
         attempt: 1,
         nextInterval: 2000, // 1000 * 2
@@ -84,8 +85,8 @@ describe("ExponentialPoller", () => {
     poller.stop();
   });
 
-  it("should respect maxInterval", async () => {
-    const fetcher = vi.fn().mockRejectedValue(new Error("Failed"));
+  it('should respect maxInterval', async () => {
+    const fetcher = vi.fn().mockRejectedValue(new Error('Failed'));
     const onResult = vi.fn();
 
     const poller = new ExponentialPoller(fetcher, onResult, {
@@ -118,14 +119,14 @@ describe("ExponentialPoller", () => {
     poller.stop();
   });
 
-  it("should reset interval on success when resetOnSuccess is true", async () => {
+  it('should reset interval on success when resetOnSuccess is true', async () => {
     let callCount = 0;
     const fetcher = vi.fn().mockImplementation(() => {
       callCount++;
       if (callCount <= 2) {
-        return Promise.reject(new Error("Failed"));
+        return Promise.reject(new Error('Failed'));
       }
-      return Promise.resolve("success");
+      return Promise.resolve('success');
     });
     const onResult = vi.fn();
 
@@ -148,7 +149,7 @@ describe("ExponentialPoller", () => {
     await vi.advanceTimersByTimeAsync(4000);
     expect(onResult).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        data: "success",
+        data: 'success',
         nextInterval: 1000, // Reset to initial
       })
     );
@@ -156,8 +157,8 @@ describe("ExponentialPoller", () => {
     poller.stop();
   });
 
-  it("should stop after maxRetries", async () => {
-    const fetcher = vi.fn().mockRejectedValue(new Error("Failed"));
+  it('should stop after maxRetries', async () => {
+    const fetcher = vi.fn().mockRejectedValue(new Error('Failed'));
     const onResult = vi.fn();
 
     const poller = new ExponentialPoller(fetcher, onResult, {
@@ -178,8 +179,8 @@ describe("ExponentialPoller", () => {
     expect(poller.getState().isRunning).toBe(false);
   });
 
-  it("should stop when stop() is called", async () => {
-    const fetcher = vi.fn().mockResolvedValue("data");
+  it('should stop when stop() is called', async () => {
+    const fetcher = vi.fn().mockResolvedValue('data');
     const onResult = vi.fn();
 
     const poller = new ExponentialPoller(fetcher, onResult, {
@@ -199,8 +200,8 @@ describe("ExponentialPoller", () => {
     expect(fetcher.mock.calls.length).toBe(callsBefore);
   });
 
-  it("should reset state when reset() is called", () => {
-    const fetcher = vi.fn().mockResolvedValue("data");
+  it('should reset state when reset() is called', () => {
+    const fetcher = vi.fn().mockResolvedValue('data');
     const onResult = vi.fn();
 
     const poller = new ExponentialPoller(fetcher, onResult, {
@@ -217,7 +218,7 @@ describe("ExponentialPoller", () => {
   });
 });
 
-describe("retryWithBackoff", () => {
+describe('retryWithBackoff', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -226,25 +227,25 @@ describe("retryWithBackoff", () => {
     vi.useRealTimers();
   });
 
-  it("should return result on first success", async () => {
-    const fn = vi.fn().mockResolvedValue("success");
+  it('should return result on first success', async () => {
+    const fn = vi.fn().mockResolvedValue('success');
 
     const resultPromise = retryWithBackoff(fn);
     await vi.advanceTimersByTimeAsync(0);
     const result = await resultPromise;
 
-    expect(result).toBe("success");
+    expect(result).toBe('success');
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  it("should retry on failure and succeed", async () => {
+  it('should retry on failure and succeed', async () => {
     let callCount = 0;
     const fn = vi.fn().mockImplementation(() => {
       callCount++;
       if (callCount < 3) {
-        return Promise.reject(new Error("Failed"));
+        return Promise.reject(new Error('Failed'));
       }
-      return Promise.resolve("success");
+      return Promise.resolve('success');
     });
 
     const resultPromise = retryWithBackoff(fn, {
@@ -262,12 +263,12 @@ describe("retryWithBackoff", () => {
 
     const result = await resultPromise;
 
-    expect(result).toBe("success");
+    expect(result).toBe('success');
     expect(fn).toHaveBeenCalledTimes(3);
   });
 
-  it("should throw after maxRetries", async () => {
-    const fn = vi.fn().mockRejectedValue(new Error("Always fails"));
+  it('should throw after maxRetries', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('Always fails'));
 
     const resultPromise = retryWithBackoff(fn, {
       maxRetries: 3,
@@ -277,7 +278,7 @@ describe("retryWithBackoff", () => {
 
     // Attach a catch handler immediately to prevent unhandled rejection warning
     // We'll still assert on the rejection below
-    resultPromise.catch(() => {});
+    void resultPromise.catch(() => {});
 
     // First call (immediate)
     await vi.advanceTimersByTimeAsync(0);
@@ -286,7 +287,7 @@ describe("retryWithBackoff", () => {
     // Wait for delay (200ms), then third call
     await vi.advanceTimersByTimeAsync(200);
 
-    await expect(resultPromise).rejects.toThrow("Always fails");
+    await expect(resultPromise).rejects.toThrow('Always fails');
     expect(fn).toHaveBeenCalledTimes(3);
   });
 });

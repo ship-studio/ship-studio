@@ -12,16 +12,16 @@
  * @module components/Terminal
  */
 
-import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { spawn, IPty } from "tauri-pty";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { homeDir } from "@tauri-apps/api/path";
-import { loadNerdFonts } from "../lib/fonts";
-import "@xterm/xterm/css/xterm.css";
+import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { spawn, IPty } from 'tauri-pty';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { homeDir } from '@tauri-apps/api/path';
+import { loadNerdFonts } from '../lib/fonts';
+import '@xterm/xterm/css/xterm.css';
 
 /** Props for the Terminal component */
 interface TerminalProps {
@@ -46,13 +46,15 @@ export interface TerminalHandle {
   kill: () => void;
 }
 
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ projectPath, onExit }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
+  { projectPath, onExit },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyRef = useRef<IPty | null>(null);
   const [isReady, setIsReady] = useState(false);
-
 
   // Use ref for onExit to prevent effect re-runs when callback reference changes
   const onExitRef = useRef(onExit);
@@ -82,12 +84,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     if (!container) return;
 
     // Wait for container to have dimensions AND fonts to load
-    const checkReady = async () => {
+    const checkReady = () => {
       const rect = container.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         // Load Nerd Fonts before initializing terminal
-        await loadNerdFonts();
-        setIsReady(true);
+        void loadNerdFonts().then(() => {
+          setIsReady(true);
+        });
       } else {
         requestAnimationFrame(checkReady);
       }
@@ -105,8 +108,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     const setupDropListener = async () => {
       // Listen for the tauri://drag-drop event
       const unlistenFn = await listen<{ paths: string[]; position: { x: number; y: number } }>(
-        "tauri://drag-drop",
-        async (event) => {
+        'tauri://drag-drop',
+        (event) => {
           // Debounce - ignore duplicate events within 500ms
           const now = Date.now();
           if (now - lastDropTimeRef.current < 500) {
@@ -119,12 +122,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
           if (pty && term && event.payload.paths && event.payload.paths.length > 0) {
             // Quote paths that contain spaces
-            const quotedPaths = event.payload.paths.map(p =>
-              p.includes(" ") ? `"${p}"` : p
-            ).join(" ");
+            const quotedPaths = event.payload.paths
+              .map((p) => (p.includes(' ') ? `"${p}"` : p))
+              .join(' ');
 
             // Focus terminal and paste the path
             term.focus();
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
             (term as any).paste(quotedPaths);
           }
         }
@@ -138,7 +142,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       }
     };
 
-    setupDropListener();
+    void setupDropListener();
 
     return () => {
       mounted = false;
@@ -160,30 +164,30 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       fontSize: 13,
       lineHeight: 1.2,
       cursorBlink: true,
-      cursorStyle: "block",
+      cursorStyle: 'block',
       scrollback: 5000,
       allowProposedApi: true,
       theme: {
-        background: "#1e1e1e",
-        foreground: "#cccccc",
-        cursor: "#ffffff",
-        selectionBackground: "#3a3d41",
-        black: "#000000",
-        red: "#cd3131",
-        green: "#0dbc79",
-        yellow: "#e5e510",
-        blue: "#2472c8",
-        magenta: "#bc3fbc",
-        cyan: "#11a8cd",
-        white: "#e5e5e5",
-        brightBlack: "#666666",
-        brightRed: "#f14c4c",
-        brightGreen: "#23d18b",
-        brightYellow: "#f5f543",
-        brightBlue: "#3b8eea",
-        brightMagenta: "#d670d6",
-        brightCyan: "#29b8db",
-        brightWhite: "#ffffff",
+        background: '#1e1e1e',
+        foreground: '#cccccc',
+        cursor: '#ffffff',
+        selectionBackground: '#3a3d41',
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#ffffff',
       },
     });
 
@@ -191,7 +195,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     const unicode11Addon = new Unicode11Addon();
     term.loadAddon(fitAddon);
     term.loadAddon(unicode11Addon);
-    term.unicode.activeVersion = "11";
+    term.unicode.activeVersion = '11';
 
     // Open terminal in container
     term.open(container);
@@ -220,22 +224,23 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
         // Get extended PATH from backend (includes nvm, Claude desktop app, etc.)
         const home = await homeDir();
-        const homeNormalized = home.endsWith("/") ? home : `${home}/`;
-        const fullPath = await invoke<string>("get_shell_path");
+        const homeNormalized = home.endsWith('/') ? home : `${home}/`;
+        const fullPath = await invoke<string>('get_shell_path');
 
         // Spawn PTY using tauri-pty
         // Must pass all essential env vars since env replaces (not merges with) parent environment
-        const pty = await spawn("claude", [], {
+        // eslint-disable-next-line @typescript-eslint/await-thenable
+        const pty = await spawn('claude', [], {
           cwd: projectPath,
           cols: term.cols,
           rows: term.rows,
           env: {
             PATH: fullPath,
             HOME: homeNormalized.slice(0, -1),
-            USER: homeNormalized.split("/").filter(Boolean).pop() || "user",
-            TERM: "xterm-256color",
-            LANG: "en_US.UTF-8",
-            SHELL: "/bin/zsh",
+            USER: homeNormalized.split('/').filter(Boolean).pop() || 'user',
+            TERM: 'xterm-256color',
+            LANG: 'en_US.UTF-8',
+            SHELL: '/bin/zsh',
           },
         });
 
@@ -254,7 +259,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
         // Handle PTY exit
         pty.onExit(({ exitCode }) => {
-          terminalRef.current?.write("\r\n[Process exited]\r\n");
+          terminalRef.current?.write('\r\n[Process exited]\r\n');
           onExitRef.current?.(exitCode);
         });
 
@@ -265,11 +270,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
         // Handle Shift+Enter to insert newline instead of submitting
         term.attachCustomKeyEventHandler((event) => {
-          if (event.key === "Enter" && event.shiftKey) {
-            if (event.type === "keydown") {
+          if (event.key === 'Enter' && event.shiftKey) {
+            if (event.type === 'keydown') {
               // Send a literal newline character (Ctrl+J / Line Feed)
               // This tells Claude Code to continue on a new line without submitting
-              ptyRef.current?.write("\n");
+              ptyRef.current?.write('\n');
             }
             // Prevent both keydown and keypress from being processed
             event.preventDefault();
@@ -278,24 +283,27 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           }
           return true; // Allow all other keys
         });
-
       } catch (err) {
-        console.error("Failed to spawn Claude:", err);
+        console.warn('Failed to spawn Claude:', err);
 
         if (!mounted) return;
 
         if (retryCount < maxRetries) {
-          term.write(`\x1b[33mFailed to start Claude, retrying (${retryCount + 1}/${maxRetries})...\x1b[0m\r\n`);
-          setTimeout(() => setupPty(retryCount + 1), 1000);
+          term.write(
+            `\x1b[33mFailed to start Claude, retrying (${retryCount + 1}/${maxRetries})...\x1b[0m\r\n`
+          );
+          setTimeout(() => void setupPty(retryCount + 1), 1000);
         } else {
-          term.write(`\x1b[31mError starting Claude: ${err}\x1b[0m\r\n`);
-          term.write(`\x1b[33mMake sure Claude Code is installed: npm install -g @anthropic-ai/claude-code\x1b[0m\r\n`);
+          term.write(`\x1b[31mError starting Claude: ${String(err)}\x1b[0m\r\n`);
+          term.write(
+            `\x1b[33mMake sure Claude Code is installed: npm install -g @anthropic-ai/claude-code\x1b[0m\r\n`
+          );
         }
       }
     };
 
     // Small delay before starting to ensure terminal is ready
-    setTimeout(() => setupPty(), 100);
+    setTimeout(() => void setupPty(), 100);
 
     // Handle resize
     const resizeObserver = new ResizeObserver(() => {
@@ -332,26 +340,31 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   }, []);
 
   // Expose methods to parent
-  useImperativeHandle(ref, () => ({
-    focus: () => {
-      terminalRef.current?.focus();
-      containerRef.current?.focus();
-      const textarea = containerRef.current?.querySelector('textarea');
-      textarea?.focus();
-    },
-    write: (data: string) => {
-      ptyRef.current?.write(data);
-    },
-    paste: (data: string) => {
-      if (terminalRef.current) {
-        terminalRef.current.focus();
-        (terminalRef.current as any).paste(data);
-      }
-    },
-    kill: () => {
-      cleanup();
-    },
-  }), [cleanup]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      focus: () => {
+        terminalRef.current?.focus();
+        containerRef.current?.focus();
+        const textarea = containerRef.current?.querySelector('textarea');
+        textarea?.focus();
+      },
+      write: (data: string) => {
+        ptyRef.current?.write(data);
+      },
+      paste: (data: string) => {
+        if (terminalRef.current) {
+          terminalRef.current.focus();
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+          (terminalRef.current as any).paste(data);
+        }
+      },
+      kill: () => {
+        cleanup();
+      },
+    }),
+    [cleanup]
+  );
 
   return (
     <div
@@ -360,9 +373,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       style={{
-        width: "100%",
-        height: "100%",
-        backgroundColor: "#1e1e1e",
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#1e1e1e',
       }}
     />
   );

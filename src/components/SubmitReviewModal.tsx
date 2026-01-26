@@ -6,8 +6,8 @@
  * @module components/SubmitReviewModal
  */
 
-import { useState } from "react";
-import { createPullRequest } from "../lib/branches";
+import { useState } from 'react';
+import { createPullRequest } from '../lib/branches';
 
 interface SubmitReviewModalProps {
   /** Project path for PR operations */
@@ -21,7 +21,7 @@ interface SubmitReviewModalProps {
   /** Callback to close modal */
   onClose: () => void;
   /** Callback for toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 export function SubmitReviewModal({
@@ -33,14 +33,14 @@ export function SubmitReviewModal({
   onToast,
 }: SubmitReviewModalProps) {
   const [title, setTitle] = useState(formatBranchAsTitle(branchName));
-  const [description, setDescription] = useState("");
-  const [baseBranch, setBaseBranch] = useState(baseBranches[0] || "main");
+  const [description, setDescription] = useState('');
+  const [baseBranch, setBaseBranch] = useState(baseBranches[0] || 'main');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     if (!title.trim()) {
-      setError("Title is required");
+      setError('Title is required');
       return;
     }
 
@@ -59,14 +59,14 @@ export function SubmitReviewModal({
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      onToast?.("Failed to create pull request", "error");
+      onToast?.('Failed to create pull request', 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       onClose();
     }
   };
@@ -93,8 +93,10 @@ export function SubmitReviewModal({
               value={baseBranch}
               onChange={(e) => setBaseBranch(e.target.value)}
             >
-              {baseBranches.map(b => (
-                <option key={b} value={b}>{b}</option>
+              {baseBranches.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
               ))}
             </select>
           </div>
@@ -129,27 +131,19 @@ export function SubmitReviewModal({
             />
           </div>
 
-          {error && (
-            <div className="submit-review-error">
-              {error}
-            </div>
-          )}
+          {error && <div className="submit-review-error">{error}</div>}
         </div>
 
         <div className="submit-review-footer">
-          <button
-            className="branch-selector-cancel"
-            onClick={onClose}
-            disabled={isSubmitting}
-          >
+          <button className="branch-selector-cancel" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
           <button
             className="branch-selector-submit"
-            onClick={handleSubmit}
+            onClick={() => void handleSubmit()}
             disabled={isSubmitting || !title.trim()}
           >
-            {isSubmitting ? "Creating..." : "Create Pull Request"}
+            {isSubmitting ? 'Creating...' : 'Create Pull Request'}
           </button>
         </div>
       </div>
@@ -164,12 +158,10 @@ export function SubmitReviewModal({
 function formatBranchAsTitle(branchName: string): string {
   // Remove username prefix if present
   let name = branchName;
-  if (name.includes("/")) {
-    name = name.split("/").slice(1).join("/");
+  if (name.includes('/')) {
+    name = name.split('/').slice(1).join('/');
   }
 
   // Replace dashes/underscores with spaces and capitalize
-  return name
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, c => c.toUpperCase());
+  return name.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }

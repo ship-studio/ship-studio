@@ -7,7 +7,7 @@
  * @module lib/assets
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 
 /**
  * Represents a file or folder in the /public directory
@@ -40,7 +40,7 @@ export async function listAssets(projectPath: string): Promise<Asset[]> {
       is_directory: boolean;
       modified_at: number;
     }>
-  >("list_assets", { projectPath });
+  >('list_assets', { projectPath });
 
   return assets.map((a) => ({
     name: a.name,
@@ -72,7 +72,7 @@ export async function uploadAsset(
     size: number;
     is_directory: boolean;
     modified_at: number;
-  }>("upload_asset", { projectPath, destination, fileName, fileData });
+  }>('upload_asset', { projectPath, destination, fileName, fileData });
 
   return {
     name: result.name,
@@ -89,11 +89,8 @@ export async function uploadAsset(
  * @param projectPath - Path to the project
  * @param assetPath - Relative path of the asset within /public
  */
-export async function deleteAsset(
-  projectPath: string,
-  assetPath: string
-): Promise<void> {
-  await invoke("delete_asset", { projectPath, assetPath });
+export async function deleteAsset(projectPath: string, assetPath: string): Promise<void> {
+  await invoke('delete_asset', { projectPath, assetPath });
 }
 
 /**
@@ -114,7 +111,7 @@ export async function renameAsset(
     size: number;
     is_directory: boolean;
     modified_at: number;
-  }>("rename_asset", { projectPath, assetPath, newName });
+  }>('rename_asset', { projectPath, assetPath, newName });
 
   return {
     name: result.name,
@@ -131,30 +128,27 @@ export async function renameAsset(
  * @param projectPath - Path to the project
  * @param folderPath - Path for the new folder within /public
  */
-export async function createAssetFolder(
-  projectPath: string,
-  folderPath: string
-): Promise<void> {
-  await invoke("create_asset_folder", { projectPath, folderPath });
+export async function createAssetFolder(projectPath: string, folderPath: string): Promise<void> {
+  await invoke('create_asset_folder', { projectPath, folderPath });
 }
 
 /**
  * Helper to format file size for display
  */
 export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  if (bytes === 0) return '0 B';
   const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
+  const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
 /**
  * Helper to get file extension
  */
 export function getFileExtension(filename: string): string {
-  const lastDot = filename.lastIndexOf(".");
-  return lastDot !== -1 ? filename.slice(lastDot + 1).toLowerCase() : "";
+  const lastDot = filename.lastIndexOf('.');
+  return lastDot !== -1 ? filename.slice(lastDot + 1).toLowerCase() : '';
 }
 
 /**
@@ -162,7 +156,5 @@ export function getFileExtension(filename: string): string {
  */
 export function isImageFile(filename: string): boolean {
   const ext = getFileExtension(filename);
-  return ["jpg", "jpeg", "png", "gif", "webp", "svg", "ico", "bmp"].includes(
-    ext
-  );
+  return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'bmp'].includes(ext);
 }

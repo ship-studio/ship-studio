@@ -11,8 +11,8 @@
  * @module components/AssetsPanel
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import {
   listAssets,
   uploadAsset,
@@ -22,7 +22,7 @@ import {
   formatFileSize,
   isImageFile,
   Asset,
-} from "../lib/assets";
+} from '../lib/assets';
 import {
   CloseIcon,
   CopyIcon,
@@ -36,12 +36,21 @@ import {
   FolderPlusIcon,
   CheckIcon,
   SearchIcon,
-} from "./icons";
+} from './icons';
 
 // Grid and List icons for view toggle
 function GridIcon({ size = 14 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="3" y="3" width="7" height="7" />
       <rect x="14" y="3" width="7" height="7" />
       <rect x="3" y="14" width="7" height="7" />
@@ -52,7 +61,16 @@ function GridIcon({ size = 14 }: { size?: number }) {
 
 function ListIcon({ size = 14 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <line x1="8" y1="6" x2="21" y2="6" />
       <line x1="8" y1="12" x2="21" y2="12" />
       <line x1="8" y1="18" x2="21" y2="18" />
@@ -71,28 +89,23 @@ interface AssetsPanelProps {
   /** Callback to close the panel */
   onClose: () => void;
   /** Optional callback to show toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
-export function AssetsPanel({
-  projectPath,
-  isOpen,
-  onClose,
-  onToast,
-}: AssetsPanelProps) {
+export function AssetsPanel({ projectPath, isOpen, onClose, onToast }: AssetsPanelProps) {
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [currentPath, setCurrentPath] = useState("");
+  const [currentPath, setCurrentPath] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<Asset | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const [renameValue, setRenameValue] = useState('');
   const [showNewFolder, setShowNewFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderName, setNewFolderName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
+  const [searchQuery, setSearchQuery] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -107,7 +120,7 @@ export function AssetsPanel({
       const allAssets = await listAssets(projectPath);
       setAssets(allAssets);
     } catch (e) {
-      setError("Failed to load assets");
+      setError('Failed to load assets');
       console.error(e);
     } finally {
       setIsLoading(false);
@@ -116,9 +129,9 @@ export function AssetsPanel({
 
   useEffect(() => {
     if (isOpen) {
-      loadAssets();
-      setCurrentPath("");
-      setSearchQuery("");
+      void loadAssets();
+      setCurrentPath('');
+      setSearchQuery('');
     }
   }, [isOpen, loadAssets]);
 
@@ -129,15 +142,15 @@ export function AssetsPanel({
       return asset.name.toLowerCase().includes(searchQuery.toLowerCase());
     }
 
-    if (currentPath === "") {
+    if (currentPath === '') {
       // Root level - show only items without "/" in their path
-      return !asset.path.includes("/");
+      return !asset.path.includes('/');
     } else {
       // Inside a folder - show items that start with currentPath/ but don't have additional slashes
-      const prefix = currentPath + "/";
+      const prefix = currentPath + '/';
       if (!asset.path.startsWith(prefix)) return false;
       const remaining = asset.path.slice(prefix.length);
-      return !remaining.includes("/");
+      return !remaining.includes('/');
     }
   });
 
@@ -149,12 +162,12 @@ export function AssetsPanel({
   });
 
   // Breadcrumb navigation
-  const pathParts = currentPath ? currentPath.split("/") : [];
+  const pathParts = currentPath ? currentPath.split('/') : [];
   const breadcrumbs = [
-    { name: "public", path: "" },
+    { name: 'public', path: '' },
     ...pathParts.map((part, index) => ({
       name: part,
-      path: pathParts.slice(0, index + 1).join("/"),
+      path: pathParts.slice(0, index + 1).join('/'),
     })),
   ];
 
@@ -169,28 +182,21 @@ export function AssetsPanel({
       for (const file of Array.from(files)) {
         const arrayBuffer = await file.arrayBuffer();
         const fileData = Array.from(new Uint8Array(arrayBuffer));
-        await uploadAsset(
-          projectPath,
-          currentPath || "/",
-          file.name,
-          fileData
-        );
+        await uploadAsset(projectPath, currentPath || '/', file.name, fileData);
       }
       await loadAssets();
       onToast?.(
-        files.length === 1
-          ? `Uploaded ${files[0].name}`
-          : `Uploaded ${files.length} files`,
-        "success"
+        files.length === 1 ? `Uploaded ${files[0].name}` : `Uploaded ${files.length} files`,
+        'success'
       );
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to upload";
+      const msg = e instanceof Error ? e.message : 'Failed to upload';
       setError(msg);
-      onToast?.(msg, "error");
+      onToast?.(msg, 'error');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+        fileInputRef.current.value = '';
       }
     }
   };
@@ -208,11 +214,11 @@ export function AssetsPanel({
       try {
         await deleteAsset(projectPath, asset.path);
         await loadAssets();
-        onToast?.(`Deleted ${asset.name}`, "success");
+        onToast?.(`Deleted ${asset.name}`, 'success');
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Failed to delete";
+        const msg = e instanceof Error ? e.message : 'Failed to delete';
         setError(msg);
-        onToast?.(msg, "error");
+        onToast?.(msg, 'error');
       } finally {
         setDeleteTarget(null);
       }
@@ -251,11 +257,11 @@ export function AssetsPanel({
     try {
       await renameAsset(projectPath, renameTarget.path, renameValue.trim());
       await loadAssets();
-      onToast?.(`Renamed to ${renameValue.trim()}`, "success");
+      onToast?.(`Renamed to ${renameValue.trim()}`, 'success');
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to rename";
+      const msg = e instanceof Error ? e.message : 'Failed to rename';
       setError(msg);
-      onToast?.(msg, "error");
+      onToast?.(msg, 'error');
     } finally {
       setRenameTarget(null);
     }
@@ -272,14 +278,14 @@ export function AssetsPanel({
     try {
       await createAssetFolder(projectPath, folderPath);
       await loadAssets();
-      onToast?.(`Created folder ${newFolderName.trim()}`, "success");
+      onToast?.(`Created folder ${newFolderName.trim()}`, 'success');
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to create folder";
+      const msg = e instanceof Error ? e.message : 'Failed to create folder';
       setError(msg);
-      onToast?.(msg, "error");
+      onToast?.(msg, 'error');
     } finally {
       setShowNewFolder(false);
-      setNewFolderName("");
+      setNewFolderName('');
     }
   };
 
@@ -290,9 +296,9 @@ export function AssetsPanel({
       await navigator.clipboard.writeText(webPath);
       setCopiedPath(asset.path);
       setTimeout(() => setCopiedPath(null), 2000);
-      onToast?.(`Copied ${webPath}`, "success");
+      onToast?.(`Copied ${webPath}`, 'success');
     } catch (e) {
-      console.error("Failed to copy:", e);
+      console.error('Failed to copy:', e);
     }
   };
 
@@ -337,7 +343,7 @@ export function AssetsPanel({
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    handleUpload(e.dataTransfer.files);
+    void handleUpload(e.dataTransfer.files);
   };
 
   // Render asset preview (thumbnail for images, icon for others)
@@ -370,10 +376,7 @@ export function AssetsPanel({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal assets-panel-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="modal assets-panel-modal" onClick={(e) => e.stopPropagation()}>
         <div className="assets-panel-header">
           <h3>Assets</h3>
           <button className="assets-close-btn" onClick={onClose}>
@@ -390,34 +393,31 @@ export function AssetsPanel({
               disabled={isUploading}
             >
               <UploadIcon size={14} />
-              {isUploading ? "Uploading..." : "Upload"}
+              {isUploading ? 'Uploading...' : 'Upload'}
             </button>
             <input
               ref={fileInputRef}
               type="file"
               multiple
-              onChange={(e) => handleUpload(e.target.files)}
-              style={{ display: "none" }}
+              onChange={(e) => void handleUpload(e.target.files)}
+              style={{ display: 'none' }}
             />
-            <button
-              className="assets-toolbar-btn"
-              onClick={() => setShowNewFolder(true)}
-            >
+            <button className="assets-toolbar-btn" onClick={() => setShowNewFolder(true)}>
               <FolderPlusIcon size={14} />
               New Folder
             </button>
             <div className="assets-toolbar-spacer" />
             <div className="assets-view-toggle">
               <button
-                className={`assets-view-btn ${viewMode === "list" ? "active" : ""}`}
-                onClick={() => setViewMode("list")}
+                className={`assets-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+                onClick={() => setViewMode('list')}
                 title="List view"
               >
                 <ListIcon size={14} />
               </button>
               <button
-                className={`assets-view-btn ${viewMode === "grid" ? "active" : ""}`}
-                onClick={() => setViewMode("grid")}
+                className={`assets-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                onClick={() => setViewMode('grid')}
                 title="Grid view"
               >
                 <GridIcon size={14} />
@@ -439,10 +439,7 @@ export function AssetsPanel({
               spellCheck={false}
             />
             {searchQuery && (
-              <button
-                className="assets-search-clear"
-                onClick={() => setSearchQuery("")}
-              >
+              <button className="assets-search-clear" onClick={() => setSearchQuery('')}>
                 <CloseIcon size={12} />
               </button>
             )}
@@ -453,12 +450,10 @@ export function AssetsPanel({
             <div className="assets-breadcrumb">
               {breadcrumbs.map((crumb, index) => (
                 <span key={crumb.path} className="assets-breadcrumb-item">
-                  {index > 0 && (
-                    <ChevronRightIcon size={12} />
-                  )}
+                  {index > 0 && <ChevronRightIcon size={12} />}
                   <button
                     className={`assets-breadcrumb-btn ${
-                      index === breadcrumbs.length - 1 ? "active" : ""
+                      index === breadcrumbs.length - 1 ? 'active' : ''
                     }`}
                     onClick={() => setCurrentPath(crumb.path)}
                   >
@@ -478,10 +473,10 @@ export function AssetsPanel({
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateFolder();
-                  if (e.key === "Escape") {
+                  if (e.key === 'Enter') void handleCreateFolder();
+                  if (e.key === 'Escape') {
                     setShowNewFolder(false);
-                    setNewFolderName("");
+                    setNewFolderName('');
                   }
                 }}
                 placeholder="Folder name"
@@ -493,7 +488,7 @@ export function AssetsPanel({
               />
               <button
                 className="assets-new-folder-confirm"
-                onClick={handleCreateFolder}
+                onClick={() => void handleCreateFolder()}
               >
                 <CheckIcon size={14} />
               </button>
@@ -501,7 +496,7 @@ export function AssetsPanel({
                 className="assets-new-folder-cancel"
                 onClick={() => {
                   setShowNewFolder(false);
-                  setNewFolderName("");
+                  setNewFolderName('');
                 }}
               >
                 <CloseIcon size={14} />
@@ -512,7 +507,7 @@ export function AssetsPanel({
           {/* Assets list / drop zone */}
           <div
             ref={dropZoneRef}
-            className={`assets-list-container ${isDragging ? "dragging" : ""}`}
+            className={`assets-list-container ${isDragging ? 'dragging' : ''}`}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
@@ -525,27 +520,23 @@ export function AssetsPanel({
                 <div className="assets-empty-icon">
                   {searchQuery ? <SearchIcon size={32} /> : <ImageIcon size={32} />}
                 </div>
-                <p>{searchQuery ? `No assets matching "${searchQuery}"` : "No assets in this folder"}</p>
+                <p>
+                  {searchQuery ? `No assets matching "${searchQuery}"` : 'No assets in this folder'}
+                </p>
                 {!searchQuery && (
-                  <p className="assets-empty-hint">
-                    Drag and drop files here or click Upload
-                  </p>
+                  <p className="assets-empty-hint">Drag and drop files here or click Upload</p>
                 )}
               </div>
-            ) : viewMode === "list" ? (
+            ) : viewMode === 'list' ? (
               <div className="assets-list">
                 {sortedAssets.map((asset) => (
                   <div
                     key={asset.path}
-                    className={`assets-item ${
-                      asset.isDirectory ? "is-folder" : ""
-                    }`}
+                    className={`assets-item ${asset.isDirectory ? 'is-folder' : ''}`}
                   >
                     <div
                       className="assets-item-main"
-                      onClick={() =>
-                        asset.isDirectory ? navigateToFolder(asset) : null
-                      }
+                      onClick={() => (asset.isDirectory ? navigateToFolder(asset) : null)}
                     >
                       {renderAssetPreview(asset)}
                       {renameTarget?.path === asset.path ? (
@@ -555,10 +546,10 @@ export function AssetsPanel({
                           value={renameValue}
                           onChange={(e) => setRenameValue(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") handleRename();
-                            if (e.key === "Escape") setRenameTarget(null);
+                            if (e.key === 'Enter') void handleRename();
+                            if (e.key === 'Escape') setRenameTarget(null);
                           }}
-                          onBlur={handleRename}
+                          onBlur={() => void handleRename()}
                           autoFocus
                           autoComplete="off"
                           autoCorrect="off"
@@ -570,9 +561,7 @@ export function AssetsPanel({
                         <span className="assets-item-name">{asset.name}</span>
                       )}
                       {!asset.isDirectory && (
-                        <span className="assets-item-size">
-                          {formatFileSize(asset.size)}
-                        </span>
+                        <span className="assets-item-size">{formatFileSize(asset.size)}</span>
                       )}
                     </div>
                     <div className="assets-item-actions">
@@ -580,7 +569,7 @@ export function AssetsPanel({
                         className="assets-action-btn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleCopyPath(asset);
+                          void handleCopyPath(asset);
                         }}
                         title="Copy path"
                       >
@@ -601,14 +590,18 @@ export function AssetsPanel({
                         <EditIcon size={12} />
                       </button>
                       <button
-                        className={`assets-action-btn assets-action-delete ${deleteTarget === asset.path ? "armed" : ""}`}
+                        className={`assets-action-btn assets-action-delete ${deleteTarget === asset.path ? 'armed' : ''}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteClick(asset);
+                          void handleDeleteClick(asset);
                         }}
-                        title={deleteTarget === asset.path ? "Click to confirm delete" : "Delete"}
+                        title={deleteTarget === asset.path ? 'Click to confirm delete' : 'Delete'}
                       >
-                        {deleteTarget === asset.path ? <CheckIcon size={12} /> : <TrashIcon size={12} />}
+                        {deleteTarget === asset.path ? (
+                          <CheckIcon size={12} />
+                        ) : (
+                          <TrashIcon size={12} />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -619,22 +612,14 @@ export function AssetsPanel({
                 {sortedAssets.map((asset) => (
                   <div
                     key={asset.path}
-                    className={`assets-grid-item ${
-                      asset.isDirectory ? "is-folder" : ""
-                    }`}
-                    onClick={() =>
-                      asset.isDirectory ? navigateToFolder(asset) : null
-                    }
+                    className={`assets-grid-item ${asset.isDirectory ? 'is-folder' : ''}`}
+                    onClick={() => (asset.isDirectory ? navigateToFolder(asset) : null)}
                   >
                     <div className="assets-grid-preview">
                       {asset.isDirectory ? (
                         <FolderIcon size={32} />
                       ) : isImageFile(asset.name) ? (
-                        <img
-                          src={convertFileSrc(asset.fullPath)}
-                          alt={asset.name}
-                          loading="lazy"
-                        />
+                        <img src={convertFileSrc(asset.fullPath)} alt={asset.name} loading="lazy" />
                       ) : (
                         <FileIcon size={32} />
                       )}
@@ -647,10 +632,10 @@ export function AssetsPanel({
                           value={renameValue}
                           onChange={(e) => setRenameValue(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") handleRename();
-                            if (e.key === "Escape") setRenameTarget(null);
+                            if (e.key === 'Enter') void handleRename();
+                            if (e.key === 'Escape') setRenameTarget(null);
                           }}
-                          onBlur={handleRename}
+                          onBlur={() => void handleRename()}
                           autoFocus
                           autoComplete="off"
                           autoCorrect="off"
@@ -669,7 +654,7 @@ export function AssetsPanel({
                         className="assets-action-btn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleCopyPath(asset);
+                          void handleCopyPath(asset);
                         }}
                         title="Copy path"
                       >
@@ -690,14 +675,18 @@ export function AssetsPanel({
                         <EditIcon size={12} />
                       </button>
                       <button
-                        className={`assets-action-btn assets-action-delete ${deleteTarget === asset.path ? "armed" : ""}`}
+                        className={`assets-action-btn assets-action-delete ${deleteTarget === asset.path ? 'armed' : ''}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteClick(asset);
+                          void handleDeleteClick(asset);
                         }}
-                        title={deleteTarget === asset.path ? "Click to confirm delete" : "Delete"}
+                        title={deleteTarget === asset.path ? 'Click to confirm delete' : 'Delete'}
                       >
-                        {deleteTarget === asset.path ? <CheckIcon size={12} /> : <TrashIcon size={12} />}
+                        {deleteTarget === asset.path ? (
+                          <CheckIcon size={12} />
+                        ) : (
+                          <TrashIcon size={12} />
+                        )}
                       </button>
                     </div>
                   </div>

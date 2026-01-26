@@ -118,7 +118,9 @@
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 15px;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .create-modal-content input:focus {
@@ -256,7 +258,9 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
   text-align: left;
   padding: 14px 16px;
 }

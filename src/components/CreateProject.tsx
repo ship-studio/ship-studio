@@ -11,9 +11,9 @@
  * @module components/CreateProject
  */
 
-import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
 /** Props for the CreateProject component */
 interface CreateProjectProps {
@@ -38,47 +38,47 @@ interface Template {
 /** Available project templates */
 const TEMPLATES: Template[] = [
   {
-    id: "nextjs-basic",
-    name: "Next.js Basic",
-    description: "A minimal Next.js starter with Tailwind CSS",
-    repo: "https://github.com/ship-studio/static-marketing-site-starter",
+    id: 'nextjs-basic',
+    name: 'Next.js Basic',
+    description: 'A minimal Next.js starter with Tailwind CSS',
+    repo: 'https://github.com/ship-studio/static-marketing-site-starter',
   },
 ];
 
 /** Form wizard steps before creation starts */
-type FormStep = "select-template" | "enter-name";
+type FormStep = 'select-template' | 'enter-name';
 /** Creation progress steps */
-type Step = "clone" | "init" | "install" | "done";
+type Step = 'clone' | 'init' | 'install' | 'done';
 
 /** Step definitions with display labels */
 const STEPS: { id: Step; label: string }[] = [
-  { id: "clone", label: "Clone template" },
-  { id: "init", label: "Initialize project" },
-  { id: "install", label: "Install dependencies" },
-  { id: "done", label: "Done" },
+  { id: 'clone', label: 'Clone template' },
+  { id: 'init', label: 'Initialize project' },
+  { id: 'install', label: 'Install dependencies' },
+  { id: 'done', label: 'Done' },
 ];
 
 /** User-facing status messages for each creation step */
 const STATUS_MESSAGES: Record<Step, string> = {
-  clone: "Downloading template...",
-  init: "Setting up project...",
-  install: "Installing dependencies... This may take a minute.",
-  done: "Almost done...",
+  clone: 'Downloading template...',
+  init: 'Setting up project...',
+  install: 'Installing dependencies... This may take a minute.',
+  done: 'Almost done...',
 };
 
 export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
-  const [formStep, setFormStep] = useState<FormStep>("select-template");
+  const [formStep, setFormStep] = useState<FormStep>('select-template');
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
-  const [projectName, setProjectName] = useState("");
+  const [projectName, setProjectName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
-  const [currentStep, setCurrentStep] = useState<Step>("clone");
+  const [currentStep, setCurrentStep] = useState<Step>('clone');
   const [error, setError] = useState<string | null>(null);
 
   const waitForPtyExit = async (targetId: number): Promise<number | null> => {
     return new Promise((resolve, reject) => {
       let unlisten: UnlistenFn | null = null;
 
-      listen<{ id: number; code: number | null }>("pty-exit", (event) => {
+      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
         if (event.payload.id === targetId) {
           unlisten?.();
           if (event.payload.code === 0 || event.payload.code === null) {
@@ -95,30 +95,32 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
 
   const handleCreate = async () => {
     if (!selectedTemplate) {
-      setError("Please select a template");
+      setError('Please select a template');
       return;
     }
 
     if (!projectName.trim()) {
-      setError("Please enter a project name");
+      setError('Please enter a project name');
       return;
     }
 
     const safeName = projectName
       .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
 
     if (!safeName) {
-      setError("Invalid project name");
+      setError('Invalid project name');
       return;
     }
 
     // Check for duplicate project names
     try {
-      const existingProjects = await invoke<{ name: string; path: string }[]>("list_projects");
-      const duplicate = existingProjects.find(p => p.name.toLowerCase() === safeName.toLowerCase());
+      const existingProjects = await invoke<{ name: string; path: string }[]>('list_projects');
+      const duplicate = existingProjects.find(
+        (p) => p.name.toLowerCase() === safeName.toLowerCase()
+      );
       if (duplicate) {
         setError(`A project named "${safeName}" already exists`);
         return;
@@ -129,19 +131,19 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
 
     setIsCreating(true);
     setError(null);
-    setCurrentStep("clone");
+    setCurrentStep('clone');
 
     try {
       // Ensure ShipStudio directory exists
-      const shipstudioDir = await invoke<string>("ensure_shipstudio_dir");
+      const shipstudioDir = await invoke<string>('ensure_shipstudio_dir');
       const projectPath = `${shipstudioDir}/${safeName}`;
 
       // Clone template
-      const cloneId = await invoke<number>("spawn_pty", {
+      const cloneId = await invoke<number>('spawn_pty', {
         options: {
           cwd: shipstudioDir,
-          command: "git",
-          args: ["clone", selectedTemplate.repo, safeName],
+          command: 'git',
+          args: ['clone', selectedTemplate.repo, safeName],
           rows: 10,
           cols: 80,
         },
@@ -150,12 +152,12 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
       await waitForPtyExit(cloneId);
 
       // Remove .git folder so project starts fresh (not connected to template repo)
-      setCurrentStep("init");
-      const rmGitId = await invoke<number>("spawn_pty", {
+      setCurrentStep('init');
+      const rmGitId = await invoke<number>('spawn_pty', {
         options: {
           cwd: projectPath,
-          command: "rm",
-          args: ["-rf", ".git"],
+          command: 'rm',
+          args: ['-rf', '.git'],
           rows: 10,
           cols: 80,
         },
@@ -164,15 +166,15 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
       await waitForPtyExit(rmGitId);
 
       // Ensure .shipstudio/ is gitignored to prevent phantom changes
-      await invoke("ensure_gitignore_has_shipstudio", { projectPath: projectPath });
+      await invoke('ensure_gitignore_has_shipstudio', { projectPath: projectPath });
 
       // Install dependencies
-      setCurrentStep("install");
-      const installId = await invoke<number>("spawn_pty", {
+      setCurrentStep('install');
+      const installId = await invoke<number>('spawn_pty', {
         options: {
           cwd: projectPath,
-          command: "npm",
-          args: ["install"],
+          command: 'npm',
+          args: ['install'],
           rows: 10,
           cols: 80,
         },
@@ -180,7 +182,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
 
       await waitForPtyExit(installId);
 
-      setCurrentStep("done");
+      setCurrentStep('done');
 
       // Small delay before opening
       await new Promise((r) => setTimeout(r, 800));
@@ -190,14 +192,14 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
     }
   };
 
-  const getStepStatus = (stepId: Step): "pending" | "active" | "done" => {
+  const getStepStatus = (stepId: Step): 'pending' | 'active' | 'done' => {
     const stepOrder = STEPS.map((s) => s.id);
     const currentIndex = stepOrder.indexOf(currentStep);
     const stepIndex = stepOrder.indexOf(stepId);
 
-    if (stepIndex < currentIndex) return "done";
-    if (stepIndex === currentIndex) return "active";
-    return "pending";
+    if (stepIndex < currentIndex) return 'done';
+    if (stepIndex === currentIndex) return 'active';
+    return 'pending';
   };
 
   const handleTemplateSelect = (template: Template) => {
@@ -206,13 +208,13 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
 
   const handleContinue = () => {
     if (selectedTemplate) {
-      setFormStep("enter-name");
+      setFormStep('enter-name');
       setError(null);
     }
   };
 
   const handleBack = () => {
-    setFormStep("select-template");
+    setFormStep('select-template');
     setError(null);
   };
 
@@ -232,14 +234,28 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
               const status = getStepStatus(step.id);
               return (
                 <div key={step.id} className={`checklist-item ${status}`}>
-                  {status === "done" ? (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  {status === 'done' ? (
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                    >
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
-                  ) : status === "active" ? (
+                  ) : status === 'active' ? (
                     <div className="checklist-spinner" />
                   ) : (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <circle cx="12" cy="12" r="10" />
                     </svg>
                   )}
@@ -260,7 +276,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
     }
 
     // Template selection step
-    if (formStep === "select-template") {
+    if (formStep === 'select-template') {
       return (
         <div className="create-modal-content">
           <div className="create-modal-header">
@@ -269,7 +285,14 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
               <p>Select a starting point</p>
             </div>
             <button className="create-modal-close" onClick={onCancel} type="button">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -281,7 +304,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
               <button
                 key={template.id}
                 type="button"
-                className={`template-card ${selectedTemplate?.id === template.id ? "selected" : ""}`}
+                className={`template-card ${selectedTemplate?.id === template.id ? 'selected' : ''}`}
                 onClick={() => handleTemplateSelect(template)}
               >
                 <h3>{template.name}</h3>
@@ -318,7 +341,14 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
             </p>
           </div>
           <button className="create-modal-close" onClick={onCancel} type="button">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -328,7 +358,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            handleCreate();
+            void handleCreate();
           }}
         >
           <label>
@@ -362,14 +392,15 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
   };
 
   return (
-    <div className="create-modal-overlay" onClick={(e) => {
-      if (e.target === e.currentTarget && !isCreating) {
-        onCancel();
-      }
-    }}>
-      <div className="create-modal">
-        {renderContent()}
-      </div>
+    <div
+      className="create-modal-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isCreating) {
+          onCancel();
+        }
+      }}
+    >
+      <div className="create-modal">{renderContent()}</div>
     </div>
   );
 }

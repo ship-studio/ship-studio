@@ -9,7 +9,7 @@ import {
   SetupItem as SetupItemType,
   SetupItemStatus,
   SETUP_PROGRESS_MESSAGES,
-} from "../../lib/setup";
+} from '../../lib/setup';
 
 interface SetupItemProps {
   item: SetupItemType;
@@ -56,12 +56,7 @@ function ErrorIcon() {
       className="setup-item-icon setup-item-icon-error"
     >
       <circle cx="10" cy="10" r="10" fill="var(--error)" />
-      <path
-        d="M7 7l6 6M13 7l-6 6"
-        stroke="white"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+      <path d="M7 7l6 6M13 7l-6 6" stroke="white" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -76,23 +71,14 @@ function EmptyCircleIcon() {
       fill="none"
       className="setup-item-icon setup-item-icon-empty"
     >
-      <circle
-        cx="10"
-        cy="10"
-        r="9"
-        stroke="var(--border)"
-        strokeWidth="2"
-        fill="none"
-      />
+      <circle cx="10" cy="10" r="9" stroke="var(--border)" strokeWidth="2" fill="none" />
     </svg>
   );
 }
 
 /** Spinner for in-progress items */
 function SpinnerIcon() {
-  return (
-    <div className="setup-item-spinner" />
-  );
+  return <div className="setup-item-spinner" />;
 }
 
 /** Lock icon for blocked items */
@@ -120,13 +106,13 @@ function BlockedIcon() {
 
 function getStatusIcon(status: SetupItemStatus) {
   switch (status) {
-    case "ready":
+    case 'ready':
       return <CheckIcon />;
-    case "error":
+    case 'error':
       return <ErrorIcon />;
-    case "in_progress":
+    case 'in_progress':
       return <SpinnerIcon />;
-    case "blocked":
+    case 'blocked':
       return <BlockedIcon />;
     default:
       return <EmptyCircleIcon />;
@@ -140,7 +126,7 @@ function getActionButton(
   isAnyActionInProgress: boolean | undefined
 ): React.ReactNode {
   // Ready items show version/username
-  if (item.status === "ready") {
+  if (item.status === 'ready') {
     const info = item.username || item.version;
     if (info) {
       return <span className="setup-item-info">{info}</span>;
@@ -149,30 +135,24 @@ function getActionButton(
   }
 
   // Blocked items show what they're waiting for
-  if (item.status === "blocked" && blockedBy && blockedBy.length > 0) {
-    return (
-      <span className="setup-item-blocked-text">
-        Waiting for {blockedBy[0]}
-      </span>
-    );
+  if (item.status === 'blocked' && blockedBy && blockedBy.length > 0) {
+    return <span className="setup-item-blocked-text">Waiting for {blockedBy[0]}</span>;
   }
 
   // In-progress items show the progress message
-  if (item.status === "in_progress") {
+  if (item.status === 'in_progress') {
     return (
       <span className="setup-item-progress-text">
-        {SETUP_PROGRESS_MESSAGES[item.id] || "Working..."}
+        {SETUP_PROGRESS_MESSAGES[item.id] || 'Working...'}
       </span>
     );
   }
 
   // Error items show error message and retry button
-  if (item.status === "error") {
+  if (item.status === 'error') {
     return (
       <div className="setup-item-error-container">
-        <span className="setup-item-error-text">
-          {item.errorMessage || "Something went wrong"}
-        </span>
+        <span className="setup-item-error-text">{item.errorMessage || 'Something went wrong'}</span>
         <button
           className="setup-item-btn setup-item-btn-retry"
           onClick={onAction}
@@ -185,7 +165,7 @@ function getActionButton(
   }
 
   // Not installed shows Install button
-  if (item.status === "not_installed") {
+  if (item.status === 'not_installed') {
     return (
       <button
         className="setup-item-btn setup-item-btn-install"
@@ -198,7 +178,7 @@ function getActionButton(
   }
 
   // Not authenticated shows Connect button
-  if (item.status === "not_authenticated") {
+  if (item.status === 'not_authenticated') {
     return (
       <button
         className="setup-item-btn setup-item-btn-connect"
@@ -213,19 +193,12 @@ function getActionButton(
   return null;
 }
 
-export function SetupItem({
-  item,
-  blockedBy,
-  onAction,
-  isAnyActionInProgress,
-}: SetupItemProps) {
-  const statusClass = `setup-item-status-${item.status.replace("_", "-")}`;
+export function SetupItem({ item, blockedBy, onAction, isAnyActionInProgress }: SetupItemProps) {
+  const statusClass = `setup-item-status-${item.status.replace('_', '-')}`;
 
   return (
     <div className={`setup-item ${statusClass}`}>
-      <div className="setup-item-icon-container">
-        {getStatusIcon(item.status)}
-      </div>
+      <div className="setup-item-icon-container">{getStatusIcon(item.status)}</div>
       <div className="setup-item-name">{item.friendlyName}</div>
       <div className="setup-item-action">
         {getActionButton(item, blockedBy, onAction, isAnyActionInProgress)}

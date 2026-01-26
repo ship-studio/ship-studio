@@ -9,8 +9,8 @@
  * @module lib/updater
  */
 
-import { check, Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { check, Update } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 
 /** Information about an available update */
 export interface UpdateInfo {
@@ -24,12 +24,12 @@ export interface UpdateInfo {
 
 /** Current update state */
 export type UpdateState =
-  | { status: "idle" }
-  | { status: "checking" }
-  | { status: "available"; update: Update; info: UpdateInfo }
-  | { status: "downloading"; progress: number }
-  | { status: "ready" }
-  | { status: "error"; message: string };
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'available'; update: Update; info: UpdateInfo }
+  | { status: 'downloading'; progress: number }
+  | { status: 'ready' }
+  | { status: 'error'; message: string };
 
 /**
  * Check if an update is available.
@@ -50,7 +50,7 @@ export async function checkForUpdate(): Promise<{ update: Update; info: UpdateIn
     }
     return null;
   } catch (error) {
-    console.error("[Updater] Failed to check for updates:", error);
+    console.error('[Updater] Failed to check for updates:', error);
     throw error;
   }
 }
@@ -69,17 +69,18 @@ export async function downloadAndInstall(
 
   await update.downloadAndInstall((event) => {
     switch (event.event) {
-      case "Started":
+      case 'Started':
         contentLength = event.data.contentLength ?? 0;
-        console.log(`[Updater] Download started, size: ${contentLength}`);
+        console.warn(`[Updater] Download started, size: ${contentLength}`);
         break;
-      case "Progress":
+      case 'Progress': {
         downloaded += event.data.chunkLength;
         const progress = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
         onProgress?.(progress);
         break;
-      case "Finished":
-        console.log("[Updater] Download finished");
+      }
+      case 'Finished':
+        console.warn('[Updater] Download finished');
         onProgress?.(100);
         break;
     }

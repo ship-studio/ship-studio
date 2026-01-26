@@ -7,21 +7,21 @@
  * @module components/ConflictResolutionModal
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from 'react';
 import {
   ConflictedFile,
   getConflictInfo,
   resolveConflict,
   abortMerge,
   completeMerge,
-} from "../lib/conflicts";
-import { WarningIcon, CopyIcon, ChevronIcon, InfoIcon } from "./icons";
+} from '../lib/conflicts';
+import { WarningIcon, CopyIcon, ChevronIcon, InfoIcon } from './icons';
 
 interface ConflictResolutionModalProps {
   projectPath: string;
   onClose: () => void;
   onResolved: () => void;
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 /** Maximum lines to show before truncating with "and X more lines" */
@@ -41,12 +41,7 @@ export function ConflictResolutionModal({
   const [showMoreInfo, setShowMoreInfo] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load conflict info on mount
-  useEffect(() => {
-    loadConflicts();
-  }, [projectPath]);
-
-  const loadConflicts = async () => {
+  const loadConflicts = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -54,7 +49,7 @@ export function ConflictResolutionModal({
       setFiles(conflictInfo);
       if (conflictInfo.length === 0) {
         // No conflicts found - merge may already be resolved
-        onToast?.("No conflicts found", "success");
+        onToast?.('No conflicts found', 'success');
         onResolved();
         onClose();
       }
@@ -63,7 +58,12 @@ export function ConflictResolutionModal({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [projectPath, onToast, onResolved, onClose]);
+
+  // Load conflict info on mount
+  useEffect(() => {
+    void loadConflicts();
+  }, [loadConflicts]);
 
   const currentFile = files[currentFileIndex];
   const currentConflict = currentFile?.conflicts[currentConflictIndex];
@@ -76,17 +76,12 @@ export function ConflictResolutionModal({
     1;
 
   const handleResolve = useCallback(
-    async (resolution: "current" | "incoming") => {
+    async (resolution: 'current' | 'incoming') => {
       if (!currentFile || isApplying) return;
 
       setIsApplying(true);
       try {
-        await resolveConflict(
-          projectPath,
-          currentFile.filePath,
-          currentConflictIndex,
-          resolution
-        );
+        await resolveConflict(projectPath, currentFile.filePath, currentConflictIndex, resolution);
 
         // Reload conflicts to get updated state
         const updatedFiles = await getConflictInfo(projectPath);
@@ -95,7 +90,7 @@ export function ConflictResolutionModal({
         if (updatedFiles.length === 0) {
           // All conflicts resolved - complete the merge
           await completeMerge(projectPath);
-          onToast?.("All conflicts resolved!", "success");
+          onToast?.('All conflicts resolved!', 'success');
           onResolved();
           onClose();
           return;
@@ -103,15 +98,11 @@ export function ConflictResolutionModal({
 
         // Find next conflict to resolve
         // First check if current file still has conflicts
-        const updatedCurrentFile = updatedFiles.find(
-          (f) => f.filePath === currentFile.filePath
-        );
+        const updatedCurrentFile = updatedFiles.find((f) => f.filePath === currentFile.filePath);
 
         if (updatedCurrentFile && updatedCurrentFile.conflicts.length > 0) {
           // Stay on this file, reset to first conflict (since indices shift after resolution)
-          const newFileIndex = updatedFiles.findIndex(
-            (f) => f.filePath === currentFile.filePath
-          );
+          const newFileIndex = updatedFiles.findIndex((f) => f.filePath === currentFile.filePath);
           setCurrentFileIndex(newFileIndex);
           setCurrentConflictIndex(0);
         } else {
@@ -122,12 +113,21 @@ export function ConflictResolutionModal({
           }
         }
       } catch (e) {
-        onToast?.(e instanceof Error ? e.message : "Failed to resolve conflict", "error");
+        onToast?.(e instanceof Error ? e.message : 'Failed to resolve conflict', 'error');
       } finally {
         setIsApplying(false);
       }
     },
-    [currentFile, currentFileIndex, currentConflictIndex, projectPath, onClose, onResolved, onToast, isApplying]
+    [
+      currentFile,
+      currentFileIndex,
+      currentConflictIndex,
+      projectPath,
+      onClose,
+      onResolved,
+      onToast,
+      isApplying,
+    ]
   );
 
   const handleAbort = useCallback(async () => {
@@ -136,19 +136,19 @@ export function ConflictResolutionModal({
     setIsApplying(true);
     try {
       await abortMerge(projectPath);
-      onToast?.("Merge aborted", "success");
+      onToast?.('Merge aborted', 'success');
       onClose();
     } catch (e) {
-      onToast?.(e instanceof Error ? e.message : "Failed to abort merge", "error");
+      onToast?.(e instanceof Error ? e.message : 'Failed to abort merge', 'error');
     } finally {
       setIsApplying(false);
     }
   }, [projectPath, onClose, onToast, isApplying]);
 
   // Close handler - abort merge when closing without resolving
-  const handleClose = useCallback(async () => {
+  const handleClose = useCallback(() => {
     if (isApplying) return;
-    await handleAbort();
+    void handleAbort();
   }, [isApplying, handleAbort]);
 
   const handleCopyForClaude = useCallback(() => {
@@ -166,21 +166,21 @@ ${currentConflict.currentContent}
 ${currentConflict.incomingContent}
 \`\`\`
 
-${currentConflict.contextBefore ? `**Context before:**\n\`\`\`\n${currentConflict.contextBefore}\n\`\`\`\n` : ""}
-${currentConflict.contextAfter ? `**Context after:**\n\`\`\`\n${currentConflict.contextAfter}\n\`\`\`\n` : ""}
+${currentConflict.contextBefore ? `**Context before:**\n\`\`\`\n${currentConflict.contextBefore}\n\`\`\`\n` : ''}
+${currentConflict.contextAfter ? `**Context after:**\n\`\`\`\n${currentConflict.contextAfter}\n\`\`\`\n` : ''}
 Please help me understand what each version does and recommend which one to keep, or suggest a manual merge if both changes are needed.`;
 
-    navigator.clipboard.writeText(prompt);
-    onToast?.("Copied to clipboard", "success");
+    void navigator.clipboard.writeText(prompt);
+    onToast?.('Copied to clipboard', 'success');
   }, [currentFile, currentConflict, onToast]);
 
   const truncateContent = (content: string): { text: string; truncated: number } => {
-    const lines = content.split("\n");
+    const lines = content.split('\n');
     if (lines.length <= MAX_PREVIEW_LINES) {
       return { text: content, truncated: 0 };
     }
     return {
-      text: lines.slice(0, MAX_PREVIEW_LINES).join("\n"),
+      text: lines.slice(0, MAX_PREVIEW_LINES).join('\n'),
       truncated: lines.length - MAX_PREVIEW_LINES,
     };
   };
@@ -253,7 +253,7 @@ Please help me understand what each version does and recommend which one to keep
         {currentFile.isBinary ? (
           <div className="conflict-binary">
             <p>This is a binary file. You'll need to resolve this conflict manually.</p>
-            <button className="conflict-btn secondary" onClick={handleAbort}>
+            <button className="conflict-btn secondary" onClick={() => void handleAbort()}>
               Abort Merge
             </button>
           </div>
@@ -310,17 +310,17 @@ Please help me understand what each version does and recommend which one to keep
             <div className="conflict-actions">
               <button
                 className="conflict-btn yours"
-                onClick={() => handleResolve("current")}
+                onClick={() => void handleResolve('current')}
                 disabled={isApplying}
               >
-                {isApplying ? "Applying..." : "Keep Yours"}
+                {isApplying ? 'Applying...' : 'Keep Yours'}
               </button>
               <button
                 className="conflict-btn theirs"
-                onClick={() => handleResolve("incoming")}
+                onClick={() => void handleResolve('incoming')}
                 disabled={isApplying}
               >
-                {isApplying ? "Applying..." : "Keep Theirs"}
+                {isApplying ? 'Applying...' : 'Keep Theirs'}
               </button>
             </div>
 
@@ -330,8 +330,8 @@ Please help me understand what each version does and recommend which one to keep
                 <InfoIcon size={16} />
               </span>
               <span>
-                If this is a more complicated conflict and you need both changes,
-                copy the details and ask Claude to help merge them manually.
+                If this is a more complicated conflict and you need both changes, copy the details
+                and ask Claude to help merge them manually.
               </span>
               <button className="conflict-copy-btn" onClick={handleCopyForClaude}>
                 <CopyIcon size={12} />
@@ -345,7 +345,7 @@ Please help me understand what each version does and recommend which one to keep
                 className="conflict-more-toggle"
                 onClick={() => setShowMoreInfo(!showMoreInfo)}
               >
-                <span className={`conflict-toggle-chevron ${showMoreInfo ? "expanded" : ""}`}>
+                <span className={`conflict-toggle-chevron ${showMoreInfo ? 'expanded' : ''}`}>
                   <ChevronIcon size={12} />
                 </span>
                 More information
@@ -363,11 +363,11 @@ Please help me understand what each version does and recommend which one to keep
                   <div className="conflict-diff">
                     <div className="conflict-diff-section">
                       <div className="conflict-diff-label yours">Your version:</div>
-                      <pre>{currentConflict.currentContent || "(empty)"}</pre>
+                      <pre>{currentConflict.currentContent || '(empty)'}</pre>
                     </div>
                     <div className="conflict-diff-section">
                       <div className="conflict-diff-label theirs">Their version:</div>
-                      <pre>{currentConflict.incomingContent || "(empty)"}</pre>
+                      <pre>{currentConflict.incomingContent || '(empty)'}</pre>
                     </div>
                   </div>
 
@@ -387,7 +387,7 @@ Please help me understand what each version does and recommend which one to keep
         <div className="conflict-footer">
           <button
             className="conflict-btn danger-outline"
-            onClick={handleAbort}
+            onClick={() => void handleAbort()}
             disabled={isApplying}
           >
             Abort Merge

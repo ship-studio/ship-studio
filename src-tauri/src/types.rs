@@ -325,10 +325,10 @@ pub struct PublishResult {
 #[derive(Serialize)]
 pub struct BranchStatus {
     pub local_changes: bool,
-    pub staging_ahead: i32,   // Commits local is ahead of staging
-    pub staging_behind: i32,  // Commits local is behind staging
-    pub main_ahead: i32,      // Commits local is ahead of main
-    pub main_behind: i32,     // Commits local is behind main
+    pub staging_ahead: i32,  // Commits local is ahead of staging
+    pub staging_behind: i32, // Commits local is behind staging
+    pub main_ahead: i32,     // Commits local is ahead of main
+    pub main_behind: i32,    // Commits local is behind main
     pub staging_exists: bool,
 }
 
@@ -390,10 +390,10 @@ pub struct PullRequestInfo {
 pub struct ConflictBlock {
     pub line_start: u32,
     pub line_end: u32,
-    pub current_content: String,    // Between <<<<<<< and =======
-    pub incoming_content: String,   // Between ======= and >>>>>>>
-    pub context_before: String,     // 3 lines before conflict
-    pub context_after: String,      // 3 lines after conflict
+    pub current_content: String,  // Between <<<<<<< and =======
+    pub incoming_content: String, // Between ======= and >>>>>>>
+    pub context_before: String,   // 3 lines before conflict
+    pub context_after: String,    // 3 lines after conflict
 }
 
 /// Information about a file with conflicts

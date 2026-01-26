@@ -7,11 +7,11 @@
  * @module components/PublishBranchDropdown
  */
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { ProjectGitHubStatus } from "../lib/github";
-import { ProjectVercelStatus } from "../lib/vercel";
-import { publishBranch, getDeploymentStatus } from "../lib/branches";
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { ProjectGitHubStatus } from '../lib/github';
+import { ProjectVercelStatus } from '../lib/vercel';
+import { publishBranch, getDeploymentStatus } from '../lib/branches';
 import {
   ChevronIcon,
   BranchIcon,
@@ -20,10 +20,10 @@ import {
   ErrorIcon,
   SpinnerIcon,
   VercelIcon,
-} from "./icons";
-import { useClickOutside } from "../hooks/useClickOutside";
-import { logger } from "../lib/logger";
-import { ExponentialPoller } from "../lib/polling";
+} from './icons';
+import { useClickOutside } from '../hooks/useClickOutside';
+import { logger } from '../lib/logger';
+import { ExponentialPoller } from '../lib/polling';
 
 interface PublishBranchDropdownProps {
   /** Current branch name */
@@ -41,23 +41,30 @@ interface PublishBranchDropdownProps {
   /** Callback when modal closes */
   onModalClose?: () => void;
   /** Callback for toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Publishing state (lifted from parent) */
   isPublishing: boolean;
   /** Set publishing state */
   setIsPublishing: (publishing: boolean) => void;
   /** Callback when a publish error occurs */
-  onPublishError?: (error: string, errorType: "push_rejected" | "auth_error" | "merge_conflict" | "generic") => void;
+  onPublishError?: (
+    error: string,
+    errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic'
+  ) => void;
 }
 
 type PublishState =
-  | { status: "idle" }
-  | { status: "publishing" }
-  | { status: "deploying"; startTime: number }
-  | { status: "deployed"; url: string | null; duration: number }
-  | { status: "deploy_error"; duration: number }
-  | { status: "success" }
-  | { status: "error"; message: string; errorType?: "push_rejected" | "auth_error" | "merge_conflict" | "generic" };
+  | { status: 'idle' }
+  | { status: 'publishing' }
+  | { status: 'deploying'; startTime: number }
+  | { status: 'deployed'; url: string | null; duration: number }
+  | { status: 'deploy_error'; duration: number }
+  | { status: 'success' }
+  | {
+      status: 'error';
+      message: string;
+      errorType?: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic';
+    };
 
 export function PublishBranchDropdown({
   currentBranch,
@@ -73,16 +80,17 @@ export function PublishBranchDropdown({
   onPublishError,
 }: PublishBranchDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [publishState, setPublishState] = useState<PublishState>({ status: "idle" });
+  const [publishState, setPublishState] = useState<PublishState>({ status: 'idle' });
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasShownToastRef = useRef(false);
 
-  const hasGitHubRepo = projectGithubStatus?.status === "connected" && projectGithubStatus?.github_repo;
-  const hasVercel = projectVercelStatus?.status === "connected";
-  const isMainBranch = currentBranch === "main" || currentBranch === "master";
+  const hasGitHubRepo =
+    projectGithubStatus?.status === 'connected' && projectGithubStatus?.github_repo;
+  const hasVercel = projectVercelStatus?.status === 'connected';
+  const isMainBranch = currentBranch === 'main' || currentBranch === 'master';
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -94,10 +102,10 @@ export function PublishBranchDropdown({
 
   // Poll deployment status when in deploying state (with exponential backoff)
   useEffect(() => {
-    if (publishState.status !== "deploying" || !hasVercel) return;
+    if (publishState.status !== 'deploying' || !hasVercel) return;
 
     const startTime = publishState.startTime;
-    logger.info("Starting deployment polling", { projectPath, startTime });
+    logger.info('Starting deployment polling', { projectPath, startTime });
 
     // Update elapsed time every second
     timerRef.current = setInterval(() => {
@@ -110,8 +118,8 @@ export function PublishBranchDropdown({
         // Timeout after 5 minutes - give up and show success without URL
         const elapsed = Date.now() - startTime;
         if (elapsed > 5 * 60 * 1000) {
-          logger.warn("Deployment polling timeout", { elapsed });
-          throw new Error("TIMEOUT");
+          logger.warn('Deployment polling timeout', { elapsed });
+          throw new Error('TIMEOUT');
         }
 
         // Pass startTime to filter out deployments created before our push
@@ -120,9 +128,9 @@ export function PublishBranchDropdown({
       },
       (result) => {
         if (result.error) {
-          if (result.error.message === "TIMEOUT") {
+          if (result.error.message === 'TIMEOUT') {
             const duration = Math.floor((Date.now() - startTime) / 1000);
-            setPublishState({ status: "deployed", url: null, duration });
+            setPublishState({ status: 'deployed', url: null, duration });
             poller.stop();
             if (timerRef.current) clearInterval(timerRef.current);
           }
@@ -131,46 +139,48 @@ export function PublishBranchDropdown({
         }
 
         const status = result.data;
-        logger.debug("Deployment status poll", { status, attempt: result.attempt });
+        logger.debug('Deployment status poll', { status, attempt: result.attempt });
 
         if (status) {
           // Only treat as READY if we have a URL (confirms it's the new deployment)
-          if (status.state === "READY" && status.url) {
-            logger.info("Deployment ready", { url: status.url });
+          if (status.state === 'READY' && status.url) {
+            logger.info('Deployment ready', { url: status.url });
             const duration = Math.floor((Date.now() - startTime) / 1000);
-            setPublishState({ status: "deployed", url: status.url, duration });
+            setPublishState({ status: 'deployed', url: status.url, duration });
             poller.stop();
             if (timerRef.current) clearInterval(timerRef.current);
             // Prevent duplicate toasts from race condition
             if (!hasShownToastRef.current) {
               hasShownToastRef.current = true;
-              onToast?.(`Deployed in ${duration}s`, "success");
+              onToast?.(`Deployed in ${duration}s`, 'success');
             }
-          } else if (status.state === "ERROR" || status.state === "CANCELED") {
-            logger.error("Deployment failed", { state: status.state });
+          } else if (status.state === 'ERROR' || status.state === 'CANCELED') {
+            logger.error('Deployment failed', { state: status.state });
             const duration = Math.floor((Date.now() - startTime) / 1000);
-            setPublishState({ status: "deploy_error", duration });
+            setPublishState({ status: 'deploy_error', duration });
             poller.stop();
             if (timerRef.current) clearInterval(timerRef.current);
             // Prevent duplicate toasts from race condition
             if (!hasShownToastRef.current) {
               hasShownToastRef.current = true;
-              onToast?.("Deployment failed", "error");
+              onToast?.('Deployment failed', 'error');
             }
           }
         }
       },
       {
-        initialInterval: 2000,   // Start checking every 2s
-        maxInterval: 15000,      // Back off to 15s max
-        multiplier: 1.5,         // Gradual backoff
-        jitter: true,            // Prevent thundering herd
-        name: "deployment-status",
+        initialInterval: 2000, // Start checking every 2s
+        maxInterval: 15000, // Back off to 15s max
+        multiplier: 1.5, // Gradual backoff
+        jitter: true, // Prevent thundering herd
+        name: 'deployment-status',
       }
     );
 
     // Store reference for cleanup
-    pollingRef.current = { clear: () => poller.stop() } as unknown as ReturnType<typeof setInterval>;
+    pollingRef.current = { clear: () => poller.stop() } as unknown as ReturnType<
+      typeof setInterval
+    >;
     poller.start();
 
     return () => {
@@ -196,61 +206,58 @@ export function PublishBranchDropdown({
     }
     // For feature branches, Vercel creates preview URLs
     // Format: project-branch-name.vercel.app
-    const projectName = projectVercelStatus.project_name || projectGithubStatus?.github_repo?.split("/")[1];
+    const projectName =
+      projectVercelStatus.project_name || projectGithubStatus?.github_repo?.split('/')[1];
     if (projectName) {
-      const branchSlug = currentBranch.replace(/[^a-zA-Z0-9]/g, "-").toLowerCase();
+      const branchSlug = currentBranch.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
       return `https://${projectName}-git-${branchSlug}.vercel.app`;
     }
     return null;
   };
 
   const handlePublish = async () => {
-    logger.info("Starting publish", { branch: currentBranch, isMainBranch, projectPath });
+    logger.info('Starting publish', { branch: currentBranch, isMainBranch, projectPath });
     setIsPublishing(true);
-    setPublishState({ status: "publishing" });
+    setPublishState({ status: 'publishing' });
 
     try {
       const result = await publishBranch(projectPath);
 
       // Check for specific error types
-      if (result.state === "ERROR") {
-        throw new Error("Failed to publish branch");
+      if (result.state === 'ERROR') {
+        throw new Error('Failed to publish branch');
       }
 
-      logger.info("Publish succeeded", { branch: currentBranch });
-      onToast?.(
-        isMainBranch ? "Pushed to GitHub!" : "Changes synced to GitHub!",
-        "success"
-      );
+      logger.info('Publish succeeded', { branch: currentBranch });
+      onToast?.(isMainBranch ? 'Pushed to GitHub!' : 'Changes synced to GitHub!', 'success');
       onStatusChange();
 
       // If Vercel is connected, start tracking deployment
       if (hasVercel) {
-        logger.debug("Starting Vercel deployment tracking");
+        logger.debug('Starting Vercel deployment tracking');
         // Give Vercel a moment to register the deployment
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
         setElapsedSeconds(0);
         hasShownToastRef.current = false; // Reset for new deployment
-        setPublishState({ status: "deploying", startTime: Date.now() });
+        setPublishState({ status: 'deploying', startTime: Date.now() });
       } else {
-        setPublishState({ status: "success" });
+        setPublishState({ status: 'success' });
       }
-
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      let errorType: "push_rejected" | "auth_error" | "merge_conflict" | "generic" = "generic";
+      let errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic' = 'generic';
 
-      if (message.includes("MERGE_CONFLICT")) {
-        errorType = "merge_conflict";
-      } else if (message.includes("PUSH_REJECTED")) {
-        errorType = "push_rejected";
-      } else if (message.includes("AUTH_ERROR")) {
-        errorType = "auth_error";
+      if (message.includes('MERGE_CONFLICT')) {
+        errorType = 'merge_conflict';
+      } else if (message.includes('PUSH_REJECTED')) {
+        errorType = 'push_rejected';
+      } else if (message.includes('AUTH_ERROR')) {
+        errorType = 'auth_error';
       }
 
-      logger.error("Publish failed", { branch: currentBranch, errorType, message });
-      setPublishState({ status: "error", message, errorType });
-      onToast?.(isMainBranch ? "Publish failed" : "Sync failed", "error");
+      logger.error('Publish failed', { branch: currentBranch, errorType, message });
+      setPublishState({ status: 'error', message, errorType });
+      onToast?.(isMainBranch ? 'Publish failed' : 'Sync failed', 'error');
 
       // Notify parent about the error for GitErrorHandler
       if (onPublishError) {
@@ -263,16 +270,17 @@ export function PublishBranchDropdown({
 
   const handleDone = () => {
     setIsOpen(false);
-    setPublishState({ status: "idle" });
+    setPublishState({ status: 'idle' });
     onModalClose?.();
   };
 
   // Vercel URLs
   const vercelOrg = projectVercelStatus?.vercel_org;
   const vercelProjectName = projectVercelStatus?.project_name;
-  const vercelDashboardUrl = vercelOrg && vercelProjectName
-    ? `https://vercel.com/${vercelOrg}/${vercelProjectName}/deployments`
-    : null;
+  const vercelDashboardUrl =
+    vercelOrg && vercelProjectName
+      ? `https://vercel.com/${vercelOrg}/${vercelProjectName}/deployments`
+      : null;
   const previewUrl = getPreviewUrl();
 
   // If no GitHub repo, show disabled state
@@ -292,28 +300,32 @@ export function PublishBranchDropdown({
   }
 
   // Disable sync button when there are no changes to sync
-  const canSync = hasChangesToSync || isPublishing || publishState.status !== "idle";
+  const canSync = hasChangesToSync || isPublishing || publishState.status !== 'idle';
 
   return (
     <div className="publish-dropdown" ref={dropdownRef}>
       <button
-        className={`publish-button ${isPublishing ? "publishing" : ""} ${!canSync ? "synced" : ""}`}
+        className={`publish-button ${isPublishing ? 'publishing' : ''} ${!canSync ? 'synced' : ''}`}
         onClick={() => canSync && setIsOpen(!isOpen)}
         disabled={!canSync}
-        title={!canSync ? "Already synced" : undefined}
+        title={!canSync ? 'Already synced' : undefined}
       >
         {isPublishing
-          ? (isMainBranch ? "Publishing..." : "Syncing...")
+          ? isMainBranch
+            ? 'Publishing...'
+            : 'Syncing...'
           : !canSync
-          ? "Synced"
-          : (isMainBranch ? "Publish" : "Sync")}
+            ? 'Synced'
+            : isMainBranch
+              ? 'Publish'
+              : 'Sync'}
         <ChevronIcon />
       </button>
 
       {isOpen && (
         <div className="publish-dropdown-menu">
           {/* Deploying State - Vercel build in progress */}
-          {publishState.status === "deploying" && (
+          {publishState.status === 'deploying' && (
             <>
               <div className="publish-deploying">
                 <SpinnerIcon />
@@ -321,7 +333,8 @@ export function PublishBranchDropdown({
                 <span className="publish-elapsed">{elapsedSeconds}s</span>
               </div>
               <div className="publish-deploying-message">
-                Your changes were pushed to GitHub.<br />
+                Your changes were pushed to GitHub.
+                <br />
                 Waiting for Vercel build to complete.
               </div>
               <div className="publish-actions publish-actions-center">
@@ -333,7 +346,7 @@ export function PublishBranchDropdown({
           )}
 
           {/* Deployed State - Vercel build complete */}
-          {publishState.status === "deployed" && (
+          {publishState.status === 'deployed' && (
             <>
               <div className="publish-success">
                 <SuccessIcon />
@@ -341,20 +354,20 @@ export function PublishBranchDropdown({
                 <span className="publish-elapsed">{publishState.duration}s</span>
               </div>
               <div className="publish-deployed-message">
-                Your changes are live.{" "}
-                {!isMainBranch && "Keep working, or create a pull request when ready."}
+                Your changes are live.{' '}
+                {!isMainBranch && 'Keep working, or create a pull request when ready.'}
               </div>
               {publishState.url && (
                 <div className="publish-deployed-url">
                   <span className="publish-url-text">
-                    {publishState.url.replace("https://", "")}
+                    {publishState.url.replace('https://', '')}
                   </span>
                   <div className="publish-url-actions">
                     <button
                       className="publish-url-btn"
                       onClick={() => {
-                        navigator.clipboard.writeText(publishState.url!);
-                        onToast?.("URL copied", "success");
+                        void navigator.clipboard.writeText(publishState.url!);
+                        onToast?.('URL copied', 'success');
                       }}
                       title="Copy URL"
                     >
@@ -362,7 +375,7 @@ export function PublishBranchDropdown({
                     </button>
                     <button
                       className="publish-url-btn"
-                      onClick={() => openUrl(publishState.url!)}
+                      onClick={() => void openUrl(publishState.url!)}
                       title="Open in browser"
                     >
                       Open
@@ -379,7 +392,7 @@ export function PublishBranchDropdown({
           )}
 
           {/* Deploy Error State */}
-          {publishState.status === "deploy_error" && (
+          {publishState.status === 'deploy_error' && (
             <>
               <div className="publish-error-header">
                 <ErrorIcon />
@@ -393,7 +406,7 @@ export function PublishBranchDropdown({
                 <div className="publish-success-vercel">
                   <button
                     className="publish-vercel-button"
-                    onClick={() => openUrl(vercelDashboardUrl)}
+                    onClick={() => void openUrl(vercelDashboardUrl)}
                   >
                     <VercelIcon />
                     View Build Logs
@@ -410,13 +423,11 @@ export function PublishBranchDropdown({
           )}
 
           {/* Success State (no Vercel) */}
-          {publishState.status === "success" && (
+          {publishState.status === 'success' && (
             <>
               <div className="publish-success">
                 <SuccessIcon />
-                <span>
-                  {isMainBranch ? "Published to production" : "Changes synced"}
-                </span>
+                <span>{isMainBranch ? 'Published to production' : 'Changes synced'}</span>
               </div>
               <div className="publish-actions publish-actions-center">
                 <button className="publish-done" onClick={handleDone}>
@@ -427,17 +438,17 @@ export function PublishBranchDropdown({
           )}
 
           {/* Error State */}
-          {publishState.status === "error" && (
+          {publishState.status === 'error' && (
             <>
               <div className="publish-error-header">
                 <ErrorIcon />
-                <span>{isMainBranch ? "Failed to publish" : "Failed to sync"}</span>
+                <span>{isMainBranch ? 'Failed to publish' : 'Failed to sync'}</span>
               </div>
               <div className="publish-error-message">
-                {publishState.errorType === "push_rejected"
-                  ? "Push was rejected. Someone else pushed changes to this branch."
-                  : publishState.errorType === "auth_error"
-                    ? "Authentication failed. Please check your GitHub connection."
+                {publishState.errorType === 'push_rejected'
+                  ? 'Push was rejected. Someone else pushed changes to this branch.'
+                  : publishState.errorType === 'auth_error'
+                    ? 'Authentication failed. Please check your GitHub connection.'
                     : publishState.message}
               </div>
               <div className="publish-actions">
@@ -446,7 +457,7 @@ export function PublishBranchDropdown({
                 </button>
                 <button
                   className="publish-submit"
-                  onClick={() => setPublishState({ status: "idle" })}
+                  onClick={() => setPublishState({ status: 'idle' })}
                 >
                   Try Again
                 </button>
@@ -455,13 +466,11 @@ export function PublishBranchDropdown({
           )}
 
           {/* Publishing State */}
-          {publishState.status === "publishing" && (
+          {publishState.status === 'publishing' && (
             <>
               <div className="publish-in-progress-header">
                 <SpinnerIcon />
-                <span>
-                  {isMainBranch ? "Publishing to production..." : "Syncing changes..."}
-                </span>
+                <span>{isMainBranch ? 'Publishing to production...' : 'Syncing changes...'}</span>
               </div>
               <div className="publish-actions">
                 <button className="publish-close" onClick={() => setIsOpen(false)}>
@@ -472,10 +481,10 @@ export function PublishBranchDropdown({
           )}
 
           {/* Idle State */}
-          {publishState.status === "idle" && (
+          {publishState.status === 'idle' && (
             <>
               <div className="publish-branch-header">
-                <h3>{isMainBranch ? "Publish to Production" : "Sync your changes"}</h3>
+                <h3>{isMainBranch ? 'Publish to Production' : 'Sync your changes'}</h3>
               </div>
 
               <div className="publish-branch-body">
@@ -500,7 +509,9 @@ export function PublishBranchDropdown({
                 {hasVercel && previewUrl && !isMainBranch && (
                   <div className="publish-branch-url">
                     <div className="publish-branch-url-label">Preview URL:</div>
-                    <div className="publish-branch-url-value">{previewUrl.replace("https://", "")}</div>
+                    <div className="publish-branch-url-value">
+                      {previewUrl.replace('https://', '')}
+                    </div>
                   </div>
                 )}
               </div>
@@ -511,10 +522,10 @@ export function PublishBranchDropdown({
                 </button>
                 <button
                   className="publish-submit"
-                  onClick={handlePublish}
+                  onClick={() => void handlePublish()}
                   disabled={isPublishing}
                 >
-                  {isMainBranch ? "Go Live" : "Sync"}
+                  {isMainBranch ? 'Go Live' : 'Sync'}
                 </button>
               </div>
             </>

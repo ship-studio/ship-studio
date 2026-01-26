@@ -8,8 +8,8 @@
  * @module components/ProjectCard
  */
 
-import { DashboardProject } from "../lib/project";
-import { BranchIcon, ExternalLinkIcon, CodeIcon } from "./icons";
+import { DashboardProject } from '../lib/project';
+import { BranchIcon, ExternalLinkIcon, CodeIcon } from './icons';
 
 /** Props for the ProjectCard component */
 interface ProjectCardProps {
@@ -45,7 +45,7 @@ export function ProjectCard({
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+          if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             onSelect();
           }
@@ -99,25 +99,17 @@ export function ProjectCard({
               </span>
             )}
             {hasChanges && (
-              <span className="project-card-changes">
-                {project.uncommitted_count} uncommitted
-              </span>
+              <span className="project-card-changes">{project.uncommitted_count} uncommitted</span>
             )}
           </div>
           <div className="project-card-deployment">
             {project.deployment_state ? (
               <>
-                <span
-                  className={`status-dot status-${project.deployment_state.toLowerCase()}`}
-                />
+                <span className={`status-dot status-${project.deployment_state.toLowerCase()}`} />
                 {project.production_url ? (
-                  <span className="project-card-url">
-                    {formatUrl(project.production_url)}
-                  </span>
+                  <span className="project-card-url">{formatUrl(project.production_url)}</span>
                 ) : (
-                  <span className="project-card-deploy-time">
-                    {project.last_deployed}
-                  </span>
+                  <span className="project-card-deploy-time">{project.last_deployed}</span>
                 )}
               </>
             ) : (
@@ -141,5 +133,5 @@ export function ProjectCard({
 }
 
 function formatUrl(url: string): string {
-  return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 }

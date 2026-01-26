@@ -14,7 +14,7 @@
  * @module components/BranchesTab
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect } from 'react';
 import {
   BranchInfo,
   switchBranch,
@@ -22,10 +22,10 @@ import {
   createBranch,
   discardChanges,
   formatRelativeTime,
-} from "../lib/branches";
-import { invoke } from "@tauri-apps/api/core";
-import { BranchIcon, PlusIcon } from "./icons";
-import { UnsavedChangesModal } from "./UnsavedChangesModal";
+} from '../lib/branches';
+import { invoke } from '@tauri-apps/api/core';
+import { BranchIcon, PlusIcon } from './icons';
+import { UnsavedChangesModal } from './UnsavedChangesModal';
 
 interface BranchesTabProps {
   /** List of all branches */
@@ -43,7 +43,7 @@ interface BranchesTabProps {
   /** Callback to refresh branch list */
   onRefresh: () => void;
   /** Callback for toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 export function BranchesTab({
@@ -65,13 +65,13 @@ export function BranchesTab({
 
   // New branch creation state
   const [showNewBranch, setShowNewBranch] = useState(false);
-  const [newBranchName, setNewBranchName] = useState("");
+  const [newBranchName, setNewBranchName] = useState('');
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [prefixUsername, setPrefixUsername] = useState(true);
 
   // Load prefix preference on mount
   useEffect(() => {
-    invoke<boolean>("get_branch_prefix_preference", { projectPath })
+    void invoke<boolean>('get_branch_prefix_preference', { projectPath })
       .then(setPrefixUsername)
       .catch(() => {}); // Ignore errors, default to true
   }, [projectPath]);
@@ -79,20 +79,25 @@ export function BranchesTab({
   // Save prefix preference when changed
   const handlePrefixChange = (checked: boolean) => {
     setPrefixUsername(checked);
-    invoke("set_branch_prefix_preference", { projectPath, prefix: checked })
-      .catch(() => {}); // Ignore errors
+    void invoke('set_branch_prefix_preference', { projectPath, prefix: checked }).catch(() => {}); // Ignore errors
   };
 
   // Group branches
-  const currentBranchInfo = branches.find(b => b.isCurrent);
+  const currentBranchInfo = branches.find((b) => b.isCurrent);
   const userBranches = githubUsername
-    ? branches.filter(b => !b.isCurrent && !b.isDefault && b.name !== "staging" && b.name.startsWith(`${githubUsername}/`))
+    ? branches.filter(
+        (b) =>
+          !b.isCurrent &&
+          !b.isDefault &&
+          b.name !== 'staging' &&
+          b.name.startsWith(`${githubUsername}/`)
+      )
     : [];
   const teamBranches = branches.filter(
-    b => !b.isCurrent && !b.isDefault && b.name !== "staging" && !userBranches.includes(b)
+    (b) => !b.isCurrent && !b.isDefault && b.name !== 'staging' && !userBranches.includes(b)
   );
   const mainBranches = branches.filter(
-    b => !b.isCurrent && (b.isDefault || b.name === "staging")
+    (b) => !b.isCurrent && (b.isDefault || b.name === 'staging')
   );
 
   const handleSwitch = async (branchName: string) => {
@@ -102,15 +107,15 @@ export function BranchesTab({
       const result = await switchBranch(projectPath, branchName, false);
       if (result.success) {
         onBranchSwitch(branchName);
-        onToast?.(`Switched to ${branchName}`, "success");
-      } else if (result.error?.includes("Uncommitted changes")) {
+        onToast?.(`Switched to ${branchName}`, 'success');
+      } else if (result.error?.includes('Uncommitted changes')) {
         // Show the unsaved changes modal
         setPendingSwitch(branchName);
       } else {
-        onToast?.(result.error || "Failed to switch branch", "error");
+        onToast?.(result.error || 'Failed to switch branch', 'error');
       }
     } catch (e) {
-      onToast?.(`Failed to switch: ${e}`, "error");
+      onToast?.(`Failed to switch: ${String(e)}`, 'error');
     } finally {
       setSwitchingBranch(null);
     }
@@ -124,10 +129,10 @@ export function BranchesTab({
 
     try {
       await deleteBranch(projectPath, branchName, true);
-      onToast?.(`Deleted ${branchName}`, "success");
+      onToast?.(`Deleted ${branchName}`, 'success');
       onRefresh();
     } catch (e) {
-      onToast?.(`Failed to delete: ${e}`, "error");
+      onToast?.(`Failed to delete: ${String(e)}`, 'error');
     } finally {
       setDeletingBranch(null);
       setBranchToDelete(null);
@@ -142,12 +147,12 @@ export function BranchesTab({
       await discardChanges(projectPath);
 
       // Pull latest from remote
-      await invoke("git_pull", { projectPath });
+      await invoke('git_pull', { projectPath });
 
-      onToast?.(`Reverted to GitHub version`, "success");
+      onToast?.(`Reverted to GitHub version`, 'success');
       onRefresh();
     } catch (e) {
-      onToast?.(`Failed to revert: ${e}`, "error");
+      onToast?.(`Failed to revert: ${String(e)}`, 'error');
     } finally {
       setIsReverting(false);
     }
@@ -165,21 +170,21 @@ export function BranchesTab({
       }
 
       // Create from main by default
-      const baseBranch = branches.find(b => b.isDefault)?.name || "main";
+      const baseBranch = branches.find((b) => b.isDefault)?.name || 'main';
       await createBranch(projectPath, branchName, baseBranch);
 
       // Switch to the new branch
       const result = await switchBranch(projectPath, branchName, false);
       if (result.success) {
         onBranchSwitch(branchName);
-        onToast?.(`Created and switched to ${branchName}`, "success");
+        onToast?.(`Created and switched to ${branchName}`, 'success');
       }
 
-      setNewBranchName("");
+      setNewBranchName('');
       setShowNewBranch(false);
       onRefresh();
     } catch (e) {
-      onToast?.(`Failed to create branch: ${e}`, "error");
+      onToast?.(`Failed to create branch: ${String(e)}`, 'error');
     } finally {
       setIsCreatingBranch(false);
     }
@@ -201,11 +206,13 @@ export function BranchesTab({
               </div>
               <div className="branch-card-meta">
                 {formatRelativeTime(currentBranchInfo.lastCommitDate)}
-                {(currentBranchInfo.isDefault || currentBranchInfo.aheadOfMain > 0) && currentBranchInfo.lastCommitAuthor && ` · ${currentBranchInfo.lastCommitAuthor}`}
+                {(currentBranchInfo.isDefault || currentBranchInfo.aheadOfMain > 0) &&
+                  currentBranchInfo.lastCommitAuthor &&
+                  ` · ${currentBranchInfo.lastCommitAuthor}`}
               </div>
             </div>
             <div className="branch-card-actions">
-              {!currentBranchInfo.isDefault && currentBranchInfo.name !== "staging" && (
+              {!currentBranchInfo.isDefault && currentBranchInfo.name !== 'staging' && (
                 <button
                   className="branch-card-action primary"
                   onClick={() => onSubmitForReview(currentBranchInfo.name)}
@@ -219,7 +226,7 @@ export function BranchesTab({
                 disabled={isReverting}
                 title="Discard local changes and pull from GitHub"
               >
-                {isReverting ? "Reverting..." : "Revert to GitHub"}
+                {isReverting ? 'Reverting...' : 'Revert to GitHub'}
               </button>
             </div>
           </div>
@@ -229,10 +236,7 @@ export function BranchesTab({
       {/* New Branch */}
       <div className="branches-tab-section">
         {!showNewBranch ? (
-          <button
-            className="branches-new-branch-btn"
-            onClick={() => setShowNewBranch(true)}
-          >
+          <button className="branches-new-branch-btn" onClick={() => setShowNewBranch(true)}>
             <PlusIcon size={14} />
             New Branch
           </button>
@@ -249,10 +253,10 @@ export function BranchesTab({
                 value={newBranchName}
                 onChange={(e) => setNewBranchName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateBranch();
-                  if (e.key === "Escape") {
+                  if (e.key === 'Enter') void handleCreateBranch();
+                  if (e.key === 'Escape') {
                     setShowNewBranch(false);
-                    setNewBranchName("");
+                    setNewBranchName('');
                   }
                 }}
                 autoFocus
@@ -278,17 +282,17 @@ export function BranchesTab({
                   className="branch-card-action"
                   onClick={() => {
                     setShowNewBranch(false);
-                    setNewBranchName("");
+                    setNewBranchName('');
                   }}
                 >
                   Cancel
                 </button>
                 <button
                   className="branch-card-action primary"
-                  onClick={handleCreateBranch}
+                  onClick={() => void handleCreateBranch()}
                   disabled={!newBranchName.trim() || isCreatingBranch}
                 >
-                  {isCreatingBranch ? "Creating..." : "Create"}
+                  {isCreatingBranch ? 'Creating...' : 'Create'}
                 </button>
               </div>
             </div>
@@ -300,12 +304,12 @@ export function BranchesTab({
       {userBranches.length > 0 && (
         <div className="branches-tab-section">
           <div className="branches-tab-section-header">Your Branches</div>
-          {userBranches.map(branch => (
+          {userBranches.map((branch) => (
             <BranchCard
               key={branch.name}
               branch={branch}
               isCurrent={false}
-              onSwitch={() => handleSwitch(branch.name)}
+              onSwitch={() => void handleSwitch(branch.name)}
               onDelete={() => setBranchToDelete(branch.name)}
               onSubmitForReview={() => onSubmitForReview(branch.name)}
               isSwitching={switchingBranch === branch.name}
@@ -321,12 +325,12 @@ export function BranchesTab({
       {teamBranches.length > 0 && (
         <div className="branches-tab-section">
           <div className="branches-tab-section-header">Team Branches</div>
-          {teamBranches.map(branch => (
+          {teamBranches.map((branch) => (
             <BranchCard
               key={branch.name}
               branch={branch}
               isCurrent={false}
-              onSwitch={() => handleSwitch(branch.name)}
+              onSwitch={() => void handleSwitch(branch.name)}
               onDelete={() => {}}
               onSubmitForReview={() => {}}
               isSwitching={switchingBranch === branch.name}
@@ -342,12 +346,12 @@ export function BranchesTab({
       {mainBranches.length > 0 && (
         <div className="branches-tab-section">
           <div className="branches-tab-section-header">Main Branches</div>
-          {mainBranches.map(branch => (
+          {mainBranches.map((branch) => (
             <BranchCard
               key={branch.name}
               branch={branch}
               isCurrent={false}
-              onSwitch={() => handleSwitch(branch.name)}
+              onSwitch={() => void handleSwitch(branch.name)}
               onDelete={() => {}}
               onSubmitForReview={() => {}}
               isSwitching={switchingBranch === branch.name}
@@ -361,15 +365,18 @@ export function BranchesTab({
 
       {/* Delete confirmation modal */}
       {branchToDelete && (
-        <div className="post-merge-modal" onClick={() => !deletingBranch && setBranchToDelete(null)}>
+        <div
+          className="post-merge-modal"
+          onClick={() => !deletingBranch && setBranchToDelete(null)}
+        >
           <div className="post-merge-content" onClick={(e) => e.stopPropagation()}>
             <div className="post-merge-header">
               <h3>Delete Branch?</h3>
             </div>
             <div className="post-merge-body">
               <p>
-                Are you sure you want to delete <strong>{branchToDelete}</strong>?
-                This action cannot be undone.
+                Are you sure you want to delete <strong>{branchToDelete}</strong>? This action
+                cannot be undone.
               </p>
             </div>
             <div className="post-merge-footer">
@@ -382,10 +389,10 @@ export function BranchesTab({
               </button>
               <button
                 className="post-merge-btn danger"
-                onClick={handleDeleteConfirm}
+                onClick={() => void handleDeleteConfirm()}
                 disabled={!!deletingBranch}
               >
-                {deletingBranch ? "Deleting..." : "Delete"}
+                {deletingBranch ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>
@@ -394,15 +401,18 @@ export function BranchesTab({
 
       {/* Revert confirmation modal */}
       {showRevertConfirm && (
-        <div className="post-merge-modal" onClick={() => !isReverting && setShowRevertConfirm(false)}>
+        <div
+          className="post-merge-modal"
+          onClick={() => !isReverting && setShowRevertConfirm(false)}
+        >
           <div className="post-merge-content" onClick={(e) => e.stopPropagation()}>
             <div className="post-merge-header">
               <h3>Revert to GitHub?</h3>
             </div>
             <div className="post-merge-body">
               <p>
-                This will discard all local changes on <strong>{currentBranch}</strong> and pull the latest version from GitHub.
-                This action cannot be undone.
+                This will discard all local changes on <strong>{currentBranch}</strong> and pull the
+                latest version from GitHub. This action cannot be undone.
               </p>
             </div>
             <div className="post-merge-footer">
@@ -415,10 +425,10 @@ export function BranchesTab({
               </button>
               <button
                 className="post-merge-btn danger"
-                onClick={handleRevertToGitHub}
+                onClick={() => void handleRevertToGitHub()}
                 disabled={isReverting}
               >
-                {isReverting ? "Reverting..." : "Revert"}
+                {isReverting ? 'Reverting...' : 'Revert'}
               </button>
             </div>
           </div>
@@ -467,7 +477,7 @@ function BranchCard({
   showSubmitForReview = false,
 }: BranchCardProps) {
   return (
-    <div className={`branch-card ${isCurrent ? "current" : ""}`}>
+    <div className={`branch-card ${isCurrent ? 'current' : ''}`}>
       <div className="branch-card-info">
         <div className="branch-card-name">
           <BranchIcon size={14} />
@@ -477,7 +487,9 @@ function BranchCard({
         </div>
         <div className="branch-card-meta">
           {formatRelativeTime(branch.lastCommitDate)}
-          {(branch.isDefault || branch.aheadOfMain > 0) && branch.lastCommitAuthor && ` · ${branch.lastCommitAuthor}`}
+          {(branch.isDefault || branch.aheadOfMain > 0) &&
+            branch.lastCommitAuthor &&
+            ` · ${branch.lastCommitAuthor}`}
         </div>
         {!branch.isDefault && (branch.aheadOfMain > 0 || branch.behindOfMain > 0) && (
           <div className="branch-card-status">
@@ -493,29 +505,18 @@ function BranchCard({
 
       <div className="branch-card-actions">
         {isCurrent && showSubmitForReview && (
-          <button
-            className="branch-card-action primary"
-            onClick={onSubmitForReview}
-          >
+          <button className="branch-card-action primary" onClick={onSubmitForReview}>
             Submit for Review
           </button>
         )}
         {!isCurrent && (
-          <button
-            className="branch-card-action"
-            onClick={onSwitch}
-            disabled={isSwitching}
-          >
-            {isSwitching ? "Switching..." : "Switch"}
+          <button className="branch-card-action" onClick={onSwitch} disabled={isSwitching}>
+            {isSwitching ? 'Switching...' : 'Switch'}
           </button>
         )}
         {showDelete && (
-          <button
-            className="branch-card-action danger"
-            onClick={onDelete}
-            disabled={isDeleting}
-          >
-            {isDeleting ? "Deleting..." : "Delete"}
+          <button className="branch-card-action danger" onClick={onDelete} disabled={isDeleting}>
+            {isDeleting ? 'Deleting...' : 'Delete'}
           </button>
         )}
       </div>

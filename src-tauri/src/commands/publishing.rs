@@ -2,15 +2,18 @@
 //!
 //! Commands for publishing to GitHub, staging, and production.
 
-use std::process::Command;
-use tracing::{debug, error, info, instrument, warn};
+use crate::commands::git::git_stage_and_commit;
 use crate::types::PublishResult;
 use crate::utils::validate_project_path;
-use crate::commands::git::git_stage_and_commit;
+use std::process::Command;
+use tracing::{debug, error, info, instrument, warn};
 
 #[tauri::command]
 #[instrument(name = "publish_to_github", skip(project_path, commit_message), fields(project = %project_path))]
-pub async fn publish_to_github(project_path: String, commit_message: Option<String>) -> Result<(), String> {
+pub async fn publish_to_github(
+    project_path: String,
+    commit_message: Option<String>,
+) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
     info!(message = %message, "Publishing to GitHub");
@@ -22,8 +25,14 @@ pub async fn publish_to_github(project_path: String, commit_message: Option<Stri
         .output()
         .map_err(|e| e.to_string())?;
 
-    let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
-    let branch = if branch.is_empty() { "main".to_string() } else { branch };
+    let branch = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
+    let branch = if branch.is_empty() {
+        "main".to_string()
+    } else {
+        branch
+    };
 
     // Pull latest changes first (rebase to keep history clean)
     let pull_output = Command::new("git")
@@ -107,7 +116,10 @@ pub async fn publish_to_github(project_path: String, commit_message: Option<Stri
 
 #[tauri::command]
 #[instrument(name = "publish_to_staging", skip(project_path, commit_message), fields(project = %project_path))]
-pub async fn publish_to_staging(project_path: String, commit_message: Option<String>) -> Result<PublishResult, String> {
+pub async fn publish_to_staging(
+    project_path: String,
+    commit_message: Option<String>,
+) -> Result<PublishResult, String> {
     let validated_path = validate_project_path(&project_path)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
     info!(message = %message, "Publishing to staging");
@@ -144,7 +156,10 @@ pub async fn publish_to_staging(project_path: String, commit_message: Option<Str
 
 #[tauri::command]
 #[instrument(name = "publish_to_production", skip(project_path, commit_message), fields(project = %project_path))]
-pub async fn publish_to_production(project_path: String, commit_message: Option<String>) -> Result<PublishResult, String> {
+pub async fn publish_to_production(
+    project_path: String,
+    commit_message: Option<String>,
+) -> Result<PublishResult, String> {
     let validated_path = validate_project_path(&project_path)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
     info!(message = %message, "Publishing to production");
@@ -177,7 +192,10 @@ pub async fn publish_to_production(project_path: String, commit_message: Option<
 /// Publish (push) the current branch to origin
 #[tauri::command]
 #[instrument(name = "publish_branch", skip(project_path, commit_message), fields(project = %project_path))]
-pub async fn publish_branch(project_path: String, commit_message: Option<String>) -> Result<PublishResult, String> {
+pub async fn publish_branch(
+    project_path: String,
+    commit_message: Option<String>,
+) -> Result<PublishResult, String> {
     let validated_path = validate_project_path(&project_path)?;
     let message = commit_message.unwrap_or_else(|| "Updates from Ship Studio".to_string());
 
@@ -188,7 +206,9 @@ pub async fn publish_branch(project_path: String, commit_message: Option<String>
         .output()
         .map_err(|e| e.to_string())?;
 
-    let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+    let branch = String::from_utf8_lossy(&branch_output.stdout)
+        .trim()
+        .to_string();
     info!(branch = %branch, message = %message, "Publishing branch");
 
     // Stage all changes

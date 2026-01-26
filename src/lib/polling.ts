@@ -5,8 +5,8 @@
  * and better handling of failures.
  */
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { logger } from "./logger";
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { logger } from './logger';
 
 export interface PollingOptions {
   /** Starting interval in milliseconds */
@@ -51,7 +51,7 @@ export class ExponentialPoller<T> {
       multiplier: 2,
       resetOnSuccess: true,
       jitter: false,
-      name: "poller",
+      name: 'poller',
       maxRetries: Infinity,
       ...options,
     };
@@ -67,7 +67,7 @@ export class ExponentialPoller<T> {
     logger.debug(`${this.options.name}: Starting polling`, {
       interval: this.interval,
     });
-    this.poll();
+    void this.poll();
   }
 
   /**
@@ -126,10 +126,7 @@ export class ExponentialPoller<T> {
     } catch (error) {
       // Failure - apply exponential backoff
       const prevInterval = this.interval;
-      this.interval = Math.min(
-        this.interval * this.options.multiplier,
-        this.options.maxInterval
-      );
+      this.interval = Math.min(this.interval * this.options.multiplier, this.options.maxInterval);
 
       logger.debug(`${this.options.name}: Backing off`, {
         attempt: this.attempt,
@@ -162,7 +159,9 @@ export class ExponentialPoller<T> {
       delay = delay * (0.75 + Math.random() * 0.5);
     }
 
-    this.timeoutId = setTimeout(() => this.poll(), delay);
+    this.timeoutId = setTimeout(() => {
+      void this.poll();
+    }, delay);
   }
 }
 
@@ -283,7 +282,7 @@ export function usePolling<T>(
         multiplier: 1.5,
         resetOnSuccess: true,
         jitter: true,
-        name: options?.name ?? "polling",
+        name: options?.name ?? 'polling',
       }
     );
 
@@ -317,12 +316,7 @@ export async function retryWithBackoff<T>(
     multiplier?: number;
   } = {}
 ): Promise<T> {
-  const {
-    maxRetries = 3,
-    initialDelay = 1000,
-    maxDelay = 30000,
-    multiplier = 2,
-  } = options;
+  const { maxRetries = 3, initialDelay = 1000, maxDelay = 30000, multiplier = 2 } = options;
 
   let delay = initialDelay;
 
@@ -334,7 +328,7 @@ export async function retryWithBackoff<T>(
         throw error;
       }
 
-      logger.debug("Retry with backoff", {
+      logger.debug('Retry with backoff', {
         attempt,
         delay,
         error: error instanceof Error ? error.message : String(error),
@@ -346,5 +340,5 @@ export async function retryWithBackoff<T>(
   }
 
   // This should never be reached
-  throw new Error("Retry failed");
+  throw new Error('Retry failed');
 }

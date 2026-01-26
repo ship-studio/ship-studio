@@ -12,8 +12,8 @@
  * @module components/VercelButton
  */
 
-import { useState, useEffect, useRef } from "react";
-import { VercelState } from "../App";
+import { useState, useEffect, useRef } from 'react';
+import { VercelState } from '../App';
 import {
   ProjectVercelStatus,
   installVercelCli,
@@ -21,11 +21,11 @@ import {
   checkVercelCliStatus,
   getVercelTeams,
   VercelTeam,
-} from "../lib/vercel";
-import { ProjectGitHubStatus } from "../lib/github";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+} from '../lib/vercel';
+import { ProjectGitHubStatus } from '../lib/github';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 /** Props for the VercelButton component */
 interface VercelButtonProps {
@@ -46,7 +46,7 @@ interface VercelButtonProps {
   /** Optional callback when modal is closed */
   onModalClose?: () => void;
   /** Optional callback to show toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Whether Vercel is being auto-connected after GitHub repo creation */
   isAutoConnecting?: boolean;
 }
@@ -96,13 +96,13 @@ export function VercelButton({
       ptyListenersRef.current = {};
 
       if (ptyIdRef.current !== null) {
-        invoke("kill_pty", { id: ptyIdRef.current }).catch(() => {});
+        void invoke('kill_pty', { id: ptyIdRef.current }).catch(() => {});
       }
     };
   }, []);
 
   // Don't show Vercel options until GitHub repo is created
-  if (projectGithubStatus?.status !== "connected" || !projectGithubStatus?.github_repo) {
+  if (projectGithubStatus?.status !== 'connected' || !projectGithubStatus?.github_repo) {
     return null;
   }
 
@@ -112,10 +112,10 @@ export function VercelButton({
     try {
       await installVercelCli();
       onVercelConnect();
-      onToast?.("Vercel CLI installed!", "success");
+      onToast?.('Vercel CLI installed!', 'success');
     } catch (e) {
       setError(String(e));
-      onToast?.("Failed to install Vercel CLI", "error");
+      onToast?.('Failed to install Vercel CLI', 'error');
     } finally {
       setIsInstalling(false);
     }
@@ -128,30 +128,27 @@ export function VercelButton({
     setError(null);
 
     try {
-      const homeDir = await invoke<string>("get_shipstudio_dir");
-      const parentDir = homeDir.replace("/ShipStudio", "");
+      const homeDir = await invoke<string>('get_shipstudio_dir');
+      const parentDir = homeDir.replace('/ShipStudio', '');
 
-      const ptyId = await invoke<number>("spawn_pty", {
+      const ptyId = await invoke<number>('spawn_pty', {
         cwd: parentDir,
-        command: "vercel",
-        args: ["login"],
+        command: 'vercel',
+        args: ['login'],
         rows: 24,
         cols: 80,
       });
       ptyIdRef.current = ptyId;
 
-      const unlistenOutput = await listen<{ id: number; data: string }>(
-        "pty-output",
-        (event) => {
-          if (event.payload.id === ptyId) {
-            setLoginOutput((prev) => [...prev, event.payload.data]);
-          }
+      const unlistenOutput = await listen<{ id: number; data: string }>('pty-output', (event) => {
+        if (event.payload.id === ptyId) {
+          setLoginOutput((prev) => [...prev, event.payload.data]);
         }
-      );
+      });
 
       const unlistenExit = await listen<{ id: number; code: number | null }>(
-        "pty-exit",
-        async (event) => {
+        'pty-exit',
+        (event) => {
           if (event.payload.id === ptyId) {
             ptyIdRef.current = null;
             setIsLoggingIn(false);
@@ -161,12 +158,13 @@ export function VercelButton({
             unlistenExit();
             ptyListenersRef.current = {};
 
-            const status = await checkVercelCliStatus();
-            if (status.authenticated) {
-              setShowLoginModal(false);
-              onVercelConnect();
-              onToast?.("Connected to Vercel!", "success");
-            }
+            void checkVercelCliStatus().then((status) => {
+              if (status.authenticated) {
+                setShowLoginModal(false);
+                onVercelConnect();
+                onToast?.('Connected to Vercel!', 'success');
+              }
+            });
           }
         }
       );
@@ -181,7 +179,9 @@ export function VercelButton({
 
   const handleCloseLoginModal = async () => {
     if (ptyIdRef.current !== null) {
-      await invoke("kill_pty", { id: ptyIdRef.current }).catch(() => {});
+      await invoke('kill_pty', { id: ptyIdRef.current }).catch(() => {
+        // Ignore errors when killing PTY
+      });
       ptyIdRef.current = null;
     }
     setShowLoginModal(false);
@@ -204,7 +204,7 @@ export function VercelButton({
       });
       setShowDeployModal(false);
       onStatusChange(deployedUrl);
-      onToast?.("Connected to Vercel!", "success");
+      onToast?.('Connected to Vercel!', 'success');
     } catch (e) {
       // Keep modal open and show error
       setError(String(e));
@@ -219,12 +219,12 @@ export function VercelButton({
       <>
         <button
           className="vercel-button vercel-install"
-          onClick={handleInstallCli}
+          onClick={() => void handleInstallCli()}
           disabled={isInstalling}
           title="Install Vercel CLI via npm"
         >
           <VercelIcon />
-          {isInstalling ? "Installing..." : "Install Vercel"}
+          {isInstalling ? 'Installing...' : 'Install Vercel'}
         </button>
         {error && <span className="vercel-error">{error}</span>}
       </>
@@ -237,16 +237,16 @@ export function VercelButton({
       <>
         <button
           className="vercel-button vercel-connect"
-          onClick={handleStartLogin}
+          onClick={() => void handleStartLogin()}
           disabled={isLoggingIn}
           title="Connect your Vercel account"
         >
           <VercelIcon />
-          {isLoggingIn ? "Connecting..." : "Connect Vercel"}
+          {isLoggingIn ? 'Connecting...' : 'Connect Vercel'}
         </button>
 
         {showLoginModal && (
-          <div className="modal-overlay" onClick={handleCloseLoginModal}>
+          <div className="modal-overlay" onClick={() => void handleCloseLoginModal()}>
             <div className="modal vercel-modal" onClick={(e) => e.stopPropagation()}>
               <h3>Connect to Vercel</h3>
               <p>Follow the prompts below to log in to your Vercel account.</p>
@@ -259,8 +259,8 @@ export function VercelButton({
               </div>
 
               <div className="modal-actions">
-                <button onClick={handleCloseLoginModal}>
-                  {isLoggingIn ? "Cancel" : "Close"}
+                <button onClick={() => void handleCloseLoginModal()}>
+                  {isLoggingIn ? 'Cancel' : 'Close'}
                 </button>
               </div>
             </div>
@@ -291,14 +291,15 @@ export function VercelButton({
   }
 
   // If project is fully connected to Vercel (linked + git connected), show icon to open dashboard
-  if (projectVercelStatus?.status === "connected") {
-    const dashboardUrl = projectVercelStatus.vercel_org && projectVercelStatus.project_name
-      ? `https://vercel.com/${projectVercelStatus.vercel_org}/${projectVercelStatus.project_name}`
-      : "https://vercel.com/dashboard";
+  if (projectVercelStatus?.status === 'connected') {
+    const dashboardUrl =
+      projectVercelStatus.vercel_org && projectVercelStatus.project_name
+        ? `https://vercel.com/${projectVercelStatus.vercel_org}/${projectVercelStatus.project_name}`
+        : 'https://vercel.com/dashboard';
     return (
       <button
         className="vercel-button vercel-linked"
-        onClick={() => openUrl(dashboardUrl)}
+        onClick={() => void openUrl(dashboardUrl)}
         title="Open Vercel dashboard"
       >
         <VercelIcon />
@@ -332,8 +333,9 @@ export function VercelButton({
       } else {
         setSelectedScope(undefined);
       }
-    } catch {
+    } catch (err) {
       // If fetching teams fails, just proceed without team selection
+      console.warn('Failed to fetch Vercel teams:', err);
       setTeams([]);
       setSelectedScope(undefined);
     } finally {
@@ -346,7 +348,7 @@ export function VercelButton({
     <>
       <button
         className="vercel-button vercel-setup"
-        onClick={handleOpenDeployModal}
+        onClick={() => void handleOpenDeployModal()}
         title="Connect to Vercel for auto-deployments"
       >
         <VercelIcon />
@@ -354,7 +356,15 @@ export function VercelButton({
       </button>
 
       {showDeployModal && (
-        <div className="modal-overlay" onClick={() => { if (!isDeploying) { setShowDeployModal(false); onModalClose?.(); } }}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            if (!isDeploying) {
+              setShowDeployModal(false);
+              onModalClose?.();
+            }
+          }}
+        >
           <div className="modal vercel-modal" onClick={(e) => e.stopPropagation()}>
             <h3>Connect to Vercel</h3>
             <p>Link this project to Vercel for automatic deployments when you publish.</p>
@@ -362,22 +372,24 @@ export function VercelButton({
             <div className="vercel-form">
               {isLoadingTeams ? (
                 <div className="vercel-teams-loading">Loading teams...</div>
-              ) : teams.length > 0 && (
-                <label>
-                  Team
-                  <select
-                    className="owner-select"
-                    value={selectedScope || ""}
-                    onChange={(e) => setSelectedScope(e.target.value || undefined)}
-                  >
-                    <option value="">Personal Account</option>
-                    {teams.map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              ) : (
+                teams.length > 0 && (
+                  <label>
+                    Team
+                    <select
+                      className="owner-select"
+                      value={selectedScope || ''}
+                      onChange={(e) => setSelectedScope(e.target.value || undefined)}
+                    >
+                      <option value="">Personal Account</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )
               )}
 
               <label>
@@ -386,7 +398,7 @@ export function VercelButton({
                   type="text"
                   value={deployName}
                   onChange={(e) =>
-                    setDeployName(e.target.value.replace(/[^a-zA-Z0-9-_]/g, "-").toLowerCase())
+                    setDeployName(e.target.value.replace(/[^a-zA-Z0-9-_]/g, '-').toLowerCase())
                   }
                   placeholder="my-project"
                   autoFocus
@@ -409,15 +421,21 @@ export function VercelButton({
             </div>
 
             <div className="modal-actions">
-              <button onClick={() => { setShowDeployModal(false); onModalClose?.(); }} disabled={isDeploying}>
+              <button
+                onClick={() => {
+                  setShowDeployModal(false);
+                  onModalClose?.();
+                }}
+                disabled={isDeploying}
+              >
                 Cancel
               </button>
               <button
                 className="btn-primary"
-                onClick={handleDeploy}
+                onClick={() => void handleDeploy()}
                 disabled={isDeploying || !deployName.trim()}
               >
-                {isDeploying ? "Connecting..." : "Connect & Deploy"}
+                {isDeploying ? 'Connecting...' : 'Connect & Deploy'}
               </button>
             </div>
           </div>

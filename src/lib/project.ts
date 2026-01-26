@@ -9,9 +9,9 @@
  * @module lib/project
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import { spawn, IPty } from "tauri-pty";
-import { homeDir } from "@tauri-apps/api/path";
+import { invoke } from '@tauri-apps/api/core';
+import { spawn, IPty } from 'tauri-pty';
+import { homeDir } from '@tauri-apps/api/path';
 
 /** Basic project information */
 export interface Project {
@@ -63,7 +63,7 @@ export interface Prerequisite {
  * @returns Array of prerequisite check results
  */
 export async function checkPrerequisites(): Promise<Prerequisite[]> {
-  return invoke<Prerequisite[]>("check_prerequisites");
+  return invoke<Prerequisite[]>('check_prerequisites');
 }
 
 /**
@@ -72,7 +72,7 @@ export async function checkPrerequisites(): Promise<Prerequisite[]> {
  * @returns Array of dashboard projects sorted by last_opened
  */
 export async function getDashboardProjects(): Promise<DashboardProject[]> {
-  return invoke<DashboardProject[]>("get_dashboard_projects");
+  return invoke<DashboardProject[]>('get_dashboard_projects');
 }
 
 /** Handle for controlling a running dev server */
@@ -101,22 +101,22 @@ export async function startDevServer(
 
   // Get extended PATH from backend (includes nvm, Homebrew, etc.)
   const home = await homeDir();
-  const homeNormalized = home.endsWith("/") ? home : `${home}/`;
-  const fullPath = await invoke<string>("get_shell_path");
+  const homeNormalized = home.endsWith('/') ? home : `${home}/`;
+  const fullPath = await invoke<string>('get_shell_path');
 
   // Must pass all essential env vars since env replaces (not merges with) parent environment
   // PORT env var tells Next.js which port to use
-  const pty = await spawn("npm", ["run", "dev"], {
+  const pty = spawn('npm', ['run', 'dev'], {
     cwd: projectPath,
     cols: 80,
     rows: 24,
     env: {
       PATH: fullPath,
       HOME: homeNormalized.slice(0, -1),
-      USER: homeNormalized.split("/").filter(Boolean).pop() || "user",
-      TERM: "xterm-256color",
-      LANG: "en_US.UTF-8",
-      SHELL: "/bin/zsh",
+      USER: homeNormalized.split('/').filter(Boolean).pop() || 'user',
+      TERM: 'xterm-256color',
+      LANG: 'en_US.UTF-8',
+      SHELL: '/bin/zsh',
       PORT: port.toString(),
     },
   });
@@ -125,7 +125,7 @@ export async function startDevServer(
     pty.onData((data) => {
       // tauri-pty passes data as Uint8Array or array-like object
       let text: string;
-      if (typeof data === "string") {
+      if (typeof data === 'string') {
         text = data;
       } else {
         // Convert array-like object to Uint8Array for decoding
@@ -138,12 +138,13 @@ export async function startDevServer(
 
   return {
     pty,
-    stop: async () => {
+    stop: () => {
       try {
         pty.kill();
       } catch {
         // Ignore errors
       }
+      return Promise.resolve();
     },
   };
 }

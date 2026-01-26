@@ -163,7 +163,9 @@
 }
 
 @keyframes blink {
-  50% { opacity: 0; }
+  50% {
+    opacity: 0;
+  }
 }
 
 .vercel-button.vercel-deploy {
@@ -186,8 +188,13 @@
 }
 
 @keyframes deployPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .vercel-button.vercel-error-state {
@@ -228,4 +235,3 @@
 .vercel-button.vercel-checking .checking-text {
   animation: deployPulse 1.5s ease-in-out infinite;
 }
-

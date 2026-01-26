@@ -2,11 +2,11 @@
 //!
 //! Commands for Git operations, branch management, and repository management.
 
-use std::process::Command;
-use tracing::{debug, error, info, instrument, warn};
 use crate::cache::GIT_CACHE;
 use crate::types::{BranchInfo, BranchStatus, ChangedFile, PrerequisiteCheck, SwitchResult};
 use crate::utils::{find_executable, validate_project_path};
+use std::process::Command;
+use tracing::{debug, error, info, instrument, warn};
 
 // ============ Git Helper Functions ============
 
@@ -90,7 +90,12 @@ pub fn get_current_branch_sync(path: &std::path::Path) -> Option<String> {
 /// Calculates how many commits `branch` is ahead/behind compared to `compare_to`.
 pub fn get_ahead_behind(path: &std::path::Path, branch: &str, compare_to: &str) -> (i32, i32) {
     let output = Command::new("git")
-        .args(["rev-list", "--left-right", "--count", &format!("{}...{}", branch, compare_to)])
+        .args([
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("{}...{}", branch, compare_to),
+        ])
         .current_dir(path)
         .output();
 
@@ -99,10 +104,7 @@ pub fn get_ahead_behind(path: &std::path::Path, branch: &str, compare_to: &str) 
             let counts = String::from_utf8_lossy(&out.stdout);
             let parts: Vec<&str> = counts.trim().split('\t').collect();
             if parts.len() == 2 {
-                (
-                    parts[0].parse().unwrap_or(0),
-                    parts[1].parse().unwrap_or(0),
-                )
+                (parts[0].parse().unwrap_or(0), parts[1].parse().unwrap_or(0))
             } else {
                 (0, 0)
             }
@@ -325,7 +327,9 @@ pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, Str
         Ok(output) if !output.status.success() => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             // Don't log if it's just a network issue or no remote
-            if !stderr.contains("Could not resolve host") && !stderr.contains("Could not read from remote") {
+            if !stderr.contains("Could not resolve host")
+                && !stderr.contains("Could not read from remote")
+            {
                 warn!(error = %stderr, "git fetch failed");
             }
         }
@@ -342,12 +346,19 @@ pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, Str
         .output()
         .map_err(|e| e.to_string())?;
 
-    let staging_exists = !String::from_utf8_lossy(&staging_check.stdout).trim().is_empty();
+    let staging_exists = !String::from_utf8_lossy(&staging_check.stdout)
+        .trim()
+        .is_empty();
 
     // Get commits ahead/behind for staging
     let (staging_ahead, staging_behind) = if staging_exists {
         let output = Command::new("git")
-            .args(["rev-list", "--left-right", "--count", "HEAD...origin/staging"])
+            .args([
+                "rev-list",
+                "--left-right",
+                "--count",
+                "HEAD...origin/staging",
+            ])
             .current_dir(&validated_path)
             .output()
             .map_err(|e| e.to_string())?;
@@ -355,10 +366,7 @@ pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, Str
         let counts = String::from_utf8_lossy(&output.stdout);
         let parts: Vec<&str> = counts.trim().split('\t').collect();
         if parts.len() == 2 {
-            (
-                parts[0].parse().unwrap_or(0),
-                parts[1].parse().unwrap_or(0),
-            )
+            (parts[0].parse().unwrap_or(0), parts[1].parse().unwrap_or(0))
         } else {
             (0, 0)
         }
@@ -376,10 +384,7 @@ pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, Str
         let counts = String::from_utf8_lossy(&output.stdout);
         let parts: Vec<&str> = counts.trim().split('\t').collect();
         if parts.len() == 2 {
-            (
-                parts[0].parse().unwrap_or(0),
-                parts[1].parse().unwrap_or(0),
-            )
+            (parts[0].parse().unwrap_or(0), parts[1].parse().unwrap_or(0))
         } else {
             (0, 0)
         }
@@ -485,7 +490,13 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Stri
         }
 
         let (name, is_remote) = if raw_name.starts_with("origin/") {
-            (raw_name.strip_prefix("origin/").unwrap_or(raw_name).to_string(), true)
+            (
+                raw_name
+                    .strip_prefix("origin/")
+                    .unwrap_or(raw_name)
+                    .to_string(),
+                true,
+            )
         } else {
             (raw_name.to_string(), false)
         };
@@ -581,7 +592,10 @@ fn load_project_metadata(project_path: &std::path::Path) -> crate::types::Projec
 }
 
 /// Helper to save project metadata
-fn save_project_metadata(project_path: &std::path::Path, metadata: &crate::types::ProjectMetadata) -> Result<(), String> {
+fn save_project_metadata(
+    project_path: &std::path::Path,
+    metadata: &crate::types::ProjectMetadata,
+) -> Result<(), String> {
     let shipstudio_dir = project_path.join(".shipstudio");
     if !shipstudio_dir.exists() {
         std::fs::create_dir_all(&shipstudio_dir).map_err(|e| e.to_string())?;
@@ -594,7 +608,11 @@ fn save_project_metadata(project_path: &std::path::Path, metadata: &crate::types
 /// Switch to a different branch
 #[tauri::command]
 #[instrument(name = "switch_branch", skip(project_path), fields(project = %project_path, target_branch = %branch_name))]
-pub async fn switch_branch(project_path: String, branch_name: String, auto_stash: bool) -> Result<SwitchResult, String> {
+pub async fn switch_branch(
+    project_path: String,
+    branch_name: String,
+    auto_stash: bool,
+) -> Result<SwitchResult, String> {
     let validated_path = validate_project_path(&project_path)?;
     let mut stashed = false;
     let mut stash_applied = false;
@@ -612,7 +630,12 @@ pub async fn switch_branch(project_path: String, branch_name: String, auto_stash
 
     if has_changes && auto_stash {
         let stash_output = Command::new("git")
-            .args(["stash", "push", "-m", &format!("Auto-stash by Ship Studio (from {})", current_branch)])
+            .args([
+                "stash",
+                "push",
+                "-m",
+                &format!("Auto-stash by Ship Studio (from {})", current_branch),
+            ])
             .current_dir(&validated_path)
             .output()
             .map_err(|e| e.to_string())?;
@@ -716,9 +739,7 @@ pub async fn switch_branch(project_path: String, branch_name: String, auto_stash
     for config in &config_files {
         let config_path = validated_path.join(config);
         if config_path.exists() {
-            let _ = Command::new("touch")
-                .arg(&config_path)
-                .output();
+            let _ = Command::new("touch").arg(&config_path).output();
             break;
         }
     }
@@ -744,7 +765,9 @@ pub async fn switch_branch(project_path: String, branch_name: String, auto_stash
 
 /// Get stash info for a project (if any auto-stash exists)
 #[tauri::command]
-pub async fn get_stash_info(project_path: String) -> Result<Option<crate::types::StashInfo>, String> {
+pub async fn get_stash_info(
+    project_path: String,
+) -> Result<Option<crate::types::StashInfo>, String> {
     let validated_path = validate_project_path(&project_path)?;
     let metadata = load_project_metadata(&validated_path);
     Ok(metadata.stash_info)
@@ -837,7 +860,11 @@ pub async fn discard_changes(project_path: String) -> Result<(), String> {
 /// Create a new branch from a base branch
 #[tauri::command]
 #[instrument(name = "create_branch", skip(project_path), fields(project = %project_path, branch = %branch_name, from = %from_branch))]
-pub async fn create_branch(project_path: String, branch_name: String, from_branch: String) -> Result<(), String> {
+pub async fn create_branch(
+    project_path: String,
+    branch_name: String,
+    from_branch: String,
+) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
     info!("Creating new branch");
 
@@ -858,8 +885,8 @@ pub async fn create_branch(project_path: String, branch_name: String, from_branc
         .trim()
         .to_string();
 
-    let is_from_current = from_branch == current_branch ||
-        from_branch == format!("origin/{}", current_branch);
+    let is_from_current =
+        from_branch == current_branch || from_branch == format!("origin/{}", current_branch);
 
     if is_from_current {
         // Create branch from current HEAD (preserves local changes)
@@ -949,7 +976,10 @@ pub async fn git_pull(project_path: String) -> Result<(), String> {
 
 /// Pull remote changes and merge (may result in conflicts)
 #[tauri::command]
-pub async fn pull_and_merge(project_path: String, merge_branch: Option<String>) -> Result<(), String> {
+pub async fn pull_and_merge(
+    project_path: String,
+    merge_branch: Option<String>,
+) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
 
     // First fetch to ensure we have latest refs
@@ -991,7 +1021,11 @@ pub async fn pull_and_merge(project_path: String, merge_branch: Option<String>) 
 /// Delete a branch (local and optionally remote)
 #[tauri::command]
 #[instrument(name = "delete_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
-pub async fn delete_branch(project_path: String, branch_name: String, delete_remote: bool) -> Result<(), String> {
+pub async fn delete_branch(
+    project_path: String,
+    branch_name: String,
+    delete_remote: bool,
+) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
     info!(delete_remote, "Deleting branch");
 
@@ -1010,7 +1044,9 @@ pub async fn delete_branch(project_path: String, branch_name: String, delete_rem
 
     let current_branch = String::from_utf8_lossy(&current.stdout).trim().to_string();
     if current_branch == branch_name {
-        return Err("Cannot delete the current branch. Switch to another branch first.".to_string());
+        return Err(
+            "Cannot delete the current branch. Switch to another branch first.".to_string(),
+        );
     }
 
     // Delete local branch

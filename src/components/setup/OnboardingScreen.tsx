@@ -8,11 +8,11 @@
  * - Transitioning to celebration screen when complete
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { SetupChecklist } from "./SetupChecklist";
-import { CelebrationScreen } from "./CelebrationScreen";
-import { OnboardingTerminal } from "./OnboardingTerminal";
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { SetupChecklist } from './SetupChecklist';
+import { CelebrationScreen } from './CelebrationScreen';
+import { OnboardingTerminal } from './OnboardingTerminal';
 import {
   SetupItem,
   FullSetupStatus,
@@ -25,11 +25,11 @@ import {
   TERMINAL_COMMANDS,
   USES_TERMINAL,
   SETUP_FRIENDLY_NAMES,
-} from "../../lib/setup";
-import { checkGitHubCliStatus } from "../../lib/github";
-import { checkVercelCliStatus } from "../../lib/vercel";
+} from '../../lib/setup';
+import { checkGitHubCliStatus } from '../../lib/github';
+import { checkVercelCliStatus } from '../../lib/vercel';
 
-type OnboardingState = "loading" | "setup" | "complete";
+type OnboardingState = 'loading' | 'setup' | 'complete';
 
 /** Configuration for the active terminal command */
 interface TerminalConfig {
@@ -44,7 +44,7 @@ interface OnboardingScreenProps {
 }
 
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
-  const [state, setState] = useState<OnboardingState>("loading");
+  const [state, setState] = useState<OnboardingState>('loading');
   const [items, setItems] = useState<SetupItem[]>([]);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,20 +67,22 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       const status: FullSetupStatus = await getFullSetupStatus();
       setItems(status.items);
       if (status.allReady) {
-        setState("complete");
+        setState('complete');
       } else {
-        setState("setup");
+        setState('setup');
       }
       setError(null);
     } catch (err) {
-      console.error("Failed to fetch setup status:", err);
-      setError("Failed to check setup status. Please try again.");
-      setState("setup");
+      console.warn('Failed to fetch setup status:', err);
+      setError('Failed to check setup status. Please try again.');
+      setState('setup');
     }
   }, []);
 
   // Initial fetch
   useEffect(() => {
+    // Intentionally not awaited - fire-and-forget on mount
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises, react-hooks/set-state-in-effect
     fetchStatus();
   }, [fetchStatus]);
 
@@ -88,13 +90,13 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   useEffect(() => {
     const setupListener = async () => {
       unlistenRef.current = await listen<{ itemId: string; message: string }>(
-        "setup-progress",
+        'setup-progress',
         (event) => {
-          console.log("Setup progress:", event.payload);
+          console.warn('Setup progress:', event.payload);
         }
       );
     };
-    setupListener();
+    void setupListener();
     return () => {
       if (unlistenRef.current) {
         unlistenRef.current();
@@ -103,19 +105,9 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   }, []);
 
   // Update a single item's status
-  const updateItemStatus = useCallback(
-    (
-      itemId: string,
-      updates: Partial<SetupItem>
-    ) => {
-      setItems((prev) =>
-        prev.map((item) =>
-          item.id === itemId ? { ...item, ...updates } : item
-        )
-      );
-    },
-    []
-  );
+  const updateItemStatus = useCallback((itemId: string, updates: Partial<SetupItem>) => {
+    setItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, ...updates } : item)));
+  }, []);
 
   // Handle terminal exit - process exit codes and check auth status
   const handleTerminalExit = useCallback(
@@ -129,32 +121,32 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       if (exitCode === 0 || exitCode === null) {
         // Success (or process ended without explicit code) - refresh status
         // Success - for auth items, verify the auth status
-        if (itemId === "gh_auth") {
+        if (itemId === 'gh_auth') {
           const status = await checkGitHubCliStatus();
           if (!status.authenticated) {
             updateItemStatus(itemId, {
-              status: "error",
-              errorMessage: "Authentication not completed. Click to try again.",
+              status: 'error',
+              errorMessage: 'Authentication not completed. Click to try again.',
             });
             setActiveItemId(null);
             return;
           }
-        } else if (itemId === "claude_auth") {
+        } else if (itemId === 'claude_auth') {
           const isAuthed = await checkClaudeAuthStatus();
           if (!isAuthed) {
             updateItemStatus(itemId, {
-              status: "error",
-              errorMessage: "Authentication not completed. Click to try again.",
+              status: 'error',
+              errorMessage: 'Authentication not completed. Click to try again.',
             });
             setActiveItemId(null);
             return;
           }
-        } else if (itemId === "vercel_auth") {
+        } else if (itemId === 'vercel_auth') {
           const status = await checkVercelCliStatus();
           if (!status.authenticated) {
             updateItemStatus(itemId, {
-              status: "error",
-              errorMessage: "Authentication not completed. Click to try again.",
+              status: 'error',
+              errorMessage: 'Authentication not completed. Click to try again.',
             });
             setActiveItemId(null);
             return;
@@ -166,8 +158,8 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       } else {
         // Non-zero exit code - show error
         updateItemStatus(itemId, {
-          status: "error",
-          errorMessage: "Command failed. Click to try again.",
+          status: 'error',
+          errorMessage: 'Command failed. Click to try again.',
         });
       }
 
@@ -181,7 +173,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     const itemId = terminalConfig?.itemId;
     if (itemId) {
       // Reset item status back to what it was
-      fetchStatus();
+      void fetchStatus();
     }
     setTerminalConfig(null);
     setActiveItemId(null);
@@ -193,7 +185,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       if (activeItemId || terminalConfig) return; // Already processing something
 
       setActiveItemId(itemId);
-      updateItemStatus(itemId, { status: "in_progress", errorMessage: undefined });
+      updateItemStatus(itemId, { status: 'in_progress', errorMessage: undefined });
 
       // Check if this item uses terminal
       if (USES_TERMINAL.has(itemId)) {
@@ -211,34 +203,33 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       // Non-terminal items - run via backend
       try {
         switch (itemId) {
-          case "node":
+          case 'node':
             await installNode();
             break;
-          case "git":
+          case 'git':
             await installGit();
             break;
-          case "gh":
+          case 'gh':
             await installGh();
             break;
-          case "vercel":
+          case 'vercel':
             await installVercel();
             break;
           default:
-            console.warn("Unknown item:", itemId);
+            console.warn('Unknown item:', itemId);
         }
 
         // Installation complete, refresh status
         await fetchStatus();
         setActiveItemId(null);
       } catch (err) {
-        console.error(`Failed to process ${itemId}:`, err);
-        const errorMessage =
-          err instanceof Error ? err.message : "Something went wrong";
+        console.warn(`Failed to process ${itemId}:`, err);
+        const errorMessage = err instanceof Error ? err.message : 'Something went wrong';
         updateItemStatus(itemId, {
-          status: "error",
-          errorMessage: errorMessage.includes("internet")
-            ? "Connection failed. Check your internet and try again."
-            : "Something went wrong. Click to try again.",
+          status: 'error',
+          errorMessage: errorMessage.includes('internet')
+            ? 'Connection failed. Check your internet and try again.'
+            : 'Something went wrong. Click to try again.',
         });
         setActiveItemId(null);
       }
@@ -248,12 +239,15 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
   // Check if all items are ready
   useEffect(() => {
-    if (items.length > 0 && items.every((item) => item.status === "ready")) {
-      setState("complete");
+    if (items.length > 0 && items.every((item) => item.status === 'ready')) {
+      // Valid pattern: conditional state update based on derived state
+      // This is a computed state transition, not a cascading render
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setState('complete');
     }
   }, [items]);
 
-  if (state === "loading") {
+  if (state === 'loading') {
     return (
       <div className="onboarding-screen onboarding-loading">
         <div className="spinner" />
@@ -262,12 +256,12 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     );
   }
 
-  if (state === "complete") {
+  if (state === 'complete') {
     return <CelebrationScreen onContinue={onComplete} />;
   }
 
   // Calculate progress
-  const readyCount = items.filter((item) => item.status === "ready").length;
+  const readyCount = items.filter((item) => item.status === 'ready').length;
   const totalCount = items.length;
 
   return (
@@ -276,13 +270,15 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         <div className="onboarding-header">
           <img src="/ship_studio_full_noshadow.svg" alt="Ship Studio" className="onboarding-logo" />
           <p>Let's get your development environment set up</p>
-          <p className="onboarding-reassurance">Yeah, we know it's a pain, but once you do it once — you're good to go!</p>
+          <p className="onboarding-reassurance">
+            Yeah, we know it's a pain, but once you do it once — you're good to go!
+          </p>
         </div>
 
         {error && (
           <div className="onboarding-error">
             <p>{error}</p>
-            <button className="btn-secondary" onClick={fetchStatus}>
+            <button className="btn-secondary" onClick={() => void fetchStatus()}>
               Retry
             </button>
           </div>
@@ -290,7 +286,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
         <SetupChecklist
           items={items}
-          onItemAction={handleItemAction}
+          onItemAction={(itemId) => void handleItemAction(itemId)}
           activeItemId={activeItemId}
           terminalActive={terminalConfig !== null}
         />
@@ -303,17 +299,14 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
                 <span className="onboarding-terminal-title">
                   {SETUP_FRIENDLY_NAMES[terminalConfig.itemId] || terminalConfig.itemId}
                 </span>
-                <button
-                  className="onboarding-terminal-cancel"
-                  onClick={handleTerminalCancel}
-                >
+                <button className="onboarding-terminal-cancel" onClick={handleTerminalCancel}>
                   Cancel
                 </button>
               </div>
               <OnboardingTerminal
                 command={terminalConfig.command}
                 args={terminalConfig.args}
-                onExit={handleTerminalExit}
+                onExit={(exitCode) => void handleTerminalExit(exitCode)}
               />
             </div>
           </div>

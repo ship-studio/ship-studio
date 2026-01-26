@@ -2,11 +2,11 @@
 //!
 //! Commands for GitHub CLI status, authentication, and user info.
 
-use std::process::Command;
-use std::path::Path;
-use crate::types::{GitHubCliStatus, ProjectGitHubStatus, PushToGitHubOptions, GitHubRepo};
+use crate::commands::git::{git_stage_and_commit, init_git_repo};
+use crate::types::{GitHubCliStatus, GitHubRepo, ProjectGitHubStatus, PushToGitHubOptions};
 use crate::utils::{find_executable, get_extended_path, validate_project_path};
-use crate::commands::git::{init_git_repo, git_stage_and_commit};
+use std::path::Path;
+use std::process::Command;
 
 /// Returns a Command for gh with extended PATH set
 pub fn get_gh_command() -> Command {
@@ -187,7 +187,11 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
 pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, String> {
     let validated_path = validate_project_path(&options.project_path)?;
     let repo_name = &options.repo_name;
-    let visibility = if options.is_private { "--private" } else { "--public" };
+    let visibility = if options.is_private {
+        "--private"
+    } else {
+        "--public"
+    };
 
     // Check if it's already a git repo, if not initialize
     let git_dir = validated_path.join(".git");
@@ -201,10 +205,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Stri
     // Create GitHub repo and push
     let output = get_gh_command()
         .args([
-            "repo", "create", repo_name,
-            visibility,
-            "--source", ".",
-            "--remote", "origin",
+            "repo", "create", repo_name, visibility, "--source", ".", "--remote", "origin",
             "--push",
         ])
         .current_dir(&validated_path)
@@ -225,9 +226,13 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Stri
 pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, String> {
     let output = get_gh_command()
         .args([
-            "repo", "list", &owner,
-            "--json", "name,url,sshUrl,isPrivate,description,primaryLanguage,updatedAt",
-            "--limit", "100",
+            "repo",
+            "list",
+            &owner,
+            "--json",
+            "name,url,sshUrl,isPrivate,description,primaryLanguage,updatedAt",
+            "--limit",
+            "100",
         ])
         .output()
         .map_err(|e| e.to_string())?;
@@ -238,8 +243,8 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, String>
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
-    let repos: Vec<GitHubRepo> = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Failed to parse repo list: {}", e))?;
+    let repos: Vec<GitHubRepo> =
+        serde_json::from_str(&json_str).map_err(|e| format!("Failed to parse repo list: {}", e))?;
 
     Ok(repos)
 }

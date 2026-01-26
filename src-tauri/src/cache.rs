@@ -3,10 +3,10 @@
 //! Provides caching for git command results to reduce subprocess calls.
 //! Cache entries have a TTL and can be invalidated on write operations.
 
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use once_cell::sync::Lazy;
 use tracing::debug;
 
 /// Cache entry with value and expiration time
@@ -94,7 +94,10 @@ impl GitCache {
     /// Set cached has-changes status for a project
     pub fn set_has_changes(&self, project_path: &str, has_changes: bool) {
         if let Ok(mut cache) = self.has_changes.lock() {
-            debug!(project = project_path, has_changes, "Caching has-changes status");
+            debug!(
+                project = project_path,
+                has_changes, "Caching has-changes status"
+            );
             cache.insert(
                 project_path.to_string(),
                 CacheEntry::new(has_changes, self.status_ttl),
@@ -118,7 +121,11 @@ impl GitCache {
     /// Set cached changed files for a project
     pub fn set_changed_files(&self, project_path: &str, files: Vec<crate::types::ChangedFile>) {
         if let Ok(mut cache) = self.changed_files.lock() {
-            debug!(project = project_path, file_count = files.len(), "Caching changed files");
+            debug!(
+                project = project_path,
+                file_count = files.len(),
+                "Caching changed files"
+            );
             cache.insert(
                 project_path.to_string(),
                 CacheEntry::new(files, self.status_ttl),
@@ -212,7 +219,10 @@ mod tests {
         cache.invalidate_status("/test/project");
 
         // Branch should still be cached
-        assert_eq!(cache.get_current_branch("/test/project"), Some("main".to_string()));
+        assert_eq!(
+            cache.get_current_branch("/test/project"),
+            Some("main".to_string())
+        );
         // Status should be invalidated
         assert_eq!(cache.get_has_changes("/test/project"), None);
     }

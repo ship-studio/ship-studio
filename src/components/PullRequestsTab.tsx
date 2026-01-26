@@ -6,16 +6,16 @@
  * @module components/PullRequestsTab
  */
 
-import { useState, useEffect } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { useState, useEffect } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   PullRequestInfo,
   listPullRequests,
   mergePullRequest,
   deleteBranch,
   switchBranch,
-} from "../lib/branches";
-import { ExternalLinkIcon, WarningIcon, BranchIcon } from "./icons";
+} from '../lib/branches';
+import { ExternalLinkIcon, WarningIcon, BranchIcon } from './icons';
 
 interface PullRequestsTabProps {
   /** Project path for PR operations */
@@ -25,7 +25,7 @@ interface PullRequestsTabProps {
   /** Callback to refresh after merge */
   onRefresh: () => void;
   /** Callback for toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Callback when switching branches */
   onBranchSwitch?: (branchName: string) => void;
   /** Callback to navigate to branches tab */
@@ -47,12 +47,16 @@ export function PullRequestsTab({
   const [isLoading, setIsLoading] = useState(true);
   const [mergingPr, setMergingPr] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [postMergeInfo, setPostMergeInfo] = useState<{ branchName: string; baseBranch: string } | null>(null);
+  const [postMergeInfo, setPostMergeInfo] = useState<{
+    branchName: string;
+    baseBranch: string;
+  } | null>(null);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
 
   // Fetch pull requests
   useEffect(() => {
-    fetchPullRequests();
+    void fetchPullRequests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath]);
 
   const fetchPullRequests = async () => {
@@ -72,13 +76,13 @@ export function PullRequestsTab({
     setMergingPr(prNumber);
     try {
       await mergePullRequest(projectPath, prNumber);
-      onToast?.("Pull request merged", "success");
+      onToast?.('Pull request merged', 'success');
       await fetchPullRequests();
       onRefresh();
       // Show post-merge cleanup dialog
       setPostMergeInfo({ branchName: headRef, baseBranch: baseRef });
     } catch (e) {
-      onToast?.(`Failed to merge: ${e}`, "error");
+      onToast?.(`Failed to merge: ${String(e)}`, 'error');
     } finally {
       setMergingPr(null);
     }
@@ -94,13 +98,16 @@ export function PullRequestsTab({
         onBranchSwitch?.(postMergeInfo.baseBranch);
         // Delete the merged branch
         await deleteBranch(projectPath, postMergeInfo.branchName, true);
-        onToast?.(`Switched to ${postMergeInfo.baseBranch} and deleted ${postMergeInfo.branchName}`, "success");
+        onToast?.(
+          `Switched to ${postMergeInfo.baseBranch} and deleted ${postMergeInfo.branchName}`,
+          'success'
+        );
         onRefresh();
       } else {
-        onToast?.(result.error || "Failed to switch branch", "error");
+        onToast?.(result.error || 'Failed to switch branch', 'error');
       }
     } catch (e) {
-      onToast?.(`Cleanup failed: ${e}`, "error");
+      onToast?.(`Cleanup failed: ${String(e)}`, 'error');
     } finally {
       setIsCleaningUp(false);
       setPostMergeInfo(null);
@@ -108,8 +115,8 @@ export function PullRequestsTab({
   };
 
   // Group PRs by state
-  const openPrs = pullRequests.filter(pr => pr.state === "OPEN");
-  const mergedPrs = pullRequests.filter(pr => pr.state === "MERGED").slice(0, 5);
+  const openPrs = pullRequests.filter((pr) => pr.state === 'OPEN');
+  const mergedPrs = pullRequests.filter((pr) => pr.state === 'MERGED').slice(0, 5);
 
   if (isLoading) {
     return (
@@ -127,7 +134,7 @@ export function PullRequestsTab({
       <div className="prs-tab">
         <div className="prs-tab-error">
           <p>Failed to load pull requests</p>
-          <button onClick={fetchPullRequests}>Try Again</button>
+          <button onClick={() => void fetchPullRequests()}>Try Again</button>
         </div>
       </div>
     );
@@ -145,26 +152,23 @@ export function PullRequestsTab({
             </div>
             <h3 className="prs-tab-empty-title">No open pull requests</h3>
             <p className="prs-tab-empty-description">
-              Pull requests let you propose changes and get feedback before merging into the main branch.
-              Create a branch, make your changes, then submit it for review.
+              Pull requests let you propose changes and get feedback before merging into the main
+              branch. Create a branch, make your changes, then submit it for review.
             </p>
             {onNavigateToBranches && (
-              <button
-                className="prs-tab-empty-action"
-                onClick={onNavigateToBranches}
-              >
+              <button className="prs-tab-empty-action" onClick={onNavigateToBranches}>
                 Go to Branches
               </button>
             )}
           </div>
         ) : (
-          openPrs.map(pr => (
+          openPrs.map((pr) => (
             <PrCard
               key={pr.number}
               pr={pr}
               isOwn={pr.author === githubUsername}
               isMerging={mergingPr === pr.number}
-              onMerge={() => handleMerge(pr.number, pr.headRef, pr.baseRef)}
+              onMerge={() => void handleMerge(pr.number, pr.headRef, pr.baseRef)}
               onResolveConflicts={onResolveConflicts}
             />
           ))
@@ -175,7 +179,7 @@ export function PullRequestsTab({
       {mergedPrs.length > 0 && (
         <div className="prs-tab-section">
           <div className="prs-tab-section-header">Recently Merged</div>
-          {mergedPrs.map(pr => (
+          {mergedPrs.map((pr) => (
             <PrCard
               key={pr.number}
               pr={pr}
@@ -195,8 +199,8 @@ export function PullRequestsTab({
             </div>
             <div className="post-merge-body">
               <p>
-                Would you like to switch to <strong>{postMergeInfo.baseBranch}</strong> and
-                delete the <strong>{postMergeInfo.branchName}</strong> branch?
+                Would you like to switch to <strong>{postMergeInfo.baseBranch}</strong> and delete
+                the <strong>{postMergeInfo.branchName}</strong> branch?
               </p>
             </div>
             <div className="post-merge-footer">
@@ -209,10 +213,10 @@ export function PullRequestsTab({
               </button>
               <button
                 className="post-merge-btn primary"
-                onClick={handlePostMergeCleanup}
+                onClick={() => void handlePostMergeCleanup()}
                 disabled={isCleaningUp}
               >
-                {isCleaningUp ? "Cleaning up..." : "Yes, clean up"}
+                {isCleaningUp ? 'Cleaning up...' : 'Yes, clean up'}
               </button>
             </div>
           </div>
@@ -244,14 +248,14 @@ function PrCard({ pr, isOwn, isMerging, onMerge, onResolveConflicts }: PrCardPro
     } else if (diffHours < 24) {
       return `${diffHours} hours ago`;
     } else if (diffDays === 1) {
-      return "yesterday";
+      return 'yesterday';
     } else {
       return `${diffDays} days ago`;
     }
   };
 
   const hasConflicts = pr.mergeable === false;
-  const canMerge = pr.state === "OPEN" && pr.mergeable !== false;
+  const canMerge = pr.state === 'OPEN' && pr.mergeable !== false;
 
   return (
     <div className="pr-card">
@@ -268,14 +272,14 @@ function PrCard({ pr, isOwn, isMerging, onMerge, onResolveConflicts }: PrCardPro
             <span className="pr-card-branch">{pr.baseRef}</span>
           </span>
           <span>
-            {" · "}
-            {pr.state === "MERGED" ? "Merged" : `Opened by ${isOwn ? "you" : pr.author}`}
-            {" · "}
+            {' · '}
+            {pr.state === 'MERGED' ? 'Merged' : `Opened by ${isOwn ? 'you' : pr.author}`}
+            {' · '}
             {formatDate(pr.createdAt)}
           </span>
         </div>
 
-        {hasConflicts && pr.state === "OPEN" && (
+        {hasConflicts && pr.state === 'OPEN' && (
           <div className="pr-card-warning">
             <WarningIcon size={14} />
             Has conflicts
@@ -283,12 +287,9 @@ function PrCard({ pr, isOwn, isMerging, onMerge, onResolveConflicts }: PrCardPro
         )}
       </div>
 
-      {pr.state === "OPEN" && (
+      {pr.state === 'OPEN' && (
         <div className="pr-card-actions">
-          <button
-            className="branch-card-action"
-            onClick={() => openUrl(pr.url)}
-          >
+          <button className="branch-card-action" onClick={() => void openUrl(pr.url)}>
             View on GitHub <ExternalLinkIcon size={10} />
           </button>
           {hasConflicts && onResolveConflicts ? (
@@ -298,14 +299,16 @@ function PrCard({ pr, isOwn, isMerging, onMerge, onResolveConflicts }: PrCardPro
             >
               Resolve
             </button>
-          ) : onMerge && (
-            <button
-              className={`branch-card-action ${canMerge ? "primary" : ""}`}
-              onClick={onMerge}
-              disabled={isMerging || !canMerge}
-            >
-              {isMerging ? "Merging..." : "Merge"}
-            </button>
+          ) : (
+            onMerge && (
+              <button
+                className={`branch-card-action ${canMerge ? 'primary' : ''}`}
+                onClick={onMerge}
+                disabled={isMerging || !canMerge}
+              >
+                {isMerging ? 'Merging...' : 'Merge'}
+              </button>
+            )
           )}
         </div>
       )}

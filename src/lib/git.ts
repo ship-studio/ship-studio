@@ -7,10 +7,10 @@
  * @module lib/git
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 
 /** Status type for a changed file */
-export type ChangeStatus = "modified" | "added" | "deleted" | "renamed";
+export type ChangeStatus = 'modified' | 'added' | 'deleted' | 'renamed';
 
 /** A file with uncommitted changes */
 export interface ChangedFile {
@@ -29,5 +29,5 @@ export interface ChangedFile {
  * @returns Array of changed files with their status
  */
 export async function getChangedFiles(projectPath: string): Promise<ChangedFile[]> {
-  return invoke<ChangedFile[]>("get_changed_files", { projectPath });
+  return invoke<ChangedFile[]>('get_changed_files', { projectPath });
 }

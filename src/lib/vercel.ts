@@ -12,7 +12,7 @@
  * @module lib/vercel
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 
 /** Vercel CLI installation and authentication status */
 export interface VercelCliStatus {
@@ -25,7 +25,7 @@ export interface VercelCliStatus {
 /** Project's Vercel connection status */
 export interface ProjectVercelStatus {
   /** Connection state */
-  status: "not-linked" | "not-git-connected" | "connected";
+  status: 'not-linked' | 'not-git-connected' | 'connected';
   /** Vercel project name */
   project_name: string | null;
   /** Vercel org/team slug for dashboard URLs */
@@ -41,7 +41,7 @@ export interface ProjectVercelStatus {
  * @returns CLI status with installed and authenticated flags
  */
 export async function checkVercelCliStatus(): Promise<VercelCliStatus> {
-  return invoke<VercelCliStatus>("check_vercel_cli_status");
+  return invoke<VercelCliStatus>('check_vercel_cli_status');
 }
 
 /**
@@ -50,7 +50,7 @@ export async function checkVercelCliStatus(): Promise<VercelCliStatus> {
  * @throws If not authenticated
  */
 export async function getVercelUsername(): Promise<string> {
-  return invoke<string>("get_vercel_username");
+  return invoke<string>('get_vercel_username');
 }
 
 /** A Vercel team/organization */
@@ -68,7 +68,7 @@ export interface VercelTeam {
  * @returns Array of teams, empty if user has no teams
  */
 export async function getVercelTeams(): Promise<VercelTeam[]> {
-  return invoke<VercelTeam[]>("get_vercel_teams");
+  return invoke<VercelTeam[]>('get_vercel_teams');
 }
 
 /** A Vercel project */
@@ -87,7 +87,7 @@ export interface VercelProject {
  * @returns Array of projects
  */
 export async function listVercelProjects(scope: string): Promise<VercelProject[]> {
-  return invoke<VercelProject[]>("list_vercel_projects", { scope });
+  return invoke<VercelProject[]>('list_vercel_projects', { scope });
 }
 
 /**
@@ -101,7 +101,7 @@ export async function writeVercelProjectJson(
   projectId: string,
   orgId: string
 ): Promise<void> {
-  return invoke("write_vercel_project_json", { projectPath, projectId, orgId });
+  return invoke('write_vercel_project_json', { projectPath, projectId, orgId });
 }
 
 /**
@@ -110,7 +110,7 @@ export async function writeVercelProjectJson(
  * @returns Vercel connection status with URLs
  */
 export async function getProjectVercelStatus(projectPath: string): Promise<ProjectVercelStatus> {
-  return invoke<ProjectVercelStatus>("get_project_vercel_status", { projectPath });
+  return invoke<ProjectVercelStatus>('get_project_vercel_status', { projectPath });
 }
 
 /**
@@ -118,7 +118,7 @@ export async function getProjectVercelStatus(projectPath: string): Promise<Proje
  * Runs: npm install -g vercel
  */
 export async function installVercelCli(): Promise<void> {
-  return invoke("install_vercel_cli");
+  return invoke('install_vercel_cli');
 }
 
 /** Options for linking a project to Vercel */
@@ -136,7 +136,7 @@ export interface LinkToVercelOptions {
  * @returns Deployment URL
  */
 export async function linkToVercel(options: LinkToVercelOptions): Promise<string> {
-  return invoke<string>("link_to_vercel", { options });
+  return invoke<string>('link_to_vercel', { options });
 }
 
 /** Options for deploying a project to Vercel */
@@ -157,7 +157,7 @@ export interface DeployToVercelOptions {
  * @returns Deployment URL
  */
 export async function deployToVercel(options: DeployToVercelOptions): Promise<string> {
-  return invoke<string>("deploy_to_vercel", { options });
+  return invoke<string>('deploy_to_vercel', { options });
 }
 
 /** Information about a single Vercel deployment */
@@ -167,9 +167,9 @@ export interface VercelDeployment {
   /** Deployment URL */
   url: string;
   /** Deployment state */
-  state: "READY" | "BUILDING" | "ERROR" | "QUEUED" | "CANCELED" | string;
+  state: string;
   /** Target environment (production or null for preview) */
-  target: "production" | null;
+  target: 'production' | null;
   /** Creation timestamp (Unix ms) */
   created_at: number;
 }
@@ -192,5 +192,5 @@ export interface VercelDeploymentStatus {
  * @returns Status of staging and production deployments
  */
 export async function getVercelDeployments(projectPath: string): Promise<VercelDeploymentStatus> {
-  return invoke<VercelDeploymentStatus>("get_vercel_deployments", { projectPath });
+  return invoke<VercelDeploymentStatus>('get_vercel_deployments', { projectPath });
 }

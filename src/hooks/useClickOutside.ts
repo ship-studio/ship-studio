@@ -4,7 +4,7 @@
  * @module hooks/useClickOutside
  */
 
-import { useEffect, RefObject } from "react";
+import { useEffect, RefObject } from 'react';
 
 /**
  * Hook that detects clicks outside a referenced element.
@@ -38,7 +38,7 @@ export function useClickOutside<T extends HTMLElement>(
       }
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [ref, callback, enabled]);
 }

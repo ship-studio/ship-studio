@@ -6,15 +6,15 @@
  * Reuses xterm.js setup from Terminal.tsx but without drag-drop handling.
  */
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { spawn, IPty } from "tauri-pty";
-import { homeDir } from "@tauri-apps/api/path";
-import { readDir, exists } from "@tauri-apps/plugin-fs";
-import { loadNerdFonts } from "../../lib/fonts";
-import "@xterm/xterm/css/xterm.css";
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { spawn, IPty } from 'tauri-pty';
+import { homeDir } from '@tauri-apps/api/path';
+import { readDir, exists } from '@tauri-apps/plugin-fs';
+import { loadNerdFonts } from '../../lib/fonts';
+import '@xterm/xterm/css/xterm.css';
 
 /** Props for the OnboardingTerminal component */
 interface OnboardingTerminalProps {
@@ -28,12 +28,7 @@ interface OnboardingTerminalProps {
   onExit: (exitCode: number | null) => void;
 }
 
-export function OnboardingTerminal({
-  command,
-  args,
-  cwd,
-  onExit,
-}: OnboardingTerminalProps) {
+export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -75,10 +70,10 @@ export function OnboardingTerminal({
         await loadNerdFonts();
         setIsReady(true);
       } else {
-        requestAnimationFrame(checkReady);
+        requestAnimationFrame(() => void checkReady());
       }
     };
-    checkReady();
+    void checkReady();
   }, []);
 
   // Create terminal when ready
@@ -93,30 +88,30 @@ export function OnboardingTerminal({
       fontSize: 13,
       lineHeight: 1.2,
       cursorBlink: true,
-      cursorStyle: "block",
+      cursorStyle: 'block',
       scrollback: 1000,
       allowProposedApi: true,
       theme: {
-        background: "#1e1e1e",
-        foreground: "#cccccc",
-        cursor: "#ffffff",
-        selectionBackground: "#3a3d41",
-        black: "#000000",
-        red: "#cd3131",
-        green: "#0dbc79",
-        yellow: "#e5e510",
-        blue: "#2472c8",
-        magenta: "#bc3fbc",
-        cyan: "#11a8cd",
-        white: "#e5e5e5",
-        brightBlack: "#666666",
-        brightRed: "#f14c4c",
-        brightGreen: "#23d18b",
-        brightYellow: "#f5f543",
-        brightBlue: "#3b8eea",
-        brightMagenta: "#d670d6",
-        brightCyan: "#29b8db",
-        brightWhite: "#ffffff",
+        background: '#1e1e1e',
+        foreground: '#cccccc',
+        cursor: '#ffffff',
+        selectionBackground: '#3a3d41',
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#ffffff',
       },
     });
 
@@ -124,7 +119,7 @@ export function OnboardingTerminal({
     const unicode11Addon = new Unicode11Addon();
     term.loadAddon(fitAddon);
     term.loadAddon(unicode11Addon);
-    term.unicode.activeVersion = "11";
+    term.unicode.activeVersion = '11';
 
     // Open terminal in container
     term.open(container);
@@ -151,7 +146,7 @@ export function OnboardingTerminal({
 
         // Get home directory for default cwd and PATH building
         const home = await homeDir();
-        const homeNormalized = home.endsWith("/") ? home : `${home}/`;
+        const homeNormalized = home.endsWith('/') ? home : `${home}/`;
         const homePath = cwd || homeNormalized;
 
         // Build PATH with user-local and system paths for freshly installed tools
@@ -168,9 +163,10 @@ export function OnboardingTerminal({
           const entries = await readDir(nvmNodeDir);
           for (const entry of entries) {
             const name = entry.name;
-            if (name && name.startsWith("v")) {
+            if (name && name.startsWith('v')) {
               const binPath = `${nvmNodeDir}/${name}/bin`;
-              if (await exists(binPath)) {
+              const pathExists = await exists(binPath);
+              if (pathExists) {
                 userPaths.push(binPath);
               }
             }
@@ -179,11 +175,12 @@ export function OnboardingTerminal({
           // nvm not installed or no versions - ignore
         }
 
-        const systemPaths = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-        const fullPath = `${userPaths.join(":")}:${systemPaths}`;
+        const systemPaths = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+        const fullPath = `${userPaths.join(':')}:${systemPaths}`;
 
         // Spawn PTY using tauri-pty
         // Must pass all essential env vars since env replaces (not merges with) parent environment
+        // eslint-disable-next-line @typescript-eslint/await-thenable
         const pty = await spawn(command, args, {
           cwd: homePath,
           cols: term.cols,
@@ -191,10 +188,10 @@ export function OnboardingTerminal({
           env: {
             PATH: fullPath,
             HOME: homeNormalized.slice(0, -1),
-            USER: homeNormalized.split("/").filter(Boolean).pop() || "user",
-            TERM: "xterm-256color",
-            LANG: "en_US.UTF-8",
-            SHELL: "/bin/zsh",
+            USER: homeNormalized.split('/').filter(Boolean).pop() || 'user',
+            TERM: 'xterm-256color',
+            LANG: 'en_US.UTF-8',
+            SHELL: '/bin/zsh',
           },
         });
 
@@ -224,15 +221,15 @@ export function OnboardingTerminal({
         // Focus the terminal
         term.focus();
       } catch (err) {
-        console.error(`Failed to spawn ${command}:`, err);
-        term.write(`\x1b[31mError starting command: ${err}\x1b[0m\r\n`);
+        console.warn(`Failed to spawn ${command}:`, err);
+        term.write(`\x1b[31mError starting command: ${String(err)}\x1b[0m\r\n`);
         // Notify parent of failure
         setTimeout(() => onExitRef.current(1), 1000);
       }
     };
 
     // Small delay before starting to ensure terminal is ready
-    setTimeout(() => setupPty(), 100);
+    setTimeout(() => void setupPty(), 100);
 
     // Handle resize
     const resizeObserver = new ResizeObserver(() => {
@@ -255,11 +252,5 @@ export function OnboardingTerminal({
     terminalRef.current?.focus();
   }, []);
 
-  return (
-    <div
-      ref={containerRef}
-      onClick={handleClick}
-      className="onboarding-terminal-container"
-    />
-  );
+  return <div ref={containerRef} onClick={handleClick} className="onboarding-terminal-container" />;
 }

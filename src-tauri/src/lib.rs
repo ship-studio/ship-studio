@@ -11,14 +11,13 @@
 //! - **Native Webview**: Child webview for Sanity CMS (OAuth support)
 //! - **Utilities**: Screenshots, IDE launcher, prerequisite checks
 
-pub mod types;
-pub mod utils;
+pub mod cache;
 pub mod commands;
 pub mod logging;
-pub mod cache;
+pub mod types;
+pub mod utils;
 
 use std::process::Command;
-use tracing;
 
 // Kill orphaned Claude processes spawned by this app
 fn cleanup_claude_processes() {
@@ -32,26 +31,32 @@ fn cleanup_claude_processes() {
 
         // Kill any orphaned claude processes (parent is init/launchd - PID 1)
         let _ = Command::new("sh")
-            .args(["-c", r#"
+            .args([
+                "-c",
+                r#"
                 for pid in $(pgrep -x claude 2>/dev/null); do
                     ppid=$(ps -o ppid= -p $pid 2>/dev/null | tr -d ' ')
                     if [ "$ppid" = "1" ]; then
                         kill $pid 2>/dev/null
                     fi
                 done
-            "#])
+            "#,
+            ])
             .output();
 
         // Also kill orphaned node processes running next-server (from dev server)
         let _ = Command::new("sh")
-            .args(["-c", r#"
+            .args([
+                "-c",
+                r#"
                 for pid in $(pgrep -f 'next-server' 2>/dev/null); do
                     ppid=$(ps -o ppid= -p $pid 2>/dev/null | tr -d ' ')
                     if [ "$ppid" = "1" ]; then
                         kill $pid 2>/dev/null
                     fi
                 done
-            "#])
+            "#,
+            ])
             .output();
     }
 }

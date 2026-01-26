@@ -9,9 +9,9 @@
  * @module components/UnsavedChangesModal
  */
 
-import { useState } from "react";
-import { WarningIcon } from "./icons";
-import { publishBranch, discardChanges, switchBranch } from "../lib/branches";
+import { useState } from 'react';
+import { WarningIcon } from './icons';
+import { publishBranch, discardChanges, switchBranch } from '../lib/branches';
 
 interface UnsavedChangesModalProps {
   /** Current branch name */
@@ -25,7 +25,7 @@ interface UnsavedChangesModalProps {
   /** Callback to close the modal */
   onClose: () => void;
   /** Callback for toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 export function UnsavedChangesModal({
@@ -44,7 +44,7 @@ export function UnsavedChangesModal({
     try {
       // First publish the current branch
       await publishBranch(projectPath);
-      onToast?.(`Published ${currentBranch}`, "success");
+      onToast?.(`Published ${currentBranch}`, 'success');
 
       // Then switch to target branch
       const result = await switchBranch(projectPath, targetBranch, false);
@@ -52,10 +52,10 @@ export function UnsavedChangesModal({
         onSwitchComplete(targetBranch);
         onClose();
       } else {
-        onToast?.(result.error || "Failed to switch branch", "error");
+        onToast?.(result.error || 'Failed to switch branch', 'error');
       }
     } catch (e) {
-      onToast?.(`Failed to publish: ${e}`, "error");
+      onToast?.(`Failed to publish: ${String(e)}`, 'error');
     } finally {
       setIsPublishing(false);
     }
@@ -70,14 +70,14 @@ export function UnsavedChangesModal({
       // Then switch to target branch
       const result = await switchBranch(projectPath, targetBranch, false);
       if (result.success) {
-        onToast?.(`Switched to ${targetBranch}`, "success");
+        onToast?.(`Switched to ${targetBranch}`, 'success');
         onSwitchComplete(targetBranch);
         onClose();
       } else {
-        onToast?.(result.error || "Failed to switch branch", "error");
+        onToast?.(result.error || 'Failed to switch branch', 'error');
       }
     } catch (e) {
-      onToast?.(`Failed to discard changes: ${e}`, "error");
+      onToast?.(`Failed to discard changes: ${String(e)}`, 'error');
     } finally {
       setIsDiscarding(false);
     }
@@ -94,31 +94,27 @@ export function UnsavedChangesModal({
         </div>
         <div className="unsaved-changes-body">
           <p>
-            You have uncommitted changes on <strong>{currentBranch}</strong>.
-            What would you like to do?
+            You have uncommitted changes on <strong>{currentBranch}</strong>. What would you like to
+            do?
           </p>
         </div>
         <div className="unsaved-changes-actions">
-          <button
-            className="unsaved-changes-btn secondary"
-            onClick={onClose}
-            disabled={isLoading}
-          >
+          <button className="unsaved-changes-btn secondary" onClick={onClose} disabled={isLoading}>
             Cancel
           </button>
           <button
             className="unsaved-changes-btn danger"
-            onClick={handleDiscardAndSwitch}
+            onClick={() => void handleDiscardAndSwitch()}
             disabled={isLoading}
           >
-            {isDiscarding ? "Discarding..." : "Discard Changes"}
+            {isDiscarding ? 'Discarding...' : 'Discard Changes'}
           </button>
           <button
             className="unsaved-changes-btn primary"
-            onClick={handlePublishAndSwitch}
+            onClick={() => void handlePublishAndSwitch()}
             disabled={isLoading}
           >
-            {isPublishing ? "Publishing..." : "Publish & Switch"}
+            {isPublishing ? 'Publishing...' : 'Publish & Switch'}
           </button>
         </div>
       </div>

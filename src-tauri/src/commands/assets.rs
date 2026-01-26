@@ -5,12 +5,12 @@
 use crate::types::Asset;
 use crate::utils::validate_project_path;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 /// Validates that an asset path is within the /public directory of the project.
 /// Prevents path traversal attacks.
-fn validate_asset_path(project_path: &PathBuf, asset_path: &str) -> Result<PathBuf, String> {
+fn validate_asset_path(project_path: &Path, asset_path: &str) -> Result<PathBuf, String> {
     // Check for obvious path traversal attempts
     if asset_path.contains("..") {
         return Err("Invalid path: path traversal not allowed".to_string());
@@ -22,16 +22,24 @@ fn validate_asset_path(project_path: &PathBuf, asset_path: &str) -> Result<PathB
     // Canonicalize to resolve any symlinks and ensure it's within public
     // For new files that don't exist yet, we need to check the parent
     let check_path = if full_path.exists() {
-        full_path.canonicalize().map_err(|e| format!("Invalid path: {}", e))?
+        full_path
+            .canonicalize()
+            .map_err(|e| format!("Invalid path: {}", e))?
     } else {
         // For non-existent paths, verify parent exists and is within public
-        let parent = full_path.parent().ok_or("Invalid path: no parent directory")?;
+        let parent = full_path
+            .parent()
+            .ok_or("Invalid path: no parent directory")?;
         if !parent.exists() {
             return Err("Parent directory does not exist".to_string());
         }
-        let canonical_parent = parent.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+        let canonical_parent = parent
+            .canonicalize()
+            .map_err(|e| format!("Invalid path: {}", e))?;
         let canonical_public = if public_dir.exists() {
-            public_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?
+            public_dir
+                .canonicalize()
+                .map_err(|e| format!("Invalid path: {}", e))?
         } else {
             return Err("Public directory does not exist".to_string());
         };
@@ -41,7 +49,9 @@ fn validate_asset_path(project_path: &PathBuf, asset_path: &str) -> Result<PathB
         return Ok(full_path);
     };
 
-    let canonical_public = public_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_public = public_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
 
     if !check_path.starts_with(&canonical_public) {
         return Err("Security error: path is outside public directory".to_string());
@@ -81,7 +91,11 @@ fn path_to_asset(path: &PathBuf, public_dir: &PathBuf) -> Result<Asset, String> 
 }
 
 /// Recursively list all files in a directory
-fn list_files_recursive(dir: &PathBuf, public_dir: &PathBuf, assets: &mut Vec<Asset>) -> Result<(), String> {
+fn list_files_recursive(
+    dir: &PathBuf,
+    public_dir: &PathBuf,
+    assets: &mut Vec<Asset>,
+) -> Result<(), String> {
     if !dir.exists() {
         return Ok(());
     }
@@ -143,7 +157,8 @@ pub async fn upload_asset(
 
     // Create public directory if it doesn't exist
     if !public_dir.exists() {
-        fs::create_dir_all(&public_dir).map_err(|e| format!("Failed to create public directory: {}", e))?;
+        fs::create_dir_all(&public_dir)
+            .map_err(|e| format!("Failed to create public directory: {}", e))?;
     }
 
     // Validate filename
@@ -162,7 +177,8 @@ pub async fn upload_asset(
         }
         let dest_path = public_dir.join(dest);
         if !dest_path.exists() {
-            fs::create_dir_all(&dest_path).map_err(|e| format!("Failed to create destination directory: {}", e))?;
+            fs::create_dir_all(&dest_path)
+                .map_err(|e| format!("Failed to create destination directory: {}", e))?;
         }
         dest_path
     };
@@ -170,8 +186,12 @@ pub async fn upload_asset(
     let file_path = dest_dir.join(&file_name);
 
     // Ensure final path is within public directory
-    let canonical_public = public_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
-    let canonical_dest = dest_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_public = public_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_dest = dest_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
     if !canonical_dest.starts_with(&canonical_public) {
         return Err("Security error: destination is outside public directory".to_string());
     }
@@ -190,8 +210,12 @@ pub async fn delete_asset(project_path: String, asset_path: String) -> Result<()
     let full_path = validate_asset_path(&project, &asset_path)?;
 
     // Double-check it's within public
-    let canonical_public = public_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
-    let canonical_path = full_path.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_public = public_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_path = full_path
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
     if !canonical_path.starts_with(&canonical_public) {
         return Err("Security error: path is outside public directory".to_string());
     }
@@ -226,12 +250,18 @@ pub async fn rename_asset(
     }
 
     // Build new path in same directory
-    let parent = old_path.parent().ok_or("Invalid path: no parent directory")?;
+    let parent = old_path
+        .parent()
+        .ok_or("Invalid path: no parent directory")?;
     let new_path = parent.join(&new_name);
 
     // Check new path is still within public
-    let canonical_public = public_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
-    let canonical_parent = parent.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_public = public_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
     if !canonical_parent.starts_with(&canonical_public) {
         return Err("Security error: path is outside public directory".to_string());
     }
@@ -255,7 +285,8 @@ pub async fn create_asset_folder(project_path: String, folder_path: String) -> R
 
     // Create public directory if it doesn't exist
     if !public_dir.exists() {
-        fs::create_dir_all(&public_dir).map_err(|e| format!("Failed to create public directory: {}", e))?;
+        fs::create_dir_all(&public_dir)
+            .map_err(|e| format!("Failed to create public directory: {}", e))?;
     }
 
     // Validate folder path
@@ -271,12 +302,16 @@ pub async fn create_asset_folder(project_path: String, folder_path: String) -> R
     let full_path = public_dir.join(folder_name);
 
     // Ensure it's within public
-    let canonical_public = public_dir.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_public = public_dir
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
 
     // For the new folder, check parent is within public
     if let Some(parent) = full_path.parent() {
         if parent.exists() {
-            let canonical_parent = parent.canonicalize().map_err(|e| format!("Invalid path: {}", e))?;
+            let canonical_parent = parent
+                .canonicalize()
+                .map_err(|e| format!("Invalid path: {}", e))?;
             if !canonical_parent.starts_with(&canonical_public) {
                 return Err("Security error: path is outside public directory".to_string());
             }

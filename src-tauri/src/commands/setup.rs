@@ -2,15 +2,15 @@
 //!
 //! Commands for the setup wizard and onboarding flow.
 
+use crate::commands::claude::find_claude_binary;
+use crate::commands::github::get_gh_command;
+use crate::commands::vercel::{find_vercel_binary, get_vercel_command};
+use crate::types::{FullSetupStatus, SetupItemInfo, SetupItemStatus};
+use crate::utils::{check_homebrew, find_executable, get_brew_command};
 use std::collections::HashSet;
 use std::process::Command;
 use std::sync::Mutex;
 use tauri::Emitter;
-use crate::types::{FullSetupStatus, SetupItemInfo, SetupItemStatus};
-use crate::utils::{find_executable, get_brew_command, check_homebrew};
-use crate::commands::claude::find_claude_binary;
-use crate::commands::vercel::{find_vercel_binary, get_vercel_command};
-use crate::commands::github::get_gh_command;
 
 // Mock state for testing - tracks which items have been "installed" in debug mode
 lazy_static::lazy_static! {
@@ -34,7 +34,10 @@ pub fn mock_install(item_id: &str) {
 
 /// Check if an item is mock-installed
 fn is_mock_installed(item_id: &str) -> bool {
-    MOCK_INSTALLED.lock().map(|set| set.contains(item_id)).unwrap_or(false)
+    MOCK_INSTALLED
+        .lock()
+        .map(|set| set.contains(item_id))
+        .unwrap_or(false)
 }
 
 /// Get full setup status for all items
@@ -54,31 +57,47 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
             ("vercel_auth", "Vercel Account", Some("vercel")),
         ];
 
-        let mock_items: Vec<SetupItemInfo> = items.iter().map(|(id, name, dep)| {
-            let is_ready = is_mock_installed(id);
-            let dep_ready = dep.map(|d| is_mock_installed(d)).unwrap_or(true);
-            let is_auth = id.ends_with("_auth");
+        let mock_items: Vec<SetupItemInfo> = items
+            .iter()
+            .map(|(id, name, dep)| {
+                let is_ready = is_mock_installed(id);
+                let dep_ready = dep.map(is_mock_installed).unwrap_or(true);
+                let is_auth = id.ends_with("_auth");
 
-            SetupItemInfo {
-                id: id.to_string(),
-                friendly_name: name.to_string(),
-                status: if is_ready {
-                    SetupItemStatus::Ready
-                } else if !dep_ready {
-                    SetupItemStatus::NotInstalled
-                } else if is_auth {
-                    SetupItemStatus::NotAuthenticated
-                } else {
-                    SetupItemStatus::NotInstalled
-                },
-                version: if is_ready && !is_auth { Some("mock-1.0.0".to_string()) } else { None },
-                username: if is_ready && is_auth { Some("mock-user".to_string()) } else { None },
-                error_message: None,
-            }
-        }).collect();
+                SetupItemInfo {
+                    id: id.to_string(),
+                    friendly_name: name.to_string(),
+                    status: if is_ready {
+                        SetupItemStatus::Ready
+                    } else if !dep_ready {
+                        SetupItemStatus::NotInstalled
+                    } else if is_auth {
+                        SetupItemStatus::NotAuthenticated
+                    } else {
+                        SetupItemStatus::NotInstalled
+                    },
+                    version: if is_ready && !is_auth {
+                        Some("mock-1.0.0".to_string())
+                    } else {
+                        None
+                    },
+                    username: if is_ready && is_auth {
+                        Some("mock-user".to_string())
+                    } else {
+                        None
+                    },
+                    error_message: None,
+                }
+            })
+            .collect();
 
-        let all_ready = mock_items.iter().all(|i| matches!(i.status, SetupItemStatus::Ready));
-        return FullSetupStatus { all_ready, items: mock_items };
+        let all_ready = mock_items
+            .iter()
+            .all(|i| matches!(i.status, SetupItemStatus::Ready));
+        return FullSetupStatus {
+            all_ready,
+            items: mock_items,
+        };
     }
 
     let mut items = Vec::new();
@@ -88,7 +107,11 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     items.push(SetupItemInfo {
         id: "homebrew".to_string(),
         friendly_name: "Package Manager".to_string(),
-        status: if brew_installed { SetupItemStatus::Ready } else { SetupItemStatus::NotInstalled },
+        status: if brew_installed {
+            SetupItemStatus::Ready
+        } else {
+            SetupItemStatus::NotInstalled
+        },
         version: brew_version,
         username: None,
         error_message: None,
@@ -97,18 +120,26 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     // 2. Node.js
     let node_path = find_executable("node");
     let node_version = node_path.as_ref().and_then(|p| {
-        Command::new(p).args(["--version"]).output().ok().and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
+        Command::new(p)
+            .args(["--version"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            })
     });
     items.push(SetupItemInfo {
         id: "node".to_string(),
         friendly_name: "Node.js".to_string(),
-        status: if node_path.is_some() { SetupItemStatus::Ready } else { SetupItemStatus::NotInstalled },
+        status: if node_path.is_some() {
+            SetupItemStatus::Ready
+        } else {
+            SetupItemStatus::NotInstalled
+        },
         version: node_version,
         username: None,
         error_message: None,
@@ -117,18 +148,26 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     // 3. Git
     let git_path = find_executable("git");
     let git_version = git_path.as_ref().and_then(|p| {
-        Command::new(p).args(["--version"]).output().ok().and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
+        Command::new(p)
+            .args(["--version"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            })
     });
     items.push(SetupItemInfo {
         id: "git".to_string(),
         friendly_name: "Git".to_string(),
-        status: if git_path.is_some() { SetupItemStatus::Ready } else { SetupItemStatus::NotInstalled },
+        status: if git_path.is_some() {
+            SetupItemStatus::Ready
+        } else {
+            SetupItemStatus::NotInstalled
+        },
         version: git_version,
         username: None,
         error_message: None,
@@ -137,19 +176,27 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     // 4. GitHub CLI
     let gh_path = find_executable("gh");
     let gh_version = gh_path.as_ref().and_then(|p| {
-        Command::new(p).args(["--version"]).output().ok().and_then(|o| {
-            if o.status.success() {
-                let out = String::from_utf8_lossy(&o.stdout);
-                out.lines().next().map(|s| s.trim().to_string())
-            } else {
-                None
-            }
-        })
+        Command::new(p)
+            .args(["--version"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    let out = String::from_utf8_lossy(&o.stdout);
+                    out.lines().next().map(|s| s.trim().to_string())
+                } else {
+                    None
+                }
+            })
     });
     items.push(SetupItemInfo {
         id: "gh".to_string(),
         friendly_name: "GitHub CLI".to_string(),
-        status: if gh_path.is_some() { SetupItemStatus::Ready } else { SetupItemStatus::NotInstalled },
+        status: if gh_path.is_some() {
+            SetupItemStatus::Ready
+        } else {
+            SetupItemStatus::NotInstalled
+        },
         version: gh_version,
         username: None,
         error_message: None,
@@ -198,18 +245,26 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     // 6. Claude Code
     let claude_path = find_claude_binary();
     let claude_version = claude_path.as_ref().and_then(|p| {
-        Command::new(p).args(["--version"]).output().ok().and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
+        Command::new(p)
+            .args(["--version"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            })
     });
     items.push(SetupItemInfo {
         id: "claude".to_string(),
         friendly_name: "Claude Code".to_string(),
-        status: if claude_path.is_some() { SetupItemStatus::Ready } else { SetupItemStatus::NotInstalled },
+        status: if claude_path.is_some() {
+            SetupItemStatus::Ready
+        } else {
+            SetupItemStatus::NotInstalled
+        },
         version: claude_version,
         username: None,
         error_message: None,
@@ -251,18 +306,26 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     // 8. Vercel CLI
     let vercel_path = find_vercel_binary();
     let vercel_version = vercel_path.as_ref().and_then(|p| {
-        Command::new(p).args(["--version"]).output().ok().and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
+        Command::new(p)
+            .args(["--version"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            })
     });
     items.push(SetupItemInfo {
         id: "vercel".to_string(),
         friendly_name: "Vercel CLI".to_string(),
-        status: if vercel_path.is_some() { SetupItemStatus::Ready } else { SetupItemStatus::NotInstalled },
+        status: if vercel_path.is_some() {
+            SetupItemStatus::Ready
+        } else {
+            SetupItemStatus::NotInstalled
+        },
         version: vercel_version,
         username: None,
         error_message: None,
@@ -308,7 +371,9 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         error_message: None,
     });
 
-    let all_ready = items.iter().all(|i| matches!(i.status, SetupItemStatus::Ready));
+    let all_ready = items
+        .iter()
+        .all(|i| matches!(i.status, SetupItemStatus::Ready));
 
     FullSetupStatus { all_ready, items }
 }
@@ -316,10 +381,13 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
 /// Install Homebrew
 #[tauri::command]
 pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), String> {
-    let _ = app.emit("setup-progress", serde_json::json!({
-        "itemId": "homebrew",
-        "message": "Installing package manager..."
-    }));
+    let _ = app.emit(
+        "setup-progress",
+        serde_json::json!({
+            "itemId": "homebrew",
+            "message": "Installing package manager..."
+        }),
+    );
 
     if is_mock_mode() {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -344,10 +412,13 @@ pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), String> {
 /// Install Node.js via Homebrew
 #[tauri::command]
 pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), String> {
-    let _ = app.emit("setup-progress", serde_json::json!({
-        "itemId": "node",
-        "message": "Installing Node.js..."
-    }));
+    let _ = app.emit(
+        "setup-progress",
+        serde_json::json!({
+            "itemId": "node",
+            "message": "Installing Node.js..."
+        }),
+    );
 
     if is_mock_mode() {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -373,10 +444,13 @@ pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), String> 
 /// Install Git via Homebrew
 #[tauri::command]
 pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), String> {
-    let _ = app.emit("setup-progress", serde_json::json!({
-        "itemId": "git",
-        "message": "Installing Git..."
-    }));
+    let _ = app.emit(
+        "setup-progress",
+        serde_json::json!({
+            "itemId": "git",
+            "message": "Installing Git..."
+        }),
+    );
 
     if is_mock_mode() {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -402,10 +476,13 @@ pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), String> {
 /// Install GitHub CLI via Homebrew
 #[tauri::command]
 pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), String> {
-    let _ = app.emit("setup-progress", serde_json::json!({
-        "itemId": "gh",
-        "message": "Installing GitHub CLI..."
-    }));
+    let _ = app.emit(
+        "setup-progress",
+        serde_json::json!({
+            "itemId": "gh",
+            "message": "Installing GitHub CLI..."
+        }),
+    );
 
     if is_mock_mode() {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -431,10 +508,13 @@ pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), String> {
 /// Start GitHub authentication (opens browser)
 #[tauri::command]
 pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, String> {
-    let _ = app.emit("setup-progress", serde_json::json!({
-        "itemId": "gh_auth",
-        "message": "Opening browser..."
-    }));
+    let _ = app.emit(
+        "setup-progress",
+        serde_json::json!({
+            "itemId": "gh_auth",
+            "message": "Opening browser..."
+        }),
+    );
 
     if is_mock_mode() {
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
@@ -445,7 +525,14 @@ pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, String> 
     let gh_path = find_executable("gh").ok_or("GitHub CLI not installed")?;
 
     let child = Command::new(&gh_path)
-        .args(["auth", "login", "--web", "--git-protocol", "https", "--clipboard"])
+        .args([
+            "auth",
+            "login",
+            "--web",
+            "--git-protocol",
+            "https",
+            "--clipboard",
+        ])
         .spawn()
         .map_err(|e| format!("Failed to start GitHub auth: {}", e))?;
 
@@ -468,10 +555,13 @@ pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, String> 
 /// Start Claude authentication
 #[tauri::command]
 pub async fn start_claude_auth(app: tauri::AppHandle) -> Result<String, String> {
-    let _ = app.emit("setup-progress", serde_json::json!({
-        "itemId": "claude_auth",
-        "message": "Opening browser..."
-    }));
+    let _ = app.emit(
+        "setup-progress",
+        serde_json::json!({
+            "itemId": "claude_auth",
+            "message": "Opening browser..."
+        }),
+    );
 
     if is_mock_mode() {
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
@@ -532,10 +622,13 @@ pub async fn check_claude_auth_status() -> bool {
 /// Start Vercel authentication (opens browser)
 #[tauri::command]
 pub async fn start_vercel_auth(app: tauri::AppHandle) -> Result<String, String> {
-    let _ = app.emit("setup-progress", serde_json::json!({
-        "itemId": "vercel_auth",
-        "message": "Opening browser..."
-    }));
+    let _ = app.emit(
+        "setup-progress",
+        serde_json::json!({
+            "itemId": "vercel_auth",
+            "message": "Opening browser..."
+        }),
+    );
 
     if is_mock_mode() {
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;

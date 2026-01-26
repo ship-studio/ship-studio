@@ -11,7 +11,7 @@
  * @module lib/branches
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 
 /** Information about a git branch */
 export interface BranchInfo {
@@ -57,19 +57,21 @@ export interface PublishResult {
  * @returns Array of branch info objects
  */
 export async function listBranches(projectPath: string): Promise<BranchInfo[]> {
-  const result = await invoke<Array<{
-    name: string;
-    is_current: boolean;
-    is_remote: boolean;
-    is_default: boolean;
-    last_commit_date: number;
-    last_commit_author: string;
-    ahead_of_main: number;
-    behind_main: number;
-  }>>("list_branches", { projectPath });
+  const result = await invoke<
+    Array<{
+      name: string;
+      is_current: boolean;
+      is_remote: boolean;
+      is_default: boolean;
+      last_commit_date: number;
+      last_commit_author: string;
+      ahead_of_main: number;
+      behind_main: number;
+    }>
+  >('list_branches', { projectPath });
 
   // Transform snake_case to camelCase
-  return result.map(b => ({
+  return result.map((b) => ({
     name: b.name,
     isCurrent: b.is_current,
     isRemote: b.is_remote,
@@ -87,7 +89,7 @@ export async function listBranches(projectPath: string): Promise<BranchInfo[]> {
  * @returns Current branch name
  */
 export async function getCurrentBranch(projectPath: string): Promise<string> {
-  return invoke<string>("get_current_branch", { projectPath });
+  return invoke<string>('get_current_branch', { projectPath });
 }
 
 /**
@@ -106,7 +108,7 @@ export async function switchBranch(
     success: boolean;
     stashed_changes: boolean;
     error: string | null;
-  }>("switch_branch", { projectPath, branchName, autoStash });
+  }>('switch_branch', { projectPath, branchName, autoStash });
 
   return {
     success: result.success,
@@ -121,7 +123,7 @@ export async function switchBranch(
  * @param projectPath - Absolute path to the project directory
  */
 export async function discardChanges(projectPath: string): Promise<void> {
-  return invoke("discard_changes", { projectPath });
+  return invoke('discard_changes', { projectPath });
 }
 
 /**
@@ -135,7 +137,7 @@ export async function createBranch(
   branchName: string,
   fromBranch: string
 ): Promise<void> {
-  return invoke("create_branch", { projectPath, branchName, fromBranch });
+  return invoke('create_branch', { projectPath, branchName, fromBranch });
 }
 
 /**
@@ -143,7 +145,7 @@ export async function createBranch(
  * @param projectPath - Absolute path to the project directory
  */
 export async function fetchAllBranches(projectPath: string): Promise<void> {
-  return invoke("fetch_all_branches", { projectPath });
+  return invoke('fetch_all_branches', { projectPath });
 }
 
 /**
@@ -157,7 +159,7 @@ export async function publishBranch(
   projectPath: string,
   commitMessage?: string
 ): Promise<PublishResult> {
-  return invoke<PublishResult>("publish_branch", { projectPath, commitMessage });
+  return invoke<PublishResult>('publish_branch', { projectPath, commitMessage });
 }
 
 /** Deployment status from Vercel */
@@ -187,7 +189,7 @@ export async function getDeploymentStatus(
   projectPath: string,
   sinceTimestamp?: number
 ): Promise<DeploymentStatus | null> {
-  return invoke<DeploymentStatus | null>("get_deployment_status", {
+  return invoke<DeploymentStatus | null>('get_deployment_status', {
     projectPath,
     sinceTimestamp: sinceTimestamp ?? null,
   });
@@ -204,7 +206,7 @@ export async function deleteBranch(
   branchName: string,
   deleteRemote = false
 ): Promise<void> {
-  return invoke("delete_branch", { projectPath, branchName, deleteRemote });
+  return invoke('delete_branch', { projectPath, branchName, deleteRemote });
 }
 
 /** Information about a pull request */
@@ -235,19 +237,21 @@ export interface PullRequestInfo {
  * @returns Array of pull request info
  */
 export async function listPullRequests(projectPath: string): Promise<PullRequestInfo[]> {
-  const result = await invoke<Array<{
-    number: number;
-    title: string;
-    head_ref: string;
-    base_ref: string;
-    author: string;
-    state: string;
-    mergeable: boolean | null;
-    url: string;
-    created_at: string;
-  }>>("list_pull_requests", { projectPath });
+  const result = await invoke<
+    Array<{
+      number: number;
+      title: string;
+      head_ref: string;
+      base_ref: string;
+      author: string;
+      state: string;
+      mergeable: boolean | null;
+      url: string;
+      created_at: string;
+    }>
+  >('list_pull_requests', { projectPath });
 
-  return result.map(pr => ({
+  return result.map((pr) => ({
     number: pr.number,
     title: pr.title,
     headRef: pr.head_ref,
@@ -274,7 +278,7 @@ export async function createPullRequest(
   body: string | null,
   base: string
 ): Promise<string> {
-  return invoke<string>("create_pull_request", { projectPath, title, body, base });
+  return invoke<string>('create_pull_request', { projectPath, title, body, base });
 }
 
 /**
@@ -282,11 +286,8 @@ export async function createPullRequest(
  * @param projectPath - Absolute path to the project directory
  * @param prNumber - Number of the PR to merge
  */
-export async function mergePullRequest(
-  projectPath: string,
-  prNumber: number
-): Promise<void> {
-  return invoke("merge_pull_request", { projectPath, prNumber });
+export async function mergePullRequest(projectPath: string, prNumber: number): Promise<void> {
+  return invoke('merge_pull_request', { projectPath, prNumber });
 }
 
 /**
@@ -297,7 +298,7 @@ export async function mergePullRequest(
  * @throws Error with MERGE_CONFLICT prefix if conflicts occur
  */
 export async function pullAndMerge(projectPath: string, mergeBranch?: string): Promise<void> {
-  return invoke("pull_and_merge", { projectPath, mergeBranch });
+  return invoke('pull_and_merge', { projectPath, mergeBranch });
 }
 
 /**
@@ -314,13 +315,13 @@ export function formatRelativeTime(timestamp: number): string {
   const days = Math.floor(hours / 24);
 
   if (days > 0) {
-    return days === 1 ? "yesterday" : `${days} days ago`;
+    return days === 1 ? 'yesterday' : `${days} days ago`;
   }
   if (hours > 0) {
-    return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+    return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
   }
   if (minutes > 0) {
-    return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+    return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
   }
-  return "just now";
+  return 'just now';
 }

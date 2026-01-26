@@ -76,7 +76,9 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .split-pane-handle:hover {
@@ -380,4 +382,3 @@
 .terminal-tab.logs-tab span {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
-

@@ -12,7 +12,7 @@
  * @module lib/github
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 
 /** GitHub CLI installation and authentication status */
 export interface GitHubCliStatus {
@@ -25,7 +25,7 @@ export interface GitHubCliStatus {
 /** Project's GitHub repository connection status */
 export interface ProjectGitHubStatus {
   /** Connection state */
-  status: "not-a-repo" | "no-remote" | "connected";
+  status: 'not-a-repo' | 'no-remote' | 'connected';
   /** Repository identifier (e.g., "username/repo-name") - only set if connected */
   github_repo: string | null;
   /** Full repository URL (e.g., "https://github.com/username/repo-name") - only set if connected */
@@ -37,7 +37,7 @@ export interface ProjectGitHubStatus {
  * @returns CLI status with installed and authenticated flags
  */
 export async function checkGitHubCliStatus(): Promise<GitHubCliStatus> {
-  return invoke<GitHubCliStatus>("check_github_cli_status");
+  return invoke<GitHubCliStatus>('check_github_cli_status');
 }
 
 /**
@@ -46,7 +46,7 @@ export async function checkGitHubCliStatus(): Promise<GitHubCliStatus> {
  * @throws If not authenticated
  */
 export async function getGitHubUsername(): Promise<string> {
-  return invoke<string>("get_github_username");
+  return invoke<string>('get_github_username');
 }
 
 /**
@@ -54,7 +54,7 @@ export async function getGitHubUsername(): Promise<string> {
  * @returns Array of organization names
  */
 export async function getGitHubOrgs(): Promise<string[]> {
-  return invoke<string[]>("get_github_orgs");
+  return invoke<string[]>('get_github_orgs');
 }
 
 /**
@@ -63,7 +63,7 @@ export async function getGitHubOrgs(): Promise<string[]> {
  * @returns Repository connection status
  */
 export async function getProjectGitHubStatus(projectPath: string): Promise<ProjectGitHubStatus> {
-  return invoke<ProjectGitHubStatus>("get_project_github_status", { projectPath });
+  return invoke<ProjectGitHubStatus>('get_project_github_status', { projectPath });
 }
 
 /** Options for pushing a project to GitHub */
@@ -105,7 +105,7 @@ export interface GitHubRepo {
  * @returns URL of the created repository
  */
 export async function pushToGitHub(options: PushToGitHubOptions): Promise<string> {
-  return invoke<string>("push_to_github", { options });
+  return invoke<string>('push_to_github', { options });
 }
 
 /** Result of a publish operation */
@@ -123,7 +123,7 @@ interface PublishResult {
  * @returns Publish result with URL and state
  */
 export async function publishToStaging(projectPath: string): Promise<PublishResult> {
-  return invoke<PublishResult>("publish_to_staging", { projectPath });
+  return invoke<PublishResult>('publish_to_staging', { projectPath });
 }
 
 /**
@@ -133,7 +133,7 @@ export async function publishToStaging(projectPath: string): Promise<PublishResu
  * @returns Publish result with URL and state
  */
 export async function publishToProduction(projectPath: string): Promise<PublishResult> {
-  return invoke<PublishResult>("publish_to_production", { projectPath });
+  return invoke<PublishResult>('publish_to_production', { projectPath });
 }
 
 /** Branch comparison status between local, staging, and main */
@@ -158,7 +158,7 @@ export interface BranchStatus {
  * @returns Branch status with ahead/behind counts
  */
 export async function getBranchStatus(projectPath: string): Promise<BranchStatus> {
-  return invoke<BranchStatus>("get_branch_status", { projectPath });
+  return invoke<BranchStatus>('get_branch_status', { projectPath });
 }
 
 /**
@@ -166,8 +166,11 @@ export async function getBranchStatus(projectPath: string): Promise<BranchStatus
  * @param projectPath - Absolute path to the project directory
  * @param branch - Target branch ("staging" or "production")
  */
-export async function resetToBranch(projectPath: string, branch: "staging" | "production"): Promise<void> {
-  return invoke("reset_to_branch", { projectPath, branch });
+export async function resetToBranch(
+  projectPath: string,
+  branch: 'staging' | 'production'
+): Promise<void> {
+  return invoke('reset_to_branch', { projectPath, branch });
 }
 
 /**
@@ -176,7 +179,7 @@ export async function resetToBranch(projectPath: string, branch: "staging" | "pr
  * @returns Array of repository information
  */
 export async function listGitHubRepos(owner: string): Promise<GitHubRepo[]> {
-  return invoke<GitHubRepo[]>("list_github_repos", { owner });
+  return invoke<GitHubRepo[]>('list_github_repos', { owner });
 }
 
 /**
@@ -186,5 +189,5 @@ export async function listGitHubRepos(owner: string): Promise<GitHubRepo[]> {
  * @returns Package manager name ("pnpm", "yarn", "bun", or "npm")
  */
 export async function detectPackageManager(projectPath: string): Promise<string> {
-  return invoke<string>("detect_package_manager", { projectPath });
+  return invoke<string>('detect_package_manager', { projectPath });
 }

@@ -12,11 +12,11 @@
  * @module components/GitHubButton
  */
 
-import { useState, useEffect, useRef } from "react";
-import { GitHubState, VercelState } from "../App";
-import { ProjectGitHubStatus, pushToGitHub, getGitHubOrgs } from "../lib/github";
-import { linkToVercel } from "../lib/vercel";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { useState, useEffect, useRef } from 'react';
+import { GitHubState, VercelState } from '../App';
+import { ProjectGitHubStatus, pushToGitHub, getGitHubOrgs } from '../lib/github';
+import { linkToVercel } from '../lib/vercel';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 /** Props for the GitHubButton component */
 interface GitHubButtonProps {
@@ -37,7 +37,7 @@ interface GitHubButtonProps {
   /** Optional callback when modal is closed */
   onModalClose?: () => void;
   /** Optional callback to show toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Optional callback when Vercel auto-connect starts */
   onVercelAutoConnectStart?: () => void;
   /** Optional callback when Vercel auto-connect completes */
@@ -85,17 +85,26 @@ export function GitHubButton({
   // Fetch orgs when modal opens
   useEffect(() => {
     if (showCreateModal && cliStatus.authenticated) {
-      getGitHubOrgs().then(setOrgs).catch(() => setOrgs([]));
+      void getGitHubOrgs()
+        .then(setOrgs)
+        .catch(() => setOrgs([]));
       setSelectedOwner(username); // Default to personal account
     }
   }, [showCreateModal, cliStatus.authenticated, username]);
+
+  // Clear isCreatingRepo when status becomes connected
+  useEffect(() => {
+    if (projectStatus?.status === 'connected' && isCreatingRepo) {
+      setIsCreatingRepo(false);
+    }
+  }, [projectStatus?.status, isCreatingRepo]);
 
   // If gh CLI not installed, show install prompt
   if (!cliStatus.installed) {
     return (
       <button
         className="github-button github-install"
-        onClick={() => openUrl("https://cli.github.com/")}
+        onClick={() => void openUrl('https://cli.github.com/')}
         title="Install GitHub CLI"
       >
         <GitHubIcon />
@@ -109,34 +118,38 @@ export function GitHubButton({
     return (
       <button
         className="github-button github-connect"
-        onClick={async () => {
+        onClick={() => {
           // Don't start another poll if one is already running
           if (authPollRunningRef.current) return;
 
-          try {
-            await openUrl("https://github.com/login/device");
-            // Poll for auth completion (with cancellation support)
-            authPollCancelledRef.current = false;
-            authPollRunningRef.current = true;
+          const startAuthFlow = async () => {
+            try {
+              await openUrl('https://github.com/login/device');
+              // Poll for auth completion (with cancellation support)
+              authPollCancelledRef.current = false;
+              authPollRunningRef.current = true;
 
-            const pollAuth = async () => {
-              try {
-                for (let i = 0; i < 60; i++) {
-                  if (authPollCancelledRef.current) break;
-                  await new Promise((r) => setTimeout(r, 2000));
-                  if (authPollCancelledRef.current) break;
-                  onGitHubConnect();
+              const pollAuth = async () => {
+                try {
+                  for (let i = 0; i < 60; i++) {
+                    if (authPollCancelledRef.current) break;
+                    await new Promise((r) => setTimeout(r, 2000));
+                    if (authPollCancelledRef.current) break;
+                    onGitHubConnect();
+                  }
+                } finally {
+                  authPollRunningRef.current = false;
                 }
-              } finally {
-                authPollRunningRef.current = false;
-              }
-            };
-            // Fire and forget, but properly tracked
-            void pollAuth();
-          } catch (e) {
-            console.error("Failed to start GitHub auth:", e);
-            authPollRunningRef.current = false;
-          }
+              };
+              // Fire and forget, but properly tracked
+              void pollAuth();
+            } catch (e) {
+              console.error('Failed to start GitHub auth:', e);
+              authPollRunningRef.current = false;
+            }
+          };
+
+          void startAuthFlow();
         }}
         title="Connect your GitHub account"
       >
@@ -146,19 +159,12 @@ export function GitHubButton({
     );
   }
 
-  // Clear isCreatingRepo when status becomes connected
-  useEffect(() => {
-    if (projectStatus?.status === "connected" && isCreatingRepo) {
-      setIsCreatingRepo(false);
-    }
-  }, [projectStatus?.status, isCreatingRepo]);
-
   // If project has a GitHub repo, show icon link to repo
-  if (projectStatus?.status === "connected" && projectStatus?.github_url) {
+  if (projectStatus?.status === 'connected' && projectStatus?.github_url) {
     return (
       <button
         className="github-button github-link"
-        onClick={() => openUrl(projectStatus.github_url!)}
+        onClick={() => void openUrl(projectStatus.github_url!)}
         title="Open on GitHub"
       >
         <GitHubIcon />
@@ -194,7 +200,13 @@ export function GitHubButton({
 
       {/* Create Repo Modal */}
       {showCreateModal && (
-        <div className="modal-overlay" onClick={() => { setShowCreateModal(false); onModalClose?.(); }}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setShowCreateModal(false);
+            onModalClose?.();
+          }}
+        >
           <div className="modal github-modal" onClick={(e) => e.stopPropagation()}>
             <h3>Create GitHub Repository</h3>
             <p>Create a new GitHub repository for this project.</p>
@@ -204,12 +216,14 @@ export function GitHubButton({
                 Owner
                 <select
                   className="owner-select"
-                  value={selectedOwner || username || ""}
+                  value={selectedOwner || username || ''}
                   onChange={(e) => setSelectedOwner(e.target.value)}
                 >
                   {username && <option value={username}>{username}</option>}
                   {orgs.map((org) => (
-                    <option key={org} value={org}>{org}</option>
+                    <option key={org} value={org}>
+                      {org}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -221,7 +235,7 @@ export function GitHubButton({
                   <input
                     type="text"
                     value={repoName}
-                    onChange={(e) => setRepoName(e.target.value.replace(/[^a-zA-Z0-9-_]/g, "-"))}
+                    onChange={(e) => setRepoName(e.target.value.replace(/[^a-zA-Z0-9-_]/g, '-'))}
                     placeholder="my-project"
                     autoFocus
                     autoComplete="off"
@@ -262,67 +276,79 @@ export function GitHubButton({
             </div>
 
             <div className="modal-actions">
-              <button onClick={() => { setShowCreateModal(false); onModalClose?.(); }} disabled={isLoading}>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  onModalClose?.();
+                }}
+                disabled={isLoading}
+              >
                 Cancel
               </button>
               <button
                 className="btn-primary"
-                onClick={async () => {
+                onClick={() => {
                   if (!repoName.trim()) return;
 
-                  setIsLoading(true);
-                  setIsCreatingRepo(true);
-                  setError(null);
-                  try {
-                    const owner = selectedOwner || username;
-                    const fullRepoName = `${owner}/${repoName}`;
-                    await pushToGitHub({
-                      projectPath,
-                      repoName: fullRepoName,
-                      isPrivate,
-                    });
-
-                    // Close modal immediately after GitHub repo is created
-                    setShowCreateModal(false);
-                    setIsLoading(false);
-                    onModalClose?.();
-
-                    // Auto-connect to Vercel if authenticated (don't block, but refresh status when done)
-                    if (vercelState?.cliStatus.authenticated) {
-                      onVercelAutoConnectStart?.();
-                      linkToVercel({
+                  const handleCreate = async () => {
+                    setIsLoading(true);
+                    setIsCreatingRepo(true);
+                    setError(null);
+                    try {
+                      const owner = selectedOwner || username;
+                      const fullRepoName = `${owner}/${repoName}`;
+                      await pushToGitHub({
                         projectPath,
-                        githubRepo: fullRepoName,
-                      }).then(async (deployedUrl) => {
-                        // Refresh status first, then end connecting state to avoid flash of "Connect Vercel"
-                        await onStatusChange(deployedUrl);
-                        onVercelAutoConnectEnd?.();
-                      }).catch(async (e) => {
-                        console.error("Failed to auto-connect to Vercel:", e);
-                        // Still refresh status even on error to show correct state
-                        await onStatusChange();
-                        onVercelAutoConnectEnd?.();
+                        repoName: fullRepoName,
+                        isPrivate,
                       });
-                    }
 
-                    // Refresh status - this will clear isCreatingRepo when status updates
-                    onStatusChange();
-                    onToast?.("Repository created!", "success");
+                      // Close modal immediately after GitHub repo is created
+                      setShowCreateModal(false);
+                      setIsLoading(false);
+                      onModalClose?.();
 
-                    // Fallback: clear isCreatingRepo after a delay if status doesn't update
-                    setTimeout(() => {
+                      // Auto-connect to Vercel if authenticated (don't block, but refresh status when done)
+                      if (vercelState?.cliStatus.authenticated) {
+                        onVercelAutoConnectStart?.();
+                        void linkToVercel({
+                          projectPath,
+                          githubRepo: fullRepoName,
+                        })
+                          .then(async (deployedUrl) => {
+                            // Refresh status first, then end connecting state to avoid flash of "Connect Vercel"
+                            await onStatusChange(deployedUrl);
+                            onVercelAutoConnectEnd?.();
+                          })
+                          .catch(async (e) => {
+                            console.error('Failed to auto-connect to Vercel:', e);
+                            // Still refresh status even on error to show correct state
+                            await onStatusChange();
+                            onVercelAutoConnectEnd?.();
+                          });
+                      }
+
+                      // Refresh status - this will clear isCreatingRepo when status updates
+                      await onStatusChange();
+                      onToast?.('Repository created!', 'success');
+
+                      // Fallback: clear isCreatingRepo after a delay if status doesn't update
+                      setTimeout(() => {
+                        setIsCreatingRepo(false);
+                      }, 3000);
+                    } catch (e) {
+                      setError(String(e));
+                      onToast?.('Failed to create repository', 'error');
+                      setIsLoading(false);
                       setIsCreatingRepo(false);
-                    }, 3000);
-                  } catch (e) {
-                    setError(String(e));
-                    onToast?.("Failed to create repository", "error");
-                    setIsLoading(false);
-                    setIsCreatingRepo(false);
-                  }
+                    }
+                  };
+
+                  void handleCreate();
                 }}
                 disabled={isLoading || !repoName.trim()}
               >
-                {isLoading ? "Creating..." : "Create Repository"}
+                {isLoading ? 'Creating...' : 'Create Repository'}
               </button>
             </div>
           </div>

@@ -2,11 +2,11 @@
 //!
 //! Commands for IDE integration, preview webviews, and screenshots.
 
-use std::process::Command;
-use std::sync::Mutex;
-use tauri::{Manager, WebviewUrl, Webview};
 use crate::types::IdeAvailability;
 use crate::utils::validate_project_path;
+use std::process::Command;
+use std::sync::Mutex;
+use tauri::{Manager, Webview, WebviewUrl};
 
 /// Tracks whether a preview webview currently exists
 static PREVIEW_WEBVIEW_EXISTS: Mutex<bool> = Mutex::new(false);
@@ -79,13 +79,16 @@ pub async fn create_preview_webview(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    let webview_window = app.get_webview_window("main").ok_or("Main window not found")?;
+    let webview_window = app
+        .get_webview_window("main")
+        .ok_or("Main window not found")?;
     // Access the underlying Window through the Webview
     let webview_ref: &Webview<tauri::Wry> = webview_window.as_ref();
     let window = webview_ref.window();
 
     // Check if webview already exists
-    let mut exists = PREVIEW_WEBVIEW_EXISTS.lock()
+    let mut exists = PREVIEW_WEBVIEW_EXISTS
+        .lock()
         .map_err(|e| format!("Failed to acquire webview lock: {}", e))?;
     if *exists {
         // Just navigate the existing webview
@@ -98,17 +101,16 @@ pub async fn create_preview_webview(
 
     // Create the preview webview
     let parsed_url: url::Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
-    let builder = tauri::webview::WebviewBuilder::new(
-        "preview",
-        WebviewUrl::External(parsed_url)
-    )
-    .auto_resize();
+    let builder = tauri::webview::WebviewBuilder::new("preview", WebviewUrl::External(parsed_url))
+        .auto_resize();
 
-    window.add_child(
-        builder,
-        tauri::LogicalPosition::new(x, y),
-        tauri::LogicalSize::new(width, height),
-    ).map_err(|e| format!("Failed to create webview: {}", e))?;
+    window
+        .add_child(
+            builder,
+            tauri::LogicalPosition::new(x, y),
+            tauri::LogicalSize::new(width, height),
+        )
+        .map_err(|e| format!("Failed to create webview: {}", e))?;
 
     *exists = true;
     Ok(())
@@ -132,15 +134,20 @@ pub async fn resize_preview_webview(
     height: f64,
 ) -> Result<(), String> {
     if let Some(webview) = app.get_webview("preview") {
-        webview.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
-        webview.set_size(tauri::LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+        webview
+            .set_position(tauri::LogicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+        webview
+            .set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
 #[tauri::command]
 pub async fn destroy_preview_webview(app: tauri::AppHandle) -> Result<(), String> {
-    let mut exists = PREVIEW_WEBVIEW_EXISTS.lock()
+    let mut exists = PREVIEW_WEBVIEW_EXISTS
+        .lock()
         .map_err(|e| format!("Failed to acquire webview lock: {}", e))?;
     if let Some(webview) = app.get_webview("preview") {
         webview.close().map_err(|e| e.to_string())?;
@@ -150,7 +157,11 @@ pub async fn destroy_preview_webview(app: tauri::AppHandle) -> Result<(), String
 }
 
 #[tauri::command]
-pub async fn open_studio_window(app: tauri::AppHandle, url: String, title: String) -> Result<(), String> {
+pub async fn open_studio_window(
+    app: tauri::AppHandle,
+    url: String,
+    title: String,
+) -> Result<(), String> {
     use tauri::WebviewWindowBuilder;
 
     // Check if studio window already exists
@@ -202,8 +213,7 @@ pub async fn crop_and_save_screenshot(
     let screenshot_path_str = screenshot_path.to_string_lossy().to_string();
 
     // Load the source image
-    let img = image::open(&source_path)
-        .map_err(|e| format!("Failed to open image: {}", e))?;
+    let img = image::open(&source_path).map_err(|e| format!("Failed to open image: {}", e))?;
 
     // Crop the image (ensure bounds are within image dimensions)
     let img_width = img.width();
@@ -228,7 +238,10 @@ pub async fn crop_and_save_screenshot(
 }
 
 #[tauri::command]
-pub async fn capture_project_thumbnail(project_path: String, url: String) -> Result<String, String> {
+pub async fn capture_project_thumbnail(
+    project_path: String,
+    url: String,
+) -> Result<String, String> {
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
 
@@ -270,7 +283,9 @@ pub async fn capture_project_thumbnail(project_path: String, url: String) -> Res
         "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
     ];
 
-    let chrome_path = chrome_paths.iter().find(|p| std::path::Path::new(p).exists());
+    let chrome_path = chrome_paths
+        .iter()
+        .find(|p| std::path::Path::new(p).exists());
 
     if let Some(browser) = chrome_path {
         // Use a temp file for raw capture, then process
@@ -330,18 +345,22 @@ pub async fn capture_project_thumbnail(project_path: String, url: String) -> Res
             // Scale down from 2x to 1x
             let _ = Command::new("sips")
                 .args([
-                    "--resampleWidth", "1280",
+                    "--resampleWidth",
+                    "1280",
                     &temp_path_str,
-                    "--out", &thumbnail_path_str,
+                    "--out",
+                    &thumbnail_path_str,
                 ])
                 .output();
         } else if width_val > 1280 || height_val > 800 {
             // Unexpected size - resize to fit 1280 width
             let _ = Command::new("sips")
                 .args([
-                    "--resampleWidth", "1280",
+                    "--resampleWidth",
+                    "1280",
                     &temp_path_str,
-                    "--out", &thumbnail_path_str,
+                    "--out",
+                    &thumbnail_path_str,
                 ])
                 .output();
         } else {
@@ -359,7 +378,10 @@ pub async fn capture_project_thumbnail(project_path: String, url: String) -> Res
 
         Ok(thumbnail_path_str)
     } else {
-        Err("No supported browser found for screenshots (Chrome, Chromium, or Edge required)".to_string())
+        Err(
+            "No supported browser found for screenshots (Chrome, Chromium, or Edge required)"
+                .to_string(),
+        )
     }
 }
 

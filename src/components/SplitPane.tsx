@@ -9,7 +9,7 @@
  * @module components/SplitPane
  */
 
-import { useState, useRef, useCallback, ReactNode, useEffect } from "react";
+import { useState, useRef, useCallback, ReactNode, useEffect } from 'react';
 
 /** Props for the SplitPane component */
 interface SplitPaneProps {
@@ -51,10 +51,10 @@ export function SplitPane({
   useEffect(() => {
     return () => {
       const { move, up } = dragListenersRef.current;
-      if (move) document.removeEventListener("mousemove", move);
-      if (up) document.removeEventListener("mouseup", up);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      if (move) document.removeEventListener('mousemove', move);
+      if (up) document.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     };
   }, []);
 
@@ -71,52 +71,55 @@ export function SplitPane({
       }
       prevCollapsedRef.current = rightCollapsed;
       // Trigger resize event for terminals to recalculate
-      setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
     }
   }, [rightCollapsed, split]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!containerRef.current) return;
+      const handleMouseMove = (e: MouseEvent) => {
+        if (!containerRef.current) return;
 
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const percentage = (x / rect.width) * 100;
+        const rect = containerRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const percentage = (x / rect.width) * 100;
 
-      // Clamp to min/max
-      const clamped = Math.max(minLeft, Math.min(100 - minRight, percentage));
-      setSplit(clamped);
+        // Clamp to min/max
+        const clamped = Math.max(minLeft, Math.min(100 - minRight, percentage));
+        setSplit(clamped);
 
-      // Trigger resize event for terminals to recalculate
-      window.dispatchEvent(new Event("resize"));
-    };
+        // Trigger resize event for terminals to recalculate
+        window.dispatchEvent(new Event('resize'));
+      };
 
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      dragListenersRef.current = { move: null, up: null };
-    };
+      const handleMouseUp = () => {
+        setIsDragging(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        dragListenersRef.current = { move: null, up: null };
+      };
 
-    // Store listeners for cleanup
-    dragListenersRef.current = { move: handleMouseMove, up: handleMouseUp };
+      // Store listeners for cleanup
+      dragListenersRef.current = { move: handleMouseMove, up: handleMouseUp };
 
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-  }, [minLeft, minRight]);
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    },
+    [minLeft, minRight]
+  );
 
   return (
-    <div ref={containerRef} className={`split-pane ${rightCollapsed ? "right-collapsed" : ""}`}>
+    <div ref={containerRef} className={`split-pane ${rightCollapsed ? 'right-collapsed' : ''}`}>
       {/* Overlay to capture mouse events during drag (prevents iframe from stealing events) */}
       {isDragging && <div className="split-pane-overlay" />}
-      <div className="split-pane-left" style={{ width: rightCollapsed ? "100%" : `${split}%` }}>
+      <div className="split-pane-left" style={{ width: rightCollapsed ? '100%' : `${split}%` }}>
         {left}
       </div>
       {!rightCollapsed && (

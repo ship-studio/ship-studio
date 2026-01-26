@@ -243,11 +243,11 @@
   background: var(--bg-tertiary);
 }
 
-.visibility-option:has(input[type="radio"]:checked) {
+.visibility-option:has(input[type='radio']:checked) {
   background: transparent;
 }
 
-.visibility-option input[type="radio"] {
+.visibility-option input[type='radio'] {
   appearance: none;
   -webkit-appearance: none;
   width: 18px;
@@ -261,12 +261,12 @@
   transition: all 0.15s;
 }
 
-.visibility-option input[type="radio"]:checked {
+.visibility-option input[type='radio']:checked {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-.visibility-option input[type="radio"]:checked::after {
+.visibility-option input[type='radio']:checked::after {
   content: '';
   position: absolute;
   left: 50%;
@@ -319,4 +319,3 @@
 .github-modal .modal-actions button:first-child:hover {
   background: var(--border);
 }
-

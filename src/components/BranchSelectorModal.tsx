@@ -7,8 +7,8 @@
  * @module components/BranchSelectorModal
  */
 
-import { useState, useEffect } from "react";
-import { BranchInfo, formatRelativeTime } from "../lib/branches";
+import { useState, useEffect } from 'react';
+import { BranchInfo, formatRelativeTime } from '../lib/branches';
 
 interface BranchSelectorModalProps {
   /** Absolute path to the project */
@@ -45,10 +45,10 @@ export function BranchSelectorModal({
   isLoading = false,
   createMode = false,
 }: BranchSelectorModalProps) {
-  const [selectedBranch, setSelectedBranch] = useState<string>(currentBranch || "main");
+  const [selectedBranch, setSelectedBranch] = useState<string>(currentBranch || 'main');
   const [showCreateForm, setShowCreateForm] = useState(createMode);
-  const [newBranchName, setNewBranchName] = useState("");
-  const [fromBranch, setFromBranch] = useState("main");
+  const [newBranchName, setNewBranchName] = useState('');
+  const [fromBranch, setFromBranch] = useState('main');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +57,7 @@ export function BranchSelectorModal({
     if (currentBranch) {
       setSelectedBranch(currentBranch);
     } else if (branches.length > 0) {
-      const mainBranch = branches.find(b => b.isDefault);
+      const mainBranch = branches.find((b) => b.isDefault);
       setSelectedBranch(mainBranch?.name || branches[0].name);
     }
   }, [currentBranch, branches]);
@@ -70,12 +70,14 @@ export function BranchSelectorModal({
   }, [showCreateForm, githubUsername, newBranchName]);
 
   // Group branches
-  const mainBranches = branches.filter(b => b.isDefault || b.name === "staging");
+  const mainBranches = branches.filter((b) => b.isDefault || b.name === 'staging');
   const userBranches = githubUsername
-    ? branches.filter(b => !b.isDefault && b.name !== "staging" && b.name.startsWith(`${githubUsername}/`))
+    ? branches.filter(
+        (b) => !b.isDefault && b.name !== 'staging' && b.name.startsWith(`${githubUsername}/`)
+      )
     : [];
   const otherBranches = branches.filter(
-    b => !b.isDefault && b.name !== "staging" && !userBranches.includes(b)
+    (b) => !b.isDefault && b.name !== 'staging' && !userBranches.includes(b)
   );
 
   const handleSubmit = async () => {
@@ -100,15 +102,15 @@ export function BranchSelectorModal({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       onClose();
-    } else if (e.key === "Enter" && !isSubmitting) {
-      handleSubmit();
+    } else if (e.key === 'Enter' && !isSubmitting) {
+      void handleSubmit();
     }
   };
 
   const canSubmit = showCreateForm
-    ? newBranchName.trim().length > 0 && !newBranchName.includes(" ")
+    ? newBranchName.trim().length > 0 && !newBranchName.includes(' ')
     : selectedBranch.length > 0;
 
   return (
@@ -130,7 +132,7 @@ export function BranchSelectorModal({
               {/* Main branches */}
               {mainBranches.length > 0 && (
                 <div className="branch-selector-section">
-                  {mainBranches.map(branch => (
+                  {mainBranches.map((branch) => (
                     <BranchItem
                       key={branch.name}
                       branch={branch}
@@ -148,7 +150,7 @@ export function BranchSelectorModal({
               {userBranches.length > 0 && (
                 <div className="branch-selector-section">
                   <div className="branch-selector-section-label">Your branches</div>
-                  {userBranches.map(branch => (
+                  {userBranches.map((branch) => (
                     <BranchItem
                       key={branch.name}
                       branch={branch}
@@ -166,9 +168,9 @@ export function BranchSelectorModal({
               {otherBranches.length > 0 && (
                 <div className="branch-selector-section">
                   <div className="branch-selector-section-label">
-                    {userBranches.length > 0 ? "Team branches" : "Other branches"}
+                    {userBranches.length > 0 ? 'Team branches' : 'Other branches'}
                   </div>
-                  {otherBranches.slice(0, 5).map(branch => (
+                  {otherBranches.slice(0, 5).map((branch) => (
                     <BranchItem
                       key={branch.name}
                       branch={branch}
@@ -193,10 +195,7 @@ export function BranchSelectorModal({
         {/* Create new branch section */}
         <div className="branch-selector-create">
           {!showCreateForm ? (
-            <button
-              className="branch-create-toggle"
-              onClick={() => setShowCreateForm(true)}
-            >
+            <button className="branch-create-toggle" onClick={() => setShowCreateForm(true)}>
               + Create new branch
             </button>
           ) : (
@@ -215,45 +214,32 @@ export function BranchSelectorModal({
               />
               <div className="branch-create-from">
                 <span>from</span>
-                <select
-                  value={fromBranch}
-                  onChange={(e) => setFromBranch(e.target.value)}
-                >
-                  {branches.filter(b => b.isDefault || b.name === "staging").map(b => (
-                    <option key={b.name} value={b.name}>
-                      {b.name}
-                    </option>
-                  ))}
+                <select value={fromBranch} onChange={(e) => setFromBranch(e.target.value)}>
+                  {branches
+                    .filter((b) => b.isDefault || b.name === 'staging')
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {b.name}
+                      </option>
+                    ))}
                 </select>
               </div>
             </div>
           )}
         </div>
 
-        {error && (
-          <div className="branch-selector-error">
-            {error}
-          </div>
-        )}
+        {error && <div className="branch-selector-error">{error}</div>}
 
         <div className="branch-selector-footer">
-          <button
-            className="branch-selector-cancel"
-            onClick={onClose}
-            disabled={isSubmitting}
-          >
+          <button className="branch-selector-cancel" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
           <button
             className="branch-selector-submit"
-            onClick={handleSubmit}
+            onClick={() => void handleSubmit()}
             disabled={isSubmitting || !canSubmit}
           >
-            {isSubmitting
-              ? "Opening..."
-              : showCreateForm
-                ? "Create & Open"
-                : "Open Project"}
+            {isSubmitting ? 'Opening...' : showCreateForm ? 'Create & Open' : 'Open Project'}
           </button>
         </div>
       </div>
@@ -271,31 +257,20 @@ function BranchItem({ branch, isSelected, onSelect }: BranchItemProps) {
   const showBehindWarning = branch.behindOfMain > 30 && !branch.isDefault;
 
   return (
-    <button
-      className={`branch-selector-item ${isSelected ? "selected" : ""}`}
-      onClick={onSelect}
-    >
+    <button className={`branch-selector-item ${isSelected ? 'selected' : ''}`} onClick={onSelect}>
       <div className="branch-selector-radio" />
       <div className="branch-selector-info">
         <div className="branch-selector-name">
           {branch.name}
-          {branch.isDefault && (
-            <span className="branch-item-badge live">Live</span>
-          )}
-          {branch.name === "staging" && (
-            <span className="branch-item-badge">staging</span>
-          )}
+          {branch.isDefault && <span className="branch-item-badge live">Live</span>}
+          {branch.name === 'staging' && <span className="branch-item-badge">staging</span>}
         </div>
         <div className="branch-selector-meta">
           {formatRelativeTime(branch.lastCommitDate)}
-          {branch.aheadOfMain > 0 && !branch.isDefault && (
-            <> · {branch.aheadOfMain} ahead</>
-          )}
+          {branch.aheadOfMain > 0 && !branch.isDefault && <> · {branch.aheadOfMain} ahead</>}
         </div>
         {showBehindWarning && (
-          <div className="branch-selector-warning">
-            {branch.behindOfMain} commits behind main
-          </div>
+          <div className="branch-selector-warning">{branch.behindOfMain} commits behind main</div>
         )}
       </div>
     </button>

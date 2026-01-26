@@ -63,7 +63,7 @@
   padding: 2px 6px;
   background: var(--bg-tertiary);
   border-radius: 4px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   letter-spacing: 0.5px;
 }
 

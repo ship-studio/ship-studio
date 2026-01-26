@@ -90,7 +90,9 @@
   background: var(--bg-secondary);
   border-radius: 10px;
   border: 1px solid var(--border);
-  transition: border-color 0.15s, background-color 0.15s;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
 }
 
 .setup-item:hover {
@@ -189,7 +191,9 @@
   border-radius: 6px;
   border: none;
   cursor: pointer;
-  transition: background-color 0.15s, opacity 0.15s;
+  transition:
+    background-color 0.15s,
+    opacity 0.15s;
 }
 
 .setup-item-btn:disabled {
@@ -258,7 +262,9 @@
   padding: 40px 24px;
   opacity: 0;
   transform: scale(0.95);
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
 }
 
 .celebration-screen.visible {
@@ -467,7 +473,9 @@
   background: var(--bg-secondary);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
 }
 
 .onboarding-terminal-cancel:hover {

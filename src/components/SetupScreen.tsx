@@ -25,28 +25,28 @@ interface SetupScreenProps {
 
 const INSTALL_INSTRUCTIONS: Record<string, { url: string; command?: string }> = {
   node: {
-    url: "https://nodejs.org",
-    command: "brew install node",
+    url: 'https://nodejs.org',
+    command: 'brew install node',
   },
   npm: {
-    url: "https://nodejs.org",
-    command: "Comes with Node.js",
+    url: 'https://nodejs.org',
+    command: 'Comes with Node.js',
   },
   git: {
-    url: "https://git-scm.com",
-    command: "brew install git",
+    url: 'https://git-scm.com',
+    command: 'brew install git',
   },
   gh: {
-    url: "https://cli.github.com",
-    command: "brew install gh",
+    url: 'https://cli.github.com',
+    command: 'brew install gh',
   },
   vercel: {
-    url: "https://vercel.com/docs/cli",
-    command: "npm install -g vercel",
+    url: 'https://vercel.com/docs/cli',
+    command: 'npm install -g vercel',
   },
   claude: {
-    url: "https://docs.anthropic.com/en/docs/claude-code",
-    command: "npm install -g @anthropic-ai/claude-code",
+    url: 'https://docs.anthropic.com/en/docs/claude-code',
+    command: 'npm install -g @anthropic-ai/claude-code',
   },
 };
 
@@ -62,9 +62,9 @@ export function SetupScreen({ prerequisites, onRetry }: SetupScreenProps) {
         {prerequisites.map((prereq) => (
           <div
             key={prereq.name}
-            className={`prerequisite ${prereq.available ? "available" : "missing"}`}
+            className={`prerequisite ${prereq.available ? 'available' : 'missing'}`}
           >
-            <span className="status">{prereq.available ? "✓" : "✗"}</span>
+            <span className="status">{prereq.available ? '✓' : '✗'}</span>
             <span className="name">{prereq.name}</span>
             {prereq.available ? (
               <span className="path">{prereq.path}</span>

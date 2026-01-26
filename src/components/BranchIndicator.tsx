@@ -15,10 +15,10 @@
  * @module components/BranchIndicator
  */
 
-import { useState, useRef, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { BranchIcon, ChevronIcon, FileIcon, TrashIcon } from "./icons";
-import { ChangedFile } from "../lib/git";
+import { useState, useRef, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { BranchIcon, ChevronIcon, FileIcon, TrashIcon } from './icons';
+import { ChangedFile } from '../lib/git';
 
 interface BranchIndicatorProps {
   /** Current branch name */
@@ -36,7 +36,7 @@ interface BranchIndicatorProps {
   /** Callback when changes are discarded */
   onDiscard?: () => void;
   /** Callback for toast notifications */
-  onToast?: (message: string, type?: "success" | "error") => void;
+  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 export function BranchIndicator({
@@ -52,7 +52,7 @@ export function BranchIndicator({
   const [showDropdown, setShowDropdown] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const dropdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMainBranch = currentBranch === "main" || currentBranch === "master";
+  const isMainBranch = currentBranch === 'main' || currentBranch === 'master';
 
   const handleMouseEnter = useCallback(() => {
     if (dropdownTimeoutRef.current) {
@@ -75,19 +75,19 @@ export function BranchIndicator({
     if (isDiscarding) return;
 
     const confirmed = window.confirm(
-      "Are you sure you want to discard all changes? This cannot be undone."
+      'Are you sure you want to discard all changes? This cannot be undone.'
     );
     if (!confirmed) return;
 
     setIsDiscarding(true);
     try {
-      await invoke("discard_changes", { projectPath });
-      onToast?.("All changes discarded", "success");
+      await invoke('discard_changes', { projectPath });
+      onToast?.('All changes discarded', 'success');
       onDiscard?.();
       setShowDropdown(false);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      onToast?.(`Failed to discard changes: ${message}`, "error");
+      onToast?.(`Failed to discard changes: ${message}`, 'error');
     } finally {
       setIsDiscarding(false);
     }
@@ -96,11 +96,11 @@ export function BranchIndicator({
   // Get status icon based on change type
   const getStatusIndicator = (status: string) => {
     switch (status) {
-      case "added":
+      case 'added':
         return <span className="change-status change-added">+</span>;
-      case "deleted":
+      case 'deleted':
         return <span className="change-status change-deleted">-</span>;
-      case "renamed":
+      case 'renamed':
         return <span className="change-status change-renamed">R</span>;
       default:
         return <span className="change-status change-modified">M</span>;
@@ -109,15 +109,15 @@ export function BranchIndicator({
 
   // Get just the filename from the path
   const getFileName = (path: string) => {
-    const parts = path.split("/");
+    const parts = path.split('/');
     return parts[parts.length - 1];
   };
 
   // Get directory path (without filename)
   const getDirectory = (path: string) => {
-    const parts = path.split("/");
-    if (parts.length <= 1) return "";
-    return parts.slice(0, -1).join("/") + "/";
+    const parts = path.split('/');
+    if (parts.length <= 1) return '';
+    return parts.slice(0, -1).join('/') + '/';
   };
 
   if (isOnBranchesTab) {
@@ -147,7 +147,9 @@ export function BranchIndicator({
       {showDropdown && changedFiles.length > 0 && (
         <div className="branch-changes-dropdown">
           <div className="branch-changes-header">
-            <span>{changedFiles.length} Unsaved {changedFiles.length === 1 ? "Change" : "Changes"}</span>
+            <span>
+              {changedFiles.length} Unsaved {changedFiles.length === 1 ? 'Change' : 'Changes'}
+            </span>
           </div>
           <div className="branch-changes-list">
             {changedFiles.map((file, index) => (
@@ -164,11 +166,11 @@ export function BranchIndicator({
           <div className="branch-changes-footer">
             <button
               className="branch-changes-discard-btn"
-              onClick={handleDiscardAll}
+              onClick={(e) => void handleDiscardAll(e)}
               disabled={isDiscarding}
             >
               <TrashIcon size={12} />
-              {isDiscarding ? "Discarding..." : "Discard All"}
+              {isDiscarding ? 'Discarding...' : 'Discard All'}
             </button>
           </div>
         </div>

@@ -11,15 +11,15 @@
  * @module components/ProjectList
  */
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { DashboardProject, getDashboardProjects } from "../lib/project";
-import { DashboardHeader } from "./DashboardHeader";
-import { ProjectCard } from "./ProjectCard";
-import { IntegrationBar } from "./IntegrationBar";
-import { ChevronIcon, CheckIcon } from "./icons";
-import { useClickOutside } from "../hooks/useClickOutside";
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { DashboardProject, getDashboardProjects } from '../lib/project';
+import { DashboardHeader } from './DashboardHeader';
+import { ProjectCard } from './ProjectCard';
+import { IntegrationBar } from './IntegrationBar';
+import { ChevronIcon, CheckIcon } from './icons';
+import { useClickOutside } from '../hooks/useClickOutside';
 
 /** Basic project info for selection callback */
 interface Project {
@@ -35,7 +35,7 @@ interface ProjectWithThumbnail extends DashboardProject {
 }
 
 /** Available sort options for the project list */
-type SortOption = "last_opened" | "name" | "last_deployed";
+type SortOption = 'last_opened' | 'name' | 'last_deployed';
 
 /** Props for the ProjectList component */
 interface ProjectListProps {
@@ -58,8 +58,8 @@ export function ProjectList({
   const [deleting, setDeleting] = useState(false);
 
   // Search and sort state
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SortOption>("last_opened");
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<SortOption>('last_opened');
   const [showSortDropdown, setShowSortDropdown] = useState(false);
 
   const sortDropdownRef = useRef<HTMLDivElement>(null);
@@ -78,11 +78,11 @@ export function ProjectList({
           let thumbnailData: string | null = null;
           if (project.thumbnail) {
             try {
-              thumbnailData = await invoke<string | null>("get_project_thumbnail", {
+              thumbnailData = await invoke<string | null>('get_project_thumbnail', {
                 projectPath: project.path,
               });
             } catch (e) {
-              console.error("Failed to load thumbnail for", project.name, e);
+              console.error('Failed to load thumbnail for', project.name, e);
             }
           }
           return { ...project, thumbnailData };
@@ -91,14 +91,14 @@ export function ProjectList({
 
       setProjects(projectsWithThumbnails);
     } catch (error) {
-      console.error("Failed to load projects:", error);
+      console.error('Failed to load projects:', error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadProjects();
+    void loadProjects();
   }, []);
 
   // Filtered and sorted projects
@@ -109,25 +109,23 @@ export function ProjectList({
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(query) ||
-          p.path.toLowerCase().includes(query)
+        (p) => p.name.toLowerCase().includes(query) || p.path.toLowerCase().includes(query)
       );
     }
 
     // Sort
     result.sort((a, b) => {
       switch (sortBy) {
-        case "name":
+        case 'name':
           return a.name.localeCompare(b.name);
-        case "last_deployed":
+        case 'last_deployed':
           // Projects without deployment go last
           if (!a.last_deployed && !b.last_deployed) return a.name.localeCompare(b.name);
           if (!a.last_deployed) return 1;
           if (!b.last_deployed) return -1;
           // Parse relative time for sorting (rough approximation)
           return parseRelativeTime(a.last_deployed) - parseRelativeTime(b.last_deployed);
-        case "last_opened":
+        case 'last_opened':
         default:
           if (!a.last_opened && !b.last_opened) return a.name.localeCompare(b.name);
           if (!a.last_opened) return 1;
@@ -142,12 +140,12 @@ export function ProjectList({
   const handleDelete = async (project: DashboardProject) => {
     setDeleting(true);
     try {
-      await invoke("delete_project", { path: project.path });
+      await invoke('delete_project', { path: project.path });
       setDeleteConfirm(null);
       await loadProjects();
     } catch (error) {
-      console.error("Failed to delete project:", error);
-      alert("Failed to delete project: " + error);
+      console.error('Failed to delete project:', error);
+      alert('Failed to delete project: ' + String(error));
     } finally {
       setDeleting(false);
     }
@@ -163,9 +161,9 @@ export function ProjectList({
   }
 
   const sortLabels: Record<SortOption, string> = {
-    last_opened: "Last opened",
-    name: "Name",
-    last_deployed: "Last deployed",
+    last_opened: 'Last opened',
+    name: 'Name',
+    last_deployed: 'Last deployed',
   };
 
   return (
@@ -195,7 +193,7 @@ export function ProjectList({
                 {(Object.keys(sortLabels) as SortOption[]).map((option) => (
                   <button
                     key={option}
-                    className={`sort-dropdown-item ${sortBy === option ? "active" : ""}`}
+                    className={`sort-dropdown-item ${sortBy === option ? 'active' : ''}`}
                     onClick={() => {
                       setSortBy(option);
                       setShowSortDropdown(false);
@@ -238,7 +236,7 @@ export function ProjectList({
                 project.production_url
                   ? () => {
                       const url = project.production_url!;
-                      openUrl(url.startsWith("http") ? url : `https://${url}`);
+                      void openUrl(url.startsWith('http') ? url : `https://${url}`);
                     }
                   : undefined
               }
@@ -264,10 +262,10 @@ export function ProjectList({
               </button>
               <button
                 className="btn-danger"
-                onClick={() => handleDelete(deleteConfirm)}
+                onClick={() => void handleDelete(deleteConfirm)}
                 disabled={deleting}
               >
-                {deleting ? "Deleting..." : "Delete"}
+                {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>
@@ -279,15 +277,19 @@ export function ProjectList({
 
 function parseRelativeTime(timeStr: string): number {
   // Parse strings like "2h ago", "3d ago", "5m ago", "just now"
-  if (timeStr === "just now") return 0;
+  if (timeStr === 'just now') return 0;
   const match = timeStr.match(/^(\d+)([mhd]) ago$/);
   if (!match) return Infinity;
   const value = parseInt(match[1], 10);
   const unit = match[2];
   switch (unit) {
-    case "m": return value;
-    case "h": return value * 60;
-    case "d": return value * 60 * 24;
-    default: return Infinity;
+    case 'm':
+      return value;
+    case 'h':
+      return value * 60;
+    case 'd':
+      return value * 60 * 24;
+    default:
+      return Infinity;
   }
 }

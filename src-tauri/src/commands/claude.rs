@@ -2,10 +2,10 @@
 //!
 //! Commands for checking Claude CLI status and installation.
 
-use std::process::Command;
+use crate::commands::setup::is_mock_mode;
 use crate::types::ClaudeCliStatus;
 use crate::utils::get_extended_path;
-use crate::commands::setup::is_mock_mode;
+use std::process::Command;
 
 /// Finds the Claude CLI binary by checking common installation paths.
 pub fn find_claude_binary() -> Option<std::path::PathBuf> {
@@ -20,7 +20,7 @@ pub fn find_claude_binary() -> Option<std::path::PathBuf> {
             home.join(".local/bin/claude"), // New official installer location
             home.join(".npm-global/bin/claude"),
             home.join(".nvm/versions/node").join("*").join("bin/claude"), // NVM
-            home.join("n/bin/claude"), // n version manager
+            home.join("n/bin/claude"),                                    // n version manager
             std::path::PathBuf::from("/usr/local/bin/claude"),
             std::path::PathBuf::from("/opt/homebrew/bin/claude"),
         ];
@@ -36,12 +36,10 @@ pub fn find_claude_binary() -> Option<std::path::PathBuf> {
         if claude_app_base.exists() {
             if let Ok(entries) = std::fs::read_dir(&claude_app_base) {
                 // Find the latest version directory
-                let mut versions: Vec<_> = entries
-                    .flatten()
-                    .filter(|e| e.path().is_dir())
-                    .collect();
+                let mut versions: Vec<_> =
+                    entries.flatten().filter(|e| e.path().is_dir()).collect();
                 // Sort by version (descending) to get latest first
-                versions.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+                versions.sort_by_key(|b| std::cmp::Reverse(b.file_name()));
 
                 for entry in versions {
                     let claude_path = entry.path().join("claude");

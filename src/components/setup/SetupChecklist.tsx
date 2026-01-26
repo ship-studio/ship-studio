@@ -5,12 +5,12 @@
  * respecting dependencies and blocked states.
  */
 
-import { SetupItem } from "./SetupItem";
+import { SetupItem } from './SetupItem';
 import {
   SetupItem as SetupItemType,
   SETUP_ITEM_ORDER,
   getBlockingDependencies,
-} from "../../lib/setup";
+} from '../../lib/setup';
 
 interface SetupChecklistProps {
   items: SetupItemType[];
@@ -42,12 +42,10 @@ export function SetupChecklist({
     <div className="setup-checklist">
       {sortedItems.map((item) => {
         const blockedBy = getBlockingDependencies(item.id, items);
-        const isBlocked = blockedBy.length > 0 && item.status !== "ready";
+        const isBlocked = blockedBy.length > 0 && item.status !== 'ready';
 
         // Override status to blocked if dependencies aren't ready
-        const displayItem: SetupItemType = isBlocked
-          ? { ...item, status: "blocked" }
-          : item;
+        const displayItem: SetupItemType = isBlocked ? { ...item, status: 'blocked' } : item;
 
         return (
           <SetupItem

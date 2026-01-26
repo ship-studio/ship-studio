@@ -11,11 +11,11 @@
  * @module components/DevServerLogs
  */
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { loadNerdFonts } from "../lib/fonts";
-import "@xterm/xterm/css/xterm.css";
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { loadNerdFonts } from '../lib/fonts';
+import '@xterm/xterm/css/xterm.css';
 
 /** Props for the DevServerLogs component */
 interface DevServerLogsProps {
@@ -43,10 +43,10 @@ export function DevServerLogs({ output, outputVersion }: DevServerLogsProps) {
         await loadNerdFonts();
         setIsReady(true);
       } else {
-        requestAnimationFrame(checkReady);
+        requestAnimationFrame(() => void checkReady());
       }
     };
-    checkReady();
+    void checkReady();
   }, []);
 
   // Create terminal when ready
@@ -61,30 +61,30 @@ export function DevServerLogs({ output, outputVersion }: DevServerLogsProps) {
       fontSize: 13,
       lineHeight: 1.2,
       cursorBlink: false,
-      cursorStyle: "block",
+      cursorStyle: 'block',
       scrollback: 10000,
       disableStdin: true, // Read-only
       theme: {
-        background: "#1a1a1a",
-        foreground: "#cccccc",
-        cursor: "#ffffff",
-        selectionBackground: "#3a3d41",
-        black: "#000000",
-        red: "#cd3131",
-        green: "#0dbc79",
-        yellow: "#e5e510",
-        blue: "#2472c8",
-        magenta: "#bc3fbc",
-        cyan: "#11a8cd",
-        white: "#e5e5e5",
-        brightBlack: "#666666",
-        brightRed: "#f14c4c",
-        brightGreen: "#23d18b",
-        brightYellow: "#f5f543",
-        brightBlue: "#3b8eea",
-        brightMagenta: "#d670d6",
-        brightCyan: "#29b8db",
-        brightWhite: "#ffffff",
+        background: '#1a1a1a',
+        foreground: '#cccccc',
+        cursor: '#ffffff',
+        selectionBackground: '#3a3d41',
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#ffffff',
       },
     });
 
@@ -102,7 +102,7 @@ export function DevServerLogs({ output, outputVersion }: DevServerLogsProps) {
     fitAddonRef.current = fitAddon;
 
     // Write initial message
-    term.write("\x1b[90m$ npm run dev\x1b[0m\r\n\r\n");
+    term.write('\x1b[90m$ npm run dev\x1b[0m\r\n\r\n');
 
     // Write current output
     if (output) {
@@ -126,7 +126,7 @@ export function DevServerLogs({ output, outputVersion }: DevServerLogsProps) {
         terminalRef.current = null;
       }
     };
-  }, [isReady]); // Only recreate terminal when isReady changes
+  }, [isReady, output]); // Only recreate terminal when isReady changes
 
   // Write new output when it changes
   useEffect(() => {
@@ -150,9 +150,9 @@ export function DevServerLogs({ output, outputVersion }: DevServerLogsProps) {
       ref={containerRef}
       onClick={handleClick}
       style={{
-        width: "100%",
-        height: "100%",
-        backgroundColor: "#1a1a1a",
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#1a1a1a',
       }}
     />
   );

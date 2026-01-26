@@ -797,7 +797,7 @@
   user-select: none;
 }
 
-.branches-new-branch-checkbox input[type="checkbox"] {
+.branches-new-branch-checkbox input[type='checkbox'] {
   width: 14px;
   height: 14px;
   margin: 0;
@@ -1513,7 +1513,10 @@ select.submit-review-input {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
   flex-shrink: 0;
   white-space: nowrap;
 }

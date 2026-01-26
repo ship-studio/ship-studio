@@ -7,9 +7,9 @@
  * - Buffers logs to avoid overwhelming the backend
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 
-type LogLevel = "debug" | "info" | "warn" | "error";
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LogEntry {
   level: LogLevel;
@@ -33,15 +33,15 @@ class Logger {
 
     // Flush logs to backend every 10 seconds
     this.flushInterval = setInterval(() => {
-      this.flush();
+      void this.flush();
     }, 10000);
 
     // Flush on page unload
-    window.addEventListener("beforeunload", () => {
-      this.flush();
+    window.addEventListener('beforeunload', () => {
+      void this.flush();
     });
 
-    this.info("Frontend logger initialized");
+    this.info('Frontend logger initialized');
   }
 
   /**
@@ -52,15 +52,11 @@ class Logger {
       clearInterval(this.flushInterval);
       this.flushInterval = null;
     }
-    this.flush();
+    void this.flush();
     this.isInitialized = false;
   }
 
-  private log(
-    level: LogLevel,
-    message: string,
-    context?: Record<string, unknown>
-  ) {
+  private log(level: LogLevel, message: string, context?: Record<string, unknown>) {
     const entry: LogEntry = {
       level,
       message,
@@ -70,19 +66,31 @@ class Logger {
 
     // Console output in development
     if (import.meta.env.DEV) {
-      const fn =
-        level === "error"
-          ? console.error
-          : level === "warn"
-            ? console.warn
-            : level === "debug"
-              ? console.debug
-              : console.log;
       const prefix = `[${level.toUpperCase()}]`;
       if (context && Object.keys(context).length > 0) {
-        fn(prefix, message, context);
+        if (level === 'error') {
+          console.error(prefix, message, context);
+        } else if (level === 'warn') {
+          console.warn(prefix, message, context);
+        } else if (level === 'debug') {
+          // eslint-disable-next-line no-console
+          console.debug(prefix, message, context);
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(prefix, message, context);
+        }
       } else {
-        fn(prefix, message);
+        if (level === 'error') {
+          console.error(prefix, message);
+        } else if (level === 'warn') {
+          console.warn(prefix, message);
+        } else if (level === 'debug') {
+          // eslint-disable-next-line no-console
+          console.debug(prefix, message);
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(prefix, message);
+        }
       }
     }
 
@@ -93,14 +101,14 @@ class Logger {
     }
 
     // Immediately send errors to backend
-    if (level === "error") {
-      this.sendToBackend(entry);
+    if (level === 'error') {
+      void this.sendToBackend(entry);
     }
   }
 
   private async sendToBackend(entry: LogEntry) {
     try {
-      await invoke("log_frontend_event", {
+      await invoke('log_frontend_event', {
         level: entry.level,
         message: entry.message,
         context: entry.context ? JSON.stringify(entry.context) : null,
@@ -121,7 +129,7 @@ class Logger {
 
     // Send important logs to backend
     const importantLogs = logs.filter(
-      (l) => l.level === "error" || l.level === "warn" || l.level === "info"
+      (l) => l.level === 'error' || l.level === 'warn' || l.level === 'info'
     );
 
     for (const log of importantLogs) {
@@ -133,28 +141,28 @@ class Logger {
    * Log debug message (verbose, development only)
    */
   debug(message: string, context?: Record<string, unknown>) {
-    this.log("debug", message, context);
+    this.log('debug', message, context);
   }
 
   /**
    * Log info message (normal operations)
    */
   info(message: string, context?: Record<string, unknown>) {
-    this.log("info", message, context);
+    this.log('info', message, context);
   }
 
   /**
    * Log warning message (potential issues)
    */
   warn(message: string, context?: Record<string, unknown>) {
-    this.log("warn", message, context);
+    this.log('warn', message, context);
   }
 
   /**
    * Log error message (failures)
    */
   error(message: string, context?: Record<string, unknown>) {
-    this.log("error", message, context);
+    this.log('error', message, context);
   }
 
   /**

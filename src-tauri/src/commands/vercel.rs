@@ -2,14 +2,14 @@
 //!
 //! Commands for Vercel CLI status, deployments, and project management.
 
-use std::process::Command;
+use crate::commands::setup::is_mock_mode;
 use crate::types::{
     DeployToVercelOptions, DeploymentStatus, LinkToVercelOptions, ProjectMetadata,
-    ProjectVercelStatus, PublishRecord, VercelCliStatus, VercelDeployment,
-    VercelDeploymentStatus, VercelProject, VercelTeam,
+    ProjectVercelStatus, PublishRecord, VercelCliStatus, VercelDeployment, VercelDeploymentStatus,
+    VercelProject, VercelTeam,
 };
-use crate::utils::{get_extended_path, validate_project_path, format_relative_time};
-use crate::commands::setup::is_mock_mode;
+use crate::utils::{format_relative_time, get_extended_path, validate_project_path};
+use std::process::Command;
 
 /// Default timeout for Vercel CLI commands (30 seconds)
 const VERCEL_CLI_TIMEOUT_SECS: u64 = 30;
@@ -180,10 +180,7 @@ pub async fn get_vercel_teams() -> Result<Vec<VercelTeam>, String> {
     //   other-team    Other Team Name
     for line in stderr.lines() {
         // Skip header/info lines
-        if line.contains("Vercel CLI")
-            || line.contains("Fetching")
-            || line.trim().is_empty()
-        {
+        if line.contains("Vercel CLI") || line.contains("Fetching") || line.trim().is_empty() {
             continue;
         }
 
@@ -298,10 +295,7 @@ pub async fn list_vercel_projects(scope: String) -> Result<Vec<VercelProject>, S
             if !parts.is_empty() {
                 let name = parts[0].to_string();
                 // Skip if it looks like a header or separator
-                if !name.is_empty()
-                    && !name.contains("─")
-                    && name != "Name"
-                    && name != "Project"
+                if !name.is_empty() && !name.contains("─") && name != "Name" && name != "Project"
                 {
                     projects.push(VercelProject {
                         id: name.clone(), // Project name is used as ID for linking
@@ -372,7 +366,10 @@ pub async fn deploy_to_vercel(options: DeployToVercelOptions) -> Result<String, 
     if !link_output.status.success() {
         let stderr = String::from_utf8_lossy(&link_output.stderr);
         let stdout = String::from_utf8_lossy(&link_output.stdout);
-        return Err(format!("Failed to link project to Vercel: {} {}", stderr, stdout));
+        return Err(format!(
+            "Failed to link project to Vercel: {} {}",
+            stderr, stdout
+        ));
     }
 
     // Step 2: If GitHub repo is provided, connect it for auto-deploy on future pushes
@@ -386,9 +383,7 @@ pub async fn deploy_to_vercel(options: DeployToVercelOptions) -> Result<String, 
             connect_cmd.args(["--scope", scope]);
         }
 
-        let connect_output = connect_cmd
-            .current_dir(&validated_path)
-            .output();
+        let connect_output = connect_cmd.current_dir(&validated_path).output();
 
         if let Ok(output) = connect_output {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -397,9 +392,14 @@ pub async fn deploy_to_vercel(options: DeployToVercelOptions) -> Result<String, 
 
             if !output.status.success() && !combined.contains("already connected") {
                 // Parse the error to give a helpful message
-                if combined.contains("Make sure there aren't any typos") || combined.contains("access to the repository") {
+                if combined.contains("Make sure there aren't any typos")
+                    || combined.contains("access to the repository")
+                {
                     // Extract GitHub org from repo (e.g., "ship-studio" from "ship-studio/repo-name")
-                    let github_org = github_repo.split('/').next().unwrap_or("the GitHub organization");
+                    let github_org = github_repo
+                        .split('/')
+                        .next()
+                        .unwrap_or("the GitHub organization");
                     return Err(format!(
                         "GitHub connection failed: The Vercel team doesn't have access to the '{}' GitHub organization.\n\n\
                         To fix this:\n\
@@ -410,7 +410,10 @@ pub async fn deploy_to_vercel(options: DeployToVercelOptions) -> Result<String, 
                 } else if combined.contains("already linked") {
                     // Different repo already linked - this is fine, continue
                 } else {
-                    return Err(format!("Failed to connect GitHub repository: {}", combined.trim()));
+                    return Err(format!(
+                        "Failed to connect GitHub repository: {}",
+                        combined.trim()
+                    ));
                 }
             }
         }
@@ -498,12 +501,18 @@ pub async fn get_project_vercel_status(project_path: String) -> ProjectVercelSta
         .ok()
         .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
 
-    let project_name = project_json_content.as_ref()
-        .and_then(|json| json.get("projectName").and_then(|v| v.as_str()).map(|s| s.to_string()));
+    let project_name = project_json_content.as_ref().and_then(|json| {
+        json.get("projectName")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
 
     // Get orgId for team-scoped projects
-    let org_id = project_json_content.as_ref()
-        .and_then(|json| json.get("orgId").and_then(|v| v.as_str()).map(|s| s.to_string()));
+    let org_id = project_json_content.as_ref().and_then(|json| {
+        json.get("orgId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
 
     let project_name_str = match &project_name {
         Some(name) => name.clone(),
@@ -518,9 +527,7 @@ pub async fn get_project_vercel_status(project_path: String) -> ProjectVercelSta
     if let Some(ref org) = org_id {
         verify_cmd.args(["--scope", org]);
     }
-    let verify_output = verify_cmd
-        .current_dir(&project)
-        .output();
+    let verify_output = verify_cmd.current_dir(&project).output();
 
     let project_exists = match verify_output {
         Ok(output) => {
@@ -560,9 +567,7 @@ pub async fn get_project_vercel_status(project_path: String) -> ProjectVercelSta
     if let Some(ref org) = org_id {
         git_cmd.args(["--scope", org]);
     }
-    let git_connect_output = git_cmd
-        .current_dir(&project)
-        .output();
+    let git_connect_output = git_cmd.current_dir(&project).output();
 
     let is_git_connected = match git_connect_output {
         Ok(output) => {
@@ -590,10 +595,7 @@ pub async fn get_project_vercel_status(project_path: String) -> ProjectVercelSta
     if let Some(ref org) = org_id {
         alias_cmd.args(["--scope", org]);
     }
-    let alias_output = alias_cmd
-        .current_dir(&project)
-        .output()
-        .ok();
+    let alias_output = alias_cmd.current_dir(&project).output().ok();
 
     let mut vercel_org: Option<String> = None;
     let mut staging_url: Option<String> = None;
@@ -608,7 +610,10 @@ pub async fn get_project_vercel_status(project_path: String) -> ProjectVercelSta
         // Extract org from "Fetching aliases under {org}"
         for line in full_output.lines() {
             if line.contains("Fetching aliases under ") {
-                vercel_org = line.split("Fetching aliases under ").nth(1).map(|s| s.trim().to_string());
+                vercel_org = line
+                    .split("Fetching aliases under ")
+                    .nth(1)
+                    .map(|s| s.trim().to_string());
                 break;
             }
         }
@@ -619,7 +624,8 @@ pub async fn get_project_vercel_status(project_path: String) -> ProjectVercelSta
             if parts.len() >= 2 {
                 let url = parts[1];
                 if url.starts_with(&format!("{}.", project_name_str))
-                    || url.starts_with(&format!("{}-", project_name_str)) {
+                    || url.starts_with(&format!("{}-", project_name_str))
+                {
                     if url.contains("-git-staging-") {
                         if staging_url.is_none() {
                             staging_url = Some(url.to_string());
@@ -645,10 +651,7 @@ pub async fn get_project_vercel_status(project_path: String) -> ProjectVercelSta
         if let Some(ref org) = org_id {
             list_cmd.args(["--scope", org]);
         }
-        let list_output = list_cmd
-            .current_dir(&project)
-            .output()
-            .ok();
+        let list_output = list_cmd.current_dir(&project).output().ok();
 
         if let Some(output) = list_output {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -775,7 +778,7 @@ pub async fn link_to_vercel(options: LinkToVercelOptions) -> Result<String, Stri
 
     // Fallback: construct URL from repo name
     let url = deployed_url.unwrap_or_else(|| {
-        let repo_name = github_repo.split('/').last().unwrap_or("project");
+        let repo_name = github_repo.split('/').next_back().unwrap_or("project");
         format!("https://{}.vercel.app", repo_name)
     });
 
@@ -830,16 +833,21 @@ fn parse_deployment_line(line: &str) -> Option<(String, String, Option<String>)>
         format!("https://{}", first)
     };
 
-    let state = parts.iter()
+    let state = parts
+        .iter()
         .find(|&p| {
             let lower = p.to_lowercase();
-            lower == "ready" || lower == "building" || lower == "error" ||
-            lower == "queued" || lower == "canceled"
+            lower == "ready"
+                || lower == "building"
+                || lower == "error"
+                || lower == "queued"
+                || lower == "canceled"
         })
         .map(|s| s.to_uppercase())
         .unwrap_or_else(|| "UNKNOWN".to_string());
 
-    let branch = parts.iter()
+    let branch = parts
+        .iter()
         .find(|&p| *p == "main" || *p == "master" || *p == "staging" || *p == "preview")
         .map(|s| s.to_string());
 
@@ -848,7 +856,9 @@ fn parse_deployment_line(line: &str) -> Option<(String, String, Option<String>)>
 
 /// Get Vercel deployments with a 30-second timeout to prevent hanging.
 #[tauri::command]
-pub async fn get_vercel_deployments(project_path: String) -> Result<VercelDeploymentStatus, String> {
+pub async fn get_vercel_deployments(
+    project_path: String,
+) -> Result<VercelDeploymentStatus, String> {
     let validated_path = validate_project_path(&project_path)?;
 
     let mut cmd = get_vercel_command();
@@ -870,7 +880,10 @@ pub async fn get_vercel_deployments(project_path: String) -> Result<VercelDeploy
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("not linked") || stderr.contains("No project found") || stderr.contains("Could not find") {
+        if stderr.contains("not linked")
+            || stderr.contains("No project found")
+            || stderr.contains("Could not find")
+        {
             return Ok(VercelDeploymentStatus {
                 staging: None,
                 production: None,
@@ -895,23 +908,29 @@ pub async fn get_vercel_deployments(project_path: String) -> Result<VercelDeploy
     let mut production_url: Option<String> = None;
 
     for line in stdout.lines() {
-        if line.trim().is_empty() ||
-           line.contains("Deployments") ||
-           line.starts_with("─") ||
-           (line.contains("Age") && line.contains("Status")) {
+        if line.trim().is_empty()
+            || line.contains("Deployments")
+            || line.starts_with("─")
+            || (line.contains("Age") && line.contains("Status"))
+        {
             continue;
         }
 
         if let Some((url, state, branch)) = parse_deployment_line(line) {
-            let is_production = line.to_lowercase().contains("production") ||
-                               branch.as_ref().map(|b| b == "main" || b == "master").unwrap_or(false);
-            let is_staging = branch.as_ref().map(|b| b == "staging").unwrap_or(false);
-
+            let is_production = line.to_lowercase().contains("production")
+                || branch
+                    .as_ref()
+                    .map(|b| b == "main" || b == "master")
+                    .unwrap_or(false);
             let deployment = VercelDeployment {
                 uid: String::new(),
                 url: url.clone(),
                 state: state.clone(),
-                target: if is_production { Some("production".to_string()) } else { None },
+                target: if is_production {
+                    Some("production".to_string())
+                } else {
+                    None
+                },
                 created_at: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as u64)
@@ -921,10 +940,8 @@ pub async fn get_vercel_deployments(project_path: String) -> Result<VercelDeploy
             if is_production && production_deployment.is_none() {
                 production_url = Some(url);
                 production_deployment = Some(deployment);
-            } else if is_staging && staging_deployment.is_none() {
-                preview_url = Some(url);
-                staging_deployment = Some(deployment);
             } else if staging_deployment.is_none() && !is_production {
+                // Covers both explicit staging branch and other non-production deployments
                 preview_url = Some(url);
                 staging_deployment = Some(deployment);
             }
@@ -942,7 +959,10 @@ pub async fn get_vercel_deployments(project_path: String) -> Result<VercelDeploy
 /// Get the latest deployment status for a project from Vercel.
 /// This command has a 30-second timeout to prevent hanging during polling.
 #[tauri::command]
-pub async fn get_deployment_status(project_path: String, _since_timestamp: Option<u64>) -> Result<Option<DeploymentStatus>, String> {
+pub async fn get_deployment_status(
+    project_path: String,
+    _since_timestamp: Option<u64>,
+) -> Result<Option<DeploymentStatus>, String> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Read orgId from .vercel/project.json for team-scoped projects
@@ -950,7 +970,11 @@ pub async fn get_deployment_status(project_path: String, _since_timestamp: Optio
     let org_id = std::fs::read_to_string(&vercel_config)
         .ok()
         .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-        .and_then(|json| json.get("orgId").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        .and_then(|json| {
+            json.get("orgId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
 
     // Run vercel ls to get deployments with timeout
     let mut cmd = get_vercel_command();
@@ -967,7 +991,8 @@ pub async fn get_deployment_status(project_path: String, _since_timestamp: Optio
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     // Get the first (newest) deployment URL from stdout
-    let url = match stdout.lines()
+    let url = match stdout
+        .lines()
         .find(|line| line.contains(".vercel.app"))
         .map(|line| line.trim().to_string())
     {
@@ -978,8 +1003,11 @@ pub async fn get_deployment_status(project_path: String, _since_timestamp: Optio
     // Parse status from stderr table
     // Format: "  2m      https://xxx.vercel.app     ● Ready     Production"
     // or:     "  2m      https://xxx.vercel.app     ● Building  Preview"
-    let state = stderr.lines()
-        .find(|line| line.contains(&url) || (line.contains(".vercel.app") && !line.contains("Deployment")))
+    let state = stderr
+        .lines()
+        .find(|line| {
+            line.contains(&url) || (line.contains(".vercel.app") && !line.contains("Deployment"))
+        })
         .map(|line| {
             if line.contains("● Ready") || line.contains("Ready") {
                 "READY"
@@ -1008,7 +1036,9 @@ pub async fn get_deployment_status(project_path: String, _since_timestamp: Optio
 /// Helper to get Vercel deployment info for a project (used by get_dashboard_projects).
 /// Prefers `.vercel/project.json` as the source of truth for connection status.
 /// Only returns deployment info if the project is actually linked to Vercel.
-pub fn get_vercel_deployment_info(project_path: &std::path::Path) -> (Option<String>, Option<String>, Option<String>) {
+pub fn get_vercel_deployment_info(
+    project_path: &std::path::Path,
+) -> (Option<String>, Option<String>, Option<String>) {
     // First check if the project is actually linked to Vercel
     // .vercel/project.json is the source of truth (managed by Vercel CLI)
     let vercel_config = project_path.join(".vercel").join("project.json");
@@ -1021,7 +1051,11 @@ pub fn get_vercel_deployment_info(project_path: &std::path::Path) -> (Option<Str
     let is_valid_vercel_link = std::fs::read_to_string(&vercel_config)
         .ok()
         .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-        .and_then(|json| json.get("projectId").and_then(|v| v.as_str()).map(|s| !s.is_empty()))
+        .and_then(|json| {
+            json.get("projectId")
+                .and_then(|v| v.as_str())
+                .map(|s| !s.is_empty())
+        })
         .unwrap_or(false);
 
     if !is_valid_vercel_link {
