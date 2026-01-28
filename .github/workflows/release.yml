@@ -24,7 +24,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -147,7 +147,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repo for release notes
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all updater artifacts
         uses: actions/download-artifact@v4
