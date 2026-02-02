@@ -27,7 +27,10 @@ export function CompactInputRow({ value, onChange, onSend }: CompactInputRowProp
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        onSend();
+        // Only send if input is not empty
+        if (e.currentTarget.value.trim()) {
+          onSend();
+        }
       }
     },
     [onSend]

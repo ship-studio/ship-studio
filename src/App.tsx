@@ -1037,7 +1037,9 @@ function App() {
     setView('project-loading');
 
     // Set window title to include project name
-    void setWindowTitle(`Ship Studio - ${project.name}`).catch(console.error);
+    void setWindowTitle(`Ship Studio - ${project.name}`).catch((error) => {
+      logger.error('Failed to set window title', { error });
+    });
 
     // Fetch auto-accept mode preference for this project
     stepStart = performance.now();
@@ -2048,7 +2050,8 @@ function App() {
           onOpenAssets={() => setShowAssetsPanel(true)}
           onOpenEnvEditor={() => setShowEnvEditor(true)}
           onCreateRepo={() => {
-            // TODO: Open create repo modal
+            // Button only shows when GitHub not connected, so prompt GitHub connection
+            void handleGitHubConnectFromOverlay();
           }}
           onSwitchBranch={() => {
             // Toggle between terminal and branches view in compact mode

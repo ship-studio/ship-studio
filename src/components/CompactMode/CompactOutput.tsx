@@ -37,7 +37,13 @@ export function CompactOutput({ lines, isReceiving, onCollapse }: CompactOutputP
           Output
           {isReceiving && <span className="compact-receiving-indicator" />}
         </span>
-        <button className="compact-collapse-btn" onClick={onCollapse} title="Collapse output">
+        <button
+          type="button"
+          className="compact-collapse-btn"
+          onClick={onCollapse}
+          title="Collapse output"
+          aria-label="Collapse output"
+        >
           <ChevronIcon size={12} />
         </button>
       </div>

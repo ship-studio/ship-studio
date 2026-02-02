@@ -33,6 +33,7 @@ export function CompactInfoBar({ isPinned, onPinToggle, onExpandToFull }: Compac
           className={`compact-control-btn compact-control-btn-small ${isPinned ? 'active' : ''}`}
           onClick={onPinToggle}
           title={isPinned ? 'Unpin from top' : 'Pin to top'}
+          aria-label={isPinned ? 'Unpin from top' : 'Pin to top'}
         >
           <PinIcon size={10} />
         </button>
@@ -40,6 +41,7 @@ export function CompactInfoBar({ isPinned, onPinToggle, onExpandToFull }: Compac
           className="compact-control-btn compact-control-btn-small"
           onClick={onExpandToFull}
           title="Expand to full mode"
+          aria-label="Expand to full mode"
         >
           <ExpandIcon size={10} />
         </button>

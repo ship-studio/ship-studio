@@ -19,6 +19,7 @@ import { Terminal, TerminalHandle } from '../Terminal';
 import { CompactInfoBar } from './CompactInfoBar';
 import { CompactActionsRow } from './CompactActionsRow';
 import { exitCompactMode, setAlwaysOnTop, startWindowDrag, setWindowTitle } from '../../lib/window';
+import { logger } from '../../lib/logger';
 import '../../styles/compact-mode.css';
 
 export interface CompactModeProps {
@@ -85,7 +86,9 @@ export function CompactMode({
 
   // Set window title to include project name
   useEffect(() => {
-    setWindowTitle(`Ship Studio - ${projectName}`).catch(console.error);
+    setWindowTitle(`Ship Studio - ${projectName}`).catch((error) => {
+      logger.error('Failed to set window title', { error });
+    });
   }, [projectName]);
 
   // Handle pin toggle
@@ -95,7 +98,7 @@ export function CompactMode({
     try {
       await setAlwaysOnTop(newPinned);
     } catch (error) {
-      console.error('Failed to toggle always on top:', error);
+      logger.error('Failed to toggle always on top', { error });
       setIsPinned(!newPinned);
     }
   }, [isPinned]);
@@ -106,22 +109,23 @@ export function CompactMode({
       await exitCompactMode();
       onExitCompactMode();
     } catch (error) {
-      console.error('Failed to exit compact mode:', error);
+      logger.error('Failed to exit compact mode', { error });
     }
   }, [onExitCompactMode]);
 
   // Handle drag start (only from draggable areas, not terminal or buttons)
   const handleDragStart = useCallback(async (e: React.MouseEvent) => {
-    if (
-      (e.target as HTMLElement).closest('button') ||
-      (e.target as HTMLElement).closest('.compact-terminal')
-    ) {
+    // Guard against non-Element targets (e.g., text nodes, SVG internals)
+    if (!(e.target instanceof Element)) {
+      return;
+    }
+    if (e.target.closest('button') || e.target.closest('.compact-terminal')) {
       return;
     }
     try {
       await startWindowDrag();
     } catch (error) {
-      console.error('Failed to start drag:', error);
+      logger.error('Failed to start drag', { error });
     }
   }, []);
 
@@ -133,7 +137,7 @@ export function CompactMode({
         onExitCompactMode();
         setTimeout(action, 100);
       } catch (error) {
-        console.error('Failed to exit compact mode:', error);
+        logger.error('Failed to exit compact mode', { error });
       }
     },
     [onExitCompactMode]

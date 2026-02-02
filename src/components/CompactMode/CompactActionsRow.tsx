@@ -93,13 +93,19 @@ export function CompactActionsRow({
           className="compact-action-btn"
           onClick={onRestartServer}
           title={`Server: ${serverHealth} - Click to restart`}
+          aria-label={`Restart server (currently ${serverHealth})`}
         >
           <span className="compact-health-dot" style={{ backgroundColor: healthColor }} />
           <ResetIcon size={12} />
         </button>
 
         {/* Assets */}
-        <button className="compact-action-btn" onClick={onOpenAssets} title="Assets">
+        <button
+          className="compact-action-btn"
+          onClick={onOpenAssets}
+          title="Assets"
+          aria-label="Assets"
+        >
           <ImageIcon size={14} />
         </button>
 
@@ -108,13 +114,19 @@ export function CompactActionsRow({
           className="compact-action-btn"
           onClick={onOpenEnvEditor}
           title="Environment Variables"
+          aria-label="Environment Variables"
         >
           <span className="compact-env-icon">$</span>
         </button>
 
         {/* Create Repo (if not connected) */}
         {!isGitHubConnected && (
-          <button className="compact-action-btn" onClick={onCreateRepo} title="Create Repository">
+          <button
+            className="compact-action-btn"
+            onClick={onCreateRepo}
+            title="Create Repository"
+            aria-label="Create Repository"
+          >
             <GitHubIcon size={14} />
           </button>
         )}
@@ -136,12 +148,22 @@ export function CompactActionsRow({
 
         {/* PR Status */}
         {prStatus !== 'none' ? (
-          <button className="compact-action-btn" onClick={onCreatePR} title="Pull Request">
+          <button
+            className="compact-action-btn"
+            onClick={onCreatePR}
+            title="Pull Request"
+            aria-label="Pull Request"
+          >
             <PullRequestIcon size={12} />
             {getPrStatusIndicator()}
           </button>
         ) : isGitHubConnected ? (
-          <button className="compact-action-btn" onClick={onCreatePR} title="Create Pull Request">
+          <button
+            className="compact-action-btn"
+            onClick={onCreatePR}
+            title="Create Pull Request"
+            aria-label="Create Pull Request"
+          >
             <PullRequestIcon size={12} />
           </button>
         ) : null}
@@ -153,6 +175,7 @@ export function CompactActionsRow({
           className="compact-action-btn compact-publish-btn"
           onClick={onPublish}
           title="Publish"
+          aria-label="Publish"
         >
           <UploadIcon size={12} />
         </button>
