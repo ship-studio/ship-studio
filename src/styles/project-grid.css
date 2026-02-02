@@ -261,3 +261,75 @@
 .btn-warning:hover {
   background: #f59e0b !important;
 }
+
+/* ============ Responsive Project Grid ============ */
+
+/* Medium screens - 2 columns */
+@media (max-width: 700px) {
+  .project-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .project-card-info {
+    padding: 10px 12px;
+  }
+
+  .project-card-name {
+    font-size: 14px;
+  }
+
+  .folder-card-info {
+    padding: 10px 12px;
+  }
+
+  .folder-card-name {
+    font-size: 14px;
+  }
+}
+
+/* Narrow screens - single column */
+@media (max-width: 550px) {
+  .project-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .project-card-info {
+    padding: 10px 12px;
+  }
+
+  .project-card-name {
+    font-size: 14px;
+  }
+
+  .project-card-meta {
+    font-size: 11px;
+  }
+
+  .project-card-deployment {
+    font-size: 11px;
+  }
+
+  .folder-card-info {
+    padding: 10px 12px;
+  }
+
+  .folder-card-name {
+    font-size: 14px;
+  }
+
+  .folder-card-count {
+    font-size: 11px;
+  }
+
+  /* Smaller dropdown for narrow screens */
+  .project-card-dropdown {
+    min-width: 180px;
+  }
+
+  .project-card-dropdown-item {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+}

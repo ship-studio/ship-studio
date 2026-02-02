@@ -84,16 +84,17 @@ export function GitHubButton({
       void getGitHubOrgs()
         .then(setOrgs)
         .catch(() => setOrgs([]));
-      setSelectedOwner(username); // Default to personal account
     }
-  }, [showCreateModal, cliStatus.authenticated, username]);
+  }, [showCreateModal, cliStatus.authenticated]);
 
   // Clear isCreatingRepo when status becomes connected
+  // This synchronizes local loading state with external status - a valid pattern
   useEffect(() => {
-    if (projectStatus?.status === 'connected' && isCreatingRepo) {
+    if (projectStatus?.status === 'connected') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsCreatingRepo(false);
     }
-  }, [projectStatus?.status, isCreatingRepo]);
+  }, [projectStatus?.status]);
 
   // If gh CLI not installed, show install prompt
   if (!cliStatus.installed) {
@@ -163,6 +164,7 @@ export function GitHubButton({
         className="github-button github-create"
         onClick={() => {
           setRepoName(projectName);
+          setSelectedOwner(username); // Default to personal account
           setShowCreateModal(true);
           setError(null);
         }}

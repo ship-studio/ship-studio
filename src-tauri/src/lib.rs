@@ -250,6 +250,18 @@ pub fn run() {
             // Logging
             logging::get_log_path,
             logging::log_frontend_event,
+            // Window / Compact Mode
+            commands::window::enter_compact_mode,
+            commands::window::exit_compact_mode,
+            commands::window::set_always_on_top,
+            commands::window::save_compact_position,
+            commands::window::get_compact_preferences,
+            commands::window::set_compact_expanded,
+            commands::window::get_window_position,
+            commands::window::set_window_position,
+            commands::window::start_window_drag,
+            commands::window::focus_window,
+            commands::window::set_window_title,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -671,4 +671,28 @@ pub struct AppState {
     pub setup_complete: bool,
     /// Timestamp when setup was completed (Unix ms)
     pub setup_completed_at: Option<u64>,
+    /// Compact mode preferences
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compact_mode: Option<CompactModePreferences>,
+}
+
+// ============ Compact Mode ============
+
+/// Position coordinates for compact mode window
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct WindowPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+/// Compact mode preferences (persisted at app level)
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactModePreferences {
+    /// Last saved window position
+    pub position: Option<WindowPosition>,
+    /// Whether compact mode window should stay on top of other windows
+    pub always_on_top: bool,
+    /// Whether the output area is currently expanded
+    pub is_expanded: bool,
 }

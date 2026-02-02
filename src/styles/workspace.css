@@ -493,3 +493,217 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ============ Responsive / Compact Layout ============ */
+/* When window is narrow (<= 550px), show only terminal + compact footer */
+
+@media (max-width: 550px) {
+  /* Hide workspace header in compact mode */
+  .workspace-header {
+    display: none;
+  }
+
+  /* Hide the split pane handle */
+  .split-pane-handle {
+    display: none;
+  }
+
+  /* Hide the preview pane entirely */
+  .split-pane-right {
+    display: none !important;
+  }
+
+  /* Terminal pane takes full width */
+  .split-pane-left {
+    width: 100% !important;
+    flex: 1;
+  }
+
+  /* Hide code health panel in compact mode */
+  .code-health-panel {
+    display: none;
+  }
+
+  /* Simplify terminal tabs bar in compact mode */
+  .terminal-tabs-bar {
+    padding: 6px 8px;
+    min-height: 36px;
+  }
+
+  /* Simplify terminal toolbar */
+  .terminal-toolbar {
+    padding: 6px 12px;
+    min-height: 36px;
+  }
+
+  /* Terminal container adjustments */
+  .terminal-pane {
+    border-radius: 0;
+  }
+}
+
+/* Compact footer - shown only at narrow widths */
+.compact-footer-bar {
+  display: none;
+}
+
+@media (max-width: 550px) {
+  .compact-footer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .compact-footer-left {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .compact-footer-right {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+}
+
+/* Compact mode controls (pin/expand) - hidden by default, shown in narrow windows */
+.compact-mode-controls {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+@media (max-width: 550px) {
+  .compact-mode-controls {
+    display: flex;
+  }
+}
+
+.compact-control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-app-region: no-drag;
+}
+
+.compact-control-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.compact-control-btn.active {
+  color: var(--accent);
+  background: rgba(45, 164, 157, 0.15);
+  border-color: rgba(45, 164, 157, 0.3);
+}
+
+.compact-control-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ============ Compact Mode Branches/PRs View ============ */
+/* These views replace the terminal in compact mode when viewing branches or PRs */
+
+.compact-terminal-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.compact-branches-view {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* In full mode (>550px), always show terminal, never show branches view */
+/* This ensures branches/PRs view only appears in compact mode */
+
+/* In compact mode, toggle visibility based on compactView state */
+@media (max-width: 550px) {
+  /* Hide terminal view when compact-hidden class is present */
+  .compact-terminal-view.compact-hidden {
+    display: none;
+  }
+
+  /* Show branches view only when not hidden */
+  .compact-branches-view:not(.compact-hidden) {
+    display: flex;
+  }
+
+  /* Override compact-mode-controls to always show in branches header */
+  .compact-branches-header .compact-mode-controls {
+    display: flex;
+  }
+}
+
+/* Compact branches header with back button */
+.compact-branches-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.compact-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.compact-back-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+
+.compact-branches-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.compact-branches-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+/* Ensure branches/PRs tabs look good in compact mode */
+.compact-branches-content .branches-tab,
+.compact-branches-content .pull-requests-tab {
+  height: 100%;
+}

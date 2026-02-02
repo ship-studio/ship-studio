@@ -46,12 +46,25 @@ body,
   overflow: hidden;
 }
 
+html {
+  background: var(--bg-primary);
+}
+
 body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans',
     'Helvetica Neue', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/* Compact mode wrapper - transparent background to show rounded corners */
+body.compact-mode-active {
+  background: transparent;
+}
+
+body.compact-mode-active html {
+  background: transparent;
 }
 
 /* App Container */

@@ -24,7 +24,6 @@
   gap: 0;
   width: 100%;
   max-width: 900px;
-  min-width: 900px;
   margin: 0 auto;
   /* Override base .project-list styles */
   height: auto;
@@ -896,4 +895,106 @@
 .project-card-menu-item-danger:hover {
   background: rgba(239, 68, 68, 0.1);
   color: var(--error);
+}
+
+/* ============ Responsive Dashboard Styles ============ */
+
+/* Medium screens - 2 column grid */
+@media (max-width: 700px) {
+  .project-list.dashboard {
+    padding: 20px 16px;
+  }
+
+  .dashboard-header {
+    gap: 12px;
+    padding-bottom: 20px;
+    margin-bottom: 12px;
+  }
+
+  .dashboard-search {
+    max-width: none;
+    min-width: 0;
+  }
+
+  /* Hide the keyboard shortcut hint on smaller screens */
+  .dashboard-search-shortcut {
+    display: none;
+  }
+}
+
+/* Narrow screens - single column, compact header */
+@media (max-width: 550px) {
+  .project-list.dashboard {
+    padding: 16px 12px;
+  }
+
+  .dashboard-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 16px;
+    margin-bottom: 12px;
+  }
+
+  /* Search takes full width on narrow screens */
+  .dashboard-search {
+    order: 2;
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  /* Actions stay on the right of first row */
+  .dashboard-header-actions {
+    order: 1;
+    margin-left: auto;
+  }
+
+  /* Compact buttons at narrow widths */
+  .dashboard-header-actions .btn-primary,
+  .dashboard-header-actions .btn-secondary {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  /* Section header adjustments */
+  .dashboard-section-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .dashboard-section-title {
+    font-size: 13px;
+  }
+
+  /* Integration bar */
+  .integration-bar {
+    margin-top: 24px;
+    padding-top: 16px;
+  }
+
+  .integration-bar-toggle {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  .integration-bar-content {
+    padding: 10px;
+  }
+
+  .integration-bar-item {
+    padding: 8px 10px;
+    gap: 10px;
+  }
+
+  .integration-bar-item-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .integration-bar-item-name {
+    font-size: 12px;
+  }
+
+  .integration-bar-item-status {
+    font-size: 11px;
+  }
 }

@@ -18,6 +18,7 @@ pub mod publishing;
 pub mod pull_requests;
 pub mod setup;
 pub mod vercel;
+pub mod window;
 
 // Re-export all commands for easy access in lib.rs
 pub use ai::*;
@@ -36,3 +37,4 @@ pub use publishing::*;
 pub use pull_requests::*;
 pub use setup::*;
 pub use vercel::*;
+pub use window::*;

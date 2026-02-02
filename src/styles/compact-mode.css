@@ -1,0 +1,324 @@
+/**
+ * Compact Mode Styles
+ *
+ * Styling for the minimal floating Ship Studio interface.
+ * New layout: Info bar, Actions row, Terminal, Resize handle
+ */
+
+/* Main container */
+.compact-mode {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: #1e1e1e;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-app-region: drag;
+  animation: compactFadeIn 0.2s ease-out;
+  color: #cccccc;
+}
+
+@keyframes compactFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ==================== Info Bar (Row 1) ==================== */
+
+.compact-info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Left padding for macOS traffic lights (overlay style) */
+  padding: 6px 8px 6px 72px;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+  -webkit-app-region: drag;
+}
+
+.compact-info-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9d9d9d;
+  -webkit-app-region: no-drag;
+}
+
+.compact-info-left svg {
+  color: #6d6d6d;
+}
+
+.compact-project-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #cccccc;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-info-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+
+/* Small window control buttons for info bar */
+.compact-control-btn-small {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+}
+
+.compact-control-btn-small svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* ==================== Actions Row (Footer) ==================== */
+/* Hidden by default, shown only at narrow widths */
+
+.compact-actions-row {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: #252526;
+  border-top: 1px solid #3c3c3c;
+  -webkit-app-region: no-drag;
+}
+
+/* Show compact actions row at narrow widths */
+@media (max-width: 550px) {
+  .compact-actions-row {
+    display: flex;
+  }
+}
+
+.compact-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.compact-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.compact-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #9d9d9d;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.compact-action-btn svg {
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.compact-action-btn:hover {
+  background: #2d2d2d;
+  border-color: #3c3c3c;
+  color: #cccccc;
+}
+
+/* Health dot */
+.compact-health-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 2px;
+}
+
+/* Env icon */
+.compact-env-icon {
+  font-family: 'JetBrainsMono NF', monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Branch button */
+.compact-branch-btn {
+  max-width: 130px;
+}
+
+.compact-branch-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.compact-unsaved-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #f0a000;
+  flex-shrink: 0;
+}
+
+/* Main branch styling (yellow/orange for production) */
+.compact-branch-btn.main-branch {
+  background: rgba(240, 160, 0, 0.15);
+  border-color: rgba(240, 160, 0, 0.4);
+  color: #f0a000;
+}
+
+.compact-branch-btn.main-branch:hover {
+  background: rgba(240, 160, 0, 0.25);
+  border-color: rgba(240, 160, 0, 0.5);
+}
+
+/* Live badge for main branch */
+.compact-live-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  background: rgba(240, 160, 0, 0.3);
+  color: #f0a000;
+  margin-left: 2px;
+}
+
+/* PR badges */
+.compact-pr-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.compact-pr-badge.open {
+  background: rgba(46, 160, 67, 0.2);
+  color: #3fb950;
+}
+
+.compact-pr-badge.merged {
+  background: rgba(130, 80, 223, 0.2);
+  color: #a371f7;
+}
+
+.compact-pr-badge.closed {
+  background: rgba(248, 81, 73, 0.2);
+  color: #f85149;
+}
+
+/* Divider */
+.compact-actions-divider {
+  width: 1px;
+  height: 16px;
+  background: #3c3c3c;
+  margin: 0 4px;
+}
+
+/* Publish button */
+.compact-publish-btn {
+  background: #4ecdc4;
+  border-color: #4ecdc4;
+  color: #1e1e1e;
+}
+
+.compact-publish-btn:hover {
+  background: #3dbdb5;
+  border-color: #3dbdb5;
+  color: #1e1e1e;
+}
+
+.compact-publish-btn svg {
+  color: #1e1e1e;
+}
+
+/* Window control buttons */
+.compact-control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #6d6d6d;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.compact-control-btn svg {
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.compact-control-btn:hover {
+  background: #2d2d2d;
+  border-color: #3c3c3c;
+  color: #cccccc;
+}
+
+.compact-control-btn.active {
+  background: #4ecdc4;
+  border-color: #4ecdc4;
+  color: #1e1e1e;
+}
+
+.compact-control-btn.active svg {
+  color: #1e1e1e;
+}
+
+.compact-close-btn:hover {
+  background: #f44747;
+  border-color: #f44747;
+  color: white;
+}
+
+.compact-close-btn:hover svg {
+  color: white;
+}
+
+/* ==================== Terminal Area ==================== */
+
+.compact-terminal {
+  flex: 1;
+  min-height: 0;
+  background: #1e1e1e;
+  -webkit-app-region: no-drag;
+  overflow: hidden;
+}
+
+.compact-terminal > div {
+  width: 100%;
+  height: 100%;
+}
+
+/* Override xterm styles for compact mode */
+.compact-terminal .xterm {
+  padding: 4px 8px;
+}
+
+.compact-terminal .xterm-viewport {
+  overflow-y: auto !important;
+}

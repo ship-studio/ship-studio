@@ -43,7 +43,7 @@ fn get_app_state_path() -> PathBuf {
 }
 
 /// Read the persisted app state
-fn read_app_state() -> AppState {
+pub fn read_app_state() -> AppState {
     let path = get_app_state_path();
     if path.exists() {
         std::fs::read_to_string(&path)
@@ -56,7 +56,7 @@ fn read_app_state() -> AppState {
 }
 
 /// Write the app state to disk
-fn write_app_state(state: &AppState) -> Result<(), String> {
+pub fn write_app_state(state: &AppState) -> Result<(), String> {
     let path = get_app_state_path();
 
     // Ensure parent directory exists
@@ -648,10 +648,10 @@ pub async fn mark_setup_complete() -> Result<(), String> {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    let state = AppState {
-        setup_complete: true,
-        setup_completed_at: Some(timestamp),
-    };
+    // Read existing state to preserve other fields (e.g., compact_mode)
+    let mut state = read_app_state();
+    state.setup_complete = true;
+    state.setup_completed_at = Some(timestamp);
 
     write_app_state(&state)?;
     tracing::info!("Setup marked as complete");
@@ -661,7 +661,11 @@ pub async fn mark_setup_complete() -> Result<(), String> {
 /// Clear setup complete flag (for testing/reset)
 #[tauri::command]
 pub async fn reset_setup_state() -> Result<(), String> {
-    let state = AppState::default();
+    // Read existing state to preserve other fields (e.g., compact_mode)
+    let mut state = read_app_state();
+    state.setup_complete = false;
+    state.setup_completed_at = None;
+
     write_app_state(&state)?;
     tracing::info!("Setup state reset");
     Ok(())

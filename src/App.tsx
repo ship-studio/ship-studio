@@ -36,6 +36,7 @@ import { GitErrorHandler } from './components/GitErrorHandler';
 import { SubmitReviewModal } from './components/SubmitReviewModal';
 import { ConflictResolutionModal } from './components/ConflictResolutionModal';
 import { BugReportButton } from './components/BugReportButton';
+import { CompactActionsRow } from './components/CompactMode';
 import { MainBranchBanner } from './components/MainBranchBanner';
 import { BrowserDropdown } from './components/BrowserDropdown';
 import { ConnectOverlay } from './components/ConnectOverlay';
@@ -68,6 +69,10 @@ import {
   ImageIcon,
   TerminalIcon,
   ResetIcon,
+  CompactIcon,
+  PinIcon,
+  ExpandIcon,
+  ArrowLeftIcon,
 } from './components/icons';
 import { startDevServer, Project, DevServerHandle, getAutoAcceptMode } from './lib/project';
 import {
@@ -86,6 +91,13 @@ import {
   ProjectVercelStatus,
 } from './lib/vercel';
 import { checkClaudeCliStatus, ClaudeCliStatus } from './lib/claude';
+import {
+  enterCompactMode,
+  exitCompactMode,
+  setAlwaysOnTop,
+  focusWindow,
+  setWindowTitle,
+} from './lib/window';
 import { getFullSetupStatus, quickSetupCheck, markSetupComplete } from './lib/setup';
 import { UpdateBanner } from './components/UpdateBanner';
 import { invoke } from '@tauri-apps/api/core';
@@ -217,6 +229,27 @@ function App() {
   const [terminalSessionId, setTerminalSessionId] = useState(1); // Changes when project changes to force remount
   const MAX_TERMINAL_TABS = 5;
 
+  // Compact mode state - starts false, set to true when Compact button is clicked
+  const [isPinned, setIsPinned] = useState(false);
+
+  // Auto-unpin when window is resized to full mode width
+  useEffect(() => {
+    const COMPACT_BREAKPOINT = 550;
+
+    const handleResize = () => {
+      // If window is wider than compact breakpoint and still pinned, auto-unpin
+      if (window.innerWidth > COMPACT_BREAKPOINT && isPinned) {
+        setIsPinned(false);
+        setAlwaysOnTop(false).catch((error) => {
+          logger.error('Failed to auto-unpin window', { error });
+        });
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isPinned]);
+
   // Dev server logs state
   const [showDevServerLogs, setShowDevServerLogs] = useState(false);
   const devServerOutputRef = useRef<string>(''); // Buffer output for when logs tab opens
@@ -311,15 +344,23 @@ function App() {
   // Workspace tab state (preview/branches/prs)
   const [workspaceTab, setWorkspaceTab] = useState<'preview' | 'branches' | 'prs'>('preview');
 
+  // Compact mode view state - what to show in compact mode (terminal, branches, or prs)
+  const [compactView, setCompactView] = useState<'terminal' | 'branches' | 'prs'>('terminal');
+
   // Preview panel visibility
   const [isPreviewHidden, setIsPreviewHidden] = useState(false);
 
   // Reset to preview tab if on branches/prs and GitHub is not connected
   useEffect(() => {
-    if (integrations.projectGithub?.status !== 'connected' && workspaceTab !== 'preview') {
-      setWorkspaceTab('preview');
+    if (integrations.projectGithub?.status !== 'connected') {
+      if (workspaceTab !== 'preview') {
+        setWorkspaceTab('preview');
+      }
+      if (compactView !== 'terminal') {
+        setCompactView('terminal');
+      }
     }
-  }, [integrations.projectGithub?.status, workspaceTab]);
+  }, [integrations.projectGithub?.status, workspaceTab, compactView]);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     const id = ++toastIdRef.current;
@@ -360,12 +401,7 @@ function App() {
     }
   };
 
-  // Check prerequisites and GitHub status on mount
-  useEffect(() => {
-    void checkSetup();
-  }, []);
-
-  const checkSetup = async (forceFullCheck = false) => {
+  const checkSetup = useCallback(async (forceFullCheck = false) => {
     setView('loading');
     try {
       // Fast path: if setup was previously completed, try quick check first
@@ -431,7 +467,12 @@ function App() {
       logger.error('Failed to check prerequisites', { error });
       setView('onboarding');
     }
-  };
+  }, []);
+
+  // Check prerequisites and GitHub status on mount
+  useEffect(() => {
+    void checkSetup();
+  }, [checkSetup]);
 
   // Background verification for optimistic loading
   const verifySetupInBackground = async () => {
@@ -505,11 +546,15 @@ function App() {
     dispatch({ type: actionType, payload: { cliStatus: status, username } });
   };
 
-  const refreshGitHubStatus = () =>
-    refreshAuthenticatedIntegration(checkGitHubCliStatus, getGitHubUsername, 'SET_GITHUB');
+  const refreshGitHubStatus = useCallback(
+    () => refreshAuthenticatedIntegration(checkGitHubCliStatus, getGitHubUsername, 'SET_GITHUB'),
+    []
+  );
 
-  const refreshVercelStatus = () =>
-    refreshAuthenticatedIntegration(checkVercelCliStatus, getVercelUsername, 'SET_VERCEL');
+  const refreshVercelStatus = useCallback(
+    () => refreshAuthenticatedIntegration(checkVercelCliStatus, getVercelUsername, 'SET_VERCEL'),
+    []
+  );
 
   // Handle GitHub connect from overlay - opens terminal for gh auth login
   const handleGitHubConnectFromOverlay = useCallback(() => {
@@ -552,7 +597,7 @@ function App() {
         }
       }
     },
-    [authTerminalConfig, currentProject]
+    [authTerminalConfig, currentProject, refreshGitHubStatus, refreshVercelStatus]
   );
 
   // Focus terminal (called after modals close)
@@ -991,6 +1036,9 @@ function App() {
     currentProjectPathRef.current = project.path;
     setView('project-loading');
 
+    // Set window title to include project name
+    void setWindowTitle(`Ship Studio - ${project.name}`).catch(console.error);
+
     // Fetch auto-accept mode preference for this project
     stepStart = performance.now();
     try {
@@ -1148,6 +1196,9 @@ function App() {
     setCurrentProject(null);
     dispatch({ type: 'CLEAR_PROJECT_STATUSES' });
     setView('projects');
+
+    // Reset window title when closing project
+    void setWindowTitle('Ship Studio').catch(console.error);
   };
 
   const handleRestartDevServer = async () => {
@@ -1214,6 +1265,60 @@ function App() {
       setIsRestartingDevServer(false);
     }
   };
+
+  // Compact mode handler - resizes window, opens browser, enables always-on-top
+  // The UI adapts to narrow width via responsive CSS
+  const handleEnterCompactMode = async () => {
+    try {
+      // Resize window to compact dimensions + enable always-on-top
+      await enterCompactMode();
+      setIsPinned(true); // Sync state since enterCompactMode enables always-on-top
+
+      // Small delay to let the window settle, then open browser
+      setTimeout(() => {
+        void (async () => {
+          try {
+            const { openUrl } = await import('@tauri-apps/plugin-opener');
+            await openUrl(`http://localhost:${devServerPort}`);
+
+            // After browser opens, wait a bit then refocus the compact window
+            setTimeout(() => {
+              void focusWindow().catch((error) => {
+                logger.error('Failed to refocus window', { error });
+              });
+            }, 500);
+          } catch (error) {
+            logger.error('Failed to open browser', { error });
+          }
+        })();
+      }, 100);
+    } catch (error) {
+      logger.error('Failed to enter compact mode', { error });
+      showToast('Failed to enter compact mode', 'error');
+    }
+  };
+
+  // Toggle always-on-top in compact mode
+  const handlePinToggle = useCallback(async () => {
+    const newPinned = !isPinned;
+    setIsPinned(newPinned);
+    try {
+      await setAlwaysOnTop(newPinned);
+    } catch (error) {
+      logger.error('Failed to toggle always on top', { error });
+      setIsPinned(!newPinned); // Revert on failure
+    }
+  }, [isPinned]);
+
+  // Exit compact mode and expand to full window
+  const handleExpandToFull = useCallback(async () => {
+    try {
+      await exitCompactMode();
+      setIsPinned(true); // Reset pin state for next compact mode entry
+    } catch (error) {
+      logger.error('Failed to exit compact mode', { error });
+    }
+  }, []);
 
   const handleGitHubStatusChange = async (vercelDeployedUrl?: string) => {
     // Refresh project GitHub and Vercel status after push/publish
@@ -1367,7 +1472,7 @@ function App() {
     );
   }
 
-  // Workspace view
+  // Workspace view (responsive - adapts to narrow widths via CSS)
   return (
     <>
       <div className="app workspace">
@@ -1533,110 +1638,207 @@ function App() {
                     ) : undefined
                   }
                 />
-                <div className="terminal-tabs-bar">
-                  <div className="terminal-tabs">
-                    {terminalTabs.map((tabId, index) => (
+                {/* Terminal view - hidden in compact mode when viewing branches/PRs */}
+                <div
+                  className={`compact-terminal-view ${compactView !== 'terminal' ? 'compact-hidden' : ''}`}
+                >
+                  <div className="terminal-tabs-bar">
+                    <div className="terminal-tabs">
+                      {terminalTabs.map((tabId, index) => (
+                        <button
+                          key={tabId}
+                          className={`workspace-tab ${!showDevServerLogs && activeTerminalTab === tabId ? 'active' : ''}`}
+                          onClick={() => {
+                            setShowDevServerLogs(false);
+                            setShowHealthLogs(false);
+                            setActiveTerminalTab(tabId);
+                          }}
+                        >
+                          <span className="terminal-tab-number">{index + 1}</span>
+                          {terminalTabs.length > 1 && (
+                            <span
+                              className="terminal-tab-close"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeTerminalTab(tabId);
+                              }}
+                            >
+                              <CloseIcon size={10} />
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                      {terminalTabs.length < MAX_TERMINAL_TABS && (
+                        <button className="terminal-tab-add" onClick={addTerminalTab}>
+                          <PlusIcon size={12} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="terminal-logs-tabs">
                       <button
-                        key={tabId}
-                        className={`workspace-tab ${!showDevServerLogs && activeTerminalTab === tabId ? 'active' : ''}`}
+                        className={`workspace-tab ${showDevServerLogs && !showHealthLogs ? 'active' : ''}`}
                         onClick={() => {
-                          setShowDevServerLogs(false);
+                          setShowDevServerLogs(true);
                           setShowHealthLogs(false);
-                          setActiveTerminalTab(tabId);
+                        }}
+                        title="View dev server logs"
+                      >
+                        <TerminalIcon size={12} />
+                        <span>Server</span>
+                      </button>
+                      <button
+                        className={`workspace-tab ${showHealthLogs ? 'active' : ''}`}
+                        onClick={() => {
+                          setShowDevServerLogs(true);
+                          setShowHealthLogs(true);
+                        }}
+                        title="View health check logs"
+                      >
+                        <svg
+                          width={12}
+                          height={12}
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                        </svg>
+                        <span>Health</span>
+                      </button>
+                    </div>
+
+                    {/* Compact mode controls - visible only at narrow widths via CSS */}
+                    <div className="compact-mode-controls">
+                      <button
+                        className={`compact-control-btn ${isPinned ? 'active' : ''}`}
+                        onClick={() => void handlePinToggle()}
+                        title={isPinned ? 'Unpin from top' : 'Pin to top'}
+                      >
+                        <PinIcon size={12} />
+                      </button>
+                      <button
+                        className="compact-control-btn"
+                        onClick={() => void handleExpandToFull()}
+                        title="Expand to full mode"
+                      >
+                        <ExpandIcon size={12} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="terminal-content">
+                    {terminalTabs.map((tabId) => (
+                      <div
+                        key={`session-${terminalSessionId}-tab-${tabId}`}
+                        className="terminal-tab-content"
+                        style={{
+                          display:
+                            !showDevServerLogs && activeTerminalTab === tabId ? 'block' : 'none',
                         }}
                       >
-                        <span className="terminal-tab-number">{index + 1}</span>
-                        {terminalTabs.length > 1 && (
-                          <span
-                            className="terminal-tab-close"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              closeTerminalTab(tabId);
-                            }}
-                          >
-                            <CloseIcon size={10} />
-                          </span>
-                        )}
-                      </button>
+                        <Terminal
+                          ref={(ref) => {
+                            if (ref) {
+                              terminalRefsMap.current.set(tabId, ref);
+                            }
+                          }}
+                          projectPath={currentProject?.path || ''}
+                          onExit={handleTerminalExit}
+                          autoAcceptMode={autoAcceptMode}
+                        />
+                      </div>
                     ))}
-                    {terminalTabs.length < MAX_TERMINAL_TABS && (
-                      <button className="terminal-tab-add" onClick={addTerminalTab}>
-                        <PlusIcon size={12} />
-                      </button>
+                    {showDevServerLogs && !showHealthLogs && (
+                      <div className="terminal-tab-content" style={{ display: 'block' }}>
+                        <DevServerLogs
+                          output={devServerOutputRef.current}
+                          outputVersion={devServerOutputVersion}
+                        />
+                      </div>
+                    )}
+                    {showHealthLogs && (
+                      <div className="terminal-tab-content" style={{ display: 'block' }}>
+                        <DevServerLogs
+                          output={healthOutputRef.current}
+                          outputVersion={healthOutputVersion}
+                        />
+                      </div>
                     )}
                   </div>
-                  <div className="terminal-logs-tabs">
-                    <button
-                      className={`workspace-tab ${showDevServerLogs && !showHealthLogs ? 'active' : ''}`}
-                      onClick={() => {
-                        setShowDevServerLogs(true);
-                        setShowHealthLogs(false);
-                      }}
-                      title="View dev server logs"
-                    >
-                      <TerminalIcon size={12} />
-                      <span>Server</span>
-                    </button>
-                    <button
-                      className={`workspace-tab ${showHealthLogs ? 'active' : ''}`}
-                      onClick={() => {
-                        setShowDevServerLogs(true);
-                        setShowHealthLogs(true);
-                      }}
-                      title="View health check logs"
-                    >
-                      <svg
-                        width={12}
-                        height={12}
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                      </svg>
-                      <span>Health</span>
-                    </button>
-                  </div>
                 </div>
-                <div className="terminal-content">
-                  {terminalTabs.map((tabId) => (
-                    <div
-                      key={`session-${terminalSessionId}-tab-${tabId}`}
-                      className="terminal-tab-content"
-                      style={{
-                        display:
-                          !showDevServerLogs && activeTerminalTab === tabId ? 'block' : 'none',
-                      }}
-                    >
-                      <Terminal
-                        ref={(ref) => {
-                          if (ref) {
-                            terminalRefsMap.current.set(tabId, ref);
+
+                {/* Compact branches/PRs view - shown in compact mode when viewing branches or PRs */}
+                <div
+                  className={`compact-branches-view ${compactView === 'terminal' ? 'compact-hidden' : ''}`}
+                >
+                  {/* Back button header */}
+                  <div className="compact-branches-header">
+                    <button className="compact-back-btn" onClick={() => setCompactView('terminal')}>
+                      <ArrowLeftIcon size={12} />
+                      <span>Terminal</span>
+                    </button>
+                    <span className="compact-branches-title">
+                      {compactView === 'branches' ? 'Branches' : 'Pull Requests'}
+                    </span>
+                    {/* Compact mode controls */}
+                    <div className="compact-mode-controls" style={{ marginLeft: 'auto' }}>
+                      <button
+                        className={`compact-control-btn ${isPinned ? 'active' : ''}`}
+                        onClick={() => void handlePinToggle()}
+                        title={isPinned ? 'Unpin from top' : 'Pin to top'}
+                      >
+                        <PinIcon size={12} />
+                      </button>
+                      <button
+                        className="compact-control-btn"
+                        onClick={() => void handleExpandToFull()}
+                        title="Expand to full mode"
+                      >
+                        <ExpandIcon size={12} />
+                      </button>
+                    </div>
+                  </div>
+                  {/* Content */}
+                  <div className="compact-branches-content">
+                    {compactView === 'branches' &&
+                      currentProject &&
+                      integrations.github.cliStatus.authenticated &&
+                      integrations.projectGithub?.status === 'connected' && (
+                        <BranchesTab
+                          branches={branches}
+                          currentBranch={currentBranch || ''}
+                          projectPath={currentProject.path}
+                          githubUsername={integrations.github.username}
+                          openPRs={openPRs}
+                          onBranchSwitch={(branchName) => {
+                            void handleBranchSwitch(branchName);
+                            setCompactView('terminal'); // Return to terminal after switching
+                          }}
+                          onSubmitForReview={(branchName) => setShowSubmitReview(branchName)}
+                          onRefresh={() => void fetchBranchInfo(currentProject.path)}
+                          onToast={showToast}
+                        />
+                      )}
+                    {compactView === 'prs' &&
+                      currentProject &&
+                      integrations.github.cliStatus.authenticated &&
+                      integrations.projectGithub?.status === 'connected' && (
+                        <PullRequestsTab
+                          projectPath={currentProject.path}
+                          githubUsername={integrations.github.username}
+                          onRefresh={() => void fetchBranchInfo(currentProject.path)}
+                          onToast={showToast}
+                          onBranchSwitch={(branchName) => {
+                            void handleBranchSwitch(branchName);
+                            setCompactView('terminal'); // Return to terminal after switching
+                          }}
+                          onNavigateToBranches={() => setCompactView('branches')}
+                          onResolveConflicts={(headBranch, baseBranch) =>
+                            void handleResolveConflicts(headBranch, baseBranch)
                           }
-                        }}
-                        projectPath={currentProject?.path || ''}
-                        onExit={handleTerminalExit}
-                        autoAcceptMode={autoAcceptMode}
-                      />
-                    </div>
-                  ))}
-                  {showDevServerLogs && !showHealthLogs && (
-                    <div className="terminal-tab-content" style={{ display: 'block' }}>
-                      <DevServerLogs
-                        output={devServerOutputRef.current}
-                        outputVersion={devServerOutputVersion}
-                      />
-                    </div>
-                  )}
-                  {showHealthLogs && (
-                    <div className="terminal-tab-content" style={{ display: 'block' }}>
-                      <DevServerLogs
-                        output={healthOutputRef.current}
-                        outputVersion={healthOutputVersion}
-                      />
-                    </div>
-                  )}
+                        />
+                      )}
+                  </div>
                 </div>
               </div>
             }
@@ -1707,6 +1909,14 @@ function App() {
                     >
                       <PanelRightIcon size={14} />
                       <span>Hide Preview</span>
+                    </button>
+                    <button
+                      className="preview-action-btn"
+                      onClick={() => void handleEnterCompactMode()}
+                      title="Enter Compact Mode"
+                    >
+                      <CompactIcon size={14} />
+                      <span>Compact</span>
                     </button>
                   </div>
                 </div>
@@ -1824,6 +2034,32 @@ function App() {
             }
           />
         </div>
+
+        {/* Compact footer - visible only at narrow window widths via CSS */}
+        <CompactActionsRow
+          serverHealth={
+            devServerRef.current ? 'healthy' : isRestartingDevServer ? 'starting' : 'unhealthy'
+          }
+          currentBranch={currentBranch}
+          hasUncommittedChanges={hasUncommittedChanges}
+          prStatus={openPRs.find((pr) => pr.headRef === currentBranch) ? 'open' : 'none'}
+          isGitHubConnected={integrations.projectGithub?.status === 'connected'}
+          onRestartServer={() => void handleRestartDevServer()}
+          onOpenAssets={() => setShowAssetsPanel(true)}
+          onOpenEnvEditor={() => setShowEnvEditor(true)}
+          onCreateRepo={() => {
+            // TODO: Open create repo modal
+          }}
+          onSwitchBranch={() => {
+            // Toggle between terminal and branches view in compact mode
+            setCompactView(compactView === 'branches' ? 'terminal' : 'branches');
+          }}
+          onCreatePR={() => {
+            // Toggle between terminal and PRs view in compact mode
+            setCompactView(compactView === 'prs' ? 'terminal' : 'prs');
+          }}
+          onPublish={() => setForcePublishOpen(true)}
+        />
 
         <EnvEditor
           projectPath={currentProject?.path || ''}
