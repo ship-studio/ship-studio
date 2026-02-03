@@ -293,6 +293,18 @@ export function ProjectList({
     }
   };
 
+  const handleOpenInNewWindow = async (project: DashboardProject) => {
+    try {
+      await invoke('open_project_in_new_window', {
+        projectPath: project.path,
+        projectName: project.name,
+      });
+    } catch (error) {
+      console.error('Failed to open in new window:', error);
+      alert('Failed to open in new window: ' + String(error));
+    }
+  };
+
   const handleCreateFolder = async (name: string) => {
     await createFolder(name);
     await loadFolders();
@@ -471,6 +483,7 @@ export function ProjectList({
                 }
                 onMoveToFolder={() => void handleOpenMoveModal(project)}
                 onExportAsTemplate={() => void handleExportAsTemplate(project.path)}
+                onOpenInNewWindow={() => void handleOpenInNewWindow(project)}
                 onOpenSite={
                   project.production_url
                     ? () => {

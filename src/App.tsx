@@ -105,6 +105,11 @@ import {
   setAlwaysOnTop,
   focusWindow,
   setWindowTitle,
+  getWindowLabel,
+  findAndReservePort,
+  releaseReservedPort,
+  getProjectWindow,
+  focusWindowByLabel,
 } from './lib/window';
 import { getFullSetupStatus, quickSetupCheck, markSetupComplete } from './lib/setup';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -117,8 +122,12 @@ logger.init();
 
 /** Interval between automatic screenshot captures (5 minutes) */
 const SCREENSHOT_INTERVAL_MS = 5 * 60 * 1000;
-/** Delay after page load before capturing screenshot (2 seconds) */
-const SCREENSHOT_DELAY_MS = 2000;
+/** Delay after page load before capturing screenshot (8 seconds to allow Next.js/Vite to fully compile) */
+const SCREENSHOT_DELAY_MS = 8000;
+/** Maximum number of retry attempts for thumbnail capture */
+const SCREENSHOT_MAX_RETRIES = 5;
+/** Delay between retry attempts (3 seconds) */
+const SCREENSHOT_RETRY_DELAY_MS = 3000;
 /** Preferred port for Next.js dev server (will find available port if taken) */
 const PREFERRED_DEV_SERVER_PORT = 3000;
 
@@ -220,7 +229,13 @@ function integrationReducer(state: IntegrationState, action: IntegrationAction):
   }
 }
 
-function App() {
+/** Props for the App component */
+interface AppProps {
+  /** Initial project path from URL parameter (for multi-window support) */
+  initialProjectPath?: string | null;
+}
+
+function App({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [autoAcceptMode, setAutoAcceptMode] = useState(false);
@@ -229,6 +244,12 @@ function App() {
   const previewRef = useRef<PreviewHandle | null>(null);
   const screenshotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentProjectPathRef = useRef<string | null>(null);
+  // Capture session ID - incremented when project changes, used to cancel pending captures
+  const captureSessionIdRef = useRef<number>(0);
+  // Track if auto-open has been attempted this session (protects against StrictMode double-invoke)
+  const autoOpenAttemptedRef = useRef(false);
+  // Track project path currently being opened to prevent concurrent opens (race condition guard)
+  const openingProjectPathRef = useRef<string | null>(null);
 
   // Terminal tabs state
   const [terminalTabs, setTerminalTabs] = useState<number[]>([1]);
@@ -257,6 +278,23 @@ function App() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [isPinned]);
+
+  // Cleanup dev server when window is closed (prevents orphaned processes)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Stop the dev server synchronously as best we can
+      if (devServerRef.current) {
+        try {
+          devServerRef.current.pty.kill();
+        } catch {
+          // Ignore errors during cleanup
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   // Dev server logs state
   const [showDevServerLogs, setShowDevServerLogs] = useState(false);
@@ -423,7 +461,10 @@ function App() {
         if (quickCheck.setupCompleteCached && quickCheck.allPresent) {
           // Setup was completed before and all binaries still exist
           // Show projects immediately, verify auth in background
-          setView('projects');
+          // Use functional update to avoid overwriting HMR recovery's 'workspace' view
+          setView((currentView) =>
+            currentView === 'loading' || currentView === 'onboarding' ? 'projects' : currentView
+          );
           void verifySetupInBackground();
           return;
         }
@@ -472,7 +513,10 @@ function App() {
         // Persist setup complete for existing users upgrading to this version
         // (they already completed onboarding but don't have the cached state yet)
         void markSetupComplete();
-        setView('projects');
+        // Use functional update to avoid overwriting HMR recovery's 'workspace' view
+        setView((currentView) =>
+          currentView === 'loading' || currentView === 'onboarding' ? 'projects' : currentView
+        );
       } else {
         setView('onboarding');
       }
@@ -486,6 +530,128 @@ function App() {
   useEffect(() => {
     void checkSetup();
   }, [checkSetup]);
+
+  // HMR Recovery for ALL windows (main window and project windows)
+  // Checks backend port reservation to detect HMR and restore UI state without restarting dev server
+  // This runs BEFORE the auto-open effect and handles the "already have a project open" case
+  useEffect(() => {
+    const windowLabel = getWindowLabel();
+    const storageKey = `ship-studio-project-loaded-${windowLabel}`;
+    const dismissedKey = `ship-studio-auto-open-dismissed-${windowLabel}`;
+    const storedProjectPath = sessionStorage.getItem(storageKey);
+    const dismissedValue = sessionStorage.getItem(dismissedKey);
+
+    // Skip if already in workspace view (state already correct)
+    if (view === 'workspace' || view === 'project-loading') {
+      return;
+    }
+
+    // Skip if ref says we've already handled this (prevents double-invoke in StrictMode)
+    if (autoOpenAttemptedRef.current) {
+      return;
+    }
+
+    // Skip if user explicitly went back to projects
+    if (dismissedValue === 'true') {
+      return;
+    }
+
+    // Check backend for existing port reservation (most reliable HMR indicator)
+    void (async () => {
+      try {
+        const existingPort = await invoke<number | null>('get_reserved_port_for_window', {
+          windowLabel,
+        });
+
+        // If we have a reserved port, this is likely an HMR reload
+        if (existingPort !== null && storedProjectPath) {
+          // Mark as handled to prevent the auto-open effect from also firing
+          autoOpenAttemptedRef.current = true;
+
+          logger.info('[HMR Recovery] Port reserved, restoring UI state', {
+            windowLabel,
+            port: existingPort,
+            projectPath: storedProjectPath,
+          });
+
+          // Restore UI state without restarting dev server
+          const projectName = storedProjectPath.split('/').pop() || 'Project';
+          setCurrentProject({
+            name: projectName,
+            path: storedProjectPath,
+            thumbnail: null,
+          });
+          setDevServerPort(existingPort);
+          setView('workspace');
+
+          // Refresh branch info and statuses in background
+          void fetchBranchInfo(storedProjectPath);
+          void (async () => {
+            const [ghStatus, vcStatus] = await Promise.all([
+              getProjectGitHubStatus(storedProjectPath).catch(() => null),
+              getProjectVercelStatus(storedProjectPath).catch(() => null),
+            ]);
+            dispatch({
+              type: 'SET_PROJECT_STATUSES',
+              payload: { github: ghStatus, vercel: vcStatus },
+            });
+          })();
+        }
+      } catch {
+        // If backend check fails, let normal flow continue
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchBranchInfo is stable, don't re-run on change
+  }, [view]);
+
+  // Auto-open project if initialProjectPath is provided (multi-window support)
+  // This handles the case where a NEW project window is opened (not HMR recovery)
+  useEffect(() => {
+    const windowLabel = getWindowLabel();
+    const storageKey = `ship-studio-project-loaded-${windowLabel}`;
+    const dismissedKey = `ship-studio-auto-open-dismissed-${windowLabel}`;
+    const dismissedValue = sessionStorage.getItem(dismissedKey);
+
+    if (!initialProjectPath) {
+      return;
+    }
+
+    // Skip if HMR recovery already handled this (ref is set by the HMR recovery effect)
+    if (autoOpenAttemptedRef.current) {
+      return;
+    }
+
+    // Check if user explicitly went back to projects - don't auto-open again
+    if (dismissedValue === 'true') {
+      return;
+    }
+
+    // Skip if already in workspace view
+    if (view === 'workspace' || view === 'project-loading') {
+      return;
+    }
+
+    // Only auto-open when we reach projects or loading view
+    if (view === 'projects' || view === 'loading') {
+      // Mark as attempted BEFORE any async work to prevent races
+      autoOpenAttemptedRef.current = true;
+
+      // Store the project path for HMR recovery (before any async work)
+      sessionStorage.setItem(storageKey, initialProjectPath);
+
+      const projectName = initialProjectPath.split('/').pop() || 'Project';
+      const project: Project = {
+        name: projectName,
+        path: initialProjectPath,
+        thumbnail: null,
+      };
+      logger.info('[MultiWindow] Auto-opening project from URL param', {
+        path: initialProjectPath,
+      });
+      void handleSelectProject(project);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSelectProject is stable, don't re-run on change
+  }, [initialProjectPath, view]);
 
   // Background verification for optimistic loading
   const verifySetupInBackground = async () => {
@@ -974,38 +1140,132 @@ function App() {
   }, []);
 
   // Capture project screenshot in background (only if dev server is ready)
+  // Includes retry logic for cases where the server is still compiling
+  // Uses sessionId to cancel pending captures when project changes
   const captureScreenshot = useCallback(
-    async (projectPath: string) => {
+    async (projectPath: string, sessionId: number, attempt: number = 1) => {
+      // Check if this capture session is still valid (project hasn't changed)
+      if (captureSessionIdRef.current !== sessionId) {
+        logger.info('[Thumbnail] Skipping - session cancelled (project changed)', {
+          expectedSession: sessionId,
+          currentSession: captureSessionIdRef.current,
+        });
+        return;
+      }
       // Skip capture if the preview server isn't ready (avoids "localhost cannot connect" thumbnails)
       if (!previewRef.current?.isServerReady()) {
-        logger.debug('Skipping thumbnail capture - dev server not ready');
+        logger.info('[Thumbnail] Skipping - dev server not ready');
+        return;
+      }
+      // Verify the current project matches the one we're trying to capture
+      // This prevents capturing the wrong content during project switches
+      if (currentProjectPathRef.current !== projectPath) {
+        logger.info('[Thumbnail] Skipping - project mismatch', {
+          expected: projectPath,
+          current: currentProjectPathRef.current,
+        });
         return;
       }
       try {
+        logger.info('[Thumbnail] Capturing now', {
+          projectPath,
+          port: devServerPort,
+          attempt,
+          sessionId,
+        });
         await invoke('capture_project_thumbnail', {
           projectPath,
           url: `http://localhost:${devServerPort}`,
         });
+        logger.info('Thumbnail captured successfully', { projectPath, attempt });
       } catch (error) {
-        logger.error('Failed to capture thumbnail', { error });
+        // Double-check session is still valid before scheduling retry
+        if (captureSessionIdRef.current !== sessionId) {
+          logger.info('[Thumbnail] Skipping retry - session cancelled');
+          return;
+        }
+        // Retry if the server isn't responding yet (still compiling)
+        if (attempt < SCREENSHOT_MAX_RETRIES) {
+          logger.info('[Thumbnail] Capture failed, will retry', {
+            error,
+            attempt,
+            maxRetries: SCREENSHOT_MAX_RETRIES,
+            retryInMs: SCREENSHOT_RETRY_DELAY_MS,
+          });
+          setTimeout(() => {
+            void captureScreenshot(projectPath, sessionId, attempt + 1);
+          }, SCREENSHOT_RETRY_DELAY_MS);
+        } else {
+          logger.error('Failed to capture thumbnail after retries', {
+            error,
+            attempts: attempt,
+          });
+        }
       }
     },
     [devServerPort]
   );
 
   // Handle preview server ready - capture initial screenshot
+  // Increments session ID to cancel any pending captures from previous attempts
   const handlePreviewReady = useCallback(() => {
     if (currentProject) {
+      // Increment session ID to cancel any pending captures from previous calls
+      const sessionId = ++captureSessionIdRef.current;
+      logger.info('[Thumbnail] Preview ready, scheduling capture', {
+        projectPath: currentProject.path,
+        sessionId,
+        delayMs: SCREENSHOT_DELAY_MS,
+      });
       setTimeout(() => {
-        void captureScreenshot(currentProject.path);
+        void captureScreenshot(currentProject.path, sessionId);
       }, SCREENSHOT_DELAY_MS);
     }
   }, [currentProject, captureScreenshot]);
 
   const handleSelectProject = async (project: Project) => {
+    const windowLabel = getWindowLabel();
     const totalStart = performance.now();
     let stepStart = performance.now();
-    logger.info(`[OpenProject] Starting: ${project.name}`);
+
+    logger.info(`[OpenProject] Starting: ${project.name}`, { windowLabel });
+
+    // Guard against concurrent opens for the same project (race condition prevention)
+    if (openingProjectPathRef.current === project.path) {
+      logger.info(`[OpenProject] Already opening ${project.name}, skipping duplicate call`);
+      return;
+    }
+    openingProjectPathRef.current = project.path;
+
+    // Check if project is already open in another window
+    try {
+      const existingWindow = await getProjectWindow(project.path);
+      if (existingWindow && existingWindow !== windowLabel) {
+        logger.info(`[OpenProject] Project already open in window ${existingWindow}, focusing`);
+        try {
+          await focusWindowByLabel(existingWindow);
+          openingProjectPathRef.current = null; // Clear guard before return
+          return; // Successfully focused existing window
+        } catch (focusError) {
+          // Window no longer exists (stale data), proceed with opening locally
+          logger.info(`[OpenProject] Window ${existingWindow} no longer exists, opening locally`, {
+            focusError: focusError instanceof Error ? focusError.message : String(focusError),
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn('[OpenProject] Failed to check for existing window', { error: e });
+    }
+
+    // Register this window's project to prevent duplicate windows
+    try {
+      await invoke('register_project_for_window', {
+        windowLabel,
+        projectPath: project.path,
+      });
+    } catch (e) {
+      logger.warn('[OpenProject] Failed to register project for window', { error: e });
+    }
 
     // Stop any existing dev server first
     if (devServerRef.current) {
@@ -1016,21 +1276,27 @@ function App() {
       `[OpenProject] Step 1: Stop existing dev server - ${Math.round(performance.now() - stepStart)}ms`
     );
 
-    // Kill any process on our previously used port (handles orphaned processes from this session)
+    // Kill any process on our ACTUALLY reserved port (query backend, don't use stale React state)
+    // This prevents HMR reload from killing other windows' ports when state resets to 3000
     stepStart = performance.now();
-    try {
-      await invoke('kill_port', { port: devServerPort });
-    } catch {
-      // Ignore errors - port may already be free
+    const actualReservedPort = await invoke<number | null>('get_reserved_port_for_window', {
+      windowLabel,
+    });
+    if (actualReservedPort !== null) {
+      try {
+        await invoke('kill_port', { port: actualReservedPort });
+      } catch {
+        // Ignore errors - port may already be free
+      }
     }
     logger.info(
-      `[OpenProject] Step 2: Kill port ${devServerPort} - ${Math.round(performance.now() - stepStart)}ms`
+      `[OpenProject] Step 2: Kill reserved port ${actualReservedPort ?? 'none'} - ${Math.round(performance.now() - stepStart)}ms`
     );
 
-    // Clean up any orphaned PTY processes from previous operations
+    // Clean up PTY processes owned by this window (not other windows' PTYs)
     stepStart = performance.now();
     try {
-      await invoke('kill_all_pty');
+      await invoke('kill_window_pty', { windowLabel: getWindowLabel() });
       await invoke('cleanup_orphaned_processes');
     } catch {
       // Ignore cleanup errors
@@ -1039,18 +1305,18 @@ function App() {
       `[OpenProject] Step 3: Kill PTY and cleanup orphaned processes - ${Math.round(performance.now() - stepStart)}ms`
     );
 
-    // Find an available port (doesn't kill other apps' processes)
+    // Find and reserve an available port for this window (prevents race conditions in multi-window)
     stepStart = performance.now();
     let port = PREFERRED_DEV_SERVER_PORT;
     try {
-      port = await invoke<number>('find_available_port', {
-        preferredPort: PREFERRED_DEV_SERVER_PORT,
-      });
+      // Release any previously reserved port for this window before getting a new one
+      await releaseReservedPort().catch(() => {});
+      port = await findAndReservePort(PREFERRED_DEV_SERVER_PORT);
     } catch (error) {
-      logger.error('Failed to find available port, using default', { error });
+      logger.error('Failed to find and reserve port, using default', { error });
     }
     logger.info(
-      `[OpenProject] Step 4: Find available port ${port} - ${Math.round(performance.now() - stepStart)}ms`
+      `[OpenProject] Step 4: Reserved port ${port} - ${Math.round(performance.now() - stepStart)}ms`
     );
     setDevServerPort(port);
 
@@ -1075,6 +1341,11 @@ function App() {
     setCurrentProject(project);
     setCurrentPreviewPage('/');
     currentProjectPathRef.current = project.path;
+
+    // Store project path for HMR recovery (critical for main window which doesn't have initialProjectPath)
+    const storageKey = `ship-studio-project-loaded-${windowLabel}`;
+    sessionStorage.setItem(storageKey, project.path);
+
     setView('project-loading');
 
     // Set window title to include project name
@@ -1115,7 +1386,7 @@ function App() {
       setDevServerOutputVersion(0);
       healthOutputRef.current = '';
       setHealthOutputVersion(0);
-      devServerRef.current = await startDevServer(project.path, port, (data) => {
+      devServerRef.current = await startDevServer(project.path, port, windowLabel, (data) => {
         // Buffer output from the start so it's available when Logs tab opens
         devServerOutputRef.current += data;
         // Limit buffer size to prevent memory issues (keep last 100KB)
@@ -1169,9 +1440,13 @@ function App() {
     screenshotIntervalRef.current = setInterval(() => {
       // Only capture if this is still the current project
       if (currentProjectPathRef.current === projectPath) {
-        void captureScreenshot(projectPath);
+        // Use current session ID for periodic captures (not incrementing)
+        void captureScreenshot(projectPath, captureSessionIdRef.current);
       }
     }, SCREENSHOT_INTERVAL_MS);
+
+    // Clear the guard after completion
+    openingProjectPathRef.current = null;
   };
 
   const handleCreateProject = () => {
@@ -1195,12 +1470,30 @@ function App() {
   };
 
   const handleBackToProjects = async () => {
+    // Mark that user explicitly went back to projects - this prevents auto-open from
+    // firing again even after HMR reloads (survives page refresh)
+    const windowLabel = getWindowLabel();
+    const storageKey = `ship-studio-project-loaded-${windowLabel}`;
+    const dismissedKey = `ship-studio-auto-open-dismissed-${windowLabel}`;
+    sessionStorage.removeItem(storageKey);
+    sessionStorage.setItem(dismissedKey, 'true');
+
+    // Unregister this window from the project registry so "Open in New Window"
+    // will create a fresh window instead of focusing this one (which is now showing projects)
+    try {
+      await invoke('unregister_project_from_window', { windowLabel });
+    } catch {
+      // Ignore - non-critical
+    }
+
     // Clear screenshot interval and project ref
     if (screenshotIntervalRef.current) {
       clearInterval(screenshotIntervalRef.current);
       screenshotIntervalRef.current = null;
     }
     currentProjectPathRef.current = null;
+    // Cancel any pending screenshot captures by incrementing session ID
+    captureSessionIdRef.current++;
 
     // Reset publishing, auto-connecting, and auto-accept state
     setIsPublishing(false);
@@ -1227,11 +1520,18 @@ function App() {
       devServerRef.current = null;
     }
 
-    // Clean up any orphaned PTY processes
+    // Clean up PTY processes owned by this window
+    const currentWindowLabel = getWindowLabel();
     try {
-      await invoke('kill_all_pty');
+      await invoke('kill_window_pty', { windowLabel: currentWindowLabel });
       await invoke('cleanup_orphaned_processes');
-      await invoke('kill_port', { port: devServerPort });
+      // Query backend for the actual reserved port (don't rely on potentially stale React state)
+      const actualPort = await invoke<number | null>('get_reserved_port_for_window', {
+        windowLabel: currentWindowLabel,
+      });
+      if (actualPort !== null) {
+        await invoke('kill_port', { port: actualPort });
+      }
     } catch {
       // Ignore cleanup errors
     }
@@ -1288,7 +1588,7 @@ function App() {
 
       // Start new dev server (10s timeout for the spawn setup, not the server itself)
       devServerRef.current = await withTimeout(
-        startDevServer(currentProject.path, devServerPort, (data) => {
+        startDevServer(currentProject.path, devServerPort, getWindowLabel(), (data) => {
           devServerOutputRef.current += data;
           if (devServerOutputRef.current.length > 100000) {
             devServerOutputRef.current = devServerOutputRef.current.slice(-100000);

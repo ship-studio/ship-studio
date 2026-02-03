@@ -15,6 +15,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { UploadIcon } from './icons';
+import { getWindowLabel } from '../lib/window';
 
 /** Props for the CreateProject component */
 interface CreateProjectProps {
@@ -210,6 +211,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
           rows: 10,
           cols: 80,
         },
+        windowLabel: getWindowLabel(),
       });
 
       await waitForPtyExit(cloneId);
@@ -224,6 +226,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
           rows: 10,
           cols: 80,
         },
+        windowLabel: getWindowLabel(),
       });
 
       await waitForPtyExit(rmGitId);
@@ -241,6 +244,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
           rows: 10,
           cols: 80,
         },
+        windowLabel: getWindowLabel(),
       });
 
       await waitForPtyExit(installId);
@@ -414,6 +418,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
             rows: 10,
             cols: 80,
           },
+          windowLabel: getWindowLabel(),
         });
         await waitForPtyExit(rmGitId);
       } catch {
@@ -433,6 +438,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
           rows: 10,
           cols: 80,
         },
+        windowLabel: getWindowLabel(),
       });
 
       await waitForPtyExit(installId);

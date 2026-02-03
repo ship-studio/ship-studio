@@ -112,6 +112,28 @@ export function ExternalLinkIcon({ size = 12, className }: IconProps) {
   );
 }
 
+/** Icon for opening in a new window (square with arrow pointing up-right) */
+export function NewWindowIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <path d="M9 3v18" />
+      <path d="M14 9l3 3-3 3" />
+      <path d="M17 12H9" />
+    </svg>
+  );
+}
+
 export function SuccessIcon({ size = 20 }: IconProps) {
   return (
     <svg

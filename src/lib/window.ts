@@ -6,6 +6,7 @@
  * - Managing always-on-top state
  * - Saving/restoring window position
  * - Controlling window expansion state
+ * - Multi-window port management
  *
  * Compact mode transforms Ship Studio into a minimal floating input bar
  * that can stay on top of other windows for easy access.
@@ -14,6 +15,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 /** Window position coordinates */
 export interface WindowPosition {
@@ -137,4 +139,60 @@ export async function focusWindow(): Promise<void> {
  */
 export async function setWindowTitle(title: string): Promise<void> {
   return invoke('set_window_title', { title });
+}
+
+/**
+ * Get the current window's label.
+ * Used for multi-window support to identify which window is making requests.
+ *
+ * @returns The window label (e.g., "main" or "project-12345")
+ */
+export function getWindowLabel(): string {
+  return getCurrentWindow().label;
+}
+
+/**
+ * Find and reserve an available port for this window's dev server.
+ * This prevents race conditions when multiple windows try to start dev servers
+ * at the same time.
+ *
+ * @param preferredPort - Preferred port to start searching from
+ * @returns The reserved port number
+ */
+export async function findAndReservePort(preferredPort: number): Promise<number> {
+  const windowLabel = getWindowLabel();
+  return invoke<number>('find_and_reserve_port', {
+    windowLabel,
+    preferredPort,
+  });
+}
+
+/**
+ * Release the reserved port for this window.
+ * Called when the window closes or dev server stops.
+ */
+export async function releaseReservedPort(): Promise<void> {
+  const windowLabel = getWindowLabel();
+  return invoke('release_reserved_port', { windowLabel });
+}
+
+/**
+ * Check if a project is already open in another window.
+ * Returns the window label if open, or null if not.
+ *
+ * @param projectPath - Path to the project
+ * @returns Window label if project is open, null otherwise
+ */
+export async function getProjectWindow(projectPath: string): Promise<string | null> {
+  return invoke<string | null>('get_project_window', { projectPath });
+}
+
+/**
+ * Focus a window by its label.
+ * Used to bring an existing project window to the front.
+ *
+ * @param windowLabel - Label of the window to focus
+ */
+export async function focusWindowByLabel(windowLabel: string): Promise<void> {
+  return invoke('focus_window_by_label', { windowLabel });
 }

@@ -16,6 +16,7 @@
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { logger } from '../lib/logger';
 
 /** How often to refresh the page list (ms) */
 const PAGE_REFRESH_INTERVAL_MS = 5000;
@@ -309,6 +310,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // Notify parent when server becomes ready
   useEffect(() => {
     if (serverReady && onServerReady) {
+      logger.info('[Preview] Server ready, calling onServerReady callback');
       onServerReady();
     }
   }, [serverReady, onServerReady]);
@@ -320,7 +322,11 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   useEffect(() => {
     // Skip if not ready to check yet (-1 means waiting for old server to die)
-    if (retryCount < 0) return;
+    if (retryCount < 0) {
+      logger.info('[Preview] Waiting for old server to die (retryCount=-1)');
+      return;
+    }
+    logger.info('[Preview] Starting server check', { retryCount, url: devServerUrl });
 
     const checkServer = async () => {
       setIsLoading(true);
@@ -337,10 +343,16 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         });
 
         clearTimeout(timeoutId);
+        logger.info('[Preview] Server check succeeded', { port });
         setIsLoading(false);
         setHasError(false);
         setServerReady(true);
-      } catch {
+      } catch (err) {
+        logger.info('[Preview] Server check failed', {
+          retry: retryCount,
+          maxRetries: SERVER_MAX_RETRIES,
+          error: err,
+        });
         if (retryCount < SERVER_MAX_RETRIES) {
           setTimeout(() => setRetryCount((c) => c + 1), 1000);
         } else {
@@ -351,6 +363,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     };
 
     void checkServer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- port is covered by devServerUrl
   }, [devServerUrl, retryCount]);
 
   // Periodic health check after server is ready - detect if it crashes

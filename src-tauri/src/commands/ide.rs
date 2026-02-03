@@ -402,10 +402,27 @@ pub async fn capture_project_thumbnail(
         .last()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3000);
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    if TcpStream::connect_timeout(&addr, Duration::from_secs(1)).is_err() {
+
+    // Try both IPv4 and IPv6 - some dev servers (especially Vite) may only bind to IPv6
+    let ipv4_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let ipv6_addr = std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port)); // ::1
+
+    let ipv4_ok = TcpStream::connect_timeout(&ipv4_addr, Duration::from_millis(500)).is_ok();
+    let ipv6_ok = TcpStream::connect_timeout(&ipv6_addr, Duration::from_millis(500)).is_ok();
+
+    if !ipv4_ok && !ipv6_ok {
+        tracing::warn!(
+            "Dev server health check failed on both IPv4 and IPv6 for port {}",
+            port
+        );
         return Err("Dev server not responding, skipping thumbnail capture".to_string());
     }
+    tracing::info!(
+        "Dev server health check passed (IPv4: {}, IPv6: {}) on port {}",
+        ipv4_ok,
+        ipv6_ok,
+        port
+    );
 
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");

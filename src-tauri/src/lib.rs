@@ -14,6 +14,7 @@
 pub mod cache;
 pub mod commands;
 pub mod logging;
+pub mod state;
 pub mod types;
 pub mod utils;
 
@@ -65,7 +66,7 @@ fn cleanup_claude_processes() {
 pub fn run() {
     // Initialize logging first
     if let Err(e) = logging::init_logging() {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
     }
 
     tracing::info!("Ship Studio starting up");
@@ -84,8 +85,21 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
+                let label = window.label().to_string();
+                tracing::info!("Window {} destroyed, cleaning up", label);
+
+                // Kill PTY processes (dev server, etc.) owned by this window
+                let killed = commands::pty::kill_window_pty_sync(&label);
+                if killed > 0 {
+                    tracing::info!("Killed {} PTY processes for window {}", killed, label);
+                }
+
+                // Clean up project window registry
+                state::unregister_window_by_label(&label);
+
+                // Clean up processes
                 cleanup_claude_processes();
                 commands::setup::cleanup_auth_processes_sync();
             }
@@ -133,6 +147,11 @@ pub fn run() {
             commands::projects::set_hide_main_branch_warning,
             commands::projects::extract_template_zip,
             commands::projects::export_project_as_template,
+            commands::projects::open_project_in_new_window,
+            commands::projects::register_project_for_window,
+            commands::projects::unregister_project_from_window,
+            commands::projects::get_project_window,
+            commands::projects::focus_window_by_label,
             // Environment variables
             commands::env::list_env_files,
             commands::env::read_env_file,
@@ -204,11 +223,17 @@ pub fn run() {
             // PTY & Terminal
             commands::pty::spawn_pty,
             commands::pty::kill_pty,
+            commands::pty::kill_window_pty,
             commands::pty::kill_all_pty,
             commands::pty::cleanup_orphaned_processes,
             commands::pty::kill_port,
             commands::pty::find_available_port,
+            commands::pty::find_and_reserve_port,
+            commands::pty::get_reserved_port_for_window,
+            commands::pty::release_reserved_port,
             commands::pty::get_shell_path,
+            commands::pty::register_external_pty,
+            commands::pty::unregister_external_pty,
             // Setup/Onboarding
             commands::setup::get_full_setup_status,
             commands::setup::install_homebrew,

@@ -22,6 +22,7 @@ import {
   detectPackageManager,
   GitHubRepo,
 } from '../lib/github';
+import { getWindowLabel } from '../lib/window';
 import {
   checkVercelCliStatus,
   getVercelUsername,
@@ -231,6 +232,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
           rows: 10,
           cols: 80,
         },
+        windowLabel: getWindowLabel(),
       });
 
       await waitForPtyExit(cloneId);
@@ -247,6 +249,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
           rows: 10,
           cols: 80,
         },
+        windowLabel: getWindowLabel(),
       });
 
       await waitForPtyExit(installId);

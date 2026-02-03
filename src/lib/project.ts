@@ -12,6 +12,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { spawn, IPty } from 'tauri-pty';
 import { homeDir } from '@tauri-apps/api/path';
+import { readTextFile } from '@tauri-apps/plugin-fs';
+import { logger } from './logger';
 
 /** Basic project information */
 export interface Project {
@@ -83,22 +85,72 @@ export async function getDashboardProjects(): Promise<DashboardProject[]> {
 export interface DevServerHandle {
   /** The underlying PTY instance */
   pty: IPty;
+  /** Unique ID for this PTY (used for backend tracking) */
+  ptyId: number;
   /** Stop the dev server and clean up */
   stop: () => Promise<void>;
 }
 
 /**
- * Start the Next.js development server for a project.
- * Spawns `npm run dev` in a PTY and returns a handle for control.
+ * Parse a dev script command and return args for npx to run it with correct port.
+ * Handles scripts like "vite dev --port 3000" or "next dev -p 3000".
+ * Uses npx to ensure local node_modules/.bin executables are found.
+ *
+ * @param script - The npm script command (e.g., "vite dev --port 3000")
+ * @param desiredPort - The port we want to use
+ * @returns Args array for npx command, with port replaced
+ */
+function parseDevScriptForNpx(script: string, desiredPort: number): string[] {
+  // Parse the script into parts, handling quoted strings
+  const parts = script.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+
+  if (parts.length === 0) {
+    return ['vite', 'dev', '--port', desiredPort.toString()];
+  }
+
+  const args: string[] = [];
+
+  let i = 0;
+  while (i < parts.length) {
+    const arg = parts[i];
+
+    // Check for port flags and skip them (we'll add our own)
+    if (arg === '--port' || arg === '-p') {
+      i += 2; // Skip flag and value
+      continue;
+    }
+
+    // Check for --port=VALUE or -p=VALUE format
+    if (arg.startsWith('--port=') || arg.startsWith('-p=')) {
+      i++;
+      continue;
+    }
+
+    args.push(arg);
+    i++;
+  }
+
+  // Add our desired port
+  args.push('--port', desiredPort.toString());
+
+  return args;
+}
+
+/**
+ * Start the development server for a project.
+ * Intelligently handles different frameworks (Vite, Next.js, etc.)
+ * by parsing the dev script and ensuring the correct port is used.
  *
  * @param projectPath - Absolute path to the project directory
  * @param port - Port number for the dev server (default: 3000)
+ * @param windowLabel - Window label for backend PTY tracking (required for cleanup on window close)
  * @param onOutput - Optional callback for terminal output
  * @returns Handle with PTY and stop function
  */
 export async function startDevServer(
   projectPath: string,
   port: number = 3000,
+  windowLabel: string = 'main',
   onOutput?: (data: string) => void
 ): Promise<DevServerHandle> {
   const decoder = new TextDecoder();
@@ -108,9 +160,53 @@ export async function startDevServer(
   const homeNormalized = home.endsWith('/') ? home : `${home}/`;
   const fullPath = await invoke<string>('get_shell_path');
 
+  // Try to read package.json to get the dev script and parse it to use correct port
+  // We use npx to run the command so that local node_modules/.bin executables are found
+  let command = 'npm';
+  let args: string[] = ['run', 'dev'];
+
+  try {
+    const packageJsonPath = `${projectPath}/package.json`;
+    logger.info('[DevServer] Reading package.json', { path: packageJsonPath, desiredPort: port });
+    const packageJson = await readTextFile(packageJsonPath);
+    const pkg = JSON.parse(packageJson) as { scripts?: { dev?: string } };
+    const devScript = pkg.scripts?.dev;
+
+    if (devScript) {
+      // Parse the dev script and replace any hardcoded port with our desired port
+      // Use npx to run the command so local binaries are found
+      const npxArgs = parseDevScriptForNpx(devScript, port);
+      command = 'npx';
+      args = npxArgs;
+      logger.info('[DevServer] Parsed dev script successfully', {
+        original: devScript,
+        command,
+        args: args.join(' '),
+        port,
+      });
+    } else {
+      logger.warn('[DevServer] No dev script found in package.json, using npm run dev');
+    }
+  } catch (e) {
+    // Fall back to npm run dev if we can't parse package.json
+    const errorMessage = e instanceof Error ? e.message : String(e);
+    logger.error('[DevServer] Failed to read/parse package.json, falling back to npm run dev', {
+      error: errorMessage,
+      projectPath,
+    });
+  }
+
+  // Log the actual command being executed
+  logger.info('[DevServer] Spawning dev server process', {
+    command,
+    args: args.join(' '),
+    cwd: projectPath,
+    port,
+    fullCommand: `${command} ${args.join(' ')}`,
+  });
+
   // Must pass all essential env vars since env replaces (not merges with) parent environment
-  // PORT env var tells Next.js which port to use
-  const pty = spawn('npm', ['run', 'dev'], {
+  const pty = spawn(command, args, {
     cwd: projectPath,
     cols: 80,
     rows: 24,
@@ -121,8 +217,71 @@ export async function startDevServer(
       TERM: 'xterm-256color',
       LANG: 'en_US.UTF-8',
       SHELL: '/bin/zsh',
-      PORT: port.toString(),
+      PORT: port.toString(), // Fallback for frameworks that respect PORT env var
     },
+  });
+
+  // Generate a unique PTY ID and register with backend for cleanup on window close
+  // Use modulo to keep within u32 range (Date.now() exceeds u32 max)
+  const ptyId = Date.now() % 0xffffffff;
+
+  logger.info('[DevServer] PTY spawned, waiting for PID', {
+    windowLabel,
+    ptyId,
+    port,
+  });
+
+  // Track whether we've registered the PTY (to avoid double registration)
+  let ptyRegistered = false;
+
+  // Function to register the PTY once we have a PID
+  const registerPty = (pid: number) => {
+    if (ptyRegistered) return;
+    ptyRegistered = true;
+
+    invoke('register_external_pty', {
+      windowLabel,
+      pid,
+      ptyId,
+      description: `Dev server on port ${port}`,
+    })
+      .then(() => {
+        logger.info('[DevServer] PTY registered with backend', { ptyId, pid, windowLabel });
+      })
+      .catch((e) => {
+        logger.warn('[DevServer] Failed to register PTY with backend', { error: e });
+      });
+  };
+
+  // Poll for PID availability (tauri-pty doesn't provide PID synchronously)
+  // Check every 50ms for up to 2 seconds
+  const maxRetries = 40;
+  let retryCount = 0;
+  const pidCheckInterval = setInterval(() => {
+    const pid = pty.pid;
+    if (pid) {
+      clearInterval(pidCheckInterval);
+      logger.info('[DevServer] PID became available via polling', { pid, ptyId, retryCount });
+      registerPty(pid);
+    } else {
+      retryCount++;
+      if (retryCount >= maxRetries) {
+        clearInterval(pidCheckInterval);
+        logger.error('[DevServer] Failed to get PID after polling timeout', {
+          ptyId,
+          windowLabel,
+          retries: retryCount,
+        });
+      }
+    }
+  }, 50);
+
+  // Unregister when PTY exits (if it exits normally before window close)
+  pty.onExit(() => {
+    clearInterval(pidCheckInterval);
+    invoke('unregister_external_pty', { ptyId }).catch(() => {
+      // Ignore - might already be cleaned up by window close
+    });
   });
 
   if (onOutput) {
@@ -142,13 +301,15 @@ export async function startDevServer(
 
   return {
     pty,
-    stop: () => {
+    ptyId,
+    stop: async () => {
       try {
         pty.kill();
+        // Unregister from backend
+        await invoke('unregister_external_pty', { ptyId }).catch(() => {});
       } catch {
         // Ignore errors
       }
-      return Promise.resolve();
     },
   };
 }

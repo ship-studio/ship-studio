@@ -9,7 +9,7 @@
  */
 
 import { DashboardProject } from '../lib/project';
-import { BranchIcon, ExternalLinkIcon, CodeIcon, ZapIcon } from './icons';
+import { BranchIcon, ExternalLinkIcon, CodeIcon, ZapIcon, NewWindowIcon } from './icons';
 import { ProjectCardMenu } from './ProjectCardMenu';
 
 /** Props for the ProjectCard component */
@@ -34,6 +34,8 @@ interface ProjectCardProps {
   onMoveToFolder?: () => void;
   /** Callback to export project as a template zip */
   onExportAsTemplate?: () => void;
+  /** Callback to open project in a new window */
+  onOpenInNewWindow?: () => void;
 }
 
 export function ProjectCard({
@@ -47,6 +49,7 @@ export function ProjectCard({
   onOpenIde,
   onMoveToFolder,
   onExportAsTemplate,
+  onOpenInNewWindow,
 }: ProjectCardProps) {
   const hasChanges = project.uncommitted_count !== null && project.uncommitted_count > 0;
   const autoAcceptMode = project.auto_accept_mode === true;
@@ -76,6 +79,18 @@ export function ProjectCard({
         {/* Hover actions overlay */}
         <div className="project-card-overlay">
           <div className="project-card-quick-actions">
+            {onOpenInNewWindow && (
+              <button
+                className="quick-action-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenInNewWindow();
+                }}
+                title="Open in new window"
+              >
+                <NewWindowIcon size={16} />
+              </button>
+            )}
             {project.production_url && onOpenSite && (
               <button
                 className="quick-action-btn"
