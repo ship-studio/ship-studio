@@ -92,15 +92,53 @@ export interface DevServerHandle {
 }
 
 /**
+ * Check if a dev script contains shell syntax that can't be safely parsed.
+ * Shell operators (&&, ||, |, ;) and environment assignments (VAR=value)
+ * require running through npm instead of direct npx execution.
+ *
+ * @param script - The dev script to check
+ * @returns true if the script contains shell syntax
+ */
+function hasShellSyntax(script: string): boolean {
+  // Check for shell operators
+  const shellOperators = ['&&', '||', '|', ';'];
+  for (const op of shellOperators) {
+    if (script.includes(op)) {
+      return true;
+    }
+  }
+
+  // Check for environment variable assignments (VAR=value pattern at start of command or after operators)
+  // Matches patterns like "NODE_ENV=development" or "PORT=3000"
+  const envAssignmentPattern = /(?:^|\s)[A-Za-z_][A-Za-z0-9_]*=/;
+  if (envAssignmentPattern.test(script)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Parse a dev script command and return args for npx to run it with correct port.
  * Handles scripts like "vite dev --port 3000" or "next dev -p 3000".
  * Uses npx to ensure local node_modules/.bin executables are found.
  *
+ * Falls back to returning null for complex shell scripts (with &&, ||, |, ;, or env vars)
+ * which should be run via npm instead.
+ *
  * @param script - The npm script command (e.g., "vite dev --port 3000")
  * @param desiredPort - The port we want to use
- * @returns Args array for npx command, with port replaced
+ * @returns Args array for npx command, with port replaced, or null if shell syntax detected
  */
-function parseDevScriptForNpx(script: string, desiredPort: number): string[] {
+function parseDevScriptForNpx(script: string, desiredPort: number): string[] | null {
+  // Check for shell syntax that can't be safely parsed
+  if (hasShellSyntax(script)) {
+    logger.info('[DevServer] Dev script contains shell syntax, falling back to npm run dev', {
+      script,
+    });
+    return null;
+  }
+
   // Parse the script into parts, handling quoted strings
   const parts = script.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
 
@@ -175,15 +213,24 @@ export async function startDevServer(
     if (devScript) {
       // Parse the dev script and replace any hardcoded port with our desired port
       // Use npx to run the command so local binaries are found
+      // Returns null if the script contains shell syntax (&&, ||, |, ;, or env vars)
       const npxArgs = parseDevScriptForNpx(devScript, port);
-      command = 'npx';
-      args = npxArgs;
-      logger.info('[DevServer] Parsed dev script successfully', {
-        original: devScript,
-        command,
-        args: args.join(' '),
-        port,
-      });
+      if (npxArgs) {
+        command = 'npx';
+        args = npxArgs;
+        logger.info('[DevServer] Parsed dev script successfully', {
+          original: devScript,
+          command,
+          args: args.join(' '),
+          port,
+        });
+      } else {
+        // Script has shell syntax - use npm run dev which respects the PORT env var
+        logger.info('[DevServer] Using npm run dev for shell script', {
+          original: devScript,
+          port,
+        });
+      }
     } else {
       logger.warn('[DevServer] No dev script found in package.json, using npm run dev');
     }

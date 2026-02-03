@@ -87,6 +87,7 @@ export function ProjectCard({
                   onOpenInNewWindow();
                 }}
                 title="Open in new window"
+                aria-label="Open in new window"
               >
                 <NewWindowIcon size={16} />
               </button>

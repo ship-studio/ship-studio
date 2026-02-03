@@ -97,16 +97,19 @@ pub fn unregister_window_by_label(window_label: &str) {
 /// Reserve a port for a specific window.
 /// Returns true if the port was successfully reserved or if this window already has this port.
 /// Returns false if the port is already taken by another window.
+///
+/// NOTE: Lock ordering is RESERVED_PORTS then RESERVED_PORT_SET to prevent deadlocks.
 pub fn reserve_port(window_label: &str, port: u16) -> bool {
     tracing::info!(
         "reserve_port called: window='{}', port={}",
         window_label,
         port
     );
-    let port_set_result = RESERVED_PORT_SET.lock();
+    // IMPORTANT: Lock order must be RESERVED_PORTS then RESERVED_PORT_SET (same as release_port_for_window)
     let ports_result = RESERVED_PORTS.lock();
+    let port_set_result = RESERVED_PORT_SET.lock();
 
-    if let (Ok(mut port_set), Ok(mut ports)) = (port_set_result, ports_result) {
+    if let (Ok(mut ports), Ok(mut port_set)) = (ports_result, port_set_result) {
         let all_ports_before: Vec<_> = ports.iter().map(|(k, v)| format!("{k}:{v}")).collect();
         tracing::info!("reserve_port: state before: {:?}", all_ports_before);
 

@@ -1102,6 +1102,10 @@ pub async fn open_project_in_new_window(
     project_path: String,
     project_name: String,
 ) -> Result<String, String> {
+    // Validate the path is within ~/ShipStudio
+    let validated_path = validate_project_path(&project_path)?;
+    let project_path = validated_path.to_string_lossy().to_string();
+
     // Check if project already has a window open
     if let Some(existing_label) = get_window_for_project(&project_path) {
         if let Some(window) = app.get_webview_window(&existing_label) {
@@ -1158,10 +1162,14 @@ pub async fn register_project_for_window(
     window_label: String,
     project_path: String,
 ) -> Result<(), String> {
-    register_project_window(project_path.clone(), window_label.clone());
+    // Validate the path is within ~/ShipStudio
+    let validated_path = validate_project_path(&project_path)?;
+    let canonical_path = validated_path.to_string_lossy().to_string();
+
+    register_project_window(canonical_path.clone(), window_label.clone());
     tracing::info!(
         "Registered project {} for window {}",
-        project_path,
+        canonical_path,
         window_label
     );
     Ok(())
@@ -1184,10 +1192,20 @@ pub async fn unregister_project_from_window(window_label: String) -> Result<(), 
 /// Returns the window label if open, or null if not.
 #[tauri::command]
 pub async fn get_project_window(project_path: String) -> Option<String> {
-    let result = get_window_for_project(&project_path);
+    // Validate the path is within ~/ShipStudio
+    let validated_path = match validate_project_path(&project_path) {
+        Ok(path) => path,
+        Err(e) => {
+            tracing::warn!("get_project_window: invalid path '{}': {}", project_path, e);
+            return None;
+        }
+    };
+    let canonical_path = validated_path.to_string_lossy().to_string();
+
+    let result = get_window_for_project(&canonical_path);
     tracing::info!(
         "get_project_window called: project_path={}, result={:?}",
-        project_path,
+        canonical_path,
         result
     );
     result

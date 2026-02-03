@@ -21,6 +21,7 @@ import {
   setAutoAcceptMode,
   setHideMainBranchWarning,
 } from '../lib/project';
+import { logger } from '../lib/logger';
 import {
   FolderInfo,
   Folder,
@@ -300,7 +301,11 @@ export function ProjectList({
         projectName: project.name,
       });
     } catch (error) {
-      console.error('Failed to open in new window:', error);
+      logger.error('[ProjectList] Failed to open in new window', {
+        error,
+        projectName: project.name,
+        projectPath: project.path,
+      });
       alert('Failed to open in new window: ' + String(error));
     }
   };

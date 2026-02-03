@@ -19,6 +19,7 @@ pub mod types;
 pub mod utils;
 
 use std::process::Command;
+use tauri::Manager;
 
 // Kill orphaned Claude processes spawned by this app
 fn cleanup_claude_processes() {
@@ -99,9 +100,24 @@ pub fn run() {
                 // Clean up project window registry
                 state::unregister_window_by_label(&label);
 
-                // Clean up processes
-                cleanup_claude_processes();
-                commands::setup::cleanup_auth_processes_sync();
+                // Only run global cleanup when main window closes or no windows remain
+                // This prevents killing processes from other windows
+                let is_main = label == "main";
+                let remaining_windows = window
+                    .app_handle()
+                    .webview_windows()
+                    .len()
+                    .saturating_sub(1); // Subtract 1 because the closing window is still counted
+
+                if is_main || remaining_windows == 0 {
+                    tracing::info!(
+                        "Running global cleanup (main={}, remaining={})",
+                        is_main,
+                        remaining_windows
+                    );
+                    cleanup_claude_processes();
+                    commands::setup::cleanup_auth_processes_sync();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
