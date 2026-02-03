@@ -38,7 +38,7 @@ function CheckIcon() {
       fill="none"
       className="setup-item-icon setup-item-icon-check"
     >
-      <circle cx="10" cy="10" r="10" fill="var(--success)" />
+      <circle cx="10" cy="10" r="10" fill="#7FE89A" />
       <path
         d="M6 10l3 3 5-6"
         stroke="white"

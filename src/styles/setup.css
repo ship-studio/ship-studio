@@ -202,13 +202,13 @@
 
 .setup-item-btn-install,
 .setup-item-btn-connect {
-  background: var(--success);
+  background: #7fe89a;
   color: #1e1e1e;
 }
 
 .setup-item-btn-install:hover:not(:disabled),
 .setup-item-btn-connect:hover:not(:disabled) {
-  background: #3dbdb5;
+  background: #6dd889;
 }
 
 .setup-item-btn-retry {
@@ -250,7 +250,7 @@
 
 .onboarding-progress-fill {
   height: 100%;
-  background: var(--success);
+  background: #7fe89a;
   border-radius: 3px;
   transition: width 0.3s ease;
 }

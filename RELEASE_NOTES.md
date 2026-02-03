@@ -6,6 +6,10 @@ These notes appear in the update dialog that users see when a new version is ava
 Write clear, user-friendly notes about what changed in this version.
 -->
 
+## What's New in v0.3.39
+
+- **Updated onboarding colors** - Changed to softer mint green to match brand
+
 ## What's New in v0.3.38
 
 - **Fixed onboarding delay** - Claude Code install no longer shows 15-20 second delay with blank terminal

@@ -1,6 +1,6 @@
 [package]
 name = "ship-studio"
-version = "0.3.38"
+version = "0.3.39"
 description = "Ship Studio - Launch Claude Code for marketing sites"
 authors = ["Julian Galluzzo"]
 edition = "2021"
