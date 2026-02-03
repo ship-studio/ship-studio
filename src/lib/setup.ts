@@ -292,8 +292,8 @@ export const TERMINAL_COMMANDS: Record<string, TerminalCommand> = {
     args: ['auth', 'login', '--web', '--git-protocol', 'https'],
   },
   claude: {
-    command: 'bash',
-    args: ['-ic', 'curl -fsSL https://claude.ai/install.sh | bash'],
+    command: '/bin/bash',
+    args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'],
   },
   claude_auth: {
     command: 'claude',
