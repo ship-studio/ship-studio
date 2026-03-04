@@ -219,6 +219,9 @@ Write a brief summary (2-4 lines):
 ## edit_file Safety
 If edit_file fails with "String not found" twice on the same file, STOP and use write_file to replace the entire file instead. Never retry edit_file more than 2 times per file.
 
+## File Paths
+CRITICAL: ALWAYS use RELATIVE paths from the project root for ALL file operations (read_file, write_file, edit_file, glob, grep). For example, use "app/page.tsx" NOT "/Users/.../app/page.tsx". Absolute paths will fail.
+
 ## Project Context
 Working directory: {{PROJECT_PATH}}
 
@@ -418,6 +421,7 @@ export class AgentSession {
             systemPrompt:
               "You are a fast codebase explorer. Your job: find files, read code, summarize what you find.\n\n" +
               "IMPORTANT RULES:\n" +
+              "- ALWAYS use RELATIVE paths for all file operations (e.g. 'app/page.tsx', NOT absolute paths). Absolute paths WILL FAIL.\n" +
               "- The project structure is already provided below — use it to identify files to read.\n" +
               "- Use read_file to inspect specific files. Use grep to search for strings.\n" +
               "- Only use glob if you need files not visible in the provided tree.\n" +
@@ -438,6 +442,7 @@ export class AgentSession {
             systemPrompt:
               "You are an expert code writer. Write clean, correct, minimal code.\n\n" +
               "RULES:\n" +
+              "- ALWAYS use RELATIVE paths for all file operations (e.g. 'app/page.tsx', NOT absolute paths). Absolute paths WILL FAIL.\n" +
               "- read_file FIRST before editing any file.\n" +
               "- Use edit_file for small changes, write_file for new files or full rewrites.\n" +
               "- **edit_file failures**: If edit_file returns 'String not found', do NOT retry with the same old_string. " +
@@ -459,6 +464,7 @@ export class AgentSession {
             systemPrompt:
               "You are a testing specialist. Run tests, builds, and linters using the execute tool. " +
               "Analyze failures, read relevant source files, and fix issues. " +
+              "ALWAYS use RELATIVE paths for all file operations (e.g. 'app/page.tsx', NOT absolute paths). Absolute paths WILL FAIL. " +
               "Common commands: npm test, npm run build, npx tsc --noEmit, npm run lint. " +
               "Report results concisely: what passed, what failed, what you fixed. " +
               `Working directory: ${this.options.projectPath}` +
