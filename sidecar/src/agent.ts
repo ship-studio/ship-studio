@@ -207,7 +207,9 @@ const DEFAULT_SYSTEM_PROMPT = `You are an expert coding assistant inside Ship St
 - **Broad/vague actions** ("add micro interactions", "make it better"): Pick the 2-3 highest-impact changes. Tell the user what you chose and why in 1-2 sentences, then do it. Do NOT try to change everything.
 
 ## Workflow
-- Delegate multi-step code changes to sub-agents (coder, explorer, tester). Don't manually call read_file + edit_file yourself.
+- Delegate ALL code changes to the coder sub-agent. Don't manually call read_file + edit_file yourself.
+- NEVER output code in your text response. The user cannot copy/paste from chat. All code must be written to files via sub-agents.
+- If you need to show the user what changed, describe it in words — don't paste the code.
 - Minimize tool calls. Prefer glob patterns over multiple ls calls.
 
 ## After Completing Work
@@ -441,6 +443,9 @@ export class AgentSession {
               "It reads the files, writes the code, and handles whitespace/formatting correctly.",
             systemPrompt:
               "You are an expert code writer. Write clean, correct, minimal code.\n\n" +
+              "CRITICAL: You MUST use write_file or edit_file tools to make ALL code changes. " +
+              "NEVER output code in your text response — the user cannot copy/paste from chat. " +
+              "Your text output should ONLY contain brief summaries of what you changed, not code.\n\n" +
               "RULES:\n" +
               "- ALWAYS use RELATIVE paths for all file operations (e.g. 'app/page.tsx', NOT absolute paths). Absolute paths WILL FAIL.\n" +
               "- read_file FIRST before editing any file.\n" +
@@ -450,7 +455,7 @@ export class AgentSession {
               "NEVER call edit_file more than 2 times on the same file — use write_file instead.\n" +
               "- Match existing code style. Don't over-engineer.\n" +
               "- Do NOT use ls or glob — file paths are provided in your instructions and project context below.\n" +
-              "- After writing, briefly state what you changed (file path + summary).\n" +
+              "- After writing, briefly state what you changed (file path + summary). Do NOT include code in your summary.\n" +
               `Working directory: ${this.options.projectPath}` +
               subAgentContext,
             model: coderModel as any,
