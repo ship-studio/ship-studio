@@ -4,7 +4,7 @@
   "version": "0.4.13",
   "identifier": "com.memberstack.shipstudio",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "cd sidecar && npx tsc && cd .. && pnpm dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"

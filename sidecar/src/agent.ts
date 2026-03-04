@@ -104,6 +104,10 @@ const KEEP_RECENT_MESSAGES = 10;
 
 /** Max consecutive calls to the same tool before circuit breaker trips. */
 const MAX_CONSECUTIVE_SAME_TOOL = 10;
+
+/** Read-only tools exempt from the consecutive-call circuit breaker.
+ *  Sub-agents (explorer, coder) legitimately call these many times in a row. */
+const READ_ONLY_TOOLS = new Set(["read_file", "grep", "glob", "ls"]);
 /** Max times the same tool can return the same output (even non-consecutively). */
 const MAX_REPEATED_OUTPUTS = 5;
 
@@ -779,18 +783,22 @@ export class AgentSession {
           const toolInput = (evt.data as Record<string, unknown>)?.input ?? {};
           toolCallCount++;
 
-          // Circuit breaker: abort if same tool called too many times in a row
-          if (toolName === lastToolName) {
-            consecutiveToolCount++;
-          } else {
-            lastToolName = toolName;
-            consecutiveToolCount = 1;
-          }
-          if (consecutiveToolCount >= MAX_CONSECUTIVE_SAME_TOOL) {
-            const msg = `Stopped: "${toolName}" was called ${consecutiveToolCount} times in a row — likely stuck in a loop. Try rephrasing your request.`;
-            debug("Consecutive-tool circuit breaker", { tool: toolName, count: consecutiveToolCount });
-            callbacks.onError(msg);
-            break;
+          // Circuit breaker: abort if same MUTATING tool called too many times in a row.
+          // Read-only tools (read_file, grep, glob, ls) are exempt — sub-agents legitimately
+          // call these many times during exploration.
+          if (!READ_ONLY_TOOLS.has(toolName)) {
+            if (toolName === lastToolName) {
+              consecutiveToolCount++;
+            } else {
+              lastToolName = toolName;
+              consecutiveToolCount = 1;
+            }
+            if (consecutiveToolCount >= MAX_CONSECUTIVE_SAME_TOOL) {
+              const msg = `Stopped: "${toolName}" was called ${consecutiveToolCount} times in a row — likely stuck in a loop. Try rephrasing your request.`;
+              debug("Consecutive-tool circuit breaker", { tool: toolName, count: consecutiveToolCount });
+              callbacks.onError(msg);
+              break;
+            }
           }
 
           // Log full tool input so we can see what the AI is requesting
@@ -1027,18 +1035,20 @@ export class AgentSession {
           const toolName = (evt.name ?? "unknown") as string;
           const toolInput = (evt.data as Record<string, unknown>)?.input ?? {};
 
-          // Circuit breaker
-          if (toolName === lastToolName) {
-            consecutiveToolCount++;
-          } else {
-            lastToolName = toolName;
-            consecutiveToolCount = 1;
-          }
-          if (consecutiveToolCount >= MAX_CONSECUTIVE_SAME_TOOL) {
-            const msg = `Circuit breaker: "${toolName}" called ${consecutiveToolCount} times in a row — aborting.`;
-            debug(msg);
-            callbacks.onError(msg);
-            break;
+          // Circuit breaker (read-only tools exempt — sub-agents use them legitimately)
+          if (!READ_ONLY_TOOLS.has(toolName)) {
+            if (toolName === lastToolName) {
+              consecutiveToolCount++;
+            } else {
+              lastToolName = toolName;
+              consecutiveToolCount = 1;
+            }
+            if (consecutiveToolCount >= MAX_CONSECUTIVE_SAME_TOOL) {
+              const msg = `Circuit breaker: "${toolName}" called ${consecutiveToolCount} times in a row — aborting.`;
+              debug(msg);
+              callbacks.onError(msg);
+              break;
+            }
           }
 
           callbacks.onToolStart(toolName, toolInput, this.lastStepTokens);
