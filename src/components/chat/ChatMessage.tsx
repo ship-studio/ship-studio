@@ -6,7 +6,7 @@
  * Groups consecutive completed tool calls for compact display.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   ChatMessage as ChatMessageType,
   ContentBlock,
@@ -17,12 +17,71 @@ import { formatTokenCount } from '../../lib/client-agent';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { ToolCallIndicator } from './ToolCallIndicator';
 
+/** Nautical-themed thinking phrases — because this is Ship Studio. */
+const THINKING_PHRASES = [
+  'Thinking\u2026',
+  'Charting a course\u2026',
+  'Hoisting the sails\u2026',
+  'Navigating\u2026',
+  'Scanning the horizon\u2026',
+  'Plotting coordinates\u2026',
+  'Adjusting the rigging\u2026',
+  'Reading the stars\u2026',
+  'Catching the wind\u2026',
+  'Raising the anchor\u2026',
+  'Setting sail\u2026',
+  'Checking the compass\u2026',
+  'Trimming the jib\u2026',
+  'Swabbing the deck\u2026',
+  'Battening the hatches\u2026',
+  'Full speed ahead\u2026',
+  'Sounding the depths\u2026',
+  'Tying the knots\u2026',
+  'Loading the cargo\u2026',
+  'Docking maneuvers\u2026',
+];
+
+/** Pick a random phrase, cycling every few seconds while visible. */
+function useThinkingPhrase(active: boolean): string {
+  const [phrase, setPhrase] = useState(
+    () => THINKING_PHRASES[Math.floor(Math.random() * THINKING_PHRASES.length)]
+  );
+  const indexRef = useRef(0);
+
+  useEffect(() => {
+    if (!active) return;
+    // Pick a fresh random one when it first becomes active
+    indexRef.current = Math.floor(Math.random() * THINKING_PHRASES.length);
+    setPhrase(THINKING_PHRASES[indexRef.current]);
+
+    const id = setInterval(() => {
+      // Advance to a different random phrase (avoid repeating the current one)
+      let next = Math.floor(Math.random() * (THINKING_PHRASES.length - 1));
+      if (next >= indexRef.current) next++;
+      indexRef.current = next;
+      setPhrase(THINKING_PHRASES[next]);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [active]);
+
+  return phrase;
+}
+
 interface ChatMessageProps {
   message: ChatMessageType;
   isStreaming?: boolean;
+  showPlanApproval?: boolean;
+  onPlanApprove?: () => void;
+  onPlanReject?: () => void;
 }
 
-export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) {
+export function ChatMessage({
+  message,
+  isStreaming = false,
+  showPlanApproval = false,
+  onPlanApprove,
+  onPlanReject,
+}: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
 
@@ -31,6 +90,7 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
   // and "between tool calls" so the user always sees the agent is working.
   const hasRunningTools = message.toolCalls?.some((tc) => tc.status === 'running') ?? false;
   const showThinking = isStreaming && message.status === 'streaming' && !hasRunningTools;
+  const thinkingPhrase = useThinkingPhrase(showThinking);
 
   const handleCopy = useCallback(() => {
     void navigator.clipboard.writeText(message.content).then(() => {
@@ -56,7 +116,12 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
 
         {/* Plan indicator — shown at top of assistant message when agent has a plan */}
         {!isUser && message.plan && message.plan.length > 0 && (
-          <PlanIndicator todos={message.plan} />
+          <PlanIndicator
+            todos={message.plan}
+            showApproval={showPlanApproval}
+            onApprove={onPlanApprove}
+            onReject={onPlanReject}
+          />
         )}
 
         {/* Assistant messages: render content blocks in chronological order */}
@@ -93,7 +158,7 @@ export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) 
               <span className="chat-thinking-dot" />
               <span className="chat-thinking-dot" />
             </div>
-            <span>Thinking…</span>
+            <span>{thinkingPhrase}</span>
           </div>
         )}
 
@@ -229,7 +294,17 @@ function ToolGroup({ tools }: { tools: ToolCallInfo[] }) {
 }
 
 /** Inline plan/todo progress indicator. */
-function PlanIndicator({ todos }: { todos: PlanTodo[] }) {
+function PlanIndicator({
+  todos,
+  showApproval = false,
+  onApprove,
+  onReject,
+}: {
+  todos: PlanTodo[];
+  showApproval?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
+}) {
   const [expanded, setExpanded] = useState(true);
   const completed = todos.filter((t) => t.status === 'completed').length;
   const inProgress = todos.filter((t) => t.status === 'in_progress').length;
@@ -241,11 +316,13 @@ function PlanIndicator({ todos }: { todos: PlanTodo[] }) {
           {completed}/{todos.length}
         </span>
         <span className="chat-plan-label">
-          {inProgress > 0
-            ? 'Working...'
-            : completed === todos.length
-              ? 'Plan complete'
-              : 'Planning'}
+          {showApproval
+            ? 'Awaiting approval'
+            : inProgress > 0
+              ? 'Working...'
+              : completed === todos.length
+                ? 'Plan complete'
+                : 'Planning'}
         </span>
         <span className={`chat-tool-chevron ${expanded ? 'expanded' : ''}`}>{'\u25B8'}</span>
       </button>
@@ -263,6 +340,16 @@ function PlanIndicator({ todos }: { todos: PlanTodo[] }) {
               <span className="chat-plan-item-text">{todo.content}</span>
             </div>
           ))}
+        </div>
+      )}
+      {showApproval && (
+        <div className="chat-plan-actions">
+          <button className="chat-plan-approve" onClick={onApprove}>
+            Approve Plan
+          </button>
+          <button className="chat-plan-reject" onClick={onReject}>
+            Request Changes
+          </button>
         </div>
       )}
     </div>

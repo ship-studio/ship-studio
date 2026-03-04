@@ -957,6 +957,47 @@
   text-decoration: line-through;
 }
 
+.chat-plan-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px 4px;
+}
+
+.chat-plan-approve {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: var(--action);
+  color: var(--action-text);
+  transition: background-color 0.15s ease;
+}
+
+.chat-plan-approve:hover {
+  background: var(--action-hover);
+}
+
+.chat-plan-reject {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-plan-reject:hover {
+  background: var(--bg-secondary);
+  border-color: var(--text-muted);
+}
+
 /* ============ Message Actions ============ */
 
 .chat-message-actions {

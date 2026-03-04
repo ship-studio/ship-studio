@@ -14,6 +14,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ChatOpenRouter } from "@langchain/openrouter";
+import { MemorySaver } from "@langchain/langgraph";
 import { createDeepAgent, LocalShellBackend } from "deepagents";
 import { debug, sendNotification } from "./rpc.js";
 import { createGitTools } from "./tools/git.js";
@@ -95,12 +96,11 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 };
 
 /** Tools that require user approval when HITL is enabled. */
-const DESTRUCTIVE_TOOLS = ["write_file", "edit_file", "execute", "git_commit"];
-
-/** Max history messages before compaction triggers. */
-const MAX_HISTORY_MESSAGES = 20;
-/** Number of recent messages to keep after compaction. */
-const KEEP_RECENT_MESSAGES = 10;
+// Tools that trigger a HITL interrupt when shield mode is on.
+// Only write_todos is listed: the orchestrator must propose a plan before touching
+// files, and the user approves the plan.  Sub-agents don't get interruptOn so they
+// can execute freely once the plan is approved.
+const HITL_INTERRUPT_TOOLS = ["write_todos"];
 
 /** Max consecutive calls to the same tool before circuit breaker trips. */
 const MAX_CONSECUTIVE_SAME_TOOL = 10;
@@ -216,11 +216,18 @@ const DEFAULT_SYSTEM_PROMPT = `You are an expert coding assistant inside Ship St
 - If you need to show the user what changed, describe it in words — don't paste the code.
 - Minimize tool calls. Prefer glob patterns over multiple ls calls.
 
-## After Completing Work
-Write a brief summary (2-4 lines):
-- What changed (file paths)
-- What the changes do
-- Anything remaining
+## After Completing Work (MANDATORY)
+When you are DONE with the user's request, you MUST write a completion summary as your FINAL text message. This is not optional.
+
+Your summary must include:
+1. **What changed** — list every file you created or modified (use file paths)
+2. **What the changes do** — one sentence per file explaining the change
+3. **What to check** — tell the user what to look at or test (e.g., "Refresh to see the new /game page")
+4. **Anything remaining** — if there are known issues, TODOs, or follow-ups, list them. If everything is done, say so.
+
+If you completed work but have nothing useful to say, at minimum write: "Done. Changed: [files]. Check [what to verify]."
+
+NEVER end a conversation with just a tool call and no text. The user cannot see tool outputs — they only see your text messages.
 
 ## edit_file Safety
 If edit_file fails with "String not found" twice on the same file, STOP and use write_file to replace the entire file instead. Never retry edit_file more than 2 times per file.
@@ -232,6 +239,8 @@ CRITICAL: ALWAYS use RELATIVE paths from the project root for ALL file operation
 Working directory: {{PROJECT_PATH}}
 
 {{PROJECT_CONTEXT}}
+
+{{SHIELD_MODE}}
 `;
 
 // ============ Helpers ============
@@ -297,14 +306,25 @@ function ensureMemoryFile(projectPath: string): string {
 
 export class AgentSession {
   private options: AgentSessionOptions;
+  // deepagents' return type is deeply generic — ReturnType<typeof createDeepAgent>
+  // causes TS2589 / OOM.  We type only the methods we actually call.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private agent: any = null;
+  private agent: {
+    streamEvents: (...args: any[]) => AsyncIterable<any>;
+    getState: (config: Record<string, unknown>) => Promise<any>;
+  } | null = null;
   private model: ChatOpenRouter;
-  private history: Array<{ role: string; content: string }> = [];
+  /** In-memory checkpointer — always active so the graph retains conversation
+   *  state across calls and we only need to send the new user message each time. */
+  private checkpointer = new MemorySaver();
   private cumulativeTokens: TokenUsage = { input: 0, output: 0 };
   private cumulativeCost = 0;
   /** Tokens from the most recent LLM call — included with tool starts for UI display. */
   private lastStepTokens = 0;
+  /** Unique thread ID for the checkpointer. New ID = fresh conversation. */
+  private threadId = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  /** Guard: non-null while initialize() is in-flight (prevents setModel race). */
+  private initializing: Promise<void> | null = null;
 
   constructor(options: AgentSessionOptions) {
     this.options = options;
@@ -341,9 +361,22 @@ export class AgentSession {
     const projectContext = scanProjectContext(this.options.projectPath);
     debug("Project context scanned", { length: projectContext.length });
 
+    const shieldModeInstructions = this.options.hitlEnabled
+      ? `## Shield Mode (MANDATORY)
+You MUST follow this workflow for EVERY user request that involves changing files:
+
+1. **Plan first**: Your VERY FIRST action must be calling write_todos with a detailed plan listing every file you will create or modify and what you will do. Do NOT call any sub-agents or tools before write_todos — use the project context already provided above to form your plan.
+2. **Approval is automatic**: The system will pause and show the user your plan for approval. You do NOT need to ask for approval yourself — just call write_todos and the system handles the rest.
+3. **After write_todos succeeds**: It means the user approved your plan. Immediately proceed to implement the changes. Do NOT repeat the plan or ask for confirmation again.
+
+This is non-negotiable. Never skip the plan step, even for small changes.
+IMPORTANT: Once write_todos returns successfully, the user has already approved. Start coding immediately — do not output the plan again.`
+      : "";
+
     const systemPrompt = (this.options.systemPrompt || DEFAULT_SYSTEM_PROMPT)
       .replace("{{PROJECT_PATH}}", this.options.projectPath)
-      .replace("{{PROJECT_CONTEXT}}", projectContext);
+      .replace("{{PROJECT_CONTEXT}}", projectContext)
+      .replace("{{SHIELD_MODE}}", shieldModeInstructions);
 
     // Log the system prompt we're passing (before middleware adds its sections)
     debug("=== OUR SYSTEM PROMPT ===\n" + systemPrompt + "\n=== END SYSTEM PROMPT ===");
@@ -393,28 +426,36 @@ export class AgentSession {
       ? `\n\nProject context (pre-scanned, no need to explore):\n${projectContext}`
       : "";
 
-    // HITL: build interruptOn config for destructive tools
+    // HITL: interrupt the orchestrator on write_todos so the user can approve
+    // the plan before any sub-agent executes.  Sub-agents run freely after approval.
     const interruptOn = this.options.hitlEnabled
-      ? Object.fromEntries(DESTRUCTIVE_TOOLS.map((t) => [t, true]))
+      ? Object.fromEntries(HITL_INTERRUPT_TOOLS.map((t) => [t, true]))
       : undefined;
 
     try {
-      // Use `as any` to bypass excessively deep type instantiation
-      // from LangChain's heavily generic types. Runtime types are correct.
-      // Note: deepagents includes SummarizationMiddleware by default —
-      // it auto-compresses context when it grows too large (based on model profile).
-      // Our manual compactHistory() handles the messages we pass between calls.
-      // Note: deepagents always adds a built-in "general-purpose" sub-agent alongside our
+      // deepagents' CreateDeepAgentParams triggers TS2589 / OOM due to deeply
+      // recursive LangChain generics.  We build the config as a plain object and
+      // call createDeepAgent via Function cast to break the type-inference chain.
+      // Runtime types are correct — ChatOpenRouter IS a BaseLanguageModel, git
+      // tools ARE StructuredTools, sub-agents match the SubAgent interface.
+      //
+      // deepagents includes SummarizationMiddleware by default — it auto-compresses
+      // context when it grows too large (based on model profile).
+      // We always use a checkpointer so the graph retains state across calls
+      // and we only need to send the new user message each time.
+      //
+      // deepagents always adds a built-in "general-purpose" sub-agent alongside our
       // custom ones. The generalPurposeAgent option is not exposed via CreateDeepAgentParams
       // (hardcoded to true internally). Our custom sub-agents still take priority when their
       // descriptions match the task, but the orchestrator has a 4th option it can delegate to.
-      this.agent = createDeepAgent({
-        model: this.model as any,
+      const agentConfig = {
+        model: this.model,
         systemPrompt,
         backend,
-        tools: gitTools as any[],
+        tools: gitTools,
         memory: [relativeMemoryPath],
-        ...(this.options.hitlEnabled ? { checkpointer: true } : {}),
+        skills: [".claude/skills"],
+        checkpointer: this.checkpointer,
         ...(interruptOn ? { interruptOn } : {}),
         subagents: [
           {
@@ -437,7 +478,7 @@ export class AgentSession {
               "Don't include full file contents.\n" +
               `Working directory: ${this.options.projectPath}` +
               subAgentContext,
-            model: explorerModel as any,
+            model: explorerModel,
           },
           {
             name: "coder",
@@ -462,7 +503,7 @@ export class AgentSession {
               "- After writing, briefly state what you changed (file path + summary). Do NOT include code in your summary.\n" +
               `Working directory: ${this.options.projectPath}` +
               subAgentContext,
-            model: coderModel as any,
+            model: coderModel,
           },
           {
             name: "tester",
@@ -478,10 +519,12 @@ export class AgentSession {
               "Report results concisely: what passed, what failed, what you fixed. " +
               `Working directory: ${this.options.projectPath}` +
               subAgentContext,
-            model: testerModel as any,
+            model: testerModel,
           },
-        ] as any[],
-      });
+        ],
+      };
+      // Call via Function cast to prevent TS from resolving the deep generic chain
+      this.agent = (createDeepAgent as Function)(agentConfig);
       debug("Deep agent created successfully", {
         mode: isClaudeTuned ? "claude-tuned" : isGoogleTuned ? "google-tuned" : isTuned ? "tuned" : "unified",
         orchestrator: orchestratorModelId,
@@ -498,71 +541,65 @@ export class AgentSession {
     }
   }
 
-  /**
-   * Compact conversation history when it grows too long.
-   * Summarizes old messages using a cheap model, keeps recent ones.
-   */
-  private async compactHistory(): Promise<void> {
-    if (this.history.length <= MAX_HISTORY_MESSAGES) return;
+  /** Extract token usage from an on_chat_model_end event and update cumulative tracking.
+   *  Handles three possible locations where OpenRouter/LangChain place token counts. */
+  private handleTokenUsage(evtData: Record<string, unknown> | undefined, evtName: string): void {
+    const output = evtData?.output as Record<string, unknown> | undefined;
 
-    const recentMessages = this.history.slice(-KEEP_RECENT_MESSAGES);
-    const oldMessages = this.history.slice(0, this.history.length - KEEP_RECENT_MESSAGES);
+    const rawUsage = output?.["usage_metadata"] as Record<string, number> | undefined;
+    const responseMetadata = output?.["response_metadata"] as Record<string, unknown> | undefined;
+    const rmUsage = responseMetadata?.["usage"] as Record<string, number> | undefined;
+    const fallbackUsage = evtData?.["usage_metadata"] as Record<string, number> | undefined;
 
-    debug("Compacting history", {
-      total: this.history.length,
-      dropping: oldMessages.length,
-      keeping: recentMessages.length,
+    const isNonEmpty = (obj: Record<string, unknown> | undefined) =>
+      obj && Object.keys(obj).length > 0;
+    const usageMetadata = (
+      isNonEmpty(rawUsage) ? rawUsage
+      : isNonEmpty(rmUsage) ? rmUsage
+      : isNonEmpty(fallbackUsage) ? fallbackUsage
+      : undefined
+    ) as Record<string, number> | undefined;
+
+    if (!usageMetadata) return;
+
+    const inputTokens = usageMetadata.input_tokens ?? usageMetadata.prompt_tokens ?? 0;
+    const outputTokens = usageMetadata.output_tokens ?? usageMetadata.completion_tokens ?? 0;
+    this.cumulativeTokens.input += inputTokens;
+    this.cumulativeTokens.output += outputTokens;
+    this.lastStepTokens = inputTokens + outputTokens;
+
+    const activeModel = evtName || this.options.model;
+    this.cumulativeCost += computeCost(activeModel, inputTokens, outputTokens);
+
+    sendNotification("stream/tokenUsage", {
+      inputTokens,
+      outputTokens,
+      cumulativeInput: this.cumulativeTokens.input,
+      cumulativeOutput: this.cumulativeTokens.output,
+      cumulativeCost: this.cumulativeCost,
     });
 
-    try {
-      const summaryModel = this.createModel(
-        SUB_AGENT_MODELS.explorer, // Always use cheapest model
-        this.options.apiKey,
-      );
-
-      const conversationText = oldMessages
-        .map((m) => `${m.role}: ${m.content.slice(0, 500)}`)
-        .join("\n\n");
-
-      const response = await summaryModel.invoke([
-        {
-          role: "user",
-          content:
-            "Summarize this conversation concisely (under 500 words). " +
-            "Focus on: what the user asked for, what was built/changed, key decisions, " +
-            "and current state of the work.\n\n" +
-            conversationText,
-        },
-      ]);
-
-      const summary =
-        typeof response.content === "string"
-          ? response.content
-          : JSON.stringify(response.content);
-
-      this.history = [
-        {
-          role: "user",
-          content: `[Context from earlier in this conversation]\n${summary}`,
-        },
-        {
-          role: "assistant",
-          content: "Got it — I have the context from our earlier conversation.",
-        },
-        ...recentMessages,
-      ];
-
-      debug("History compacted", { newLength: this.history.length });
-    } catch (err) {
-      // If summarization fails, just trim
-      debug("Summarization failed, trimming history", { error: String(err) });
-      this.history = recentMessages;
+    // Cost warning at 80% of spending limit
+    if (
+      this.options.spendingLimit &&
+      this.cumulativeCost >= this.options.spendingLimit * 0.8
+    ) {
+      sendNotification("stream/costWarning", {
+        currentCost: this.cumulativeCost,
+        limit: this.options.spendingLimit,
+        percentUsed: Math.round((this.cumulativeCost / this.options.spendingLimit) * 100),
+      });
     }
   }
 
   async chat(message: string, callbacks: ChatCallbacks): Promise<void> {
     if (!this.agent) {
       throw new Error("Agent not initialized");
+    }
+
+    // Wait for any in-flight reinitialization (e.g. from setModel())
+    if (this.initializing) {
+      await this.initializing;
     }
 
     // Enforce spending limit before starting
@@ -573,19 +610,19 @@ export class AgentSession {
       );
     }
 
-    this.history.push({ role: "user", content: message });
-
-    // Compact history if it's grown too long (prevents context explosion between calls)
-    await this.compactHistory();
-
     try {
       // Use streamEvents("v2") to get granular token/tool events.
       // agent.stream() only returns LangGraph state updates (node-level chunks),
       // NOT individual streaming events — so tokens/tool calls would never appear.
-      debug("Starting streamEvents", { historyLength: this.history.length });
+      // Only send the new user message — the checkpointer retains prior state.
+      debug("Starting streamEvents", { threadId: this.threadId });
       const eventStream = this.agent.streamEvents(
-        { messages: this.history.map(m => ({ role: m.role, content: m.content })) },
-        { signal: callbacks.signal, version: "v2" },
+        { messages: [{ role: "user", content: message }] },
+        {
+          signal: callbacks.signal,
+          version: "v2",
+          configurable: { thread_id: this.threadId },
+        },
       );
 
       let assistantContent = "";
@@ -602,6 +639,9 @@ export class AgentSession {
       const editFileFailures = new Map<string, number>();
       // One-time flag to log the assembled system prompt (with middleware additions)
       let loggedSystemPrompt = false;
+      // Track nesting depth inside "task" tool calls (sub-agent invocations).
+      // When > 0, we're inside a sub-agent — suppress its tokens from the user stream.
+      let taskToolDepth = 0;
 
       for await (const event of withTimeout(eventStream, EVENT_TIMEOUT_MS)) {
         eventCount++;
@@ -693,8 +733,9 @@ export class AgentSession {
           }
         }
 
-        // Token streaming from the LLM
-        if (eventType === "on_chat_model_stream") {
+        // Token streaming from the LLM — only stream orchestrator tokens to the user.
+        // Sub-agent tokens (inside "task" tool calls) are suppressed.
+        if (eventType === "on_chat_model_stream" && taskToolDepth === 0) {
           const data = evt.data as Record<string, unknown> | undefined;
           const chunk = data?.chunk as Record<string, unknown> | undefined;
           if (chunk) {
@@ -720,61 +761,10 @@ export class AgentSession {
 
         // Token usage from LLM responses (emitted at end of each model call)
         if (eventType === "on_chat_model_end") {
-          const data = evt.data as Record<string, unknown> | undefined;
-          const output = data?.output as Record<string, unknown> | undefined;
-
-          // Try multiple paths to find usage metadata.
-          // OpenRouter + LangChain can put token counts in different places:
-          //   1. output.usage_metadata (standard LangChain path)
-          //   2. output.response_metadata.usage (OpenRouter wraps here)
-          //   3. data.usage_metadata (fallback)
-          const rawUsage = output?.usage_metadata as Record<string, number> | undefined;
-          const responseMetadata = (output as any)?.response_metadata as Record<string, unknown> | undefined;
-          const rmUsage = responseMetadata?.usage as Record<string, number> | undefined;
-          const fallbackUsage = (data as any)?.usage_metadata as Record<string, number> | undefined;
-
-          // Pick the first non-empty source
-          const isNonEmpty = (obj: Record<string, unknown> | undefined) =>
-            obj && Object.keys(obj).length > 0;
-          const usageMetadata = (
-            isNonEmpty(rawUsage) ? rawUsage
-            : isNonEmpty(rmUsage) ? rmUsage
-            : isNonEmpty(fallbackUsage) ? fallbackUsage
-            : undefined
-          ) as Record<string, number> | undefined;
-
-          if (usageMetadata) {
-            const inputTokens = usageMetadata.input_tokens ?? usageMetadata.prompt_tokens ?? 0;
-            const outputTokens = usageMetadata.output_tokens ?? usageMetadata.completion_tokens ?? 0;
-            this.cumulativeTokens.input += inputTokens;
-            this.cumulativeTokens.output += outputTokens;
-            this.lastStepTokens = inputTokens + outputTokens;
-
-            // Track cost
-            const activeModel = (evt.name as string) || this.options.model;
-            const messageCost = computeCost(activeModel, inputTokens, outputTokens);
-            this.cumulativeCost += messageCost;
-
-            sendNotification("stream/tokenUsage", {
-              inputTokens,
-              outputTokens,
-              cumulativeInput: this.cumulativeTokens.input,
-              cumulativeOutput: this.cumulativeTokens.output,
-              cumulativeCost: this.cumulativeCost,
-            });
-
-            // Cost warning at 80% of spending limit
-            if (
-              this.options.spendingLimit &&
-              this.cumulativeCost >= this.options.spendingLimit * 0.8
-            ) {
-              sendNotification("stream/costWarning", {
-                currentCost: this.cumulativeCost,
-                limit: this.options.spendingLimit,
-                percentUsed: Math.round((this.cumulativeCost / this.options.spendingLimit) * 100),
-              });
-            }
-          }
+          this.handleTokenUsage(
+            evt.data as Record<string, unknown> | undefined,
+            (evt.name as string) || "",
+          );
         }
 
         // Tool execution start
@@ -782,6 +772,38 @@ export class AgentSession {
           const toolName = (evt.name ?? "unknown") as string;
           const toolInput = (evt.data as Record<string, unknown>)?.input ?? {};
           toolCallCount++;
+
+          // Track sub-agent nesting: "task" tool invokes sub-agents
+          if (toolName === "task") {
+            taskToolDepth++;
+          }
+
+          // Sub-agent internal tools: only log, don't emit to the UI.
+          // The user sees the parent "task" tool with elapsed timer — internal
+          // tools (read_file, write_file, etc. called by explorer/coder/tester)
+          // are implementation details that clutter the chat.
+          if (taskToolDepth > 0 && toolName !== "task") {
+            const inputStr = typeof toolInput === "string" ? toolInput : JSON.stringify(toolInput, null, 2);
+            const truncatedInput = inputStr.length > 1500
+              ? inputStr.slice(0, 1500) + `\n... (truncated, ${inputStr.length} total chars)`
+              : inputStr;
+            debug(`=== SUB-AGENT TOOL CALL: ${toolName} (depth ${taskToolDepth}) ===\n${truncatedInput}\n=== END CALL ===`);
+
+            // Still track file operations for synthetic summary
+            if (toolName === "write_file" || toolName === "edit_file") {
+              let parsed = toolInput;
+              if (typeof parsed === "string") {
+                try { parsed = JSON.parse(parsed); } catch { /* keep as-is */ }
+              }
+              const obj = (typeof parsed === "object" && parsed !== null) ? parsed as Record<string, unknown> : {};
+              const filePath = String(obj.file_path ?? obj.path ?? obj.filePath ?? "unknown");
+              const action = toolName === "write_file" ? "created/wrote" : "edited";
+              if (!fileOps.some(op => op.path === filePath && op.action === action)) {
+                fileOps.push({ action, path: filePath });
+              }
+            }
+            continue; // Skip emitting to frontend
+          }
 
           // Circuit breaker: abort if same MUTATING tool called too many times in a row.
           // Read-only tools (read_file, grep, glob, ls) are exempt — sub-agents legitimately
@@ -827,14 +849,16 @@ export class AgentSession {
 
           // write_todos → plan update (extract todos from tool input)
           if (toolName === "write_todos") {
-            // Tool input may arrive as stringified JSON from the event stream
+            // Forward the plan to the frontend (fallback path — the primary
+            // path when HITL is on goes through __interrupt instead).
             let parsed = toolInput;
             if (typeof parsed === "string") {
               try { parsed = JSON.parse(parsed); } catch { /* keep as-is */ }
             }
             if (typeof parsed === "object" && parsed !== null) {
               const obj = parsed as Record<string, unknown>;
-              callbacks.onPlanUpdate(obj.todos ?? obj);
+              const todosPayload = obj.todos ?? obj;
+              callbacks.onPlanUpdate(todosPayload);
             }
           }
         }
@@ -844,6 +868,22 @@ export class AgentSession {
           const toolName = (evt.name ?? "unknown") as string;
           const toolOutput = (evt.data as Record<string, unknown>)?.output ?? {};
           const outputStr = typeof toolOutput === "string" ? toolOutput : JSON.stringify(toolOutput);
+
+          // Track sub-agent nesting — must happen BEFORE the depth check below
+          // so that "task" tool ends decrement before we decide to skip.
+          const isTaskEnd = toolName === "task";
+          if (isTaskEnd) {
+            taskToolDepth = Math.max(0, taskToolDepth - 1);
+          }
+
+          // Sub-agent internal tool ends: log but don't emit to frontend
+          if (taskToolDepth > 0 && !isTaskEnd) {
+            const truncatedOutput = outputStr.length > 2000
+              ? outputStr.slice(0, 2000) + `\n... (truncated, ${outputStr.length} total chars)`
+              : outputStr;
+            debug(`=== SUB-AGENT TOOL OUTPUT: ${toolName} (depth ${taskToolDepth}) ===\n${truncatedOutput}\n=== END ${toolName} ===`);
+            continue; // Skip emitting to frontend
+          }
 
           // Log full tool output (truncated at 2000 chars) so we can see what the AI gets
           const truncatedOutput = outputStr.length > 2000
@@ -886,18 +926,32 @@ export class AgentSession {
         if (eventType === "on_custom_event" && evt.name === "plan_update") {
           callbacks.onPlanUpdate(evt.data);
         }
-
-        // HITL interrupt — agent paused waiting for approval
-        if (eventType === "on_custom_event" && evt.name === "__interrupt") {
-          const data = evt.data as Record<string, unknown> | undefined;
-          callbacks.onInterrupt(
-            (data?.tool_name as string) ?? "unknown",
-            data?.tool_input ?? {},
-          );
-        }
       }
 
       debug("Event loop exited", { eventCount, contentLength: assistantContent.length, toolCallCount });
+
+      // HITL interrupt detection: LangGraph's interrupt() pauses the graph and
+      // ends the stream — no special event is emitted.  We detect the pause by
+      // inspecting the graph state for pending interrupts.
+      if (this.options.hitlEnabled && this.agent) {
+        try {
+          const graphState = await this.agent.getState({ configurable: { thread_id: this.threadId } });
+          const pendingInterrupts = (graphState.tasks ?? []).flatMap(
+            (t: Record<string, unknown>) => (t.interrupts as Array<Record<string, unknown>>) ?? [],
+          );
+          if (pendingInterrupts.length > 0) {
+            const hitlValue = pendingInterrupts[0].value as Record<string, unknown> | undefined;
+            const actionRequests = (hitlValue?.actionRequests ?? []) as Array<Record<string, unknown>>;
+            const firstAction = actionRequests[0];
+            const toolName = (firstAction?.name as string) ?? "unknown";
+            const toolInput = (firstAction?.args ?? {}) as Record<string, unknown>;
+            debug("HITL interrupt detected after stream", { toolName, inputKeys: Object.keys(toolInput) });
+            callbacks.onInterrupt(toolName, toolInput);
+          }
+        } catch (stateErr) {
+          debug("Failed to check graph state for interrupts", { error: String(stateErr) });
+        }
+      }
 
       // If the model made tool calls but produced no text summary, emit a synthetic summary.
       // This happens with Gemini models that stop after tool calls without summarizing.
@@ -919,10 +973,6 @@ export class AgentSession {
         callbacks.onToken(summary);
       }
 
-      // Store assistant response in history
-      if (assistantContent) {
-        this.history.push({ role: "assistant", content: assistantContent });
-      }
     } catch (err) {
       if (callbacks.signal.aborted) throw err;
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -941,16 +991,28 @@ export class AgentSession {
       throw new Error("Agent not initialized");
     }
 
+    // Wait for any in-flight reinitialization (e.g. from setModel())
+    if (this.initializing) {
+      await this.initializing;
+    }
+
     try {
-      // LangGraph Command to resume from interrupt
+      // LangGraph Command to resume from HITL interrupt.
+      // The humanInTheLoopMiddleware expects { decisions: [{ type, ... }] }.
       const { Command } = await import("@langchain/langgraph");
-      const resumeValue = approved ? { type: "approve" } : { type: "reject" };
-      const command = new Command({ resume: resumeValue });
+      const decision = approved
+        ? { type: "approve" }
+        : { type: "reject", message: "User rejected the proposed plan." };
+      const command = new Command({ resume: { decisions: [decision] } });
 
       debug("Starting resume streamEvents");
       const eventStream = this.agent.streamEvents(
         command,
-        { signal: callbacks.signal, version: "v2" },
+        {
+          signal: callbacks.signal,
+          version: "v2",
+          configurable: { thread_id: this.threadId },
+        },
       );
 
       let assistantContent = "";
@@ -958,6 +1020,7 @@ export class AgentSession {
       let lastToolName = "";
       let consecutiveToolCount = 0;
       const toolOutputCounts = new Map<string, number>();
+      let taskToolDepth = 0;
 
       for await (const event of withTimeout(eventStream, EVENT_TIMEOUT_MS)) {
         eventCount++;
@@ -975,7 +1038,8 @@ export class AgentSession {
         const evt = event as Record<string, unknown>;
         const eventType = evt.event as string | undefined;
 
-        if (eventType === "on_chat_model_stream") {
+        // Only stream orchestrator tokens — suppress sub-agent output
+        if (eventType === "on_chat_model_stream" && taskToolDepth === 0) {
           const data = evt.data as Record<string, unknown> | undefined;
           const chunk = data?.chunk as Record<string, unknown> | undefined;
           if (chunk) {
@@ -998,42 +1062,26 @@ export class AgentSession {
         }
 
         if (eventType === "on_chat_model_end") {
-          const data = evt.data as Record<string, unknown> | undefined;
-          const output = data?.output as Record<string, unknown> | undefined;
-          const rawUsage = output?.usage_metadata as Record<string, number> | undefined;
-          const responseMetadata = (output as any)?.response_metadata as Record<string, unknown> | undefined;
-          const rmUsage = responseMetadata?.usage as Record<string, number> | undefined;
-          const fallbackUsage = (data as any)?.usage_metadata as Record<string, number> | undefined;
-          const isNonEmpty = (obj: Record<string, unknown> | undefined) =>
-            obj && Object.keys(obj).length > 0;
-          const usageMetadata = (
-            isNonEmpty(rawUsage) ? rawUsage
-            : isNonEmpty(rmUsage) ? rmUsage
-            : isNonEmpty(fallbackUsage) ? fallbackUsage
-            : undefined
-          ) as Record<string, number> | undefined;
-
-          if (usageMetadata) {
-            const inputTokens = usageMetadata.input_tokens ?? usageMetadata.prompt_tokens ?? 0;
-            const outputTokens = usageMetadata.output_tokens ?? usageMetadata.completion_tokens ?? 0;
-            this.cumulativeTokens.input += inputTokens;
-            this.cumulativeTokens.output += outputTokens;
-            this.lastStepTokens = inputTokens + outputTokens;
-            const activeModel = (evt.name as string) || this.options.model;
-            this.cumulativeCost += computeCost(activeModel, inputTokens, outputTokens);
-            sendNotification("stream/tokenUsage", {
-              inputTokens,
-              outputTokens,
-              cumulativeInput: this.cumulativeTokens.input,
-              cumulativeOutput: this.cumulativeTokens.output,
-              cumulativeCost: this.cumulativeCost,
-            });
-          }
+          this.handleTokenUsage(
+            evt.data as Record<string, unknown> | undefined,
+            (evt.name as string) || "",
+          );
         }
 
         if (eventType === "on_tool_start") {
           const toolName = (evt.name ?? "unknown") as string;
           const toolInput = (evt.data as Record<string, unknown>)?.input ?? {};
+
+          // Track sub-agent nesting
+          if (toolName === "task") {
+            taskToolDepth++;
+          }
+
+          // Suppress sub-agent internal tools from frontend
+          if (taskToolDepth > 0 && toolName !== "task") {
+            debug(`SUB-AGENT TOOL (resume): ${toolName} (depth ${taskToolDepth})`);
+            continue;
+          }
 
           // Circuit breaker (read-only tools exempt — sub-agents use them legitimately)
           if (!READ_ONLY_TOOLS.has(toolName)) {
@@ -1069,6 +1117,18 @@ export class AgentSession {
           const toolName = (evt.name ?? "unknown") as string;
           const toolOutput = (evt.data as Record<string, unknown>)?.output ?? {};
 
+          // Track sub-agent nesting
+          const isTaskEnd = toolName === "task";
+          if (isTaskEnd) {
+            taskToolDepth = Math.max(0, taskToolDepth - 1);
+          }
+
+          // Suppress sub-agent internal tool ends from frontend
+          if (taskToolDepth > 0 && !isTaskEnd) {
+            debug(`SUB-AGENT TOOL END (resume): ${toolName} (depth ${taskToolDepth})`);
+            continue;
+          }
+
           // Repeated-output circuit breaker
           const outputStr = typeof toolOutput === "string" ? toolOutput : JSON.stringify(toolOutput);
           const outputKey = `${toolName}:${outputStr.length}`;
@@ -1087,20 +1147,29 @@ export class AgentSession {
         if (eventType === "on_custom_event" && evt.name === "plan_update") {
           callbacks.onPlanUpdate(evt.data);
         }
-
-        if (eventType === "on_custom_event" && evt.name === "__interrupt") {
-          const data = evt.data as Record<string, unknown> | undefined;
-          callbacks.onInterrupt(
-            (data?.tool_name as string) ?? "unknown",
-            data?.tool_input ?? {},
-          );
-        }
       }
 
       debug("Resume event loop exited", { eventCount, contentLength: assistantContent.length });
 
-      if (assistantContent) {
-        this.history.push({ role: "assistant", content: assistantContent });
+      // Check for HITL interrupts after resume stream ends (same as chat())
+      if (this.options.hitlEnabled && this.agent) {
+        try {
+          const graphState = await this.agent.getState({ configurable: { thread_id: this.threadId } });
+          const pendingInterrupts = (graphState.tasks ?? []).flatMap(
+            (t: Record<string, unknown>) => (t.interrupts as Array<Record<string, unknown>>) ?? [],
+          );
+          if (pendingInterrupts.length > 0) {
+            const hitlValue = pendingInterrupts[0].value as Record<string, unknown> | undefined;
+            const actionRequests = (hitlValue?.actionRequests ?? []) as Array<Record<string, unknown>>;
+            const firstAction = actionRequests[0];
+            const toolName = (firstAction?.name as string) ?? "unknown";
+            const toolInput = (firstAction?.args ?? {}) as Record<string, unknown>;
+            debug("HITL interrupt detected after resume stream", { toolName, inputKeys: Object.keys(toolInput) });
+            callbacks.onInterrupt(toolName, toolInput);
+          }
+        } catch (stateErr) {
+          debug("Failed to check graph state for interrupts (resume)", { error: String(stateErr) });
+        }
       }
     } catch (err) {
       if (callbacks.signal.aborted) throw err;
@@ -1119,17 +1188,21 @@ export class AgentSession {
   }
 
   clearHistory(): void {
-    this.history = [];
+    // Start a new thread — old thread data in MemorySaver becomes orphaned
+    // (in-memory only, garbage collected when sidecar process ends)
+    this.threadId = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     this.cumulativeTokens = { input: 0, output: 0 };
     this.cumulativeCost = 0;
-    debug("Chat history cleared");
+    debug("Chat history cleared", { newThreadId: this.threadId });
   }
 
-  setModel(modelName: string): void {
+  async setModel(modelName: string): Promise<void> {
     this.options.model = modelName;
     // Reinitialize agent with new model (handles tuned vs unified routing)
     if (this.agent) {
-      void this.initialize();
+      this.initializing = this.initialize();
+      await this.initializing;
+      this.initializing = null;
     }
     debug("Model updated", { model: modelName });
   }

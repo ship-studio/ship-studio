@@ -290,7 +290,7 @@ const methods: Record<string, MethodHandler> = {
     }
 
     try {
-      session.setModel(model);
+      await session.setModel(model);
       sendResponse(id, { ok: true });
       debug("Model changed", { model });
     } catch (err) {

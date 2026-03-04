@@ -5,7 +5,7 @@
  * (file reads, writes, shell commands, etc.).
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ToolCallInfo } from '../../lib/client-agent';
 
 interface ToolCallIndicatorProps {
@@ -35,8 +35,22 @@ function getToolLabel(name: string): string {
 
 /** Extract a short context hint from tool input (e.g., file path, command). */
 function getToolDetail(name: string, input: unknown): string | null {
-  if (!input || typeof input !== 'object') return null;
-  const data = input as Record<string, unknown>;
+  if (!input) return null;
+  // Tool input sometimes arrives as stringified JSON from the sidecar event stream
+  let data: Record<string, unknown>;
+  if (typeof input === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(input);
+      if (typeof parsed !== 'object' || parsed === null) return null;
+      data = parsed as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  } else if (typeof input === 'object') {
+    data = input as Record<string, unknown>;
+  } else {
+    return null;
+  }
 
   switch (name) {
     case 'read_file':
@@ -77,9 +91,15 @@ function getToolDetail(name: string, input: unknown): string | null {
       return null;
     }
     case 'task': {
+      // Show which sub-agent is running + a brief description
+      const agentType = (data.subagent_type ?? data.agent) as string | undefined;
       const desc = (data.description ?? data.task ?? data.name) as string | undefined;
-      if (desc) return desc.length > 50 ? desc.slice(0, 47) + '\u2026' : desc;
-      return null;
+      const prefix = agentType ? `${agentType}: ` : '';
+      if (desc) {
+        const full = prefix + desc;
+        return full.length > 60 ? full.slice(0, 57) + '\u2026' : full;
+      }
+      return agentType ?? null;
     }
     default:
       return null;
@@ -121,22 +141,41 @@ function formatOutput(output: unknown): string {
   }
 }
 
+/** Format milliseconds as a human-readable duration string. */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const mins = Math.floor(ms / 60_000);
+  const secs = Math.round((ms % 60_000) / 1000);
+  return `${mins}m ${secs}s`;
+}
+
 export function ToolCallIndicator({ toolCall }: ToolCallIndicatorProps) {
   const [expanded, setExpanded] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Live elapsed timer for running tools — updates every second so the
+  // user can see the clock ticking (especially important for sub-agent
+  // calls that wait on LLM responses for 30-60+ seconds).
+  useEffect(() => {
+    if (toolCall.status !== 'running') return;
+    const id = setInterval(() => setElapsed(Date.now() - toolCall.startedAt), 1000);
+    return () => clearInterval(id);
+  }, [toolCall.status, toolCall.startedAt]);
 
   const label = getToolLabel(toolCall.name);
   const detail = getToolDetail(toolCall.name, toolCall.input);
   const icon = getStatusIcon(toolCall.status);
 
-  // Use sidecar-measured durationMs for accuracy (frontend timestamps are unreliable
-  // since events arrive through Rust's emit_to, making start/end nearly identical).
+  // For completed tools, use sidecar-measured durationMs for accuracy.
+  // For running tools, show the live elapsed timer.
   let duration: string | null = null;
-  if (toolCall.durationMs !== undefined) {
-    const ms = toolCall.durationMs;
-    duration = ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+  if (toolCall.status === 'running' && elapsed > 0) {
+    duration = formatDuration(elapsed);
+  } else if (toolCall.durationMs !== undefined) {
+    duration = formatDuration(toolCall.durationMs);
   } else if (toolCall.completedAt && toolCall.startedAt) {
-    const ms = toolCall.completedAt - toolCall.startedAt;
-    duration = ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+    duration = formatDuration(toolCall.completedAt - toolCall.startedAt);
   }
 
   return (

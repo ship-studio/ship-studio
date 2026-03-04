@@ -12,9 +12,18 @@ import { ChatMessage } from './ChatMessage';
 interface ChatMessagesProps {
   messages: ChatMessageType[];
   streamingMessageId: string | null;
+  planNeedsApproval?: boolean;
+  onPlanApprove?: () => void;
+  onPlanReject?: () => void;
 }
 
-export function ChatMessages({ messages, streamingMessageId }: ChatMessagesProps) {
+export function ChatMessages({
+  messages,
+  streamingMessageId,
+  planNeedsApproval = false,
+  onPlanApprove,
+  onPlanReject,
+}: ChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
 
@@ -56,10 +65,22 @@ export function ChatMessages({ messages, streamingMessageId }: ChatMessagesProps
     );
   }
 
+  // Find the last assistant message to attach plan approval buttons
+  const lastAssistantId = planNeedsApproval
+    ? [...messages].reverse().find((m) => m.role === 'assistant')?.id
+    : null;
+
   return (
     <div className="chat-messages" data-os-init="" ref={containerRef}>
       {messages.map((msg) => (
-        <ChatMessage key={msg.id} message={msg} isStreaming={msg.id === streamingMessageId} />
+        <ChatMessage
+          key={msg.id}
+          message={msg}
+          isStreaming={msg.id === streamingMessageId}
+          showPlanApproval={msg.id === lastAssistantId}
+          onPlanApprove={onPlanApprove}
+          onPlanReject={onPlanReject}
+        />
       ))}
     </div>
   );

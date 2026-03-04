@@ -70,6 +70,9 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
     toolInput: unknown;
   } | null>(null);
 
+  // Plan-based approval state (shield mode)
+  const [planNeedsApproval, setPlanNeedsApproval] = useState(false);
+
   const inputRef = useRef<ChatInputHandle>(null);
   const windowLabel = useRef(getCurrentWindow().label);
   const unlistenRef = useRef<(() => void) | null>(null);
@@ -225,7 +228,9 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
         }
 
         case 'stream/planUpdate': {
-          // Normalize plan data from deepagents write_todos tool
+          // Fallback: plan update from on_tool_start (when write_todos runs
+          // without interrupt, e.g. HITL disabled).  The primary path is via
+          // stream/interrupt above when HITL is on.
           const rawTodos = data.todos;
           if (Array.isArray(rawTodos)) {
             const plan: PlanTodo[] = rawTodos.map((t: unknown) => {
@@ -268,21 +273,71 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
         }
 
         case 'stream/interrupt': {
-          // HITL: agent paused, waiting for approval
-          setPendingApproval({
-            toolName: (data.toolName as string) || 'unknown',
-            toolInput: data.toolInput,
-          });
-          onStatusChange?.('waiting', 'Awaiting approval');
+          const toolName = (data.toolName as string) || 'unknown';
+
+          if (toolName === 'write_todos') {
+            // Shield mode: agent proposed a plan via write_todos.
+            // Extract the plan from the tool input and attach it to the
+            // streaming message so the plan-detection useEffect shows
+            // approval buttons once the stream ends (stream/done).
+            const input = data.toolInput as Record<string, unknown> | undefined;
+            const rawTodos = input?.todos ?? input;
+            if (Array.isArray(rawTodos)) {
+              const plan: PlanTodo[] = rawTodos.map((t: unknown) => {
+                if (typeof t === 'string') {
+                  return { content: t, status: 'pending' as const };
+                }
+                const obj = t as Record<string, unknown>;
+                return {
+                  content: (obj.content ?? obj.task ?? obj.description ?? String(t)) as string,
+                  status: 'pending' as const, // always pending — plan hasn't been approved yet
+                };
+              });
+              setMessages((prev) =>
+                prev.map((msg) => (msg.id === streamingMessageId ? { ...msg, plan } : msg))
+              );
+            }
+            // Don't set pendingApproval — the plan UI handles this via
+            // planNeedsApproval + handlePlanApprove/handlePlanReject.
+            onStatusChange?.('waiting', 'Awaiting plan approval');
+          } else {
+            // Regular HITL: agent paused on a destructive tool
+            setPendingApproval({
+              toolName,
+              toolInput: data.toolInput,
+            });
+            onStatusChange?.('waiting', 'Awaiting approval');
+          }
           break;
         }
 
-        case 'stream/done':
+        case 'stream/done': {
+          // Force-close any tool calls still marked as 'running' — this handles
+          // edge cases where on_tool_end was missed (e.g., sub-agent tools
+          // suppressed or stream ended early).
+          const now = Date.now();
+          activeToolCallsRef.current = activeToolCallsRef.current.map((tc) =>
+            tc.status === 'running' ? { ...tc, status: 'complete' as const, completedAt: now } : tc
+          );
+          for (const block of contentBlocksRef.current) {
+            if (block.type === 'tool' && block.toolCall.status === 'running') {
+              block.toolCall = { ...block.toolCall, status: 'complete', completedAt: now };
+            }
+          }
+
           // Finalize the streaming message
           setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === streamingMessageId ? { ...msg, status: 'complete' } : msg
-            )
+            prev.map((msg) => {
+              if (msg.id === streamingMessageId) {
+                return {
+                  ...msg,
+                  status: 'complete',
+                  toolCalls: [...activeToolCallsRef.current],
+                  contentBlocks: [...contentBlocksRef.current],
+                };
+              }
+              return msg;
+            })
           );
           setIsStreaming(false);
           setStreamingMessageId(null);
@@ -291,6 +346,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
           contentBlocksRef.current = [];
           onStatusChange?.('waiting', 'Client');
           break;
+        }
 
         case 'stream/error': {
           const errorMsg = (data.error as string) || 'Unknown error';
@@ -298,6 +354,18 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
           // Add error as a text content block so it renders in the ordered sequence
           contentBlocksRef.current.push({ type: 'text', content: errorText });
           streamContentRef.current += errorText;
+
+          // Force-close any running tool calls
+          const errNow = Date.now();
+          activeToolCallsRef.current = activeToolCallsRef.current.map((tc) =>
+            tc.status === 'running' ? { ...tc, status: 'error' as const, completedAt: errNow } : tc
+          );
+          for (const block of contentBlocksRef.current) {
+            if (block.type === 'tool' && block.toolCall.status === 'running') {
+              block.toolCall = { ...block.toolCall, status: 'error', completedAt: errNow };
+            }
+          }
+
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === streamingMessageId
@@ -305,6 +373,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
                     ...msg,
                     status: 'error',
                     content: streamContentRef.current,
+                    toolCalls: [...activeToolCallsRef.current],
                     contentBlocks: [...contentBlocksRef.current],
                   }
                 : msg
@@ -508,6 +577,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
       setTotalTokens(0);
       void initialize(++initGenRef.current);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [selectedModel, isStreaming]
   );
 
@@ -548,6 +618,74 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
     },
     [onStatusChange]
   );
+
+  // ============ Plan-Based Approval (Shield Mode) ============
+
+  // Detect when the agent has written a plan and is waiting for approval.
+  // Triggers when: shield is on, streaming stopped, last assistant message
+  // is complete and has a plan where all items are still pending.
+  useEffect(() => {
+    if (!hitlEnabled || isStreaming) {
+      setPlanNeedsApproval(false);
+      return;
+    }
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+    if (
+      lastAssistant &&
+      lastAssistant.status === 'complete' &&
+      lastAssistant.plan &&
+      lastAssistant.plan.length > 0 &&
+      lastAssistant.plan.every((t) => t.status === 'pending')
+    ) {
+      setPlanNeedsApproval(true);
+    } else {
+      setPlanNeedsApproval(false);
+    }
+  }, [messages, hitlEnabled, isStreaming]);
+
+  const handlePlanApprove = useCallback(() => {
+    setPlanNeedsApproval(false);
+    // Set up a new streaming message so the resumed stream has a target for tokens
+    const newMsgId = generateMessageId();
+    const assistantMsg: ChatMessage = {
+      id: newMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      status: 'streaming',
+      toolCalls: [],
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+    setIsStreaming(true);
+    setStreamingMessageId(newMsgId);
+    streamContentRef.current = '';
+    activeToolCallsRef.current = [];
+    contentBlocksRef.current = [];
+    onStatusChange?.('thinking', 'Client');
+    void handleApproval(true);
+  }, [handleApproval, onStatusChange]);
+
+  const handlePlanReject = useCallback(() => {
+    setPlanNeedsApproval(false);
+    // Set up a new streaming message for the agent's revised response
+    const newMsgId = generateMessageId();
+    const assistantMsg: ChatMessage = {
+      id: newMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      status: 'streaming',
+      toolCalls: [],
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+    setIsStreaming(true);
+    setStreamingMessageId(newMsgId);
+    streamContentRef.current = '';
+    activeToolCallsRef.current = [];
+    contentBlocksRef.current = [];
+    onStatusChange?.('thinking', 'Client');
+    void handleApproval(false);
+  }, [handleApproval, onStatusChange]);
 
   // ============ API Key Setup ============
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -729,7 +867,13 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
       </div>
 
       {/* Messages */}
-      <ChatMessages messages={messages} streamingMessageId={streamingMessageId} />
+      <ChatMessages
+        messages={messages}
+        streamingMessageId={streamingMessageId}
+        planNeedsApproval={planNeedsApproval}
+        onPlanApprove={handlePlanApprove}
+        onPlanReject={handlePlanReject}
+      />
 
       {/* HITL Approval Modal */}
       {pendingApproval && (
