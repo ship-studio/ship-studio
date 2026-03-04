@@ -73,15 +73,16 @@ export interface ClientModel {
 export const TUNED_MODEL_ID = 'tuned';
 /** Google-tuned model ID — Gemini-based smart routing. */
 export const GOOGLE_TUNED_MODEL_ID = 'google-tuned';
+/** Claude-tuned model ID — Anthropic-based smart routing. */
+export const CLAUDE_TUNED_MODEL_ID = 'claude-tuned';
 
 /**
  * Available models for the Client agent.
  *
  * "Tuned" uses smart routing with MiniMax/GLM/MiMo models.
  * "Google Tuned" uses Gemini Flash for orchestration and Lite for sub-agents.
+ * "Claude Tuned" uses Claude Opus 4.6 as orchestrator with Sonnet 4.6 sub-agents.
  * All other models run in unified mode — same model for everything.
- *
- * All models are under $1.50/1M output tokens. No premium models.
  */
 export const CLIENT_MODELS: ClientModel[] = [
   {
@@ -95,6 +96,12 @@ export const CLIENT_MODELS: ClientModel[] = [
     name: 'Google Tuned',
     tier: 'standard',
     description: 'Smart routing — Gemini 3 Flash orchestrator',
+  },
+  {
+    id: CLAUDE_TUNED_MODEL_ID,
+    name: 'Claude Tuned',
+    tier: 'premium',
+    description: 'Smart routing — Claude Opus 4.6 orchestrator',
   },
   {
     id: 'xiaomi/mimo-v2-flash',

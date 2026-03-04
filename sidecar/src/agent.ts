@@ -58,6 +58,8 @@ const SUB_AGENT_MODELS = {
 const TUNED_MODEL_ID = "tuned";
 /** Sentinel model ID for Google-tuned routing mode. */
 const GOOGLE_TUNED_MODEL_ID = "google-tuned";
+/** Sentinel model ID for Claude-tuned routing mode. */
+const CLAUDE_TUNED_MODEL_ID = "claude-tuned";
 
 /** Default orchestrator model for tuned routing mode. */
 const TUNED_ORCHESTRATOR = "minimax/minimax-m2.5";
@@ -70,6 +72,14 @@ const GOOGLE_SUB_AGENT_MODELS = {
   tester: "google/gemini-3.1-flash-lite-preview",
 } as const;
 
+/** Claude sub-agent model assignments. */
+const CLAUDE_SUB_AGENT_MODELS = {
+  orchestrator: "anthropic/claude-opus-4.6",
+  explorer: "anthropic/claude-sonnet-4.6",
+  coder: "anthropic/claude-sonnet-4.6",
+  tester: "anthropic/claude-sonnet-4.6",
+} as const;
+
 /** Pricing per 1M tokens (USD) for cost tracking. */
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "z-ai/glm-4.7": { input: 0.30, output: 1.40 },
@@ -80,6 +90,8 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "minimax/minimax-m2.1": { input: 0.28, output: 1.20 },
   "google/gemini-3-flash-preview": { input: 0.15, output: 0.60 },
   "google/gemini-3.1-flash-lite-preview": { input: 0.25, output: 1.50 },
+  "anthropic/claude-opus-4.6": { input: 5.00, output: 25.00 },
+  "anthropic/claude-sonnet-4.6": { input: 3.00, output: 15.00 },
 };
 
 /** Tools that require user approval when HITL is enabled. */
@@ -302,13 +314,16 @@ export class AgentSession {
   async initialize(): Promise<void> {
     const isTuned = this.options.model === TUNED_MODEL_ID;
     const isGoogleTuned = this.options.model === GOOGLE_TUNED_MODEL_ID;
-    const isRouted = isTuned || isGoogleTuned;
+    const isClaudeTuned = this.options.model === CLAUDE_TUNED_MODEL_ID;
+    const isRouted = isTuned || isGoogleTuned || isClaudeTuned;
 
-    const orchestratorModelId = isGoogleTuned
-      ? GOOGLE_SUB_AGENT_MODELS.orchestrator
-      : isTuned
-        ? TUNED_ORCHESTRATOR
-        : this.options.model;
+    const orchestratorModelId = isClaudeTuned
+      ? CLAUDE_SUB_AGENT_MODELS.orchestrator
+      : isGoogleTuned
+        ? GOOGLE_SUB_AGENT_MODELS.orchestrator
+        : isTuned
+          ? TUNED_ORCHESTRATOR
+          : this.options.model;
 
     // Update the model instance for the orchestrator
     this.model = this.createModel(orchestratorModelId, this.options.apiKey);
@@ -343,19 +358,22 @@ export class AgentSession {
     // Sub-agent models: routed modes use specialized models per role,
     // unified mode uses the same model for everything.
     const explorerModel = this.createModel(
-      isGoogleTuned ? GOOGLE_SUB_AGENT_MODELS.explorer
+      isClaudeTuned ? CLAUDE_SUB_AGENT_MODELS.explorer
+        : isGoogleTuned ? GOOGLE_SUB_AGENT_MODELS.explorer
         : isTuned ? SUB_AGENT_MODELS.explorer
         : this.options.model,
       this.options.apiKey,
     );
     const coderModel = this.createModel(
-      isGoogleTuned ? GOOGLE_SUB_AGENT_MODELS.coder
+      isClaudeTuned ? CLAUDE_SUB_AGENT_MODELS.coder
+        : isGoogleTuned ? GOOGLE_SUB_AGENT_MODELS.coder
         : isTuned ? SUB_AGENT_MODELS.coder
         : this.options.model,
       this.options.apiKey,
     );
     const testerModel = this.createModel(
-      isGoogleTuned ? GOOGLE_SUB_AGENT_MODELS.tester
+      isClaudeTuned ? CLAUDE_SUB_AGENT_MODELS.tester
+        : isGoogleTuned ? GOOGLE_SUB_AGENT_MODELS.tester
         : isTuned ? SUB_AGENT_MODELS.tester
         : this.options.model,
       this.options.apiKey,
@@ -450,9 +468,10 @@ export class AgentSession {
         ] as any[],
       });
       debug("Deep agent created successfully", {
-        mode: isGoogleTuned ? "google-tuned" : isTuned ? "tuned" : "unified",
+        mode: isClaudeTuned ? "claude-tuned" : isGoogleTuned ? "google-tuned" : isTuned ? "tuned" : "unified",
         orchestrator: orchestratorModelId,
-        subAgents: isGoogleTuned ? GOOGLE_SUB_AGENT_MODELS
+        subAgents: isClaudeTuned ? CLAUDE_SUB_AGENT_MODELS
+          : isGoogleTuned ? GOOGLE_SUB_AGENT_MODELS
           : isTuned ? SUB_AGENT_MODELS
           : { all: this.options.model },
         hitl: this.options.hitlEnabled ?? false,
