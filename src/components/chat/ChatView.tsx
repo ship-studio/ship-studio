@@ -21,9 +21,11 @@ import {
   sendChatMessage,
   cancelGeneration,
   clearChatHistory as clearChatHistoryRpc,
+  resumeGeneration,
   listenForAgentEvents,
   generateMessageId,
   getModelById,
+  formatTokenCount,
   DEFAULT_MODEL,
   CLIENT_MODELS,
 } from '../../lib/client-agent';
@@ -32,6 +34,9 @@ import {
   setOpenRouterApiKey,
   getClientAgentModel,
   setClientAgentModel,
+  getClientAgentHitlEnabled,
+  setClientAgentHitlEnabled,
+  getClientAgentSpendingLimit,
 } from '../../lib/client-settings';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput, type ChatInputHandle } from './ChatInput';
@@ -54,6 +59,16 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL.id);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+
+  // Token tracking
+  const [totalTokens, setTotalTokens] = useState(0);
+
+  // HITL state
+  const [hitlEnabled, setHitlEnabled] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<{
+    toolName: string;
+    toolInput: unknown;
+  } | null>(null);
 
   const inputRef = useRef<ChatInputHandle>(null);
   const windowLabel = useRef(getCurrentWindow().label);
@@ -139,6 +154,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
             input: data.input,
             status: 'running',
             startedAt: Date.now(),
+            stepTokens: typeof data.stepTokens === 'number' ? data.stepTokens : undefined,
           };
           activeToolCallsRef.current = [...activeToolCallsRef.current, toolCall];
 
@@ -229,6 +245,38 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
           break;
         }
 
+        case 'stream/tokenUsage': {
+          const cumulativeInput = (data.cumulativeInput as number) ?? 0;
+          const cumulativeOutput = (data.cumulativeOutput as number) ?? 0;
+          setTotalTokens(cumulativeInput + cumulativeOutput);
+          break;
+        }
+
+        case 'stream/costWarning': {
+          const percentUsed = (data.percentUsed as number) ?? 0;
+          const limit = (data.limit as number) ?? 0;
+          // Insert a system message about cost warning
+          const warningMsg: ChatMessage = {
+            id: generateMessageId(),
+            role: 'system',
+            content: `Spending limit warning: ${percentUsed}% of $${limit.toFixed(2)} used.`,
+            timestamp: Date.now(),
+            status: 'complete',
+          };
+          setMessages((prev) => [...prev, warningMsg]);
+          break;
+        }
+
+        case 'stream/interrupt': {
+          // HITL: agent paused, waiting for approval
+          setPendingApproval({
+            toolName: (data.toolName as string) || 'unknown',
+            toolInput: data.toolInput,
+          });
+          onStatusChange?.('waiting', 'Awaiting approval');
+          break;
+        }
+
         case 'stream/done':
           // Finalize the streaming message
           setMessages((prev) =>
@@ -246,10 +294,19 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
 
         case 'stream/error': {
           const errorMsg = (data.error as string) || 'Unknown error';
+          const errorText = `\n\n_Error: ${errorMsg}_`;
+          // Add error as a text content block so it renders in the ordered sequence
+          contentBlocksRef.current.push({ type: 'text', content: errorText });
+          streamContentRef.current += errorText;
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === streamingMessageId
-                ? { ...msg, status: 'error', content: msg.content + `\n\n_Error: ${errorMsg}_` }
+                ? {
+                    ...msg,
+                    status: 'error',
+                    content: streamContentRef.current,
+                    contentBlocks: [...contentBlocksRef.current],
+                  }
                 : msg
             )
           );
@@ -327,9 +384,24 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
       if (gen !== initGenRef.current) return;
       setSelectedModel(model);
 
+      // Load HITL and spending limit settings
+      const savedHitl = await getClientAgentHitlEnabled();
+      if (gen !== initGenRef.current) return;
+      setHitlEnabled(savedHitl);
+
+      const spendingLimit = await getClientAgentSpendingLimit();
+      if (gen !== initGenRef.current) return;
+
       // Start the sidecar — Rust kills any existing sidecar for this
       // window first, then spawns a new one and sends the initialize RPC.
-      await startClientAgent(windowLabel.current, projectPath, apiKey, model);
+      await startClientAgent(
+        windowLabel.current,
+        projectPath,
+        apiKey,
+        model,
+        savedHitl,
+        spendingLimit || undefined
+      );
       if (gen !== initGenRef.current) return;
 
       // NOW subscribe to events for the new sidecar (after old one is gone).
@@ -416,6 +488,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
 
   const handleClearChat = useCallback(async () => {
     setMessages([]);
+    setTotalTokens(0);
     try {
       await clearChatHistoryRpc(windowLabel.current);
     } catch {
@@ -432,10 +505,48 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
       await setClientAgentModel(modelId);
       // Restart sidecar with new model
       setIsInitialized(false);
+      setTotalTokens(0);
       void initialize(++initGenRef.current);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
     [selectedModel, isStreaming]
+  );
+
+  const handleToggleHitl = useCallback(async () => {
+    if (isStreaming) return;
+    const newValue = !hitlEnabled;
+    setHitlEnabled(newValue);
+    await setClientAgentHitlEnabled(newValue);
+    // Restart sidecar since interruptOn is set at agent creation time
+    setIsInitialized(false);
+    setTotalTokens(0);
+    void initialize(++initGenRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hitlEnabled, isStreaming]);
+
+  const handleApproval = useCallback(
+    async (approved: boolean) => {
+      setPendingApproval(null);
+      onStatusChange?.('thinking', 'Client');
+      try {
+        await resumeGeneration(windowLabel.current, approved);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateMessageId(),
+            role: 'system',
+            content: `_Error resuming: ${message}_`,
+            timestamp: Date.now(),
+            status: 'error',
+          },
+        ]);
+        setIsStreaming(false);
+        setStreamingMessageId(null);
+        onStatusChange?.('waiting', 'Client');
+      }
+    },
+    [onStatusChange]
   );
 
   // ============ API Key Setup ============
@@ -537,9 +648,29 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
   // ============ Main Chat UI ============
   const currentModel = getModelById(selectedModel);
 
+  // Format tool input for the approval modal
+  const formatToolInput = (input: unknown): string => {
+    try {
+      return JSON.stringify(input, null, 2);
+    } catch {
+      return String(input);
+    }
+  };
+
+  // Human-friendly tool name for the approval modal
+  const toolLabel = (name: string): string => {
+    const labels: Record<string, string> = {
+      write_file: 'Write file',
+      edit_file: 'Edit file',
+      execute: 'Run command',
+      git_commit: 'Git commit',
+    };
+    return labels[name] ?? name;
+  };
+
   return (
     <div className="chat-view">
-      {/* Header with model selector and actions */}
+      {/* Header with model selector, HITL toggle, token counter, and actions */}
       <div className="chat-header">
         <div className="chat-header-left" ref={dropdownRef}>
           <button
@@ -569,6 +700,23 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
           )}
         </div>
         <div className="chat-header-right">
+          {totalTokens > 0 && (
+            <span className="chat-token-counter" title={`Total tokens used this session`}>
+              {formatTokenCount(totalTokens)} tokens
+            </span>
+          )}
+          <button
+            className={`chat-header-btn chat-hitl-toggle ${hitlEnabled ? 'active' : ''}`}
+            onClick={() => void handleToggleHitl()}
+            title={
+              hitlEnabled
+                ? 'Shield ON — confirms before destructive actions'
+                : 'Shield OFF — agent runs freely'
+            }
+            disabled={isStreaming}
+          >
+            {hitlEnabled ? '\u{1F6E1}' : '\u{1F6E1}'}
+          </button>
           <button
             className="chat-header-btn"
             onClick={() => void handleClearChat()}
@@ -583,14 +731,40 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
       {/* Messages */}
       <ChatMessages messages={messages} streamingMessageId={streamingMessageId} />
 
+      {/* HITL Approval Modal */}
+      {pendingApproval && (
+        <div className="chat-approval-overlay">
+          <div className="chat-approval-modal">
+            <div className="chat-approval-header">
+              Agent wants to: <strong>{toolLabel(pendingApproval.toolName)}</strong>
+            </div>
+            <pre className="chat-approval-input">{formatToolInput(pendingApproval.toolInput)}</pre>
+            <div className="chat-approval-actions">
+              <button className="btn-primary" onClick={() => void handleApproval(true)}>
+                Approve
+              </button>
+              <button className="btn-secondary" onClick={() => void handleApproval(false)}>
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <ChatInput
         ref={inputRef}
         onSend={(text) => void handleSend(text)}
         isStreaming={isStreaming}
         onCancel={() => void handleCancel()}
-        disabled={!isInitialized && !error}
-        placeholder={!isInitialized ? 'Connecting...' : 'Send a message...'}
+        disabled={(!isInitialized && !error) || !!pendingApproval}
+        placeholder={
+          pendingApproval
+            ? 'Waiting for approval...'
+            : !isInitialized
+              ? 'Connecting...'
+              : 'Send a message...'
+        }
       />
     </div>
   );

@@ -676,6 +676,9 @@ pub struct AppState {
     /// Monthly spending limit in USD for Client agent usage
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_agent_spending_limit: Option<f64>,
+    /// Whether human-in-the-loop is enabled for destructive operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_agent_hitl_enabled: Option<bool>,
 }
 
 // ============ Compact Mode ============

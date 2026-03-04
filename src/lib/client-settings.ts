@@ -38,3 +38,13 @@ export async function getClientAgentSpendingLimit(): Promise<number> {
 export async function setClientAgentSpendingLimit(limit: number): Promise<void> {
   return invoke('set_client_agent_spending_limit', { limit });
 }
+
+/** Get whether human-in-the-loop is enabled for the Client agent. */
+export async function getClientAgentHitlEnabled(): Promise<boolean> {
+  return invoke<boolean>('get_client_agent_hitl_enabled');
+}
+
+/** Set whether human-in-the-loop is enabled. */
+export async function setClientAgentHitlEnabled(enabled: boolean): Promise<void> {
+  return invoke('set_client_agent_hitl_enabled', { enabled });
+}

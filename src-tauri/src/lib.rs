@@ -247,6 +247,8 @@ pub fn run() {
             commands::settings::set_client_agent_model,
             commands::settings::get_client_agent_spending_limit,
             commands::settings::set_client_agent_spending_limit,
+            commands::settings::get_client_agent_hitl_enabled,
+            commands::settings::set_client_agent_hitl_enabled,
             // AI generation
             commands::ai::generate_pr_description,
             // Claude integration
@@ -316,6 +318,7 @@ pub fn run() {
             commands::client_agent::cancel_generation,
             commands::client_agent::clear_chat_history,
             commands::client_agent::set_client_model,
+            commands::client_agent::resume_generation,
             // PTY & Terminal
             commands::pty::spawn_pty,
             commands::pty::kill_pty,

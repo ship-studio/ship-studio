@@ -226,6 +226,8 @@ pub async fn start_client_agent(
     project_path: String,
     api_key: String,
     model: String,
+    hitl_enabled: Option<bool>,
+    spending_limit: Option<f64>,
 ) -> Result<(), String> {
     // Stop any existing sidecar for this window
     stop_client_agent_internal(&window_label);
@@ -235,10 +237,11 @@ pub async fn start_client_agent(
     let extended_path = get_extended_path();
 
     tracing::info!(
-        "Starting client agent sidecar for window {} (model: {}, project: {})",
+        "Starting client agent sidecar for window {} (model: {}, project: {}, hitl: {:?})",
         window_label,
         model,
-        project_path
+        project_path,
+        hitl_enabled
     );
 
     // Spawn the Node.js sidecar
@@ -280,11 +283,13 @@ pub async fn start_client_agent(
         });
     }
 
-    // Send initialize RPC
+    // Send initialize RPC with all settings
     let init_params = serde_json::json!({
         "apiKey": api_key,
         "model": model,
         "projectPath": project_path,
+        "hitlEnabled": hitl_enabled.unwrap_or(false),
+        "spendingLimit": spending_limit,
     });
 
     send_rpc(&mut child, "initialize", init_params)?;
@@ -373,6 +378,19 @@ pub fn set_client_model(window_label: String, model: String) -> Result<(), Strin
 
     let params = serde_json::json!({ "model": model });
     send_rpc(&mut entry.child, "setModel", params)?;
+    Ok(())
+}
+
+/// Resume after a HITL interrupt (approve or reject the pending tool call).
+#[tauri::command]
+pub fn resume_generation(window_label: String, approved: bool) -> Result<(), String> {
+    let mut registry = SIDECAR_REGISTRY.lock().unwrap();
+    let entry = registry
+        .get_mut(&window_label)
+        .ok_or("Client agent not running for this window")?;
+
+    let params = serde_json::json!({ "approved": approved });
+    send_rpc(&mut entry.child, "resume", params)?;
     Ok(())
 }
 

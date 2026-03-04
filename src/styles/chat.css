@@ -586,9 +586,16 @@
   max-width: 200px;
 }
 
-.chat-tool-duration {
+.chat-tool-tokens {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 10px;
   color: var(--text-muted);
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+.chat-tool-duration {
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -980,4 +987,73 @@
 .chat-message-action:hover {
   background: var(--bg-tertiary);
   color: var(--text-secondary);
+}
+
+/* ============ Token Counter ============ */
+
+.chat-token-counter {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  padding: 2px 6px;
+  user-select: none;
+}
+
+/* ============ HITL Toggle ============ */
+
+.chat-hitl-toggle.active {
+  color: var(--action);
+  border-color: var(--action);
+}
+
+/* ============ Approval Modal ============ */
+
+.chat-approval-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.chat-approval-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.chat-approval-header {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.chat-approval-input {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.chat-approval-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }

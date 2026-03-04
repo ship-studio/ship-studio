@@ -25,6 +25,12 @@ const BLOCKED_PATTERNS = [
   /:(){ :\|:& };:/,
   />\s*\/dev\/sd/,
   /chmod\s+-R\s+777\s+\//,
+  /\bsudo\b/,
+  /curl\b.*\|\s*\b(bash|sh)\b/,
+  /wget\b.*\|\s*\b(bash|sh)\b/,
+  /\bnpm\s+publish\b/,
+  /\bgit\s+push\s+.*--force\b/,
+  /\bgit\s+reset\s+--hard\b/,
 ];
 
 function isDangerous(command: string): boolean {
@@ -92,7 +98,9 @@ export function createShellTool(projectPath: string) {
     {
       name: "execute",
       description:
-        "Execute a shell command in the project directory. Returns stdout, stderr, exit code, and whether output was truncated. Use for running build tools, package managers, tests, and other CLI operations.",
+        "Execute a shell command in the project directory. Returns stdout, stderr, exit code. " +
+        "ONLY use for: npm/pnpm/yarn, git, build tools, dev servers, and CLI operations with no built-in equivalent. " +
+        "Do NOT use for file operations — use read_file (not cat/head/tail), ls (not ls command), glob (not find), grep (not grep/rg).",
       schema: z.object({
         command: z.string().describe("The shell command to execute"),
       }),

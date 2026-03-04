@@ -65,3 +65,18 @@ pub fn set_client_agent_spending_limit(limit: Option<f64>) -> Result<(), String>
     state.client_agent_spending_limit = limit;
     write_app_state(&state)
 }
+
+/// Get whether human-in-the-loop is enabled for the Client agent.
+#[tauri::command]
+pub fn get_client_agent_hitl_enabled() -> Result<bool, String> {
+    let state = read_app_state();
+    Ok(state.client_agent_hitl_enabled.unwrap_or(false))
+}
+
+/// Set whether human-in-the-loop is enabled (persisted to app state).
+#[tauri::command]
+pub fn set_client_agent_hitl_enabled(enabled: bool) -> Result<(), String> {
+    let mut state = read_app_state();
+    state.client_agent_hitl_enabled = Some(enabled);
+    write_app_state(&state)
+}

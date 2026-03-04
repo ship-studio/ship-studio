@@ -13,6 +13,7 @@ import type {
   ToolCallInfo,
   PlanTodo,
 } from '../../lib/client-agent';
+import { formatTokenCount } from '../../lib/client-agent';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { ToolCallIndicator } from './ToolCallIndicator';
 
@@ -203,11 +204,16 @@ function ToolGroup({ tools }: { tools: ToolCallInfo[] }) {
         : `${(totalDuration / 1000).toFixed(1)}s`
       : null;
 
+  // Show tokens from the LLM reasoning step that triggered these tools
+  const stepTokens = tools.find((tc) => tc.stepTokens && tc.stepTokens > 0)?.stepTokens ?? 0;
+  const tokensStr = stepTokens > 0 ? formatTokenCount(stepTokens) : null;
+
   return (
     <div className="chat-tool-group">
       <button className="chat-tool-group-header" onClick={() => setExpanded(!expanded)}>
         <span className="chat-tool-status complete">{'\u2713'}</span>
         <span className="chat-tool-group-label">{tools.length} tool calls</span>
+        {tokensStr && <span className="chat-tool-tokens">{tokensStr}</span>}
         {durationStr && <span className="chat-tool-duration">{durationStr}</span>}
         <span className={`chat-tool-chevron ${expanded ? 'expanded' : ''}`}>{'\u25B8'}</span>
       </button>
