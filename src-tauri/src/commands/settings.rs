@@ -18,3 +18,50 @@ pub fn set_calendar_hidden(hidden: bool) -> Result<(), String> {
     state.calendar_hidden = Some(hidden);
     write_app_state(&state)
 }
+
+// ============ Client Agent Settings ============
+
+/// Get the stored OpenRouter API key.
+#[tauri::command]
+pub fn get_openrouter_api_key() -> Result<Option<String>, String> {
+    let state = read_app_state();
+    Ok(state.openrouter_api_key)
+}
+
+/// Set the OpenRouter API key (persisted to app state).
+#[tauri::command]
+pub fn set_openrouter_api_key(api_key: Option<String>) -> Result<(), String> {
+    let mut state = read_app_state();
+    state.openrouter_api_key = api_key;
+    write_app_state(&state)
+}
+
+/// Get the preferred Client agent model ID.
+#[tauri::command]
+pub fn get_client_agent_model() -> Result<Option<String>, String> {
+    let state = read_app_state();
+    Ok(state.client_agent_model)
+}
+
+/// Set the preferred Client agent model ID (persisted to app state).
+#[tauri::command]
+pub fn set_client_agent_model(model: Option<String>) -> Result<(), String> {
+    let mut state = read_app_state();
+    state.client_agent_model = model;
+    write_app_state(&state)
+}
+
+/// Get the monthly spending limit for Client agent usage.
+#[tauri::command]
+pub fn get_client_agent_spending_limit() -> Result<Option<f64>, String> {
+    let state = read_app_state();
+    Ok(state.client_agent_spending_limit)
+}
+
+/// Set the monthly spending limit for Client agent usage (persisted to app state).
+#[tauri::command]
+pub fn set_client_agent_spending_limit(limit: Option<f64>) -> Result<(), String> {
+    let mut state = read_app_state();
+    state.client_agent_spending_limit = limit;
+    write_app_state(&state)
+}

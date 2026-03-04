@@ -14,6 +14,7 @@ import {
   ALL_TAB_OPTIONS,
   CLAUDE_CODE,
   CODEX,
+  CLIENT,
   TERMINAL,
 } from './agent';
 
@@ -92,22 +93,27 @@ describe('getActiveAgent', () => {
 // ============ ALL_AGENTS / ALL_TAB_OPTIONS ============
 
 describe('ALL_AGENTS', () => {
-  it('has exactly 2 entries', () => {
-    expect(ALL_AGENTS).toHaveLength(2);
+  it('has exactly 3 entries', () => {
+    expect(ALL_AGENTS).toHaveLength(3);
   });
 
-  it('contains CLAUDE_CODE and CODEX', () => {
-    expect(ALL_AGENTS.map((a) => a.id)).toEqual(['claude-code', 'codex']);
+  it('contains CLAUDE_CODE, CODEX, and CLIENT', () => {
+    expect(ALL_AGENTS.map((a) => a.id)).toEqual(['claude-code', 'codex', 'client']);
   });
 });
 
 describe('ALL_TAB_OPTIONS', () => {
-  it('has exactly 3 entries (agents + terminal)', () => {
-    expect(ALL_TAB_OPTIONS).toHaveLength(3);
+  it('has exactly 4 entries (agents + terminal)', () => {
+    expect(ALL_TAB_OPTIONS).toHaveLength(4);
   });
 
-  it('contains CLAUDE_CODE, CODEX, and TERMINAL', () => {
-    expect(ALL_TAB_OPTIONS.map((a) => a.id)).toEqual(['claude-code', 'codex', 'terminal']);
+  it('contains CLAUDE_CODE, CODEX, CLIENT, and TERMINAL', () => {
+    expect(ALL_TAB_OPTIONS.map((a) => a.id)).toEqual([
+      'claude-code',
+      'codex',
+      'client',
+      'terminal',
+    ]);
   });
 });
 
@@ -141,11 +147,23 @@ describe('AgentConfig fields', () => {
     for (const agent of ALL_TAB_OPTIONS) {
       expect(agent.id).toBeTruthy();
       expect(agent.displayName).toBeTruthy();
-      expect(agent.binaryName).toBeTruthy();
+      // CLIENT uses a sidecar, not a CLI binary, so binaryName is empty
+      if (agent.id !== 'client') {
+        expect(agent.binaryName).toBeTruthy();
+      }
       expect(agent.processName).toBeTruthy();
       expect(agent.loadingMessage).toBeTruthy();
       expect(agent.notFoundMessage).toBeTruthy();
       expect(agent.installHint).toBeTruthy();
     }
+  });
+
+  it('CLIENT has correct specific values', () => {
+    expect(CLIENT.binaryName).toBe('');
+    expect(CLIENT.processName).toBe('client-agent');
+    expect(CLIENT.autoAcceptFlag).toBeNull();
+    expect(CLIENT.supportsSkills).toBe(false);
+    expect(CLIENT.supportsMcp).toBe(false);
+    expect(CLIENT.supportsStatusDetection).toBe(false);
   });
 });

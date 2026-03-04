@@ -1,0 +1,264 @@
+/**
+ * Individual chat message bubble.
+ *
+ * Renders user messages, assistant messages (with markdown),
+ * and inline tool call indicators in chronological order.
+ * Groups consecutive completed tool calls for compact display.
+ */
+
+import { useState, useCallback } from 'react';
+import type {
+  ChatMessage as ChatMessageType,
+  ContentBlock,
+  ToolCallInfo,
+  PlanTodo,
+} from '../../lib/client-agent';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { ToolCallIndicator } from './ToolCallIndicator';
+
+interface ChatMessageProps {
+  message: ChatMessageType;
+  isStreaming?: boolean;
+}
+
+export function ChatMessage({ message, isStreaming = false }: ChatMessageProps) {
+  const isUser = message.role === 'user';
+  const [copied, setCopied] = useState(false);
+
+  // Show the thinking indicator whenever the agent is streaming and
+  // no tool is actively running. This covers both "before first token"
+  // and "between tool calls" so the user always sees the agent is working.
+  const hasRunningTools = message.toolCalls?.some((tc) => tc.status === 'running') ?? false;
+  const showThinking = isStreaming && message.status === 'streaming' && !hasRunningTools;
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(message.content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [message.content]);
+
+  return (
+    <div className={`chat-message chat-message--${message.role}`}>
+      {!isUser && (
+        <div className="chat-message-avatar">
+          <span className="chat-avatar-icon">{'>'}_</span>
+        </div>
+      )}
+      <div className="chat-message-body">
+        {/* User messages: simple text */}
+        {isUser && message.content && (
+          <div className="chat-message-content">
+            <span>{message.content}</span>
+          </div>
+        )}
+
+        {/* Plan indicator — shown at top of assistant message when agent has a plan */}
+        {!isUser && message.plan && message.plan.length > 0 && (
+          <PlanIndicator todos={message.plan} />
+        )}
+
+        {/* Assistant messages: render content blocks in chronological order */}
+        {!isUser && message.contentBlocks && message.contentBlocks.length > 0 ? (
+          <AssistantBlocks
+            blocks={message.contentBlocks}
+            isStreaming={isStreaming && message.status === 'streaming'}
+          />
+        ) : !isUser ? (
+          // Fallback for messages without contentBlocks (e.g. older messages)
+          <>
+            {message.toolCalls && message.toolCalls.length > 0 && (
+              <div className="chat-message-tools">
+                {message.toolCalls.map((tc, i) => (
+                  <ToolCallIndicator key={`${tc.name}-${i}`} toolCall={tc} />
+                ))}
+              </div>
+            )}
+            {message.content && (
+              <div className="chat-message-content">
+                <MarkdownRenderer content={message.content} />
+                {isStreaming && message.status === 'streaming' && <span className="chat-cursor" />}
+              </div>
+            )}
+          </>
+        ) : null}
+
+        {/* Thinking indicator — shown at the bottom whenever the agent
+            is streaming and no tool is currently executing */}
+        {showThinking && (
+          <div className="chat-thinking">
+            <div className="chat-thinking-dots">
+              <span className="chat-thinking-dot" />
+              <span className="chat-thinking-dot" />
+              <span className="chat-thinking-dot" />
+            </div>
+            <span>Thinking…</span>
+          </div>
+        )}
+
+        {/* Copy button — shown on completed messages with content */}
+        {message.content && message.status === 'complete' && (
+          <div className="chat-message-actions">
+            <button className="chat-message-action" onClick={handleCopy} title="Copy message">
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============ Sub-components ============
+
+/** A visual block group — text, single tool, or a collapsed group of tools. */
+type BlockGroup =
+  | { kind: 'text'; content: string; index: number }
+  | { kind: 'tool'; toolCall: ToolCallInfo; index: number }
+  | { kind: 'tool-group'; tools: ToolCallInfo[]; startIndex: number };
+
+/** Groups consecutive completed tool blocks for compact display. */
+function groupContentBlocks(blocks: ContentBlock[]): BlockGroup[] {
+  const groups: BlockGroup[] = [];
+  let pendingTools: ToolCallInfo[] = [];
+  let pendingStartIndex = 0;
+
+  function flushTools() {
+    if (pendingTools.length === 0) return;
+    if (pendingTools.length <= 3) {
+      pendingTools.forEach((tc, i) => {
+        groups.push({ kind: 'tool', toolCall: tc, index: pendingStartIndex + i });
+      });
+    } else {
+      groups.push({ kind: 'tool-group', tools: [...pendingTools], startIndex: pendingStartIndex });
+    }
+    pendingTools = [];
+  }
+
+  blocks.forEach((block, i) => {
+    if (block.type === 'text') {
+      flushTools();
+      groups.push({ kind: 'text', content: block.content, index: i });
+    } else {
+      if (block.toolCall.status === 'complete') {
+        if (pendingTools.length === 0) pendingStartIndex = i;
+        pendingTools.push(block.toolCall);
+      } else {
+        // Running/error tools flush any pending group and render individually
+        flushTools();
+        groups.push({ kind: 'tool', toolCall: block.toolCall, index: i });
+      }
+    }
+  });
+  flushTools();
+
+  return groups;
+}
+
+/** Renders an ordered sequence of text and tool-call blocks. */
+function AssistantBlocks({
+  blocks,
+  isStreaming,
+}: {
+  blocks: ContentBlock[];
+  isStreaming: boolean;
+}) {
+  const groups = groupContentBlocks(blocks);
+
+  return (
+    <>
+      {groups.map((group) => {
+        if (group.kind === 'text') {
+          return (
+            <div key={`text-${group.index}`} className="chat-message-content">
+              <MarkdownRenderer content={group.content} />
+              {/* Show cursor on the last text block while streaming */}
+              {isStreaming && group.index === blocks.length - 1 && <span className="chat-cursor" />}
+            </div>
+          );
+        }
+        if (group.kind === 'tool-group') {
+          return <ToolGroup key={`group-${group.startIndex}`} tools={group.tools} />;
+        }
+        // single tool
+        return (
+          <div key={`tool-${group.index}`} className="chat-message-tools">
+            <ToolCallIndicator toolCall={group.toolCall} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/** Collapsed group of completed tool calls (> 3 in a row). */
+function ToolGroup({ tools }: { tools: ToolCallInfo[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const totalDuration = tools.reduce((sum, tc) => sum + (tc.durationMs || 0), 0);
+  const durationStr =
+    totalDuration > 0
+      ? totalDuration < 1000
+        ? `${Math.round(totalDuration)}ms`
+        : `${(totalDuration / 1000).toFixed(1)}s`
+      : null;
+
+  return (
+    <div className="chat-tool-group">
+      <button className="chat-tool-group-header" onClick={() => setExpanded(!expanded)}>
+        <span className="chat-tool-status complete">{'\u2713'}</span>
+        <span className="chat-tool-group-label">{tools.length} tool calls</span>
+        {durationStr && <span className="chat-tool-duration">{durationStr}</span>}
+        <span className={`chat-tool-chevron ${expanded ? 'expanded' : ''}`}>{'\u25B8'}</span>
+      </button>
+      {expanded && (
+        <div className="chat-tool-group-items">
+          {tools.map((tc, i) => (
+            <ToolCallIndicator key={`group-tool-${i}`} toolCall={tc} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Inline plan/todo progress indicator. */
+function PlanIndicator({ todos }: { todos: PlanTodo[] }) {
+  const [expanded, setExpanded] = useState(true);
+  const completed = todos.filter((t) => t.status === 'completed').length;
+  const inProgress = todos.filter((t) => t.status === 'in_progress').length;
+
+  return (
+    <div className="chat-plan">
+      <button className="chat-plan-header" onClick={() => setExpanded(!expanded)}>
+        <span className="chat-plan-progress">
+          {completed}/{todos.length}
+        </span>
+        <span className="chat-plan-label">
+          {inProgress > 0
+            ? 'Working...'
+            : completed === todos.length
+              ? 'Plan complete'
+              : 'Planning'}
+        </span>
+        <span className={`chat-tool-chevron ${expanded ? 'expanded' : ''}`}>{'\u25B8'}</span>
+      </button>
+      {expanded && (
+        <div className="chat-plan-items">
+          {todos.map((todo, idx) => (
+            <div key={idx} className={`chat-plan-item ${todo.status}`}>
+              <span className="chat-plan-item-icon">
+                {todo.status === 'completed'
+                  ? '\u2713'
+                  : todo.status === 'in_progress'
+                    ? '\u25CF'
+                    : '\u25CB'}
+              </span>
+              <span className="chat-plan-item-text">{todo.content}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -667,6 +667,15 @@ pub struct AppState {
     /// Whether the GitHub contribution calendar is hidden on the dashboard
     #[serde(skip_serializing_if = "Option::is_none")]
     pub calendar_hidden: Option<bool>,
+    /// OpenRouter API key for Client agent (BYOK)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub openrouter_api_key: Option<String>,
+    /// Preferred model ID for the Client agent
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_agent_model: Option<String>,
+    /// Monthly spending limit in USD for Client agent usage
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_agent_spending_limit: Option<f64>,
 }
 
 // ============ Compact Mode ============

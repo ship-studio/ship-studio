@@ -45,7 +45,8 @@
       "icons/icon.png"
     ],
     "resources": {
-      "fonts/*": "fonts/"
+      "fonts/*": "fonts/",
+      "../sidecar/dist/*": "sidecar/"
     },
     "createUpdaterArtifacts": true
   },
