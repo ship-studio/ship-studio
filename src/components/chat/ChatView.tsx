@@ -507,9 +507,14 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
       const spendingLimit = await getClientAgentSpendingLimit();
       if (gen !== initGenRef.current) return;
 
-      // Load saved model preference
-      const savedModel = await getClientAgentModel();
+      // Load saved model preference — validate it still exists in CLIENT_MODELS
+      let savedModel = await getClientAgentModel();
       if (gen !== initGenRef.current) return;
+      if (savedModel && !CLIENT_MODELS.some((m) => m.id === savedModel)) {
+        // Stale model ID from a previous version — reset to default
+        savedModel = null;
+        await setClientAgentModel(null);
+      }
       setSelectedModel(savedModel);
 
       // Start the sidecar — Rust kills any existing sidecar for this
