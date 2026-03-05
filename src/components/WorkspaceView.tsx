@@ -12,6 +12,7 @@
 
 import { memo, type RefObject } from 'react';
 import { Terminal } from './Terminal';
+import { ChatView } from './chat/ChatView';
 import { DevServerLogs } from './DevServerLogs';
 import { Preview } from './Preview';
 import type { PreviewHandle } from './Preview';
@@ -740,29 +741,44 @@ export const WorkspaceView = memo(function WorkspaceView({
                     </div>
                   </div>
                   <div className="terminal-content" data-education-id="claude-terminal">
-                    {terminalTabs.map((tab) => (
-                      <div
-                        key={`session-${terminalSessionId}-tab-${tab.id}`}
-                        className="terminal-tab-content"
-                        style={{
-                          display:
-                            !showDevServerLogs && activeTerminalTab === tab.id ? 'block' : 'none',
-                        }}
-                      >
-                        <Terminal
-                          ref={(ref) => {
-                            if (ref) {
-                              terminalRefsMap.current.set(tab.id, ref);
-                            }
+                    {terminalTabs.map((tab) => {
+                      const agent = getAgentById(tab.agentId);
+                      return (
+                        <div
+                          key={`session-${terminalSessionId}-tab-${tab.id}`}
+                          className="terminal-tab-content"
+                          style={{
+                            display:
+                              !showDevServerLogs && activeTerminalTab === tab.id ? 'block' : 'none',
                           }}
-                          agent={getAgentById(tab.agentId)}
-                          projectPath={currentProject.path}
-                          onExit={handleTerminalExit}
-                          autoAcceptMode={autoAcceptMode}
-                          onStatusChange={createTabStatusHandler(tab.id)}
-                        />
-                      </div>
-                    ))}
+                        >
+                          {agent.id === 'client' ? (
+                            <ChatView
+                              ref={(ref) => {
+                                if (ref) {
+                                  terminalRefsMap.current.set(tab.id, ref);
+                                }
+                              }}
+                              projectPath={currentProject.path}
+                              onStatusChange={createTabStatusHandler(tab.id)}
+                            />
+                          ) : (
+                            <Terminal
+                              ref={(ref) => {
+                                if (ref) {
+                                  terminalRefsMap.current.set(tab.id, ref);
+                                }
+                              }}
+                              agent={agent}
+                              projectPath={currentProject.path}
+                              onExit={handleTerminalExit}
+                              autoAcceptMode={autoAcceptMode}
+                              onStatusChange={createTabStatusHandler(tab.id)}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                     {showDevServerLogs && !showHealthLogs && (
                       <div className="terminal-tab-content" style={{ display: 'block' }}>
                         <DevServerLogs

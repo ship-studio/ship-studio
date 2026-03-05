@@ -113,6 +113,16 @@ pub fn run() {
                     tracing::info!("Killed {} PTY processes for window {}", killed, label);
                 }
 
+                // Kill client agent sidecar for this window
+                let sidecar_killed = commands::client_agent::kill_window_sidecars_sync(&label);
+                if sidecar_killed > 0 {
+                    tracing::info!(
+                        "Killed {} client agent sidecar(s) for window {}",
+                        sidecar_killed,
+                        label
+                    );
+                }
+
                 // Clean up project window registry
                 state::unregister_window_by_label(&label);
 
@@ -231,6 +241,12 @@ pub fn run() {
             // Settings
             commands::settings::get_calendar_hidden,
             commands::settings::set_calendar_hidden,
+            commands::settings::get_openrouter_api_key,
+            commands::settings::set_openrouter_api_key,
+            commands::settings::get_client_agent_spending_limit,
+            commands::settings::set_client_agent_spending_limit,
+            commands::settings::get_client_agent_hitl_enabled,
+            commands::settings::set_client_agent_hitl_enabled,
             // AI generation
             commands::ai::generate_pr_description,
             // Claude integration
@@ -293,6 +309,13 @@ pub fn run() {
             commands::static_server::stop_static_server,
             // Project Type Detection
             commands::projects::detect_project_type_command,
+            // Client Agent (Anthropic Agent SDK sidecar)
+            commands::client_agent::start_client_agent,
+            commands::client_agent::stop_client_agent,
+            commands::client_agent::send_chat_message,
+            commands::client_agent::cancel_generation,
+            commands::client_agent::clear_chat_history,
+            commands::client_agent::resume_generation,
             // PTY & Terminal
             commands::pty::spawn_pty,
             commands::pty::kill_pty,

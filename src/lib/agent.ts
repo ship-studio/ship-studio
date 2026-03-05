@@ -66,6 +66,21 @@ export const CODEX: AgentConfig = {
   installHint: 'Make sure Codex is installed: npm install -g @openai/codex',
 };
 
+/** Client agent configuration — chat-based AI assistant via Anthropic Agent SDK + OpenRouter. */
+export const CLIENT: AgentConfig = {
+  id: 'client',
+  displayName: 'Client',
+  binaryName: '',
+  processName: 'client-agent',
+  autoAcceptFlag: null,
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Client agent...',
+  notFoundMessage: 'Client agent failed to start',
+  installHint: 'Ensure Node.js is installed and OpenRouter API key is configured',
+};
+
 /** Raw terminal (shell) configuration — not an AI agent. */
 export const TERMINAL: AgentConfig = {
   id: 'terminal',
@@ -82,10 +97,10 @@ export const TERMINAL: AgentConfig = {
 };
 
 /** All available agents (AI coding assistants). */
-export const ALL_AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX];
+export const ALL_AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX, CLIENT];
 
 /** All options available in the tab dropdown (agents + terminal). */
-export const ALL_TAB_OPTIONS: AgentConfig[] = [CLAUDE_CODE, CODEX, TERMINAL];
+export const ALL_TAB_OPTIONS: AgentConfig[] = [CLAUDE_CODE, CODEX, CLIENT, TERMINAL];
 
 /** In-memory cache for the default agent ID. Null means unset (falls back to Claude Code). */
 let defaultAgentId: string | null = null;
