@@ -54,7 +54,13 @@ async function handleInitialize(id: number, params: Record<string, unknown>): Pr
   spendingLimit = (params.spendingLimit as number) ?? undefined;
   sessionId = null;
 
-  debug("Initialized", { projectPath, hitlEnabled, spendingLimit });
+  debug("Initialized", {
+    projectPath,
+    hitlEnabled,
+    spendingLimit,
+    modelEnv: process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? "(not set)",
+    baseUrl: process.env.ANTHROPIC_BASE_URL ?? "(not set)",
+  });
   sendResponse(id, { ok: true });
 }
 
@@ -136,6 +142,12 @@ The user is a web developer working on their project in a visual IDE with a live
 - Read files before editing them to understand existing code.
 - Prefer Edit over Write for existing files (less destructive).
 
+## Tool Preferences
+- ALWAYS prefer reading files (Read, Glob, Grep) over using browser/Playwright tools to understand a project.
+- When asked about a site, page, or component: read the source code first. Only use browser tools if the user explicitly asks to see visual output or test runtime behavior.
+- For questions about structure, styling, content, or code quality — file reading is sufficient. Do not launch a browser.
+- Use Bash for running build commands, git operations, or scripts — not for viewing pages.
+
 ## Quality
 - Match the existing code style, conventions, and patterns in the project.
 - Don't add unnecessary comments, docstrings, or type annotations to code you didn't change.
@@ -156,10 +168,20 @@ async function handleChat(id: number, params: Record<string, unknown>): Promise<
     // Read-only tools that never need user approval (skip canUseTool entirely)
     const autoApprovedTools = ["Read", "Glob", "Grep", "WebSearch", "WebFetch", "Agent"];
 
+    const resolvedModel = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? "claude-sonnet-4-6";
+    debug("Starting query", {
+      model: "sonnet",
+      resolvedModel,
+      baseUrl: process.env.ANTHROPIC_BASE_URL,
+      hasAuthToken: !!process.env.ANTHROPIC_AUTH_TOKEN,
+    });
+
     currentQuery = query({
       prompt: message,
       options: {
-        model: "claude-sonnet-4-6",
+        // Use "sonnet" alias — resolved via ANTHROPIC_DEFAULT_SONNET_MODEL env var.
+        // This lets the Rust backend route to any OpenRouter model.
+        model: "sonnet",
         cwd: projectPath,
         systemPrompt: {
           type: "preset",

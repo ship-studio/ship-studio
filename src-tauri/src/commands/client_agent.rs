@@ -227,6 +227,7 @@ pub async fn start_client_agent(
     api_key: String,
     hitl_enabled: Option<bool>,
     spending_limit: Option<f64>,
+    model: Option<String>,
 ) -> Result<(), String> {
     // Stop any existing sidecar for this window
     stop_client_agent_internal(&window_label);
@@ -244,6 +245,16 @@ pub async fn start_client_agent(
 
     // Spawn the Node.js sidecar with OpenRouter env vars.
     // The Agent SDK spawns Claude Code which reads these to route API calls.
+    // Route model aliases to the selected OpenRouter model.
+    // All aliases (sonnet, haiku, subagent) point to the same model so
+    // sub-agents and background tasks also use the chosen model.
+    let model_id = model.as_deref().unwrap_or("anthropic/claude-sonnet-4-6");
+
+    tracing::info!(
+        "Sidecar model routing: sonnet/haiku/subagent → {}",
+        model_id
+    );
+
     let mut child = Command::new(&node_path)
         .arg(sidecar_path.to_string_lossy().as_ref())
         .stdin(Stdio::piped())
@@ -261,6 +272,11 @@ pub async fn start_client_agent(
         .env("ANTHROPIC_AUTH_TOKEN", &api_key)
         .env("ANTHROPIC_BASE_URL", "https://openrouter.ai/api")
         .env("ANTHROPIC_API_KEY", "")
+        // Model routing — all aliases resolve to the selected model so
+        // sub-agents and background tasks also use it (no surprise haiku calls)
+        .env("ANTHROPIC_DEFAULT_SONNET_MODEL", model_id)
+        .env("ANTHROPIC_DEFAULT_HAIKU_MODEL", model_id)
+        .env("CLAUDE_CODE_SUBAGENT_MODEL", model_id)
         .spawn()
         .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
 

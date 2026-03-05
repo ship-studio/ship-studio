@@ -80,7 +80,8 @@ export async function startClientAgent(
   projectPath: string,
   apiKey: string,
   hitlEnabled?: boolean,
-  spendingLimit?: number | null
+  spendingLimit?: number | null,
+  model?: string | null
 ): Promise<void> {
   return invoke('start_client_agent', {
     windowLabel,
@@ -88,6 +89,7 @@ export async function startClientAgent(
     apiKey,
     hitlEnabled,
     spendingLimit,
+    model,
   });
 }
 

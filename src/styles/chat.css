@@ -113,8 +113,17 @@
   background: var(--bg-tertiary);
 }
 
-.chat-model-option-name {
+.chat-model-option-name,
+.chat-model-option-label {
   flex: 1;
+}
+
+.chat-model-option-provider,
+.chat-model-option-price {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .chat-model-tier {

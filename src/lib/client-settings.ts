@@ -38,3 +38,13 @@ export async function getClientAgentHitlEnabled(): Promise<boolean> {
 export async function setClientAgentHitlEnabled(enabled: boolean): Promise<void> {
   return invoke('set_client_agent_hitl_enabled', { enabled });
 }
+
+/** Get the preferred model ID for the Client agent (OpenRouter model ID). */
+export async function getClientAgentModel(): Promise<string | null> {
+  return invoke<string | null>('get_client_agent_model');
+}
+
+/** Set the preferred model for the Client agent. */
+export async function setClientAgentModel(model: string | null): Promise<void> {
+  return invoke('set_client_agent_model', { model });
+}

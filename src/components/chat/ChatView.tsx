@@ -34,9 +34,49 @@ import {
   getClientAgentHitlEnabled,
   setClientAgentHitlEnabled,
   getClientAgentSpendingLimit,
+  getClientAgentModel,
+  setClientAgentModel,
 } from '../../lib/client-settings';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput, type ChatInputHandle } from './ChatInput';
+
+/** Available models for the Client agent (OpenRouter model IDs).
+ *  Prices are per million tokens (input/output) from OpenRouter. */
+const CLIENT_MODELS = [
+  {
+    id: 'anthropic/claude-sonnet-4-6',
+    label: 'Claude Sonnet 4.6',
+    provider: 'Anthropic',
+    price: '$3 / $15',
+  },
+  {
+    id: 'google/gemini-3-flash-preview',
+    label: 'Gemini 3 Flash',
+    provider: 'Google',
+    price: '$0.50 / $3',
+  },
+  {
+    id: 'minimax/minimax-m2.5',
+    label: 'MiniMax M2.5',
+    provider: 'MiniMax',
+    price: '$0.30 / $1.20',
+  },
+  {
+    id: 'deepseek/deepseek-v3.2',
+    label: 'DeepSeek V3.2',
+    provider: 'DeepSeek',
+    price: '$0.25 / $0.40',
+  },
+  {
+    id: 'xiaomi/mimo-v2-flash',
+    label: 'MiMo-V2-Flash',
+    provider: 'Xiaomi',
+    price: '$0.09 / $0.29',
+  },
+  { id: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', provider: 'Moonshot', price: '$0.45 / $2.20' },
+] as const;
+
+const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4-6';
 
 interface ChatViewProps {
   projectPath: string;
@@ -71,6 +111,11 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
 
   // Plan-based approval state (shield mode)
   const [planNeedsApproval, setPlanNeedsApproval] = useState(false);
+
+  // Model selection
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   const inputRef = useRef<ChatInputHandle>(null);
   const windowLabel = useRef(getCurrentWindow().label);
@@ -462,6 +507,11 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
       const spendingLimit = await getClientAgentSpendingLimit();
       if (gen !== initGenRef.current) return;
 
+      // Load saved model preference
+      const savedModel = await getClientAgentModel();
+      if (gen !== initGenRef.current) return;
+      setSelectedModel(savedModel);
+
       // Start the sidecar — Rust kills any existing sidecar for this
       // window first, then spawns a new one and sends the initialize RPC.
       await startClientAgent(
@@ -469,7 +519,8 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
         projectPath,
         apiKey,
         savedHitl,
-        spendingLimit || undefined
+        spendingLimit || undefined,
+        savedModel
       );
       if (gen !== initGenRef.current) return;
 
@@ -700,6 +751,35 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
     }
   }, [autoApproveSession, pendingApproval, handleApproval]);
 
+  // ============ Model Dropdown Close ============
+  useEffect(() => {
+    if (!showModelDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showModelDropdown]);
+
+  const handleModelChange = useCallback(
+    async (modelId: string) => {
+      setShowModelDropdown(false);
+      if (modelId === (selectedModel ?? DEFAULT_MODEL_ID)) return;
+      setSelectedModel(modelId);
+      await setClientAgentModel(modelId);
+      // Restart sidecar with new model
+      setIsInitialized(false);
+      setTotalCost(0);
+      setTotalInputTokens(0);
+      setTotalOutputTokens(0);
+      void initialize(++initGenRef.current);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedModel]
+  );
+
   // ============ API Key Setup ============
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -903,8 +983,32 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
     <div className="chat-view">
       {/* Header with HITL toggle, cost counter, and actions */}
       <div className="chat-header">
-        <div className="chat-header-left">
-          <span className="chat-model-name">Claude Agent</span>
+        <div className="chat-header-left" ref={modelDropdownRef}>
+          <button
+            className="chat-model-selector"
+            onClick={() => !isStreaming && setShowModelDropdown((v) => !v)}
+            disabled={isStreaming}
+          >
+            <span className="chat-model-name">
+              {CLIENT_MODELS.find((m) => m.id === (selectedModel ?? DEFAULT_MODEL_ID))?.label ??
+                'Claude Sonnet 4.6'}
+            </span>
+            <span className="chat-model-chevron">{'\u25BE'}</span>
+          </button>
+          {showModelDropdown && (
+            <div className="chat-model-dropdown">
+              {CLIENT_MODELS.map((m) => (
+                <button
+                  key={m.id}
+                  className={`chat-model-option ${m.id === (selectedModel ?? DEFAULT_MODEL_ID) ? 'active' : ''}`}
+                  onClick={() => void handleModelChange(m.id)}
+                >
+                  <span className="chat-model-option-label">{m.label}</span>
+                  <span className="chat-model-option-price">{m.price}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="chat-header-right">
           {(totalInputTokens > 0 || totalCost > 0) && (

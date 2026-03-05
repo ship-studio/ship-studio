@@ -65,3 +65,18 @@ pub fn set_client_agent_hitl_enabled(enabled: bool) -> Result<(), String> {
     state.client_agent_hitl_enabled = Some(enabled);
     write_app_state(&state)
 }
+
+/// Get the preferred model for the Client agent (OpenRouter model ID).
+#[tauri::command]
+pub fn get_client_agent_model() -> Result<Option<String>, String> {
+    let state = read_app_state();
+    Ok(state.client_agent_model)
+}
+
+/// Set the preferred model for the Client agent (persisted to app state).
+#[tauri::command]
+pub fn set_client_agent_model(model: Option<String>) -> Result<(), String> {
+    let mut state = read_app_state();
+    state.client_agent_model = model;
+    write_app_state(&state)
+}

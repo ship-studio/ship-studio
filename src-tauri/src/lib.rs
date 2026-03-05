@@ -247,6 +247,8 @@ pub fn run() {
             commands::settings::set_client_agent_spending_limit,
             commands::settings::get_client_agent_hitl_enabled,
             commands::settings::set_client_agent_hitl_enabled,
+            commands::settings::get_client_agent_model,
+            commands::settings::set_client_agent_model,
             // AI generation
             commands::ai::generate_pr_description,
             // Claude integration
