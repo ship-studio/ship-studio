@@ -15,6 +15,7 @@ interface ChatMessagesProps {
   planNeedsApproval?: boolean;
   onPlanApprove?: () => void;
   onPlanReject?: () => void;
+  onEditMessage?: (messageId: string, newContent: string) => void;
 }
 
 export function ChatMessages({
@@ -23,6 +24,7 @@ export function ChatMessages({
   planNeedsApproval = false,
   onPlanApprove,
   onPlanReject,
+  onEditMessage,
 }: ChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
@@ -80,6 +82,8 @@ export function ChatMessages({
           showPlanApproval={msg.id === lastAssistantId}
           onPlanApprove={onPlanApprove}
           onPlanReject={onPlanReject}
+          onEditMessage={onEditMessage}
+          canEdit={!streamingMessageId && msg.role === 'user'}
         />
       ))}
     </div>

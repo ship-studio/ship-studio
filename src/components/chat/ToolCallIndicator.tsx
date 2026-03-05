@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import type { ToolCallInfo } from '../../lib/client-agent';
+import { CodeBlock } from './CodeBlock';
 
 interface ToolCallIndicatorProps {
   toolCall: ToolCallInfo;
@@ -139,6 +140,45 @@ function formatOutput(output: unknown): string {
   }
 }
 
+/** Detect syntax highlighting language from tool name and input. */
+function detectOutputLanguage(name: string, input: unknown): string | undefined {
+  if (name === 'Bash') return 'bash';
+  if (name === 'Grep' || name === 'Glob') return undefined;
+
+  // For file tools, infer from file extension
+  if (name === 'Read' || name === 'Write' || name === 'Edit') {
+    const data = typeof input === 'object' && input ? (input as Record<string, unknown>) : {};
+    const filePath = (data.file_path ?? data.path ?? '') as string;
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const extMap: Record<string, string> = {
+      ts: 'typescript',
+      tsx: 'tsx',
+      js: 'javascript',
+      jsx: 'jsx',
+      py: 'python',
+      rs: 'rust',
+      go: 'go',
+      rb: 'ruby',
+      css: 'css',
+      scss: 'scss',
+      html: 'html',
+      svelte: 'svelte',
+      json: 'json',
+      yaml: 'yaml',
+      yml: 'yaml',
+      toml: 'toml',
+      md: 'markdown',
+      sql: 'sql',
+      sh: 'bash',
+      zsh: 'bash',
+      xml: 'xml',
+      vue: 'vue',
+    };
+    return ext ? extMap[ext] : undefined;
+  }
+  return undefined;
+}
+
 /** Format milliseconds as a human-readable duration string. */
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -180,14 +220,21 @@ export function ToolCallIndicator({ toolCall }: ToolCallIndicatorProps) {
     <div className={`chat-tool-call ${toolCall.status}`}>
       <button className="chat-tool-call-header" onClick={() => setExpanded(!expanded)}>
         <span className={`chat-tool-status ${toolCall.status}`}>{icon}</span>
-        <span className="chat-tool-name">{label}</span>
-        {detail && <span className="chat-tool-detail">{detail}</span>}
-        {duration && <span className="chat-tool-duration">{duration}</span>}
-        <span className={`chat-tool-chevron ${expanded ? 'expanded' : ''}`}>
-          {'\u25B8'}
-          {/* ▸ right-pointing triangle */}
+        <span className="chat-tool-header-content">
+          <span className="chat-tool-name-row">
+            <span className="chat-tool-name">{label}</span>
+            {duration && <span className="chat-tool-duration">{duration}</span>}
+            <span className={`chat-tool-chevron ${expanded ? 'expanded' : ''}`}>{'\u25B8'}</span>
+          </span>
+          {detail && <span className="chat-tool-detail">{detail}</span>}
         </span>
       </button>
+      {/* Collapsed error preview — visible without expanding */}
+      {!expanded && toolCall.status === 'error' && toolCall.output !== undefined && (
+        <div className="chat-tool-error-preview">
+          {formatOutput(toolCall.output).split('\n')[0].slice(0, 120)}
+        </div>
+      )}
       {expanded && (
         <div className="chat-tool-call-details">
           {toolCall.input !== undefined && (
@@ -197,9 +244,30 @@ export function ToolCallIndicator({ toolCall }: ToolCallIndicatorProps) {
             </div>
           )}
           {toolCall.output !== undefined && (
-            <div className="chat-tool-section">
-              <span className="chat-tool-section-label">Output</span>
-              <pre className="chat-tool-section-content">{formatOutput(toolCall.output)}</pre>
+            <div
+              className={`chat-tool-section${toolCall.status === 'error' ? ' chat-tool-section-error' : ''}`}
+            >
+              <span className="chat-tool-section-label">
+                {toolCall.status === 'error' ? 'Error' : 'Output'}
+              </span>
+              {toolCall.status === 'error' ? (
+                <pre className="chat-tool-section-content chat-tool-error-content">
+                  {formatOutput(toolCall.output)}
+                </pre>
+              ) : (
+                (() => {
+                  const outputStr = formatOutput(toolCall.output);
+                  const lang = detectOutputLanguage(toolCall.name, toolCall.input);
+                  // Use syntax highlighting for file/bash output, plain pre for everything else
+                  return lang && outputStr.length > 10 && outputStr.length < 2000 ? (
+                    <div className="chat-tool-highlighted-output">
+                      <CodeBlock code={outputStr} language={lang} />
+                    </div>
+                  ) : (
+                    <pre className="chat-tool-section-content">{outputStr}</pre>
+                  );
+                })()
+              )}
             </div>
           )}
         </div>

@@ -533,7 +533,7 @@
 
 .chat-tool-call-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   padding: 5px 10px;
   background: var(--bg-tertiary);
@@ -545,6 +545,20 @@
   font-family: inherit;
   font-size: 12px;
   transition: background-color 0.15s ease;
+}
+
+.chat-tool-header-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-tool-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .chat-tool-call-header:hover {
@@ -592,7 +606,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 200px;
 }
 
 .chat-tool-tokens {
@@ -612,6 +625,7 @@
   color: var(--text-muted);
   transition: transform 0.15s ease;
   font-size: 10px;
+  margin-left: auto;
 }
 
 .chat-tool-chevron.expanded {
@@ -648,6 +662,42 @@
   word-break: break-all;
   max-height: 200px;
   overflow-y: auto;
+}
+
+/* Error output styling — red-tinted background */
+.chat-tool-error-content {
+  background: rgba(248, 81, 73, 0.08);
+  border-color: rgba(248, 81, 73, 0.3);
+  color: #f85149;
+}
+
+/* Collapsed error preview — shown without expanding */
+.chat-tool-error-preview {
+  padding: 4px 10px 6px;
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 11px;
+  color: #f85149;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Highlighted tool output — compact code block inside tool details */
+.chat-tool-highlighted-output {
+  font-size: 11px;
+  max-height: 200px;
+  overflow-y: auto;
+  border-radius: 4px;
+}
+
+.chat-tool-highlighted-output .chat-code-block {
+  margin: 0;
+  border: 1px solid var(--border);
+}
+
+.chat-tool-highlighted-output .chat-code-header {
+  display: none;
 }
 
 /* ============ Chat Input ============ */
@@ -1039,6 +1089,43 @@
   color: var(--text-secondary);
 }
 
+/* ============ Message Edit ============ */
+
+.chat-message-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 80%;
+}
+
+.chat-message-edit-textarea {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  min-height: 40px;
+  max-height: 120px;
+}
+
+.chat-message-edit-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.chat-message-edit-save,
+.chat-message-edit-cancel {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+
 /* ============ Token Counter ============ */
 
 .chat-token-counter {
@@ -1048,6 +1135,83 @@
   white-space: nowrap;
   padding: 2px 6px;
   user-select: none;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chat-token-counter:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+
+/* ============ Spending Limit ============ */
+
+.chat-spending-wrapper {
+  position: relative;
+}
+
+.chat-spending-limit-badge {
+  opacity: 0.5;
+  margin-left: 2px;
+}
+
+.chat-spending-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 10px;
+  z-index: 100;
+  min-width: 200px;
+}
+
+.chat-spending-popover-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.chat-spending-popover-form {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-spending-input {
+  flex: 1;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--text-primary);
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  outline: none;
+  width: 80px;
+}
+
+.chat-spending-input:focus {
+  border-color: var(--accent);
+}
+
+.chat-spending-save {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.chat-spending-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 6px;
 }
 
 /* ============ HITL Toggle ============ */

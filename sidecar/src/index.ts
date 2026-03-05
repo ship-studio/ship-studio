@@ -39,6 +39,15 @@ type PermissionDeny = { behavior: "deny"; message: string };
 let approvalResolver: ((result: PermissionAllow | PermissionDeny) => void) | null = null;
 let pendingToolInput: Record<string, unknown> | null = null;
 
+// Cumulative token totals across all queries in this session.
+// Reset only on clearHistory. This prevents the frontend counter
+// from dropping to 0 between user messages.
+let cumulativeInput = 0;
+let cumulativeOutput = 0;
+let cumulativeCacheRead = 0;
+let cumulativeCacheCreate = 0;
+let cumulativeCostUsd = 0;
+
 function waitForApproval(input: Record<string, unknown>): Promise<PermissionAllow | PermissionDeny> {
   pendingToolInput = input;
   return new Promise((resolve) => {
@@ -154,7 +163,7 @@ The user is a web developer working on their project in a visual IDE with a live
 - Keep changes minimal and focused on what was requested.${contextBlock}`;
 }
 
-async function handleChat(id: number, params: Record<string, unknown>): Promise<void> {
+async function handleChat(id: number, params: Record<string, unknown>, retryWithoutResume = false): Promise<void> {
   const message = params.message as string;
   if (!projectPath) {
     sendError(id, RPC_AGENT_ERROR, "Not initialized — call initialize first");
@@ -168,12 +177,16 @@ async function handleChat(id: number, params: Record<string, unknown>): Promise<
     // Read-only tools that never need user approval (skip canUseTool entirely)
     const autoApprovedTools = ["Read", "Glob", "Grep", "WebSearch", "WebFetch", "Agent"];
 
-    const resolvedModel = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? "claude-sonnet-4-6";
+    const resolvedModel = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ?? "claude-sonnet-4.6";
+    // On retry, clear the session so we don't try to resume a dead process
+    const useResume = !retryWithoutResume && sessionId ? sessionId : undefined;
     debug("Starting query", {
       model: "sonnet",
       resolvedModel,
       baseUrl: process.env.ANTHROPIC_BASE_URL,
       hasAuthToken: !!process.env.ANTHROPIC_AUTH_TOKEN,
+      resumeSession: useResume ?? "(none)",
+      isRetry: retryWithoutResume,
     });
 
     currentQuery = query({
@@ -195,14 +208,15 @@ async function handleChat(id: number, params: Record<string, unknown>): Promise<
         maxBudgetUsd: spendingLimit,
         permissionMode: hitlEnabled ? "default" : "bypassPermissions",
         ...(hitlEnabled ? {} : { allowDangerouslySkipPermissions: true }),
-        ...(sessionId ? { resume: sessionId } : {}),
+        ...(useResume ? { resume: useResume } : {}),
         mcpServers: { "ship-studio-git": gitServer },
         abortController,
         includePartialMessages: true,
-        // Cap extended thinking to keep responses snappy.
-        // Adaptive thinking lets the model decide IF it needs to think,
-        // but budgetTokens limits HOW MUCH it thinks.
-        thinking: { type: "enabled", budgetTokens: 5000 },
+        // Extended thinking only works with Anthropic models. For non-Anthropic
+        // models via OpenRouter, omit the thinking option entirely.
+        ...(resolvedModel.startsWith("claude") || resolvedModel.startsWith("anthropic/")
+          ? { thinking: { type: "enabled" as const, budgetTokens: 2048 } }
+          : {}),
         canUseTool: hitlEnabled
           ? async (toolName, input) => {
               const toolInput = input as Record<string, unknown>;
@@ -248,6 +262,12 @@ async function handleChat(id: number, params: Record<string, unknown>): Promise<
     // Track tool_use_id → tool_name so we can send proper names on toolEnd
     const toolUseIdToName = new Map<string, string>();
 
+    // Per-query token deltas — accumulated into cumulative totals
+    let queryInput = 0;
+    let queryOutput = 0;
+    let queryCacheRead = 0;
+    let queryCacheCreate = 0;
+
     // Consume the async generator
     for await (const msg of currentQuery) {
       // System init message — capture session ID
@@ -278,6 +298,26 @@ async function handleChat(id: number, params: Record<string, unknown>): Promise<
               });
             }
           }
+        }
+
+        // Live token usage from per-message usage field
+        const msgUsage = inner?.usage as {
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_read_input_tokens?: number;
+          cache_creation_input_tokens?: number;
+        } | undefined;
+        if (msgUsage) {
+          queryInput += msgUsage.input_tokens ?? 0;
+          queryOutput += msgUsage.output_tokens ?? 0;
+          queryCacheRead += msgUsage.cache_read_input_tokens ?? 0;
+          queryCacheCreate += msgUsage.cache_creation_input_tokens ?? 0;
+          sendNotification("stream/tokenUsage", {
+            inputTokens: cumulativeInput + queryInput,
+            outputTokens: cumulativeOutput + queryOutput,
+            cacheReadTokens: cumulativeCacheRead + queryCacheRead,
+            cacheCreationTokens: cumulativeCacheCreate + queryCacheCreate,
+          });
         }
       }
 
@@ -337,13 +377,20 @@ async function handleChat(id: number, params: Record<string, unknown>): Promise<
         const finalCacheRead = muCacheRead || (resultUsage?.cache_read_input_tokens ?? 0);
         const finalCacheCreate = muCacheCreate || (resultUsage?.cache_creation_input_tokens ?? 0);
 
-        // Send final authoritative usage with cost
+        // Accumulate into session-level cumulative totals
+        cumulativeInput += finalInput;
+        cumulativeOutput += finalOutput;
+        cumulativeCacheRead += finalCacheRead;
+        cumulativeCacheCreate += finalCacheCreate;
+        cumulativeCostUsd += totalCost;
+
+        // Send final authoritative usage with cost (cumulative across all queries)
         sendNotification("stream/tokenUsage", {
-          inputTokens: finalInput,
-          outputTokens: finalOutput,
-          cacheReadTokens: finalCacheRead,
-          cacheCreationTokens: finalCacheCreate,
-          cumulativeCost: totalCost,
+          inputTokens: cumulativeInput,
+          outputTokens: cumulativeOutput,
+          cacheReadTokens: cumulativeCacheRead,
+          cacheCreationTokens: cumulativeCacheCreate,
+          cumulativeCost: cumulativeCostUsd,
         });
 
         if ((msg as any).subtype === "success") {
@@ -355,10 +402,21 @@ async function handleChat(id: number, params: Record<string, unknown>): Promise<
           });
         }
         if ((msg as any).subtype === "error") {
-          debug("Query error", { error: (msg as any).error, totalCost });
-          sendNotification("stream/error", {
-            message: (msg as any).error ?? "Agent returned an error",
-          });
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+          const errorText = String((msg as any).error ?? "Agent returned an error");
+          debug("Query error", { error: errorText, totalCost });
+
+          // Detect budget exceeded — Agent SDK returns this when maxBudgetUsd is hit
+          const isBudgetError = /budget|spend|cost.*limit/i.test(errorText);
+          if (isBudgetError && spendingLimit) {
+            sendNotification("stream/error", {
+              message: `Spending limit reached ($${spendingLimit.toFixed(2)}). Increase your limit or start a new conversation.`,
+            });
+          } else {
+            sendNotification("stream/error", {
+              message: errorText,
+            });
+          }
         }
       }
     }
@@ -371,6 +429,16 @@ async function handleChat(id: number, params: Record<string, unknown>): Promise<
       sendNotification("stream/done", { cancelled: true });
       sendResponse(id, { ok: true, cancelled: true });
     } else {
+      // Auto-recovery: if the Claude Code process crashed during a session
+      // resume (common with non-Anthropic models via OpenRouter), clear the
+      // session and retry once without resume.
+      const isProcessCrash = /exited with code|process.*exit/i.test(errorMsg);
+      if (isProcessCrash && sessionId && !retryWithoutResume) {
+        debug("Process crashed during resume — retrying without session", { error: errorMsg });
+        sessionId = null;
+        currentQuery = null;
+        return handleChat(id, params, true);
+      }
       debug("Chat error", errorMsg);
       sendNotification("stream/error", { message: errorMsg });
       sendError(id, RPC_AGENT_ERROR, errorMsg);
@@ -418,6 +486,11 @@ async function handleCancel(id: number): Promise<void> {
 
 async function handleClearHistory(id: number): Promise<void> {
   sessionId = null;
+  cumulativeInput = 0;
+  cumulativeOutput = 0;
+  cumulativeCacheRead = 0;
+  cumulativeCacheCreate = 0;
+  cumulativeCostUsd = 0;
   debug("Session cleared");
   sendResponse(id, { ok: true });
 }

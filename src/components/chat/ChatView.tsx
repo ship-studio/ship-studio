@@ -26,6 +26,11 @@ import {
   generateMessageId,
   formatCost,
   formatTokenCount,
+  fetchOpenRouterModels,
+  formatModelPrice,
+  saveChatHistory,
+  loadChatHistory,
+  clearPersistedChatHistory,
 } from '../../lib/client-agent';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -34,49 +39,14 @@ import {
   getClientAgentHitlEnabled,
   setClientAgentHitlEnabled,
   getClientAgentSpendingLimit,
+  setClientAgentSpendingLimit,
   getClientAgentModel,
   setClientAgentModel,
 } from '../../lib/client-settings';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput, type ChatInputHandle } from './ChatInput';
 
-/** Available models for the Client agent (OpenRouter model IDs).
- *  Prices are per million tokens (input/output) from OpenRouter. */
-const CLIENT_MODELS = [
-  {
-    id: 'anthropic/claude-sonnet-4-6',
-    label: 'Claude Sonnet 4.6',
-    provider: 'Anthropic',
-    price: '$3 / $15',
-  },
-  {
-    id: 'google/gemini-3-flash-preview',
-    label: 'Gemini 3 Flash',
-    provider: 'Google',
-    price: '$0.50 / $3',
-  },
-  {
-    id: 'minimax/minimax-m2.5',
-    label: 'MiniMax M2.5',
-    provider: 'MiniMax',
-    price: '$0.30 / $1.20',
-  },
-  {
-    id: 'deepseek/deepseek-v3.2',
-    label: 'DeepSeek V3.2',
-    provider: 'DeepSeek',
-    price: '$0.25 / $0.40',
-  },
-  {
-    id: 'xiaomi/mimo-v2-flash',
-    label: 'MiMo-V2-Flash',
-    provider: 'Xiaomi',
-    price: '$0.09 / $0.29',
-  },
-  { id: 'moonshotai/kimi-k2.5', label: 'Kimi K2.5', provider: 'Moonshot', price: '$0.45 / $2.20' },
-] as const;
-
-const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4-6';
+const DEFAULT_MODEL_ID = 'anthropic/claude-sonnet-4.6';
 
 interface ChatViewProps {
   projectPath: string;
@@ -88,7 +58,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
   ref
 ) {
   // ============ State ============
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatHistory(projectPath));
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -99,6 +69,8 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
   // Token & cost tracking — tokens stream live, cost arrives at query end
   const [totalInputTokens, setTotalInputTokens] = useState(0);
   const [totalOutputTokens, setTotalOutputTokens] = useState(0);
+  const [totalCacheReadTokens, setTotalCacheReadTokens] = useState(0);
+  const [totalCacheCreateTokens, setTotalCacheCreateTokens] = useState(0);
   const [totalCost, setTotalCost] = useState(0);
 
   // HITL state
@@ -116,6 +88,18 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  // Model list from OpenRouter — stored as flat maps to avoid TS lint issues
+  // with generic state arrays (eslint @typescript-eslint can't resolve OpenRouterModel
+  // through useState<OpenRouterModel[]>).
+  const [modelIdList, setModelIdList] = useState<string[]>([]);
+  const [modelLabels, setModelLabels] = useState<Record<string, string>>({});
+  const [modelPrices, setModelPrices] = useState<Record<string, string>>({});
+
+  // Spending limit popover
+  const [showSpendingPopover, setShowSpendingPopover] = useState(false);
+  const [currentSpendingLimit, setCurrentSpendingLimit] = useState<number>(0);
+  const [spendingInput, setSpendingInput] = useState('');
+  const spendingPopoverRef = useRef<HTMLDivElement>(null);
 
   const inputRef = useRef<ChatInputHandle>(null);
   const windowLabel = useRef(getCurrentWindow().label);
@@ -215,6 +199,8 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
           const toolUseId = (data.toolUseId as string) || '';
           const toolName = (data.name as string) || 'unknown';
           const durationMs = typeof data.durationMs === 'number' ? data.durationMs : undefined;
+          const isError = (data.isError as boolean) ?? false;
+          const endStatus = isError ? 'error' : 'complete';
 
           // Match by toolUseId (unique per tool call) — falls back to name match
           activeToolCallsRef.current = activeToolCallsRef.current.map((tc) => {
@@ -223,7 +209,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
             if ((matchById || matchByName) && tc.status === 'running') {
               return {
                 ...tc,
-                status: 'complete',
+                status: endStatus,
                 output: data.output,
                 completedAt: Date.now(),
                 durationMs,
@@ -241,7 +227,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
               if (matchById || matchByName) {
                 block.toolCall = {
                   ...block.toolCall,
-                  status: 'complete',
+                  status: endStatus,
                   output: data.output,
                   completedAt: Date.now(),
                   durationMs,
@@ -292,6 +278,10 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
           // Live per-step token counts
           if (typeof data.inputTokens === 'number') setTotalInputTokens(data.inputTokens);
           if (typeof data.outputTokens === 'number') setTotalOutputTokens(data.outputTokens);
+          if (typeof data.cacheReadTokens === 'number')
+            setTotalCacheReadTokens(data.cacheReadTokens);
+          if (typeof data.cacheCreationTokens === 'number')
+            setTotalCacheCreateTokens(data.cacheCreationTokens);
           // Authoritative cost (only set on result message)
           if (typeof data.cumulativeCost === 'number') setTotalCost(data.cumulativeCost);
           break;
@@ -457,6 +447,15 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
   // listener (registered once) always dispatches to the current closure.
   handleAgentEventRef.current = handleAgentEvent;
 
+  // ============ Persist chat history ============
+  useEffect(() => {
+    // Debounce saves — don't save while streaming (too frequent)
+    if (isStreaming) return;
+    if (messages.length === 0) return;
+    const id = setTimeout(() => saveChatHistory(projectPath, messages), 500);
+    return () => clearTimeout(id);
+  }, [messages, isStreaming, projectPath]);
+
   // ============ Lifecycle ============
   useEffect(() => {
     // Bump generation so stale async callbacks are ignored.
@@ -506,11 +505,31 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
 
       const spendingLimit = await getClientAgentSpendingLimit();
       if (gen !== initGenRef.current) return;
+      setCurrentSpendingLimit(spendingLimit || 0);
 
-      // Load saved model preference — validate it still exists in CLIENT_MODELS
+      // Fetch live model list from OpenRouter (falls back to hardcoded).
+      // Module type resolution limitation — eslint can't resolve OpenRouterModel across imports.
+      /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any */
+      const rawModels: Array<{ id: string; label: string }> =
+        (await fetchOpenRouterModels()) as any;
+      if (gen !== initGenRef.current) return;
+      const ids: string[] = [];
+      const labels: Record<string, string> = {};
+      const prices: Record<string, string> = {};
+      for (const m of rawModels) {
+        ids.push(m.id);
+        labels[m.id] = m.label;
+        prices[m.id] = formatModelPrice(m as any);
+      }
+      /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any */
+      setModelIdList(ids);
+      setModelLabels(labels);
+      setModelPrices(prices);
+
+      // Load saved model preference — validate it still exists
       let savedModel = await getClientAgentModel();
       if (gen !== initGenRef.current) return;
-      if (savedModel && !CLIENT_MODELS.some((m) => m.id === savedModel)) {
+      if (savedModel && !ids.includes(savedModel)) {
         // Stale model ID from a previous version — reset to default
         savedModel = null;
         await setClientAgentModel(null);
@@ -611,17 +630,45 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
     onStatusChange?.('waiting', 'Client');
   }, [onStatusChange]);
 
+  const handleEditMessage = useCallback(
+    async (messageId: string, newContent: string) => {
+      if (isStreaming) return;
+
+      // Find the message index, truncate everything after it
+      const msgIndex = messages.findIndex((m) => m.id === messageId);
+      if (msgIndex === -1) return;
+
+      // Keep messages up to (not including) the edited user message
+      const truncated = messages.slice(0, msgIndex);
+      setMessages(truncated);
+
+      // Clear the Agent SDK session so it doesn't try to resume with stale context
+      try {
+        await clearChatHistoryRpc(windowLabel.current);
+      } catch {
+        // Best-effort
+      }
+
+      // Re-send as a new message (this will add the user msg + assistant placeholder)
+      void handleSend(newContent);
+    },
+    [isStreaming, messages, handleSend]
+  );
+
   const handleClearChat = useCallback(async () => {
     setMessages([]);
     setTotalCost(0);
     setTotalInputTokens(0);
     setTotalOutputTokens(0);
+    setTotalCacheReadTokens(0);
+    setTotalCacheCreateTokens(0);
+    clearPersistedChatHistory(projectPath);
     try {
       await clearChatHistoryRpc(windowLabel.current);
     } catch {
       // Best-effort
     }
-  }, []);
+  }, [projectPath]);
 
   const handleToggleHitl = useCallback(async () => {
     if (isStreaming) return;
@@ -634,6 +681,8 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
     setTotalCost(0);
     setTotalInputTokens(0);
     setTotalOutputTokens(0);
+    setTotalCacheReadTokens(0);
+    setTotalCacheCreateTokens(0);
     void initialize(++initGenRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hitlEnabled, isStreaming]);
@@ -768,17 +817,41 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
     return () => document.removeEventListener('mousedown', handler);
   }, [showModelDropdown]);
 
+  // ============ Spending Popover Close ============
+  useEffect(() => {
+    if (!showSpendingPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (spendingPopoverRef.current && !spendingPopoverRef.current.contains(e.target as Node)) {
+        setShowSpendingPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showSpendingPopover]);
+
   const handleModelChange = useCallback(
     async (modelId: string) => {
       setShowModelDropdown(false);
       if (modelId === (selectedModel ?? DEFAULT_MODEL_ID)) return;
       setSelectedModel(modelId);
       await setClientAgentModel(modelId);
-      // Restart sidecar with new model
+      // Restart sidecar with new model — keep chat history visible
+      // but reset token counters since they apply to the sidecar session
       setIsInitialized(false);
       setTotalCost(0);
       setTotalInputTokens(0);
       setTotalOutputTokens(0);
+      setTotalCacheReadTokens(0);
+      setTotalCacheCreateTokens(0);
+      // Insert a system message noting the model switch
+      const switchMsg: ChatMessage = {
+        id: generateMessageId(),
+        role: 'system',
+        content: `Switched to ${modelLabels[modelId] ?? modelId}`,
+        timestamp: Date.now(),
+        status: 'complete',
+      };
+      setMessages((prev) => [...prev, switchMsg]);
       void initialize(++initGenRef.current);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -995,36 +1068,119 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
             disabled={isStreaming}
           >
             <span className="chat-model-name">
-              {CLIENT_MODELS.find((m) => m.id === (selectedModel ?? DEFAULT_MODEL_ID))?.label ??
-                'Claude Sonnet 4.6'}
+              {modelLabels[selectedModel ?? DEFAULT_MODEL_ID] ?? 'Claude Sonnet 4.6'}
             </span>
             <span className="chat-model-chevron">{'\u25BE'}</span>
           </button>
           {showModelDropdown && (
             <div className="chat-model-dropdown">
-              {CLIENT_MODELS.map((m) => (
+              {modelIdList.map((id) => (
                 <button
-                  key={m.id}
-                  className={`chat-model-option ${m.id === (selectedModel ?? DEFAULT_MODEL_ID) ? 'active' : ''}`}
-                  onClick={() => void handleModelChange(m.id)}
+                  key={id}
+                  className={`chat-model-option ${id === (selectedModel ?? DEFAULT_MODEL_ID) ? 'active' : ''}`}
+                  onClick={() => void handleModelChange(id)}
                 >
-                  <span className="chat-model-option-label">{m.label}</span>
-                  <span className="chat-model-option-price">{m.price}</span>
+                  <span className="chat-model-option-label">{modelLabels[id] ?? id}</span>
+                  <span className="chat-model-option-price">{modelPrices[id] ?? ''}</span>
                 </button>
               ))}
             </div>
           )}
         </div>
         <div className="chat-header-right">
-          {(totalInputTokens > 0 || totalCost > 0) && (
-            <span
-              className="chat-token-counter"
-              title={`Input: ${totalInputTokens.toLocaleString()} | Output: ${totalOutputTokens.toLocaleString()}${totalCost > 0 ? ` | Cost: ${formatCost(totalCost)}` : ''}`}
-            >
-              {formatTokenCount(totalInputTokens + totalOutputTokens)}
-              {totalCost > 0 && ` · ${formatCost(totalCost)}`}
-            </span>
-          )}
+          <div className="chat-spending-wrapper" ref={spendingPopoverRef}>
+            {(totalInputTokens > 0 || totalCost > 0) && (
+              <button
+                className="chat-token-counter"
+                onClick={() => {
+                  setSpendingInput(currentSpendingLimit > 0 ? String(currentSpendingLimit) : '');
+                  setShowSpendingPopover((v) => !v);
+                }}
+                title={[
+                  `Input: ${totalInputTokens.toLocaleString()}`,
+                  `Output: ${totalOutputTokens.toLocaleString()}`,
+                  totalCacheReadTokens > 0
+                    ? `Cache read: ${totalCacheReadTokens.toLocaleString()}`
+                    : '',
+                  totalCacheCreateTokens > 0
+                    ? `Cache write: ${totalCacheCreateTokens.toLocaleString()}`
+                    : '',
+                  totalCost > 0 ? `Cost: ${formatCost(totalCost)}` : '',
+                  currentSpendingLimit > 0 ? `Limit: $${currentSpendingLimit.toFixed(2)}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' | ')}
+              >
+                {formatTokenCount(totalInputTokens + totalOutputTokens)}
+                {totalCost > 0 && ` · ${formatCost(totalCost)}`}
+                {currentSpendingLimit > 0 && (
+                  <span className="chat-spending-limit-badge">/ ${currentSpendingLimit}</span>
+                )}
+              </button>
+            )}
+            {!(totalInputTokens > 0 || totalCost > 0) && (
+              <button
+                className="chat-header-btn"
+                onClick={() => {
+                  setSpendingInput(currentSpendingLimit > 0 ? String(currentSpendingLimit) : '');
+                  setShowSpendingPopover((v) => !v);
+                }}
+                title={
+                  currentSpendingLimit > 0
+                    ? `Spending limit: $${currentSpendingLimit.toFixed(2)}`
+                    : 'Set spending limit'
+                }
+              >
+                $
+              </button>
+            )}
+            {showSpendingPopover && (
+              <div className="chat-spending-popover">
+                <div className="chat-spending-popover-title">Spending Limit (USD)</div>
+                <div className="chat-spending-popover-form">
+                  <input
+                    type="number"
+                    className="chat-spending-input"
+                    placeholder="e.g. 5.00"
+                    value={spendingInput}
+                    min="0"
+                    step="0.50"
+                    onChange={(e) => setSpendingInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const val = parseFloat(spendingInput);
+                        const limit = isNaN(val) || val <= 0 ? 0 : val;
+                        void setClientAgentSpendingLimit(limit).then(() => {
+                          setCurrentSpendingLimit(limit);
+                          setShowSpendingPopover(false);
+                        });
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    className="btn-primary chat-spending-save"
+                    onClick={() => {
+                      const val = parseFloat(spendingInput);
+                      const limit = isNaN(val) || val <= 0 ? 0 : val;
+                      void setClientAgentSpendingLimit(limit).then(() => {
+                        setCurrentSpendingLimit(limit);
+                        setShowSpendingPopover(false);
+                      });
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+                <div className="chat-spending-hint">
+                  {currentSpendingLimit > 0
+                    ? `Current: $${currentSpendingLimit.toFixed(2)}`
+                    : 'No limit set'}
+                  {' · Set to 0 to remove'}
+                </div>
+              </div>
+            )}
+          </div>
           <button
             className={`chat-header-btn chat-hitl-toggle ${hitlEnabled ? 'active' : ''} ${autoApproveSession ? 'auto-approve' : ''}`}
             onClick={() => {
@@ -1064,6 +1220,7 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
         planNeedsApproval={planNeedsApproval}
         onPlanApprove={handlePlanApprove}
         onPlanReject={handlePlanReject}
+        onEditMessage={(id, content) => void handleEditMessage(id, content)}
       />
 
       {/* HITL Approval Modal */}

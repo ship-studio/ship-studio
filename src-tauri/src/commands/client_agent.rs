@@ -248,7 +248,7 @@ pub async fn start_client_agent(
     // Route model aliases to the selected OpenRouter model.
     // All aliases (sonnet, haiku, subagent) point to the same model so
     // sub-agents and background tasks also use the chosen model.
-    let model_id = model.as_deref().unwrap_or("anthropic/claude-sonnet-4-6");
+    let model_id = model.as_deref().unwrap_or("anthropic/claude-sonnet-4.6");
 
     tracing::info!(
         "Sidecar model routing: sonnet/haiku/subagent → {}",
