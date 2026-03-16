@@ -375,6 +375,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
         ptyRef.current = pty;
 
+        // Startup timeout: if no output is received within 10s, the agent
+        // likely failed to launch (binary not found, permission error, etc.).
+        // Show an error instead of hanging on "Starting..." forever.
+        let receivedOutput = false;
+        const startupTimeout = setTimeout(() => {
+          if (!receivedOutput && mounted) {
+            terminalRef.current?.write(
+              `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
+                `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
+            );
+          }
+        }, 10_000);
+
         // Handle PTY output -> terminal
         // Store disposables so cleanup() can remove IPC listeners and prevent CPU leak.
         // For agents without title-based detection, add idle-detection:
@@ -382,6 +395,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         if (!agent.supportsStatusDetection) {
           let idleTimer: ReturnType<typeof setTimeout> | null = null;
           const dataDisposable = pty.onData((data) => {
+            receivedOutput = true;
+            clearTimeout(startupTimeout);
             terminalRef.current?.write(data);
             if (lastStatusRef.current === 'thinking') {
               if (idleTimer) clearTimeout(idleTimer);
@@ -396,6 +411,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           ptyDisposablesRef.current.push(dataDisposable);
         } else {
           const dataDisposable = pty.onData((data) => {
+            receivedOutput = true;
+            clearTimeout(startupTimeout);
             terminalRef.current?.write(data);
           });
           ptyDisposablesRef.current.push(dataDisposable);
@@ -403,6 +420,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
         // Handle PTY exit
         const exitDisposable = pty.onExit(({ exitCode }) => {
+          clearTimeout(startupTimeout);
           terminalRef.current?.write('\r\n[Process exited]\r\n');
           onExitRef.current?.(exitCode);
         });
