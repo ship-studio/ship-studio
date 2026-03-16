@@ -10,7 +10,7 @@
  * @module components/WorkspaceView
  */
 
-import { memo, type RefObject } from 'react';
+import { memo, useEffect, type RefObject } from 'react';
 import { Terminal } from './Terminal';
 import { DevServerLogs } from './DevServerLogs';
 import { Preview } from './Preview';
@@ -510,6 +510,24 @@ export const WorkspaceView = memo(function WorkspaceView({
 
   // Generic projects (Tauri apps, CLI tools, etc.) don't have a web preview
   const isWebProject = projectType !== 'generic';
+
+  // Cmd/Ctrl+1-5 to switch terminal tabs by position
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const num = parseInt(e.key, 10);
+      if (num < 1 || num > 5) return;
+      e.preventDefault();
+      const index = num - 1;
+      if (index >= terminalTabs.length) {
+        showToast(`No terminal tab ${num} — you have ${terminalTabs.length} open`, 'error');
+        return;
+      }
+      setActiveTerminalTab(terminalTabs[index].id);
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [terminalTabs, setActiveTerminalTab, showToast]);
 
   return (
     <>
