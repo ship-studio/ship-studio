@@ -202,6 +202,49 @@ pub async fn unregister_external_project(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Register an external project by path (no folder picker dialog).
+///
+/// Called automatically when a project outside ~/ShipStudio is opened
+/// (e.g., via session restore or URL params) to ensure backend commands
+/// don't fail with "Security error: path is outside ShipStudio directory".
+///
+/// Returns Ok(true) if newly registered, Ok(false) if already registered or inside ~/ShipStudio.
+#[tauri::command]
+pub async fn ensure_external_project_registered(path: String) -> Result<bool, String> {
+    let canonical =
+        dunce::canonicalize(Path::new(&path)).map_err(|e| format!("Invalid path: {e}"))?;
+
+    // Skip if already inside ~/ShipStudio
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let shipstudio_dir = home.join("ShipStudio");
+    if canonical.starts_with(&shipstudio_dir) {
+        return Ok(false);
+    }
+
+    // Skip if already registered
+    if is_registered_external_path(&canonical)? {
+        return Ok(false);
+    }
+
+    // Register it
+    let canonical_str = canonical.to_string_lossy().to_string();
+    let mut config = load_config()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    config.projects.push(ExternalProject {
+        path: canonical_str.clone(),
+        registered_at: now,
+    });
+
+    save_config(&config)?;
+    tracing::info!("Auto-registered external project: {}", canonical_str);
+
+    Ok(true)
+}
+
 /// Check if a project path is an external project.
 #[tauri::command]
 pub async fn is_project_external(path: String) -> Result<bool, String> {

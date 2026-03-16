@@ -347,6 +347,7 @@ pub fn run() {
             commands::external_projects::register_external_project,
             commands::external_projects::unregister_external_project,
             commands::external_projects::is_project_external,
+            commands::external_projects::ensure_external_project_registered,
             // Folders
             commands::folders::list_folders,
             commands::folders::create_folder,

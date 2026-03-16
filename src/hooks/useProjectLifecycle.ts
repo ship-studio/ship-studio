@@ -248,6 +248,20 @@ export function useProjectLifecycle({
       logger.warn('[OpenProject] Failed to register project for window', { error: e });
     }
 
+    // Ensure external projects are registered before any backend commands run.
+    // Projects outside ~/ShipStudio can enter the app via session restore, URL params,
+    // or direct path — without this, all validate_project_path() calls would fail.
+    try {
+      const wasRegistered = await invoke<boolean>('ensure_external_project_registered', {
+        path: project.path,
+      });
+      if (wasRegistered) {
+        logger.info(`[OpenProject] Auto-registered external project: ${project.path}`);
+      }
+    } catch (e) {
+      logger.warn('[OpenProject] Failed to ensure external project registration', { error: e });
+    }
+
     // Stop any existing dev server first
     if (devServerRef.current) {
       await devServerRef.current.stop();
