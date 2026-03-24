@@ -24,6 +24,17 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.4.16',
+    items: [
+      'Terminal sessions now persist — reopen a project and your conversations resume',
+      'New terminal tab dropdown with ⌘T shortcut and agent switching',
+      'File search in the Code tab sidebar',
+      'Keyboard shortcuts ⌘1-5 to switch terminal tabs',
+      'Cleanup status shown when closing projects',
+      'Fixed terminal resize issues when switching tabs',
+    ],
+  },
+  {
     version: '0.4.15',
     items: ['Plugin errors no longer crash the entire app'],
   },

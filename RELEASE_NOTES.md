@@ -6,6 +6,17 @@ These notes appear in the update dialog that users see when a new version is ava
 Write clear, user-friendly notes about what changed in this version.
 -->
 
+## What's New in v0.4.16
+
+- **Terminal session persistence** — Reopen a project and your Claude Code conversations automatically resume where you left off, with each tab restoring independently
+- **Terminal tab dropdown** — Tabs redesigned as a compact dropdown selector with agent switching, close buttons, and attention indicators all in one place
+- **File search in Code tab** — Filter the file tree by name with a search bar in the Code browser sidebar
+- **Keyboard shortcuts** — ⌘T to open a new terminal tab, ⌘1-5 to switch between tabs
+- **Cleanup status indicator** — See what's happening when closing a project instead of staring at a spinner
+- **Terminal stability** — Fixed PTY cleanup hanging the UI, added startup timeout logging, and improved error handling for failed sessions
+- **External project support** — Projects outside ~/ShipStudio no longer show forbidden path errors on reopen
+- **Back button redesign** — Styled consistently with other toolbar buttons
+
 ## What's New in v0.4.15
 
 - **Plugin crash isolation** - Plugin errors no longer crash the entire app
