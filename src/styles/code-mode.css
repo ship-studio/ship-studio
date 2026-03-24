@@ -53,6 +53,39 @@
   background: var(--bg-tertiary);
 }
 
+.code-tab-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px;
+  padding: 0 8px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.code-tab-search:focus-within {
+  border-color: var(--accent);
+}
+
+.code-tab-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.code-tab-search-input::placeholder {
+  color: var(--text-muted);
+}
+
 .code-tab-sidebar-content {
   flex: 1;
   overflow-y: auto;

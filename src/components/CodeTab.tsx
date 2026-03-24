@@ -5,11 +5,12 @@
  * Includes a draggable divider for resizing the two panes.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useFileTree } from '../hooks/useFileTree';
 import { FileTree } from './FileTree';
 import { CodeViewer } from './CodeViewer';
-import { ResetIcon } from './icons';
+import { ResetIcon, SearchIcon } from './icons';
+import type { FileTreeNode } from '../lib/code';
 
 interface CodeTabProps {
   projectPath: string;
@@ -33,8 +34,31 @@ export function CodeTab({ projectPath, onToast, onSendToAgent }: CodeTabProps) {
   } = useFileTree(projectPath);
 
   const [sidebarWidth, setSidebarWidth] = useState(250);
+  const [searchQuery, setSearchQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
+
+  const filteredTree = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return tree;
+
+    function filterNodes(nodes: FileTreeNode[]): FileTreeNode[] {
+      const result: FileTreeNode[] = [];
+      for (const node of nodes) {
+        if (node.isDirectory) {
+          const filteredChildren = filterNodes(node.children);
+          if (filteredChildren.length > 0) {
+            result.push({ ...node, children: filteredChildren });
+          }
+        } else if (node.name.toLowerCase().includes(query)) {
+          result.push(node);
+        }
+      }
+      return result;
+    }
+
+    return filterNodes(tree);
+  }, [tree, searchQuery]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -73,6 +97,20 @@ export function CodeTab({ projectPath, onToast, onSendToAgent }: CodeTabProps) {
             <ResetIcon size={12} />
           </button>
         </div>
+        <div className="code-tab-search">
+          <SearchIcon size={12} />
+          <input
+            className="code-tab-search-input"
+            type="text"
+            placeholder="Search files..."
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
         <div className="code-tab-sidebar-content">
           {isLoadingTree ? (
             <div className="code-tab-sidebar-loading">
@@ -85,11 +123,13 @@ export function CodeTab({ projectPath, onToast, onSendToAgent }: CodeTabProps) {
                 Retry
               </button>
             </div>
-          ) : tree.length === 0 ? (
-            <div className="code-tab-sidebar-empty">No files found</div>
+          ) : filteredTree.length === 0 ? (
+            <div className="code-tab-sidebar-empty">
+              {searchQuery.trim() ? 'No matching files' : 'No files found'}
+            </div>
           ) : (
             <FileTree
-              nodes={tree}
+              nodes={filteredTree}
               expandedPaths={expandedPaths}
               selectedFilePath={selectedFilePath}
               onToggleDirectory={toggleDirectory}
