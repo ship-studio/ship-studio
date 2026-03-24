@@ -4,7 +4,7 @@
 //! including per-project preferences (branch prefix, auto-accept mode,
 //! hide main branch warning, etc.).
 
-use crate::types::{ProjectMetadata, PROJECT_METADATA_SCHEMA_VERSION};
+use crate::types::{ProjectMetadata, TerminalState, PROJECT_METADATA_SCHEMA_VERSION};
 use crate::utils::validate_project_path;
 
 /// Reads project metadata from .shipstudio/project.json with automatic schema migration
@@ -360,6 +360,55 @@ pub async fn set_auto_accept_mode(project_path: String, enabled: bool) -> Result
     let contents = serde_json::to_string_pretty(&metadata)
         .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
     std::fs::write(&metadata_path, contents)
+        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
+
+    Ok(())
+}
+
+/// Gets the saved terminal tab state for a project
+#[tauri::command]
+pub async fn get_terminal_state(project_path: String) -> Result<Option<TerminalState>, String> {
+    let project = validate_project_path(&project_path)?;
+    let metadata_path = project.join(".shipstudio").join("project.json");
+
+    if !metadata_path.exists() {
+        return Ok(None);
+    }
+
+    let contents = std::fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("Failed to read project metadata: {e}"))?;
+    let metadata: ProjectMetadata = serde_json::from_str(&contents)
+        .map_err(|e| format!("Failed to parse project metadata: {e}"))?;
+
+    Ok(metadata.terminal_state)
+}
+
+/// Saves the terminal tab state for a project
+#[tauri::command]
+pub async fn set_terminal_state(project_path: String, state: TerminalState) -> Result<(), String> {
+    let project = validate_project_path(&project_path)?;
+    let shipstudio_dir = project.join(".shipstudio");
+    let metadata_path = shipstudio_dir.join("project.json");
+
+    let mut metadata = if metadata_path.exists() {
+        std::fs::read_to_string(&metadata_path)
+            .ok()
+            .and_then(|contents| serde_json::from_str::<ProjectMetadata>(&contents).ok())
+            .unwrap_or_default()
+    } else {
+        ProjectMetadata::default()
+    };
+
+    metadata.terminal_state = Some(state);
+
+    if !shipstudio_dir.exists() {
+        std::fs::create_dir_all(&shipstudio_dir)
+            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
+    }
+
+    let contents_str = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
+    std::fs::write(&metadata_path, contents_str)
         .map_err(|e| format!("Failed to write project metadata: {e}"))?;
 
     Ok(())

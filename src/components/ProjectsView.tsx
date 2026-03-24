@@ -54,6 +54,7 @@ interface ProjectsViewProps {
 
   projectsLoading: boolean;
   onLoadingChange: (loading: boolean) => void;
+  cleanupStatus?: string | null;
 }
 
 export const ProjectsView = memo(function ProjectsView({
@@ -80,6 +81,7 @@ export const ProjectsView = memo(function ProjectsView({
   getSlotPlugins,
   projectsLoading,
   onLoadingChange,
+  cleanupStatus,
 }: ProjectsViewProps) {
   return (
     <>
@@ -96,6 +98,7 @@ export const ProjectsView = memo(function ProjectsView({
             githubUsername={githubUsername}
             isAuthCheckDone={isAuthCheckDone}
             onLoadingChange={onLoadingChange}
+            cleanupStatus={cleanupStatus}
           />
           {!projectsLoading && <Changelog />}
           {!projectsLoading && (

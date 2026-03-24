@@ -66,6 +66,7 @@ interface AppProps {
 function App({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
+  const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const previewRef = useRef<import('./components/Preview').PreviewHandle | null>(null);
   const currentProjectPathRef = useRef<string | null>(null);
 
@@ -84,6 +85,7 @@ function App({ initialProjectPath }: AppProps) {
     pasteToActiveTerminal,
     switchTabAgent,
     getActiveTabAgent,
+    restoreTerminalTabs,
   } = useTerminalManagement();
 
   // Cleanup dev server when window is closed (prevents orphaned processes)
@@ -326,7 +328,11 @@ function App({ initialProjectPath }: AppProps) {
     enterCompact,
     resetTerminals,
     pasteToActiveTerminal,
+    terminalTabs,
+    activeTerminalTab,
+    restoreTerminalTabs,
     showToast,
+    setCleanupStatus,
     clearScreenshotInterval,
     startScreenshotInterval,
     onPreviewReady,
@@ -896,6 +902,7 @@ function App({ initialProjectPath }: AppProps) {
           getSlotPlugins={getSlotPlugins}
           projectsLoading={projectsLoading}
           onLoadingChange={setProjectsLoading}
+          cleanupStatus={cleanupStatus}
         />
         {toasts.length > 0 && (
           <div className="toast-container">

@@ -54,8 +54,16 @@ export interface UseProjectLifecycleParams {
   // Terminal
   resetTerminals: () => void;
   pasteToActiveTerminal: (text: string) => void;
+  terminalTabs: Array<{ id: number; agentId: string; sessionId: string }>;
+  activeTerminalTab: number;
+  restoreTerminalTabs: (
+    tabs: Array<{ agentId: string; sessionId: string }>,
+    activeIndex: number
+  ) => void;
   // Toast
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  // Cleanup status
+  setCleanupStatus: (status: string | null) => void;
   // Screenshot
   clearScreenshotInterval: () => void;
   startScreenshotInterval: (projectPath: string) => void;
@@ -88,7 +96,11 @@ export function useProjectLifecycle({
   enterCompact,
   resetTerminals,
   pasteToActiveTerminal,
+  terminalTabs,
+  activeTerminalTab,
+  restoreTerminalTabs,
   showToast,
+  setCleanupStatus,
   clearScreenshotInterval,
   startScreenshotInterval,
   onPreviewReady,
@@ -203,9 +215,31 @@ export function useProjectLifecycle({
     currentProjectPathRef.current = project.path;
     clearScreenshotInterval();
     setIsPublishing(false);
-    resetTerminals();
     setShowDevServerLogs(false);
     setView('project-loading');
+
+    // Restore saved terminal tabs (non-blocking — don't delay project loading)
+    invoke<{
+      tabs: Array<{ agent_id: string; session_id: string }>;
+      active_tab_index: number;
+    } | null>('get_terminal_state', { projectPath: project.path })
+      .then((savedState) => {
+        if (savedState && savedState.tabs.length > 0) {
+          logger.info('[OpenProject] Restoring saved terminal tabs', {
+            tabCount: savedState.tabs.length,
+            activeIndex: savedState.active_tab_index,
+          });
+          restoreTerminalTabs(
+            savedState.tabs.map((t) => ({ agentId: t.agent_id, sessionId: t.session_id })),
+            savedState.active_tab_index
+          );
+        } else {
+          resetTerminals();
+        }
+      })
+      .catch(() => {
+        resetTerminals();
+      });
 
     // Store project path for HMR recovery (critical for main window which doesn't have initialProjectPath)
     const storageKey = `ship-studio-project-loaded-${windowLabel}`;
@@ -483,6 +517,27 @@ export function useProjectLifecycle({
   };
 
   const handleBackToProjects = async () => {
+    // Save terminal state in background (non-blocking)
+    if (currentProject && terminalTabs.length > 0) {
+      const activeIdx = terminalTabs.findIndex((t) => t.id === activeTerminalTab);
+      invoke('set_terminal_state', {
+        projectPath: currentProject.path,
+        state: {
+          tabs: terminalTabs.map((t) => ({
+            agent_id: t.agentId,
+            session_id: t.sessionId,
+          })),
+          active_tab_index: Math.max(0, activeIdx),
+        },
+      })
+        .then(() => {
+          logger.info('[BackToProjects] Saved terminal state', { tabCount: terminalTabs.length });
+        })
+        .catch((err) => {
+          logger.warn('[BackToProjects] Failed to save terminal state', { error: String(err) });
+        });
+    }
+
     // Mark that user explicitly went back to projects - this prevents auto-open from
     // firing again even after HMR reloads (survives page refresh)
     const windowLabel = getWindowLabel();
@@ -495,14 +550,13 @@ export function useProjectLifecycle({
     // Capture it so we can check if a new handleSelectProject started during our cleanup.
     const backNavVersion = ++navigationVersionRef.current;
 
-    // Switch view IMMEDIATELY to prevent race conditions.
-    // If the user clicks a new project while async cleanup below is still running,
-    // handleSelectProject's setView('project-loading') would be overridden by a
-    // delayed setView('projects') at the end. Moving these to the top ensures the
-    // view switch is instant and cleanup runs in the background.
+    logger.info('[BackToProjects] Starting');
+
+    // Switch view IMMEDIATELY — all cleanup below is background work
     setCurrentProject(null);
     clearProjectStatuses();
     setView('projects');
+    setCleanupStatus('Closing terminals...');
 
     // Clear the opening guard so handleSelectProject can proceed for a new project
     openingProjectPathRef.current = null;
@@ -515,10 +569,12 @@ export function useProjectLifecycle({
     // If the user opens a new project during cleanup, we must stop immediately
     // to avoid killing the new project's dev server or PTY processes.
 
-    // Unregister this window from the project registry so "Open in New Window"
-    // will create a fresh window instead of focusing this one (which is now showing projects)
+    let t = performance.now();
     try {
       await invoke('unregister_project_from_window', { windowLabel });
+      logger.info('[BackToProjects] unregister_project_from_window', {
+        ms: Math.round(performance.now() - t),
+      });
     } catch {
       // Ignore - non-critical
     }
@@ -543,9 +599,14 @@ export function useProjectLifecycle({
     // Clear branch state
     clearBranchState();
 
-    // Kill all terminals and reset tabs
-    resetTerminals();
     resetLayout();
+
+    // Yield to browser so the projects view renders before heavy terminal cleanup
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    t = performance.now();
+    resetTerminals();
+    logger.info('[BackToProjects] resetTerminals', { ms: Math.round(performance.now() - t) });
 
     // Check again before destructive server/process cleanup
     if (navigationVersionRef.current !== backNavVersion) {
@@ -556,8 +617,12 @@ export function useProjectLifecycle({
       return;
     }
 
-    // Stop dev server or static server
+    setCleanupStatus('Stopping server...');
+    // Yield again so the status update renders
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    t = performance.now();
     await stopServer();
+    logger.info('[BackToProjects] stopServer', { ms: Math.round(performance.now() - t) });
 
     // Check again — stopServer may have taken a while
     if (navigationVersionRef.current !== backNavVersion) {
@@ -570,10 +635,16 @@ export function useProjectLifecycle({
 
     const currentWindowLabel = getWindowLabel();
 
-    // Clean up PTY processes owned by this window
+    setCleanupStatus('Cleaning up processes...');
     try {
+      t = performance.now();
       await invoke('kill_window_pty', { windowLabel: currentWindowLabel });
+      logger.info('[BackToProjects] kill_window_pty', { ms: Math.round(performance.now() - t) });
+      t = performance.now();
       await invoke('cleanup_orphaned_processes');
+      logger.info('[BackToProjects] cleanup_orphaned_processes', {
+        ms: Math.round(performance.now() - t),
+      });
       // Query backend for the actual reserved port (don't rely on potentially stale React state)
       const actualPort = await invoke<number | null>('get_reserved_port_for_window', {
         windowLabel: currentWindowLabel,
@@ -588,6 +659,7 @@ export function useProjectLifecycle({
       // Ignore cleanup errors
     }
 
+    setCleanupStatus(null);
     logger.info('[BackToProjects] Cleanup completed', { backNavVersion });
   };
 

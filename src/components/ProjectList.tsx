@@ -86,6 +86,8 @@ interface ProjectListProps {
   isAuthCheckDone?: boolean;
   /** Callback when loading state changes */
   onLoadingChange?: (loading: boolean) => void;
+  /** Background cleanup status message (shown below loading spinner) */
+  cleanupStatus?: string | null;
 }
 
 export function ProjectList({
@@ -98,6 +100,7 @@ export function ProjectList({
   githubUsername,
   isAuthCheckDone = false,
   onLoadingChange,
+  cleanupStatus,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<ProjectWithThumbnail[]>([]);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
@@ -411,6 +414,7 @@ export function ProjectList({
           <div className="project-list-loading">
             <div className="spinner" />
             <p>Loading projects...</p>
+            {cleanupStatus && <p className="project-list-cleanup-status">{cleanupStatus}</p>}
           </div>
         </div>
       </div>

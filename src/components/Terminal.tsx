@@ -22,6 +22,7 @@ import { listen } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { loadNerdFonts } from '../lib/fonts';
 import { isWindows } from '../lib/setup';
+import { logger } from '../lib/logger';
 import type { AgentConfig } from '../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
@@ -40,6 +41,12 @@ interface TerminalProps {
   autoAcceptMode?: boolean;
   /** Callback fired when the agent's status changes (thinking, waiting for input, idle) */
   onStatusChange?: (status: AgentStatus, title: string) => void;
+  /** Callback fired when the terminal title changes (for tab display) */
+  onTitleChange?: (title: string) => void;
+  /** Unique session name for naming/resuming agent conversations */
+  sessionName?: string;
+  /** Whether to resume a previous session with this name */
+  shouldResume?: boolean;
 }
 
 /**
@@ -55,10 +62,21 @@ export interface TerminalHandle {
   paste: (data: string) => void;
   /** Kill the PTY process */
   kill: () => void;
+  /** Re-fit the terminal to its container (call after display changes) */
+  fit: () => void;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
-  { agent, projectPath, onExit, autoAcceptMode = false, onStatusChange },
+  {
+    agent,
+    projectPath,
+    onExit,
+    autoAcceptMode = false,
+    onStatusChange,
+    onTitleChange,
+    sessionName,
+    shouldResume,
+  },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -74,13 +92,16 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   // Use refs for callbacks to prevent effect re-runs when callback references change
   const onExitRef = useRef(onExit);
   const onStatusChangeRef = useRef(onStatusChange);
+  const onTitleChangeRef = useRef(onTitleChange);
   const lastStatusRef = useRef<AgentStatus>('idle');
   useEffect(() => {
     onExitRef.current = onExit;
     onStatusChangeRef.current = onStatusChange;
-  }, [onExit, onStatusChange]);
+    onTitleChangeRef.current = onTitleChange;
+  }, [onExit, onStatusChange, onTitleChange]);
 
   const cleanup = useCallback(() => {
+    logger.info('[Terminal] Cleanup started', { hasPty: !!ptyRef.current });
     // Dispose PTY event listeners FIRST to stop IPC message flood
     for (const d of ptyDisposablesRef.current) {
       try {
@@ -92,14 +113,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     ptyDisposablesRef.current = [];
 
     if (ptyRef.current) {
+      // Invalidate PID FIRST to break tauri-pty's infinite readData() loop
+      // and prevent kill() from blocking. The backend's kill_window_pty
+      // handles cleanup of any zombie processes.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      (ptyRef.current as any).pid = undefined;
       try {
         ptyRef.current.kill();
-        // Invalidate PID to break tauri-pty's infinite readData() loop.
-        // tauri-pty runs `for(;;) { yield invoke('plugin:pty|read', { pid }) }` —
-        // after kill(), this loop continues generating microtasks (100% CPU).
-        // Setting pid to undefined makes the next invoke fail, breaking the loop.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-        (ptyRef.current as any).pid = undefined;
       } catch {
         // Ignore - PTY may already be dead
       }
@@ -117,20 +137,69 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     const container = containerRef.current;
     if (!container) return;
 
+    let cancelled = false;
+    const startTime = Date.now();
+
     // Wait for container to have dimensions AND fonts to load
     const checkReady = () => {
+      if (cancelled) return;
+
       const rect = container.getBoundingClientRect();
+      const elapsed = Date.now() - startTime;
+
       if (rect.width > 0 && rect.height > 0) {
-        // Load Nerd Fonts before initializing terminal
-        void loadNerdFonts().then(() => {
-          setIsReady(true);
+        logger.info('[Terminal] Container ready', {
+          agent: agent.id,
+          width: rect.width,
+          height: rect.height,
+          waitMs: elapsed,
         });
+        void loadNerdFonts()
+          .then(() => {
+            if (!cancelled) {
+              logger.info('[Terminal] Fonts loaded, setting ready', { agent: agent.id });
+              setIsReady(true);
+            }
+          })
+          .catch((err) => {
+            logger.error('[Terminal] Font loading failed, proceeding anyway', {
+              agent: agent.id,
+              error: String(err),
+            });
+            if (!cancelled) setIsReady(true);
+          });
+      } else if (elapsed > 10_000) {
+        // Safety: if container never gets dimensions after 10s, log and try anyway
+        logger.error('[Terminal] Container never got dimensions after 10s, forcing ready', {
+          agent: agent.id,
+          width: rect.width,
+          height: rect.height,
+          display: container.style.display,
+          parentDisplay: container.parentElement?.style.display,
+        });
+        void loadNerdFonts()
+          .catch(() => {})
+          .then(() => {
+            if (!cancelled) setIsReady(true);
+          });
       } else {
+        if (elapsed > 2000 && elapsed % 1000 < 50) {
+          logger.warn('[Terminal] Still waiting for container dimensions', {
+            agent: agent.id,
+            width: rect.width,
+            height: rect.height,
+            waitMs: elapsed,
+          });
+        }
         requestAnimationFrame(checkReady);
       }
     };
     checkReady();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.id]);
 
   // Listen for Tauri file drop events
   // Use a ref for debounce to persist across HMR
@@ -256,8 +325,18 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Claude Code updates the terminal title with icons:
     // - Dot (· char ~10242/10256) when thinking/processing
     // - Star (* char ~10035) when done/waiting for input
-    if (agent.supportsStatusDetection) {
-      term.onTitleChange((title) => {
+    term.onTitleChange((title) => {
+      // Forward the display title (strip leading status icon if present)
+      const displayTitle = title.replace(/^[·•✳✱✲*\u2802\u2810\u00B7]\s*/, '').trim();
+      // Skip UUIDs and empty titles — these come from session naming, not user-facing content
+      if (
+        displayTitle &&
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(displayTitle)
+      ) {
+        onTitleChangeRef.current?.(displayTitle);
+      }
+
+      if (agent.supportsStatusDetection) {
         let status: AgentStatus = 'idle';
 
         // Check first character code to detect status
@@ -289,8 +368,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           lastStatusRef.current = status;
           onStatusChangeRef.current?.(status, title);
         }
-      });
-    }
+      }
+    });
 
     // For agents that don't support title-based status detection,
     // listen for OSC 9 (desktop notification) sequences instead.
@@ -309,17 +388,50 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     // Track if this effect instance is still mounted (handles StrictMode/HMR)
     let mounted = true;
+    let attemptResume = !!shouldResume;
 
     // Setup PTY connection using tauri-pty with retry logic
     const setupPty = async (retryCount = 0) => {
       const maxRetries = 3;
 
       // Check if still mounted before proceeding
-      if (!mounted) return;
+      if (!mounted) {
+        logger.info('[Terminal] PTY setup skipped - component unmounted', { agent: agent.id });
+        return;
+      }
+
+      logger.info('[Terminal] Setting up PTY', {
+        agent: agent.id,
+        binary: agent.binaryName,
+        projectPath,
+        retry: retryCount,
+      });
 
       try {
         // Fit again to ensure correct size
         fitAddon.fit();
+
+        // If terminal has zero dimensions, wait for it to become visible
+        if (term.cols <= 1 || term.rows <= 1) {
+          logger.warn('[Terminal] Zero dimensions at spawn time, waiting for resize', {
+            cols: term.cols,
+            rows: term.rows,
+          });
+          await new Promise<void>((resolve) => {
+            const checkSize = () => {
+              fitAddon.fit();
+              if (term.cols > 1 && term.rows > 1) {
+                resolve();
+              } else {
+                setTimeout(checkSize, 100);
+              }
+            };
+            setTimeout(checkSize, 100);
+            // Safety timeout - proceed anyway after 3s
+            setTimeout(resolve, 3000);
+          });
+          logger.info('[Terminal] Dimensions ready', { cols: term.cols, rows: term.rows });
+        }
 
         // Get extended PATH from backend (includes nvm, Claude desktop app, etc.)
         const home = await homeDir();
@@ -350,8 +462,26 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           };
         }
 
+        const agentArgs: string[] = [];
+
+        // Session persistence for Claude Code: assign a fixed session ID per tab
+        // so we can resume the exact conversation when the project is reopened
+        if (agent.id === 'claude-code' && sessionName) {
+          if (attemptResume) {
+            agentArgs.push('--resume', sessionName);
+          } else {
+            agentArgs.push('--session-id', sessionName);
+          }
+          logger.info('[Terminal] Session config', {
+            sessionId: sessionName,
+            resuming: attemptResume,
+          });
+        }
+
         // When autoAcceptMode is enabled, pass the agent's auto-accept flag
-        const agentArgs = autoAcceptMode && agent.autoAcceptFlag ? [agent.autoAcceptFlag] : [];
+        if (autoAcceptMode && agent.autoAcceptFlag) {
+          agentArgs.push(agent.autoAcceptFlag);
+        }
 
         // On Windows, agent may be a .cmd script - must run through cmd.exe
         const spawnCmd = isWin ? 'cmd.exe' : agent.binaryName;
@@ -374,6 +504,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         }
 
         ptyRef.current = pty;
+        logger.info('[Terminal] PTY spawned successfully', { agent: agent.id });
 
         // Startup timeout: if no output is received within 10s, the agent
         // likely failed to launch (binary not found, permission error, etc.).
@@ -381,12 +512,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         let receivedOutput = false;
         const startupTimeout = setTimeout(() => {
           if (!receivedOutput && mounted) {
+            logger.error('[Terminal] Startup timeout - no output after 10s', {
+              agent: agent.id,
+              binary: agent.binaryName,
+            });
             terminalRef.current?.write(
               `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
                 `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
             );
           }
         }, 10_000);
+
+        // Buffer early output to detect resume failures on exit
+        let outputBuffer = '';
 
         // Handle PTY output -> terminal
         // Store disposables so cleanup() can remove IPC listeners and prevent CPU leak.
@@ -396,6 +534,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           let idleTimer: ReturnType<typeof setTimeout> | null = null;
           const dataDisposable = pty.onData((data) => {
             receivedOutput = true;
+            if (outputBuffer.length < 2000) outputBuffer += String(data);
             clearTimeout(startupTimeout);
             terminalRef.current?.write(data);
             if (lastStatusRef.current === 'thinking') {
@@ -412,6 +551,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         } else {
           const dataDisposable = pty.onData((data) => {
             receivedOutput = true;
+            if (outputBuffer.length < 2000) outputBuffer += String(data);
             clearTimeout(startupTimeout);
             terminalRef.current?.write(data);
           });
@@ -421,6 +561,38 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // Handle PTY exit
         const exitDisposable = pty.onExit(({ exitCode }) => {
           clearTimeout(startupTimeout);
+          logger.info('[Terminal] PTY process exited', {
+            agent: agent.id,
+            exitCode,
+            receivedOutput,
+          });
+
+          // If resume failed because session doesn't exist, retry as fresh session
+          if (
+            attemptResume &&
+            agent.id === 'claude-code' &&
+            outputBuffer.includes('No conversation found')
+          ) {
+            logger.info('[Terminal] Resume failed, retrying as fresh session');
+            terminalRef.current?.write(
+              '\r\n\x1b[33mSession not found, starting fresh...\x1b[0m\r\n'
+            );
+            // Clean up current PTY
+            for (const d of ptyDisposablesRef.current) {
+              try {
+                d.dispose();
+              } catch {
+                /* ignore */
+              }
+            }
+            ptyDisposablesRef.current = [];
+            ptyRef.current = null;
+            // Retry without --resume
+            attemptResume = false;
+            void setupPty(0);
+            return;
+          }
+
           terminalRef.current?.write('\r\n[Process exited]\r\n');
           onExitRef.current?.(exitCode);
         });
@@ -465,7 +637,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           return true; // Allow all other keys
         });
       } catch (err) {
-        console.warn(`Failed to spawn ${agent.displayName}:`, err);
+        logger.error('[Terminal] Failed to spawn PTY', {
+          agent: agent.id,
+          binary: agent.binaryName,
+          error: String(err),
+          retry: retryCount,
+        });
 
         if (!mounted) return;
 
@@ -505,7 +682,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       }
       cleanup();
     };
-  }, [isReady, projectPath, cleanup, autoAcceptMode, agent]);
+  }, [isReady, projectPath, cleanup, autoAcceptMode, agent, sessionName, shouldResume]);
 
   // Click to focus terminal
   const handleClick = useCallback(() => {
@@ -547,6 +724,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       },
       kill: () => {
         cleanup();
+      },
+      fit: () => {
+        if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
+          fitAddonRef.current.fit();
+          ptyRef.current.resize(terminalRef.current.cols, terminalRef.current.rows);
+        }
       },
     }),
     [cleanup]

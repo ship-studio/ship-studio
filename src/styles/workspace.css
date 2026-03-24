@@ -18,6 +18,21 @@
   font-size: 13px;
   white-space: nowrap;
   flex-shrink: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.back-button:hover {
+  background: var(--border);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
 }
 
 .workspace-header h1 {
@@ -156,9 +171,10 @@
 .workspace-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 8px;
+  min-width: 0;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -184,10 +200,6 @@
 }
 
 .workspace-tab.attention {
-  color: #22c55e;
-}
-
-.workspace-tab.attention .terminal-tab-number {
   color: #22c55e;
 }
 
@@ -426,73 +438,71 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  flex: 1;
 }
 
-.terminal-tab {
+/* Terminal Tab Selector Dropdown */
+.tab-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tab-selector-trigger {
   display: flex;
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 10px;
-  background: transparent;
-  border: none;
+  padding: 0 8px;
+  max-width: 220px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   transition:
     background-color 0.15s,
     color 0.15s,
     border-color 0.15s;
+  outline: none;
 }
 
-.terminal-tab:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-secondary);
-}
-
-.terminal-tab.active {
-  background: rgba(255, 255, 255, 0.1);
+.tab-selector-trigger:hover,
+.tab-selector-trigger.open {
+  background: var(--border);
   color: var(--text-primary);
+  border-color: var(--text-muted);
 }
 
-.terminal-tab-number {
+.tab-selector-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tab-selector-shortcut {
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 12px;
-  font-weight: 500;
-}
-
-/* Terminal Tab Dropdown */
-.terminal-tab-dropdown-container {
-  position: relative;
-  display: flex;
-  align-items: center;
-  margin-right: -6px;
-}
-
-.terminal-tab-chevron {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
   color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background-color 0.1s,
-    color 0.1s,
-    border-color 0.1s;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.terminal-tab-chevron:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: var(--text-primary);
+.tab-selector-cmd {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 14px;
 }
 
-.terminal-tab-dropdown-menu {
+.tab-selector-trigger svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.tab-selector-menu {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
@@ -500,12 +510,32 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
-  min-width: 140px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  width: 260px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   padding: 4px;
 }
 
-.terminal-tab-dropdown-item {
+.tab-selector-section-label {
+  padding: 4px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.tab-selector-item-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tab-selector-item-row .tab-selector-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-selector-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -522,59 +552,85 @@
   white-space: nowrap;
 }
 
-.terminal-tab-dropdown-item:hover {
+.tab-selector-item:hover {
   background: var(--bg-tertiary);
 }
 
-.terminal-tab-dropdown-item.danger {
-  color: var(--danger);
-}
-
-.terminal-tab-dropdown-item.danger:hover {
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.terminal-tab-dropdown-item.active {
+.tab-selector-item.active {
   color: var(--accent);
 }
 
-.terminal-tab-dropdown-label {
-  padding: 4px 10px 2px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.tab-selector-item.add {
   color: var(--text-muted);
+  gap: 6px;
 }
 
-.terminal-tab-dropdown-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
+.tab-selector-item.add:hover {
+  color: var(--text-primary);
 }
 
-.terminal-tab-add {
+.tab-selector-item-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tab-selector-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-selector-item-shortcut {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.tab-selector-attention-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+}
+
+.tab-selector-close-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   background: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
   color: var(--text-muted);
+  border-radius: 4px;
   cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    opacity 0.1s,
+    background 0.1s,
+    color 0.1s;
 }
 
-.terminal-tab-add:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.3);
-  color: var(--text-secondary);
+.tab-selector-item:hover .tab-selector-close-btn {
+  opacity: 1;
+}
+
+.tab-selector-close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+.tab-selector-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 
 .terminal-tab-content {

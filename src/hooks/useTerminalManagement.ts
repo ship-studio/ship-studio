@@ -16,6 +16,7 @@ import type { TerminalHandle } from '../components/Terminal';
 import { getAgentById, getDefaultAgentId } from '../lib/agent';
 import type { AgentConfig } from '../lib/agent';
 import { trackEvent } from '../lib/analytics';
+import { logger } from '../lib/logger';
 
 /** Maximum number of terminal tabs allowed */
 const MAX_TERMINAL_TABS = 5;
@@ -24,6 +25,10 @@ const MAX_TERMINAL_TABS = 5;
 export interface TerminalTab {
   id: number;
   agentId: string;
+  /** Unique session ID (UUID) for resuming agent conversations */
+  sessionId: string;
+  /** Whether this tab should resume a previous session on spawn */
+  shouldResume?: boolean;
 }
 
 /** Return type for useTerminalManagement hook */
@@ -58,6 +63,11 @@ export interface UseTerminalManagementReturn {
   switchTabAgent: (tabId: number, agentId: string) => void;
   /** Get the agent config for the currently active tab */
   getActiveTabAgent: () => AgentConfig;
+  /** Restore terminal tabs from saved state (used when reopening a project) */
+  restoreTerminalTabs: (
+    tabs: Array<{ agentId: string; sessionId: string }>,
+    activeIndex: number
+  ) => void;
 }
 
 /**
@@ -87,7 +97,7 @@ export interface UseTerminalManagementReturn {
  */
 export function useTerminalManagement(): UseTerminalManagementReturn {
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([
-    { id: 1, agentId: getDefaultAgentId() },
+    { id: 1, agentId: getDefaultAgentId(), sessionId: crypto.randomUUID() },
   ]);
   const [activeTerminalTab, setActiveTerminalTab] = useState(1);
   const [terminalSessionId, setTerminalSessionId] = useState(1);
@@ -95,16 +105,29 @@ export function useTerminalManagement(): UseTerminalManagementReturn {
   const terminalTabCounterRef = useRef(1);
 
   const killAllTerminals = useCallback(() => {
-    terminalRefsMap.current.forEach((ref) => {
+    const tabCount = terminalRefsMap.current.size;
+    logger.info('[TerminalMgmt] Killing all terminals', { tabCount });
+    terminalRefsMap.current.forEach((ref, tabId) => {
+      logger.info('[TerminalMgmt] Killing terminal', { tabId });
       ref?.kill();
     });
     terminalRefsMap.current.clear();
+    logger.info('[TerminalMgmt] All terminals killed');
   }, []);
 
   const addTerminalTab = useCallback(() => {
-    if (terminalTabs.length >= MAX_TERMINAL_TABS) return;
+    if (terminalTabs.length >= MAX_TERMINAL_TABS) {
+      logger.warn('[TerminalMgmt] Max tabs reached', { max: MAX_TERMINAL_TABS });
+      return;
+    }
     const newTabId = ++terminalTabCounterRef.current;
-    setTerminalTabs((prev) => [...prev, { id: newTabId, agentId: getDefaultAgentId() }]);
+    const sessionId = crypto.randomUUID();
+    logger.info('[TerminalMgmt] Adding new tab', {
+      tabId: newTabId,
+      sessionId,
+      totalTabs: terminalTabs.length + 1,
+    });
+    setTerminalTabs((prev) => [...prev, { id: newTabId, agentId: getDefaultAgentId(), sessionId }]);
     setActiveTerminalTab(newTabId);
     void trackEvent('terminal_tab_added', {
       tab_count: terminalTabs.length + 1,
@@ -143,7 +166,7 @@ export function useTerminalManagement(): UseTerminalManagementReturn {
   const resetTerminals = useCallback(() => {
     killAllTerminals();
     terminalTabCounterRef.current = 1;
-    setTerminalTabs([{ id: 1, agentId: getDefaultAgentId() }]);
+    setTerminalTabs([{ id: 1, agentId: getDefaultAgentId(), sessionId: crypto.randomUUID() }]);
     setActiveTerminalTab(1);
     setTerminalSessionId((prev) => prev + 1);
   }, [killAllTerminals]);
@@ -171,8 +194,12 @@ export function useTerminalManagement(): UseTerminalManagementReturn {
     }
     terminalRefsMap.current.delete(tabId);
 
-    // Update the tab's agent
-    setTerminalTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, agentId } : t)));
+    // Update the tab's agent with a fresh session ID
+    setTerminalTabs((prev) =>
+      prev.map((t) =>
+        t.id === tabId ? { ...t, agentId, sessionId: crypto.randomUUID(), shouldResume: false } : t
+      )
+    );
     void trackEvent('agent_switched', { agent_id: agentId, $screen_name: 'Workspace' });
 
     // Increment session ID to force remount of the terminal
@@ -183,6 +210,29 @@ export function useTerminalManagement(): UseTerminalManagementReturn {
     const tab = terminalTabs.find((t) => t.id === activeTerminalTab);
     return tab ? getAgentById(tab.agentId) : getAgentById(getDefaultAgentId());
   }, [terminalTabs, activeTerminalTab]);
+
+  const restoreTerminalTabs = useCallback(
+    (tabs: Array<{ agentId: string; sessionId: string }>, activeIndex: number) => {
+      if (tabs.length === 0) return;
+      killAllTerminals();
+      const restoredTabs: TerminalTab[] = tabs.map((t, i) => ({
+        id: i + 1,
+        agentId: t.agentId,
+        sessionId: t.sessionId,
+        shouldResume: true,
+      }));
+      terminalTabCounterRef.current = restoredTabs.length;
+      setTerminalTabs(restoredTabs);
+      const activeId = restoredTabs[Math.min(activeIndex, restoredTabs.length - 1)]?.id ?? 1;
+      setActiveTerminalTab(activeId);
+      setTerminalSessionId((prev) => prev + 1);
+      logger.info('[TerminalMgmt] Restored tabs from saved state', {
+        tabCount: restoredTabs.length,
+        activeId,
+      });
+    },
+    [killAllTerminals]
+  );
 
   return {
     terminalTabs,
@@ -200,5 +250,6 @@ export function useTerminalManagement(): UseTerminalManagementReturn {
     pasteToActiveTerminal,
     switchTabAgent,
     getActiveTabAgent,
+    restoreTerminalTabs,
   };
 }

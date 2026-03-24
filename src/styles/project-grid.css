@@ -119,6 +119,12 @@
   gap: 16px;
 }
 
+.project-list-cleanup-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
 /* Project Card Menu Dropdown */
 .project-card-menu-container {
   position: relative;

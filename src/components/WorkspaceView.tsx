@@ -10,7 +10,7 @@
  * @module components/WorkspaceView
  */
 
-import { memo, useEffect, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { Terminal } from './Terminal';
 import { DevServerLogs } from './DevServerLogs';
 import { Preview } from './Preview';
@@ -40,7 +40,6 @@ import {
   PullRequestIcon,
   EyeIcon,
   PanelRightIcon,
-  PlusIcon,
   TerminalIcon,
   ResetIcon,
   CompactIcon,
@@ -51,7 +50,7 @@ import {
   SettingsIcon,
 } from './icons';
 import { ToolbarDropdown } from './ToolbarDropdown';
-import { TerminalTabDropdown } from './TerminalTabDropdown';
+import { TerminalTabSelector } from './TerminalTabSelector';
 import { getAgentById } from '../lib/agent';
 import type { AgentConfig } from '../lib/agent';
 import type { Project } from '../lib/project';
@@ -511,23 +510,67 @@ export const WorkspaceView = memo(function WorkspaceView({
   // Generic projects (Tauri apps, CLI tools, etc.) don't have a web preview
   const isWebProject = projectType !== 'generic';
 
-  // Cmd/Ctrl+1-5 to switch terminal tabs by position
+  // Track terminal tab titles from PTY title changes
+  const [tabTitles, setTabTitles] = useState<Map<number, string>>(new Map());
+  const handleTabTitleChange = useCallback(
+    (tabId: number) => (title: string) => {
+      setTabTitles((prev) => {
+        if (prev.get(tabId) === title) return prev;
+        const next = new Map(prev);
+        next.set(tabId, title);
+        return next;
+      });
+    },
+    []
+  );
+
+  // Cmd/Ctrl+1-5 to switch terminal tabs, Cmd/Ctrl+T to add new tab
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+
+      // Cmd+T — new tab
+      if (e.key === 't') {
+        e.preventDefault();
+        addTerminalTab();
+        return;
+      }
+
       const num = parseInt(e.key, 10);
-      if (num < 1 || num > 5) return;
+      if (isNaN(num) || num < 1 || num > 5) return;
       e.preventDefault();
       const index = num - 1;
-      if (index >= terminalTabs.length) {
+      const tab = terminalTabs[index];
+      if (!tab) {
         showToast(`No terminal tab ${num} — you have ${terminalTabs.length} open`, 'error');
         return;
       }
-      setActiveTerminalTab(terminalTabs[index].id);
+      setActiveTerminalTab(tab.id);
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [terminalTabs, setActiveTerminalTab, showToast]);
+  }, [terminalTabs, setActiveTerminalTab, showToast, addTerminalTab]);
+
+  // Hide terminal content briefly during tab switch to avoid showing the skinny state.
+  // Uses direct DOM manipulation to avoid cascading React renders.
+  const terminalContentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const container = terminalContentRef.current;
+    if (container) container.style.opacity = '0';
+    const ref = terminalRefsMap.current.get(activeTerminalTab);
+    if (!ref) {
+      if (container) container.style.opacity = '1';
+      return;
+    }
+    // Double-rAF: first frame lets display:block take effect, second frame fits
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        ref.fit();
+        if (container) container.style.opacity = '1';
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeTerminalTab, terminalRefsMap]);
 
   return (
     <>
@@ -668,34 +711,26 @@ export const WorkspaceView = memo(function WorkspaceView({
                 >
                   <div className="terminal-tabs-bar">
                     <div className="terminal-tabs" data-education-id="terminal-tabs">
-                      {terminalTabs.map((tab, index) => (
-                        <button
-                          key={tab.id}
-                          className={`workspace-tab ${!showDevServerLogs && activeTerminalTab === tab.id ? 'active' : ''} ${attentionTabs.has(tab.id) ? 'attention' : ''}`}
-                          onClick={() => {
-                            setShowDevServerLogs(false);
-                            setShowHealthLogs(false);
-                            setActiveTerminalTab(tab.id);
-                            setAttentionTabs((prev) => {
-                              const next = new Set(prev);
-                              next.delete(tab.id);
-                              return next;
-                            });
-                          }}
-                        >
-                          <span className="terminal-tab-number">{index + 1}</span>
-                          <TerminalTabDropdown
-                            currentAgent={getAgentById(tab.agentId)}
-                            onSwitchAgent={(agentId) => switchTabAgent(tab.id, agentId)}
-                            onClose={() => closeTerminalTab(tab.id)}
-                          />
-                        </button>
-                      ))}
-                      {terminalTabs.length < maxTerminalTabs && (
-                        <button className="terminal-tab-add" onClick={addTerminalTab}>
-                          <PlusIcon size={12} />
-                        </button>
-                      )}
+                      <TerminalTabSelector
+                        tabs={terminalTabs}
+                        activeTabId={activeTerminalTab}
+                        tabTitles={tabTitles}
+                        attentionTabs={attentionTabs}
+                        maxTabs={maxTerminalTabs}
+                        onSelectTab={(tabId) => {
+                          setShowDevServerLogs(false);
+                          setShowHealthLogs(false);
+                          setActiveTerminalTab(tabId);
+                          setAttentionTabs((prev) => {
+                            const next = new Set(prev);
+                            next.delete(tabId);
+                            return next;
+                          });
+                        }}
+                        onAddTab={addTerminalTab}
+                        onCloseTab={closeTerminalTab}
+                        onSwitchAgent={switchTabAgent}
+                      />
                     </div>
                     <div className="terminal-logs-tabs">
                       {(isWebProject || hasDevServer) && (
@@ -757,7 +792,11 @@ export const WorkspaceView = memo(function WorkspaceView({
                       </button>
                     </div>
                   </div>
-                  <div className="terminal-content" data-education-id="claude-terminal">
+                  <div
+                    className="terminal-content"
+                    data-education-id="claude-terminal"
+                    ref={terminalContentRef}
+                  >
                     {terminalTabs.map((tab) => (
                       <div
                         key={`session-${terminalSessionId}-tab-${tab.id}`}
@@ -778,6 +817,9 @@ export const WorkspaceView = memo(function WorkspaceView({
                           onExit={handleTerminalExit}
                           autoAcceptMode={autoAcceptMode}
                           onStatusChange={createTabStatusHandler(tab.id)}
+                          onTitleChange={handleTabTitleChange(tab.id)}
+                          sessionName={tab.sessionId}
+                          shouldResume={tab.shouldResume}
                         />
                       </div>
                     ))}

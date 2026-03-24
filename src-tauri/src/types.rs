@@ -127,7 +127,25 @@ pub struct RestoreResult {
 
 /// Current schema version for project metadata.
 /// Increment this when making breaking changes to the schema.
-pub const PROJECT_METADATA_SCHEMA_VERSION: u32 = 2;
+pub const PROJECT_METADATA_SCHEMA_VERSION: u32 = 3;
+
+/// A single saved terminal tab.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SavedTerminalTab {
+    /// Agent ID (e.g., "claude-code", "codex", "terminal")
+    pub agent_id: String,
+    /// Unique session ID (UUID) for resuming agent conversations
+    pub session_id: String,
+}
+
+/// Saved terminal state for restoring tabs when reopening a project.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TerminalState {
+    /// Saved tabs in order
+    pub tabs: Vec<SavedTerminalTab>,
+    /// Index of the active tab (0-based)
+    pub active_tab_index: usize,
+}
 
 /// Project metadata stored in .shipstudio/project.json
 #[derive(Serialize, Deserialize)]
@@ -163,6 +181,9 @@ pub struct ProjectMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub dev_server_port: Option<u16>,
+    /// Saved terminal tab state for session restoration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_state: Option<TerminalState>,
 }
 
 fn default_schema_version() -> u32 {
@@ -183,6 +204,7 @@ impl Default for ProjectMetadata {
             hide_main_branch_warning: None,
             custom_dev_command: None,
             dev_server_port: None,
+            terminal_state: None,
         }
     }
 }
