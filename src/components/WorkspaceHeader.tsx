@@ -29,9 +29,9 @@ import {
   HistoryIcon,
   DollarIcon,
   PuzzleIcon,
-  BugIcon,
+  HelpIcon,
 } from './icons';
-import { BugReportModal } from './BugReportButton';
+import { SupportPanel } from './support/SupportPanel';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import type { IntegrationState } from '../hooks/useIntegrationStatus';
@@ -156,8 +156,8 @@ export function WorkspaceHeader({
     };
   }, [getSlotPlugins]);
 
-  // Bug report modal state
-  const [isBugReportOpen, setIsBugReportOpen] = useState(false);
+  // Support panel state
+  const [isSupportPanelOpen, setIsSupportPanelOpen] = useState(false);
 
   // IDE dropdown state (internal to header)
   const [showIdeDropdown, setShowIdeDropdown] = useState(false);
@@ -231,11 +231,11 @@ export function WorkspaceHeader({
           </button>
           <button
             className="toolbar-icon-btn"
-            onClick={() => setIsBugReportOpen(true)}
-            title="Report a Bug"
-            data-education-id="bug-report-button"
+            onClick={() => setIsSupportPanelOpen(true)}
+            title="Support"
+            data-education-id="support-button"
           >
-            <BugIcon size={12} />
+            <HelpIcon size={12} />
           </button>
           <button
             className="toolbar-icon-btn"
@@ -348,8 +348,13 @@ export function WorkspaceHeader({
             onForceOpenHandled={onForcePublishOpenHandled}
           />
         </div>
-        <BugReportModal isOpen={isBugReportOpen} onClose={() => setIsBugReportOpen(false)} />
       </header>
+      <SupportPanel
+        isOpen={isSupportPanelOpen}
+        onClose={() => setIsSupportPanelOpen(false)}
+        projectPath={projectPath}
+        projectName={projectName}
+      />
     </>
   );
 }

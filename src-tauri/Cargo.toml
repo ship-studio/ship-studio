@@ -49,6 +49,9 @@ bytes = "1"
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

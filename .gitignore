@@ -28,5 +28,8 @@ ShipStudio.zip
 .agents/
 .claude/
 
+# Local Cargo config (contains build-time secrets)
+src-tauri/.cargo/
+
 # GSD planning
 .planning/

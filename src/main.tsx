@@ -79,6 +79,7 @@ const OS_SKIP_SELECTOR = [
   '.dashboard-with-changelog',
   '.dashboard-scroll-container',
   '.changelog-list',
+  '.support-panel',
 ].join(', ');
 
 function initScrollbars() {

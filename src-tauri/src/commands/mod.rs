@@ -26,6 +26,7 @@ pub mod settings;
 pub mod setup;
 pub mod skills;
 pub mod static_server;
+pub mod support;
 pub mod window;
 
 // Re-export all commands for easy access in lib.rs
@@ -53,4 +54,5 @@ pub use settings::*;
 pub use setup::*;
 pub use skills::*;
 pub use static_server::*;
+pub use support::*;
 pub use window::*;
