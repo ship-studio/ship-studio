@@ -350,6 +350,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Initial fit
     setTimeout(() => {
       fitAddon.fit();
+      // Auto-focus if this is the active tab — must happen after fit so
+      // xterm's textarea is properly sized and ready to receive input.
+      if (isActiveRef.current) {
+        term.focus();
+      }
     }, 0);
 
     terminalRef.current = term;
@@ -570,12 +575,17 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // Buffer early output to detect resume failures on exit
         let outputBuffer = '';
 
-        // Write data to xterm, or buffer it if the terminal is hidden
-        const writeToTerminal = (data: string | Uint8Array) => {
+        // Write data to xterm, or buffer it if the terminal is hidden.
+        // Note: tauri-pty's read command returns Vec<u8> from Rust, which Tauri
+        // serializes as a JSON number[]. We must convert to Uint8Array for both
+        // xterm.write() and TextDecoder.decode() to work.
+        const writeToTerminal = (data: string | Uint8Array | number[]) => {
+          const normalized = Array.isArray(data) ? new Uint8Array(data) : data;
           if (isActiveRef.current) {
-            terminalRef.current?.write(data);
+            terminalRef.current?.write(normalized);
           } else {
-            const str = typeof data === 'string' ? data : new TextDecoder().decode(data);
+            const str =
+              typeof normalized === 'string' ? normalized : new TextDecoder().decode(normalized);
             hiddenBufferRef.current.push(str);
             hiddenBufferSizeRef.current += str.length;
             // Cap buffer to prevent memory growth

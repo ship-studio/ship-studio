@@ -609,7 +609,8 @@ export const WorkspaceView = memo(function WorkspaceView({
     };
   }, [terminalTabs, activeTerminalTab, closeTerminalTab]);
 
-  // Focus the active terminal tab when switching
+  // Focus the active terminal tab when switching between existing tabs.
+  // For brand-new tabs, the Terminal component auto-focuses itself after init.
   useEffect(() => {
     const ref = terminalRefsMap.current.get(activeTerminalTab);
     if (ref) {
