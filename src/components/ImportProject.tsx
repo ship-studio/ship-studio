@@ -127,19 +127,41 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
   const waitForPtyExit = async (targetId: number): Promise<number | null> => {
     return new Promise((resolve, reject) => {
-      let unlisten: UnlistenFn | null = null;
+      let unlistenExit: UnlistenFn | null = null;
+      let unlistenOutput: UnlistenFn | null = null;
+      const outputLines: string[] = [];
+      const MAX_OUTPUT_LINES = 30;
 
-      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
+      // Capture process output so we can surface it on failure
+      void listen<{ id: number; data: string }>('pty-output', (event) => {
         if (event.payload.id === targetId) {
-          unlisten?.();
-          if (event.payload.code === 0 || event.payload.code === null) {
-            resolve(event.payload.code);
-          } else {
-            reject(new Error(`Process exited with code ${event.payload.code}`));
+          // Split into lines and keep a rolling window
+          const lines = event.payload.data.split(/\r?\n/).filter((l) => l.trim());
+          for (const line of lines) {
+            outputLines.push(line);
+            if (outputLines.length > MAX_OUTPUT_LINES) outputLines.shift();
           }
         }
       }).then((fn) => {
-        unlisten = fn;
+        unlistenOutput = fn;
+      });
+
+      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
+        if (event.payload.id === targetId) {
+          unlistenExit?.();
+          unlistenOutput?.();
+          if (event.payload.code === 0 || event.payload.code === null) {
+            resolve(event.payload.code);
+          } else {
+            const output = outputLines.join('\n').trim();
+            const msg = output
+              ? `Process exited with code ${event.payload.code}\n\n${output}`
+              : `Process exited with code ${event.payload.code}`;
+            reject(new Error(msg));
+          }
+        }
+      }).then((fn) => {
+        unlistenExit = fn;
       });
     });
   };
@@ -157,7 +179,8 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
         return "Git authentication failed. Make sure you're signed into GitHub.";
       }
     }
-    return msg;
+    // Strip the "Error: " prefix that comes from Error.toString()
+    return msg.replace(/^Error:\s*/, '');
   };
 
   /** Run package manager install via PTY, with a pre-check for permissions */
@@ -378,7 +401,9 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
           {error && (
             <div className="create-error">
-              <p style={{ whiteSpace: 'pre-line' }}>{error}</p>
+              <p style={{ whiteSpace: 'pre-line', maxHeight: '200px', overflowY: 'auto' }}>
+                {error}
+              </p>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {currentStep === 'install' && importedProjectPath && (
                   <button className="btn-primary" onClick={() => void retryInstall()}>

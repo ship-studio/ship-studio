@@ -118,7 +118,9 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
 
           {error && (
             <div className="create-error">
-              <p style={{ whiteSpace: 'pre-line' }}>{error}</p>
+              <p style={{ whiteSpace: 'pre-line', maxHeight: '200px', overflowY: 'auto' }}>
+                {error}
+              </p>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {currentStep === 'install' && createdProjectPath && (
                   <button className="btn-primary" onClick={() => void retryInstall()}>
