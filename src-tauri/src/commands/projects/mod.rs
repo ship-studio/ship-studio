@@ -87,9 +87,16 @@ fn ensure_gitignore_has_shipstudio_sync(project: &std::path::Path) -> Result<(),
     Ok(())
 }
 
-/// Check if a directory is a valid project (has package.json or HTML files)
+/// Check if a directory is a valid project.
+/// Accepts any directory inside ~/ShipStudio that has project files,
+/// a .gitignore (blank projects), or a .shipstudio metadata folder.
 fn is_valid_project(path: &std::path::Path) -> bool {
-    path.is_dir() && (path.join("package.json").exists() || detection::has_html_files(path))
+    path.is_dir()
+        && (path.join("package.json").exists()
+            || detection::has_html_files(path)
+            || path.join(".gitignore").exists()
+            || path.join(".shipstudio").exists()
+            || path.join(".git").exists())
 }
 
 // ============ Tauri Commands ============
