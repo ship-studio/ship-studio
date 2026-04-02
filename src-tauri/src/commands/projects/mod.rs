@@ -439,6 +439,22 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
     Ok(())
 }
 
+/// Creates a blank project directory with a .gitignore.
+#[tauri::command]
+pub async fn create_blank_project(project_path: String) -> Result<(), String> {
+    let project = validate_project_path(&project_path)?;
+
+    std::fs::create_dir_all(&project)
+        .map_err(|e| format!("Failed to create project directory: {e}"))?;
+
+    // Add .shipstudio/ to gitignore
+    let gitignore = project.join(".gitignore");
+    std::fs::write(&gitignore, ".shipstudio/\n")
+        .map_err(|e| format!("Failed to create .gitignore: {e}"))?;
+
+    Ok(())
+}
+
 /// Removes the .git directory from a project so it starts fresh (not connected to template repo).
 #[tauri::command]
 pub async fn remove_git_history(project_path: String) -> Result<(), String> {

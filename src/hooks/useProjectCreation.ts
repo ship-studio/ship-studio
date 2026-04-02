@@ -74,6 +74,12 @@ export const TEMPLATES: Template[] = [
     description: 'A plain HTML starter — no framework, no build step',
     repo: 'https://github.com/ship-studio/html-starter',
   },
+  {
+    id: 'blank',
+    name: 'Blank Project',
+    description: 'An empty folder — start from scratch',
+    repo: '',
+  },
 ];
 
 /** Form wizard steps before creation starts */
@@ -332,38 +338,45 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
       const shipstudioDir = await invoke<string>('ensure_shipstudio_dir');
       const projectPath = `${shipstudioDir}/${safeName}`;
 
-      // Clone template
-      const cloneId = await invoke<number>('spawn_pty', {
-        options: {
-          cwd: shipstudioDir,
-          command: 'git',
-          args: ['clone', selectedTemplate.repo, safeName],
-          rows: 10,
-          cols: 80,
-        },
-        windowLabel: getWindowLabel(),
-      });
-
-      await waitForPtyExit(cloneId);
-
-      // Remove .git folder so project starts fresh (not connected to template repo)
-      setCurrentStep('init');
-      await invoke('remove_git_history', { projectPath });
-
-      // Ensure .shipstudio/ is gitignored to prevent phantom changes
-      await invoke('ensure_gitignore_has_shipstudio', { projectPath: projectPath });
-
-      // Pre-install Vercel plugin (fire-and-forget, don't block creation)
-      installPlugin(projectPath, VERCEL_PLUGIN_REPO).catch(() => {});
-
-      // Install dependencies (skip for HTML-only templates with no package.json)
-      setCreatedProjectPath(projectPath);
-      if (selectedTemplate.id === 'html-basic') {
+      if (selectedTemplate.id === 'blank') {
+        // Blank project: just create the directory
+        await invoke('create_blank_project', { projectPath });
+        setCreatedProjectPath(projectPath);
         setCurrentStep('done');
       } else {
-        setCurrentStep('install');
-        await runNpmInstall(projectPath);
-        setCurrentStep('done');
+        // Clone template
+        const cloneId = await invoke<number>('spawn_pty', {
+          options: {
+            cwd: shipstudioDir,
+            command: 'git',
+            args: ['clone', selectedTemplate.repo, safeName],
+            rows: 10,
+            cols: 80,
+          },
+          windowLabel: getWindowLabel(),
+        });
+
+        await waitForPtyExit(cloneId);
+
+        // Remove .git folder so project starts fresh (not connected to template repo)
+        setCurrentStep('init');
+        await invoke('remove_git_history', { projectPath });
+
+        // Ensure .shipstudio/ is gitignored to prevent phantom changes
+        await invoke('ensure_gitignore_has_shipstudio', { projectPath: projectPath });
+
+        // Pre-install Vercel plugin (fire-and-forget, don't block creation)
+        installPlugin(projectPath, VERCEL_PLUGIN_REPO).catch(() => {});
+
+        // Install dependencies (skip for HTML-only templates with no package.json)
+        setCreatedProjectPath(projectPath);
+        if (selectedTemplate.id === 'html-basic') {
+          setCurrentStep('done');
+        } else {
+          setCurrentStep('install');
+          await runNpmInstall(projectPath);
+          setCurrentStep('done');
+        }
       }
 
       // Small delay before opening

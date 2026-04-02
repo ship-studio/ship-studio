@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tracing::debug;
 
-const CSTAR_IDENTITY_SECRET: &str = env!("CSTAR_IDENTITY_SECRET");
+const CSTAR_IDENTITY_SECRET: &str = match option_env!("CSTAR_IDENTITY_SECRET") {
+    Some(v) => v,
+    None => "",
+};
 
 type HmacSha256 = Hmac<Sha256>;
 

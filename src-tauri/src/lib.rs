@@ -251,6 +251,7 @@ pub fn run() {
             commands::projects::get_branch_prefix_preference,
             commands::projects::set_branch_prefix_preference,
             commands::projects::ensure_gitignore_has_shipstudio,
+            commands::projects::create_blank_project,
             commands::projects::remove_git_history,
             commands::projects::delete_project,
             commands::projects::clear_project_cache,
