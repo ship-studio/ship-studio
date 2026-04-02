@@ -442,13 +442,23 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
 /// Creates a blank project directory with a .gitignore.
 #[tauri::command]
 pub async fn create_blank_project(project_path: String) -> Result<(), String> {
-    let project = validate_project_path(&project_path)?;
+    // Can't use validate_project_path because the directory doesn't exist yet.
+    // Instead, validate that the parent is within ~/ShipStudio.
+    let path = std::path::Path::new(&project_path);
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let shipstudio_dir = home.join("ShipStudio");
+    let parent = path.parent().ok_or("Invalid project path")?;
+    let canonical_parent =
+        dunce::canonicalize(parent).map_err(|e| format!("Invalid parent path: {e}"))?;
+    if !canonical_parent.starts_with(&shipstudio_dir) {
+        return Err("Project must be inside ~/ShipStudio".to_string());
+    }
 
-    std::fs::create_dir_all(&project)
+    std::fs::create_dir_all(path)
         .map_err(|e| format!("Failed to create project directory: {e}"))?;
 
     // Add .shipstudio/ to gitignore
-    let gitignore = project.join(".gitignore");
+    let gitignore = path.join(".gitignore");
     std::fs::write(&gitignore, ".shipstudio/\n")
         .map_err(|e| format!("Failed to create .gitignore: {e}"))?;
 
