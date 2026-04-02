@@ -1161,7 +1161,7 @@
 /* Medium screens - 2 column grid */
 @media (max-width: 700px) {
   .project-list.dashboard {
-    padding: 20px 16px;
+    padding: 44px 16px 20px;
   }
 
   .dashboard-header {
@@ -1184,7 +1184,7 @@
 /* Narrow screens - single column, compact header */
 @media (max-width: 550px) {
   .project-list.dashboard {
-    padding: 16px 12px;
+    padding: 44px 12px 16px;
   }
 
   .dashboard-header {
