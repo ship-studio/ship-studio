@@ -838,7 +838,7 @@
 
   /* Simplify terminal toolbar — add left padding for macOS traffic lights */
   .terminal-toolbar {
-    padding: 4px 8px 4px 78px;
+    padding: 6px 8px 6px 78px;
     min-height: 28px;
   }
 
