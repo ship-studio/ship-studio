@@ -838,8 +838,25 @@
 
   /* Simplify terminal toolbar — add left padding for macOS traffic lights */
   .terminal-toolbar {
-    padding: 6px 8px 6px 78px;
-    min-height: 36px;
+    padding: 4px 8px 4px 78px;
+    min-height: 28px;
+  }
+
+  /* Shrink toolbar buttons to align with macOS traffic lights */
+  .terminal-toolbar .show-preview-btn.icon-only {
+    width: 20px;
+    height: 20px;
+  }
+
+  .terminal-toolbar .show-preview-btn.icon-only svg {
+    width: 10px;
+    height: 10px;
+  }
+
+  .terminal-toolbar .health-toggle {
+    height: 20px;
+    padding: 0 6px;
+    font-size: 11px;
   }
 
   /* Terminal container adjustments */
