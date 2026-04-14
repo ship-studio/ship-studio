@@ -202,7 +202,10 @@ _Migrate existing components to use the primitives from Block 4. Work wave by wa
 - [x] [CodeViewer.tsx](src/components/CodeViewer.tsx)
 - [x] [CodeHealthPanel.tsx](src/components/CodeHealthPanel.tsx) — three named hooks for the three different toast messages (output / package.json / script)
 - [x] [GitErrorHandler.tsx](src/components/GitErrorHandler.tsx)
-- [ ] Terminal.tsx + setup/OnboardingTerminal.tsx still use raw `navigator.clipboard.writeText` for terminal-specific copy semantics (different flow — wraps xterm selection); deferred per-site review.
+- [x] Reviewed remaining sites and kept as-is with rationale documented:
+  - `Terminal.tsx` + `setup/OnboardingTerminal.tsx` — synchronous inside xterm key handler that returns `false` to block PTY send; async hook wouldn't preserve semantics
+  - `useAssetManagement.ts` — tracks per-asset `copiedPath` for checkmark UI; single-flag hook doesn't model multi-row state
+  - `usePreviewConnection.ts` — inside iframe postMessage handler; `.then()` already routes success/error to toasts
 
 ### 5.5 Wave 5: Migrate empty/loading states [PARTIAL]
 - [x] [ProjectList.tsx](src/components/ProjectList.tsx) empty states → `<EmptyState>` (search-empty / folder-empty / no-projects branches)
@@ -218,7 +221,13 @@ _Migrate existing components to use the primitives from Block 4. Work wave by wa
 
 ### 5.7 Wave 7: Migrate polling loops [PARTIAL — pattern proven]
 - [x] [useBranchManagement.ts](src/hooks/useBranchManagement.ts) git-status polling migrated to `usePolling` with visibility-pause via `isTabVisible` state.
-- [ ] Remaining setInterval sites: UpdateBanner, CreateProject, useCodeHealth, useScreenshotManagement, usePreviewConnection, lib/project, lib/logger _(library files have legitimate setInterval needs; per-component polling can adopt the pattern)_
+- [x] Audited remaining setInterval sites and kept as-is with rationale:
+  - `lib/logger.ts`, `lib/project.ts` — library-level; not polling semantics (buffer flush / PID-check one-shot)
+  - `useCodeHealth.ts` — 30s countdown tick driving UI state, not async data fetch
+  - `useScreenshotManagement.ts` — periodic side-effect trigger, not a pollable data source; backoff would degrade UX
+  - `usePreviewConnection.ts` (2 sites) — visibility-driven start/stop polling with custom pause semantics
+  - `UpdateBanner.tsx` — combines initial 5s-delayed check + periodic; migrating loses the delay behavior
+  - `CreateProject.tsx` — 50min keep-fresh cache refresh for signed zip URLs; backoff would let URLs expire
 
 ---
 
