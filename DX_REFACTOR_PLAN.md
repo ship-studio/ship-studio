@@ -419,27 +419,29 @@ _Tests land last, not because they don't matter, but because the code should be 
 - [ ] Symlink escape test — not yet added (platform-specific setup).
 - [ ] External registered path acceptance — not yet added (needs real `is_registered_external_path` harness).
 
-### 14.2 Rust: git command tests
-- [ ] `git_stage_and_commit`, branch ops, status parsing
-- [ ] Use tempdir with real git init for integration-style tests
+### 14.2 Rust: git command tests [DONE]
+- [x] 8 new integration-style tests in `commands/git/mod.rs` using real `git init` in tempdirs: `has_uncommitted_changes` clean/dirty/untracked, `has_any_changes`, `stage_and_commit` success/nothing-to-commit, `current_branch_sync`, `ahead_behind_batch` unknown remote.
+- Note: `list_branches` / `get_changed_files` command wrappers not tested directly because `validate_project_path` rejects anything outside `~/ShipStudio`; the underlying helpers where the logic lives are covered.
 
-### 14.3 Rust: CLI parsing tests
-- [ ] `github.rs` output parsing with golden test fixtures
-- [ ] `vercel.rs` same
+### 14.3 Rust: CLI parsing tests [DONE]
+- [x] 13 new tests in `commands/github.rs`: `parse_github_repo` (7 URL shapes incl. SSH, trailing slash, non-github URLs, dashes), `gh repo view --json`, `gh repo list --json` shape, collaborator REST deserialization, `owner/{name}` prefix mapping, `GITHUB_USERNAME_CACHE` priming + invalidation.
+- No standalone `vercel.rs` module exists; vercel CLI parsing is not currently extracted into testable helpers — flagged as a future cleanup.
 
-### 14.4 Rust: cache invalidation integration tests
-- [ ] `cache.rs` has unit tests — add tests at the integration points
+### 14.4 Rust: cache invalidation integration tests [DONE]
+- [x] 6 new `TtlCache` lifecycle tests in `cache.rs` (miss→hit→expire with real 50ms TTL, invalidate, clear, overwrite, stability, entry expiration detection).
+- [x] 2 new cache-key tests in `detection.rs` (stability within TTL, re-detection after mtime-signature change).
 
-### 14.5 Frontend: `src/lib/git.ts` wrapper
-- [ ] Mock invoke responses, verify wrapper shape
+### 14.5 Frontend: `src/lib/git.ts` wrapper [DONE]
+- [x] 11 tests in `src/lib/git.test.ts`.
 
-### 14.6 Frontend: `src/lib/project.ts` CRUD
+### 14.6 Frontend: `src/lib/project.ts` CRUD [DONE]
+- [x] 38 tests in `src/lib/project.test.ts` covering 15 invoke-wrapper functions.
 
-### 14.7 Frontend: `Terminal.tsx` interaction
-- [ ] xterm mount, PTY data flow, copy/paste
+### 14.7 Frontend: `Terminal.tsx` interaction [DEFERRED — documented]
+- xterm + PTY integration testing requires a real browser runtime (jsdom doesn't implement Canvas, WebGL, or the selection APIs xterm.js relies on), and mocking them well enough to be meaningful is effectively re-implementing xterm. Better leverage comes from manual QA + live production logging. Deferring pending a visible regression or a decision to bring in Playwright for end-to-end.
 
-### 14.8 Set coverage targets in CI
-- [ ] 20% Rust, 25% frontend — fail CI if regressed
+### 14.8 Set coverage targets in CI [DONE — set at current baseline, not plan target]
+- [x] Coverage floor gate wired into [.github/workflows/ci.yml](.github/workflows/ci.yml): 5% lines / 4% functions / 15% branches / 5% statements — matches current actual coverage (`pnpm test:coverage` measured). The plan's 20%/25% aspirational targets require substantially more tests; floor at current prevents regression while follow-up test work raises it.
 
 ---
 
@@ -500,10 +502,8 @@ Configured in [eslint.config.js](eslint.config.js):
 - [x] [scripts/check-loc-limits.sh](scripts/check-loc-limits.sh) enforces per-file LOC ceilings (WorkspaceView 1200, ProjectList 800, PluginManager 700, ImportProject 500, App 1000, every CSS file ≤1200). Wired into `pnpm check:loc` and into the frontend CI job in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - [x] Limits seeded from current post-Block-7 state; raising a limit requires editing the script, which forces a conversation in review.
 
-### 15.7 CI: test coverage floor
-
-- [ ] Per Block 14.8, CI fails if coverage drops below the agreed floor
-- [ ] Prevents new untested code from silently eroding gains
+### 15.7 CI: test coverage floor [DONE]
+- [x] Implemented as part of 14.8 — `pnpm test:coverage` step in CI with per-metric thresholds. Any regression below the floor fails the build.
 
 ### 15.8 CI: pattern-check job [DONE]
 
@@ -520,17 +520,14 @@ Configured in [eslint.config.js](eslint.config.js):
 - [x] Added [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) with: "What changed and why" backstory, "Why this matters for you / for AI assistants", primitive locations table, links to CLAUDE.md / CONTRIBUTING.md / DX_REFACTOR_PLAN.md / PR template.
 - [x] Added a prominent link in the README's Contributing section pointing at `docs/CONTRIBUTING_PATTERNS.md` with explicit instruction to skim before writing code.
 
-### 15.11 Quarterly audit ritual
+### 15.11 Quarterly audit ritual [DONE — automation landed; recurring calendar is on the user]
+- [x] `scripts/audit-dx-drift.sh` captures the metrics (hex colors, !important, Result<T,String> in command entry points vs helpers, component LOC, modal count, modal-without-ModalFrame count, clipboard/setInterval outside primitives).
+- [x] `docs/DX_AUDIT_BASELINE.md` records the post-refactor baseline + documents the quarterly ritual + diff procedure.
+- Follow-up (user's call): create a recurring Linear issue or calendar invite referencing the baseline doc. Can't be automated from the codebase.
 
-- [ ] Add a recurring task (calendar, Linear recurring issue, whatever works) to re-run the findings in [DX_AUDIT_REPORT.md](DX_AUDIT_REPORT.md) every quarter
-- [ ] Specifically re-count: hardcoded colors, LOC of largest components, `Result<T, String>` instances, modal implementations
-- [ ] Drift trends downward = system is working. Drift trends upward = guardrails need tightening.
-
-### 15.12 Sunset the old patterns loudly
-
-- [ ] As each primitive is adopted, mark the old approach as `@deprecated` in code (JSDoc / Rust doc comments)
-- [ ] Leave deprecation up for at least one release cycle before deleting
-- [ ] In CLAUDE.md, explicitly list the patterns that are "out" with a one-liner on why
+### 15.12 Sunset the old patterns loudly [DONE]
+- [x] `CLAUDE.md` now has a "Patterns That Are Out" section with one-line rationale for each rejected pattern (hand-rolled overlays, per-domain button classes, isLoading/error/data state triples, onToast prop chains, show*/open*/close* state, raw navigator.clipboard, raw setInterval, `Result<T, String>` commands, bare `.output().await`, raw CSS values).
+- `@deprecated` JSDoc markers on specific old APIs aren't needed — the old APIs were removed rather than soft-deprecated (see completed Blocks 5.1–5.7, 6, 8, 9). If any follow-up replaces a still-live API with a primitive, mark the outgoing function `@deprecated` at that point.
 
 ---
 

@@ -588,3 +588,148 @@ pub(crate) fn sort_pages(pages: &mut [PageInfo]) {
         a.route.cmp(&b.route)
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn detects_nextjs_from_config_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("next.config.js"), "module.exports = {};").unwrap();
+        assert!(is_nextjs_project(tmp.path()));
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Nextjs
+        );
+    }
+
+    #[test]
+    fn detects_nextjs_from_package_json() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"dependencies":{"next":"14.0.0"}}"#,
+        )
+        .unwrap();
+        assert!(is_nextjs_project(tmp.path()));
+    }
+
+    #[test]
+    fn detects_sveltekit_from_config() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("svelte.config.js"), "export default {}").unwrap();
+        assert!(is_sveltekit_project(tmp.path()));
+    }
+
+    #[test]
+    fn detects_astro_precedence_over_vite() {
+        // Astro projects use Vite internally — detection must prefer Astro.
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("astro.config.mjs"), "export default {};").unwrap();
+        std::fs::write(tmp.path().join("vite.config.ts"), "export default {};").unwrap();
+        assert_eq!(detect_project_type_uncached(tmp.path()), ProjectType::Astro);
+    }
+
+    #[test]
+    fn detects_static_html_when_no_package_json() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "<html></html>").unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Statichtml
+        );
+    }
+
+    #[test]
+    fn detects_generic_when_package_json_but_no_framework() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("package.json"), r#"{"name":"x"}"#).unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Generic
+        );
+    }
+
+    #[test]
+    fn detects_unknown_for_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Unknown
+        );
+    }
+
+    /// Integration: detect_project_type caches results. Repeated calls with
+    /// the same signature must return the same value and not re-read the
+    /// framework. (We verify stability; timing assertions are flaky.)
+    #[test]
+    fn detect_project_type_cache_returns_stable_value_within_ttl() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"dependencies":{"next":"14"}}"#,
+        )
+        .unwrap();
+        let first = detect_project_type(tmp.path());
+        // Deleting the signal file between calls should NOT change the cached
+        // answer if the mtime-signature stays the same (file is already gone
+        // so the signature becomes 0 — different key → recompute → different
+        // result). So instead we verify two calls in a row are equal.
+        let second = detect_project_type(tmp.path());
+        assert_eq!(first, second);
+        assert_eq!(first, ProjectType::Nextjs);
+    }
+
+    /// The cache key includes the mtime-signature. When we modify
+    /// package.json (changing its mtime), the key changes and detection
+    /// re-runs. This validates we don't serve stale results after edits.
+    #[test]
+    fn detect_project_type_picks_up_config_changes_via_signature_key() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("package.json"), r#"{"name":"x"}"#).unwrap();
+        let first = detect_project_type(tmp.path());
+        assert_eq!(first, ProjectType::Generic);
+        // Sleep a tiny bit to ensure mtime differs on filesystems with low
+        // resolution, then rewrite to add nextjs.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"dependencies":{"next":"14"}}"#,
+        )
+        .unwrap();
+        let second = detect_project_type(tmp.path());
+        assert_eq!(second, ProjectType::Nextjs, "must re-detect after change");
+    }
+
+    #[test]
+    fn sort_pages_puts_root_first() {
+        let mut pages = vec![
+            PageInfo {
+                route: "/about".to_string(),
+                file_path: "about.tsx".to_string(),
+            },
+            PageInfo {
+                route: "/".to_string(),
+                file_path: "index.tsx".to_string(),
+            },
+            PageInfo {
+                route: "/blog".to_string(),
+                file_path: "blog.tsx".to_string(),
+            },
+        ];
+        sort_pages(&mut pages);
+        assert_eq!(pages[0].route, "/");
+        assert_eq!(pages[1].route, "/about");
+        assert_eq!(pages[2].route, "/blog");
+    }
+
+    #[test]
+    fn has_html_files_detects_top_level_html() {
+        let tmp = TempDir::new().unwrap();
+        assert!(!has_html_files(tmp.path()));
+        std::fs::write(tmp.path().join("index.html"), "").unwrap();
+        assert!(has_html_files(tmp.path()));
+    }
+}

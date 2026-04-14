@@ -33,3 +33,6 @@ src-tauri/.cargo/
 
 # GSD planning
 .planning/
+
+# Test coverage output
+coverage/

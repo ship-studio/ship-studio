@@ -302,4 +302,73 @@ mod tests {
         cache.set_has_changes("/test/project", false);
         assert_eq!(cache.get_has_changes("/test/project"), Some(false));
     }
+
+    // ============ TtlCache lifecycle ============
+
+    #[test]
+    fn ttl_cache_miss_then_hit_then_expire() {
+        let cache: TtlCache<String, i32> = TtlCache::new(Duration::from_millis(50));
+        assert_eq!(cache.get("k"), None, "initial miss");
+        cache.insert("k".to_string(), 42);
+        assert_eq!(cache.get("k"), Some(42), "hit while fresh");
+        std::thread::sleep(Duration::from_millis(75));
+        assert_eq!(cache.get("k"), None, "expired after TTL");
+    }
+
+    #[test]
+    fn ttl_cache_invalidate_removes_entry() {
+        let cache: TtlCache<String, String> = TtlCache::new(Duration::from_secs(60));
+        cache.insert("alice".to_string(), "secret".to_string());
+        assert_eq!(cache.get("alice"), Some("secret".to_string()));
+        cache.invalidate("alice");
+        assert_eq!(cache.get("alice"), None, "invalidated key must miss");
+    }
+
+    #[test]
+    fn ttl_cache_clear_removes_all() {
+        let cache: TtlCache<String, u32> = TtlCache::new(Duration::from_secs(60));
+        cache.insert("a".to_string(), 1);
+        cache.insert("b".to_string(), 2);
+        cache.clear();
+        assert_eq!(cache.get("a"), None);
+        assert_eq!(cache.get("b"), None);
+    }
+
+    #[test]
+    fn ttl_cache_insert_overwrites_existing() {
+        let cache: TtlCache<String, i32> = TtlCache::new(Duration::from_secs(60));
+        cache.insert("k".to_string(), 1);
+        cache.insert("k".to_string(), 2);
+        assert_eq!(cache.get("k"), Some(2), "second insert must overwrite");
+    }
+
+    /// Integration-style: the GitCache's branch cache should keep values
+    /// stable across repeated reads within the TTL window, and return None
+    /// after TTL expires. Uses reflection via the public API only.
+    #[test]
+    fn git_cache_current_branch_is_stable_across_reads() {
+        let cache = GitCache::new();
+        cache.set_current_branch("/proj/x", "feature".to_string());
+        let first = cache.get_current_branch("/proj/x");
+        let second = cache.get_current_branch("/proj/x");
+        assert_eq!(first, second);
+        assert_eq!(first.as_deref(), Some("feature"));
+    }
+
+    /// The GitCache uses a 5-second TTL internally; this test uses a custom
+    /// CacheEntry to validate the expiration logic directly (fast, no sleep).
+    #[test]
+    fn cache_entry_is_expired_detects_past_deadline() {
+        let entry: CacheEntry<i32> = CacheEntry {
+            value: 1,
+            expires_at: Instant::now() - Duration::from_secs(1),
+        };
+        assert!(entry.is_expired());
+
+        let fresh: CacheEntry<i32> = CacheEntry {
+            value: 1,
+            expires_at: Instant::now() + Duration::from_secs(60),
+        };
+        assert!(!fresh.is_expired());
+    }
 }

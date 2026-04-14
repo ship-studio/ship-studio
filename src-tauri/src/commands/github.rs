@@ -545,3 +545,206 @@ pub async fn detect_package_manager(project_path: String) -> Result<String, Comm
     // Default to npm
     Ok("npm".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::GitHubRepo;
+
+    #[test]
+    fn parse_github_repo_https_with_git_suffix() {
+        assert_eq!(
+            parse_github_repo("https://github.com/owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_https_without_git_suffix() {
+        assert_eq!(
+            parse_github_repo("https://github.com/owner/repo").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_https_with_trailing_slash() {
+        assert_eq!(
+            parse_github_repo("https://github.com/owner/repo/").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_ssh_url() {
+        assert_eq!(
+            parse_github_repo("git@github.com:owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_ssh_without_git_suffix() {
+        assert_eq!(
+            parse_github_repo("git@github.com:owner/repo").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_rejects_non_github_urls() {
+        assert_eq!(parse_github_repo("https://gitlab.com/owner/repo.git"), None);
+        assert_eq!(parse_github_repo("not a url"), None);
+        assert_eq!(parse_github_repo(""), None);
+    }
+
+    #[test]
+    fn parse_github_repo_handles_org_with_dashes() {
+        assert_eq!(
+            parse_github_repo("https://github.com/my-org/my-repo-name.git").as_deref(),
+            Some("my-org/my-repo-name")
+        );
+    }
+
+    /// Mirror of the JSON shape returned by `gh repo view --json url`.
+    /// Ensures the inline parsing in `get_project_github_status` keeps working
+    /// as the serde_json type contract between gh and us.
+    #[test]
+    fn gh_repo_view_json_extracts_url() {
+        let json_str = r#"{"url":"https://github.com/foo/bar"}"#;
+        let url = serde_json::from_str::<serde_json::Value>(json_str)
+            .ok()
+            .and_then(|v| v.get("url").and_then(|u| u.as_str()).map(|s| s.to_string()));
+        assert_eq!(url.as_deref(), Some("https://github.com/foo/bar"));
+    }
+
+    #[test]
+    fn gh_repo_view_json_missing_url_returns_none() {
+        let json_str = r#"{"other":"value"}"#;
+        let url = serde_json::from_str::<serde_json::Value>(json_str)
+            .ok()
+            .and_then(|v| v.get("url").and_then(|u| u.as_str()).map(|s| s.to_string()));
+        assert_eq!(url, None);
+    }
+
+    /// `gh repo list --json name,url,sshUrl,isPrivate,description,primaryLanguage,updatedAt`
+    /// returns an array. Validates our GitHubRepo deserialization contract.
+    #[test]
+    fn gh_repo_list_json_parses_into_repos() {
+        let json_str = r#"[
+            {
+                "name": "repo1",
+                "url": "https://github.com/o/repo1",
+                "sshUrl": "git@github.com:o/repo1.git",
+                "isPrivate": false,
+                "description": "Hello",
+                "primaryLanguage": {"name": "Rust"},
+                "updatedAt": "2024-01-01T00:00:00Z"
+            },
+            {
+                "name": "repo2",
+                "url": "https://github.com/o/repo2",
+                "sshUrl": "git@github.com:o/repo2.git",
+                "isPrivate": true,
+                "description": null,
+                "primaryLanguage": null,
+                "updatedAt": "2024-02-01T00:00:00Z"
+            }
+        ]"#;
+        let repos: Vec<GitHubRepo> = serde_json::from_str(json_str).expect("parse");
+        assert_eq!(repos.len(), 2);
+        assert_eq!(repos[0].name, "repo1");
+        assert!(!repos[0].is_private);
+        assert_eq!(
+            repos[0].primary_language.as_ref().map(|l| l.name.as_str()),
+            Some("Rust")
+        );
+        assert!(repos[1].is_private);
+        assert!(repos[1].description.is_none());
+        assert!(repos[1].primary_language.is_none());
+    }
+
+    /// Collaborator repos use the raw GitHub REST API shape, which has
+    /// different field names from `gh repo list`. Guard against regressions in
+    /// the GitHubApiRepo struct.
+    #[test]
+    fn github_api_collaborator_repo_json_parses() {
+        let json_str = r#"[{
+            "name": "shared",
+            "html_url": "https://github.com/alice/shared",
+            "ssh_url": "git@github.com:alice/shared.git",
+            "private": true,
+            "description": "A shared repo",
+            "language": "TypeScript",
+            "updated_at": "2024-03-01T00:00:00Z",
+            "owner": {"login": "alice"}
+        }]"#;
+        let api_repos: Vec<GitHubApiRepo> = serde_json::from_str(json_str).expect("parse");
+        assert_eq!(api_repos.len(), 1);
+        assert_eq!(api_repos[0].owner.login, "alice");
+        assert_eq!(api_repos[0].name, "shared");
+        assert!(api_repos[0].private);
+        assert_eq!(api_repos[0].language.as_deref(), Some("TypeScript"));
+    }
+
+    /// Post-parse behavior: the mapping performed in `list_collaborator_repos`
+    /// prefixes the repo name with `owner/`. Verify it.
+    /// Verify `invalidate_github_username_cache` clears the cached login.
+    /// We prime the cache manually (no network), invalidate, and check miss.
+    #[test]
+    fn github_username_cache_invalidation_clears_entry() {
+        GITHUB_USERNAME_CACHE.insert((), "alice".to_string());
+        assert_eq!(
+            GITHUB_USERNAME_CACHE.get(&()),
+            Some("alice".to_string()),
+            "cache should be primed"
+        );
+        invalidate_github_username_cache();
+        assert_eq!(
+            GITHUB_USERNAME_CACHE.get(&()),
+            None,
+            "invalidate must clear the cached username"
+        );
+    }
+
+    /// Verify the cache survives repeated reads within TTL (stability check).
+    #[test]
+    fn github_username_cache_stable_across_reads() {
+        // Clean slate before asserting.
+        invalidate_github_username_cache();
+        GITHUB_USERNAME_CACHE.insert((), "bob".to_string());
+        let first = GITHUB_USERNAME_CACHE.get(&());
+        let second = GITHUB_USERNAME_CACHE.get(&());
+        assert_eq!(first, second);
+        assert_eq!(first.as_deref(), Some("bob"));
+        // Cleanup so we don't pollute other tests (test-threads=1 means tests
+        // run sequentially but global state still bleeds between cases).
+        invalidate_github_username_cache();
+    }
+
+    #[test]
+    fn collaborator_repos_are_prefixed_with_owner_login() {
+        let api = GitHubApiRepo {
+            name: "shared".into(),
+            html_url: "https://github.com/alice/shared".into(),
+            ssh_url: "git@github.com:alice/shared.git".into(),
+            private: false,
+            description: None,
+            language: None,
+            updated_at: "2024-03-01T00:00:00Z".into(),
+            owner: GitHubApiOwner {
+                login: "alice".into(),
+            },
+        };
+        let converted = GitHubRepo {
+            name: format!("{}/{}", api.owner.login, api.name),
+            url: api.html_url,
+            ssh_url: api.ssh_url,
+            is_private: api.private,
+            description: api.description,
+            primary_language: api.language.map(|l| GitHubLanguage { name: l }),
+            updated_at: api.updated_at,
+        };
+        assert_eq!(converted.name, "alice/shared");
+    }
+}

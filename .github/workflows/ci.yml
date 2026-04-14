@@ -61,6 +61,12 @@ jobs:
       - name: LOC regression guard
         run: pnpm check:loc
 
+      - name: Coverage floor
+        # Floor set at current baseline (~5% lines, 16% branches, 4% functions).
+        # Plan's aspirational target is 25% lines / 20% branches; raise
+        # thresholds as more tests land (see Block 14 follow-ups).
+        run: pnpm test:coverage --coverage.thresholds.lines=4 --coverage.thresholds.functions=4 --coverage.thresholds.branches=15 --coverage.thresholds.statements=4
+
   # Backend checks
   backend:
     name: Backend Checks
