@@ -6,7 +6,7 @@
  * @module components/PullRequestsTab
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   PullRequestInfo,
@@ -17,6 +17,7 @@ import {
   deleteBranch,
   switchBranch,
 } from '../lib/branches';
+import { useAsyncState } from '../hooks/useAsyncState';
 import { GitHubIcon, WarningIcon, BranchIcon } from './icons';
 import { trackEvent, trackError } from '../lib/analytics';
 import { ModalFrame } from './primitives/ModalFrame';
@@ -51,8 +52,28 @@ export function PullRequestsTab({
 }: PullRequestsTabProps) {
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
-  const [pullRequests, setPullRequests] = useState<PullRequestInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchPrsFn = useCallback(async (path: string) => {
+    try {
+      return await listPullRequests(path);
+    } catch (e) {
+      trackError('pr_list', e, 'Workspace');
+      throw e;
+    }
+  }, []);
+  const {
+    data: pullRequestsData,
+    isLoading,
+    error: fetchError,
+    execute: executeFetchPrs,
+  } = useAsyncState<PullRequestInfo[], [string]>(fetchPrsFn, { initial: [] });
+  const pullRequests = pullRequestsData ?? [];
+  const error = fetchError ? fetchError.message : null;
+  const fetchPullRequests = useCallback(
+    () => executeFetchPrs(projectPath),
+    [executeFetchPrs, projectPath]
+  );
+
   const [mergingPr, setMergingPr] = useState<number | null>(null);
   const [checkingOutPr, setCheckingOutPr] = useState<number | null>(null);
   const [checkedOutHead, setCheckedOutHead] = useState<string | null>(null);
@@ -60,7 +81,6 @@ export function PullRequestsTab({
   const [confirmClosePr, setConfirmClosePr] = useState<PullRequestInfo | null>(null);
   const [confirmCheckoutPr, setConfirmCheckoutPr] = useState<PullRequestInfo | null>(null);
   const [confirmMergePr, setConfirmMergePr] = useState<PullRequestInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [postMergeInfo, setPostMergeInfo] = useState<{
     branchName: string;
     baseBranch: string;
@@ -87,22 +107,7 @@ export function PullRequestsTab({
   // Fetch pull requests
   useEffect(() => {
     void fetchPullRequests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectPath]);
-
-  const fetchPullRequests = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const prs = await listPullRequests(projectPath);
-      setPullRequests(prs);
-    } catch (e) {
-      trackError('pr_list', e, 'Workspace');
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [fetchPullRequests]);
 
   const handleMerge = async (prNumber: number, headRef: string, baseRef: string) => {
     setMergingPr(prNumber);

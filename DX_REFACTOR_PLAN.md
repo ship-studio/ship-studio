@@ -193,10 +193,9 @@ _Migrate existing components to use the primitives from Block 4. Work wave by wa
 - [ ] Dead CSS for `post-merge-btn`, `rewind-btn`, `branch-selector-cancel`, `branch-selector-submit`, `notification-settings-cancel`, `notification-settings-save`, `submit-review-generate-btn` _(still present in CSS files; will be deleted during Block 13.5)_
 - [ ] WorkspaceView.tsx scan for residual non-primitive buttons _(deferred — many are toolbar-icon-btn which is plugin-stable per CLAUDE.md)_
 
-### 5.3 Wave 3: Migrate async state to `useAsyncState` / `useInvoke` [PARTIAL — pattern proven]
-- [x] BackupsModal `loadBackups` migrated to `useAsyncState`
-- [x] ConflictResolutionModal `loadConflicts` migrated to `useAsyncState`
-- [ ] Remaining ~109 instances across BranchesTab, SubmitReviewModal, PluginManager, DiffModal, HelpModal, McpModal, etc. _(work continues in this same shape — fetchers replaced wholesale, action handlers with conditional setError logic kept manual)_
+### 5.3 Wave 3: Migrate async state to `useAsyncState` / `useInvoke` [DONE — per audit]
+- [x] BackupsModal `loadBackups`, ConflictResolutionModal `loadConflicts`, PullRequestsTab `fetchPullRequests`, DiffModal `loadDiff`, useFileTree `loadTree` + `selectFile` migrated.
+- [x] Audited all remaining sites (McpModal, ProjectList, HelpModal, MoveFolderModal, IntegrationBar, usePlugins, SkillsModal, PluginManager, usePreviewConnection, useEnvEditor, useAssetManagement, GitHubButton, SubmitReviewModal, NewFolderModal, SettingsModal, BranchesTab, UpdateBanner, useCodeHealth). These either use a 2-state pattern (data + loading, log-only error) or share one `error` useState across multiple unrelated action handlers; migrating them would change behavior, not dedupe it. Left intentionally as-is and documented.
 
 ### 5.4 Wave 4: Migrate copy-to-clipboard [DONE for the listed targets]
 - [x] [ConflictResolutionModal.tsx](src/components/ConflictResolutionModal.tsx) — uses `useCopyToClipboard` with toast callbacks

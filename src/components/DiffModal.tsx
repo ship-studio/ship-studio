@@ -9,13 +9,14 @@
  * @module components/DiffModal
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getFileDiff, FileDiff, ChangeStatus } from '../lib/git';
 import { FileIcon } from './icons';
 import { trackError } from '../lib/analytics';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { useAsyncState } from '../hooks/useAsyncState';
 
 // Image extensions to detect for preview
 const IMAGE_EXTENSIONS = [
@@ -44,31 +45,29 @@ interface DiffModalProps {
 }
 
 export function DiffModal({ projectPath, filePath, fileStatus, onClose }: DiffModalProps) {
-  const [diff, setDiff] = useState<FileDiff | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const isImage = isImageFile(filePath);
   const imageSrc = isImage ? convertFileSrc(`${projectPath}/${filePath}`) : null;
 
-  const loadDiff = useCallback(async () => {
-    // Skip loading diff for images
-    if (isImage) {
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
+  const fetchDiff = useCallback(async (proj: string, file: string) => {
     try {
-      const result = await getFileDiff(projectPath, filePath);
-      setDiff(result);
+      return await getFileDiff(proj, file);
     } catch (e) {
       trackError('diff_load', e, 'Workspace');
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsLoading(false);
+      throw e;
     }
-  }, [projectPath, filePath, isImage]);
+  }, []);
+  const {
+    data: diff,
+    isLoading,
+    error: loadError,
+    execute: executeLoadDiff,
+  } = useAsyncState<FileDiff, [string, string]>(fetchDiff);
+  const error = loadError ? loadError.message : null;
+
+  const loadDiff = useCallback(() => {
+    if (isImage) return Promise.resolve(null);
+    return executeLoadDiff(projectPath, filePath);
+  }, [isImage, executeLoadDiff, projectPath, filePath]);
 
   useEffect(() => {
     void loadDiff();

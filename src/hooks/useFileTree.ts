@@ -16,6 +16,7 @@ import {
   type FileContent,
 } from '../lib/code';
 import { logger } from '../lib/logger';
+import { useAsyncState } from './useAsyncState';
 
 interface UseFileTreeResult {
   tree: FileTreeNode[];
@@ -32,40 +33,74 @@ interface UseFileTreeResult {
 }
 
 export function useFileTree(projectPath: string): UseFileTreeResult {
-  const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<FileContent | null>(null);
-  const [isLoadingTree, setIsLoadingTree] = useState(false);
-  const [isLoadingFile, setIsLoadingFile] = useState(false);
-  const [treeError, setTreeError] = useState<string | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
   const selectedFileRef = useRef(selectedFilePath);
-  selectedFileRef.current = selectedFilePath;
+  useEffect(() => {
+    selectedFileRef.current = selectedFilePath;
+  }, [selectedFilePath]);
+
+  const fetchTree = useCallback(async (path: string) => {
+    try {
+      const entries = await listProjectFiles(path);
+      return buildFileTree(entries);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to load file tree', { error: msg });
+      throw err;
+    }
+  }, []);
+  const {
+    data: treeData,
+    isLoading: isLoadingTree,
+    error: treeErrorObj,
+    execute: executeLoadTree,
+  } = useAsyncState<FileTreeNode[], [string]>(fetchTree, { initial: [] });
+  const tree = treeData ?? [];
+  const treeError = treeErrorObj ? treeErrorObj.message : null;
+
+  const fetchFile = useCallback(async (proj: string, path: string) => {
+    try {
+      return await readProjectFile(proj, path);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to read file', { path, error: msg });
+      throw err;
+    }
+  }, []);
+  const fileState = useAsyncState<FileContent, [string, string]>(fetchFile);
+  const {
+    data: fileContent,
+    isLoading: isLoadingFile,
+    error: fileErrorObj,
+    execute: executeLoadFile,
+    setData: setFileContent,
+    reset: resetFile,
+  } = fileState;
+  // Clear fileContent when execute fails (matches previous behavior)
+  const executeLoadFileAndClear = useCallback(
+    async (proj: string, path: string) => {
+      const result = await executeLoadFile(proj, path);
+      if (result === null) {
+        // Error occurred — clear stale content
+        setFileContent(null);
+      }
+      return result;
+    },
+    [executeLoadFile, setFileContent]
+  );
+  const fileError = fileErrorObj ? fileErrorObj.message : null;
 
   // Reset state when project changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset UI state when project changes
     setSelectedFilePath(null);
     setFileContent(null);
-    setFileError(null);
+    resetFile();
     setExpandedPaths(new Set());
-  }, [projectPath]);
+  }, [projectPath, setFileContent, resetFile]);
 
-  const loadTree = useCallback(async () => {
-    setIsLoadingTree(true);
-    setTreeError(null);
-    try {
-      const entries = await listProjectFiles(projectPath);
-      const built = buildFileTree(entries);
-      setTree(built);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setTreeError(msg);
-      logger.error('Failed to load file tree', { error: msg });
-    } finally {
-      setIsLoadingTree(false);
-    }
-  }, [projectPath]);
+  const loadTree = useCallback(() => executeLoadTree(projectPath), [executeLoadTree, projectPath]);
 
   // Load tree on mount / project change
   useEffect(() => {
@@ -87,24 +122,10 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
   const selectFile = useCallback(
     async (path: string) => {
       if (path === selectedFileRef.current) return;
-
       setSelectedFilePath(path);
-      setFileError(null);
-      setIsLoadingFile(true);
-
-      try {
-        const content = await readProjectFile(projectPath, path);
-        setFileContent(content);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setFileContent(null);
-        setFileError(msg);
-        logger.error('Failed to read file', { path, error: msg });
-      } finally {
-        setIsLoadingFile(false);
-      }
+      await executeLoadFileAndClear(projectPath, path);
     },
-    [projectPath]
+    [projectPath, executeLoadFileAndClear]
   );
 
   const refreshTree = useCallback(() => {
