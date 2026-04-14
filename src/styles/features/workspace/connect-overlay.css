@@ -1,0 +1,70 @@
+/* ============ Connect Overlay ============ */
+
+.connect-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
+.connect-overlay-content {
+  text-align: center;
+  max-width: 320px;
+  padding: 32px;
+}
+
+.connect-overlay-icon {
+  margin-bottom: 20px;
+  color: var(--text-muted);
+}
+
+.connect-overlay-icon svg {
+  width: 48px;
+  height: 48px;
+}
+
+.connect-overlay-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.connect-overlay-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+.connect-overlay-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--success);
+  color: #1e1e1e;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    opacity 0.15s;
+}
+
+.connect-overlay-btn:hover:not(:disabled) {
+  background: #3dbdb5;
+}
+
+.connect-overlay-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

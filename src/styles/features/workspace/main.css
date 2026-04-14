@@ -1,0 +1,86 @@
+/* Workspace */
+.app.workspace {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Title bar — sits alongside macOS traffic lights */
+.workspace-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  /* Left padding clears the macOS traffic lights (overlay mode) */
+  padding: 0 16px 0 78px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.workspace-titlebar h1 {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.workspace-titlebar .project-path {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.workspace-titlebar .project-path:hover {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+.workspace-titlebar .back-link {
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.workspace-titlebar .back-link:hover {
+  color: var(--text-primary);
+}
+
+/* Toolbar — action buttons below the title bar */
+.workspace-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-content {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}

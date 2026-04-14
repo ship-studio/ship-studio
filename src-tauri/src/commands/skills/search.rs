@@ -1,17 +1,6 @@
-/**
- * Skills command module for Claude Code skills management.
- *
- * Provides commands for:
- * - Listing installed skills from ~/.claude/skills/ and project-level .claude/skills/
- * - Searching for skills via the Skills CLI (npx skills find)
- * - Installing and removing skills via the Skills CLI
- *
- * Skills installed via `npx skills add` are stored in:
- * - ~/.claude/skills/{skill-name}/ (user scope, symlinked from ~/.agents/skills/)
- * - {project}/.claude/skills/{skill-name}/ (project scope)
- *
- * Legacy plugin-based skills are also supported from ~/.claude/plugins/installed_plugins.json
- */
+//! Skill listing and search commands.
+
+use super::strip_ansi_codes;
 use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path};
 use serde::{Deserialize, Serialize};
@@ -361,28 +350,6 @@ fn parse_skills_find_output(output: &str) -> Result<Vec<SkillSearchResult>, Comm
     Ok(results)
 }
 
-/// Strip ANSI escape codes from a string
-fn strip_ansi_codes(s: &str) -> String {
-    let mut result = String::new();
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip until we hit 'm' (end of ANSI sequence)
-            while let Some(&next) = chars.peek() {
-                chars.next();
-                if next == 'm' {
-                    break;
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
-}
-
 /// Parse a skill entry line: owner/repo@skill-name [<count> installs]
 fn parse_skill_entry(line: &str) -> Option<SkillSearchResult> {
     let line = line.trim();
@@ -413,54 +380,6 @@ fn parse_skill_entry(line: &str) -> Option<SkillSearchResult> {
     })
 }
 
-/// Extract a clean error message from the skills CLI output.
-///
-/// The skills CLI writes errors to stdout with ANSI codes and box-drawing characters
-/// (■, │, └, ◇, ●, etc.). npm/npx may dump unrelated warnings into stderr.
-/// This function strips formatting and extracts only error-relevant lines.
-fn extract_skills_cli_error(stdout: &str, stderr: &str) -> String {
-    let clean = strip_ansi_codes(stdout);
-
-    // Replace all non-ASCII characters (box-drawing, spinners) with spaces,
-    // then normalize whitespace per line.
-    let error_lines: Vec<String> = clean
-        .lines()
-        .map(|l| {
-            l.chars()
-                .map(|c| if c.is_ascii() { c } else { ' ' })
-                .collect::<String>()
-        })
-        .map(|l| l.trim().to_string())
-        .filter(|l| {
-            !l.is_empty()
-                && (l.contains("Failed")
-                    || l.contains("failed")
-                    || l.contains("Authentication")
-                    || l.contains("Invalid")
-                    || l.contains("No matching")
-                    || l.contains("not found")
-                    || l.contains("Valid agents")
-                    || l.contains("Available skills"))
-        })
-        .collect();
-
-    if !error_lines.is_empty() {
-        return error_lines.join(". ");
-    }
-
-    // Fall back to stderr, filtering out npm warning lines
-    let filtered_stderr: Vec<&str> = stderr
-        .lines()
-        .filter(|l| !l.trim_start().starts_with("npm warn") && !l.trim().is_empty())
-        .collect();
-
-    if !filtered_stderr.is_empty() {
-        return filtered_stderr.join("\n");
-    }
-
-    "Unknown error".to_string()
-}
-
 /// Parse install count strings like "98.5K installs", "1.2M installs", "1234 installs"
 fn parse_install_count(s: &str) -> Option<u64> {
     let s = s.trim().trim_end_matches("installs").trim();
@@ -477,130 +396,6 @@ fn parse_install_count(s: &str) -> Option<u64> {
     };
 
     num_str.parse::<f64>().ok().map(|n| (n * multiplier) as u64)
-}
-
-/// Install a skill using the Skills CLI
-/// Runs: npx skills add <package> -y --agent <agent-id>
-#[tauri::command]
-#[tracing::instrument]
-pub async fn install_skill(
-    package: String,
-    scope: String,
-    project_path: Option<String>,
-    agent_id: Option<String>,
-) -> Result<(), CommandError> {
-    let agent = agent_id
-        .as_deref()
-        .map(crate::agent::get_agent_by_id)
-        .unwrap_or_else(crate::agent::get_active_agent);
-    let home = dirs::home_dir()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    let skills_agent_id = agent.skills_agent_id.unwrap_or(agent.id);
-    let mut cmd = create_command("npx");
-    cmd.args([
-        "--yes",
-        "skills",
-        "add",
-        &package,
-        "-y",
-        "--agent",
-        skills_agent_id,
-    ])
-    .env("PATH", get_extended_path())
-    .env("HOME", &home)
-    .env_remove("npm_config__jsr-registry")
-    .env_remove("npm_config_npm-globalconfig")
-    .env_remove("npm_config_verify-deps-before-run");
-
-    // Set working directory based on scope
-    if scope == "project" {
-        if let Some(ref path) = project_path {
-            cmd.current_dir(path);
-        } else {
-            return Err(
-                ("Project path required for project-scoped installation".to_string()).into(),
-            );
-        }
-    } else {
-        // For user scope, run from home directory so skills install to ~/.agents/skills
-        cmd.current_dir(&home);
-    }
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run skills CLI: {e}"))?;
-
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let details = extract_skills_cli_error(&stdout, &stderr);
-        return Err((format!("Failed to install skill: {details}")).into());
-    }
-
-    Ok(())
-}
-
-/// Remove a skill using the Skills CLI
-/// Runs: npx skills remove <package> --agent <agent-id>
-#[tauri::command]
-#[tracing::instrument]
-pub async fn remove_skill(
-    package: String,
-    scope: String,
-    project_path: Option<String>,
-    agent_id: Option<String>,
-) -> Result<(), CommandError> {
-    let agent = agent_id
-        .as_deref()
-        .map(crate::agent::get_agent_by_id)
-        .unwrap_or_else(crate::agent::get_active_agent);
-    let home = dirs::home_dir()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    let skills_agent_id = agent.skills_agent_id.unwrap_or(agent.id);
-    let mut cmd = create_command("npx");
-    cmd.args([
-        "--yes",
-        "skills",
-        "remove",
-        &package,
-        "-y",
-        "--agent",
-        skills_agent_id,
-    ])
-    .env("PATH", get_extended_path())
-    .env("HOME", &home)
-    .env_remove("npm_config__jsr-registry")
-    .env_remove("npm_config_npm-globalconfig")
-    .env_remove("npm_config_verify-deps-before-run");
-
-    // Set working directory based on scope
-    if scope == "project" {
-        if let Some(ref path) = project_path {
-            cmd.current_dir(path);
-        } else {
-            return Err(("Project path required for project-scoped removal".to_string()).into());
-        }
-    } else {
-        // For user scope, run from home directory
-        cmd.current_dir(&home);
-    }
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run skills CLI: {e}"))?;
-
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let details = extract_skills_cli_error(&stdout, &stderr);
-        return Err((format!("Failed to remove skill: {details}")).into());
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -652,43 +447,6 @@ mod tests {
         assert_eq!(parse_install_count("1234 installs"), Some(1234));
         assert_eq!(parse_install_count(""), None);
         assert_eq!(parse_install_count("installs"), None);
-    }
-
-    #[test]
-    fn test_extract_skills_cli_error_from_stdout() {
-        let stdout = "\x1b[38;5;250m███████╗\x1b[0m\n│\n■  Failed to clone repository\n│\n│  Authentication failed for https://github.com/foo/bar.git.\n│\n└  Installation failed\n■  Canceled\n";
-        let stderr = "npm warn Unknown env config \"_jsr-registry\".\n";
-        let result = extract_skills_cli_error(stdout, stderr);
-        assert!(
-            result.contains("Failed to clone repository"),
-            "got: {result}"
-        );
-        assert!(result.contains("Authentication failed"), "got: {result}");
-        assert!(!result.contains("npm warn"), "got: {result}");
-    }
-
-    #[test]
-    fn test_extract_skills_cli_error_invalid_agent() {
-        let stdout = "■  Invalid agents: claude\n●  Valid agents: claude-code, codex\n";
-        let stderr = "";
-        let result = extract_skills_cli_error(stdout, stderr);
-        assert!(result.contains("Invalid agents: claude"), "got: {result}");
-        assert!(result.contains("Valid agents:"), "got: {result}");
-    }
-
-    #[test]
-    fn test_extract_skills_cli_error_filters_npm_warnings() {
-        let stdout = "";
-        let stderr = "npm warn Unknown env config \"_jsr-registry\".\nnpm warn config\n";
-        let result = extract_skills_cli_error(stdout, stderr);
-        assert_eq!(result, "Unknown error");
-    }
-
-    #[test]
-    fn test_strip_ansi_codes() {
-        let input = "\x1b[38;5;145mvercel-labs/agent-skills@test\x1b[0m";
-        let result = strip_ansi_codes(input);
-        assert_eq!(result, "vercel-labs/agent-skills@test");
     }
 
     #[test]

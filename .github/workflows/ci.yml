@@ -55,6 +55,12 @@ jobs:
       - name: Run tests
         run: pnpm test:run
 
+      - name: Pattern regression check
+        run: pnpm check:patterns
+
+      - name: LOC regression guard
+        run: pnpm check:loc
+
   # Backend checks
   backend:
     name: Backend Checks

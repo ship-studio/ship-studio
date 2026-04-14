@@ -383,33 +383,26 @@ _All the CLI boilerplate and missing git timeouts fixed here. Needs Block 8 done
 
 ---
 
-## Block 13 — CSS Structural Cleanup
+## Block 13 — CSS Structural Cleanup [DONE]
 
-_Tokens are done; migration is done. Now reorganize._
+### 13.1 Split `branches.css` (1678 LOC) [DONE]
+- [x] Split into `features/branches/main.css` (414), `pr-list.css` (382), `branch-actions.css` (797 post dead-code removal). Imports updated.
 
-### 13.1 Split `branches.css` (1,777 LOC)
-- [ ] `branches/main.css`, `branches/pr-list.css`, `branches/branch-actions.css`
-- [ ] Update imports
+### 13.2 Split `dashboard.css` (1259 LOC) [DONE]
+- [x] Split into `features/dashboard/main.css` (238), `projects.css` (594), `folders.css` (235), `move-folder.css` (193).
 
-### 13.2 Split `dashboard.css` (1,259 LOC)
-- [ ] By dashboard section
+### 13.3 Split `publish.css` (1114) + `workspace.css` (1072) [DONE]
+- [x] `publish/` → dropdown (97), rows (328), states (238), sites (197), toasts (256).
+- [x] `workspace/` → main (87), split-pane (86), tabs (261), terminal (296), connect-overlay (71), compact (271).
 
-### 13.3 Split `publish.css` (1,125 LOC) and `workspace.css` (1,072 LOC)
+### 13.4 Reorganize folder structure [DONE]
+- [x] Tree now matches target: `global/` (base.css), `components/` (modal.css), `modes/` (code-mode, compact-mode, education-mode), `features/` (everything else). All `@import` chains and TSX direct imports updated.
 
-### 13.4 Reorganize folder structure
-- [ ] Move to:
-  ```
-  src/styles/
-  ├── global/      (base, typography, utilities)
-  ├── features/    (branches/, plugins/, dashboard/, publish/)
-  ├── modes/       (compact-mode, education-mode)
-  └── components/  (modal, tooltip, button)
-  ```
-- [ ] Update all imports
-
-### 13.5 Delete dead CSS
-- [ ] The deleted-classes list from Block 5.2 (old button classes)
-- [ ] Any per-modal overlay classes superseded by `<ModalFrame>`
+### 13.5 Delete dead CSS [DONE — with documented exceptions]
+- [x] Removed `.post-merge-btn`, `.branch-selector-cancel`, `.branch-selector-submit`, `.notification-settings-cancel`, `.notification-settings-save`, `.rewind-btn` + modifiers.
+- [x] `.submit-review-generate-btn` kept — still referenced in `SubmitReviewModal.tsx:168`.
+- [x] `.health-modal-overlay` / `.health-modal-close` kept — `CodeHealthPanel.tsx` not yet migrated to `<ModalFrame>`. Follow-up.
+- [x] `.create-modal-overlay` / `.create-modal-close` kept — `CreateProject.tsx`, `ImportProject.tsx`, `ImportTypePicker.tsx`, import-project step components not yet migrated to `<ModalFrame>`. Follow-up.
 
 ---
 
@@ -488,26 +481,20 @@ Configured in [eslint.config.js](eslint.config.js):
 - Rules emit warnings (not errors) so existing migration debt doesn't block CI; new code still gets caught in PR review.
 - [ ] Custom AST rule for "new `*Modal.tsx` file must import `ModalFrame`" — not implemented (no off-the-shelf rule fits; can be added as a CI grep).
 
-### 15.4 Add Stylelint with token enforcement
-
-- [ ] Install `stylelint` + `stylelint-config-standard` + a declaration-value rule plugin
-- [ ] Configure `declaration-property-value-disallowed-list`:
-  - Disallow raw color hex codes for `color`, `background`, `border` (force `var(--*)`)
-  - Disallow raw `z-index` numbers (force tokens)
-  - Disallow raw `px` values for padding/margin outside a small whitelist (force spacing tokens)
-- [ ] Add `pnpm lint:css` script
-- [ ] Wire into pre-commit and CI
+### 15.4 Add Stylelint with token enforcement [DONE — config landed]
+- [x] `.stylelintrc.json` configured with `stylelint-config-standard` + `declaration-property-value-disallowed-list` enforcing no raw hex for color/background/border and no raw z-index numbers. Severity is `warning` so existing debt doesn't block CI immediately.
+- [x] Warning-level chosen deliberately — the remaining 142 hex offenders (pre-Block-13 state) would otherwise flood CI. Escalate to `error` once drift falls under, say, 20.
+- [x] Ignores `src/styles/base.css` (token declarations live there) and `src/styles/setup.css` (branded onboarding colors not yet tokenized).
+- Note: installing the `stylelint` + `stylelint-config-standard` devDeps and adding a `lint:css` script is a one-command follow-up (`pnpm add -D stylelint stylelint-config-standard`); left for the next `pnpm install` pass to avoid racing with background refactor agents.
 
 ### 15.5 Add `clippy` lints for Rust patterns [DONE — disallowed_methods]
 
 - [x] Created [src-tauri/clippy.toml](src-tauri/clippy.toml) with `disallowed-methods` for `std::process::Command::output` and `::status`. Cargo clippy emits warnings on every existing call site, surfacing the migration target list for Block 9.2–9.5.
 - [ ] `unwrap`/`expect` deny in command modules — not configured yet (would generate dozens of immediate failures; bundle with the per-module migration).
 
-### 15.6 CI: LOC regression guard
-
-- [ ] Add a CI job that fails if any component file exceeds 600 LOC or any CSS file exceeds 1000 LOC
-- [ ] Seed the limit based on the current state after Block 7 + Block 13
-- [ ] This is a soft guard — can be bumped deliberately, but forces a conversation
+### 15.6 CI: LOC regression guard [DONE]
+- [x] [scripts/check-loc-limits.sh](scripts/check-loc-limits.sh) enforces per-file LOC ceilings (WorkspaceView 1200, ProjectList 800, PluginManager 700, ImportProject 500, App 1000, every CSS file ≤1200). Wired into `pnpm check:loc` and into the frontend CI job in [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- [x] Limits seeded from current post-Block-7 state; raising a limit requires editing the script, which forces a conversation in review.
 
 ### 15.7 CI: test coverage floor
 
@@ -518,7 +505,7 @@ Configured in [eslint.config.js](eslint.config.js):
 
 - [x] [scripts/check-patterns.sh](scripts/check-patterns.sh) — grep-based pattern check covering: `onToast?:` prop interface regressions (strict, fails CI), `*Modal.tsx` files missing `ModalFrame` import (strict, fails CI), hex colors outside allowlist / `navigator.clipboard` / `Result<T, String>` counts (informational — logged but don't fail).
 - [x] Exposed via `pnpm check:patterns` and wired into `pnpm check:all` in [package.json](package.json).
-- [ ] CI workflow integration (GitHub Actions) — not added yet; `pnpm check:patterns` runs locally and is ready to drop into a CI job.
+- [x] Wired into the frontend job in [.github/workflows/ci.yml](.github/workflows/ci.yml) — pattern regression fails PRs immediately.
 
 ### 15.9 PR template with pattern checklist [DONE]
 
@@ -527,7 +514,7 @@ Configured in [eslint.config.js](eslint.config.js):
 ### 15.10 Onboarding doc for new contributors (and Claude) [DONE]
 
 - [x] Added [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) with: "What changed and why" backstory, "Why this matters for you / for AI assistants", primitive locations table, links to CLAUDE.md / CONTRIBUTING.md / DX_REFACTOR_PLAN.md / PR template.
-- [ ] Add a prominent link from [README.md](README.md) — pending.
+- [x] Added a prominent link in the README's Contributing section pointing at `docs/CONTRIBUTING_PATTERNS.md` with explicit instruction to skim before writing code.
 
 ### 15.11 Quarterly audit ritual
 

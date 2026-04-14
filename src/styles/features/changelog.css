@@ -216,45 +216,6 @@
   background: var(--bg-tertiary);
 }
 
-.rewind-btn {
-  padding: 8px 14px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  transition:
-    background 0.15s,
-    color 0.15s;
-}
-
-.rewind-btn.secondary {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.rewind-btn.secondary:hover:not(:disabled) {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
-.rewind-btn.primary {
-  background: var(--action);
-  color: var(--action-text);
-  min-width: 80px;
-  text-align: center;
-}
-
-.rewind-btn.primary:hover {
-  background: var(--action-hover);
-}
-
-.rewind-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 /* Hide on narrow screens */
 @media (max-width: 1100px) {
   .changelog {

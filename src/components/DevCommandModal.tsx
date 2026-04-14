@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import '../styles/notifications.css';
+import '../styles/features/notifications.css';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
 import { useModal } from '../contexts/ModalContext';

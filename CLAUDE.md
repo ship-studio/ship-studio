@@ -377,6 +377,23 @@ Don't add new `show*`/`open*`/`close*` triples to `App.tsx` or `useWorkspaceModa
 
 ---
 
+## Patterns That Are "Out"
+
+These patterns existed in the pre-refactor codebase and are deliberately
+avoided now. New code that re-introduces any of them will get caught by
+CI (`pnpm check:patterns`, `pnpm check:loc`) and/or a reviewer.
+
+- **Hand-rolled modal overlays** — use `<ModalFrame>`. Re-implementing ESC / click-outside / z-index fights is how accessibility regressions creep back in.
+- **Per-domain button classes** (`publish-btn primary`, `rewind-btn`, `xyz-submit`) — use `<Button variant="…">`. Fragmented button CSS is how the design system dies.
+- **`isLoading`/`error`/`data` state triples in components** — use `useAsyncState` or `useInvoke`. Hand-rolled triples forget mount guards, forget `finally`, and drift.
+- **`onToast?:` prop chains** — use `useOptionalToast()` from `contexts/ToastContext`. Prop drilling for cross-cutting UI.
+- **`show*` / `open*` / `close*` state in App.tsx** — use `useModal('id')` from `contexts/ModalContext`. Modals read their own state.
+- **Raw `navigator.clipboard.writeText` in components** — use `useCopyToClipboard`. Centralizes error handling and the "copied!" flag.
+- **Raw `setInterval` polling** — use `usePolling`. Handles backoff on error and teardown.
+- **`Result<T, String>` on `#[tauri::command]` entry points** — use `Result<T, CommandError>` from `src-tauri/src/errors.rs`. String errors can't be discriminated by the frontend.
+- **Bare `.output().await` on network CLI calls** — use `run_with_timeout` from `src-tauri/src/external_command.rs`. Unbounded CLI calls can hang the UI forever.
+- **Raw hex colors, raw px spacing, raw z-index numbers in CSS** — use tokens from `src/styles/base.css`. Adding a new value? Add the token first.
+
 ## Known Gotchas
 
 ### CSP Must Be Null for Terminal Fonts

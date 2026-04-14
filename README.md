@@ -385,6 +385,8 @@ xcode-select --install
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development setup, code style guidelines, and the pull request process.
 
+**Before writing code**, read [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) — it captures the design-system primitives (`<ModalFrame>`, `<Button>`, `useInvoke`, `useAsyncState`, `useCopyToClipboard`, `usePolling`, `ModalContext`, `ToastContext`, design tokens, `CommandError`) that keep the codebase consistent. New contributors and AI assistants should skim it first.
+
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes

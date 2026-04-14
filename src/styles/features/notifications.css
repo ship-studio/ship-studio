@@ -209,39 +209,6 @@
   border-top: 1px solid var(--border);
 }
 
-.notification-settings-cancel,
-.notification-settings-save {
-  padding: 8px 16px;
-  font-size: 13px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
-}
-
-.notification-settings-cancel {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.notification-settings-cancel:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.notification-settings-save {
-  background: #3b82f6;
-  border: none;
-  color: white;
-}
-
-.notification-settings-save:hover {
-  background: #2563eb;
-}
-
 /* Icon-only workspace tab variant */
 .workspace-tab.icon-only {
   padding: 0 8px;

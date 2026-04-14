@@ -61,7 +61,7 @@ import type { ChangedFile } from '../lib/git';
 import type { LoadedPlugin } from '../hooks/usePlugins';
 import type { PluginThemeData } from '../contexts/PluginContext';
 import { useModal } from '../contexts/ModalContext';
-import '../styles/notifications.css';
+import '../styles/features/notifications.css';
 
 // ---------------------------------------------------------------------------
 // Domain-grouped prop interfaces
