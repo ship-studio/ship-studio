@@ -6,7 +6,7 @@
   padding: 12px 16px;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
-  transition: background 0.15s;
+  transition: background var(--transition);
 }
 
 .publish-row:hover {
@@ -213,7 +213,7 @@
   color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--transition);
 }
 
 .publish-deployments-link:hover {

@@ -14,7 +14,7 @@
   font-size: 12px;
   cursor: pointer;
   padding: 0;
-  transition: color 0.15s;
+  transition: color var(--transition);
 }
 
 .publish-reset-link:hover {
@@ -149,7 +149,7 @@
   flex-shrink: 0;
   color: var(--text-muted);
   opacity: 0.6;
-  transition: opacity 0.15s;
+  transition: opacity var(--transition);
 }
 
 .publish-live-site-link:hover svg {

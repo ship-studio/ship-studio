@@ -333,7 +333,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  transition: background 0.15s;
+  transition: background var(--transition);
 }
 
 .assets-item:hover {
@@ -428,7 +428,7 @@
   display: flex;
   gap: 4px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--transition);
 }
 
 .assets-item:hover .assets-item-actions {
@@ -577,7 +577,7 @@
   display: flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--transition);
 }
 
 .assets-grid-item:hover .assets-grid-actions {

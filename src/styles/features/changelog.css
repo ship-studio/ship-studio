@@ -77,7 +77,7 @@
   padding: 0;
   cursor: pointer;
   text-decoration: none;
-  transition: text-decoration 0.1s;
+  transition: text-decoration var(--transition-fast);
 }
 
 .changelog-version-link:hover {
@@ -128,7 +128,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100000;
+  z-index: var(--z-changelog-sentinel);
   isolation: isolate;
 }
 

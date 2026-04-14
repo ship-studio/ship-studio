@@ -117,7 +117,7 @@
   padding: 12px;
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
-  transition: background-color 0.15s;
+  transition: background-color var(--transition);
 }
 
 .backup-item:hover {

@@ -52,7 +52,7 @@
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--transition);
   margin-bottom: 16px;
 }
 
@@ -153,7 +153,7 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--transition);
 }
 
 .project-card-thumbnail:hover .project-card-overlay {
@@ -322,7 +322,7 @@
 
 .integration-bar-chevron {
   margin-left: auto;
-  transition: transform 0.15s;
+  transition: transform var(--transition);
 }
 
 .integration-bar-chevron.up {

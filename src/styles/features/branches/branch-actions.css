@@ -55,7 +55,7 @@
   border: none;
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition);
 }
 
 .branch-selector-item:hover {
@@ -135,7 +135,7 @@
   color: #3b82f6;
   font-size: 13px;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--transition);
 }
 
 .branch-create-toggle:hover {
@@ -155,7 +155,7 @@
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
 }
 
 .branch-create-input:focus {
@@ -202,7 +202,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: var(--z-app-modal);
 }
 
 .publish-branch-content {
@@ -312,7 +312,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: var(--z-app-modal);
 }
 
 .post-merge-content {
@@ -491,7 +491,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: var(--z-app-modal);
 }
 
 .git-error-content {
@@ -571,7 +571,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: var(--z-app-modal);
 }
 
 .submit-review-content {
@@ -677,7 +677,7 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition);
 }
 
 .submit-review-commit-btn:hover:not(:disabled) {
@@ -713,7 +713,7 @@
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
   box-sizing: border-box;
 }
 
@@ -742,7 +742,7 @@ select.submit-review-input {
   font-family: inherit;
   resize: vertical;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
 }
 
 .submit-review-textarea:focus {

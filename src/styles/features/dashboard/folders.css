@@ -6,7 +6,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
   min-width: 0;
 }
 
@@ -81,7 +81,7 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--transition);
 }
 
 .folder-card-thumbnail:hover .folder-card-overlay {

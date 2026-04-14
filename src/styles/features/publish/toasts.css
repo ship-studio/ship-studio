@@ -7,7 +7,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
-  z-index: 10000;
+  z-index: var(--z-app-modal);
   pointer-events: none;
 }
 
@@ -19,7 +19,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow);
   font-size: 13px;
   color: var(--text-primary);
   pointer-events: auto;
@@ -92,7 +92,7 @@
   border-radius: var(--radius-lg);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   cursor: pointer;
-  z-index: 10001;
+  z-index: var(--z-app-modal-content);
   animation: screenshot-toast-in 0.3s ease;
   transition:
     opacity 0.3s ease,
@@ -240,7 +240,7 @@
   max-height: calc(90vh - 120px);
   object-fit: contain;
   border-radius: var(--radius-sm);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 .screenshot-preview-footer {

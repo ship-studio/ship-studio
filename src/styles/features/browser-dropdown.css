@@ -10,7 +10,7 @@
 .browser-dropdown-chevron {
   margin-left: 2px;
   opacity: 0.6;
-  transition: transform 0.15s;
+  transition: transform var(--transition);
 }
 
 .browser-dropdown-container:hover .browser-dropdown-chevron {

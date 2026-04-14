@@ -44,7 +44,7 @@
   padding: 0;
   cursor: pointer;
   text-align: left;
-  transition: color 0.15s;
+  transition: color var(--transition);
 }
 
 .workspace-titlebar .project-path:hover {
@@ -61,7 +61,7 @@
   padding: 0;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--transition);
 }
 
 .workspace-titlebar .back-link:hover {

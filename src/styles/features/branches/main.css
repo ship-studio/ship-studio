@@ -124,7 +124,7 @@
   padding: 8px 12px;
   color: var(--text-secondary);
   font-size: 13px;
-  transition: background 0.1s;
+  transition: background var(--transition-fast);
 }
 
 .branch-changes-item:hover {
@@ -318,7 +318,7 @@
   font-size: 13px;
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--transition);
 }
 
 .branch-dropdown-item:hover {

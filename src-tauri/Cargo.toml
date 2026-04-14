@@ -5,6 +5,14 @@ description = "Ship Studio - Launch Claude Code for marketing sites"
 authors = ["Julian Galluzzo"]
 edition = "2021"
 
+# Pattern enforcement lints — see also src-tauri/clippy.toml for disallowed-methods.
+# unwrap/expect are WARN (not deny) because the existing codebase has ~148 sites
+# that would block CI immediately; per-module migration will raise these to
+# deny once sites drop under ~20. See Block 15.5 of DX_REFACTOR_PLAN.md.
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
 [lib]
 name = "ship_studio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

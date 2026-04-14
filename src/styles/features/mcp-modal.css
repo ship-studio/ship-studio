@@ -108,7 +108,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-muted);
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
 }
 
 .mcp-search:focus-within {
@@ -187,7 +187,7 @@
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
 }
 
 .mcp-row:hover {
@@ -337,7 +337,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
   font-family: 'SF Mono', Monaco, monospace;
 }
 

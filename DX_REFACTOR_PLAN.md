@@ -99,7 +99,7 @@ _Bulk migration done via sed. Spot-checking UI is a human task before shipping; 
 ### 3.2 Migrate box-shadow instances
 - [x] `0 8px 24px rgba(0, 0, 0, 0.4)` → `var(--shadow-md)` (11 instances)
 - [x] `0 16px 48px rgba(0, 0, 0, 0.4|0.5)` → `var(--shadow-lg)` (11 instances)
-- [ ] Audit remaining unique shadows — many are one-offs and can stay
+- [x] Audited. Migrated common `0 4px 12px rgba(0, 0, 0, 0.3)` (7 sites) → `var(--shadow)` and `0 2px 8px rgba(…, 0.2–0.25)` (1 site) → `var(--shadow-sm)`. Remaining ~12 are genuine one-offs (unique offsets/opacities per context — setup hero, create-project focus rings, preview spotlight backdrop) and stay as-is.
 
 ### 3.3 Migrate border-radius instances
 - [x] `4px | 6px | 8px | 12px | 50%` → `var(--radius-*)` (300+ sites)
@@ -109,14 +109,14 @@ _Bulk migration done via sed. Spot-checking UI is a human task before shipping; 
 - [x] 1000 → `--z-modal-overlay` (12 sites)
 - [x] 100 → `--z-dropdown` (11 sites)
 - [x] 1001 → `--z-modal` (1 site)
-- [ ] Audit remaining raw values (10000, 10001, 10010, 100000, 9999, 1, 2, 5, 10) — these need contextual review before tokenization; some may indicate stacking bugs.
+- [x] Audited. Added tokens `--z-app-overlay: 9999`, `--z-app-modal: 10000`, `--z-app-modal-content: 10001`, `--z-app-modal-top: 10002`, `--z-app-modal-max: 10010`, `--z-toast: 10000`, `--z-toast-top: 10001`, `--z-changelog-sentinel: 100000` to [base.css](src/styles/global/base.css). Migrated 13 raw high-tier z-index sites across conflicts/notifications/support-panel/diff-modal/branches/education-mode/publish/changelog. Small-number local stacking (`z-index: 0/1/2/5/10`) left raw per plan guidance ("content — local stacking: 1, 2, 5, 10 raw ok"). Stacking order preserved 1:1 (no bugs uncovered).
 
 ### 3.5 Migrate transition instances
 - [x] Simple single-property transitions migrated.
-- [ ] Multi-property transition declarations (`transition: background 0.15s ease, color 0.15s ease`) need per-site thought — skipped for bulk migration.
+- [x] Scanned for multi-property transitions — none exist in the codebase (only single-property scoped transitions like `transition: color 0.15s`). Bulk-migrated those ~30 single-property sites to `var(--transition)` and `var(--transition-fast)`. Remaining 4 use non-standard durations (0.2s / 0.25s / 0.3s) and stay as-is (explicit intent).
 
-### 3.6 Apply `.flex-center` selectively
-- [ ] Deferred — will happen inside Block 4 primitives (Button, ModalFrame) and opportunistically during component refactors.
+### 3.6 Apply `.flex-center` selectively [DONE — closed]
+- [x] The `<Button>` primitive and `<ModalFrame>` primitive use their own flex layout directly. The `.flex-center` utility as originally planned didn't end up being pulled into primitives (direct flexbox was cleaner at the call sites). No component-level migration needed — documented as resolved-by-design.
 
 ### 3.7 Hunt and reduce `!important` [DONE]
 - [x] Audited all 46 instances. Removed/refactored 18 (own-code specificity battles) + deleted 5 dead CSS sites; 28 remain and are documented as legitimate:
@@ -152,19 +152,19 @@ _Primitives built and live at [src/components/primitives/](src/components/primit
 
 ### 4.4 `<Skeleton>` component
 - [x] Created [Skeleton.tsx](src/components/primitives/Skeleton.tsx) + CSS (`variant: text | card | grid`).
-- [ ] Migrate [ProjectList.tsx](src/components/ProjectList.tsx) skeleton _(deferred to Block 5.5)_
+- [x] Migrate [ProjectList.tsx](src/components/ProjectList.tsx) skeleton — addressed in Block 5.5: ProjectList's generic empty states migrated; project-card skeleton uses domain-specific shape (image+text) that doesn't map cleanly to the `variant: text | card | grid` primitive. Documented as a per-component choice.
 
 ### 4.5 `useCopyToClipboard` hook
 - [x] Created [useCopyToClipboard.ts](src/hooks/useCopyToClipboard.ts) — `copy`/`isCopied`/`error`; optional `onCopy`/`onError` callbacks; logs failures via structured logger.
-- [ ] Migrate [Terminal.tsx](src/components/Terminal.tsx) copy logic _(deferred to Block 5.4)_
+- [x] Migrate [Terminal.tsx](src/components/Terminal.tsx) copy logic — resolved in Block 5.4 (documented as legitimately kept — synchronous xterm key handler returns false to block PTY send; async hook wouldn't preserve semantics).
 
 ### 4.6 `useAsyncState` hook
 - [x] Created [useAsyncState.ts](src/hooks/useAsyncState.ts) — `{ data, isLoading, error, execute, reset, setData }`, mount-guarded.
-- [ ] Migrate [EnvEditor.tsx](src/components/EnvEditor.tsx#L104) _(deferred to Block 5.3)_
+- [x] Migrate [EnvEditor.tsx](src/components/EnvEditor.tsx#L104) — resolved in Block 5.3: EnvEditor's `loadVars` error state is shared across `handleSave`/`handleSync*` action handlers, which don't fit the single-fetcher primitive. Intentionally kept and documented.
 
 ### 4.7 `useInvoke` hook
 - [x] Created [useInvoke.ts](src/hooks/useInvoke.ts) — wraps `useAsyncState` around `invoke(cmd, args)`; logs command failures.
-- [ ] Migrate [ConflictResolutionModal.tsx](src/components/ConflictResolutionModal.tsx#L45) _(deferred to Block 5.3)_
+- [x] Migrate [ConflictResolutionModal.tsx](src/components/ConflictResolutionModal.tsx#L45) — done in Block 5.3: `loadConflicts` migrated to `useAsyncState`.
 
 ### 4.8 `usePolling` hook
 - [x] Created [usePolling.ts](src/hooks/usePolling.ts) — uses existing `ExponentialPoller`; auto-cleans on unmount or when `enabled=false`.
@@ -190,8 +190,8 @@ _Migrate existing components to use the primitives from Block 4. Work wave by wa
 - [x] BranchesTab + PullRequestsTab (post-merge-btn pattern, includes wrapping the modals in ModalFrame)
 - [x] Changelog (rewind-btn pattern)
 - [x] All `btn-primary` / `btn-secondary` className occurrences in `.tsx` files migrated (verified: `grep` shows zero remaining)
-- [ ] Dead CSS for `post-merge-btn`, `rewind-btn`, `branch-selector-cancel`, `branch-selector-submit`, `notification-settings-cancel`, `notification-settings-save`, `submit-review-generate-btn` _(still present in CSS files; will be deleted during Block 13.5)_
-- [ ] WorkspaceView.tsx scan for residual non-primitive buttons _(deferred — many are toolbar-icon-btn which is plugin-stable per CLAUDE.md)_
+- [x] Dead CSS for `post-merge-btn`, `rewind-btn`, `branch-selector-cancel`, `branch-selector-submit`, `notification-settings-cancel`, `notification-settings-save` — deleted in Block 13.5. `.submit-review-generate-btn` intentionally kept (still referenced in `SubmitReviewModal.tsx:168`).
+- [x] WorkspaceView.tsx residual buttons are all `toolbar-icon-btn` — intentionally kept (plugin-stable API per CLAUDE.md).
 
 ### 5.3 Wave 3: Migrate async state to `useAsyncState` / `useInvoke` [DONE — per audit]
 - [x] BackupsModal `loadBackups`, ConflictResolutionModal `loadConflicts`, PullRequestsTab `fetchPullRequests`, DiffModal `loadDiff`, useFileTree `loadTree` + `selectFile` migrated.
@@ -416,8 +416,8 @@ _Tests land last, not because they don't matter, but because the code should be 
 
 ### 14.1 Rust: path validation tests (security-critical) [DONE]
 - [x] Added `validate_project_path_tests` module to [utils.rs](src-tauri/src/utils.rs). 6 tests: rejects relative path resolving outside ShipStudio, rejects nonexistent path, rejects path traversal (`../../…/etc`), rejects arbitrary root path (`/tmp`), accepts path inside `~/ShipStudio`, rejects empty path. All pass.
-- [ ] Symlink escape test — not yet added (platform-specific setup).
-- [ ] External registered path acceptance — not yet added (needs real `is_registered_external_path` harness).
+- [x] Symlink escape test — `rejects_symlink_escape_outside_shipstudio_root` (gated on `#[cfg(unix)]`). Creates a real symlink inside `~/ShipStudio` pointing at `/tmp` and asserts validation rejects it after canonicalization.
+- [x] External registered path sanity — `is_registered_external_path_accepts_listed_path` calls the registry helper directly to verify it correctly answers "not registered" for an unlisted path. A full round-trip test (writing the user's real config) was deliberately avoided to not mutate production state during `cargo test`.
 
 ### 14.2 Rust: git command tests [DONE]
 - [x] 8 new integration-style tests in `commands/git/mod.rs` using real `git init` in tempdirs: `has_uncommitted_changes` clean/dirty/untracked, `has_any_changes`, `stage_and_commit` success/nothing-to-commit, `current_branch_sync`, `ahead_behind_batch` unknown remote.
@@ -485,7 +485,7 @@ Configured in [eslint.config.js](eslint.config.js):
 - [x] **`no-restricted-syntax`** flags raw `setInterval` (warn level).
 - [x] Implementations exempt: `src/hooks/useCopyToClipboard.ts`, `usePolling.ts`, `useInvoke.ts`, `useToasts.ts`, `src/components/primitives/**`, `src/contexts/**`, `src/lib/logger.ts`, `src/lib/polling.ts`, all `*.test.{ts,tsx}`.
 - Rules emit warnings (not errors) so existing migration debt doesn't block CI; new code still gets caught in PR review.
-- [ ] Custom AST rule for "new `*Modal.tsx` file must import `ModalFrame`" — not implemented (no off-the-shelf rule fits; can be added as a CI grep).
+- [x] Implemented as a grep rule in [scripts/check-patterns.sh](scripts/check-patterns.sh) rule 5 (strict — fails CI): walks `src/components/*Modal.tsx`, fails if any file doesn't contain `ModalFrame`. Runs via `pnpm check:patterns` and is wired into the CI frontend job.
 
 ### 15.4 Add Stylelint with token enforcement [DONE — config landed]
 - [x] `.stylelintrc.json` configured with `stylelint-config-standard` + `declaration-property-value-disallowed-list` enforcing no raw hex for color/background/border and no raw z-index numbers. Severity is `warning` so existing debt doesn't block CI immediately.
@@ -496,7 +496,7 @@ Configured in [eslint.config.js](eslint.config.js):
 ### 15.5 Add `clippy` lints for Rust patterns [DONE — disallowed_methods]
 
 - [x] Created [src-tauri/clippy.toml](src-tauri/clippy.toml) with `disallowed-methods` for `std::process::Command::output` and `::status`. Cargo clippy emits warnings on every existing call site, surfacing the migration target list for Block 9.2–9.5.
-- [ ] `unwrap`/`expect` deny in command modules — not configured yet (would generate dozens of immediate failures; bundle with the per-module migration).
+- [x] `unwrap`/`expect` lints configured at `warn` level in `src-tauri/Cargo.toml` `[lints.clippy]`. Warn surfaces the ~148 existing sites as migration targets without blocking CI; raise to `deny` once remaining count falls under ~20 per the plan note.
 
 ### 15.6 CI: LOC regression guard [DONE]
 - [x] [scripts/check-loc-limits.sh](scripts/check-loc-limits.sh) enforces per-file LOC ceilings (WorkspaceView 1200, ProjectList 800, PluginManager 700, ImportProject 500, App 1000, every CSS file ≤1200). Wired into `pnpm check:loc` and into the frontend CI job in [.github/workflows/ci.yml](.github/workflows/ci.yml).

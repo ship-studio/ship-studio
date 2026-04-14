@@ -123,7 +123,7 @@
   text-align: left;
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: background 0.15s;
+  transition: background var(--transition);
   white-space: nowrap;
 }
 
@@ -243,7 +243,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   min-width: 200px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow);
   padding: 4px;
 }
 
@@ -260,7 +260,7 @@
   text-align: left;
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: background 0.15s;
+  transition: background var(--transition);
   white-space: nowrap;
 }
 

@@ -71,12 +71,28 @@
   --radius-lg: 12px;
   --radius-full: 50%;
 
-  /* Z-index scale (use these — never raw numbers) */
+  /* Z-index scale (use these — never raw numbers)
+   * Tiers:
+   *   content   — local stacking (content-on-content): 1, 2, 5, 10 raw ok
+   *   dropdown  — menus / tooltips / floating UI over page content
+   *   modal-*   — full-screen overlays + modal content on top of overlay
+   *   app-*     — global overlays owning the full viewport (connect overlay,
+   *               education mode, high-priority toasts). Pre-existing code
+   *               used 10000+ here; the tokens preserve that layering.
+   */
   --z-dropdown: 100;
   --z-modal-overlay: 1000;
   --z-modal: 1001;
   --z-tooltip: 1100;
   --z-notification: 1200;
+  --z-app-overlay: 9999;
+  --z-app-modal: 10000;
+  --z-app-modal-content: 10001;
+  --z-app-modal-top: 10002;
+  --z-app-modal-max: 10010;
+  --z-toast: 10000;
+  --z-toast-top: 10001;
+  --z-changelog-sentinel: 100000;
 
   /* Shadow scale */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);

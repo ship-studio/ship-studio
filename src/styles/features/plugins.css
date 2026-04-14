@@ -94,7 +94,7 @@
   border-radius: var(--radius);
   color: var(--text-muted);
   margin: 0 24px 12px;
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
 }
 
 .plugins-search:focus-within {
@@ -293,7 +293,7 @@
   border: none;
   padding: 0;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--transition);
 }
 
 .plugin-action-link:hover:not(:disabled) {
@@ -417,7 +417,7 @@
   border: none;
   cursor: pointer;
   padding: 0;
-  transition: color 0.15s;
+  transition: color var(--transition);
 }
 
 .plugins-url-toggle:hover {
@@ -446,7 +446,7 @@
   border-radius: var(--radius);
   color: var(--text-primary);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
 }
 
 .plugins-install-input:focus {
@@ -469,7 +469,7 @@
   border-radius: var(--radius);
   cursor: pointer;
   white-space: nowrap;
-  transition: opacity 0.15s;
+  transition: opacity var(--transition);
 }
 
 .plugins-install-btn:hover:not(:disabled) {

@@ -178,7 +178,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  transition: border-color 0.15s;
+  transition: border-color var(--transition);
   height: 30px;
 }
 
