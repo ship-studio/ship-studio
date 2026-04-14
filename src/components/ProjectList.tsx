@@ -12,7 +12,7 @@
  * @module components/ProjectList
  */
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
@@ -40,12 +40,10 @@ import {
   moveProjectToFolder,
 } from '../lib/folders';
 import { DashboardHeader } from './DashboardHeader';
-import { ProjectCard } from './ProjectCard';
-import { FolderCard } from './FolderCard';
 import { IntegrationBar } from './IntegrationBar';
 import { NewFolderModal } from './NewFolderModal';
-import { Button } from './primitives/Button';
-import { EmptyState } from './primitives/EmptyState';
+import { ProjectGridView } from './ProjectGridView';
+import { SearchAndSort } from './SearchAndSort';
 import { FolderBreadcrumb } from './FolderBreadcrumb';
 import { MoveFolderModal } from './MoveFolderModal';
 import { SettingsModal } from './SettingsModal';
@@ -56,15 +54,7 @@ import {
   getSlackCtaHidden,
   setSlackCtaHidden as persistSlackCtaHidden,
 } from '../lib/settings';
-import {
-  ChevronIcon,
-  CheckIcon,
-  SlackIcon,
-  FolderPlusIcon,
-  SettingsIcon,
-  EyeOffIcon,
-} from './icons';
-import { useClickOutside } from '../hooks/useClickOutside';
+import { SlackIcon, SettingsIcon, EyeOffIcon } from './icons';
 
 /** Basic project info for selection callback */
 interface Project {
@@ -165,12 +155,6 @@ export function ProjectList({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('last_opened');
   const [showSortDropdown, setShowSortDropdown] = useState(false);
-
-  const sortDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close sort dropdown when clicking outside
-  const closeSortDropdown = useCallback(() => setShowSortDropdown(false), []);
-  useClickOutside(sortDropdownRef, closeSortDropdown, showSortDropdown);
 
   const loadProjects = async () => {
     try {
@@ -463,11 +447,6 @@ export function ProjectList({
     );
   }
 
-  const sortLabels: Record<SortOption, string> = {
-    last_opened: 'Last opened',
-    name: 'Name',
-  };
-
   const totalCount = currentFolderId
     ? filteredProjects.length
     : filteredFolders.length + filteredProjects.length;
@@ -536,104 +515,35 @@ export function ProjectList({
           />
         )}
 
-        <div className="dashboard-section-header">
-          <span className="dashboard-section-title">
-            {currentFolderId ? 'Projects' : 'All Projects'} {totalCount > 0 && `(${totalCount})`}
-          </span>
-          <div className="dashboard-section-controls">
-            <div className="sort-dropdown" ref={sortDropdownRef} data-education-id="sort-projects">
-              <button
-                className="sort-dropdown-btn"
-                onClick={() => setShowSortDropdown(!showSortDropdown)}
-              >
-                {sortLabels[sortBy]}
-                <ChevronIcon />
-              </button>
-              {showSortDropdown && (
-                <div className="sort-dropdown-menu">
-                  {(Object.keys(sortLabels) as SortOption[]).map((option) => (
-                    <button
-                      key={option}
-                      className={`sort-dropdown-item ${sortBy === option ? 'active' : ''}`}
-                      onClick={() => {
-                        setSortBy(option);
-                        setShowSortDropdown(false);
-                      }}
-                    >
-                      {sortLabels[option]}
-                      {sortBy === option && <CheckIcon />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              data-education-id="new-folder-button"
-              onClick={() => {
-                void trackEvent('new_folder_clicked', { $screen_name: 'Dashboard' });
-                setShowNewFolderModal(true);
-              }}
-              title="New Folder"
-              aria-label="New Folder"
-            >
-              <FolderPlusIcon size={14} />
-            </Button>
-          </div>
-        </div>
+        <SearchAndSort
+          title={currentFolderId ? 'Projects' : 'All Projects'}
+          totalCount={totalCount}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+          showSortDropdown={showSortDropdown}
+          onToggleSortDropdown={setShowSortDropdown}
+          onNewFolder={() => setShowNewFolderModal(true)}
+        />
 
-        {totalCount === 0 ? (
-          <div className="project-list-empty">
-            {searchQuery ? (
-              <EmptyState title="No items found" description="Try a different search term" />
-            ) : currentFolderId ? (
-              <EmptyState
-                title="This folder is empty"
-                description="Move projects here or create a new project"
-              />
-            ) : (
-              <EmptyState
-                title="No projects yet"
-                description="Create your first project to get started"
-              />
-            )}
-          </div>
-        ) : (
-          <div className="project-grid">
-            {/* Render folders first (only at root level) */}
-            {!currentFolderId &&
-              filteredFolders.map((folder) => (
-                <FolderCard
-                  key={folder.id}
-                  folder={folder}
-                  onOpen={() => setCurrentFolderId(folder.id)}
-                  onRename={() => setRenamingFolder(folder)}
-                  onDelete={() => setDeleteFolderConfirm(folder)}
-                />
-              ))}
-            {/* Render projects */}
-            {filteredProjects.map((project) => (
-              <ProjectCard
-                key={project.path}
-                project={project}
-                thumbnailData={project.thumbnailData}
-                onSelect={() => onSelectProject(project)}
-                onDelete={() => setDeleteConfirm(project)}
-                onToggleMainBranchWarning={(hidden) =>
-                  void handleToggleMainBranchWarning(project.path, hidden)
-                }
-                onMoveToFolder={() => void handleOpenMoveModal(project)}
-                onExportAsTemplate={() => void handleExportAsTemplate(project.path)}
-                onOpenInNewWindow={() => void handleOpenInNewWindow(project)}
-                isExternal={project.is_external}
-                onRemove={
-                  project.is_external ? () => void handleRemoveExternal(project) : undefined
-                }
-              />
-            ))}
-          </div>
-        )}
+        <ProjectGridView
+          currentFolderId={currentFolderId}
+          searchQuery={searchQuery}
+          totalCount={totalCount}
+          filteredFolders={filteredFolders}
+          filteredProjects={filteredProjects}
+          onSelectProject={(project) => onSelectProject(project)}
+          onDeleteProject={(project) => setDeleteConfirm(project)}
+          onToggleMainBranchWarning={(path, hidden) =>
+            void handleToggleMainBranchWarning(path, hidden)
+          }
+          onOpenMoveModal={(project) => void handleOpenMoveModal(project)}
+          onExportAsTemplate={(path) => void handleExportAsTemplate(path)}
+          onOpenInNewWindow={(project) => void handleOpenInNewWindow(project)}
+          onRemoveExternal={(project) => void handleRemoveExternal(project)}
+          onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
+          onRenameFolder={(folder) => setRenamingFolder(folder)}
+          onDeleteFolder={(folder) => setDeleteFolderConfirm(folder)}
+        />
 
         <button
           className="dashboard-settings-row"
