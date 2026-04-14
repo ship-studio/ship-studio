@@ -2,6 +2,7 @@
 //!
 //! Commands for registering and managing projects that live outside ~/ShipStudio.
 
+use crate::errors::CommandError;
 use crate::types::{
     ExternalProject, ExternalProjectsConfig, EXTERNAL_PROJECTS_CONFIG_SCHEMA_VERSION,
 };
@@ -78,7 +79,8 @@ pub fn is_registered_external_path(canonical: &Path) -> Result<bool, String> {
 /// Opens a native folder picker and registers the selected folder as an external project.
 /// Returns the path of the registered project, or None if cancelled.
 #[tauri::command]
-pub async fn register_external_project(app: AppHandle) -> Result<Option<String>, String> {
+#[tracing::instrument(skip(app))]
+pub async fn register_external_project(app: AppHandle) -> Result<Option<String>, CommandError> {
     let folder = app
         .dialog()
         .file()
@@ -123,20 +125,21 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
         }
 
         if nested_projects.len() == 1 {
-            return Err(format!(
+            return Err((format!(
                 "The project appears to be inside the \"{}\" subfolder. Please select that folder instead.",
                 nested_projects[0]
-            ));
+            )).into());
         } else if nested_projects.len() > 1 {
-            return Err(format!(
+            return Err((format!(
                 "This folder contains multiple projects inside it: {}. Please select the specific project folder you want to import.",
                 nested_projects.join(", ")
-            ));
+            )).into());
         }
 
         return Err(
             "Selected folder doesn't appear to be a project — no package.json or .html files found."
-                .to_string(),
+                .to_string()
+                .into(),
         );
     }
 
@@ -150,7 +153,8 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
     if canonical.starts_with(&shipstudio_dir) {
         return Err(
             "This project is already inside ~/ShipStudio. It will appear automatically."
-                .to_string(),
+                .to_string()
+                .into(),
         );
     }
 
@@ -161,7 +165,7 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
             .map(|c| c == canonical)
             .unwrap_or(false)
     }) {
-        return Err("This project is already registered.".to_string());
+        return Err(("This project is already registered.".to_string()).into());
     }
 
     // Register
@@ -182,7 +186,8 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
 
 /// Removes an external project from the registry (does not delete files).
 #[tauri::command]
-pub async fn unregister_external_project(path: String) -> Result<(), String> {
+#[tracing::instrument]
+pub async fn unregister_external_project(path: String) -> Result<(), CommandError> {
     let mut config = load_config()?;
 
     let canonical = dunce::canonicalize(Path::new(&path)).unwrap_or_else(|_| PathBuf::from(&path));
@@ -195,7 +200,7 @@ pub async fn unregister_external_project(path: String) -> Result<(), String> {
     });
 
     if config.projects.len() == initial_len {
-        return Err("Project not found in external projects list.".to_string());
+        return Err(("Project not found in external projects list.".to_string()).into());
     }
 
     save_config(&config)?;
@@ -210,7 +215,8 @@ pub async fn unregister_external_project(path: String) -> Result<(), String> {
 ///
 /// Returns Ok(true) if newly registered, Ok(false) if already registered or inside ~/ShipStudio.
 #[tauri::command]
-pub async fn ensure_external_project_registered(path: String) -> Result<bool, String> {
+#[tracing::instrument]
+pub async fn ensure_external_project_registered(path: String) -> Result<bool, CommandError> {
     let canonical =
         dunce::canonicalize(Path::new(&path)).map_err(|e| format!("Invalid path: {e}"))?;
 
@@ -247,7 +253,8 @@ pub async fn ensure_external_project_registered(path: String) -> Result<bool, St
 
 /// Check if a project path is an external project.
 #[tauri::command]
-pub async fn is_project_external(path: String) -> Result<bool, String> {
+#[tracing::instrument]
+pub async fn is_project_external(path: String) -> Result<bool, CommandError> {
     let canonical =
         dunce::canonicalize(Path::new(&path)).map_err(|e| format!("Invalid path: {e}"))?;
 

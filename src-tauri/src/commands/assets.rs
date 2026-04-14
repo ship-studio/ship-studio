@@ -2,6 +2,7 @@
 //!
 //! Commands for managing files in the /public folder of projects.
 
+use crate::errors::CommandError;
 use crate::types::Asset;
 use crate::utils::validate_project_path;
 use std::fs;
@@ -121,7 +122,8 @@ fn list_files_recursive(
 
 /// List all assets in the /public folder (recursive)
 #[tauri::command]
-pub async fn list_assets(project_path: String) -> Result<Vec<Asset>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn list_assets(project_path: String) -> Result<Vec<Asset>, CommandError> {
     let project = validate_project_path(&project_path)?;
     let public_dir = project.join("public");
 
@@ -140,12 +142,13 @@ pub async fn list_assets(project_path: String) -> Result<Vec<Asset>, String> {
 
 /// Upload a file to /public (or subfolder)
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn upload_asset(
     project_path: String,
     destination: String,
     file_name: String,
     file_data: Vec<u8>,
-) -> Result<Asset, String> {
+) -> Result<Asset, CommandError> {
     let project = validate_project_path(&project_path)?;
     let public_dir = project.join("public");
 
@@ -157,7 +160,7 @@ pub async fn upload_asset(
 
     // Validate filename
     if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
-        return Err("Invalid filename: path separators not allowed".to_string());
+        return Err(("Invalid filename: path separators not allowed".to_string()).into());
     }
 
     // Build destination path
@@ -167,7 +170,7 @@ pub async fn upload_asset(
         // Validate and resolve destination path
         let dest = destination.trim_start_matches('/');
         if dest.contains("..") {
-            return Err("Invalid destination: path traversal not allowed".to_string());
+            return Err(("Invalid destination: path traversal not allowed".to_string()).into());
         }
         let dest_path = public_dir.join(dest);
         if !dest_path.exists() {
@@ -185,18 +188,19 @@ pub async fn upload_asset(
     let canonical_dest =
         dunce::canonicalize(&dest_dir).map_err(|e| format!("Invalid path: {e}"))?;
     if !canonical_dest.starts_with(&canonical_public) {
-        return Err("Security error: destination is outside public directory".to_string());
+        return Err(("Security error: destination is outside public directory".to_string()).into());
     }
 
     // Write file
     fs::write(&file_path, file_data).map_err(|e| format!("Failed to write file: {e}"))?;
 
-    path_to_asset(&file_path, &public_dir)
+    path_to_asset(&file_path, &public_dir).map_err(CommandError::from)
 }
 
 /// Delete an asset
 #[tauri::command]
-pub async fn delete_asset(project_path: String, asset_path: String) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn delete_asset(project_path: String, asset_path: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let public_dir = project.join("public");
     let full_path = validate_asset_path(&project, &asset_path)?;
@@ -207,7 +211,7 @@ pub async fn delete_asset(project_path: String, asset_path: String) -> Result<()
     let canonical_path =
         dunce::canonicalize(&full_path).map_err(|e| format!("Invalid path: {e}"))?;
     if !canonical_path.starts_with(&canonical_public) {
-        return Err("Security error: path is outside public directory".to_string());
+        return Err(("Security error: path is outside public directory".to_string()).into());
     }
 
     if full_path.is_dir() {
@@ -221,22 +225,23 @@ pub async fn delete_asset(project_path: String, asset_path: String) -> Result<()
 
 /// Rename an asset
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn rename_asset(
     project_path: String,
     asset_path: String,
     new_name: String,
-) -> Result<Asset, String> {
+) -> Result<Asset, CommandError> {
     let project = validate_project_path(&project_path)?;
     let public_dir = project.join("public");
     let old_path = validate_asset_path(&project, &asset_path)?;
 
     // Validate new name
     if new_name.contains('/') || new_name.contains('\\') || new_name.contains("..") {
-        return Err("Invalid name: path separators not allowed".to_string());
+        return Err(("Invalid name: path separators not allowed".to_string()).into());
     }
 
     if new_name.is_empty() {
-        return Err("Name cannot be empty".to_string());
+        return Err(("Name cannot be empty".to_string()).into());
     }
 
     // Build new path in same directory
@@ -250,23 +255,27 @@ pub async fn rename_asset(
         dunce::canonicalize(&public_dir).map_err(|e| format!("Invalid path: {e}"))?;
     let canonical_parent = dunce::canonicalize(parent).map_err(|e| format!("Invalid path: {e}"))?;
     if !canonical_parent.starts_with(&canonical_public) {
-        return Err("Security error: path is outside public directory".to_string());
+        return Err(("Security error: path is outside public directory".to_string()).into());
     }
 
     // Check if target already exists
     if new_path.exists() {
-        return Err(format!("A file named '{new_name}' already exists"));
+        return Err((format!("A file named '{new_name}' already exists")).into());
     }
 
     // Rename
     fs::rename(&old_path, &new_path).map_err(|e| format!("Failed to rename: {e}"))?;
 
-    path_to_asset(&new_path, &public_dir)
+    path_to_asset(&new_path, &public_dir).map_err(CommandError::from)
 }
 
 /// Create a folder in /public
 #[tauri::command]
-pub async fn create_asset_folder(project_path: String, folder_path: String) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn create_asset_folder(
+    project_path: String,
+    folder_path: String,
+) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let public_dir = project.join("public");
 
@@ -278,12 +287,12 @@ pub async fn create_asset_folder(project_path: String, folder_path: String) -> R
 
     // Validate folder path
     if folder_path.contains("..") {
-        return Err("Invalid path: path traversal not allowed".to_string());
+        return Err(("Invalid path: path traversal not allowed".to_string()).into());
     }
 
     let folder_name = folder_path.trim_start_matches('/');
     if folder_name.is_empty() {
-        return Err("Folder name cannot be empty".to_string());
+        return Err(("Folder name cannot be empty".to_string()).into());
     }
 
     let full_path = public_dir.join(folder_name);
@@ -298,13 +307,15 @@ pub async fn create_asset_folder(project_path: String, folder_path: String) -> R
             let canonical_parent =
                 dunce::canonicalize(parent).map_err(|e| format!("Invalid path: {e}"))?;
             if !canonical_parent.starts_with(&canonical_public) {
-                return Err("Security error: path is outside public directory".to_string());
+                return Err(
+                    ("Security error: path is outside public directory".to_string()).into(),
+                );
             }
         }
     }
 
     if full_path.exists() {
-        return Err("Folder already exists".to_string());
+        return Err(("Folder already exists".to_string()).into());
     }
 
     fs::create_dir_all(&full_path).map_err(|e| format!("Failed to create folder: {e}"))?;

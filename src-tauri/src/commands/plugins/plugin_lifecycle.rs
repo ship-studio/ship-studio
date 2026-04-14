@@ -1,6 +1,7 @@
 /**
  * Plugin lifecycle commands: listing, installing, uninstalling, updating, and toggling plugins.
  */
+use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path};
 use std::fs;
 use std::path::PathBuf;
@@ -14,7 +15,8 @@ use super::{
 
 /// List all installed plugins for a project
 #[tauri::command]
-pub fn list_plugins(project_path: String) -> Result<Vec<PluginInfo>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub fn list_plugins(project_path: String) -> Result<Vec<PluginInfo>, CommandError> {
     let registry = read_registry(&project_path)?;
     let plugins_dir = get_plugins_dir(&project_path)?;
     let mut results = Vec::new();
@@ -47,11 +49,12 @@ pub fn list_plugins(project_path: String) -> Result<Vec<PluginInfo>, String> {
 
 /// Install a plugin from a GitHub repository URL into a project
 #[tauri::command]
+#[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn install_plugin(
     app: AppHandle,
     project_path: String,
     repo_url: String,
-) -> Result<PluginInfo, String> {
+) -> Result<PluginInfo, CommandError> {
     let plugins_dir = get_plugins_dir(&project_path)?;
     fs::create_dir_all(&plugins_dir).map_err(|e| format!("Failed to create plugins dir: {e}"))?;
 
@@ -76,7 +79,7 @@ pub async fn install_plugin(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let _ = fs::remove_dir_all(&temp_dir);
-        return Err(format!("Git clone failed: {stderr}"));
+        return Err((format!("Git clone failed: {stderr}")).into());
     }
 
     // Read manifest to get plugin ID
@@ -84,7 +87,7 @@ pub async fn install_plugin(
         Ok(m) => m,
         Err(e) => {
             let _ = fs::remove_dir_all(&temp_dir);
-            return Err(format!("Invalid plugin: {e}"));
+            return Err((format!("Invalid plugin: {e}")).into());
         }
     };
 
@@ -93,7 +96,7 @@ pub async fn install_plugin(
     // Validate manifest has required fields
     if manifest.id.is_empty() || manifest.name.is_empty() {
         let _ = fs::remove_dir_all(&temp_dir);
-        return Err("Plugin manifest must have 'id' and 'name' fields".to_string());
+        return Err(("Plugin manifest must have 'id' and 'name' fields".to_string()).into());
     }
 
     // Validate plugin ID is safe for filesystem
@@ -103,19 +106,19 @@ pub async fn install_plugin(
         || manifest.id.starts_with('.')
     {
         let _ = fs::remove_dir_all(&temp_dir);
-        return Err("Plugin ID contains invalid characters".to_string());
+        return Err(("Plugin ID contains invalid characters".to_string()).into());
     }
 
     // Check min_app_version compatibility
     if let Err(e) = check_min_app_version(&manifest, &app) {
         let _ = fs::remove_dir_all(&temp_dir);
-        return Err(e);
+        return Err(e.into());
     }
 
     // Validate required_commands are all in the allowed set
     if let Err(e) = validate_required_commands(&manifest) {
         let _ = fs::remove_dir_all(&temp_dir);
-        return Err(e);
+        return Err(e.into());
     }
 
     let plugin_dir = plugins_dir.join(&manifest.id);
@@ -172,12 +175,15 @@ pub async fn install_plugin(
 
 /// Uninstall a plugin by its ID from a project
 #[tauri::command]
-pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), CommandError> {
     // Guard: dev plugins should use unlink instead
     let registry = read_registry(&project_path)?;
     if let Some(entry) = registry.plugins.iter().find(|e| e.plugin_id == plugin_id) {
         if entry.is_dev {
-            return Err("Dev plugins cannot be uninstalled. Use Unlink instead.".to_string());
+            return Err(
+                ("Dev plugins cannot be uninstalled. Use Unlink instead.".to_string()).into(),
+            );
         }
     }
 
@@ -200,11 +206,12 @@ pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), S
 
 /// Update a plugin by pulling latest from its source repository
 #[tauri::command]
+#[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn update_plugin(
     app: AppHandle,
     project_path: String,
     plugin_id: String,
-) -> Result<PluginInfo, String> {
+) -> Result<PluginInfo, CommandError> {
     let registry = read_registry(&project_path)?;
     let entry = registry
         .plugins
@@ -238,7 +245,7 @@ pub async fn update_plugin(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Git clone failed: {stderr}"));
+        return Err((format!("Git clone failed: {stderr}")).into());
     }
 
     // Read commit hash before removing .git
@@ -284,10 +291,11 @@ pub async fn update_plugin(
 
 /// Check if a plugin has an update available by comparing commit hashes
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn check_plugin_update(
     project_path: String,
     plugin_id: String,
-) -> Result<PluginUpdateCheck, String> {
+) -> Result<PluginUpdateCheck, CommandError> {
     let registry = read_registry(&project_path)?;
     let entry = registry
         .plugins
@@ -297,7 +305,9 @@ pub async fn check_plugin_update(
 
     if entry.is_dev {
         return Err(
-            "Dev plugins do not support remote update checks. Use Reload instead.".to_string(),
+            "Dev plugins do not support remote update checks. Use Reload instead."
+                .to_string()
+                .into(),
         );
     }
 
@@ -319,7 +329,7 @@ pub async fn check_plugin_update(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to check remote: {stderr}"));
+        return Err((format!("Failed to check remote: {stderr}")).into());
     }
 
     let remote_output = String::from_utf8_lossy(&output.stdout);
@@ -346,7 +356,12 @@ pub async fn check_plugin_update(
 
 /// Toggle a plugin's enabled state
 #[tauri::command]
-pub fn toggle_plugin(project_path: String, plugin_id: String, enabled: bool) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub fn toggle_plugin(
+    project_path: String,
+    plugin_id: String,
+    enabled: bool,
+) -> Result<(), CommandError> {
     let mut registry = read_registry(&project_path)?;
 
     if let Some(entry) = registry
@@ -358,6 +373,6 @@ pub fn toggle_plugin(project_path: String, plugin_id: String, enabled: bool) -> 
         write_registry(&project_path, &registry)?;
         Ok(())
     } else {
-        Err(format!("Plugin '{plugin_id}' not found"))
+        Err((format!("Plugin '{plugin_id}' not found")).into())
     }
 }

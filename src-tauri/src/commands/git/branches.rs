@@ -1,12 +1,30 @@
 //! Git branch management — list, create, delete, switch branches.
 
 use crate::cache::GIT_CACHE;
+use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::{BranchInfo, SwitchResult};
 use crate::utils::{create_command, validate_project_path};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
+
+/// Timeout for git network operations (fetch, push). Matches git/sync.rs.
+const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
+
+/// Run a network-facing git command with a timeout.
+async fn run_git_net(
+    args: &[&str],
+    cwd: &Path,
+    label: &str,
+) -> Result<std::process::Output, CommandError> {
+    let mut cmd = create_command("git");
+    cmd.args(args).current_dir(cwd);
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
+}
 
 /// Tracks the last time `git fetch` was run per project path.
 /// Prevents redundant network I/O when the frontend polls `list_branches` frequently.
@@ -24,7 +42,7 @@ use super::{
 /// List all branches (local and remote) with metadata
 #[tauri::command]
 #[instrument(name = "list_branches", skip(project_path), fields(project = %project_path))]
-pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, String> {
+pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     debug!("Listing branches");
 
@@ -41,11 +59,15 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Stri
             map.insert(project_path.clone(), Instant::now());
         }
         let fetch_path = validated_path.clone();
-        std::thread::spawn(move || {
-            let _ = create_command("git")
-                .args(["fetch", "--all", "--prune"])
-                .current_dir(&fetch_path)
-                .output();
+        // Run fetch in a timed-out background task so a hung remote can't
+        // leak a worker thread or pin connections forever.
+        tokio::spawn(async move {
+            let _ = run_git_net(
+                &["fetch", "--all", "--prune"],
+                &fetch_path,
+                "fetch --all --prune",
+            )
+            .await;
         });
     }
 
@@ -57,7 +79,7 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Stri
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        return Err("Failed to list branches".to_string());
+        return Err(("Failed to list branches".to_string()).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -152,7 +174,8 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Stri
 
 /// Get the current branch name
 #[tauri::command]
-pub async fn get_current_branch(project_path: String) -> Result<String, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_current_branch(project_path: String) -> Result<String, CommandError> {
     // Check cache first
     if let Some(cached) = GIT_CACHE.get_current_branch(&project_path) {
         return Ok(cached);
@@ -167,12 +190,12 @@ pub async fn get_current_branch(project_path: String) -> Result<String, String> 
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        return Err("Not a git repository".to_string());
+        return Err(("Not a git repository".to_string()).into());
     }
 
     let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if branch == "HEAD" {
-        return Err("Detached HEAD state".to_string());
+        return Err(("Detached HEAD state".to_string()).into());
     }
 
     // Cache the result
@@ -188,7 +211,7 @@ pub async fn switch_branch(
     project_path: String,
     branch_name: String,
     auto_stash: bool,
-) -> Result<SwitchResult, String> {
+) -> Result<SwitchResult, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let mut stashed = false;
     let mut stash_applied = false;
@@ -361,14 +384,14 @@ pub async fn create_branch(
     project_path: String,
     branch_name: String,
     from_branch: String,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     info!("Creating new branch");
 
     // Validate branch name
     if branch_name.contains(' ') || branch_name.contains("..") || branch_name.starts_with('-') {
         warn!(branch = %branch_name, "Invalid branch name");
-        return Err("Invalid branch name".to_string());
+        return Err(("Invalid branch name".to_string()).into());
     }
 
     // Get the current branch name
@@ -395,14 +418,11 @@ pub async fn create_branch(
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(stderr.to_string());
+            return Err((stderr.to_string()).into());
         }
     } else {
         // Creating from a different branch - fetch and use origin
-        let _ = create_command("git")
-            .args(["fetch", "origin"])
-            .current_dir(&validated_path)
-            .output();
+        let _ = run_git_net(&["fetch", "origin"], &validated_path, "fetch origin").await;
 
         let base_ref = if from_branch.starts_with("origin/") {
             from_branch
@@ -419,7 +439,7 @@ pub async fn create_branch(
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             error!(error = %stderr, "Failed to create branch");
-            return Err(stderr.to_string());
+            return Err((stderr.to_string()).into());
         }
     }
 
@@ -440,14 +460,14 @@ pub async fn delete_branch(
     project_path: String,
     branch_name: String,
     delete_remote: bool,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     info!(delete_remote, "Deleting branch");
 
     // Don't allow deleting main/master
     if branch_name == "main" || branch_name == "master" {
         warn!("Attempted to delete main branch");
-        return Err("Cannot delete the main branch".to_string());
+        return Err(("Cannot delete the main branch".to_string()).into());
     }
 
     // Get current branch to make sure we're not on it
@@ -460,7 +480,9 @@ pub async fn delete_branch(
     let current_branch = String::from_utf8_lossy(&current.stdout).trim().to_string();
     if current_branch == branch_name {
         return Err(
-            "Cannot delete the current branch. Switch to another branch first.".to_string(),
+            "Cannot delete the current branch. Switch to another branch first."
+                .to_string()
+                .into(),
         );
     }
 
@@ -474,23 +496,24 @@ pub async fn delete_branch(
     if !local_output.status.success() {
         let stderr = String::from_utf8_lossy(&local_output.stderr);
         if !stderr.contains("not found") {
-            return Err(stderr.to_string());
+            return Err((stderr.to_string()).into());
         }
     }
 
     // Delete remote branch if requested
     if delete_remote {
-        let remote_output = create_command("git")
-            .args(["push", "origin", "--delete", &branch_name])
-            .current_dir(&validated_path)
-            .output()
-            .map_err(|e| e.to_string())?;
+        let remote_output = run_git_net(
+            &["push", "origin", "--delete", &branch_name],
+            &validated_path,
+            "push origin --delete",
+        )
+        .await?;
 
         if !remote_output.status.success() {
             let stderr = String::from_utf8_lossy(&remote_output.stderr);
             if !stderr.contains("remote ref does not exist") {
                 error!(error = %stderr, "Failed to delete remote branch");
-                return Err(format!("Failed to delete remote branch: {stderr}"));
+                return Err((format!("Failed to delete remote branch: {stderr}")).into());
             }
         }
     }

@@ -4,6 +4,7 @@
 
 use crate::commands::git::git_stage_and_commit;
 use crate::commands::github::ensure_git_identity;
+use crate::errors::CommandError;
 use crate::types::PublishResult;
 use crate::utils::{create_command, validate_project_path};
 use tracing::{debug, error, info, instrument, warn};
@@ -13,8 +14,8 @@ use tracing::{debug, error, info, instrument, warn};
 pub async fn publish_to_github(
     project_path: String,
     commit_message: Option<String>,
-) -> Result<(), String> {
-    let validated_path = validate_project_path(&project_path)?;
+) -> Result<(), CommandError> {
+    let validated_path = validate_project_path(&project_path).map_err(CommandError::from)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
     info!(message = %message, "Publishing to GitHub");
 
@@ -23,7 +24,7 @@ pub async fn publish_to_github(
         .args(["branch", "--show-current"])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     let branch = String::from_utf8_lossy(&branch_output.stdout)
         .trim()
@@ -70,10 +71,14 @@ pub async fn publish_to_github(
         .args(["add", "-A"])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        return Err(CommandError::Process {
+            cmd: "git add -A".to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        });
     }
 
     // Check if there are changes to commit
@@ -81,7 +86,7 @@ pub async fn publish_to_github(
         .args(["status", "--porcelain"])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     let has_changes = !String::from_utf8_lossy(&status.stdout).trim().is_empty();
 
@@ -91,10 +96,14 @@ pub async fn publish_to_github(
             .args(["commit", "-m", &message])
             .current_dir(&validated_path)
             .output()
-            .map_err(|e| e.to_string())?;
+            .map_err(CommandError::from)?;
 
         if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+            return Err(CommandError::Process {
+                cmd: "git commit".to_string(),
+                exit_code: output.status.code().unwrap_or(-1),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            });
         }
     }
 
@@ -103,13 +112,17 @@ pub async fn publish_to_github(
         .args(["push", "-u", "origin", &branch])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, branch = %branch, "Push to GitHub failed");
-            return Err(stderr.to_string());
+            return Err(CommandError::Process {
+                cmd: "git push".to_string(),
+                exit_code: output.status.code().unwrap_or(-1),
+                stderr: stderr.to_string(),
+            });
         }
     }
 
@@ -122,8 +135,8 @@ pub async fn publish_to_github(
 pub async fn publish_to_staging(
     project_path: String,
     commit_message: Option<String>,
-) -> Result<PublishResult, String> {
-    let validated_path = validate_project_path(&project_path)?;
+) -> Result<PublishResult, CommandError> {
+    let validated_path = validate_project_path(&project_path).map_err(CommandError::from)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
     info!(message = %message, "Publishing to staging");
 
@@ -139,17 +152,25 @@ pub async fn publish_to_staging(
         .args(["push", "-u", "origin", "HEAD:staging"])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, "Push rejected - staging branch has diverged");
-            return Err(format!("PUSH_REJECTED: Staging branch has diverged. Pull changes first or resolve conflicts.\n{stderr}"));
+            // Retain the legacy PUSH_REJECTED sentinel so the frontend can
+            // still discriminate this case via substring match.
+            return Err(CommandError::Other(format!(
+                "PUSH_REJECTED: Staging branch has diverged. Pull changes first or resolve conflicts.\n{stderr}"
+            )));
         }
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, "Failed to push to staging");
-            return Err(stderr.to_string());
+            return Err(CommandError::Process {
+                cmd: "git push staging".to_string(),
+                exit_code: push_output.status.code().unwrap_or(-1),
+                stderr: stderr.to_string(),
+            });
         }
     }
 
@@ -165,8 +186,8 @@ pub async fn publish_to_staging(
 pub async fn publish_to_production(
     project_path: String,
     commit_message: Option<String>,
-) -> Result<PublishResult, String> {
-    let validated_path = validate_project_path(&project_path)?;
+) -> Result<PublishResult, CommandError> {
+    let validated_path = validate_project_path(&project_path).map_err(CommandError::from)?;
     let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
     info!(message = %message, "Publishing to production");
 
@@ -181,13 +202,17 @@ pub async fn publish_to_production(
         .args(["push", "-u", "origin", "HEAD:main"])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, "Failed to push to production");
-            return Err(stderr.to_string());
+            return Err(CommandError::Process {
+                cmd: "git push main".to_string(),
+                exit_code: push_output.status.code().unwrap_or(-1),
+                stderr: stderr.to_string(),
+            });
         }
     }
 
@@ -204,8 +229,8 @@ pub async fn publish_to_production(
 pub async fn publish_branch(
     project_path: String,
     commit_message: Option<String>,
-) -> Result<PublishResult, String> {
-    let validated_path = validate_project_path(&project_path)?;
+) -> Result<PublishResult, CommandError> {
+    let validated_path = validate_project_path(&project_path).map_err(CommandError::from)?;
     let message = commit_message.unwrap_or_else(|| "Updates from Ship Studio".to_string());
 
     // Get current branch name
@@ -213,7 +238,7 @@ pub async fn publish_branch(
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     let branch = String::from_utf8_lossy(&branch_output.stdout)
         .trim()
@@ -234,7 +259,7 @@ pub async fn publish_branch(
         .args(["status", "--porcelain"])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     let has_changes = !String::from_utf8_lossy(&status.stdout).trim().is_empty();
 
@@ -244,11 +269,15 @@ pub async fn publish_branch(
             .args(["commit", "-m", &message])
             .current_dir(&validated_path)
             .output()
-            .map_err(|e| e.to_string())?;
+            .map_err(CommandError::from)?;
 
         if !commit_output.status.success() {
             let stderr = String::from_utf8_lossy(&commit_output.stderr);
-            return Err(format!("Failed to commit: {stderr}"));
+            return Err(CommandError::Process {
+                cmd: "git commit".to_string(),
+                exit_code: commit_output.status.code().unwrap_or(-1),
+                stderr: stderr.to_string(),
+            });
         }
     }
 
@@ -257,22 +286,28 @@ pub async fn publish_branch(
         .args(["push", "-u", "origin", &branch])
         .current_dir(&validated_path)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(CommandError::from)?;
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         // Check for common errors
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, branch = %branch, "Push rejected");
-            return Err(format!("PUSH_REJECTED:{stderr}"));
+            return Err(CommandError::Other(format!("PUSH_REJECTED:{stderr}")));
         }
         if stderr.contains("Permission denied") || stderr.contains("could not read Username") {
             error!(error = %stderr, branch = %branch, "Authentication error");
-            return Err(format!("AUTH_ERROR:{stderr}"));
+            return Err(CommandError::NotAuthenticated {
+                service: format!("github (AUTH_ERROR: {stderr})"),
+            });
         }
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, branch = %branch, "Push failed");
-            return Err(stderr.to_string());
+            return Err(CommandError::Process {
+                cmd: "git push".to_string(),
+                exit_code: push_output.status.code().unwrap_or(-1),
+                stderr: stderr.to_string(),
+            });
         }
     }
 

@@ -8,6 +8,7 @@
 //! Both Claude Code and Codex support MCP servers via their `mcp` subcommand:
 //! - Claude: `claude mcp list`, `claude mcp add`, `claude mcp remove`
 //! - Codex: `codex mcp list`, `codex mcp add`, `codex mcp remove`
+use crate::errors::CommandError;
 use crate::utils::{create_command, find_executable, get_extended_path};
 use serde::Serialize;
 
@@ -177,7 +178,7 @@ fn parse_scope_from_mcp_get(output: &str) -> String {
 pub async fn list_mcp_servers(
     project_path: Option<String>,
     agent_id: Option<String>,
-) -> Result<Vec<McpServer>, String> {
+) -> Result<Vec<McpServer>, CommandError> {
     let agent = agent_id
         .as_deref()
         .map(crate::agent::get_agent_by_id)
@@ -219,10 +220,7 @@ pub async fn list_mcp_servers(
         {
             return Ok(Vec::new());
         }
-        return Err(format!(
-            "{} mcp list failed: {}",
-            agent.display_name, stderr
-        ));
+        return Err((format!("{} mcp list failed: {}", agent.display_name, stderr)).into());
     }
 
     let mut servers = parse_mcp_list_output(&stdout);
@@ -270,7 +268,7 @@ pub async fn add_mcp_server(
     scope: Option<String>,
     project_path: Option<String>,
     agent_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let agent = agent_id
         .as_deref()
         .map(crate::agent::get_agent_by_id)
@@ -293,7 +291,7 @@ pub async fn add_mcp_server(
         .unwrap_or(args_str);
 
     if args_str.is_empty() {
-        return Err("No arguments provided for mcp add".to_string());
+        return Err(("No arguments provided for mcp add".to_string()).into());
     }
 
     // Build the command: <binary> mcp add <args>
@@ -332,7 +330,7 @@ pub async fn add_mcp_server(
         } else {
             stderr
         };
-        return Err(format!("Failed to add MCP server: {details}"));
+        return Err((format!("Failed to add MCP server: {details}")).into());
     }
 
     Ok(())
@@ -346,7 +344,7 @@ pub async fn remove_mcp_server(
     scope: Option<String>,
     project_path: Option<String>,
     agent_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let agent = agent_id
         .as_deref()
         .map(crate::agent::get_agent_by_id)
@@ -387,7 +385,7 @@ pub async fn remove_mcp_server(
         } else {
             stderr
         };
-        return Err(format!("Failed to remove MCP server: {details}"));
+        return Err((format!("Failed to remove MCP server: {details}")).into());
     }
 
     Ok(())

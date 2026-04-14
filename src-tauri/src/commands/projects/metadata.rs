@@ -4,14 +4,16 @@
 //! including per-project preferences (branch prefix, auto-accept mode,
 //! hide main branch warning, etc.).
 
+use crate::errors::CommandError;
 use crate::types::{ProjectMetadata, TerminalState, PROJECT_METADATA_SCHEMA_VERSION};
 use crate::utils::validate_project_path;
 
 /// Reads project metadata from .shipstudio/project.json with automatic schema migration
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn read_project_metadata(
     project_path: String,
-) -> Result<Option<ProjectMetadata>, String> {
+) -> Result<Option<ProjectMetadata>, CommandError> {
     let project = validate_project_path(&project_path)?;
     let metadata_path = project.join(".shipstudio").join("project.json");
 
@@ -39,10 +41,11 @@ pub async fn read_project_metadata(
 /// Writes project metadata to .shipstudio/project.json
 /// Always ensures the schema_version is set to the current version.
 #[tauri::command]
+#[tracing::instrument(skip(metadata), fields(project = %project_path))]
 pub async fn write_project_metadata(
     project_path: String,
     mut metadata: ProjectMetadata,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
 
@@ -66,7 +69,8 @@ pub async fn write_project_metadata(
 
 /// Marks a project as opened by updating its last_opened timestamp
 #[tauri::command]
-pub async fn mark_project_opened(project_path: String) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn mark_project_opened(project_path: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");
@@ -101,14 +105,16 @@ pub async fn mark_project_opened(project_path: String) -> Result<(), String> {
 
 /// Checks whether a project has a `.vercel/project.json` config file.
 #[tauri::command]
-pub async fn has_vercel_config(project_path: String) -> Result<bool, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn has_vercel_config(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;
     Ok(project.join(".vercel").join("project.json").exists())
 }
 
 /// Gets the branch prefix username preference (defaults to true if not set)
 #[tauri::command]
-pub async fn get_branch_prefix_preference(project_path: String) -> Result<bool, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_branch_prefix_preference(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;
     let metadata_path = project.join(".shipstudio").join("project.json");
 
@@ -126,10 +132,11 @@ pub async fn get_branch_prefix_preference(project_path: String) -> Result<bool, 
 
 /// Sets the branch prefix username preference
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn set_branch_prefix_preference(
     project_path: String,
     prefix: bool,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");
@@ -160,7 +167,8 @@ pub async fn set_branch_prefix_preference(
 
 /// Gets whether the main branch warning banner should be hidden for this project
 #[tauri::command]
-pub async fn get_hide_main_branch_warning(project_path: String) -> Result<bool, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_hide_main_branch_warning(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;
     let metadata_path = project.join(".shipstudio").join("project.json");
 
@@ -178,10 +186,11 @@ pub async fn get_hide_main_branch_warning(project_path: String) -> Result<bool, 
 
 /// Sets whether the main branch warning banner should be hidden for this project
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn set_hide_main_branch_warning(
     project_path: String,
     hidden: bool,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");
@@ -212,7 +221,8 @@ pub async fn set_hide_main_branch_warning(
 
 /// Gets the auto-accept mode preference for a project
 #[tauri::command]
-pub async fn get_auto_accept_mode(project_path: String) -> Result<bool, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_auto_accept_mode(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;
     let metadata_path = project.join(".shipstudio").join("project.json");
 
@@ -230,7 +240,8 @@ pub async fn get_auto_accept_mode(project_path: String) -> Result<bool, String> 
 
 /// Gets the custom dev command for a project (for generic projects)
 #[tauri::command]
-pub async fn get_custom_dev_command(project_path: String) -> Result<Option<String>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_custom_dev_command(project_path: String) -> Result<Option<String>, CommandError> {
     let project = validate_project_path(&project_path)?;
     let metadata_path = project.join(".shipstudio").join("project.json");
 
@@ -248,10 +259,11 @@ pub async fn get_custom_dev_command(project_path: String) -> Result<Option<Strin
 
 /// Sets the custom dev command for a project (for generic projects)
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn set_custom_dev_command(
     project_path: String,
     command: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");
@@ -282,7 +294,8 @@ pub async fn set_custom_dev_command(
 
 /// Gets the dev server port for a project (returns None if not configured, meaning use default 3000)
 #[tauri::command]
-pub async fn get_dev_server_port(project_path: String) -> Result<Option<u16>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_dev_server_port(project_path: String) -> Result<Option<u16>, CommandError> {
     let project = validate_project_path(&project_path)?;
     let metadata_path = project.join(".shipstudio").join("project.json");
 
@@ -300,9 +313,10 @@ pub async fn get_dev_server_port(project_path: String) -> Result<Option<u16>, St
 
 /// Sets the dev server port for a project
 #[tauri::command]
-pub async fn set_dev_server_port(project_path: String, port: u16) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn set_dev_server_port(project_path: String, port: u16) -> Result<(), CommandError> {
     if port == 0 {
-        return Err("Port must be between 1 and 65535".to_string());
+        return Err(("Port must be between 1 and 65535".to_string()).into());
     }
 
     let project = validate_project_path(&project_path)?;
@@ -336,7 +350,8 @@ pub async fn set_dev_server_port(project_path: String, port: u16) -> Result<(), 
 /// Sets the auto-accept mode preference for a project
 /// When enabled, Claude will run with --dangerously-skip-permissions flag
 #[tauri::command]
-pub async fn set_auto_accept_mode(project_path: String, enabled: bool) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn set_auto_accept_mode(project_path: String, enabled: bool) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");
@@ -367,7 +382,10 @@ pub async fn set_auto_accept_mode(project_path: String, enabled: bool) -> Result
 
 /// Gets the saved terminal tab state for a project
 #[tauri::command]
-pub async fn get_terminal_state(project_path: String) -> Result<Option<TerminalState>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_terminal_state(
+    project_path: String,
+) -> Result<Option<TerminalState>, CommandError> {
     let project = validate_project_path(&project_path)?;
     let metadata_path = project.join(".shipstudio").join("project.json");
 
@@ -385,7 +403,11 @@ pub async fn get_terminal_state(project_path: String) -> Result<Option<TerminalS
 
 /// Saves the terminal tab state for a project
 #[tauri::command]
-pub async fn set_terminal_state(project_path: String, state: TerminalState) -> Result<(), String> {
+#[tracing::instrument(skip(state), fields(project = %project_path))]
+pub async fn set_terminal_state(
+    project_path: String,
+    state: TerminalState,
+) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");

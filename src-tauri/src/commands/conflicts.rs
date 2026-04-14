@@ -3,6 +3,7 @@
 //! Commands for detecting and resolving merge conflicts.
 
 use crate::commands::github::ensure_git_identity;
+use crate::errors::CommandError;
 use crate::types::{ConflictBlock, ConflictedFile};
 use crate::utils::{create_command, validate_project_path};
 
@@ -108,7 +109,7 @@ pub fn parse_conflicts(content: &str, all_lines: &[&str]) -> (Vec<ConflictBlock>
 /// Get information about all conflicted files in the repository
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
-pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFile>, String> {
+pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFile>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Get list of files with unmerged changes
@@ -120,7 +121,7 @@ pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFil
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to get conflicted files: {stderr}"));
+        return Err((format!("Failed to get conflicted files: {stderr}")).into());
     }
 
     let file_list = String::from_utf8_lossy(&output.stdout);
@@ -184,7 +185,7 @@ pub async fn resolve_conflict(
     file_path: String,
     conflict_index: u32,
     resolution: String, // "current" or "incoming"
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let full_path = validated_path.join(&file_path);
 
@@ -273,7 +274,7 @@ pub async fn resolve_conflict(
 
         if !add_output.status.success() {
             let stderr = String::from_utf8_lossy(&add_output.stderr);
-            return Err(format!("Failed to stage resolved file: {stderr}"));
+            return Err((format!("Failed to stage resolved file: {stderr}")).into());
         }
     }
 
@@ -283,7 +284,7 @@ pub async fn resolve_conflict(
 /// Abort the current merge and return to pre-merge state
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
-pub async fn abort_merge(project_path: String) -> Result<(), String> {
+pub async fn abort_merge(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let output = create_command("git")
@@ -294,7 +295,7 @@ pub async fn abort_merge(project_path: String) -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to abort merge: {stderr}"));
+        return Err((format!("Failed to abort merge: {stderr}")).into());
     }
 
     Ok(())
@@ -303,7 +304,7 @@ pub async fn abort_merge(project_path: String) -> Result<(), String> {
 /// Complete the merge after all conflicts have been resolved
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
-pub async fn complete_merge(project_path: String) -> Result<(), String> {
+pub async fn complete_merge(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Stage all changes
@@ -315,7 +316,7 @@ pub async fn complete_merge(project_path: String) -> Result<(), String> {
 
     if !add_output.status.success() {
         let stderr = String::from_utf8_lossy(&add_output.stderr);
-        return Err(format!("Failed to stage changes: {stderr}"));
+        return Err((format!("Failed to stage changes: {stderr}")).into());
     }
 
     // Ensure git identity matches GitHub account before committing
@@ -331,7 +332,7 @@ pub async fn complete_merge(project_path: String) -> Result<(), String> {
     if !commit_output.status.success() {
         let stderr = String::from_utf8_lossy(&commit_output.stderr);
         if !stderr.contains("nothing to commit") {
-            return Err(format!("Failed to create merge commit: {stderr}"));
+            return Err((format!("Failed to create merge commit: {stderr}")).into());
         }
     }
 

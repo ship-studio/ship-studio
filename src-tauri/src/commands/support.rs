@@ -6,6 +6,7 @@
 //! SDK on the frontend.
 
 use crate::commands::github::get_gh_command;
+use crate::errors::CommandError;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -94,7 +95,8 @@ fn sign_identity(external_id: &str, email: &str, name: &str, timestamp: i64) -> 
 
 /// Returns the current user's identity + HMAC signature for ChatClient.
 #[tauri::command]
-pub async fn get_support_identity() -> Result<SupportIdentity, String> {
+#[tracing::instrument]
+pub async fn get_support_identity() -> Result<SupportIdentity, CommandError> {
     let (login, email, name) = get_github_user()?;
 
     let timestamp = chrono::Utc::now().timestamp();

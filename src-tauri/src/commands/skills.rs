@@ -12,6 +12,7 @@
  *
  * Legacy plugin-based skills are also supported from ~/.claude/plugins/installed_plugins.json
  */
+use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -129,6 +130,7 @@ fn read_skills_from_plugin(plugin_path: &str, plugin_name: &str, scope: &str) ->
 
 /// List all available Claude skills from installed plugins and skills directory
 #[tauri::command]
+#[tracing::instrument]
 pub fn list_claude_skills(
     project_path: Option<String>,
     agent_id: Option<String>,
@@ -266,6 +268,7 @@ pub struct SkillSearchResult {
 
 /// Check if the Skills CLI is available (npx skills --version)
 #[tauri::command]
+#[tracing::instrument]
 pub async fn check_skills_cli() -> bool {
     let home = dirs::home_dir()
         .map(|h| h.to_string_lossy().to_string())
@@ -286,7 +289,8 @@ pub async fn check_skills_cli() -> bool {
 /// Search for skills using the Skills CLI
 /// Runs: npx skills find "<query>"
 #[tauri::command]
-pub async fn search_skills(query: String) -> Result<Vec<SkillSearchResult>, String> {
+#[tracing::instrument]
+pub async fn search_skills(query: String) -> Result<Vec<SkillSearchResult>, CommandError> {
     // Get HOME directory for proper npm config resolution
     let home = dirs::home_dir()
         .map(|h| h.to_string_lossy().to_string())
@@ -311,7 +315,7 @@ pub async fn search_skills(query: String) -> Result<Vec<SkillSearchResult>, Stri
         if stderr.contains("No skills found") || stdout.is_empty() {
             return Ok(Vec::new());
         }
-        return Err(format!("Skills search failed: {stderr}"));
+        return Err((format!("Skills search failed: {stderr}")).into());
     }
 
     parse_skills_find_output(&stdout)
@@ -323,7 +327,7 @@ pub async fn search_skills(query: String) -> Result<Vec<SkillSearchResult>, Stri
 /// owner/repo@skill-name
 /// └ https://skills.sh/...
 /// ```
-fn parse_skills_find_output(output: &str) -> Result<Vec<SkillSearchResult>, String> {
+fn parse_skills_find_output(output: &str) -> Result<Vec<SkillSearchResult>, CommandError> {
     let mut results = Vec::new();
 
     // Strip ANSI color codes
@@ -478,12 +482,13 @@ fn parse_install_count(s: &str) -> Option<u64> {
 /// Install a skill using the Skills CLI
 /// Runs: npx skills add <package> -y --agent <agent-id>
 #[tauri::command]
+#[tracing::instrument]
 pub async fn install_skill(
     package: String,
     scope: String,
     project_path: Option<String>,
     agent_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let agent = agent_id
         .as_deref()
         .map(crate::agent::get_agent_by_id)
@@ -514,7 +519,9 @@ pub async fn install_skill(
         if let Some(ref path) = project_path {
             cmd.current_dir(path);
         } else {
-            return Err("Project path required for project-scoped installation".to_string());
+            return Err(
+                ("Project path required for project-scoped installation".to_string()).into(),
+            );
         }
     } else {
         // For user scope, run from home directory so skills install to ~/.agents/skills
@@ -529,7 +536,7 @@ pub async fn install_skill(
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         let details = extract_skills_cli_error(&stdout, &stderr);
-        return Err(format!("Failed to install skill: {details}"));
+        return Err((format!("Failed to install skill: {details}")).into());
     }
 
     Ok(())
@@ -538,12 +545,13 @@ pub async fn install_skill(
 /// Remove a skill using the Skills CLI
 /// Runs: npx skills remove <package> --agent <agent-id>
 #[tauri::command]
+#[tracing::instrument]
 pub async fn remove_skill(
     package: String,
     scope: String,
     project_path: Option<String>,
     agent_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let agent = agent_id
         .as_deref()
         .map(crate::agent::get_agent_by_id)
@@ -574,7 +582,7 @@ pub async fn remove_skill(
         if let Some(ref path) = project_path {
             cmd.current_dir(path);
         } else {
-            return Err("Project path required for project-scoped removal".to_string());
+            return Err(("Project path required for project-scoped removal".to_string()).into());
         }
     } else {
         // For user scope, run from home directory
@@ -589,7 +597,7 @@ pub async fn remove_skill(
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         let details = extract_skills_cli_error(&stdout, &stderr);
-        return Err(format!("Failed to remove skill: {details}"));
+        return Err((format!("Failed to remove skill: {details}")).into());
     }
 
     Ok(())

@@ -2,6 +2,7 @@
 //!
 //! Commands for organizing projects into folders on the dashboard.
 
+use crate::errors::CommandError;
 use crate::types::{Folder, FolderConfig, FolderInfo, FOLDER_CONFIG_SCHEMA_VERSION};
 use std::path::PathBuf;
 
@@ -109,7 +110,7 @@ fn load_thumbnail_base64(project_path: &str) -> Option<String> {
 /// List all folders with preview information
 #[tauri::command]
 #[tracing::instrument]
-pub async fn list_folders() -> Result<Vec<FolderInfo>, String> {
+pub async fn list_folders() -> Result<Vec<FolderInfo>, CommandError> {
     let config = load_folder_config()?;
 
     let mut folder_infos = Vec::new();
@@ -141,9 +142,9 @@ pub async fn list_folders() -> Result<Vec<FolderInfo>, String> {
 /// Create a new folder
 #[tauri::command]
 #[tracing::instrument(skip(name), fields(name = %name))]
-pub async fn create_folder(name: String) -> Result<Folder, String> {
+pub async fn create_folder(name: String) -> Result<Folder, CommandError> {
     if name.trim().is_empty() {
-        return Err("Folder name cannot be empty".to_string());
+        return Err(("Folder name cannot be empty".to_string()).into());
     }
 
     let mut config = load_folder_config()?;
@@ -166,9 +167,9 @@ pub async fn create_folder(name: String) -> Result<Folder, String> {
 /// Rename an existing folder
 #[tauri::command]
 #[tracing::instrument(skip(folder_id, name), fields(folder_id = %folder_id, name = %name))]
-pub async fn rename_folder(folder_id: String, name: String) -> Result<(), String> {
+pub async fn rename_folder(folder_id: String, name: String) -> Result<(), CommandError> {
     if name.trim().is_empty() {
-        return Err("Folder name cannot be empty".to_string());
+        return Err(("Folder name cannot be empty".to_string()).into());
     }
 
     let mut config = load_folder_config()?;
@@ -190,14 +191,14 @@ pub async fn rename_folder(folder_id: String, name: String) -> Result<(), String
 /// Delete a folder (projects become unfiled)
 #[tauri::command]
 #[tracing::instrument(skip(folder_id), fields(folder_id = %folder_id))]
-pub async fn delete_folder(folder_id: String) -> Result<(), String> {
+pub async fn delete_folder(folder_id: String) -> Result<(), CommandError> {
     let mut config = load_folder_config()?;
 
     let initial_len = config.folders.len();
     config.folders.retain(|f| f.id != folder_id);
 
     if config.folders.len() == initial_len {
-        return Err("Folder not found".to_string());
+        return Err(("Folder not found".to_string()).into());
     }
 
     save_folder_config(&config)?;
@@ -208,7 +209,10 @@ pub async fn delete_folder(folder_id: String) -> Result<(), String> {
 /// Add a project to a folder
 #[tauri::command]
 #[tracing::instrument(skip(folder_id, project_path), fields(folder_id = %folder_id, project = %project_path))]
-pub async fn add_project_to_folder(folder_id: String, project_path: String) -> Result<(), String> {
+pub async fn add_project_to_folder(
+    folder_id: String,
+    project_path: String,
+) -> Result<(), CommandError> {
     let mut config = load_folder_config()?;
 
     // First, remove the project from any existing folder
@@ -239,7 +243,7 @@ pub async fn add_project_to_folder(folder_id: String, project_path: String) -> R
 pub async fn remove_project_from_folder(
     folder_id: String,
     project_path: String,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let mut config = load_folder_config()?;
 
     let folder = config
@@ -262,7 +266,7 @@ pub async fn remove_project_from_folder(
 pub async fn move_project_to_folder(
     project_path: String,
     folder_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let mut config = load_folder_config()?;
 
     // Remove the project from all folders first
@@ -290,7 +294,7 @@ pub async fn move_project_to_folder(
 /// Get the folder ID for a project (if any)
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
-pub async fn get_project_folder(project_path: String) -> Result<Option<String>, String> {
+pub async fn get_project_folder(project_path: String) -> Result<Option<String>, CommandError> {
     let config = load_folder_config()?;
 
     for folder in config.folders {
@@ -304,7 +308,7 @@ pub async fn get_project_folder(project_path: String) -> Result<Option<String>, 
 
 /// Get all project paths that are in folders (used to filter unfiled projects)
 #[tauri::command]
-pub async fn get_filed_project_paths() -> Result<Vec<String>, String> {
+pub async fn get_filed_project_paths() -> Result<Vec<String>, CommandError> {
     let config = load_folder_config()?;
 
     let mut paths = Vec::new();
@@ -317,7 +321,7 @@ pub async fn get_filed_project_paths() -> Result<Vec<String>, String> {
 
 /// Get projects in a specific folder
 #[tauri::command]
-pub async fn get_folder_projects(folder_id: String) -> Result<Vec<String>, String> {
+pub async fn get_folder_projects(folder_id: String) -> Result<Vec<String>, CommandError> {
     let config = load_folder_config()?;
 
     let folder = config
@@ -331,7 +335,7 @@ pub async fn get_folder_projects(folder_id: String) -> Result<Vec<String>, Strin
 
 /// Get folder details by ID
 #[tauri::command]
-pub async fn get_folder(folder_id: String) -> Result<Option<Folder>, String> {
+pub async fn get_folder(folder_id: String) -> Result<Option<Folder>, CommandError> {
     let config = load_folder_config()?;
 
     Ok(config.folders.into_iter().find(|f| f.id == folder_id))

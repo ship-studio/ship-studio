@@ -6,6 +6,7 @@ use super::{
     is_force_onboarding_mode, is_mock_mode, read_app_state, write_app_state,
     FORCE_ONBOARDING_COMPLETED,
 };
+use crate::errors::CommandError;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Get the app state file path
@@ -34,7 +35,8 @@ pub(crate) fn get_app_state_path() -> std::path::PathBuf {
 
 /// Mark setup as complete (persists to disk)
 #[tauri::command]
-pub async fn mark_setup_complete() -> Result<(), String> {
+#[tracing::instrument]
+pub async fn mark_setup_complete() -> Result<(), CommandError> {
     // Force onboarding / mock mode: don't persist to disk
     if is_force_onboarding_mode() {
         if let Ok(mut completed) = FORCE_ONBOARDING_COMPLETED.lock() {
@@ -65,7 +67,8 @@ pub async fn mark_setup_complete() -> Result<(), String> {
 
 /// Clear setup complete flag (for testing/reset)
 #[tauri::command]
-pub async fn reset_setup_state() -> Result<(), String> {
+#[tracing::instrument]
+pub async fn reset_setup_state() -> Result<(), CommandError> {
     // Read existing state to preserve other fields (e.g., compact_mode)
     let mut state = read_app_state();
     state.setup_complete = false;
@@ -79,13 +82,15 @@ pub async fn reset_setup_state() -> Result<(), String> {
 /// Get the default agent ID from persisted AppState.
 /// Returns None if not set (frontend should fall back to Claude Code).
 #[tauri::command]
+#[tracing::instrument]
 pub async fn get_default_agent_id() -> Option<String> {
     read_app_state().default_agent_id
 }
 
 /// Set the default agent ID. Persists to AppState and updates in-memory cache.
 #[tauri::command]
-pub async fn set_default_agent_id(agent_id: String) -> Result<(), String> {
+#[tracing::instrument]
+pub async fn set_default_agent_id(agent_id: String) -> Result<(), CommandError> {
     let mut state = read_app_state();
     state.default_agent_id = Some(agent_id.clone());
     write_app_state(&state)?;

@@ -1,6 +1,7 @@
 //! Git sync commands — fetch, pull, merge, commit, discard.
 
 use crate::cache::GIT_CACHE;
+use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;
 use crate::utils::{create_command, validate_project_path};
 use std::path::Path;
@@ -29,7 +30,7 @@ async fn run_git_with_timeout(
 /// Fetch all branches from remotes
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
-pub async fn fetch_all_branches(project_path: String) -> Result<(), String> {
+pub async fn fetch_all_branches(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let output = run_git_with_timeout(
@@ -41,7 +42,7 @@ pub async fn fetch_all_branches(project_path: String) -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to fetch: {stderr}"));
+        return Err((format!("Failed to fetch: {stderr}")).into());
     }
 
     Ok(())
@@ -50,7 +51,7 @@ pub async fn fetch_all_branches(project_path: String) -> Result<(), String> {
 /// Pull latest changes from remote for current branch
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
-pub async fn git_pull(project_path: String) -> Result<(), String> {
+pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let output =
@@ -58,7 +59,7 @@ pub async fn git_pull(project_path: String) -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to pull: {stderr}"));
+        return Err((format!("Failed to pull: {stderr}")).into());
     }
 
     // Invalidate status cache after pull
@@ -73,7 +74,7 @@ pub async fn git_pull(project_path: String) -> Result<(), String> {
 pub async fn pull_and_merge(
     project_path: String,
     merge_branch: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // First fetch to ensure we have latest refs. Ignore failure (best-effort).
@@ -97,11 +98,11 @@ pub async fn pull_and_merge(
 
     // Check for merge conflicts
     if combined.contains("CONFLICT") || combined.contains("Automatic merge failed") {
-        return Err(format!("MERGE_CONFLICT:{combined}"));
+        return Err((format!("MERGE_CONFLICT:{combined}")).into());
     }
 
     if !output.status.success() {
-        return Err(format!("Failed to merge: {stderr}"));
+        return Err((format!("Failed to merge: {stderr}")).into());
     }
 
     Ok(())
@@ -110,7 +111,7 @@ pub async fn pull_and_merge(
 /// Discard all uncommitted changes in the working directory
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
-pub async fn discard_changes(project_path: String) -> Result<(), String> {
+pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Discard changes to tracked files
@@ -122,7 +123,7 @@ pub async fn discard_changes(project_path: String) -> Result<(), String> {
 
     if !checkout_output.status.success() {
         let stderr = String::from_utf8_lossy(&checkout_output.stderr);
-        return Err(format!("Failed to discard changes: {stderr}"));
+        return Err((format!("Failed to discard changes: {stderr}")).into());
     }
 
     // Remove untracked files
@@ -134,7 +135,7 @@ pub async fn discard_changes(project_path: String) -> Result<(), String> {
 
     if !clean_output.status.success() {
         let stderr = String::from_utf8_lossy(&clean_output.stderr);
-        return Err(format!("Failed to clean untracked files: {stderr}"));
+        return Err((format!("Failed to clean untracked files: {stderr}")).into());
     }
 
     // Invalidate status caches after discarding changes
@@ -147,7 +148,7 @@ pub async fn discard_changes(project_path: String) -> Result<(), String> {
 /// Returns true if a commit was made, false if there was nothing to commit.
 #[tauri::command]
 #[tracing::instrument(skip(project_path, message), fields(project = %project_path))]
-pub async fn commit_changes(project_path: String, message: String) -> Result<bool, String> {
+pub async fn commit_changes(project_path: String, message: String) -> Result<bool, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let committed = git_stage_and_commit(&validated_path, &message)?;
     if committed {

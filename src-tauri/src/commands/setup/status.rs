@@ -18,6 +18,7 @@ use crate::utils::check_homebrew;
 
 /// Get full setup status for all items
 #[tauri::command]
+#[tracing::instrument]
 pub async fn get_full_setup_status() -> FullSetupStatus {
     // Debug/mock mode: return mock state for testing onboarding flow
     if is_mock_mode() {
@@ -487,6 +488,7 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
 /// Quick setup check - only checks binary/file existence (no subprocess calls)
 /// This is ~10ms vs 2-5 seconds for full setup check
 #[tauri::command]
+#[tracing::instrument]
 pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
     // Force onboarding mode: always show onboarding with real checks
     if is_force_onboarding_mode() {

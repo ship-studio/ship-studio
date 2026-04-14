@@ -5,6 +5,7 @@
  * - exec_plugin_shell: sandboxed shell command execution in plugin context
  * - link/unlink_dev_plugin: local development plugin management
  */
+use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
 use std::fs;
 use std::path::PathBuf;
@@ -22,10 +23,11 @@ use super::{
 /// Storage is at {project}/.shipstudio/plugins/{plugin-id}/storage.json
 /// Acquires a per-plugin lock to prevent races with concurrent writes.
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_storage(
     plugin_id: String,
     project_path: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CommandError> {
     let lock = get_storage_lock(&plugin_id, &project_path);
     let _guard = lock
         .lock()
@@ -40,18 +42,20 @@ pub fn read_plugin_storage(
     let content = fs::read_to_string(&storage_path)
         .map_err(|e| format!("Failed to read plugin storage: {e}"))?;
 
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse plugin storage: {e}"))
+    serde_json::from_str(&content)
+        .map_err(|e| CommandError::Other(format!("Failed to parse plugin storage: {e}")))
 }
 
 /// Write plugin storage data
 ///
 /// Acquires a per-plugin lock to prevent concurrent read-modify-write races.
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub fn write_plugin_storage(
     plugin_id: String,
     project_path: String,
     data: serde_json::Value,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let lock = get_storage_lock(&plugin_id, &project_path);
     let _guard = lock
         .lock()
@@ -68,20 +72,22 @@ pub fn write_plugin_storage(
     let content = serde_json::to_string_pretty(&data)
         .map_err(|e| format!("Failed to serialize storage data: {e}"))?;
 
-    fs::write(&storage_path, content).map_err(|e| format!("Failed to write plugin storage: {e}"))
+    fs::write(&storage_path, content)
+        .map_err(|e| CommandError::Io(format!("Failed to write plugin storage: {e}")))
 }
 
 /// Execute a shell command in a plugin's context
 ///
 /// Security: validates project_path, uses extended PATH, enforces configurable timeout (default 120s).
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn exec_plugin_shell(
     plugin_id: String,
     project_path: String,
     command: String,
     args: Vec<String>,
     timeout_secs: Option<u64>,
-) -> Result<ShellResult, String> {
+) -> Result<ShellResult, CommandError> {
     // Validate the project path for security
     let validated_path = validate_project_path(&project_path)?;
 
@@ -98,7 +104,7 @@ pub async fn exec_plugin_shell(
         false
     };
     if !plugin_exists {
-        return Err(format!("Plugin '{plugin_id}' not found"));
+        return Err((format!("Plugin '{plugin_id}' not found")).into());
     }
 
     // Build and execute command with timeout
@@ -136,10 +142,11 @@ pub async fn exec_plugin_shell(
 /// Opens a native folder picker, validates the selected folder has plugin.json and dist/index.js,
 /// then registers it in the project's plugin registry as a dev plugin.
 #[tauri::command]
+#[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn link_dev_plugin(
     app: AppHandle,
     project_path: String,
-) -> Result<Option<PluginInfo>, String> {
+) -> Result<Option<PluginInfo>, CommandError> {
     let folder = app
         .dialog()
         .file()
@@ -161,15 +168,16 @@ pub async fn link_dev_plugin(
     // Validate dist/index.js exists
     let bundle_path = folder_path.join("dist").join("index.js");
     if !bundle_path.exists() {
-        return Err(format!(
+        return Err((format!(
             "Plugin bundle not found at {}/dist/index.js. Did you run the build?",
             folder_path.display()
-        ));
+        ))
+        .into());
     }
 
     // Validate manifest has required fields
     if manifest.id.is_empty() || manifest.name.is_empty() {
-        return Err("Plugin manifest must have 'id' and 'name' fields".to_string());
+        return Err(("Plugin manifest must have 'id' and 'name' fields".to_string()).into());
     }
 
     // Validate plugin ID is safe for filesystem
@@ -178,7 +186,7 @@ pub async fn link_dev_plugin(
         || manifest.id.contains("..")
         || manifest.id.starts_with('.')
     {
-        return Err("Plugin ID contains invalid characters".to_string());
+        return Err(("Plugin ID contains invalid characters".to_string()).into());
     }
 
     // Check min_app_version compatibility
@@ -194,10 +202,11 @@ pub async fn link_dev_plugin(
         .iter()
         .any(|e| e.plugin_id == manifest.id && !e.is_dev)
     {
-        return Err(format!(
+        return Err((format!(
             "A non-dev plugin '{}' is already installed. Uninstall it first.",
             manifest.id
-        ));
+        ))
+        .into());
     }
 
     // Remove existing dev entry for this plugin if present (re-link)
@@ -231,16 +240,17 @@ pub async fn link_dev_plugin(
 ///
 /// Removes the plugin from the registry only. Does NOT delete local files.
 #[tauri::command]
-pub fn unlink_dev_plugin(project_path: String, plugin_id: String) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub fn unlink_dev_plugin(project_path: String, plugin_id: String) -> Result<(), CommandError> {
     let mut registry = read_registry(&project_path)?;
 
     let entry = registry.plugins.iter().find(|e| e.plugin_id == plugin_id);
     match entry {
         Some(e) if !e.is_dev => {
-            return Err("Plugin is not a dev plugin. Use uninstall instead.".to_string());
+            return Err(("Plugin is not a dev plugin. Use uninstall instead.".to_string()).into());
         }
         None => {
-            return Err(format!("Plugin '{plugin_id}' not found"));
+            return Err((format!("Plugin '{plugin_id}' not found")).into());
         }
         _ => {}
     }

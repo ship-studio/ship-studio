@@ -3,6 +3,7 @@
 //! Commands for pseudo-terminal management and port operations.
 //! Supports multi-window isolation by tracking PTY ownership per window.
 
+use crate::errors::CommandError;
 use crate::types::SpawnPtyOptions;
 use crate::utils::{create_command, get_extended_path};
 use std::collections::HashMap;
@@ -48,7 +49,7 @@ pub async fn spawn_pty(
     app: tauri::AppHandle,
     options: SpawnPtyOptions,
     window_label: String,
-) -> Result<u32, String> {
+) -> Result<u32, CommandError> {
     let id = PTY_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
     let app_handle = app.clone();
     let label_for_thread = window_label.clone();
@@ -175,7 +176,7 @@ pub fn register_external_pty(
     pid: u32,
     pty_id: u32,
     description: String,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     if let Ok(mut registry) = PTY_REGISTRY.lock() {
         registry.insert(
             pty_id,
@@ -193,7 +194,7 @@ pub fn register_external_pty(
         );
         Ok(())
     } else {
-        Err("Failed to lock PTY registry".to_string())
+        Err(("Failed to lock PTY registry".to_string()).into())
     }
 }
 
@@ -201,7 +202,7 @@ pub fn register_external_pty(
 ///
 /// Called when the PTY exits normally (before window close) to keep the registry clean.
 #[tauri::command]
-pub fn unregister_external_pty(pty_id: u32) -> Result<(), String> {
+pub fn unregister_external_pty(pty_id: u32) -> Result<(), CommandError> {
     if let Ok(mut registry) = PTY_REGISTRY.lock() {
         if let Some(info) = registry.remove(&pty_id) {
             tracing::info!(
@@ -213,7 +214,7 @@ pub fn unregister_external_pty(pty_id: u32) -> Result<(), String> {
         }
         Ok(())
     } else {
-        Err("Failed to lock PTY registry".to_string())
+        Err(("Failed to lock PTY registry".to_string()).into())
     }
 }
 
@@ -276,7 +277,7 @@ fn kill_process(pid: u32) {
 ///
 /// Uses SIGTERM first to allow graceful shutdown, then SIGKILL after a timeout.
 #[tauri::command]
-pub async fn kill_pty(id: u32) -> Result<bool, String> {
+pub async fn kill_pty(id: u32) -> Result<bool, CommandError> {
     let pid = {
         let registry = PTY_REGISTRY.lock().map_err(|e| e.to_string())?;
         registry.get(&id).map(|info| info.pid)
@@ -347,7 +348,7 @@ pub fn kill_window_pty_sync(window_label: &str) -> u32 {
 /// This is the preferred method for cleanup when switching projects in a window.
 /// It only kills PTYs belonging to the specified window, leaving other windows' PTYs intact.
 #[tauri::command]
-pub async fn kill_window_pty(window_label: String) -> Result<u32, String> {
+pub async fn kill_window_pty(window_label: String) -> Result<u32, CommandError> {
     let pids_to_kill: Vec<(u32, u32)> = {
         let registry = PTY_REGISTRY.lock().map_err(|e| e.to_string())?;
         registry
@@ -393,7 +394,7 @@ pub async fn kill_window_pty(window_label: String) -> Result<u32, String> {
 /// WARNING: This kills PTYs across ALL windows. Use `kill_window_pty` instead
 /// for per-window cleanup. This should only be used during app shutdown.
 #[tauri::command]
-pub async fn kill_all_pty() -> Result<u32, String> {
+pub async fn kill_all_pty() -> Result<u32, CommandError> {
     let pids: Vec<(u32, u32)> = {
         let registry = PTY_REGISTRY.lock().map_err(|e| e.to_string())?;
         registry.iter().map(|(&id, info)| (id, info.pid)).collect()
@@ -431,7 +432,7 @@ pub async fn kill_all_pty() -> Result<u32, String> {
 /// This kills any agent or next-server processes that have become orphaned
 /// (parent PID is 1, meaning their parent process died).
 #[tauri::command]
-pub async fn cleanup_orphaned_processes() -> Result<(), String> {
+pub async fn cleanup_orphaned_processes() -> Result<(), CommandError> {
     #[cfg(unix)]
     {
         // Kill orphaned processes for ALL agents (not just the active one)
@@ -471,7 +472,7 @@ pub async fn cleanup_orphaned_processes() -> Result<(), String> {
 
 /// Kill any process listening on a specific port
 #[tauri::command]
-pub async fn kill_port(port: u32) -> Result<(), String> {
+pub async fn kill_port(port: u32) -> Result<(), CommandError> {
     #[cfg(unix)]
     {
         // Use lsof to find the PID listening on the port, then kill it.
@@ -540,7 +541,7 @@ pub fn get_reserved_port_for_window(window_label: String) -> Option<u16> {
 /// Also checks against reserved ports to avoid race conditions in multi-window scenarios.
 /// Returns the first available port found.
 #[tauri::command]
-pub fn find_available_port(preferred_port: u16) -> Result<u16, String> {
+pub fn find_available_port(preferred_port: u16) -> Result<u16, CommandError> {
     use std::net::TcpListener;
 
     // Try ports starting from preferred, up to preferred + 100
@@ -557,11 +558,12 @@ pub fn find_available_port(preferred_port: u16) -> Result<u16, String> {
         }
     }
 
-    Err(format!(
+    Err((format!(
         "Could not find available port in range {}-{}",
         preferred_port,
         preferred_port.saturating_add(99)
     ))
+    .into())
 }
 
 /// Find and reserve an available port for a specific window.
@@ -569,7 +571,10 @@ pub fn find_available_port(preferred_port: u16) -> Result<u16, String> {
 /// If the window already has a port reserved, returns that port (idempotent).
 /// Returns the reserved port.
 #[tauri::command]
-pub fn find_and_reserve_port(window_label: String, preferred_port: u16) -> Result<u16, String> {
+pub fn find_and_reserve_port(
+    window_label: String,
+    preferred_port: u16,
+) -> Result<u16, CommandError> {
     use std::net::TcpListener;
 
     tracing::info!(
@@ -606,17 +611,18 @@ pub fn find_and_reserve_port(window_label: String, preferred_port: u16) -> Resul
         }
     }
 
-    Err(format!(
+    Err((format!(
         "Could not find available port in range {}-{}",
         preferred_port,
         preferred_port.saturating_add(99)
     ))
+    .into())
 }
 
 /// Release a reserved port for a window.
 /// Called when a window is closing or when dev server stops.
 #[tauri::command]
-pub fn release_reserved_port(window_label: String) -> Result<(), String> {
+pub fn release_reserved_port(window_label: String) -> Result<(), CommandError> {
     tracing::info!(
         "release_reserved_port command called for window_label='{}'",
         window_label

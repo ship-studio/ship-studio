@@ -3,6 +3,7 @@
 //! Commands for browsing project files with syntax highlighting support.
 //! Provides a read-only file browser that respects .gitignore.
 
+use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use ignore::WalkBuilder;
 use serde::Serialize;
@@ -48,7 +49,8 @@ const SKIP_DIRS: &[&str] = &[
 
 /// List all files in a project, respecting .gitignore.
 #[tauri::command]
-pub fn list_project_files(project_path: &str) -> Result<Vec<FileEntry>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub fn list_project_files(project_path: &str) -> Result<Vec<FileEntry>, CommandError> {
     let project = validate_project_path(project_path)?;
 
     let mut entries = Vec::new();
@@ -130,12 +132,13 @@ fn should_skip_path(relative_path: &str) -> bool {
 
 /// Read a single file from the project.
 #[tauri::command]
-pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileContent, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileContent, CommandError> {
     let project = validate_project_path(project_path)?;
 
     // Prevent path traversal
     if file_path.contains("..") {
-        return Err("Invalid path: path traversal not allowed".to_string());
+        return Err(("Invalid path: path traversal not allowed".to_string()).into());
     }
 
     let full_path = project.join(file_path);
@@ -143,11 +146,11 @@ pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileCont
     // Verify the file is within the project
     let canonical = dunce::canonicalize(&full_path).map_err(|e| format!("File not found: {e}"))?;
     if !canonical.starts_with(&project) {
-        return Err("Security error: path is outside project directory".to_string());
+        return Err(("Security error: path is outside project directory".to_string()).into());
     }
 
     if !canonical.is_file() {
-        return Err("Path is not a file".to_string());
+        return Err(("Path is not a file".to_string()).into());
     }
 
     let metadata =

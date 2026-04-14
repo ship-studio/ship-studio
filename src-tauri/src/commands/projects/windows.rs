@@ -3,6 +3,7 @@
 //! Opening projects in new windows, registering/unregistering windows,
 //! and focusing existing project windows.
 
+use crate::errors::CommandError;
 use crate::state::{get_window_for_project, register_project_window, unregister_project_window};
 use crate::utils::validate_project_path;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -11,11 +12,12 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 /// If the project is already open in another window, focuses that window instead.
 /// Returns the window label of the new or existing window.
 #[tauri::command]
+#[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn open_project_in_new_window(
     app: AppHandle,
     project_path: String,
     project_name: String,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     // Validate the path is within ~/ShipStudio
     let validated_path = validate_project_path(&project_path)?;
     let project_path = validated_path.to_string_lossy().to_string();
@@ -81,10 +83,11 @@ pub async fn open_project_in_new_window(
 /// Called when a project is opened in any window (main or new).
 /// This ensures duplicate window detection works correctly.
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn register_project_for_window(
     window_label: String,
     project_path: String,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     // Validate the path is within ~/ShipStudio
     let validated_path = validate_project_path(&project_path)?;
     let canonical_path = validated_path.to_string_lossy().to_string();
@@ -102,7 +105,8 @@ pub async fn register_project_for_window(
 /// Called when a project window navigates back to the projects list.
 /// This allows the same project to be opened in a new window via "Open in New Window".
 #[tauri::command]
-pub async fn unregister_project_from_window(window_label: String) -> Result<(), String> {
+#[tracing::instrument]
+pub async fn unregister_project_from_window(window_label: String) -> Result<(), CommandError> {
     crate::state::unregister_window_by_label(&window_label);
     tracing::info!(
         "Unregistered project from window {} (user went back to projects)",
@@ -114,6 +118,7 @@ pub async fn unregister_project_from_window(window_label: String) -> Result<(), 
 /// Check if a project is already open in another window.
 /// Returns the window label if open, or null if not.
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_window(project_path: String) -> Option<String> {
     // Validate the path is within ~/ShipStudio
     let validated_path = match validate_project_path(&project_path) {
@@ -137,12 +142,16 @@ pub async fn get_project_window(project_path: String) -> Option<String> {
 /// Focus a window by its label.
 /// Used to bring an existing project window to the front.
 #[tauri::command]
-pub async fn focus_window_by_label(app: AppHandle, window_label: String) -> Result<(), String> {
+#[tracing::instrument(skip(app))]
+pub async fn focus_window_by_label(
+    app: AppHandle,
+    window_label: String,
+) -> Result<(), CommandError> {
     if let Some(window) = app.get_webview_window(&window_label) {
         window.set_focus().map_err(|e| e.to_string())?;
         tracing::info!("Focused window {}", window_label);
         Ok(())
     } else {
-        Err(format!("Window {window_label} not found"))
+        Err((format!("Window {window_label} not found")).into())
     }
 }

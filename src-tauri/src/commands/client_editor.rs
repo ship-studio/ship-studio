@@ -2,6 +2,7 @@
 //!
 //! Detects whether the Ship Studio inline editor script is installed in a project.
 
+use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use std::process::Command;
 
@@ -10,7 +11,8 @@ use std::process::Command;
 /// Searches for `ship.studio/inline-editor.js` or `data-studio-id` in project files,
 /// excluding node_modules, .git, and other build artifacts.
 #[tauri::command]
-pub fn detect_client_editor(project_path: String) -> Result<bool, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub fn detect_client_editor(project_path: String) -> Result<bool, CommandError> {
     validate_project_path(&project_path)?;
 
     let output = Command::new("grep")

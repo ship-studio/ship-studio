@@ -4,6 +4,8 @@
 
 use crate::agent::get_active_agent;
 use crate::commands::claude::find_agent_binary;
+use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::GeneratedPR;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
 use tracing::{debug, error, info, warn};
@@ -11,12 +13,16 @@ use tracing::{debug, error, info, warn};
 /// Maximum diff size in bytes to send to Claude (~40KB)
 const MAX_DIFF_SIZE: usize = 40_000;
 
+/// Timeout for the underlying AI agent CLI call. Claude can be slow, so 60s.
+const AGENT_CLI_TIMEOUT_SECS: u64 = 60;
+
 /// Gather git context and generate a PR title and description using Claude CLI.
 #[tauri::command]
+#[tracing::instrument(skip(project_path), fields(project = %project_path, base = %base_branch))]
 pub async fn generate_pr_description(
     project_path: String,
     base_branch: String,
-) -> Result<GeneratedPR, String> {
+) -> Result<GeneratedPR, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let agent = get_active_agent();
@@ -40,7 +46,9 @@ pub async fn generate_pr_description(
     let diff = get_diff(&validated_path, &base_branch)?;
 
     if commits.is_empty() && diff.is_empty() {
-        return Err("No changes found between this branch and the base branch.".to_string());
+        return Err(
+            ("No changes found between this branch and the base branch.".to_string()).into(),
+        );
     }
 
     // Truncate diff if too large
@@ -77,26 +85,31 @@ pub async fn generate_pr_description(
     let mut args: Vec<&str> = agent.print_mode_flags.to_vec();
     args.push(&prompt);
 
-    let output = create_command(&agent_path)
-        .args(&args)
+    let mut cmd = create_command(&agent_path);
+    cmd.args(&args)
         .env("PATH", get_extended_path())
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| format!("Failed to run {} CLI: {}", agent.display_name, e))?;
+        .current_dir(&validated_path);
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    let output = run_with_timeout(
+        tokio_cmd,
+        format!("{} CLI", agent.display_name),
+        AGENT_CLI_TIMEOUT_SECS,
+    )
+    .await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         error!("{} CLI failed: {}", agent.display_name, stderr);
-        return Err(format!("{} CLI failed: {}", agent.display_name, stderr));
+        return Err((format!("{} CLI failed: {}", agent.display_name, stderr)).into());
     }
 
     let response = String::from_utf8_lossy(&output.stdout).to_string();
     debug!("Claude response length: {} chars", response.len());
 
-    parse_response(&response)
+    parse_response(&response).map_err(CommandError::from)
 }
 
-fn get_branch_name(path: &std::path::Path) -> Result<String, String> {
+fn get_branch_name(path: &std::path::Path) -> Result<String, CommandError> {
     let output = create_command("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(path)
@@ -104,7 +117,7 @@ fn get_branch_name(path: &std::path::Path) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        return Err("Failed to get current branch name".to_string());
+        return Err(("Failed to get current branch name".to_string()).into());
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())

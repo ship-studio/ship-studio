@@ -2,12 +2,15 @@
 //!
 //! Fetches community templates from the Ship Studio API and downloads template zips.
 
+use crate::errors::CommandError;
+
 const TEMPLATES_API_URL: &str = "https://www.ship.studio/api/v1/templates";
 
 /// Fetch community templates from the Ship Studio API.
 /// Accepts optional query parameters that map to the API spec.
 /// Returns the raw JSON string so the frontend can parse it.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn fetch_community_templates(
     search: Option<String>,
     category: Option<String>,
@@ -15,7 +18,7 @@ pub async fn fetch_community_templates(
     pricing: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
@@ -55,19 +58,20 @@ pub async fn fetch_community_templates(
         .map_err(|e| format!("Failed to fetch templates: {e}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("API returned status {}", response.status()));
+        return Err((format!("API returned status {}", response.status())).into());
     }
 
     response
         .text()
         .await
-        .map_err(|e| format!("Failed to read response: {e}"))
+        .map_err(|e| CommandError::Other(format!("Failed to read response: {e}")))
 }
 
 /// Download a template zip from a signed URL to a temporary file.
 /// Returns the path to the downloaded file.
 #[tauri::command]
-pub async fn download_template_zip(url: String) -> Result<String, String> {
+#[tracing::instrument]
+pub async fn download_template_zip(url: String) -> Result<String, CommandError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
@@ -80,7 +84,7 @@ pub async fn download_template_zip(url: String) -> Result<String, String> {
         .map_err(|e| format!("Failed to download template: {e}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("Download failed with status {}", response.status()));
+        return Err((format!("Download failed with status {}", response.status())).into());
     }
 
     let bytes = response
@@ -99,5 +103,5 @@ pub async fn download_template_zip(url: String) -> Result<String, String> {
     file_path
         .to_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| "Invalid temp file path".to_string())
+        .ok_or_else(|| CommandError::Other("Invalid temp file path".to_string()))
 }

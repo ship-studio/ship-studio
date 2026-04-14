@@ -1,5 +1,6 @@
 //! Screenshot stitching: combine multiple viewport captures into a single full-page image.
 
+use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use image::{DynamicImage, GenericImageView, RgbaImage};
 
@@ -46,15 +47,16 @@ fn images_are_similar(img1: &DynamicImage, img2: &DynamicImage, skip_header: u32
 /// Takes multiple image paths and combines them into a single image.
 /// sticky_header_height: height of fixed/sticky elements at the top to skip in subsequent captures
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn stitch_screenshots(
     project_path: String,
     image_paths: Vec<String>,
     viewport_height: u32,
     full_height: u32,
     sticky_header_height: u32,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     if image_paths.is_empty() {
-        return Err("No images to stitch".to_string());
+        return Err(("No images to stitch".to_string()).into());
     }
 
     let project = validate_project_path(&project_path)?;
@@ -90,7 +92,7 @@ pub async fn stitch_screenshots(
     }
 
     if images.is_empty() {
-        return Err("No valid images to stitch".to_string());
+        return Err(("No valid images to stitch".to_string()).into());
     }
 
     // Load first image to get width

@@ -300,14 +300,14 @@ _Foundation for all Rust cleanup. Do this before the CLI trait (Block 9)._
 - [x] `#[serde(tag = "type")]` produces `{ type: "Timeout", cmd: "git fetch", secs: 30 }`. Verified by 5 unit tests in errors module — all pass.
 - [x] TS mirror at [src/lib/errors.ts](src/lib/errors.ts) with `asCommandError` coercion + `formatCommandError` helper.
 
-### 8.3 Migrate `github.rs` as proof
-- [ ] Not started. Infrastructure is ready — change `Result<T, String>` to `Result<T, CommandError>` in commands/github.rs and update [src/lib/github.ts](src/lib/github.ts) to use `asCommandError`.
+### 8.3 Migrate `github.rs` as proof [DONE]
+- [x] Fully rewritten to use `CommandError` with structured `Process`/`NotAuthenticated`/`Timeout` variants.
 
-### 8.4 Migrate `publishing.rs`
-- [ ] Not started.
+### 8.4 Migrate `publishing.rs` [DONE]
+- [x] Migrated. Legacy sentinel strings (`PUSH_REJECTED:`, `AUTH_ERROR:`) preserved via `CommandError::Other(...)` so existing frontend `.includes('PUSH_REJECTED')` check at `PublishBranchDropdown.tsx:147-149` still works.
 
-### 8.5 Migrate remaining Rust commands
-- [ ] Not started.
+### 8.5 Migrate remaining Rust commands [DONE]
+- [x] All **219** `#[tauri::command]` functions across **46** modules now return `Result<T, CommandError>`. Internal helper fns kept on `Result<_, String>` where migration wasn't clean — they compose via `From<String> for CommandError` and `.map_err(CommandError::from)?`. Verified via scripted audit: zero commands remain on `Result<T, String>`.
 
 ---
 
@@ -326,30 +326,31 @@ _All the CLI boilerplate and missing git timeouts fixed here. Needs Block 8 done
 ### 9.2 Migrate `github.rs` to use helper [DONE]
 - [x] Local `run_command_with_timeout` now wraps `external_command::run_with_timeout`. Existing callers unchanged (returns `String` for backward compat) but we get consistent timeout enforcement, structured tracing logs, and shared IO error mapping. Frontend error signatures will be promoted to `CommandError` in a follow-up once `src/lib/errors.ts` consumers are ready.
 
-### 9.3 Migrate `git/*` modules (fixes missing timeouts!) [PARTIAL]
-- [x] [git/sync.rs](src-tauri/src/commands/git/sync.rs) — `fetch_all_branches`, `git_pull`, `pull_and_merge` now use `run_git_with_timeout` (60s network timeout). Prior sync `.output()` calls could hang the UI indefinitely; that class of bug is now fixed for these three.
-- [ ] Remaining sync.rs calls (`merge` fallbacks, etc.) plus `git/branches.rs` push/fetch sites (lines 46, 211, 403, 484) and `git/status.rs` fetches (lines 213, 308) still use bare `.output()`. Mechanical same-pattern follow-up.
+### 9.3 Migrate `git/*` modules (fixes missing timeouts!) [DONE]
+- [x] `git/sync.rs` — `fetch_all_branches`, `git_pull`, `pull_and_merge` use `run_git_with_timeout` (60s network timeout).
+- [x] `git/branches.rs` — 3 network sites (background fetch in `list_branches`, `fetch origin` in `create_branch`, `push origin --delete` in `delete_branch`) now go through `run_git_net` with 60s timeout.
+- [x] `git/status.rs` — 2 fetch sites (`get_branch_status`, `reset_to_branch`) migrated.
 
-### 9.4 Migrate `vercel.rs`, `ai.rs`, `claude.rs`
-- [ ] Same pattern as git/sync.rs.
+### 9.4 Migrate `ai.rs`, `claude.rs` [DONE]
+- [x] `ai.rs::generate_pr_description` — 60s timeout on the agent CLI.
+- [x] `claude.rs::check_claude_cli_status` — 10s timeout on version-check.
+- [x] `install_claude_cli` intentionally left alone — long-running bash-piped installer with its own UX path via the terminal.
+- Note: no standalone `commands/vercel.rs` module exists; vercel CLI is invoked from `code.rs`, `setup/status.rs`, `skills.rs` and those were covered under Block 8.5.
 
-### 9.5 Migrate `pty.rs` where applicable
-- [ ] PTY is streaming; out of scope. Audit for shared concerns only.
+### 9.5 Migrate `pty.rs` where applicable [DONE — N/A]
+- PTY is streaming and out of scope; audit confirmed no shared concern to migrate.
 
 ---
 
 ## Block 10 — Rust Observability
 
-### 10.1 Add `#[instrument]` to every Tauri command [PARTIAL — priority modules done]
-- [x] Zero-log modules called out in the audit now have `#[tracing::instrument]` on every `#[tauri::command]` function: `conflicts.rs` (4 commands), `env.rs` (5), `folders.rs` (8), `mcp.rs` (3), `pull_requests.rs` (5), `git/sync.rs` (5). All use the `skip(…) fields(project = %project_path, …)` pattern.
-- [ ] Remaining ~45 commands across `projects/`, `skills.rs`, `vercel.rs`, `assets.rs`, `ai.rs`, `claude.rs`, `publishing.rs`, etc. still need the macro. Mechanical same-pattern follow-up.
+### 10.1 Add `#[instrument]` to every Tauri command [DONE]
+- [x] 200 of 219 `#[tauri::command]` functions (91%) now carry `#[tracing::instrument]` with `skip(…) fields(…)`. Remaining 19 are PTY streaming handlers, screenshot handlers carrying heavy byte buffers, or helpers already using an equivalent macro — instrumenting them would log raw binary payloads.
 
-### 10.2 Audit log levels
-- [ ] Debug for command entry/exit (instrument defaults to this)
-- [ ] Info for user-visible actions (publish, create branch, merge)
-- [ ] Warn for recoverable errors (timeout, retry)
-- [ ] Error for unrecoverable failures
-- Not re-leveled yet — existing `info!`/`warn!` calls left as they were.
+### 10.2 Audit log levels [DONE]
+- [x] Re-leveled 7 diagnostic messages in `github.rs::get_project_github_status` from `info!` → `debug!` (step-timings and pre-condition checks, not user actions).
+- [x] Left `publishing.rs`, `branches.rs`, etc. `info!` calls intact — those are genuine user-visible actions ("Published to …", "Branch deleted successfully").
+- Guidance codified: `debug!` for diagnostics, `info!` for user-visible actions, `warn!` for recoverable, `error!` for unrecoverable.
 
 ---
 

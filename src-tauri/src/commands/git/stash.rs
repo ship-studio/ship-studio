@@ -1,6 +1,7 @@
 //! Git stash and backup commands — stash management, commit history, restore.
 
 use crate::cache::GIT_CACHE;
+use crate::errors::CommandError;
 use crate::types::RestoreResult;
 use crate::utils::{create_command, validate_project_path};
 use tracing::{info, instrument, warn};
@@ -12,9 +13,10 @@ use super::{
 
 /// Get stash info for a project (if any auto-stash exists)
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn get_stash_info(
     project_path: String,
-) -> Result<Option<crate::types::StashInfo>, String> {
+) -> Result<Option<crate::types::StashInfo>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let metadata = load_project_metadata(&validated_path);
     Ok(metadata.stash_info)
@@ -22,7 +24,8 @@ pub async fn get_stash_info(
 
 /// Manually apply and clear the auto-stash
 #[tauri::command]
-pub async fn apply_stash(project_path: String) -> Result<bool, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn apply_stash(project_path: String) -> Result<bool, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let pop_output = create_command("git")
@@ -43,13 +46,14 @@ pub async fn apply_stash(project_path: String) -> Result<bool, String> {
         Ok(true)
     } else {
         let stderr = String::from_utf8_lossy(&pop_output.stderr);
-        Err(format!("Failed to apply stash: {stderr}"))
+        Err((format!("Failed to apply stash: {stderr}")).into())
     }
 }
 
 /// Drop the auto-stash without applying
 #[tauri::command]
-pub async fn drop_stash(project_path: String) -> Result<bool, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn drop_stash(project_path: String) -> Result<bool, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let drop_output = create_command("git")
@@ -81,7 +85,7 @@ pub async fn drop_stash(project_path: String) -> Result<bool, String> {
 pub async fn get_backups(
     project_path: String,
     limit: Option<u32>,
-) -> Result<Vec<crate::types::Backup>, String> {
+) -> Result<Vec<crate::types::Backup>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let limit = limit.unwrap_or(50);
 
@@ -96,7 +100,7 @@ pub async fn get_backups(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to get git log: {stderr}"));
+        return Err((format!("Failed to get git log: {stderr}")).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -130,7 +134,7 @@ pub async fn get_backups(
 pub async fn restore_backup(
     project_path: String,
     commit_hash: String,
-) -> Result<RestoreResult, String> {
+) -> Result<RestoreResult, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     info!("Restoring to backup via new branch");
@@ -169,7 +173,7 @@ pub async fn restore_backup(
 
         if !stash_output.status.success() {
             let stderr = String::from_utf8_lossy(&stash_output.stderr);
-            return Err(format!("Failed to stash changes: {stderr}"));
+            return Err((format!("Failed to stash changes: {stderr}")).into());
         }
     }
 
@@ -213,7 +217,7 @@ pub async fn restore_backup(
             }
         }
         let stderr = String::from_utf8_lossy(&create_output.stderr);
-        return Err(format!("Failed to create restore branch: {stderr}"));
+        return Err((format!("Failed to create restore branch: {stderr}")).into());
     }
 
     // 3. Checkout all files from the target commit
@@ -252,7 +256,7 @@ pub async fn restore_backup(
             }
         }
         let stderr = String::from_utf8_lossy(&checkout_output.stderr);
-        return Err(format!("Failed to restore files: {stderr}"));
+        return Err((format!("Failed to restore files: {stderr}")).into());
     }
 
     // 4. Stage and commit the restored files
@@ -288,7 +292,7 @@ pub async fn restore_backup(
                 warn!("Failed to restore stash after no-op restore: {}", e);
             }
         }
-        return Err("No changes to restore (already at this backup)".to_string());
+        return Err(("No changes to restore (already at this backup)".to_string()).into());
     }
 
     // 5. Push the new branch to remote

@@ -4,6 +4,7 @@
 //! Includes npm cache permission checking.
 
 use super::{is_mock_mode, mock_install};
+use crate::errors::CommandError;
 use crate::utils::{create_command, get_brew_command};
 use tauri::Emitter;
 
@@ -12,7 +13,8 @@ use crate::utils::get_winget_command;
 
 /// Install Homebrew
 #[tauri::command]
-pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), String> {
+#[tracing::instrument(skip(app))]
+pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), CommandError> {
     let _ = app.emit(
         "setup-progress",
         serde_json::json!({
@@ -35,7 +37,7 @@ pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Homebrew installation failed: {stderr}"));
+        return Err((format!("Homebrew installation failed: {stderr}")).into());
     }
 
     Ok(())
@@ -43,7 +45,8 @@ pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), String> {
 
 /// Install Node.js via Homebrew
 #[tauri::command]
-pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), String> {
+#[tracing::instrument(skip(app))]
+pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
     let _ = app.emit(
         "setup-progress",
         serde_json::json!({
@@ -68,7 +71,7 @@ pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), String> 
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to install Node.js: {stderr}"));
+        return Err((format!("Failed to install Node.js: {stderr}")).into());
     }
 
     Ok(())
@@ -76,7 +79,8 @@ pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), String> 
 
 /// Install Git via Homebrew
 #[tauri::command]
-pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), String> {
+#[tracing::instrument(skip(app))]
+pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
     let _ = app.emit(
         "setup-progress",
         serde_json::json!({
@@ -101,7 +105,7 @@ pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to install Git: {stderr}"));
+        return Err((format!("Failed to install Git: {stderr}")).into());
     }
 
     Ok(())
@@ -109,7 +113,8 @@ pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), String> {
 
 /// Install GitHub CLI via Homebrew
 #[tauri::command]
-pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), String> {
+#[tracing::instrument(skip(app))]
+pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
     let _ = app.emit(
         "setup-progress",
         serde_json::json!({
@@ -134,7 +139,7 @@ pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to install GitHub CLI: {stderr}"));
+        return Err((format!("Failed to install GitHub CLI: {stderr}")).into());
     }
 
     Ok(())
@@ -150,10 +155,11 @@ pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), String> {
 /// - git -> git
 /// - gh -> gh
 #[tauri::command]
+#[tracing::instrument(skip(app))]
 pub async fn install_brew_packages(
     app: tauri::AppHandle,
     packages: Vec<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     if packages.is_empty() {
         return Ok(());
     }
@@ -189,10 +195,11 @@ pub async fn install_brew_packages(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
+        return Err((format!(
             "Failed to install packages: {}",
             stderr.lines().next().unwrap_or("Unknown error")
-        ));
+        ))
+        .into());
     }
 
     Ok(())
@@ -207,10 +214,11 @@ pub async fn install_brew_packages(
 /// - gh -> GitHub.cli
 #[cfg(windows)]
 #[tauri::command]
+#[tracing::instrument(skip(app))]
 pub async fn install_winget_packages(
     app: tauri::AppHandle,
     packages: Vec<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     if packages.is_empty() {
         return Ok(());
     }
@@ -268,14 +276,15 @@ pub async fn install_winget_packages(
             let stdout = String::from_utf8_lossy(&output.stdout);
             // Don't fail if package is already installed
             if !stdout.contains("already installed") && !stderr.contains("already installed") {
-                return Err(format!(
+                return Err((format!(
                     "Failed to install {}: {}",
                     package,
                     stderr
                         .lines()
                         .next()
                         .unwrap_or(&stdout.lines().next().unwrap_or("Unknown error"))
-                ));
+                ))
+                .into());
             }
         }
     }
@@ -286,16 +295,18 @@ pub async fn install_winget_packages(
 // Stub for non-Windows platforms
 #[cfg(not(windows))]
 #[tauri::command]
+#[tracing::instrument(skip(_app))]
 pub async fn install_winget_packages(
     _app: tauri::AppHandle,
     _packages: Vec<String>,
-) -> Result<(), String> {
-    Err("Winget is only available on Windows".to_string())
+) -> Result<(), CommandError> {
+    Err(("Winget is only available on Windows".to_string()).into())
 }
 
 /// Check if the npm cache directory (~/.npm) is writable by the current user.
 /// Returns "ok" if writable or doesn't exist, "not_writable" if it exists but isn't writable.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn check_npm_cache_permissions() -> String {
     if let Some(home) = dirs::home_dir() {
         let npm_cache = home.join(".npm");

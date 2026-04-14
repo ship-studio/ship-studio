@@ -21,6 +21,7 @@ mod plugin_storage;
 pub use plugin_lifecycle::*;
 pub use plugin_storage::*;
 
+use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -347,7 +348,8 @@ pub(crate) fn get_storage_path(plugin_id: &str, project_path: &str) -> Result<Pa
 
 /// Read the JavaScript bundle for a plugin (dist/index.js)
 #[tauri::command]
-pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<String, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<String, CommandError> {
     let registry = read_registry(&project_path)?;
     let entry = registry.plugins.iter().find(|e| e.plugin_id == plugin_id);
 
@@ -370,21 +372,20 @@ pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<Str
     };
 
     if !bundle_path.exists() {
-        return Err(format!(
-            "Plugin bundle not found: {}",
-            bundle_path.display()
-        ));
+        return Err((format!("Plugin bundle not found: {}", bundle_path.display())).into());
     }
 
-    fs::read_to_string(&bundle_path).map_err(|e| format!("Failed to read plugin bundle: {e}"))
+    fs::read_to_string(&bundle_path)
+        .map_err(|e| CommandError::Io(format!("Failed to read plugin bundle: {e}")))
 }
 
 /// Read a plugin's manifest
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_manifest(
     project_path: String,
     plugin_id: String,
-) -> Result<PluginManifest, String> {
+) -> Result<PluginManifest, CommandError> {
     let registry = read_registry(&project_path)?;
     let entry = registry.plugins.iter().find(|e| e.plugin_id == plugin_id);
 
@@ -398,7 +399,7 @@ pub fn read_plugin_manifest(
         get_plugins_dir(&project_path)?.join(&plugin_id)
     };
 
-    read_manifest(&plugin_dir)
+    read_manifest(&plugin_dir).map_err(CommandError::from)
 }
 
 #[cfg(test)]

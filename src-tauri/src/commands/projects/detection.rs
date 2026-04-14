@@ -3,6 +3,7 @@
 //! Detects framework types (Next.js, SvelteKit, Astro, Nuxt, static HTML)
 //! and scans project directories for page routes.
 
+use crate::errors::CommandError;
 use crate::types::{PageInfo, ProjectType};
 use crate::utils::validate_project_path;
 
@@ -168,7 +169,10 @@ pub fn detect_project_type(project_path: &std::path::Path) -> ProjectType {
 
 /// Detect the project type for a given project path
 #[tauri::command]
-pub async fn detect_project_type_command(project_path: String) -> Result<ProjectType, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn detect_project_type_command(
+    project_path: String,
+) -> Result<ProjectType, CommandError> {
     let project = validate_project_path(&project_path)?;
     Ok(detect_project_type(&project))
 }
@@ -177,7 +181,7 @@ pub async fn detect_project_type_command(project_path: String) -> Result<Project
 pub(crate) fn scan_nextjs_pages(
     dir: &std::path::Path,
     base_dir: &std::path::Path,
-) -> Result<Vec<PageInfo>, String> {
+) -> Result<Vec<PageInfo>, CommandError> {
     let mut pages = Vec::new();
 
     if !dir.exists() {

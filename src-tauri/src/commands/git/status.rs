@@ -1,14 +1,32 @@
 //! Git status and diff commands — change detection, file diffs, branch status.
 
 use crate::cache::GIT_CACHE;
+use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::{BranchStatus, ChangedFile};
 use crate::utils::{create_command, validate_project_path};
+use std::path::Path;
 use tracing::warn;
+
+/// Timeout for git network operations (fetch). Keeps UI snappy if the remote hangs.
+const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
+
+async fn run_git_net(
+    args: &[&str],
+    cwd: &Path,
+    label: &str,
+) -> Result<std::process::Output, CommandError> {
+    let mut cmd = create_command("git");
+    cmd.args(args).current_dir(cwd);
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
+}
 
 use super::git_has_uncommitted_changes;
 
 #[tauri::command]
-pub async fn check_git_has_changes(project_path: String) -> Result<bool, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn check_git_has_changes(project_path: String) -> Result<bool, CommandError> {
     // Check cache first
     if let Some(cached) = GIT_CACHE.get_has_changes(&project_path) {
         return Ok(cached);
@@ -61,7 +79,8 @@ pub async fn check_git_has_changes(project_path: String) -> Result<bool, String>
 
 /// Get list of files with uncommitted changes (staged and unstaged, tracked files only)
 #[tauri::command]
-pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>, CommandError> {
     // Check cache first
     if let Some(cached) = GIT_CACHE.get_changed_files(&project_path) {
         return Ok(cached);
@@ -83,7 +102,7 @@ pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        return Err("Failed to get git status".to_string());
+        return Err(("Failed to get git status".to_string()).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -127,10 +146,11 @@ pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
 
 /// Get the diff for a single uncommitted file
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn get_file_diff(
     project_path: String,
     file_path: String,
-) -> Result<crate::types::FileDiff, String> {
+) -> Result<crate::types::FileDiff, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Run git diff HEAD -- <filepath> to get all uncommitted changes
@@ -202,18 +222,15 @@ pub async fn get_file_diff(
 }
 
 #[tauri::command]
-pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Check for local changes (tracked files only)
     let local_changes = git_has_uncommitted_changes(&validated_path)?;
 
     // Fetch latest from origin (log errors but don't fail)
-    match create_command("git")
-        .args(["fetch", "origin"])
-        .current_dir(&validated_path)
-        .output()
-    {
+    match run_git_net(&["fetch", "origin"], &validated_path, "fetch origin").await {
         Ok(output) if !output.status.success() => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             // Don't log if it's just a network issue or no remote
@@ -224,7 +241,7 @@ pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, Str
             }
         }
         Err(e) => {
-            warn!(error = %e, "Failed to execute git fetch");
+            warn!(error = %e, "git fetch failed/timed out");
         }
         _ => {}
     }
@@ -294,24 +311,21 @@ pub async fn get_branch_status(project_path: String) -> Result<BranchStatus, Str
 
 /// Reset local changes to match a remote branch (staging or main/production)
 #[tauri::command]
-pub async fn reset_to_branch(project_path: String, branch: String) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn reset_to_branch(project_path: String, branch: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let remote_branch = match branch.as_str() {
         "staging" => "origin/staging",
         "production" | "main" => "origin/main",
-        _ => return Err("Invalid branch. Use 'staging' or 'production'.".to_string()),
+        _ => return Err(("Invalid branch. Use 'staging' or 'production'.".to_string()).into()),
     };
 
     // Fetch latest from remote first
-    let fetch = create_command("git")
-        .args(["fetch", "origin"])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let fetch = run_git_net(&["fetch", "origin"], &validated_path, "fetch origin").await?;
 
     if !fetch.status.success() {
-        return Err("Failed to fetch from remote".to_string());
+        return Err("Failed to fetch from remote".to_string().into());
     }
 
     // Reset hard to the remote branch
@@ -323,7 +337,7 @@ pub async fn reset_to_branch(project_path: String, branch: String) -> Result<(),
 
     if !reset.status.success() {
         let stderr = String::from_utf8_lossy(&reset.stderr);
-        return Err(format!("Failed to reset: {stderr}"));
+        return Err((format!("Failed to reset: {stderr}")).into());
     }
 
     // Clean untracked files

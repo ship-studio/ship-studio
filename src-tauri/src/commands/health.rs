@@ -3,6 +3,7 @@
 //! This module provides commands for detecting and running code quality scripts
 //! (tests, linting, type checking, formatting) from a project's package.json.
 
+use crate::errors::CommandError;
 use crate::types::{
     DetectedScripts, HealthCheckResult, HealthCheckStatus, PackageManager, ProjectMetadata,
     ScriptCategory, ScriptSuggestion,
@@ -185,7 +186,8 @@ fn find_script_match(
 
 /// Detect available scripts from package.json
 #[tauri::command]
-pub async fn detect_health_scripts(project_path: String) -> Result<DetectedScripts, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn detect_health_scripts(project_path: String) -> Result<DetectedScripts, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let package_json_path = validated_path.join("package.json");
 
@@ -245,11 +247,12 @@ pub async fn detect_health_scripts(project_path: String) -> Result<DetectedScrip
 
 /// Run a health check script and return the result
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn run_health_script(
     project_path: String,
     category: ScriptCategory,
     script_name: String,
-) -> Result<HealthCheckResult, String> {
+) -> Result<HealthCheckResult, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Detect package manager
@@ -322,7 +325,7 @@ async fn save_health_result(
     project_path: &Path,
     category: &ScriptCategory,
     result: &HealthCheckResult,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let metadata_path = project_path.join(".shipstudio").join("project.json");
 
     // Read existing metadata or create default
@@ -367,7 +370,10 @@ async fn save_health_result(
 
 /// Get stored health check status from project metadata
 #[tauri::command]
-pub async fn get_health_status(project_path: String) -> Result<Option<HealthCheckStatus>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_health_status(
+    project_path: String,
+) -> Result<Option<HealthCheckStatus>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let metadata_path = validated_path.join(".shipstudio").join("project.json");
 
@@ -386,21 +392,23 @@ pub async fn get_health_status(project_path: String) -> Result<Option<HealthChec
 
 /// Get the package.json contents for a project
 #[tauri::command]
-pub async fn get_package_json(project_path: String) -> Result<String, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_package_json(project_path: String) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let package_json_path = validated_path.join("package.json");
 
     if !package_json_path.exists() {
-        return Err("package.json not found".to_string());
+        return Err(("package.json not found".to_string()).into());
     }
 
     std::fs::read_to_string(&package_json_path)
-        .map_err(|e| format!("Failed to read package.json: {e}"))
+        .map_err(|e| CommandError::Io(format!("Failed to read package.json: {e}")))
 }
 
 /// Clear health check results for a project
 #[tauri::command]
-pub async fn clear_health_status(project_path: String) -> Result<(), String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn clear_health_status(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
     let metadata_path = validated_path.join(".shipstudio").join("project.json");
 

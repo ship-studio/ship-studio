@@ -18,6 +18,7 @@ pub use stash::*;
 pub use status::*;
 pub use sync::*;
 
+use crate::errors::CommandError;
 use crate::types::PrerequisiteCheck;
 use crate::utils::{create_command, find_executable, validate_project_path};
 use tracing::{debug, error, info, instrument};
@@ -241,7 +242,8 @@ pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
 
 /// Returns the path to ~/ShipStudio directory
 #[tauri::command]
-pub async fn get_shipstudio_dir() -> Result<String, String> {
+#[tracing::instrument]
+pub async fn get_shipstudio_dir() -> Result<String, CommandError> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
     Ok(shipstudio_dir.to_string_lossy().to_string())
@@ -249,7 +251,8 @@ pub async fn get_shipstudio_dir() -> Result<String, String> {
 
 /// Creates ~/ShipStudio directory if it doesn't exist
 #[tauri::command]
-pub async fn ensure_shipstudio_dir() -> Result<String, String> {
+#[tracing::instrument]
+pub async fn ensure_shipstudio_dir() -> Result<String, CommandError> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
 
@@ -262,7 +265,7 @@ pub async fn ensure_shipstudio_dir() -> Result<String, String> {
 
 #[tauri::command]
 #[instrument(name = "init_git_repo", skip(project_path), fields(project = %project_path))]
-pub async fn init_git_repo(project_path: String) -> Result<(), String> {
+pub async fn init_git_repo(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     info!("Initializing git repository");
@@ -280,11 +283,12 @@ pub async fn init_git_repo(project_path: String) -> Result<(), String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         error!(error = %stderr, "git init failed");
-        return Err(stderr);
+        return Err(stderr.into());
     }
 
     // Stage and commit all files
-    git_stage_and_commit(&validated_path, "Initial commit from Ship Studio")?;
+    git_stage_and_commit(&validated_path, "Initial commit from Ship Studio")
+        .map_err(CommandError::from)?;
 
     info!("Git repository initialized successfully");
     Ok(())
