@@ -5,18 +5,24 @@
 //! Organized into submodules:
 //! - `detection` — project type detection and page scanning
 //! - `metadata` — reading/writing `.shipstudio/project.json` metadata
+//! - `ui_state` — per-project UI state (last-opened, branch prefix, etc.)
+//! - `dev_server` — dev server configuration + cache clearing
 //! - `templates` — zip template extraction and export
-//! - `windows` — multi-window project management
+//! - `window_registry` — multi-window project management
 
 mod detection;
+mod dev_server;
 mod metadata;
 mod templates;
-mod windows;
+mod ui_state;
+mod window_registry;
 
 pub use detection::*;
+pub use dev_server::*;
 pub use metadata::*;
 pub use templates::*;
-pub use windows::*;
+pub use ui_state::*;
+pub use window_registry::*;
 
 use super::git::get_current_branch_sync;
 use crate::errors::CommandError;
@@ -525,42 +531,4 @@ pub async fn delete_project(path: String) -> Result<(), CommandError> {
 
     std::fs::remove_dir_all(project_path).map_err(|e| e.to_string())?;
     Ok(())
-}
-
-/// Clears project cache directories (.next, node_modules/.cache, etc.)
-/// Used when restarting the dev server to ensure a fresh build.
-#[tauri::command]
-#[tracing::instrument(fields(project = %project_path))]
-pub async fn clear_project_cache(project_path: String) -> Result<(), CommandError> {
-    let project = validate_project_path(&project_path)?;
-
-    // List of cache directories to clear
-    let cache_dirs = [
-        ".next",               // Next.js build cache
-        ".svelte-kit",         // SvelteKit build cache
-        ".nuxt",               // Nuxt build cache
-        ".output",             // Nuxt output directory
-        "node_modules/.cache", // Various build tool caches (babel, eslint, etc.)
-        ".turbo",              // Turborepo cache
-        ".swc",                // SWC compiler cache
-    ];
-
-    let mut errors = Vec::new();
-
-    for cache_dir in &cache_dirs {
-        let cache_path = project.join(cache_dir);
-        if cache_path.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&cache_path) {
-                errors.push(format!("Failed to remove {cache_dir}: {e}"));
-            }
-        }
-    }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        // Log errors but don't fail - some caches might be locked
-        tracing::warn!("Some cache directories could not be cleared: {:?}", errors);
-        Ok(())
-    }
 }

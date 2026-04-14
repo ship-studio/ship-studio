@@ -367,19 +367,23 @@ _All the CLI boilerplate and missing git timeouts fixed here. Needs Block 8 done
 
 ---
 
-## Block 12 — Rust Module Splits
+## Block 12 — Rust Module Splits [DONE]
 
-### 12.1 Split `skills.rs` (751 LOC)
-- [ ] `skills/mod.rs`, `skills/search.rs`, `skills/install.rs`
+### 12.1 Split `skills.rs` (759 LOC) [DONE]
+- [x] `skills/mod.rs` (131) + `skills/search.rs` (517) + `skills/install.rs` (129). Shared helpers (`strip_ansi_codes`, `extract_skills_cli_error`) exposed as `pub(super)`.
 
-### 12.2 Split `pty.rs` (680 LOC)
-- [ ] `pty/mod.rs`, `pty/spawn.rs`, `pty/stream.rs`
+### 12.2 Split `pty.rs` (686 LOC) [DONE]
+- [x] `pty/mod.rs` (251) + `pty/spawn.rs` (199) + `pty/stream.rs` (254). `PtyInfo`, `PTY_REGISTRY`, process helpers exposed as `pub(super)`; `kill_window_pty_sync` remains `pub` for `lib.rs` callers.
 
-### 12.3 Split `health.rs` (622 LOC)
-- [ ] By check type (git health, deps health, etc.)
+### 12.3 Split `health.rs` (630 LOC) [DONE]
+- [x] Split by natural groupings (no git-health content existed): `health/mod.rs` (26) + `deps.rs` (439, package-manager detection + suggestions) + `run.rs` (187, script execution + result persistence). Shared PM detector `pub(super)`.
 
-### 12.4 Split `projects/mod.rs` (554 LOC)
-- [ ] `projects/ui_state.rs`, `projects/dev_server.rs`, `projects/window_registry.rs`
+### 12.4 Split `projects/mod.rs` (566 LOC) [DONE]
+- [x] Renamed existing `windows.rs` → `window_registry.rs`.
+- [x] Extracted UI-state accessors from `metadata.rs` into new `ui_state.rs` (261).
+- [x] Extracted dev-server accessors + `clear_project_cache` into new `dev_server.rs` (156).
+- [x] Slimmed `metadata.rs` to pure read/write + `has_vercel_config` (76 LOC).
+- `projects/mod.rs` is now 534 LOC. Remaining bulk is `list_projects` / `get_dashboard_projects` + cross-cutting helpers (`is_valid_project`, `get_git_branch`, `get_uncommitted_count`) — kept there as legitimately cross-cutting.
 
 ---
 
