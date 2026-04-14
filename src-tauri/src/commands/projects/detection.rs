@@ -3,9 +3,52 @@
 //! Detects framework types (Next.js, SvelteKit, Astro, Nuxt, static HTML)
 //! and scans project directories for page routes.
 
+use crate::cache::TtlCache;
 use crate::errors::CommandError;
 use crate::types::{PageInfo, ProjectType};
 use crate::utils::validate_project_path;
+use std::sync::LazyLock;
+use std::time::{Duration, SystemTime};
+
+/// Cache for project type detection, keyed by (path, mtime-signature).
+/// The mtime-signature changes whenever package.json or a lockfile is
+/// touched, which is exactly when detection could return a different type.
+/// Short TTL (30s) bounds staleness from rename/delete events we don't see.
+static PROJECT_TYPE_CACHE: LazyLock<TtlCache<(String, u128), ProjectType>> =
+    LazyLock::new(|| TtlCache::new(Duration::from_secs(30)));
+
+/// Compute an mtime fingerprint across the files that determine project type.
+/// Returns the max mtime nanos across package.json + common lockfiles. If
+/// none exist, returns 0 (directory has no signals — cache keys by path only).
+fn detection_signature(project_path: &std::path::Path) -> u128 {
+    const SENTINELS: &[&str] = &[
+        "package.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "package-lock.json",
+        "svelte.config.js",
+        "svelte.config.ts",
+        "astro.config.mjs",
+        "astro.config.ts",
+        "nuxt.config.ts",
+        "next.config.js",
+        "next.config.mjs",
+        "next.config.ts",
+        "vite.config.js",
+        "vite.config.ts",
+    ];
+    let mut max_nanos: u128 = 0;
+    for name in SENTINELS {
+        if let Ok(metadata) = std::fs::metadata(project_path.join(name)) {
+            if let Ok(mtime) = metadata.modified() {
+                if let Ok(since) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
+                    max_nanos = max_nanos.max(since.as_nanos());
+                }
+            }
+        }
+    }
+    max_nanos
+}
 
 /// Detect if this is a SvelteKit project
 pub(crate) fn is_sveltekit_project(project_path: &std::path::Path) -> bool {
@@ -133,8 +176,22 @@ pub(crate) fn is_nextjs_project(project_path: &std::path::Path) -> bool {
     false
 }
 
-/// Detect the project type from config files and directory structure
+/// Detect the project type from config files and directory structure.
+/// Results are cached for 30s keyed on (path, mtime-signature) so that the
+/// dashboard's frequent per-tick calls don't re-hit disk for every project.
 pub fn detect_project_type(project_path: &std::path::Path) -> ProjectType {
+    let path_key = project_path.to_string_lossy().into_owned();
+    let sig = detection_signature(project_path);
+    let cache_key = (path_key, sig);
+    if let Some(cached) = PROJECT_TYPE_CACHE.get(&cache_key) {
+        return cached;
+    }
+    let result = detect_project_type_uncached(project_path);
+    PROJECT_TYPE_CACHE.insert(cache_key, result.clone());
+    result
+}
+
+fn detect_project_type_uncached(project_path: &std::path::Path) -> ProjectType {
     // Check framework-specific configs first
     if is_astro_project(project_path) {
         return ProjectType::Astro;

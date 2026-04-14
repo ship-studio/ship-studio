@@ -362,8 +362,8 @@ _All the CLI boilerplate and missing git timeouts fixed here. Needs Block 8 done
 ### 11.2 Cache `get_github_username` [DONE]
 - [x] 10-minute TTL via `TtlCache<(), String>`. Exposed `invalidate_github_username_cache()` for the auth-change call site (follow-up: actually invoke it from the auth flow).
 
-### 11.3 Cache project detection
-- [ ] Not started. Generic cache infrastructure ready — just needs per-call-site keying (path + mtime of `package.json` / lockfiles).
+### 11.3 Cache project detection [DONE]
+- [x] `detect_project_type` in `commands/projects/detection.rs` now goes through a `TtlCache<(String, u128), ProjectType>` with 30s TTL. Cache key is (path, mtime-signature) where signature is the max mtime nanos across `package.json` + the common lockfiles + framework config files. Any edit to those invalidates the cache naturally; short TTL bounds staleness from events we don't observe.
 
 ---
 
