@@ -267,6 +267,9 @@ export function CodeViewer({
       setHighlightedLines(null);
       highlightTimerRef.current = null;
     }, 2000);
+    // `copy` from useCopyToClipboard is referentially stable across renders;
+    // adding it would churn the callback identity with no behavior change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionInfo, filePath, fileContent?.language, question, onToast, onSendToAgent]);
 
   // Cleanup timer and drag listeners on unmount

@@ -49,11 +49,13 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
 
   useEffect(() => {
     if (isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on open
       setModalState({ type: 'list' });
       setError(null);
       void loadBackups();
     }
+    // setError is stable (plain useState setter); including it would force a
+    // stable-reference dance for no runtime benefit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, loadBackups]);
 
   const handleRestoreClick = (backup: Backup) => {

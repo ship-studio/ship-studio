@@ -38,7 +38,11 @@ export function ConflictResolutionModal({
   onResolved,
 }: ConflictResolutionModalProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+  // Wrapped in useCallback so downstream useCallback deps stay stable.
+  const onToast = useCallback(
+    (message: string, type?: 'success' | 'error') => showToast(message, type),
+    [showToast]
+  );
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [currentConflictIndex, setCurrentConflictIndex] = useState(0);
   const [isApplying, setIsApplying] = useState(false);
@@ -138,6 +142,9 @@ export function ConflictResolutionModal({
         setIsApplying(false);
       }
     },
+    // setFiles is the stable useAsyncState setter; including it would add
+    // churn with no behavior change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       currentFile,
       currentFileIndex,
