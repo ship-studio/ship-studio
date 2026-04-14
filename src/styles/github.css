@@ -16,7 +16,7 @@
   gap: 8px;
   padding: 8px 12px;
   font-size: 13px;
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .github-status-btn.not-installed {
@@ -65,7 +65,7 @@
   padding: 0 8px;
   height: 28px;
   font-size: 12px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   transition:
     background-color 0.15s,
@@ -148,7 +148,7 @@
 .github-modal {
   max-width: 380px;
   padding: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -189,7 +189,7 @@
   padding-right: 36px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 14px;
   font-family: monospace;
@@ -217,7 +217,7 @@
   align-items: center;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   transition: border-color 0.15s;
 }
@@ -275,7 +275,7 @@
   width: 18px;
   height: 18px;
   border: 2px solid var(--text-muted);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: transparent;
   cursor: pointer;
   position: relative;
@@ -299,7 +299,7 @@
   width: 6px;
   height: 6px;
   background: #1e1e1e;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   transform: translate(-50%, -50%);
 }
 

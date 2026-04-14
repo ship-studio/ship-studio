@@ -10,7 +10,7 @@
   padding: 6px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -37,18 +37,18 @@
 .branch-indicator-button.main-branch {
   background: rgba(245, 158, 11, 0.15);
   border-color: rgba(245, 158, 11, 0.4);
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .branch-indicator-button.main-branch:hover {
   background: rgba(245, 158, 11, 0.25);
   border-color: rgba(245, 158, 11, 0.6);
-  color: #fbbf24;
+  color: var(--warning-light);
 }
 
 .branch-indicator-button.main-branch svg {
   opacity: 1;
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .branch-name {
@@ -62,7 +62,7 @@
   font-size: 10px;
   padding: 1px 5px;
   background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
+  color: var(--success-light);
   border-radius: 3px;
   font-weight: 500;
 }
@@ -70,8 +70,8 @@
 .branch-changes-dot {
   width: 6px;
   height: 6px;
-  background: #f59e0b;
-  border-radius: 50%;
+  background: var(--warning);
+  border-radius: var(--radius-full);
   flex-shrink: 0;
 }
 
@@ -79,7 +79,7 @@
   font-size: 10px;
   padding: 1px 5px;
   background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
+  color: var(--warning);
   border-radius: 3px;
   font-weight: 500;
 }
@@ -98,10 +98,10 @@
   max-width: 400px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
-  z-index: 1000;
+  z-index: var(--z-modal-overlay);
 }
 
 .branch-changes-header {
@@ -209,7 +209,7 @@
   padding: 6px 12px;
   background: var(--primary);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: white;
   font-size: 12px;
   font-weight: 500;
@@ -231,7 +231,7 @@
   padding: 6px 10px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--error);
   font-size: 12px;
   cursor: pointer;
@@ -281,8 +281,8 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-modal-overlay);
   overflow: hidden;
 }
 
@@ -364,7 +364,7 @@
 .branch-item-badge.live {
   background: rgba(34, 197, 94, 0.15);
   border-color: transparent;
-  color: #22c55e;
+  color: var(--success-light);
 }
 
 .branch-item-meta {
@@ -373,7 +373,7 @@
 }
 
 .branch-item-meta.behind {
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .branch-item-spinner {
@@ -381,7 +381,7 @@
   height: 12px;
   border: 2px solid var(--border);
   border-top-color: var(--text-muted);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 1s linear infinite;
 }
 
@@ -413,26 +413,13 @@
 }
 
 /* Branch Selector Modal */
-.branch-selector-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-}
+/* .branch-selector-modal overlay removed — ModalFrame provides it. */
 
 .branch-selector-content {
   width: 440px;
   max-height: 80vh;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .branch-selector-header {
@@ -497,7 +484,7 @@
   width: 18px;
   height: 18px;
   border: 2px solid var(--text-muted);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   flex-shrink: 0;
   margin-top: 2px;
   position: relative;
@@ -516,7 +503,7 @@
   position: absolute;
   inset: 3px;
   background: #3b82f6;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
 }
 
 .branch-selector-info {
@@ -542,7 +529,7 @@
 .branch-selector-warning {
   margin-top: 6px;
   font-size: 12px;
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 /* Create Branch Section */
@@ -578,7 +565,7 @@
   padding: 10px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
@@ -606,7 +593,7 @@
   padding: 4px 8px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 12px;
 }
@@ -625,7 +612,7 @@
   padding: 10px 20px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -644,7 +631,7 @@
   padding: 10px 20px;
   background: var(--action);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--action-text);
   font-size: 13px;
   font-weight: 500;
@@ -676,8 +663,8 @@
   width: 400px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -710,7 +697,7 @@
   margin-bottom: 12px;
   padding: 10px 12px;
   background: var(--bg-tertiary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .publish-branch-info .branch-icon {
@@ -738,9 +725,9 @@
   padding: 10px 12px;
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 12px;
-  color: #ef4444;
+  color: var(--error-light);
   line-height: 1.4;
 }
 
@@ -748,7 +735,7 @@
   padding: 12px 14px;
   margin-bottom: 8px;
   background: var(--bg-tertiary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
 }
 
@@ -799,7 +786,7 @@
   padding: 10px 14px;
   background: var(--bg-secondary);
   border: 1px dashed var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -820,7 +807,7 @@
   padding: 14px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .branches-new-branch-input-wrapper {
@@ -828,7 +815,7 @@
   align-items: center;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   overflow: hidden;
   margin-bottom: 12px;
 }
@@ -905,7 +892,7 @@
   padding: 14px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-bottom: 8px;
 }
 
@@ -954,7 +941,7 @@
 .branch-card-badge {
   font-size: 11px;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-muted);
 }
@@ -966,7 +953,7 @@
 
 .branch-card-badge.behind {
   background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .branch-card-actions {
@@ -981,7 +968,7 @@
   padding: 6px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
@@ -1007,7 +994,7 @@
 }
 
 .branch-card-action.danger {
-  color: #ef4444;
+  color: var(--error-light);
 }
 
 .branch-card-action.danger:hover {
@@ -1018,7 +1005,7 @@
 .branch-card-action.danger-outline {
   background: transparent;
   border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
+  color: var(--error-light);
 }
 
 .branch-card-action.danger-outline:hover {
@@ -1070,7 +1057,7 @@
   padding: 8px 16px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   cursor: pointer;
 }
@@ -1106,7 +1093,7 @@
   text-align: center;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 .prs-tab-empty-icon {
@@ -1116,7 +1103,7 @@
   width: 64px;
   height: 64px;
   background: var(--bg-tertiary);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   color: var(--text-muted);
   margin-bottom: 16px;
 }
@@ -1140,7 +1127,7 @@
   padding: 10px 20px;
   background: var(--action);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--action-text);
   font-size: 13px;
   font-weight: 500;
@@ -1168,8 +1155,8 @@
   width: 400px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -1212,7 +1199,7 @@
 
 .post-merge-btn {
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -1243,8 +1230,8 @@
 }
 
 .post-merge-btn.danger {
-  background: #ef4444;
-  border: 1px solid #ef4444;
+  background: var(--error-light);
+  border: 1px solid var(--error-light);
   color: white;
 }
 
@@ -1265,7 +1252,7 @@
   padding: 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-bottom: 8px;
 }
 
@@ -1288,12 +1275,12 @@
 .pr-card-status {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   flex-shrink: 0;
 }
 
 .pr-card-status.open {
-  background: #22c55e;
+  background: var(--success-light);
 }
 
 .pr-card-status.merged {
@@ -1301,7 +1288,7 @@
 }
 
 .pr-card-status.closed {
-  background: #ef4444;
+  background: var(--error-light);
 }
 
 .pr-card-title {
@@ -1334,7 +1321,7 @@
 .pr-card-branch {
   padding: 2px 6px;
   background: var(--bg-tertiary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-family: monospace;
 }
@@ -1346,9 +1333,9 @@
   margin-top: 8px;
   padding: 6px 10px;
   background: rgba(245, 158, 11, 0.1);
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 12px;
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .pr-card-actions {
@@ -1394,8 +1381,8 @@
   width: 480px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -1408,7 +1395,7 @@
 }
 
 .git-error-icon {
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .git-error-header h2 {
@@ -1443,7 +1430,7 @@
   padding: 12px 14px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
@@ -1474,8 +1461,8 @@
   width: 440px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -1501,7 +1488,7 @@
   padding: 6px 12px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 500;
@@ -1531,7 +1518,7 @@
   height: 12px;
   border: 2px solid var(--border);
   border-top-color: var(--text-primary);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: submit-review-spin 0.6s linear infinite;
 }
 
@@ -1548,7 +1535,7 @@
 .submit-review-commit-prompt {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 14px 16px;
   margin-bottom: 16px;
   text-align: center;
@@ -1568,7 +1555,7 @@
   padding: 8px 16px;
   background: #3b82f6;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: #fff;
   font-size: 13px;
   font-weight: 500;
@@ -1605,7 +1592,7 @@
   padding: 10px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
@@ -1632,7 +1619,7 @@ select.submit-review-input {
   padding: 10px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
@@ -1654,45 +1641,13 @@ select.submit-review-input {
   background: var(--bg-tertiary);
 }
 
-/* Unsaved Changes Modal */
-.unsaved-changes-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100000;
-  isolation: isolate;
-}
-
+/* Unsaved Changes Modal (body + actions only — overlay/header/buttons handled by ModalFrame + Button primitives) */
 .unsaved-changes-content {
   width: 420px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-}
-
-.unsaved-changes-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  color: #f59e0b;
-}
-
-.unsaved-changes-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
 }
 
 .unsaved-changes-body {
-  padding: 16px 20px;
+  padding: var(--spacing-lg) var(--spacing-xl);
 }
 
 .unsaved-changes-body p {
@@ -1710,64 +1665,10 @@ select.submit-review-input {
 .unsaved-changes-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 20px;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-xl);
   border-top: 1px solid var(--border);
   background: var(--bg-tertiary);
-  overflow: hidden;
-}
-
-.unsaved-changes-btn {
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s,
-    color 0.15s;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.unsaved-changes-btn.secondary {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.unsaved-changes-btn.secondary:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.unsaved-changes-btn.danger {
-  background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
-}
-
-.unsaved-changes-btn.danger:hover {
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.unsaved-changes-btn.primary {
-  background: var(--action);
-  border: 1px solid var(--action);
-  color: var(--action-text);
-  min-width: 120px;
-  text-align: center;
-  justify-content: center;
-}
-
-.unsaved-changes-btn.primary:hover {
-  background: var(--action-hover);
-}
-
-.unsaved-changes-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 @keyframes spin {

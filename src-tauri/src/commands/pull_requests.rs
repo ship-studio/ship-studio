@@ -8,6 +8,7 @@ use crate::utils::{create_command, validate_project_path};
 
 /// List pull requests for the repository
 #[tauri::command]
+#[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn list_pull_requests(project_path: String) -> Result<Vec<PullRequestInfo>, String> {
     let validated_path = validate_project_path(&project_path)?;
 
@@ -62,6 +63,7 @@ pub async fn list_pull_requests(project_path: String) -> Result<Vec<PullRequestI
 /// Create a new pull request.
 /// Automatically pushes the branch to the remote first if needed.
 #[tauri::command]
+#[tracing::instrument(skip(project_path, title, body, base), fields(project = %project_path, base = %base))]
 pub async fn create_pull_request(
     project_path: String,
     title: String,
@@ -108,6 +110,7 @@ pub async fn create_pull_request(
 
 /// Merge a pull request
 #[tauri::command]
+#[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
 
@@ -127,6 +130,7 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
 
 /// Checkout a pull request branch locally for review
 #[tauri::command]
+#[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn checkout_pull_request(project_path: String, pr_number: i32) -> Result<String, String> {
     let validated_path = validate_project_path(&project_path)?;
 
@@ -156,6 +160,7 @@ pub async fn checkout_pull_request(project_path: String, pr_number: i32) -> Resu
 
 /// Close a pull request without merging
 #[tauri::command]
+#[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<(), String> {
     let validated_path = validate_project_path(&project_path)?;
 

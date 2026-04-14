@@ -6,6 +6,7 @@ use crate::types::{EnvFile, EnvVar};
 use crate::utils::validate_project_path;
 
 #[tauri::command]
+#[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn list_env_files(project_path: String) -> Result<Vec<EnvFile>, String> {
     let project = validate_project_path(&project_path)?;
     let mut env_files = Vec::new();
@@ -36,6 +37,7 @@ pub async fn list_env_files(project_path: String) -> Result<Vec<EnvFile>, String
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(file_path), fields(file = %file_path))]
 pub async fn read_env_file(file_path: String) -> Result<Vec<EnvVar>, String> {
     let contents = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
     let mut vars = Vec::new();
@@ -78,6 +80,7 @@ const MAX_ENV_VALUE_LENGTH: usize = 65536;
 /// Validates that variable names are alphanumeric/underscore and don't start with numbers.
 /// Auto-quotes values containing spaces or special characters.
 #[tauri::command]
+#[tracing::instrument(skip(file_path, vars), fields(file = %file_path, var_count = vars.len()))]
 pub async fn write_env_file(file_path: String, vars: Vec<EnvVar>) -> Result<(), String> {
     let mut contents = String::new();
 
@@ -131,6 +134,7 @@ pub async fn write_env_file(file_path: String, vars: Vec<EnvVar>) -> Result<(), 
 /// Creates a new .env file in the project directory.
 /// Validates both project path (must be in ShipStudio) and filename.
 #[tauri::command]
+#[tracing::instrument(skip(project_path, file_name), fields(project = %project_path, file = %file_name))]
 pub async fn create_env_file(project_path: String, file_name: String) -> Result<String, String> {
     // Validate project path is inside ShipStudio directory
     let project = validate_project_path(&project_path)?;
@@ -159,6 +163,7 @@ pub async fn create_env_file(project_path: String, file_name: String) -> Result<
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(file_path), fields(file = %file_path))]
 pub async fn delete_env_file(file_path: String) -> Result<(), String> {
     // Validate the file is inside ShipStudio directory
     let path = std::path::Path::new(&file_path);

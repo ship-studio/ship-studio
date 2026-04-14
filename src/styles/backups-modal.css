@@ -39,7 +39,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition:
     background-color 0.15s,
     color 0.15s;
@@ -83,9 +83,9 @@
 .backups-error {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
+  color: var(--error-light);
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   margin-bottom: 12px;
 }
@@ -93,9 +93,9 @@
 .backups-success {
   background: rgba(34, 197, 94, 0.1);
   border: 1px solid rgba(34, 197, 94, 0.3);
-  color: #22c55e;
+  color: var(--success-light);
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   margin-bottom: 12px;
   display: flex;
@@ -115,7 +115,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
   transition: background-color 0.15s;
 }
@@ -157,7 +157,7 @@
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   cursor: pointer;
   transition:
@@ -184,7 +184,7 @@
   color: var(--text-muted);
   padding: 4px 8px;
   background: var(--bg-tertiary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .backups-footer {
@@ -230,7 +230,7 @@
 .backups-confirm-backup {
   padding: 12px;
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .backups-confirm-backup .backup-message {
@@ -260,7 +260,7 @@
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   cursor: pointer;
   transition:
@@ -286,7 +286,7 @@
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   cursor: pointer;
   transition:
@@ -325,9 +325,9 @@
 .backups-success-icon {
   width: 48px;
   height: 48px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
+  color: var(--success-light);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -339,7 +339,7 @@
   gap: 8px;
   padding: 8px 12px;
   background: var(--bg-secondary);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .backups-badge {
@@ -347,7 +347,7 @@
   font-weight: 600;
   text-transform: uppercase;
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -394,7 +394,7 @@
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   cursor: pointer;
   transition:
@@ -418,7 +418,7 @@
   font-weight: 500;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   cursor: pointer;
   transition:

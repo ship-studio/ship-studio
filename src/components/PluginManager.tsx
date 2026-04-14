@@ -25,12 +25,11 @@ import {
   type PluginRegistryEntry,
 } from '../lib/plugins';
 import type { LoadedPlugin } from '../hooks/usePlugins';
+import { useModal } from '../contexts/ModalContext';
 
 type Tab = 'installed' | 'library';
 
 interface PluginManagerProps {
-  isOpen: boolean;
-  onClose: () => void;
   onPluginsChanged: () => void;
   projectPath: string | null;
   /** Loaded plugins from usePlugins hook, used to render toolbar icons */
@@ -38,12 +37,11 @@ interface PluginManagerProps {
 }
 
 export function PluginManager({
-  isOpen,
-  onClose,
   onPluginsChanged,
   projectPath,
   loadedPlugins = [],
 }: PluginManagerProps) {
+  const { isOpen, close: onClose } = useModal('pluginManager');
   const [activeTab, setActiveTab] = useState<Tab>('installed');
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);

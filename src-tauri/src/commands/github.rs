@@ -2,7 +2,9 @@
 //!
 //! Commands for GitHub CLI status, authentication, and user info.
 
+use crate::cache::TtlCache;
 use crate::commands::git::git_stage_and_commit;
+use crate::external_command::run_with_timeout;
 use crate::types::{
     GitHubCliStatus, GitHubLanguage, GitHubRepo, ProjectGitHubStatus, PushToGitHubOptions,
 };
@@ -10,29 +12,36 @@ use crate::utils::{create_command, find_executable, get_extended_path, validate_
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
+use std::sync::LazyLock;
+use std::time::Duration;
 use tracing::{info, warn};
+
+/// 10-minute TTL cache for `gh api user --jq .login`. The username rarely
+/// changes during a session; the uncached call adds ~200ms and hits the
+/// network, so caching is a meaningful perf win.
+static GITHUB_USERNAME_CACHE: LazyLock<TtlCache<(), String>> =
+    LazyLock::new(|| TtlCache::new(Duration::from_secs(600)));
+
+/// Invalidate the cached GitHub username. Call after auth changes.
+pub fn invalidate_github_username_cache() {
+    GITHUB_USERNAME_CACHE.invalidate(&());
+}
 
 /// Default timeout for GitHub CLI commands (15 seconds)
 const GITHUB_CLI_TIMEOUT_SECS: u64 = 15;
 
-/// Run a command with a timeout. Returns the output if successful, or an error if timed out.
+/// Run a gh command with a timeout via the shared external_command helper.
+/// Returns String errors for now so existing callers don't break — a future
+/// pass will promote these to `Result<T, CommandError>` once the TS side
+/// learns to render tagged errors (see `src/lib/errors.ts`).
 async fn run_command_with_timeout(
     cmd: Command,
     timeout_secs: u64,
 ) -> Result<std::process::Output, String> {
-    let mut tokio_cmd = tokio::process::Command::from(cmd);
-
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        tokio_cmd.output(),
-    )
-    .await;
-
-    match result {
-        Ok(Ok(output)) => Ok(output),
-        Ok(Err(e)) => Err(format!("Command failed: {e}")),
-        Err(_) => Err(format!("Command timed out after {timeout_secs} seconds")),
-    }
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    run_with_timeout(tokio_cmd, "gh", timeout_secs)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Returns a Command for gh with extended PATH set
@@ -101,7 +110,12 @@ pub async fn check_github_cli_status() -> GitHubCliStatus {
 }
 
 #[tauri::command]
+#[tracing::instrument]
 pub async fn get_github_username() -> Result<String, String> {
+    if let Some(cached) = GITHUB_USERNAME_CACHE.get(&()) {
+        return Ok(cached);
+    }
+
     let output = get_gh_command()
         .args(["api", "user", "--jq", ".login"])
         .output()
@@ -112,6 +126,7 @@ pub async fn get_github_username() -> Result<String, String> {
     }
 
     let username = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    GITHUB_USERNAME_CACHE.insert((), username.clone());
     Ok(username)
 }
 

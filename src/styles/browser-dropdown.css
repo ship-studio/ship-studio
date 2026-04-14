@@ -23,14 +23,14 @@
   right: 0;
   padding-top: 4px;
   min-width: 180px;
-  z-index: 100;
+  z-index: var(--z-dropdown);
 }
 
 .browser-dropdown-inner {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 

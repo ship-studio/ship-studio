@@ -20,6 +20,7 @@ import { BranchIcon, ChevronIcon, FileIcon, TrashIcon } from './icons';
 import { ChangedFile, ChangeStatus } from '../lib/git';
 import { discardChanges } from '../lib/branches';
 import { DiffModal } from './DiffModal';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface BranchIndicatorProps {
   /** Current branch name */
@@ -36,8 +37,6 @@ interface BranchIndicatorProps {
   onClick: () => void;
   /** Callback when changes are discarded */
   onDiscard?: () => void;
-  /** Callback for toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Callback when Save button is clicked - should open publish dropdown */
   onSave?: () => void;
   /** Whether this is a web project with a preview (defaults to true) */
@@ -52,10 +51,11 @@ export function BranchIndicator({
   isOnBranchesTab,
   onClick,
   onDiscard,
-  onToast,
   onSave,
   isWebProject = true,
 }: BranchIndicatorProps) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);

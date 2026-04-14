@@ -59,7 +59,7 @@
 .onboarding-error {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 16px;
   margin-bottom: 24px;
   text-align: center;
@@ -131,7 +131,7 @@
   height: 20px;
   border: 2px solid var(--border);
   border-top-color: var(--accent);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 0.8s linear infinite;
 }
 
@@ -199,7 +199,7 @@
   padding: 6px 14px;
   font-size: 13px;
   font-weight: 500;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: none;
   cursor: pointer;
   transition:
@@ -268,7 +268,7 @@
 .wizard-indicator-dot {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -391,7 +391,7 @@
   padding: 8px 18px;
   font-size: 14px;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-secondary);
   color: var(--text-secondary);
@@ -411,7 +411,7 @@
   padding: 8px 24px;
   font-size: 14px;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: none;
   background: #7fe89a;
   color: #1e1e1e;
@@ -441,7 +441,7 @@
 
 .wizard-agent-card {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 16px;
   background: var(--bg-secondary);
   transition:
@@ -495,7 +495,7 @@
   font-size: 10px;
   font-weight: 500;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: rgba(147, 51, 234, 0.15);
   color: #c4b5fd;
   text-transform: uppercase;
@@ -513,7 +513,7 @@
 }
 
 .wizard-agent-card-items .setup-item {
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
 }
 
@@ -526,7 +526,7 @@
   text-align: center;
   padding: 40px 24px;
   border: 1px dashed var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-secondary);
 }
 
@@ -552,7 +552,7 @@
   padding: 10px 28px;
   font-size: 14px;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
@@ -607,7 +607,7 @@
   padding: 6px 14px;
   background: rgba(147, 51, 234, 0.2);
   border: 1px solid rgba(147, 51, 234, 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: #c4b5fd;
   font-size: 13px;
   font-weight: 500;
@@ -710,7 +710,7 @@
   gap: 12px;
   padding: 16px;
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
 
@@ -757,7 +757,7 @@
 .prerequisite .install-info code {
   background: var(--bg-tertiary);
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--text-secondary);
 }
@@ -783,7 +783,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal-overlay);
   animation: fadeIn 0.15s ease-out;
 }
 
@@ -800,7 +800,7 @@
   width: 90%;
   max-width: 700px;
   background: var(--bg-secondary);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   border: 1px solid var(--border);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
@@ -837,7 +837,7 @@
   padding: 6px 14px;
   font-size: 13px;
   font-weight: 500;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--bg-secondary);
   color: var(--text-secondary);
@@ -871,7 +871,7 @@
   font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-tertiary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }

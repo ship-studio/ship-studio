@@ -14,11 +14,10 @@ import type { FileTreeNode } from '../lib/code';
 
 interface CodeTabProps {
   projectPath: string;
-  onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onSendToAgent?: (text: string) => void;
 }
 
-export function CodeTab({ projectPath, onToast, onSendToAgent }: CodeTabProps) {
+export function CodeTab({ projectPath, onSendToAgent }: CodeTabProps) {
   const {
     tree,
     expandedPaths,
@@ -146,7 +145,6 @@ export function CodeTab({ projectPath, onToast, onSendToAgent }: CodeTabProps) {
           fileContent={fileContent}
           isLoading={isLoadingFile}
           error={fileError}
-          onToast={onToast}
           onSendToAgent={onSendToAgent}
         />
       </div>

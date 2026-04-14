@@ -15,8 +15,8 @@
   max-width: 100%;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -111,7 +111,7 @@
   left: 2px;
   top: 2px;
   background: var(--text-secondary);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   transition:
     background-color 0.2s,
     color 0.2s,
@@ -146,7 +146,7 @@
   font-size: 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   cursor: pointer;
   transition:
@@ -171,7 +171,7 @@
   color: var(--text-muted);
   padding: 4px 8px;
   background: var(--bg-tertiary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -185,7 +185,7 @@
   font-size: 12px;
   background: none;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   cursor: pointer;
   transition:
@@ -213,7 +213,7 @@
 .notification-settings-save {
   padding: 8px 16px;
   font-size: 13px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,

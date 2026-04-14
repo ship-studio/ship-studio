@@ -12,6 +12,9 @@ import { createPullRequest } from '../lib/branches';
 import { generatePRDescription } from '../lib/ai';
 import { commitChanges } from '../lib/git';
 import { trackEvent, trackError } from '../lib/analytics';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface SubmitReviewModalProps {
   /** Project path for PR operations */
@@ -26,8 +29,6 @@ interface SubmitReviewModalProps {
   onSuccess: (prUrl: string) => void;
   /** Callback to close modal */
   onClose: () => void;
-  /** Callback for toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 export function SubmitReviewModal({
@@ -37,8 +38,9 @@ export function SubmitReviewModal({
   aiAvailable,
   onSuccess,
   onClose,
-  onToast,
 }: SubmitReviewModalProps) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const [title, setTitle] = useState(formatBranchAsTitle(branchName));
   const [description, setDescription] = useState('');
   const [baseBranch, setBaseBranch] = useState(baseBranches[0] || 'main');
@@ -142,19 +144,25 @@ export function SubmitReviewModal({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    }
-  };
-
   const isBusy = isSubmitting || isGenerating;
 
   return (
-    <div className="submit-review-modal" onKeyDown={handleKeyDown} onClick={onClose}>
-      <div className="submit-review-content" onClick={(e) => e.stopPropagation()}>
-        <div className="submit-review-header">
-          <h2>Submit for Review</h2>
+    <ModalFrame
+      isOpen
+      onClose={onClose}
+      dismissable={!isBusy}
+      className="submit-review-content"
+      title={
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--spacing-md)',
+            flex: 1,
+          }}
+        >
+          <span>Submit for Review</span>
           {aiAvailable && (
             <button
               className="submit-review-generate-btn"
@@ -187,7 +195,9 @@ export function SubmitReviewModal({
             </button>
           )}
         </div>
-
+      }
+    >
+      <>
         <div className="submit-review-body">
           {needsCommit && (
             <div className="submit-review-commit-prompt">
@@ -268,19 +278,19 @@ export function SubmitReviewModal({
         </div>
 
         <div className="submit-review-footer">
-          <button className="branch-selector-cancel" onClick={onClose} disabled={isBusy}>
+          <Button variant="secondary" onClick={onClose} disabled={isBusy}>
             Cancel
-          </button>
-          <button
-            className="branch-selector-submit"
+          </Button>
+          <Button
+            variant="primary"
             onClick={() => void handleSubmit()}
             disabled={isBusy || !title.trim()}
           >
             {isSubmitting ? 'Creating...' : 'Create Pull Request'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </>
+    </ModalFrame>
   );
 }
 

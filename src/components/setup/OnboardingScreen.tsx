@@ -19,6 +19,7 @@ import { HostingStep } from './steps/HostingStep';
 import { CelebrationScreen } from './CelebrationScreen';
 import { OnboardingTerminal } from './OnboardingTerminal';
 import { trackEvent } from '../../lib/analytics';
+import { Button } from '../primitives/Button';
 import { logger } from '../../lib/logger';
 import {
   SetupItem,
@@ -429,9 +430,9 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         {error && (
           <div className="onboarding-error">
             <p>{error}</p>
-            <button className="btn-secondary" onClick={() => void fetchStatus()}>
+            <Button variant="secondary" onClick={() => void fetchStatus()}>
               Retry
-            </button>
+            </Button>
           </div>
         )}
 

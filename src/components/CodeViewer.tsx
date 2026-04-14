@@ -11,6 +11,8 @@ import { createPortal } from 'react-dom';
 import type { FileContent } from '../lib/code';
 import { checkIdeAvailability, openInIde } from '../lib/ide';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
+import { useOptionalToast } from '../contexts/ToastContext';
 import { ChevronIcon, CodeIcon, FileIcon, VSCodeIcon, CursorIcon, CopyIcon } from './icons';
 
 interface CodeViewerProps {
@@ -19,7 +21,6 @@ interface CodeViewerProps {
   fileContent: FileContent | null;
   isLoading: boolean;
   error: string | null;
-  onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onSendToAgent?: (text: string) => void;
 }
 
@@ -70,9 +71,11 @@ export function CodeViewer({
   fileContent,
   isLoading,
   error,
-  onToast,
   onSendToAgent,
 }: CodeViewerProps) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
+    showToast(message, type);
   const [highlightedHtml, setHighlightedHtml] = useState<string>('');
   const codeRef = useRef<HTMLDivElement>(null);
   const [ideAvailability, setIdeAvailability] = useState<{ vscode: boolean; cursor: boolean }>({
@@ -81,6 +84,9 @@ export function CodeViewer({
   });
   const [showIdeDropdown, setShowIdeDropdown] = useState(false);
   const [openingIde, setOpeningIde] = useState<string | null>(null);
+  const { copy } = useCopyToClipboard({
+    onCopy: () => onToast?.('Copied to clipboard', 'success'),
+  });
 
   // Selection popover state
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
@@ -250,9 +256,7 @@ export function CodeViewer({
       onSendToAgent(formatted);
       onToast?.('Sent to agent', 'success');
     } else {
-      void navigator.clipboard.writeText(formatted).then(() => {
-        onToast?.('Copied to clipboard', 'success');
-      });
+      void copy(formatted);
     }
 
     // Close popover but keep highlight visible briefly

@@ -30,10 +30,11 @@ import {
   type CheckState,
 } from '../hooks/useCodeHealth';
 import { ChevronIcon, ChevronRightIcon, SpinnerIcon, CloseIcon, CopyIcon, FileIcon } from './icons';
+import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface CodeHealthPanelProps {
   projectPath: string;
-  onToast?: (message: string, type?: 'success' | 'error') => void;
   onAskClaude?: (prompt: string) => void;
   onHealthOutput?: (output: string) => void;
   /** Content to render on the left of the toolbar (e.g., Restart Server button) */
@@ -49,10 +50,21 @@ export interface CodeHealthPanelRef {
 
 export const CodeHealthPanel = forwardRef<CodeHealthPanelRef, CodeHealthPanelProps>(
   function CodeHealthPanel(
-    { projectPath, onToast, onAskClaude, onHealthOutput, toolbarLeft, toolbarRight },
+    { projectPath, onAskClaude, onHealthOutput, toolbarLeft, toolbarRight },
     ref
   ) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const { showToast } = useOptionalToast();
+    const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+    const { copy: copyOutput } = useCopyToClipboard({
+      onCopy: () => onToast?.('Output copied', 'success'),
+    });
+    const { copy: copyPackageJson } = useCopyToClipboard({
+      onCopy: () => onToast?.('package.json copied', 'success'),
+    });
+    const { copy: copyScript } = useCopyToClipboard({
+      onCopy: () => onToast?.('Script copied to clipboard', 'success'),
+    });
 
     const health = useCodeHealth({ projectPath, onToast, onAskClaude, onHealthOutput });
 
@@ -259,8 +271,7 @@ export const CodeHealthPanel = forwardRef<CodeHealthPanelRef, CodeHealthPanelPro
             onCopy={() => {
               const result = health.checkStates[health.errorModalCategory!].result;
               if (result) {
-                void navigator.clipboard.writeText(result.stdout || result.stderr);
-                onToast?.('Output copied', 'success');
+                void copyOutput(result.stdout || result.stderr);
               }
             }}
             onAskClaude={() => health.handleAskClaude(health.errorModalCategory!)}
@@ -278,8 +289,7 @@ export const CodeHealthPanel = forwardRef<CodeHealthPanelRef, CodeHealthPanelPro
             content={health.packageJsonContent}
             onClose={() => health.setShowPackageJson(false)}
             onCopy={() => {
-              void navigator.clipboard.writeText(health.packageJsonContent!);
-              onToast?.('package.json copied', 'success');
+              void copyPackageJson(health.packageJsonContent!);
             }}
           />
         )}
@@ -292,8 +302,7 @@ export const CodeHealthPanel = forwardRef<CodeHealthPanelRef, CodeHealthPanelPro
               suggestions={health.detectedScripts.suggestions}
               onClose={() => health.setShowSuggestions(false)}
               onCopy={(text: string) => {
-                void navigator.clipboard.writeText(text);
-                onToast?.('Script copied to clipboard', 'success');
+                void copyScript(text);
               }}
               onAskClaude={(suggestions: ScriptSuggestion[]) => {
                 const scriptLines = suggestions

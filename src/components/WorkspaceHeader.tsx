@@ -64,7 +64,6 @@ export interface WorkspaceHeaderProps {
   onGitHubStatusChange: () => void;
   onGitHubConnect: () => void;
   focusActiveTerminal: () => void;
-  onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 
   // Publish
   currentBranch: string | null;
@@ -118,7 +117,6 @@ export function WorkspaceHeader({
   onGitHubStatusChange,
   onGitHubConnect,
   focusActiveTerminal,
-  onToast,
   currentBranch,
   hasUncommittedChanges,
   isPublishing,
@@ -332,7 +330,6 @@ export function WorkspaceHeader({
               onStatusChange={onGitHubStatusChange}
               onGitHubConnect={onGitHubConnect}
               onModalClose={focusActiveTerminal}
-              onToast={onToast}
             />
           </span>
           <PublishBranchDropdown
@@ -342,7 +339,6 @@ export function WorkspaceHeader({
             hasChangesToSync={hasUncommittedChanges}
             onStatusChange={onPublishStatusChange}
             onModalClose={focusActiveTerminal}
-            onToast={onToast}
             isPublishing={isPublishing}
             setIsPublishing={setIsPublishing}
             onPublishError={onPublishError}

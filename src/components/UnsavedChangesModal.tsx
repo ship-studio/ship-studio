@@ -12,6 +12,9 @@
 import { useState } from 'react';
 import { WarningIcon } from './icons';
 import { publishBranch, discardChanges, switchBranch } from '../lib/branches';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface UnsavedChangesModalProps {
   /** Current branch name */
@@ -24,8 +27,6 @@ interface UnsavedChangesModalProps {
   onSwitchComplete: (branchName: string) => void;
   /** Callback to close the modal */
   onClose: () => void;
-  /** Callback for toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 export function UnsavedChangesModal({
@@ -34,19 +35,17 @@ export function UnsavedChangesModal({
   projectPath,
   onSwitchComplete,
   onClose,
-  onToast,
 }: UnsavedChangesModalProps) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
 
   const handlePublishAndSwitch = async () => {
     setIsPublishing(true);
     try {
-      // First publish the current branch
       await publishBranch(projectPath);
       onToast?.(`Published ${currentBranch}`, 'success');
-
-      // Then switch to target branch
       const result = await switchBranch(projectPath, targetBranch, false);
       if (result.success) {
         onSwitchComplete(targetBranch);
@@ -64,10 +63,7 @@ export function UnsavedChangesModal({
   const handleDiscardAndSwitch = async () => {
     setIsDiscarding(true);
     try {
-      // Discard all changes
       await discardChanges(projectPath);
-
-      // Then switch to target branch
       const result = await switchBranch(projectPath, targetBranch, false);
       if (result.success) {
         onToast?.(`Switched to ${targetBranch}`, 'success');
@@ -86,38 +82,39 @@ export function UnsavedChangesModal({
   const isLoading = isPublishing || isDiscarding;
 
   return (
-    <div className="unsaved-changes-modal" onClick={() => !isLoading && onClose()}>
-      <div className="unsaved-changes-content" onClick={(e) => e.stopPropagation()}>
-        <div className="unsaved-changes-header">
+    <ModalFrame
+      isOpen
+      onClose={onClose}
+      dismissable={!isLoading}
+      className="unsaved-changes-content"
+      title={
+        <>
           <WarningIcon size={20} />
-          <h3>Unsaved Changes</h3>
-        </div>
-        <div className="unsaved-changes-body">
-          <p>
-            You have uncommitted changes on <strong>{currentBranch}</strong>. What would you like to
-            do?
-          </p>
-        </div>
-        <div className="unsaved-changes-actions">
-          <button className="unsaved-changes-btn secondary" onClick={onClose} disabled={isLoading}>
-            Cancel
-          </button>
-          <button
-            className="unsaved-changes-btn danger"
-            onClick={() => void handleDiscardAndSwitch()}
-            disabled={isLoading}
-          >
-            {isDiscarding ? 'Discarding...' : 'Discard Changes'}
-          </button>
-          <button
-            className="unsaved-changes-btn primary"
-            onClick={() => void handlePublishAndSwitch()}
-            disabled={isLoading}
-          >
-            {isPublishing ? 'Publishing...' : 'Publish & Switch'}
-          </button>
-        </div>
+          <span>Unsaved Changes</span>
+        </>
+      }
+    >
+      <div className="unsaved-changes-body">
+        <p>
+          You have uncommitted changes on <strong>{currentBranch}</strong>. What would you like to
+          do?
+        </p>
       </div>
-    </div>
+      <div className="unsaved-changes-actions">
+        <Button variant="secondary" onClick={onClose} disabled={isLoading}>
+          Cancel
+        </Button>
+        <Button variant="danger" onClick={() => void handleDiscardAndSwitch()} disabled={isLoading}>
+          {isDiscarding ? 'Discarding...' : 'Discard Changes'}
+        </Button>
+        <Button
+          variant="primary"
+          onClick={() => void handlePublishAndSwitch()}
+          disabled={isLoading}
+        >
+          {isPublishing ? 'Publishing...' : 'Publish & Switch'}
+        </Button>
+      </div>
+    </ModalFrame>
   );
 }

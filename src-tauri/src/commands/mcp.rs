@@ -173,6 +173,7 @@ fn parse_scope_from_mcp_get(output: &str) -> String {
 /// and status for each server. Then run `<binary> mcp get <name>` per server
 /// to enrich with scope information.
 #[tauri::command]
+#[tracing::instrument(skip_all, fields(project = ?project_path, agent = ?agent_id))]
 pub async fn list_mcp_servers(
     project_path: Option<String>,
     agent_id: Option<String>,
@@ -263,6 +264,7 @@ pub async fn list_mcp_servers(
 ///
 /// For Claude Code, appends `-s <scope>` for the configuration scope.
 #[tauri::command]
+#[tracing::instrument(skip_all, fields(agent = ?agent_id))]
 pub async fn add_mcp_server(
     raw_args: String,
     scope: Option<String>,
@@ -338,6 +340,7 @@ pub async fn add_mcp_server(
 
 /// Remove an MCP server by name using the agent's CLI.
 #[tauri::command]
+#[tracing::instrument(skip_all, fields(agent = ?agent_id))]
 pub async fn remove_mcp_server(
     name: String,
     scope: Option<String>,

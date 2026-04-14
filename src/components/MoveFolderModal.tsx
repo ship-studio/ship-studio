@@ -10,6 +10,8 @@ import { useState, useEffect, useRef } from 'react';
 import { FolderInfo, listFolders, createFolder } from '../lib/folders';
 import { FolderIcon, CheckIcon, PlusIcon } from './icons';
 import { logger } from '../lib/logger';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
 
 /** Props for the MoveFolderModal component */
 interface MoveFolderModalProps {
@@ -56,18 +58,6 @@ export function MoveFolderModal({
     }
   }, [isOpen]);
 
-  // Handle escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   // Focus input when entering create mode
   useEffect(() => {
     if (creatingFolder) {
@@ -108,12 +98,15 @@ export function MoveFolderModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal move-folder-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Move to Folder</h3>
+    <ModalFrame
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Move to Folder"
+      className="move-folder-modal"
+      dismissable={!selecting}
+    >
+      <div style={{ padding: 'var(--spacing-xl)' }}>
         <p className="modal-subtitle">
           Move <strong>{projectName}</strong> to:
         </p>
@@ -192,11 +185,11 @@ export function MoveFolderModal({
         )}
 
         <div className="modal-actions">
-          <button onClick={onClose} disabled={selecting}>
+          <Button variant="secondary" onClick={onClose} disabled={selecting}>
             Cancel
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 }

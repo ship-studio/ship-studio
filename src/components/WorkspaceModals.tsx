@@ -39,20 +39,9 @@ export interface WorkspaceModalsProps {
   projectPath: string;
   currentProjectPath: string | undefined;
 
-  // EnvEditor
-  showEnvEditor: boolean;
-  onCloseEnvEditor: () => void;
-  onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
-
   // BackupsModal
-  showBackupsModal: boolean;
-  onCloseBackupsModal: () => void;
   onBackupRestore: () => void;
   onBackupCreatePR: (branchName: string) => void;
-
-  // AssetsPanel
-  showAssetsPanel: boolean;
-  onCloseAssetsPanel: () => void;
 
   // EducationOverlay
   isEducationMode: boolean;
@@ -76,23 +65,15 @@ export interface WorkspaceModalsProps {
   onCloseNotificationSettings: () => void;
   agentDisplayName: string;
 
-  // Help modal
-  showHelpModal: boolean;
-  onCloseHelpModal: () => void;
+  // Help modal — read state via useModal('help')
 
-  // Skills modal
-  showSkillsModal: boolean;
-  onCloseSkillsModal: () => void;
+  // Skills modal — read state via useModal('skills')
   agentId: string;
   activeAgent: AgentConfig;
 
-  // MCP modal
-  showMcpModal: boolean;
-  onCloseMcpModal: () => void;
+  // MCP modal — read state via useModal('mcp')
 
-  // Plugin manager
-  showPluginManager: boolean;
-  onClosePluginManager: () => void;
+  // Plugin manager — read state via useModal('pluginManager')
   onPluginsChanged: () => void;
   loadedPlugins?: LoadedPlugin[];
 
@@ -135,17 +116,13 @@ export interface WorkspaceModalsProps {
   onCloseAuthTerminal: () => void;
   onAuthTerminalExit: (exitCode: number | null) => void;
 
-  // Dev command modal
-  showDevCommandModal: boolean;
+  // Dev command modal — read state via useModal('devCommand')
   customDevCommand: string | null;
   onSaveDevCommand: (command: string | null) => void;
-  onCloseDevCommandModal: () => void;
 
-  // Project settings
-  showProjectSettings: boolean;
+  // Project settings — read state via useModal('projectSettings')
   devServerPort: number;
   onSavePort: (port: number) => void;
-  onCloseProjectSettings: () => void;
   isWebProject: boolean;
 
   // Plugin terminal
@@ -158,15 +135,8 @@ export interface WorkspaceModalsProps {
 export function WorkspaceModals({
   projectPath,
   currentProjectPath,
-  showEnvEditor,
-  onCloseEnvEditor,
-  onToast,
-  showBackupsModal,
-  onCloseBackupsModal,
   onBackupRestore,
   onBackupCreatePR,
-  showAssetsPanel,
-  onCloseAssetsPanel,
   isEducationMode,
   onCloseEducation,
   toasts,
@@ -181,16 +151,8 @@ export function WorkspaceModals({
   onSaveNotificationSettings,
   onCloseNotificationSettings,
   agentDisplayName,
-  showHelpModal,
-  onCloseHelpModal,
-  showSkillsModal,
-  onCloseSkillsModal,
   agentId,
   activeAgent,
-  showMcpModal,
-  onCloseMcpModal,
-  showPluginManager,
-  onClosePluginManager,
   onPluginsChanged,
   loadedPlugins,
   pluginSuggestion,
@@ -216,14 +178,10 @@ export function WorkspaceModals({
   authTerminalConfig,
   onCloseAuthTerminal,
   onAuthTerminalExit,
-  showDevCommandModal,
   customDevCommand,
   onSaveDevCommand,
-  onCloseDevCommandModal,
-  showProjectSettings,
   devServerPort,
   onSavePort,
-  onCloseProjectSettings,
   isWebProject,
   pluginTerminal,
   pluginTerminalExited,
@@ -232,27 +190,15 @@ export function WorkspaceModals({
 }: WorkspaceModalsProps) {
   return (
     <>
-      <EnvEditor
-        projectPath={projectPath}
-        isOpen={showEnvEditor}
-        onClose={onCloseEnvEditor}
-        onToast={onToast}
-      />
+      <EnvEditor projectPath={projectPath} />
 
       <BackupsModal
         projectPath={projectPath}
-        isOpen={showBackupsModal}
-        onClose={onCloseBackupsModal}
         onRestore={onBackupRestore}
         onCreatePR={onBackupCreatePR}
       />
 
-      <AssetsPanel
-        projectPath={projectPath}
-        isOpen={showAssetsPanel}
-        onClose={onCloseAssetsPanel}
-        onToast={onToast}
-      />
+      <AssetsPanel projectPath={projectPath} />
 
       {/* Education Mode Overlay */}
       {isEducationMode && <EducationOverlay onClose={onCloseEducation} />}
@@ -299,16 +245,10 @@ export function WorkspaceModals({
       )}
 
       {/* Help Modal */}
-      <HelpModal
-        isOpen={showHelpModal}
-        onClose={onCloseHelpModal}
-        projectPath={currentProjectPath}
-      />
+      <HelpModal projectPath={currentProjectPath} />
 
       {/* Skills Modal */}
       <SkillsModal
-        isOpen={showSkillsModal}
-        onClose={onCloseSkillsModal}
         projectPath={currentProjectPath}
         agentId={agentId}
         agentDisplayName={agentDisplayName}
@@ -316,8 +256,6 @@ export function WorkspaceModals({
 
       {/* MCP Servers Modal */}
       <McpModal
-        isOpen={showMcpModal}
-        onClose={onCloseMcpModal}
         projectPath={currentProjectPath}
         agentId={agentId}
         agentDisplayName={agentDisplayName}
@@ -326,8 +264,6 @@ export function WorkspaceModals({
 
       {/* Plugin Manager */}
       <PluginManager
-        isOpen={showPluginManager}
-        onClose={onClosePluginManager}
         onPluginsChanged={onPluginsChanged}
         projectPath={currentProjectPath ?? null}
         loadedPlugins={loadedPlugins}
@@ -415,7 +351,6 @@ export function WorkspaceModals({
           aiAvailable={integrations.claude.cliStatus.installed}
           onSuccess={onSubmitReviewSuccess}
           onClose={onCloseSubmitReview}
-          onToast={onToast}
         />
       )}
 
@@ -427,7 +362,6 @@ export function WorkspaceModals({
           branchName={gitError.branchName}
           onClose={onCloseGitError}
           onSendToClaude={onSendToClaude}
-          onToast={onToast}
           onResolveConflicts={onResolveConflicts}
         />
       )}
@@ -438,7 +372,6 @@ export function WorkspaceModals({
           projectPath={projectPath}
           onClose={onCloseConflictResolution}
           onResolved={onConflictsResolved}
-          onToast={onToast}
         />
       )}
 
@@ -462,25 +395,16 @@ export function WorkspaceModals({
       )}
 
       {/* Dev Command Modal (web projects still use standalone for "Edit dev command" button) */}
-      {showDevCommandModal && (
-        <DevCommandModal
-          currentCommand={customDevCommand}
-          onSave={onSaveDevCommand}
-          onClose={onCloseDevCommandModal}
-        />
-      )}
+      <DevCommandModal currentCommand={customDevCommand} onSave={onSaveDevCommand} />
 
       {/* Project Settings Modal */}
-      {showProjectSettings && (
-        <ProjectSettingsModal
-          currentPort={devServerPort}
-          onSave={onSavePort}
-          onClose={onCloseProjectSettings}
-          customDevCommand={customDevCommand}
-          onSaveDevCommand={onSaveDevCommand}
-          isWebProject={isWebProject}
-        />
-      )}
+      <ProjectSettingsModal
+        currentPort={devServerPort}
+        onSave={onSavePort}
+        customDevCommand={customDevCommand}
+        onSaveDevCommand={onSaveDevCommand}
+        isWebProject={isWebProject}
+      />
 
       {/* Plugin terminal modal — reuses OnboardingTerminal for interactive CLI commands */}
       {pluginTerminal && (

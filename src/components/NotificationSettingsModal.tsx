@@ -10,6 +10,8 @@ import {
   playPresetSound,
   playCustomSound,
 } from '../lib/sounds';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
 
 interface NotificationSettingsModalProps {
   settings: NotificationSettings;
@@ -26,12 +28,6 @@ export function NotificationSettingsModal({
 }: NotificationSettingsModalProps) {
   const [localSettings, setLocalSettings] = useState<NotificationSettings>(settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    }
-  };
 
   const handleSave = () => {
     onSave(localSettings);
@@ -73,12 +69,22 @@ export function NotificationSettingsModal({
   };
 
   return (
-    <div className="notification-settings-modal" onKeyDown={handleKeyDown} onClick={onClose}>
-      <div className="notification-settings-content" onClick={(e) => e.stopPropagation()}>
-        <div className="notification-settings-header">
-          <h2>Notification Sounds</h2>
-          <p>Play a sound when {agentDisplayName} needs your input</p>
-        </div>
+    <ModalFrame
+      isOpen
+      onClose={onClose}
+      title="Notification Sounds"
+      className="notification-settings-content"
+    >
+      <>
+        <p
+          style={{
+            padding: '0 var(--spacing-xl) var(--spacing-md)',
+            color: 'var(--text-secondary)',
+            fontSize: 13,
+          }}
+        >
+          Play a sound when {agentDisplayName} needs your input
+        </p>
 
         <div className="notification-settings-body">
           <div className="notification-setting-section">
@@ -154,12 +160,12 @@ export function NotificationSettingsModal({
         </div>
 
         <div className="notification-settings-footer">
-          <button className="notification-settings-cancel" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button className="notification-settings-save" onClick={handleSave}>
+          </Button>
+          <Button variant="primary" onClick={handleSave}>
             Save
-          </button>
+          </Button>
         </div>
 
         <input
@@ -169,7 +175,7 @@ export function NotificationSettingsModal({
           style={{ display: 'none' }}
           onChange={handleFileSelected}
         />
-      </div>
-    </div>
+      </>
+    </ModalFrame>
   );
 }

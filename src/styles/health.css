@@ -9,7 +9,7 @@
   padding: 0 10px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   cursor: pointer;
   transition:
@@ -75,7 +75,7 @@
   padding: 0 10px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
@@ -129,7 +129,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -153,7 +153,7 @@
   margin-left: auto;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
@@ -186,7 +186,7 @@
   padding: 0 8px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
@@ -231,7 +231,7 @@
   padding: 0;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -261,7 +261,7 @@
   padding: 0;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -313,7 +313,7 @@
   margin-left: 4px;
   background: rgba(59, 142, 234, 0.15);
   border: 1px solid rgba(59, 142, 234, 0.4);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: #3b8eea;
   font-size: 11px;
   font-weight: 500;
@@ -362,12 +362,12 @@
   padding: 8px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
-  z-index: 100;
+  z-index: var(--z-dropdown);
 }
 
 .health-tooltip::before {
@@ -397,15 +397,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal-overlay);
   padding: 24px;
 }
 
 .health-modal {
   background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 640px;
   max-height: 80vh;
@@ -440,7 +440,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -464,7 +464,7 @@
   margin: 0;
   padding: 16px;
   background: #1a1a1a;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
   font-size: 12px;
   line-height: 1.5;
@@ -503,7 +503,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -559,7 +559,7 @@
   padding: 0 10px;
   background: rgba(255, 193, 7, 0.1);
   border: 1px solid rgba(255, 193, 7, 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: #ffc107;
   font-size: 12px;
   font-weight: 500;
@@ -596,7 +596,7 @@
   padding: 12px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .health-suggestion-header {
@@ -617,7 +617,7 @@
   color: var(--text-muted);
   background: rgba(255, 255, 255, 0.05);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .health-suggestion-script {
@@ -626,7 +626,7 @@
   justify-content: space-between;
   padding: 8px 12px;
   background: #1a1a1a;
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .health-suggestion-script code {
@@ -642,7 +642,7 @@
   padding: 4px;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
   transition:

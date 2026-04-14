@@ -16,6 +16,7 @@ import { useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { usePreviewConnection, SERVER_MAX_RETRIES } from '../hooks/usePreviewConnection';
 import { usePreviewCapture } from '../hooks/usePreviewCapture';
 import { usePreviewResize, BREAKPOINTS, type Breakpoint } from '../hooks/usePreviewResize';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 // SVG icons for breakpoints
 const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
@@ -129,8 +130,6 @@ interface PreviewProps {
   toolbarExtra?: React.ReactNode;
   /** Callback to send prompt to Claude terminal */
   onSendToClaude?: (prompt: string) => void;
-  /** Callback for toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Plugin components rendered in the preview toolbar */
   previewPlugins?: React.ReactNode;
 }
@@ -167,11 +166,12 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     isStaticProject = false,
     toolbarExtra,
     onSendToClaude,
-    onToast,
     previewPlugins,
   },
   ref
 ) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   // Server connection, health checks, page navigation (extracted to hook)
   const conn = usePreviewConnection({
     port,

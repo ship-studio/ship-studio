@@ -6,6 +6,15 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Lint and format staged JS/TS/CSS files
 pnpm exec lint-staged
 
+# Typecheck (fast — fails on type errors before commit)
+pnpm typecheck || exit 1
+
+# Run tests related to staged files only (keeps commit fast)
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx)$' || true)
+if [ -n "$STAGED_TS" ]; then
+  pnpm exec vitest related --run $STAGED_TS || exit 1
+fi
+
 # Format any staged Rust files
 STAGED_RS=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.rs$' || true)
 if [ -n "$STAGED_RS" ]; then

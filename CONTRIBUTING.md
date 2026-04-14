@@ -308,6 +308,37 @@ void captureScreenshot().catch((err) => {
 
 For anything that affects user-visible state or data integrity, propagate the error to the UI.
 
+## Debugging
+
+### Log files
+
+Ship Studio writes structured logs (via the `tracing` crate) to:
+
+```
+~/Library/Logs/ShipStudio/
+```
+
+Rotated daily. Tail the latest with `tail -f ~/Library/Logs/ShipStudio/ship-studio.log`.
+
+### Rust backtraces
+
+When the backend panics or returns a cryptic error, re-run the dev app with:
+
+```bash
+RUST_BACKTRACE=1 pnpm tauri dev
+# or RUST_BACKTRACE=full for more detail
+```
+
+Pair with `RUST_LOG=debug` (or `RUST_LOG=ship_studio=debug`) to raise log verbosity without recompiling.
+
+### Frontend DevTools
+
+In the running app, open Chromium DevTools with **Cmd+Option+I**. The Console shows frontend logs emitted via [`src/lib/logger.ts`](src/lib/logger.ts) — that file is the single entry point for structured frontend logging (level, context, redaction). Prefer it over `console.log`.
+
+### Onboarding / setup wizard
+
+See `CLAUDE.md` → **Onboarding / Setup Wizard Testing** for `SHIPSTUDIO_FORCE_ONBOARDING` and `SHIPSTUDIO_FORCE_SETUP` env vars. Copy [`.env.example`](.env.example) to `.env` for a local reference.
+
 ## Getting Help
 
 - Check existing issues for similar problems

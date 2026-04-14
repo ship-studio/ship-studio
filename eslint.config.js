@@ -82,6 +82,66 @@ export default tseslint.config(
     },
   },
 
+  // Pattern enforcement (DX refactor guardrails — see CLAUDE.md "How to Do Things")
+  // Implementations live in src/hooks/ and src/components/primitives/, so they're
+  // exempt from these rules.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: [
+      'src/hooks/useCopyToClipboard.ts',
+      'src/hooks/usePolling.ts',
+      'src/hooks/useInvoke.ts',
+      'src/hooks/useToasts.ts',
+      'src/components/primitives/**',
+      'src/contexts/**',
+      'src/lib/logger.ts',
+      'src/lib/polling.ts',
+      'src/**/*.test.{ts,tsx}',
+    ],
+    rules: {
+      // Warn (not error) on legacy patterns — the DX refactor is in flight and there
+      // are known migration sites tracked in DX_REFACTOR_PLAN.md. New code is expected
+      // to follow the new patterns; existing offenders get cleaned up over time.
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector:
+            "MemberExpression[object.object.name='navigator'][object.property.name='clipboard'][property.name='writeText']",
+          message:
+            "Use the `useCopyToClipboard` hook instead of calling `navigator.clipboard.writeText` directly. See CLAUDE.md → How to Do Things → Copy-to-clipboard.",
+        },
+        {
+          selector: "CallExpression[callee.name='setInterval']",
+          message:
+            'Prefer the `usePolling` hook over raw `setInterval` in components — it auto-cleans up and supports backoff. See CLAUDE.md → How to Do Things → Polling.',
+        },
+      ],
+    },
+  },
+  {
+    // Components specifically — also block direct `invoke` usage (force `useInvoke`).
+    files: ['src/components/**/*.{ts,tsx}'],
+    ignores: [
+      'src/components/primitives/**',
+      'src/components/**/*.test.{ts,tsx}',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'warn',
+        {
+          paths: [
+            {
+              name: '@tauri-apps/api/core',
+              importNames: ['invoke'],
+              message:
+                'Components should use `useInvoke` from src/hooks/useInvoke.ts (handles loading/error state + structured logging). Direct `invoke` is OK in src/lib/* wrappers and primitives. See CLAUDE.md → How to Do Things → Calling Tauri commands.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // Prettier must be last to override formatting rules
   prettier
 );

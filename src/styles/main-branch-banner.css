@@ -20,12 +20,12 @@
 
 .main-branch-banner-content svg {
   flex-shrink: 0;
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .main-branch-banner-text {
   font-size: 13px;
-  color: #fbbf24;
+  color: var(--warning-light);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -60,8 +60,8 @@
   padding: 4px 10px;
   background: rgba(245, 158, 11, 0.2);
   border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: 4px;
-  color: #fbbf24;
+  border-radius: var(--radius-sm);
+  color: var(--warning-light);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -83,7 +83,7 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #fbbf24;
+  color: var(--warning-light);
   cursor: pointer;
   white-space: nowrap;
   opacity: 0.8;
@@ -115,8 +115,8 @@
 }
 
 .main-branch-banner-checkbox input[type='checkbox']:checked {
-  background: #f59e0b;
-  border-color: #f59e0b;
+  background: var(--warning);
+  border-color: var(--warning);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -138,8 +138,8 @@
   padding: 4px;
   background: transparent;
   border: none;
-  border-radius: 4px;
-  color: #f59e0b;
+  border-radius: var(--radius-sm);
+  color: var(--warning);
   cursor: pointer;
   opacity: 0.6;
   transition:

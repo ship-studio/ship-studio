@@ -1,0 +1,53 @@
+/**
+ * TypeScript mirror of `src-tauri/src/errors.rs::CommandError`.
+ *
+ * Tauri commands that have been migrated to return `Result<T, CommandError>`
+ * will reject with one of these tagged objects (rather than a free-form string).
+ *
+ * When you add a new variant in Rust, add it here too.
+ */
+
+export type CommandError =
+  | { type: 'Timeout'; cmd: string; secs: number }
+  | { type: 'Process'; cmd: string; exit_code: number; stderr: string }
+  | { type: 'Validation'; field: string; reason: string }
+  | { type: 'NotAuthenticated'; service: string }
+  | { type: 'Io'; '0': string }
+  | { type: 'Other'; '0': string };
+
+/**
+ * Best-effort coercion of an unknown caught value into a `CommandError`. Used
+ * by `useInvoke` and other call-sites that catch from `invoke()` — the runtime
+ * value can be a `CommandError`, a plain string (legacy commands), or an
+ * Error instance.
+ */
+export function asCommandError(value: unknown): CommandError {
+  if (typeof value === 'object' && value !== null && 'type' in value) {
+    return value as CommandError;
+  }
+  if (typeof value === 'string') {
+    return { type: 'Other', '0': value };
+  }
+  if (value instanceof Error) {
+    return { type: 'Other', '0': value.message };
+  }
+  return { type: 'Other', '0': String(value) };
+}
+
+/** Render a `CommandError` to a user-facing string. */
+export function formatCommandError(err: CommandError): string {
+  switch (err.type) {
+    case 'Timeout':
+      return `\`${err.cmd}\` timed out after ${err.secs}s`;
+    case 'Process':
+      return `\`${err.cmd}\` exited with status ${err.exit_code}: ${err.stderr}`;
+    case 'Validation':
+      return `Validation failed for \`${err.field}\`: ${err.reason}`;
+    case 'NotAuthenticated':
+      return `Not authenticated with ${err.service}`;
+    case 'Io':
+      return `I/O error: ${err['0']}`;
+    case 'Other':
+      return err['0'];
+  }
+}

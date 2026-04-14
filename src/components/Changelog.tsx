@@ -14,6 +14,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { WarningIcon } from './icons';
 import { trackEvent, trackError } from '../lib/analytics';
 import { installVersion } from '../lib/updater';
+import { Button } from './primitives/Button';
 
 interface ChangelogEntry {
   version: string;
@@ -486,32 +487,32 @@ export function Changelog({ className = '' }: ChangelogProps) {
             <div className="rewind-actions">
               {rewindStage === 'confirm' && (
                 <>
-                  <button className="rewind-btn secondary" onClick={closeModal}>
+                  <Button variant="secondary" onClick={closeModal}>
                     Cancel
-                  </button>
-                  <button className="rewind-btn primary" onClick={() => void handleRewind()}>
+                  </Button>
+                  <Button variant="primary" onClick={() => void handleRewind()}>
                     Install
-                  </button>
+                  </Button>
                 </>
               )}
               {isWorking && (
-                <button className="rewind-btn secondary" disabled>
+                <Button variant="secondary" disabled>
                   Please wait...
-                </button>
+                </Button>
               )}
               {rewindStage === 'done' && (
-                <button className="rewind-btn primary" onClick={() => void handleRestart()}>
+                <Button variant="primary" onClick={() => void handleRestart()}>
                   Restart Now
-                </button>
+                </Button>
               )}
               {rewindStage === 'error' && (
                 <>
-                  <button className="rewind-btn secondary" onClick={closeModal}>
+                  <Button variant="secondary" onClick={closeModal}>
                     Cancel
-                  </button>
-                  <button className="rewind-btn primary" onClick={() => void handleRewind()}>
+                  </Button>
+                  <Button variant="primary" onClick={() => void handleRewind()}>
                     Retry
-                  </button>
+                  </Button>
                 </>
               )}
             </div>

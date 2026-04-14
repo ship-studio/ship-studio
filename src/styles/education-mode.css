@@ -14,7 +14,7 @@
   position: fixed;
   pointer-events: none;
   border: 1px solid #3b82f6;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition:
     background-color 0.15s ease-out,
     color 0.15s ease-out,
@@ -27,7 +27,7 @@
   position: fixed;
   background: var(--bg-primary, #1a1a1a);
   border: 1px solid var(--border, #333);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 12px 16px;
   max-width: 280px;
   min-width: 200px;
@@ -59,7 +59,7 @@
 }
 
 .education-tooltip-title svg {
-  color: var(--accent, #22c55e);
+  color: var(--accent, var(--success-light));
 }
 
 .education-tooltip-description {
@@ -77,7 +77,7 @@
   transform: translateX(-50%);
   background: var(--bg-primary, #1a1a1a);
   border: 1px solid var(--border, #333);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 8px 16px;
   font-size: 12px;
   color: var(--text-muted, #666);
@@ -100,8 +100,8 @@
 /* Education Mode button in header */
 /* Active state when education mode is on */
 .toolbar-icon-btn.active {
-  background: var(--accent, #22c55e);
-  border-color: var(--accent, #22c55e);
+  background: var(--accent, var(--success-light));
+  border-color: var(--accent, var(--success-light));
   color: #000;
 }
 

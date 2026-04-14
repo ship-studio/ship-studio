@@ -13,6 +13,7 @@
 import { useEffect, useRef } from 'react';
 import { SearchIcon } from './icons';
 import { trackEvent, trackSearch } from '../lib/analytics';
+import { Button } from './primitives/Button';
 
 interface DashboardHeaderProps {
   searchQuery: string;
@@ -71,8 +72,8 @@ export function DashboardHeader({
       </div>
       <div className="dashboard-header-actions">
         {onImportProject && (
-          <button
-            className="btn-secondary"
+          <Button
+            variant="secondary"
             data-education-id="import-button"
             onClick={() => {
               void trackEvent('import_button_clicked', { $screen_name: 'Dashboard' });
@@ -85,10 +86,10 @@ export function DashboardHeader({
             title={!isGitHubAuthenticated ? 'Connect GitHub to import repositories' : undefined}
           >
             Import
-          </button>
+          </Button>
         )}
-        <button
-          className="btn-primary"
+        <Button
+          variant="primary"
           data-education-id="new-project-button"
           onClick={() => {
             void trackEvent('new_project_clicked', { $screen_name: 'Dashboard' });
@@ -96,7 +97,7 @@ export function DashboardHeader({
           }}
         >
           + New Project
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -585,4 +585,86 @@ mod tests {
             assert!(result.is_none());
         }
     }
+
+    /// Security-critical tests for `validate_project_path` — covers the threat
+    /// model described in the DX audit (Block 14.1).
+    ///
+    /// These tests avoid depending on registered external projects by only
+    /// checking paths inside/outside `~/ShipStudio`. The tests do not create
+    /// real directories unless the machine happens to have one; they focus on
+    /// the validation logic itself.
+    mod validate_project_path_tests {
+        use super::*;
+        use std::fs;
+
+        fn shipstudio_root() -> std::path::PathBuf {
+            dirs::home_dir().expect("home dir").join("ShipStudio")
+        }
+
+        #[test]
+        fn rejects_relative_path_to_cwd_when_outside_shipstudio() {
+            // Current working directory in test runner is src-tauri, which is
+            // outside ~/ShipStudio. `.` canonicalizes to cwd, so this should
+            // fail the security check.
+            let err = validate_project_path(".").expect_err("should reject");
+            assert!(
+                err.contains("Security error") || err.contains("outside ShipStudio"),
+                "unexpected error: {err}"
+            );
+        }
+
+        #[test]
+        fn rejects_nonexistent_path() {
+            let err = validate_project_path("/this/path/definitely/does/not/exist/shipstudio-test")
+                .expect_err("should reject nonexistent");
+            // Either "Invalid path" (from canonicalize) or the security error —
+            // both are acceptable rejection modes.
+            assert!(!err.is_empty(), "empty error for nonexistent path");
+        }
+
+        #[test]
+        fn rejects_path_traversal_attempt() {
+            // ../../etc canonicalizes outside ShipStudio (if it canonicalizes
+            // at all on the test machine), so the validation must reject it.
+            let result = validate_project_path("../../../../../../etc");
+            assert!(
+                result.is_err(),
+                "path traversal outside ShipStudio must be rejected"
+            );
+        }
+
+        #[test]
+        fn rejects_arbitrary_root_path() {
+            let result = validate_project_path("/tmp");
+            assert!(result.is_err(), "/tmp is outside ShipStudio, must reject");
+        }
+
+        #[test]
+        fn accepts_path_inside_shipstudio_root() {
+            // Create a temp project directory inside ~/ShipStudio just for this test.
+            let root = shipstudio_root();
+            if fs::create_dir_all(&root).is_err() {
+                eprintln!("skipping: couldn't create ~/ShipStudio");
+                return;
+            }
+            let test_dir = root.join(".dx-refactor-validate-test");
+            if fs::create_dir_all(&test_dir).is_err() {
+                eprintln!("skipping: couldn't create test dir");
+                return;
+            }
+            let path_str = test_dir.to_string_lossy().to_string();
+            let result = validate_project_path(&path_str);
+            let _ = fs::remove_dir(&test_dir); // best-effort cleanup
+            assert!(
+                result.is_ok(),
+                "path inside ~/ShipStudio should validate, got {result:?}"
+            );
+        }
+
+        #[test]
+        fn empty_path_rejected() {
+            let result = validate_project_path("");
+            assert!(result.is_err(), "empty path must be rejected");
+        }
+    }
 }

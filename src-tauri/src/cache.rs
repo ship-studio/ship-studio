@@ -178,6 +178,68 @@ impl GitCache {
 /// Global git cache instance
 pub static GIT_CACHE: LazyLock<GitCache> = LazyLock::new(GitCache::new);
 
+/// Generic keyed TTL cache. Extracted during Block 11 of the DX refactor so
+/// non-git callers (github username, project type detection, …) don't have to
+/// re-implement the same expiry-check / HashMap / Mutex dance.
+///
+/// Usage:
+/// ```ignore
+/// static FOO_CACHE: LazyLock<TtlCache<String, String>> =
+///     LazyLock::new(|| TtlCache::new(Duration::from_secs(600)));
+/// FOO_CACHE.insert("alice".into(), "value".into());
+/// if let Some(v) = FOO_CACHE.get("alice") { … }
+/// ```
+pub struct TtlCache<K: Eq + std::hash::Hash + Clone, V: Clone> {
+    inner: Mutex<HashMap<K, CacheEntry<V>>>,
+    ttl: Duration,
+}
+
+impl<K: Eq + std::hash::Hash + Clone, V: Clone> TtlCache<K, V> {
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            inner: Mutex::new(HashMap::new()),
+            ttl,
+        }
+    }
+
+    pub fn get<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: std::borrow::Borrow<Q>,
+        Q: std::hash::Hash + Eq + ?Sized,
+    {
+        let cache = self.inner.lock().ok()?;
+        let entry = cache.get(key)?;
+        if entry.is_expired() {
+            None
+        } else {
+            Some(entry.value.clone())
+        }
+    }
+
+    pub fn insert(&self, key: K, value: V) {
+        if let Ok(mut cache) = self.inner.lock() {
+            cache.retain(|_, entry| !entry.is_expired());
+            cache.insert(key, CacheEntry::new(value, self.ttl));
+        }
+    }
+
+    pub fn invalidate<Q>(&self, key: &Q)
+    where
+        K: std::borrow::Borrow<Q>,
+        Q: std::hash::Hash + Eq + ?Sized,
+    {
+        if let Ok(mut cache) = self.inner.lock() {
+            cache.remove(key);
+        }
+    }
+
+    pub fn clear(&self) {
+        if let Ok(mut cache) = self.inner.lock() {
+            cache.clear();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

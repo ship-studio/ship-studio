@@ -33,7 +33,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition:
     background-color 0.15s,
     color 0.15s;
@@ -61,7 +61,7 @@
   color: var(--text-secondary);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -91,7 +91,7 @@
   flex-shrink: 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-muted);
   margin: 0 24px 12px;
   transition: border-color 0.15s;
@@ -147,7 +147,7 @@
   height: 16px;
   border: 2px solid var(--border);
   border-top-color: var(--text-primary);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 0.6s linear infinite;
 }
 
@@ -170,7 +170,7 @@
   color: var(--text-secondary);
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.25);
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 8px 12px;
   margin-bottom: 12px;
 }
@@ -187,7 +187,7 @@
   align-items: flex-start;
   gap: 12px;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
 }
@@ -203,7 +203,7 @@
   pointer-events: none;
   color: var(--text-secondary);
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-secondary);
   font-size: 0;
   line-height: 0;
@@ -314,7 +314,7 @@
 }
 
 .plugin-action-link.plugin-action-danger:hover:not(:disabled) {
-  color: #ef4444;
+  color: var(--error-light);
 }
 
 .plugin-action-status {
@@ -325,7 +325,7 @@
 .plugin-toggle-btn {
   font-size: 11px;
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-secondary);
   color: var(--text-secondary);
@@ -337,8 +337,8 @@
 }
 
 .plugin-toggle-btn.enabled {
-  background: #10b981;
-  border-color: #10b981;
+  background: var(--success);
+  border-color: var(--success);
   color: #fff;
 }
 
@@ -350,10 +350,10 @@
 .plugin-library-install-btn {
   font-size: 11px;
   padding: 3px 14px;
-  border-radius: 4px;
-  border: 1px solid #10b98140;
-  background: #10b98120;
-  color: #10b981;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--success) 40;
+  background: var(--success) 20;
+  color: var(--success);
   cursor: pointer;
   font-weight: 500;
   flex-shrink: 0;
@@ -363,7 +363,7 @@
 }
 
 .plugin-library-install-btn:hover:not(:disabled) {
-  background: #10b98130;
+  background: var(--success) 30;
 }
 
 .plugin-library-install-btn:disabled {
@@ -382,7 +382,7 @@
   font-size: 10px;
   padding: 2px 7px;
   margin-top: 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-muted);
   border: 1px solid var(--border);
@@ -392,7 +392,7 @@
 .plugins-empty-link {
   background: none;
   border: none;
-  color: #10b981;
+  color: var(--success);
   cursor: pointer;
   font-size: inherit;
   padding: 0;
@@ -443,14 +443,14 @@
   font-size: 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   outline: none;
   transition: border-color 0.15s;
 }
 
 .plugins-install-input:focus {
-  border-color: #10b981;
+  border-color: var(--success);
 }
 
 .plugins-install-input::placeholder {
@@ -463,10 +463,10 @@
   padding: 0 16px;
   font-size: 12px;
   font-weight: 500;
-  background: #10b981;
+  background: var(--success);
   color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   white-space: nowrap;
   transition: opacity 0.15s;
@@ -486,10 +486,10 @@
   margin-top: 8px;
   padding: 8px 12px;
   font-size: 12px;
-  color: #ef4444;
-  background: #ef444410;
-  border: 1px solid #ef444430;
-  border-radius: 6px;
+  color: var(--error-light);
+  background: var(--error-light) 10;
+  border: 1px solid var(--error-light) 30;
+  border-radius: var(--radius);
 }
 
 /* Footer */
@@ -515,9 +515,9 @@
   padding: 1px 5px;
   margin-left: 6px;
   border-radius: 3px;
-  background: #f59e0b20;
-  color: #f59e0b;
-  border: 1px solid #f59e0b40;
+  background: var(--warning) 20;
+  color: var(--warning);
+  border: 1px solid var(--warning) 40;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   vertical-align: middle;
@@ -542,10 +542,10 @@
   padding: 10px;
   font-size: 12px;
   font-weight: 500;
-  color: #f59e0b;
+  color: var(--warning);
   background: transparent;
-  border: 1px dashed #f59e0b50;
-  border-radius: 8px;
+  border: 1px dashed var(--warning) 50;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -553,8 +553,8 @@
 }
 
 .plugins-link-dev-btn:hover:not(:disabled) {
-  background: #f59e0b10;
-  border-color: #f59e0b80;
+  background: var(--warning) 10;
+  border-color: var(--warning) 80;
 }
 
 .plugins-link-dev-btn:disabled {
@@ -569,9 +569,9 @@
   justify-content: center;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
-  background: #ef444420;
-  color: #ef4444;
+  border-radius: var(--radius-full);
+  background: var(--error-light) 20;
+  color: var(--error-light);
   font-size: 10px;
   font-weight: 700;
   cursor: help;

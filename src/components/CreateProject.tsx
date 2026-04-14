@@ -16,6 +16,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { trackEvent } from '../lib/analytics';
 import { logger } from '../lib/logger';
 import { UploadIcon } from './icons';
+import { Button } from './primitives/Button';
 import { useProjectCreation, TEMPLATES, STEPS, STATUS_MESSAGES } from '../hooks/useProjectCreation';
 import { TemplateGallery, type CommunityTemplate } from './TemplateGallery';
 
@@ -202,11 +203,13 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
               </p>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {currentStep === 'install' && createdProjectPath && (
-                  <button className="btn-primary" onClick={() => void retryInstall()}>
+                  <Button variant="primary" onClick={() => void retryInstall()}>
                     Retry
-                  </button>
+                  </Button>
                 )}
-                <button onClick={onCancel}>Close</button>
+                <Button variant="secondary" onClick={onCancel}>
+                  Close
+                </Button>
               </div>
             </div>
           )}
@@ -377,12 +380,12 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
           {error && <p className="error">{error}</p>}
 
           <div className="create-actions">
-            <button type="button" onClick={onCancel}>
+            <Button variant="secondary" type="button" onClick={onCancel}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="button"
-              className="btn-primary"
               disabled={
                 downloading ||
                 (activeTab === 'scratch'
@@ -392,7 +395,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
               onClick={() => void handleContinue()}
             >
               {downloading ? 'Downloading...' : 'Continue'}
-            </button>
+            </Button>
           </div>
         </div>
       );
@@ -454,12 +457,12 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
           {error && <p className="error">{error}</p>}
 
           <div className="create-actions">
-            <button type="button" onClick={handleBack}>
+            <Button variant="secondary" type="button" onClick={handleBack}>
               Back
-            </button>
-            <button type="submit" className="btn-primary">
+            </Button>
+            <Button variant="primary" type="submit">
               Create Project
-            </button>
+            </Button>
           </div>
         </form>
       </div>

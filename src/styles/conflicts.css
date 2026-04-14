@@ -15,8 +15,8 @@
   max-height: 85vh;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -44,12 +44,12 @@
   height: 32px;
   border: 3px solid var(--border);
   border-top-color: var(--text-muted);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 1s linear infinite;
 }
 
 .conflict-error {
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 /* Header */
@@ -62,7 +62,7 @@
 }
 
 .conflict-header-icon {
-  color: #f59e0b;
+  color: var(--warning);
   flex-shrink: 0;
   margin-top: 2px;
 }
@@ -91,7 +91,7 @@
   font-family: monospace;
   background: var(--bg-tertiary);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .conflict-progress {
@@ -155,8 +155,8 @@
 }
 
 .conflict-panel-header.theirs {
-  color: #22c55e;
-  border-color: #22c55e;
+  color: var(--success-light);
+  border-color: var(--success-light);
   background: rgba(34, 197, 94, 0.05);
 }
 
@@ -226,7 +226,7 @@
 
 .conflict-btn {
   padding: 10px 20px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -260,8 +260,8 @@
 }
 
 .conflict-btn.theirs {
-  background: #22c55e;
-  border: 1px solid #22c55e;
+  background: var(--success-light);
+  border: 1px solid var(--success-light);
   color: white;
 }
 
@@ -283,7 +283,7 @@
 .conflict-btn.danger-outline {
   background: transparent;
   border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #ef4444;
+  color: var(--error-light);
 }
 
 .conflict-btn.danger-outline:hover:not(:disabled) {
@@ -305,7 +305,7 @@
   padding: 12px 14px;
   background: rgba(59, 130, 246, 0.08);
   border: 1px solid rgba(59, 130, 246, 0.2);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
@@ -371,7 +371,7 @@
   margin-bottom: 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
@@ -404,7 +404,7 @@
   padding: 10px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
   font-size: 11px;
   line-height: 1.5;
@@ -439,7 +439,7 @@
 }
 
 .conflict-diff-label.theirs {
-  color: #22c55e;
+  color: var(--success-light);
 }
 
 .conflict-diff-section pre {
@@ -447,7 +447,7 @@
   padding: 10px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
   font-size: 11px;
   line-height: 1.5;

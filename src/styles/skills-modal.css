@@ -33,7 +33,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition:
     background-color 0.15s,
     color 0.15s;
@@ -61,7 +61,7 @@
   color: var(--text-muted);
   background: transparent;
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -106,7 +106,7 @@
   height: 26px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-muted);
   transition: border-color 0.15s;
 }
@@ -152,7 +152,7 @@
   color: var(--text-muted);
   background: transparent;
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -186,7 +186,7 @@
   padding: 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: border-color 0.15s;
 }
 
@@ -224,7 +224,7 @@
   padding: 2px 6px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -254,7 +254,7 @@
   color: var(--text-muted);
   background: transparent;
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -291,7 +291,7 @@
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   outline: none;
   transition: border-color 0.15s;
 }
@@ -311,7 +311,7 @@
   color: var(--action-text);
   background: var(--action);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -352,7 +352,7 @@
   color: var(--text-muted);
   background: transparent;
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -387,7 +387,7 @@
   padding: 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: border-color 0.15s;
 }
 
@@ -440,7 +440,7 @@
   color: var(--action-text);
   background: var(--action);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -477,7 +477,7 @@
   height: 20px;
   border: 2px solid var(--border);
   border-top-color: var(--accent);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: skills-spin 0.8s linear infinite;
   margin: 0 auto 12px;
 }
@@ -492,7 +492,7 @@
   padding: 12px;
   background: rgba(220, 38, 38, 0.1);
   border: 1px solid rgba(220, 38, 38, 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--error);
   font-size: 13px;
   margin-bottom: 12px;
@@ -543,7 +543,7 @@
   padding: 8px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-family: 'SF Mono', Monaco, monospace;
   font-size: 12px;
   color: var(--text-primary);

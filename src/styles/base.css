@@ -15,21 +15,89 @@
   font-display: block;
 }
 
+/*
+ * ============================================================================
+ * Ship Studio design tokens (single source of truth)
+ * ============================================================================
+ * When editing CSS, ALWAYS prefer these tokens over raw values.
+ * Adding a new color/spacing/radius? Add it here first, then reference it.
+ *
+ * Stable plugin API: --bg-*, --text-*, --accent, --action, --border, --warning,
+ * --success, --error, --font-mono. Renaming any of these is a breaking change.
+ * See CLAUDE.md "Shared CSS Classes" for the related component-level API.
+ * ============================================================================
+ */
 :root {
+  /* Surfaces */
   --bg-primary: #1e1e1e;
   --bg-secondary: #252526;
   --bg-tertiary: #2d2d2d;
+
+  /* Text */
   --text-primary: #cccccc;
   --text-secondary: #9d9d9d;
   --text-muted: #6d6d6d;
+
+  /* Brand / interactive */
   --accent: #ffffff;
   --accent-hover: #e0e0e0;
   --action: #54e36e;
   --action-hover: #45c55d;
   --action-text: #1e1e1e;
+
+  /* Status colors (light variants for tinted backgrounds / pill states) */
   --success: #4ecdc4;
+  --success-light: #22c55e;
+  --warning: #f59e0b;
+  --warning-light: #fbbf24;
   --error: #f44747;
+  --error-light: #ef4444;
+
+  /* Structure */
   --border: #3c3c3c;
+
+  /* Spacing scale (use for padding, margin, gap) */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+
+  /* Border radius scale */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 50%;
+
+  /* Z-index scale (use these — never raw numbers) */
+  --z-dropdown: 100;
+  --z-modal-overlay: 1000;
+  --z-modal: 1001;
+  --z-tooltip: 1100;
+  --z-notification: 1200;
+
+  /* Shadow scale */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
+
+  /* Transition tokens (durations + easing bundled — use as `transition: var(--transition)`) */
+  --transition-fast: 0.1s ease;
+  --transition: 0.15s ease;
+  --transition-slow: 0.3s ease;
+
+  /* Typography */
+  --font-mono: 'JetBrainsMono NF', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+
+/* Common flex centering utility */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 * {
@@ -118,7 +186,7 @@ body.compact-mode-active html {
   height: 32px;
   border: 3px solid var(--border);
   border-top-color: var(--text-muted);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 1s linear infinite;
 }
 
@@ -132,7 +200,7 @@ body.compact-mode-active html {
 button {
   cursor: pointer;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 14px;
   padding: 10px 16px;
   transition:
@@ -188,7 +256,7 @@ button:hover {
   height: 28px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
@@ -211,4 +279,210 @@ button:hover {
 
 .toolbar-icon-btn:hover svg {
   color: var(--text-secondary);
+}
+
+/* ===== Primitive: ModalFrame ===== */
+.modal-frame-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-overlay);
+  padding: var(--spacing-lg);
+}
+
+.modal-frame-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-modal);
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  width: 480px;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-frame-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-frame-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.modal-frame-close {
+  background: transparent;
+  border: none;
+  padding: var(--spacing-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.modal-frame-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* ===== Primitive: Button ===== */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition),
+    opacity var(--transition);
+  white-space: nowrap;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.button--primary {
+  background: var(--action);
+  color: var(--action-text);
+  border-color: var(--action);
+}
+
+.button--primary:hover:not(:disabled) {
+  background: var(--action-hover);
+  border-color: var(--action-hover);
+}
+
+.button--secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.button--secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.button--danger {
+  background: transparent;
+  color: var(--error-light);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.button--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.button--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+
+.button--ghost:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.button--sm {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: 12px;
+}
+
+.button--block {
+  width: 100%;
+}
+
+/* ===== Primitive: EmptyState ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state-icon {
+  color: var(--text-muted);
+}
+
+.empty-state-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.empty-state-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+/* ===== Primitive: Skeleton ===== */
+@keyframes skeleton-pulse {
+  0% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0.5;
+  }
+}
+
+.skeleton {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton--text {
+  height: 12px;
+  width: 100%;
+}
+
+.skeleton--card {
+  height: 96px;
+  width: 100%;
+  border-radius: var(--radius-md);
+}
+
+.skeleton--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-md);
 }

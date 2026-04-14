@@ -26,7 +26,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -57,7 +57,7 @@
   padding: 6px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 12px;
   font-family: monospace;
@@ -96,7 +96,7 @@
   padding: 6px 10px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 12px;
   font-family: monospace;
@@ -112,7 +112,7 @@
   padding: 6px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
   display: flex;
@@ -153,7 +153,7 @@
   padding: 8px 10px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
   font-family: monospace;
@@ -174,7 +174,7 @@
   padding: 8px 10px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
   font-family: monospace;
@@ -191,7 +191,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -209,7 +209,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -243,7 +243,7 @@
   padding: 8px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -262,7 +262,7 @@
   padding: 8px 16px;
   background: var(--accent);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: #1e1e1e;
   font-size: 13px;
   font-weight: 600;
@@ -287,7 +287,7 @@
   padding: 8px 12px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
@@ -327,7 +327,7 @@
   justify-content: center;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   font-family: monospace;
   font-size: 28px;
   font-weight: 600;
@@ -353,7 +353,7 @@
   padding: 10px 20px;
   background: var(--accent);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: #1e1e1e;
   font-size: 13px;
   font-weight: 600;
@@ -379,7 +379,7 @@
   font-size: 13px;
   padding: 8px 12px;
   background: rgba(244, 71, 71, 0.1);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 /* Env Button in Header */
@@ -392,7 +392,7 @@
   padding: 12px;
   background: rgba(251, 191, 36, 0.1);
   border: 1px solid rgba(251, 191, 36, 0.3);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .env-sync-item {
@@ -406,7 +406,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #fbbf24;
+  color: var(--warning-light);
   font-size: 13px;
 }
 
@@ -418,8 +418,8 @@
   padding: 6px 12px;
   background: rgba(251, 191, 36, 0.2);
   border: 1px solid rgba(251, 191, 36, 0.4);
-  border-radius: 6px;
-  color: #fbbf24;
+  border-radius: var(--radius);
+  color: var(--warning-light);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -432,7 +432,7 @@
 
 .env-sync-btn:hover {
   background: rgba(251, 191, 36, 0.3);
-  border-color: #fbbf24;
+  border-color: var(--warning-light);
 }
 
 /* Paste .env Button */
@@ -443,7 +443,7 @@
   padding: 8px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -471,13 +471,13 @@
   align-items: center;
   justify-content: center;
   z-index: 10;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 .env-paste-modal {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 20px;
   width: 90%;
   max-width: 480px;
@@ -511,7 +511,7 @@
   padding: 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 13px;
   font-family: monospace;
@@ -540,7 +540,7 @@
   padding: 8px 16px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -559,7 +559,7 @@
   padding: 8px 16px;
   background: var(--accent);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: #1e1e1e;
   font-size: 13px;
   font-weight: 600;

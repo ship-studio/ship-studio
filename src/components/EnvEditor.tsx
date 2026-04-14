@@ -14,20 +14,19 @@
  */
 
 import { useEnvEditor } from '../hooks/useEnvEditor';
+import { useOptionalToast } from '../contexts/ToastContext';
+import { useModal } from '../contexts/ModalContext';
 
 /** Props for the EnvEditor component */
 interface EnvEditorProps {
   /** Absolute path to the project directory */
   projectPath: string;
-  /** Whether the editor modal is open */
-  isOpen: boolean;
-  /** Callback to close the editor */
-  onClose: () => void;
-  /** Optional callback to show toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
-export function EnvEditor({ projectPath, isOpen, onClose, onToast }: EnvEditorProps) {
+export function EnvEditor({ projectPath }: EnvEditorProps) {
+  const { isOpen, close: onClose } = useModal('envEditor');
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const {
     envFiles,
     selectedFile,

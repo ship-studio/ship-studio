@@ -8,19 +8,19 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CloseIcon } from './icons';
 import { listAgentSkills, AgentSkill } from '../lib/claude';
 import { trackEvent } from '../lib/analytics';
 import { logger } from '../lib/logger';
+import { ModalFrame } from './primitives/ModalFrame';
+import { useModal } from '../contexts/ModalContext';
 
 interface HelpModalProps {
-  isOpen: boolean;
-  onClose: () => void;
   /** Optional project path to include project-level skills */
   projectPath?: string;
 }
 
-export function HelpModal({ isOpen, onClose, projectPath }: HelpModalProps) {
+export function HelpModal({ projectPath }: HelpModalProps) {
+  const { isOpen, close: onClose } = useModal('help');
   const [skills, setSkills] = useState<AgentSkill[]>([]);
   const [isLoadingSkills, setIsLoadingSkills] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
@@ -36,20 +36,6 @@ export function HelpModal({ isOpen, onClose, projectPath }: HelpModalProps) {
       return next;
     });
   };
-
-  // Handle Escape key to close
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
 
   // Fetch skills when modal opens
   useEffect(() => {
@@ -81,21 +67,12 @@ export function HelpModal({ isOpen, onClose, projectPath }: HelpModalProps) {
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const userSkills = skills.filter((s) => s.scope === 'user');
   const projectSkills = skills.filter((s) => s.scope === 'project');
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal help-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="help-modal-header">
-          <h3>Help & Commands</h3>
-          <button className="help-close-btn" onClick={onClose}>
-            <CloseIcon size={16} />
-          </button>
-        </div>
-
+    <ModalFrame isOpen={isOpen} onClose={onClose} title="Help & Commands" className="help-modal">
+      <>
         <div className="help-modal-body">
           {/* Custom Skills Section - shown first if user has any */}
           {skills.length > 0 && (
@@ -320,7 +297,7 @@ export function HelpModal({ isOpen, onClose, projectPath }: HelpModalProps) {
             Press <span className="help-shortcut">Esc</span> to close
           </span>
         </div>
-      </div>
-    </div>
+      </>
+    </ModalFrame>
   );
 }

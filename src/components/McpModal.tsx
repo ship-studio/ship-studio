@@ -9,18 +9,18 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { CloseIcon, SearchIcon } from './icons';
+import { SearchIcon } from './icons';
+import { ModalFrame } from './primitives/ModalFrame';
 import { type McpServer, listMcpServers, addMcpServer, removeMcpServer } from '../lib/mcp';
 import { trackEvent, trackSearch } from '../lib/analytics';
 import { logger } from '../lib/logger';
+import { useModal } from '../contexts/ModalContext';
 
 type Tab = 'connected' | 'add';
 type ScopeFilter = 'all' | 'user' | 'project';
 type AddScope = 'user' | 'project';
 
 interface McpModalProps {
-  isOpen: boolean;
-  onClose: () => void;
   projectPath?: string;
   agentId?: string;
   agentDisplayName?: string;
@@ -28,13 +28,12 @@ interface McpModalProps {
 }
 
 export function McpModal({
-  isOpen,
-  onClose,
   projectPath,
   agentId,
   agentDisplayName = 'Claude',
   agentBinaryName = 'claude',
 }: McpModalProps) {
+  const { isOpen, close: onClose } = useModal('mcp');
   const [activeTab, setActiveTab] = useState<Tab>('connected');
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
   const [servers, setServers] = useState<McpServer[]>([]);
@@ -64,20 +63,6 @@ export function McpModal({
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [addSuccess, setAddSuccess] = useState(false);
-
-  // Handle Escape key to close
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
 
   // Fetch servers when modal opens
   const fetchServers = useCallback(async () => {
@@ -176,18 +161,14 @@ export function McpModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal mcp-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="mcp-modal-header">
-          <h3>MCP Servers for {agentDisplayName}</h3>
-          <button className="mcp-close-btn" onClick={onClose}>
-            <CloseIcon size={16} />
-          </button>
-        </div>
-
+    <ModalFrame
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`MCP Servers for ${agentDisplayName}`}
+      className="mcp-modal"
+    >
+      <>
         <div className="mcp-tabs">
           <button
             className={`mcp-tab ${activeTab === 'connected' ? 'active' : ''}`}
@@ -368,7 +349,7 @@ export function McpModal({
             Press <span className="help-shortcut">Esc</span> to close
           </span>
         </div>
-      </div>
-    </div>
+      </>
+    </ModalFrame>
   );
 }

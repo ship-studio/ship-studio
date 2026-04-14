@@ -12,6 +12,8 @@
  */
 
 /** Represents a CLI tool prerequisite and its availability */
+import { Button } from './primitives/Button';
+
 interface Prerequisite {
   name: string;
   available: boolean;
@@ -85,9 +87,9 @@ export function SetupScreen({ prerequisites, onRetry }: SetupScreenProps) {
       {missing.length > 0 && (
         <div className="setup-actions">
           <p>Install the missing tools above, then click retry.</p>
-          <button className="btn-primary" onClick={onRetry}>
+          <Button variant="primary" onClick={onRetry}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
     </div>

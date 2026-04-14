@@ -47,6 +47,10 @@ import { Project } from './lib/project';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
 import { initDefaultAgent } from './lib/agent';
 import { UpdateBanner } from './components/UpdateBanner';
+import { ModalFrame } from './components/primitives/ModalFrame';
+import { Button } from './components/primitives/Button';
+import { ToastContext } from './contexts/ToastContext';
+import { ModalProvider, useModal } from './contexts/ModalContext';
 import { SuccessIcon, InfoIcon, CloseIcon } from './components/icons';
 import { logger } from './lib/logger';
 import { trackEvent } from './lib/analytics';
@@ -65,7 +69,20 @@ interface AppProps {
   initialProjectPath?: string | null;
 }
 
+/**
+ * Top-level wrapper. Hosts the Toast and Modal providers so every view
+ * (loading, onboarding, projects, workspace) can call `useToast` / `useModal`
+ * without crashing. The actual app body lives in `AppContents`.
+ */
 function App({ initialProjectPath }: AppProps) {
+  return (
+    <ModalProvider>
+      <AppContents initialProjectPath={initialProjectPath} />
+    </ModalProvider>
+  );
+}
+
+function AppContents({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
@@ -224,39 +241,14 @@ function App({ initialProjectPath }: AppProps) {
     installSuggestedPlugin,
   } = usePluginState();
 
-  // Workspace modal visibility state
-  const {
-    showEnvEditor,
-    openEnvEditor,
-    closeEnvEditor,
-    showBackupsModal,
-    openBackupsModal,
-    closeBackupsModal,
-    showAssetsPanel,
-    openAssetsPanel,
-    closeAssetsPanel,
-    isEducationMode,
-    setIsEducationMode,
-    closeEducation,
-    showHelpModal,
-    openHelpModal,
-    closeHelpModal,
-    showSkillsModal,
-    openSkillsModal,
-    closeSkillsModal,
-    showMcpModal,
-    openMcpModal,
-    closeMcpModal,
-    showPluginManager,
-    openPluginManager,
-    closePluginManager,
-    showDevCommandModal,
-    openDevCommandModal,
-    closeDevCommandModal,
-    showProjectSettings,
-    openProjectSettings,
-    closeProjectSettings,
-  } = useWorkspaceModals({ focusActiveTerminal });
+  // Education-mode toggle state (the rest of the modal state lives in ModalContext)
+  const { isEducationMode, setIsEducationMode, closeEducation } = useWorkspaceModals({
+    focusActiveTerminal,
+  });
+
+  // Modal openers from context. App is now wrapped in ModalProvider so this works
+  // even on non-workspace views (loading / onboarding / projects).
+  const helpModal = useModal('help');
 
   // Toast notifications
   const { toasts, showToast, dismissToast } = useToasts();
@@ -366,14 +358,15 @@ function App({ initialProjectPath }: AppProps) {
       try {
         await invoke('set_dev_server_port', { projectPath: currentProject.path, port: newPort });
         setDevServerPort(newPort);
-        closeProjectSettings();
+        // ProjectSettingsModal closes itself via useModal('projectSettings').close()
+        // when its save handler returns successfully.
         await restartDevServer(currentProject.path, newPort);
         showToast('Port updated and server restarted', 'success');
       } catch {
         showToast('Failed to save port setting', 'error');
       }
     },
-    [currentProject, restartDevServer, showToast, closeProjectSettings, setDevServerPort]
+    [currentProject, restartDevServer, showToast, setDevServerPort]
   );
 
   // Wrapper for compact mode that also clears education mode (UI state stays in App)
@@ -393,7 +386,7 @@ function App({ initialProjectPath }: AppProps) {
     refreshAllCliStatuses,
     setProjectGitHubStatus,
     fetchBranchInfo,
-    openHelpModal,
+    openHelpModal: helpModal.open,
   });
 
   // Plugin data for PluginSlot components (defined before early returns so all views can use them)
@@ -653,69 +646,11 @@ function App({ initialProjectPath }: AppProps) {
 
   const modalsProps = useMemo(
     () => ({
-      showEnvEditor,
-      openEnvEditor,
-      closeEnvEditor,
-      showBackupsModal,
-      openBackupsModal,
-      closeBackupsModal,
-      showAssetsPanel,
-      openAssetsPanel,
-      closeAssetsPanel,
       isEducationMode,
       setIsEducationMode,
       closeEducation,
-      showHelpModal,
-      openHelpModal,
-      closeHelpModal,
-      showSkillsModal,
-      openSkillsModal,
-      closeSkillsModal,
-      showMcpModal,
-      openMcpModal,
-      closeMcpModal,
-      showPluginManager,
-      openPluginManager,
-      closePluginManager,
-      showDevCommandModal,
-      openDevCommandModal,
-      closeDevCommandModal,
-      showProjectSettings,
-      openProjectSettings,
-      closeProjectSettings,
     }),
-    [
-      showEnvEditor,
-      openEnvEditor,
-      closeEnvEditor,
-      showBackupsModal,
-      openBackupsModal,
-      closeBackupsModal,
-      showAssetsPanel,
-      openAssetsPanel,
-      closeAssetsPanel,
-      isEducationMode,
-      setIsEducationMode,
-      closeEducation,
-      showHelpModal,
-      openHelpModal,
-      closeHelpModal,
-      showSkillsModal,
-      openSkillsModal,
-      closeSkillsModal,
-      showMcpModal,
-      openMcpModal,
-      closeMcpModal,
-      showPluginManager,
-      openPluginManager,
-      closePluginManager,
-      showDevCommandModal,
-      openDevCommandModal,
-      closeDevCommandModal,
-      showProjectSettings,
-      openProjectSettings,
-      closeProjectSettings,
-    ]
+    [isEducationMode, setIsEducationMode, closeEducation]
   );
 
   const toastsProps = useMemo(
@@ -860,26 +795,28 @@ function App({ initialProjectPath }: AppProps) {
   );
 
   const quitConfirmModal = showQuitConfirm && (
-    <div
-      className="modal-overlay"
-      onClick={() => setShowQuitConfirm(false)}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') setShowQuitConfirm(false);
-        if (e.key === 'Enter') void exit(0);
-      }}
+    <ModalFrame
+      isOpen
+      onClose={() => setShowQuitConfirm(false)}
+      showCloseButton={false}
+      className="quit-confirm-modal"
     >
-      <div className="quit-confirm-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void exit(0);
+        }}
+      >
         <p>Are you sure you want to quit Ship Studio?</p>
         <div className="quit-confirm-actions">
-          <button className="btn-secondary" onClick={() => setShowQuitConfirm(false)}>
+          <Button variant="secondary" onClick={() => setShowQuitConfirm(false)}>
             Cancel
-          </button>
-          <button className="btn-primary quit-confirm-btn" onClick={() => void exit(0)} autoFocus>
+          </Button>
+          <Button variant="primary" onClick={() => void exit(0)} autoFocus>
             Quit
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 
   if (view === 'loading') {
@@ -990,7 +927,7 @@ function App({ initialProjectPath }: AppProps) {
     );
   }
   return (
-    <>
+    <ToastContext.Provider value={toastsProps}>
       <WorkspaceView
         currentProject={currentProject}
         previewRef={previewRef}
@@ -1012,7 +949,7 @@ function App({ initialProjectPath }: AppProps) {
         handleEnterCompactMode={handleEnterCompactMode}
       />
       {quitConfirmModal}
-    </>
+    </ToastContext.Provider>
   );
 }
 

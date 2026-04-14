@@ -26,7 +26,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -53,7 +53,7 @@
   padding: 8px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .assets-search:focus-within {
@@ -84,7 +84,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -102,7 +102,7 @@
   gap: 2px;
   padding: 8px 12px;
   background: var(--bg-tertiary);
-  border-radius: 6px;
+  border-radius: var(--radius);
   overflow-x: auto;
 }
 
@@ -120,7 +120,7 @@
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition:
     background-color 0.15s,
     color 0.15s,
@@ -151,7 +151,7 @@
   padding: 8px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -180,7 +180,7 @@
   display: flex;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
@@ -217,7 +217,7 @@
   padding: 8px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .assets-new-folder svg {
@@ -230,7 +230,7 @@
   padding: 4px 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
 }
@@ -251,7 +251,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -275,7 +275,7 @@
   overflow-y: auto;
   background: var(--bg-tertiary);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   position: relative;
 }
 
@@ -316,10 +316,10 @@
   font-size: 14px;
 }
 
-.assets-empty-hint {
-  color: var(--text-muted) !important;
-  font-size: 13px !important;
-  margin-top: 4px !important;
+.assets-empty p.assets-empty-hint {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 4px;
 }
 
 /* Assets list */
@@ -368,7 +368,7 @@
 .assets-item-thumbnail {
   width: 32px;
   height: 32px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
   background: var(--bg-secondary);
   flex-shrink: 0;
@@ -381,7 +381,7 @@
   align-items: center;
   justify-content: center;
   background: var(--bg-secondary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   flex-shrink: 0;
 }
@@ -413,7 +413,7 @@
   padding: 4px 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
 }
@@ -441,7 +441,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -462,7 +462,7 @@
   inset: 0;
   background: rgba(var(--accent-rgb, 34, 197, 94), 0.1);
   border: 2px dashed var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -484,7 +484,7 @@
   font-size: 13px;
   padding: 8px 12px;
   background: rgba(244, 71, 71, 0.1);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 /* Assets Button in Header */
@@ -503,7 +503,7 @@
   align-items: center;
   padding: 12px 8px 8px;
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: default;
   transition:
     background-color 0.15s,
@@ -527,7 +527,7 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 8px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--bg-tertiary);
 }
@@ -587,7 +587,7 @@
 .assets-grid-actions .assets-action-btn {
   padding: 4px;
   background: var(--bg-primary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .assets-grid-actions .assets-action-btn:hover {
@@ -596,7 +596,7 @@
 
 /* Delete button armed state (ready to confirm) */
 .assets-action-btn.assets-action-delete.armed {
-  background: #ef4444;
+  background: var(--error-light);
   color: white;
 }
 

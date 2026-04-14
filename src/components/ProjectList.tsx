@@ -44,6 +44,9 @@ import { ProjectCard } from './ProjectCard';
 import { FolderCard } from './FolderCard';
 import { IntegrationBar } from './IntegrationBar';
 import { NewFolderModal } from './NewFolderModal';
+import { Button } from './primitives/Button';
+import { EmptyState } from './primitives/EmptyState';
+import { FolderBreadcrumb } from './FolderBreadcrumb';
 import { MoveFolderModal } from './MoveFolderModal';
 import { SettingsModal } from './SettingsModal';
 import { GitHubCalendar } from './GitHubCalendar';
@@ -56,7 +59,6 @@ import {
 import {
   ChevronIcon,
   CheckIcon,
-  ArrowLeftIcon,
   SlackIcon,
   FolderPlusIcon,
   SettingsIcon,
@@ -528,14 +530,10 @@ export function ProjectList({
 
         {/* Folder breadcrumb when inside a folder */}
         {currentFolderId && currentFolder && (
-          <div className="folder-breadcrumb">
-            <button className="folder-breadcrumb-back" onClick={() => setCurrentFolderId(null)}>
-              <ArrowLeftIcon size={14} />
-              All Projects
-            </button>
-            <span className="folder-breadcrumb-separator">/</span>
-            <span className="folder-breadcrumb-current">{currentFolder.name}</span>
-          </div>
+          <FolderBreadcrumb
+            folderName={currentFolder.name}
+            onBack={() => setCurrentFolderId(null)}
+          />
         )}
 
         <div className="dashboard-section-header">
@@ -569,37 +567,36 @@ export function ProjectList({
                 </div>
               )}
             </div>
-            <button
-              className="btn-secondary btn-icon"
+            <Button
+              variant="secondary"
+              size="sm"
               data-education-id="new-folder-button"
               onClick={() => {
                 void trackEvent('new_folder_clicked', { $screen_name: 'Dashboard' });
                 setShowNewFolderModal(true);
               }}
               title="New Folder"
+              aria-label="New Folder"
             >
               <FolderPlusIcon size={14} />
-            </button>
+            </Button>
           </div>
         </div>
 
         {totalCount === 0 ? (
           <div className="project-list-empty">
             {searchQuery ? (
-              <>
-                <p>No items found</p>
-                <p className="hint">Try a different search term</p>
-              </>
+              <EmptyState title="No items found" description="Try a different search term" />
             ) : currentFolderId ? (
-              <>
-                <p>This folder is empty</p>
-                <p className="hint">Move projects here or create a new project</p>
-              </>
+              <EmptyState
+                title="This folder is empty"
+                description="Move projects here or create a new project"
+              />
             ) : (
-              <>
-                <p>No projects yet</p>
-                <p className="hint">Create your first project to get started</p>
-              </>
+              <EmptyState
+                title="No projects yet"
+                description="Create your first project to get started"
+              />
             )}
           </div>
         ) : (

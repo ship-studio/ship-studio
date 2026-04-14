@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { detectClientEditor } from '../lib/client-editor';
 import { UsersIcon } from './icons';
+import { Button } from './primitives/Button';
 
 const DASHBOARD_URL = 'https://www.ship.studio/dashboard/projects';
 
@@ -74,10 +75,12 @@ export function ClientEditorButton({ projectPath }: ClientEditorButtonProps) {
                   but this may change in the future.
                 </p>
                 <div className="modal-actions">
-                  <button onClick={() => setShowModal(false)}>Close</button>
-                  <button className="btn-primary" onClick={() => setStep(1)}>
+                  <Button variant="secondary" onClick={() => setShowModal(false)}>
+                    Close
+                  </Button>
+                  <Button variant="primary" onClick={() => setStep(1)}>
                     Continue
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
@@ -117,16 +120,18 @@ export function ClientEditorButton({ projectPath }: ClientEditorButtonProps) {
                   </div>
                 </div>
                 <div className="modal-actions">
-                  <button onClick={() => setStep(0)}>Back</button>
-                  <button
-                    className="btn-primary"
+                  <Button variant="secondary" onClick={() => setStep(0)}>
+                    Back
+                  </Button>
+                  <Button
+                    variant="primary"
                     onClick={() => {
                       setShowModal(false);
                       void openUrl(DASHBOARD_URL);
                     }}
                   >
                     Get Started
-                  </button>
+                  </Button>
                 </div>
               </>
             )}

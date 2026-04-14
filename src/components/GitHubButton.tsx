@@ -16,6 +16,8 @@ import { useState, useEffect, useRef } from 'react';
 import { GitHubState } from '../hooks/useIntegrationStatus';
 import { ProjectGitHubStatus, pushToGitHub, getGitHubOrgs } from '../lib/github';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { Button } from './primitives/Button';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 /** Props for the GitHubButton component */
 interface GitHubButtonProps {
@@ -33,8 +35,6 @@ interface GitHubButtonProps {
   onGitHubConnect: () => void;
   /** Optional callback when modal is closed */
   onModalClose?: () => void;
-  /** Optional callback to show toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 export function GitHubButton({
@@ -45,8 +45,9 @@ export function GitHubButton({
   onStatusChange,
   onGitHubConnect,
   onModalClose,
-  onToast,
 }: GitHubButtonProps) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [repoName, setRepoName] = useState(projectName);
   const [isPrivate, setIsPrivate] = useState(true);
@@ -242,7 +243,8 @@ export function GitHubButton({
             </div>
 
             <div className="modal-actions">
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setShowCreateModal(false);
                   onModalClose?.();
@@ -250,9 +252,9 @@ export function GitHubButton({
                 disabled={isLoading}
               >
                 Cancel
-              </button>
-              <button
-                className="btn-primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => {
                   if (!repoName.trim()) return;
 
@@ -295,7 +297,7 @@ export function GitHubButton({
                 disabled={isLoading || !repoName.trim()}
               >
                 {isLoading ? 'Creating...' : 'Create Repository'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -70,6 +70,13 @@ $(echo -e "$NOTES_SECTION" | sed 's/$/\\/' | sed '$ s/\\$//')
 " RELEASE_NOTES.md
 fi
 
+# Check Changelog.tsx has been updated for this version (displayed on dashboard sidebar)
+if ! grep -q "v${NEW_VERSION}" src/components/Changelog.tsx; then
+  echo "Error: src/components/Changelog.tsx has no entry for v${NEW_VERSION}."
+  echo "Update the changelog data before releasing — it drives the dashboard 'What's New' panel."
+  exit 1
+fi
+
 # Check RELEASE_NOTES.md has been updated
 if ! grep -q "## What's New in v${NEW_VERSION}" RELEASE_NOTES.md; then
   echo "Error: RELEASE_NOTES.md doesn't have a section for v${NEW_VERSION}."

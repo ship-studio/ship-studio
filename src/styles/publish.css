@@ -11,7 +11,7 @@
   height: 28px;
   background: var(--action);
   border: 1px solid var(--action-hover);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--action-text);
   font-size: 12px;
   font-weight: 500;
@@ -71,8 +71,8 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-modal-overlay);
   overflow: hidden;
 }
 
@@ -91,7 +91,7 @@
   height: 16px;
   border: 2px solid var(--border);
   border-top-color: var(--text-muted);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   animation: spin 1s linear infinite;
 }
 
@@ -122,7 +122,7 @@
   width: 16px;
   height: 16px;
   border: 2px solid var(--text-muted);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   cursor: pointer;
   position: relative;
@@ -160,7 +160,7 @@
   font-size: 11px;
   padding: 2px 6px;
   background: var(--bg-tertiary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
 }
 
@@ -184,7 +184,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -220,7 +220,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -244,7 +244,7 @@
 }
 
 .deployment-state.state-building {
-  color: var(--warning-color, #f59e0b);
+  color: var(--warning);
 }
 
 .deployment-state.state-queued {
@@ -333,7 +333,7 @@
   padding: 8px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -352,7 +352,7 @@
   padding: 8px 16px;
   background: var(--action);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--action-text);
   font-size: 13px;
   font-weight: 500;
@@ -481,7 +481,7 @@
   padding: 4px 10px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 500;
@@ -506,7 +506,7 @@
   padding: 10px 16px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
@@ -548,7 +548,7 @@
   padding: 10px 24px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
@@ -609,7 +609,7 @@
   padding: 8px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 12px;
   cursor: pointer;
@@ -626,17 +626,6 @@
 .publish-reset-options button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.publish-reset-cancel {
-  background: transparent !important;
-  border-color: transparent !important;
-  color: var(--text-muted) !important;
-}
-
-.publish-reset-cancel:hover:not(:disabled) {
-  color: var(--text-secondary) !important;
-  background: transparent !important;
 }
 
 /* Live Sites Section */
@@ -663,7 +652,7 @@
   padding: 8px 10px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -696,7 +685,7 @@
   text-transform: uppercase;
   letter-spacing: 0.3px;
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -746,7 +735,7 @@
   padding: 8px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
@@ -793,7 +782,7 @@
   background: rgba(220, 38, 38, 0.05);
   margin: 0 16px 16px;
   padding: 12px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-family: monospace;
   word-break: break-word;
 }
@@ -855,7 +844,7 @@
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius);
   transition:
     background-color 0.15s,
     color 0.15s,
@@ -887,7 +876,7 @@
   padding: 12px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   font-size: 13px;
   color: var(--text-primary);
@@ -898,11 +887,11 @@
 }
 
 .toast.toast-success .toast-icon {
-  color: #22c55e;
+  color: var(--success-light);
 }
 
 .toast.toast-error .toast-icon {
-  color: #ef4444;
+  color: var(--error-light);
 }
 
 .toast-icon {
@@ -923,7 +912,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .toast-close:hover {
@@ -958,7 +947,7 @@
   padding-right: 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   cursor: pointer;
   z-index: 10001;
@@ -981,7 +970,7 @@
 .screenshot-toast-thumbnail {
   width: 80px;
   height: 60px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg-tertiary);
   flex-shrink: 0;
@@ -1025,7 +1014,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   margin-left: 4px;
 }
 
@@ -1060,7 +1049,7 @@
   max-height: 90vh;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
 }
@@ -1086,7 +1075,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .screenshot-preview-close:hover {
@@ -1108,7 +1097,7 @@
   max-width: 100%;
   max-height: calc(90vh - 120px);
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 

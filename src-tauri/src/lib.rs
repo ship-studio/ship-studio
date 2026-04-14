@@ -13,6 +13,8 @@
 pub mod agent;
 pub mod cache;
 pub mod commands;
+pub mod errors;
+pub mod external_command;
 pub mod logging;
 pub mod proxy;
 pub mod state;

@@ -45,7 +45,7 @@
   background: none;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .code-tab-refresh-btn:hover {
@@ -61,7 +61,7 @@
   padding: 0 8px;
   height: 28px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-primary);
   color: var(--text-muted);
   flex-shrink: 0;
@@ -114,7 +114,7 @@
 .code-tab-retry-btn {
   padding: 4px 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   font-size: 12px;
@@ -261,7 +261,7 @@
   gap: 4px;
   padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-tertiary);
   color: var(--text-muted);
   font-size: 11px;
@@ -417,14 +417,14 @@
 /* Selection Popover */
 .code-selection-popover {
   position: fixed;
-  z-index: 100;
+  z-index: var(--z-dropdown);
   width: 320px;
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
@@ -502,7 +502,7 @@
 .code-selection-cancel {
   padding: 4px 10px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--text-muted);
   font-size: 12px;
@@ -520,7 +520,7 @@
   gap: 5px;
   padding: 4px 12px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--action);
   color: var(--action-text);
   font-size: 12px;

@@ -50,7 +50,7 @@
 .import-owner-avatar {
   width: 36px;
   height: 36px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   display: flex;
   align-items: center;
@@ -62,7 +62,7 @@
 }
 
 .import-owner-avatar.org {
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
 }
 
@@ -98,7 +98,7 @@
   padding: 10px 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 14px;
   transition:
@@ -138,7 +138,7 @@
   padding: 10px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -173,7 +173,7 @@
 .import-repo-badge {
   font-size: 10px;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-weight: 500;
 }
 

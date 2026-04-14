@@ -2,7 +2,7 @@
 .settings-modal {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   width: 420px;
   max-width: 90vw;
   max-height: 80vh;
@@ -96,7 +96,7 @@
   display: block;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--text-muted);
   position: absolute;
   top: 1px;
