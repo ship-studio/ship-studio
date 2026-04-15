@@ -103,6 +103,71 @@ views over `PROJECT_SESSIONS`. The existing PTY registry in
 
 ---
 
+## Status (2026-04-14)
+
+**Shipped on this branch:** Phases 1, 2a–2c, and 3. The rail UI, pinning,
+persistence, and drag-to-reorder all work. Switching between pinned
+projects still cold-starts (same behavior as pre-rail); pins are
+effectively a quick-switcher, not background sessions.
+
+**Reverted:** Phase 2d (commit `deb80e9`, reverted in `2565693`).
+
+### Why Phase 2d was reverted
+
+Phase 2d tried to land "keep pinned session alive" by parking xterm +
+PTY slots in the registry when the Terminal component unmounts, and
+reattaching on remount. It did that part correctly. But three surrounding
+singletons still tore the session down every switch, and the combined
+pressure crashed the WebKit network process:
+
+1. **Port collision.** Two projects both want port 3000.
+   `handleSelectProject` calls `kill_port(reservedPort)` unconditionally
+   at [useProjectLifecycle.ts:418-421](src/hooks/useProjectLifecycle.ts#L418-L421)
+   on the newly-reserved port. Even with step 2's `kill_port` skipped
+   for pinned projects, step 4 still nukes whatever's on the new port —
+   which is the old project's dev server, still listening on 3000.
+2. **Shared `devServerRef`.** [useProjectLifecycle.ts](src/hooks/useProjectLifecycle.ts)
+   holds a single `RefObject<DevServerHandle | null>`. Opening the
+   second project overwrites the ref, so even if the OS process
+   survives briefly, there's no handle to reach it. "Keep it alive"
+   was only ever true for the Claude PTY; dev server was always lost.
+3. **Preview proxy tears down unconditionally.** [usePreviewConnection.ts:203-207](src/hooks/usePreviewConnection.ts#L203-L207)
+   calls `stop_preview_proxy` in its effect cleanup whenever the hook
+   unmounts. There's no pinned-state check, so the old project's
+   preview proxy always dies.
+4. **WebKit network process crash.** Resource accumulation from (1)+(2)+(3)
+   plus the still-alive parked PTY caused the WebKit network process
+   to crash, which full-page-reloads the app and wipes the
+   (in-memory, module-level) registry — kicking the user back to the
+   projects view with no visible sessions.
+
+### What the rewrite needs
+
+Phase 2d is not "one more commit." The three shared singletons all
+need to move into `SessionRegistry` keyed by `projectPath` before the
+"keep alive" promise can be honored:
+
+- **Per-project dev server handles.** A `Map<projectPath, DevServerHandle>`
+  in the registry, not a single ref in the lifecycle hook.
+- **Per-project port reservations that persist across switches.** Each
+  pinned project owns a port for its lifetime. `findAndReservePort`
+  must check the registry first and reuse an existing reservation, not
+  release-then-reacquire. `kill_port` must never run against a port
+  that belongs to a still-pinned project.
+- **Lifted `<Preview>` that renders N instances.** One per pinned
+  project, with inactive ones at `display:none`. Preview proxies
+  torn down only on unpin, not on switch.
+- **Resource ceiling.** 5 sessions worked in our earlier manual test,
+  but this branch showed WebKit's network process has a real limit.
+  The hard cap in Phase 5 needs to be validated under the full
+  "3 dev servers + 3 PTYs + 3 iframes" pressure, not just the claude
+  PTY count.
+
+Ship these four together or not at all. Shipping any subset recreates
+the 2d failure mode.
+
+---
+
 ## Phases
 
 Work is ordered so each phase merges independently and doesn't break
