@@ -377,11 +377,12 @@ function AppContents({ initialProjectPath }: AppProps) {
     await enterCompactMode();
   };
 
-  const { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin } = useProjectRail({
-    currentProjectPath: currentProject?.path ?? null,
-    handleSelectProject,
-    showToast,
-  });
+  const { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin, handleAddProject } =
+    useProjectRail({
+      currentProjectPath: currentProject?.path ?? null,
+      handleSelectProject,
+      showToast,
+    });
 
   // App setup, onboarding, HMR recovery, auto-open, keyboard shortcuts
   const { projectsLoading, setProjectsLoading } = useAppSetup({
@@ -872,6 +873,7 @@ function AppContents({ initialProjectPath }: AppProps) {
               onPinClick={handleRailClick}
               onUnpin={handleRailUnpin}
               onReorder={(orderedPaths) => void pinnedProjects.reorder(orderedPaths)}
+              onAddProject={handleAddProject}
             />
           )}
           <ProjectsView
@@ -954,6 +956,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         onPinClick={handleRailClick}
         onUnpin={handleRailUnpin}
         onReorder={(orderedPaths) => void pinnedProjects.reorder(orderedPaths)}
+        onAddProject={handleAddProject}
       />
     ) : null;
 

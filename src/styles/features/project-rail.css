@@ -16,7 +16,6 @@
   align-items: center;
   padding: var(--spacing-sm) 0;
   user-select: none;
-  overflow-y: auto;
 }
 
 /* On the projects view the rail starts at the top of the window (no
@@ -258,6 +257,91 @@ body.rail-drag-active iframe {
 .project-rail-menu-item.danger:hover {
   background: var(--error);
   color: #ffffff;
+}
+
+/* "+" button — last item in the rail list. */
+.project-rail-add {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  border: 2px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  font-weight: 300;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.project-rail-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Project picker popover — positioned by JS via style prop. */
+.project-rail-picker {
+  position: fixed;
+  width: 220px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-tooltip);
+  overflow: hidden;
+}
+
+.project-rail-picker-search {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.project-rail-picker-search::placeholder {
+  color: var(--text-muted);
+}
+
+.project-rail-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--spacing-xs);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.project-rail-picker-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-rail-picker-item:hover {
+  background: var(--bg-primary);
+}
+
+.project-rail-picker-empty {
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-muted);
+  font-size: 13px;
 }
 
 /* Projects view wrapper: rail + dashboard in a row. */

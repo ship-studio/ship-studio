@@ -24,7 +24,7 @@
 
 import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import type { PinnedProjectRow } from '../hooks/usePinnedProjects';
-import { getProjectThumbnail } from '../lib/project';
+import { getProjectThumbnail, listProjects } from '../lib/project';
 import { logger } from '../lib/logger';
 
 interface ProjectRailProps {
@@ -38,6 +38,8 @@ interface ProjectRailProps {
   /** Reorder handler — receives the new ordered list of project paths.
    *  Must contain exactly the same set as `rows` (no adds/removes). */
   onReorder?: (orderedPaths: string[]) => void;
+  /** Called when the user picks a project from the "+" picker. Pins it and opens it. */
+  onAddProject?: (projectPath: string) => void;
 }
 
 /**
@@ -59,7 +61,13 @@ interface PendingDrag {
   startY: number;
 }
 
-export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRailProps) {
+export function ProjectRail({
+  rows,
+  onPinClick,
+  onUnpin,
+  onReorder,
+  onAddProject,
+}: ProjectRailProps) {
   // State drives re-renders for visual feedback (item fade, drop indicator,
   // body class). Refs hold the SAME values for use inside document-level
   // event listeners — without refs, listener closures would capture stale
@@ -77,6 +85,21 @@ export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRai
   const pendingDragRef = useRef<PendingDrag | null>(null);
   const rowsRef = useRef(rows);
   const onReorderRef = useRef(onReorder);
+
+  // Context menu state (lifted from RailItem so it renders outside the list)
+  const [contextMenu, setContextMenu] = useState<{
+    projectPath: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // "Add project" picker state
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerProjects, setPickerProjects] = useState<{ name: string; path: string }[]>([]);
+  const [pickerFilter, setPickerFilter] = useState('');
+  const [pickerPos, setPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
   // Mirror props into refs so the once-mounted document listeners read the
   // latest values without re-binding. Done in a layout effect so the refs
   // are up-to-date before any subsequent pointer event runs.
@@ -262,6 +285,54 @@ export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRai
     [dragSource, onPinClick]
   );
 
+  // Close context menu on outside click / escape.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [contextMenu]);
+
+  const handleItemContextMenu = useCallback((projectPath: string, x: number, y: number) => {
+    setContextMenu({ projectPath, x, y });
+  }, []);
+
+  // Open the project picker: fetch all projects and filter out already-pinned ones.
+  const openPicker = useCallback(async () => {
+    try {
+      const all = await listProjects();
+      const pinnedPaths = new Set(rows.map((r) => r.projectPath));
+      setPickerProjects(all.filter((p) => !pinnedPaths.has(p.path)));
+      setPickerFilter('');
+      if (addBtnRef.current) {
+        const rect = addBtnRef.current.getBoundingClientRect();
+        setPickerPos({ top: rect.top, left: rect.right + 8 });
+      }
+      setShowPicker(true);
+    } catch (e) {
+      logger.error('[ProjectRail] Failed to load projects for picker', { error: e });
+    }
+  }, [rows]);
+
+  // Close picker on click outside
+  useEffect(() => {
+    if (!showPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPicker]);
+
   // Don't render anything if there are no pins. Reduces visual noise for
   // users who haven't discovered the feature yet — they only see the rail
   // after pinning their first project.
@@ -278,7 +349,7 @@ export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRai
             row={row}
             registerElement={registerItemElement}
             onClick={handleClick}
-            onUnpin={onUnpin}
+            onContextMenu={handleItemContextMenu}
             isDragging={dragSource === row.projectPath}
             isDropTarget={dropTarget === row.projectPath && dragSource !== row.projectPath}
             dropSide={dropSide}
@@ -289,7 +360,80 @@ export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRai
             suppressClickAfterDrag={dragSource !== null}
           />
         ))}
+        {onAddProject && (
+          <li>
+            <button
+              ref={addBtnRef}
+              className="project-rail-add"
+              onClick={() => void openPicker()}
+              title="Pin another project"
+              aria-label="Pin another project"
+            >
+              +
+            </button>
+          </li>
+        )}
       </ul>
+
+      {showPicker && onAddProject && (
+        <div
+          className="project-rail-picker"
+          ref={pickerRef}
+          style={{ top: pickerPos.top, left: pickerPos.left }}
+        >
+          <input
+            className="project-rail-picker-search"
+            type="text"
+            placeholder="Search projects..."
+            value={pickerFilter}
+            onChange={(e) => setPickerFilter(e.target.value)}
+            autoFocus
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+          />
+          <ul className="project-rail-picker-list">
+            {pickerProjects
+              .filter((p) => p.name.toLowerCase().includes(pickerFilter.toLowerCase()))
+              .map((p) => (
+                <li key={p.path}>
+                  <button
+                    className="project-rail-picker-item"
+                    onClick={() => {
+                      setShowPicker(false);
+                      onAddProject(p.path);
+                    }}
+                  >
+                    {p.name}
+                  </button>
+                </li>
+              ))}
+            {pickerProjects.filter((p) => p.name.toLowerCase().includes(pickerFilter.toLowerCase()))
+              .length === 0 && <li className="project-rail-picker-empty">No projects found</li>}
+          </ul>
+        </div>
+      )}
+
+      {contextMenu && (
+        <div
+          className="project-rail-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+          role="menu"
+        >
+          <button
+            className="project-rail-menu-item danger"
+            onClick={() => {
+              const path = contextMenu.projectPath;
+              setContextMenu(null);
+              onUnpin(path);
+            }}
+          >
+            Unpin from sidebar
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -298,7 +442,7 @@ interface RailItemProps {
   row: PinnedProjectRow;
   registerElement: (projectPath: string, el: HTMLElement | null) => void;
   onClick: (projectPath: string) => void;
-  onUnpin: (projectPath: string) => void;
+  onContextMenu: (projectPath: string, x: number, y: number) => void;
   isDragging: boolean;
   isDropTarget: boolean;
   /** When this row is the drop target, which side the indicator is on. */
@@ -312,7 +456,7 @@ function RailItem({
   row,
   registerElement,
   onClick,
-  onUnpin,
+  onContextMenu,
   isDragging,
   isDropTarget,
   dropSide,
@@ -326,7 +470,6 @@ function RailItem({
   const [thumbnail, setThumbnail] = useState<string | null>(
     () => thumbnailCache.get(row.projectPath) ?? null
   );
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const itemRef = useRef<HTMLDivElement>(null);
 
   // Register this item's DOM node with the rail so pointermove hit-testing
@@ -363,25 +506,10 @@ function RailItem({
     };
   }, [row.projectPath]);
 
-  // Close context menu on outside click / escape.
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
-    };
-    window.addEventListener('click', close);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [contextMenu]);
-
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY });
+    onContextMenu(row.projectPath, e.clientX, e.clientY);
   };
 
   const tooltip = buildTooltip(row);
@@ -448,24 +576,6 @@ function RailItem({
           </span>
         )}
       </div>
-      {contextMenu && (
-        <div
-          className="project-rail-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
-          role="menu"
-        >
-          <button
-            className="project-rail-menu-item danger"
-            onClick={() => {
-              setContextMenu(null);
-              onUnpin(row.projectPath);
-            }}
-          >
-            Unpin from sidebar
-          </button>
-        </div>
-      )}
     </li>
   );
 }

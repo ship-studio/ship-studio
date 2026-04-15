@@ -34,6 +34,8 @@ export interface UseProjectRailReturn {
   handleRailClick: (projectPath: string) => void;
   /** Unpin a project from the rail's context menu. */
   handleRailUnpin: (projectPath: string) => void;
+  /** Pin a project from the picker and open it. */
+  handleAddProject: (projectPath: string) => void;
 }
 
 /**
@@ -99,5 +101,16 @@ export function useProjectRail({
     [handleTogglePin]
   );
 
-  return { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin };
+  const handleAddProject = useCallback(
+    (projectPath: string) => {
+      void (async () => {
+        await handleTogglePin(projectPath, true);
+        const projectName = projectPath.split('/').pop() ?? 'project';
+        void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
+      })();
+    },
+    [handleTogglePin, handleSelectProject]
+  );
+
+  return { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin, handleAddProject };
 }
