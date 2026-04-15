@@ -13,7 +13,7 @@
  * @module components/ProjectRail
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import type { PinnedProjectRow } from '../hooks/usePinnedProjects';
 import { getProjectThumbnail } from '../lib/project';
 import { logger } from '../lib/logger';
@@ -43,6 +43,23 @@ export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRai
   // a time, and the drop target's visual feedback depends on the dragged item.
   const [dragSource, setDragSource] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  // While a drag is active, disable pointer events on the preview iframe so
+  // the user doesn't accidentally start text selection inside the preview
+  // when dragging across it. Toggled via a body class so any iframe
+  // (including future plugin-managed ones) gets the same treatment.
+  // useLayoutEffect so the class lands before the next paint.
+  useLayoutEffect(() => {
+    const cls = 'rail-drag-active';
+    if (dragSource) {
+      document.body.classList.add(cls);
+    } else {
+      document.body.classList.remove(cls);
+    }
+    return () => {
+      document.body.classList.remove(cls);
+    };
+  }, [dragSource]);
 
   const handleDragStart = (projectPath: string) => {
     setDragSource(projectPath);
@@ -198,10 +215,12 @@ function RailItem({
   const tooltip = buildTooltip(row);
   const dotClass = statusDotClassName(row);
 
-  // The drag handlers live on the <li> so the entire 40x40 hit zone is
-  // both a drag source and a drop target; the <button> inside still
-  // receives clicks normally because dragstart fires before click only
-  // when there's actual mouse movement.
+  // IMPORTANT: drag events go on the element that's the actual mouse
+  // target. WebKit (Tauri's renderer on macOS) is strict — putting
+  // `draggable` on a parent <li> with an interactive <button> child fails
+  // because the button captures mousedown and the drag never starts.
+  // We use a single `<div role="button">` element that owns BOTH the
+  // click/keyboard semantics AND the drag, instead of a real <button>.
   const wrapperClassName = [
     'project-rail-item-wrapper',
     isDragging ? 'is-dragging' : '',
@@ -210,35 +229,48 @@ function RailItem({
     .filter(Boolean)
     .join(' ');
 
+  const itemClassName = [
+    'project-rail-item',
+    row.isCurrent ? 'is-current' : '',
+    `status-${row.status}`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <li
-      ref={itemRef}
-      className={wrapperClassName}
-      draggable={draggable}
-      onDragStart={(e) => {
-        // Required by Firefox: setData triggers the drag image. The value
-        // itself is unused — the rail tracks source via React state.
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', row.projectPath);
-        onDragStart(row.projectPath);
-      }}
-      onDragEnd={onDragEnd}
-      onDragOver={(e) => onDragOver(row.projectPath, e)}
-      onDrop={(e) => {
-        e.preventDefault();
-        onDrop(row.projectPath);
-      }}
-    >
-      <button
-        className={`project-rail-item ${row.isCurrent ? 'is-current' : ''} status-${row.status}`}
+    <li ref={itemRef} className={wrapperClassName}>
+      <div
+        className={itemClassName}
         title={tooltip}
         aria-label={tooltip}
+        role="button"
+        tabIndex={0}
+        draggable={draggable}
         onClick={() => onClick(row.projectPath)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(row.projectPath);
+          }
+        }}
         onContextMenu={handleContextMenu}
+        onDragStart={(e) => {
+          // Required for the drag to actually start in WebKit / Firefox.
+          // The data value itself is unused — rail tracks source via state.
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', row.projectPath);
+          onDragStart(row.projectPath);
+        }}
+        onDragEnd={onDragEnd}
+        onDragOver={(e) => onDragOver(row.projectPath, e)}
+        onDrop={(e) => {
+          e.preventDefault();
+          onDrop(row.projectPath);
+        }}
       >
         <span className="project-rail-thumb">
           {thumbnail ? (
-            <img src={thumbnail} alt="" />
+            <img src={thumbnail} alt="" draggable={false} />
           ) : (
             <span className="project-rail-placeholder" aria-hidden="true">
               {row.fallbackName.charAt(0).toUpperCase()}
@@ -251,7 +283,7 @@ function RailItem({
             {row.unreadCount > 9 ? '9+' : row.unreadCount}
           </span>
         )}
-      </button>
+      </div>
       {contextMenu && (
         <div
           className="project-rail-menu"

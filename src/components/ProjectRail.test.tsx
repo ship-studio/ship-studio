@@ -191,9 +191,9 @@ describe('ProjectRail — drag and drop reordering', () => {
         onUnpin={vi.fn()}
       />
     );
-    const wrappers = container.querySelectorAll('.project-rail-item-wrapper');
-    wrappers.forEach((w) => {
-      expect(w.getAttribute('draggable')).toBe('false');
+    const items = container.querySelectorAll('.project-rail-item');
+    items.forEach((it) => {
+      expect(it.getAttribute('draggable')).toBe('false');
     });
   });
 
@@ -206,9 +206,9 @@ describe('ProjectRail — drag and drop reordering', () => {
         onReorder={vi.fn()}
       />
     );
-    const wrappers = container.querySelectorAll('.project-rail-item-wrapper');
-    wrappers.forEach((w) => {
-      expect(w.getAttribute('draggable')).toBe('true');
+    const items = container.querySelectorAll('.project-rail-item');
+    items.forEach((it) => {
+      expect(it.getAttribute('draggable')).toBe('true');
     });
   });
 
@@ -226,8 +226,8 @@ describe('ProjectRail — drag and drop reordering', () => {
         onReorder={onReorder}
       />
     );
-    const wrappers = container.querySelectorAll('.project-rail-item-wrapper');
-    const [first, , third] = Array.from(wrappers);
+    const items = container.querySelectorAll('.project-rail-item');
+    const [first, , third] = Array.from(items);
     const dataTransfer = fakeDataTransfer();
     fireEvent.dragStart(first, { dataTransfer });
     fireEvent.dragOver(third, { dataTransfer });
@@ -247,15 +247,15 @@ describe('ProjectRail — drag and drop reordering', () => {
         onReorder={onReorder}
       />
     );
-    const wrappers = container.querySelectorAll('.project-rail-item-wrapper');
-    const [first] = Array.from(wrappers);
+    const items = container.querySelectorAll('.project-rail-item');
+    const [first] = Array.from(items);
     const dataTransfer = fakeDataTransfer();
     fireEvent.dragStart(first, { dataTransfer });
     fireEvent.drop(first, { dataTransfer });
     expect(onReorder).not.toHaveBeenCalled();
   });
 
-  it('marks the source with is-dragging while drag is active', () => {
+  it('marks the wrapper with is-dragging while drag is active on the item', () => {
     const { container } = render(
       <ProjectRail
         rows={[row({ projectPath: '/tmp/a' }), row({ projectPath: '/tmp/b' })]}
@@ -264,13 +264,13 @@ describe('ProjectRail — drag and drop reordering', () => {
         onReorder={vi.fn()}
       />
     );
+    const items = container.querySelectorAll('.project-rail-item');
     const wrappers = container.querySelectorAll('.project-rail-item-wrapper');
-    const [first] = Array.from(wrappers);
-    fireEvent.dragStart(first, { dataTransfer: fakeDataTransfer() });
-    expect(first.className).toContain('is-dragging');
+    fireEvent.dragStart(items[0], { dataTransfer: fakeDataTransfer() });
+    expect(wrappers[0].className).toContain('is-dragging');
   });
 
-  it('marks the drop target with is-drop-target during dragOver', () => {
+  it('marks the drop target wrapper with is-drop-target during dragOver', () => {
     const { container } = render(
       <ProjectRail
         rows={[row({ projectPath: '/tmp/a' }), row({ projectPath: '/tmp/b' })]}
@@ -279,10 +279,26 @@ describe('ProjectRail — drag and drop reordering', () => {
         onReorder={vi.fn()}
       />
     );
+    const items = container.querySelectorAll('.project-rail-item');
     const wrappers = container.querySelectorAll('.project-rail-item-wrapper');
-    const [first, second] = Array.from(wrappers);
-    fireEvent.dragStart(first, { dataTransfer: fakeDataTransfer() });
-    fireEvent.dragOver(second, { dataTransfer: fakeDataTransfer() });
-    expect(second.className).toContain('is-drop-target');
+    fireEvent.dragStart(items[0], { dataTransfer: fakeDataTransfer() });
+    fireEvent.dragOver(items[1], { dataTransfer: fakeDataTransfer() });
+    expect(wrappers[1].className).toContain('is-drop-target');
+  });
+
+  it('toggles body.rail-drag-active class while dragging', () => {
+    const { container } = render(
+      <ProjectRail
+        rows={[row({ projectPath: '/tmp/a' }), row({ projectPath: '/tmp/b' })]}
+        onPinClick={vi.fn()}
+        onUnpin={vi.fn()}
+        onReorder={vi.fn()}
+      />
+    );
+    const items = container.querySelectorAll('.project-rail-item');
+    fireEvent.dragStart(items[0], { dataTransfer: fakeDataTransfer() });
+    expect(document.body.classList.contains('rail-drag-active')).toBe(true);
+    fireEvent.dragEnd(items[0], { dataTransfer: fakeDataTransfer() });
+    expect(document.body.classList.contains('rail-drag-active')).toBe(false);
   });
 });

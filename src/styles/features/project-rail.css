@@ -76,15 +76,26 @@
 }
 
 /*
- * Make the wrapper grab-cursor when draggable so users get the affordance
- * even before they start dragging.
+ * Grab cursor on the draggable item (the inner div with role="button").
+ * Falls back to default pointer when not draggable.
  */
-.project-rail-item-wrapper[draggable='true'] {
+.project-rail-item[draggable='true'] {
   cursor: grab;
 }
 
-.project-rail-item-wrapper.is-dragging[draggable='true'] {
+.project-rail-item-wrapper.is-dragging .project-rail-item[draggable='true'] {
   cursor: grabbing;
+}
+
+/*
+ * While a rail drag is active, disable pointer events inside iframes
+ * (preview iframe, plugin iframes, etc.) so the user doesn't accidentally
+ * start text selection in the preview when dragging across it. Restored
+ * automatically when the drag ends and the body class is removed.
+ */
+body.rail-drag-active iframe {
+  pointer-events: none;
+  user-select: none;
 }
 
 .project-rail-item {
