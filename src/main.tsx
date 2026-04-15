@@ -38,9 +38,27 @@ window.addEventListener('error', (event) => {
 window.addEventListener('unhandledrejection', (event) => {
   const reason: unknown = event.reason;
   const stack = reason instanceof Error ? reason.stack || '' : String(reason);
+  const message = reason instanceof Error ? reason.message : String(reason);
+
   if (stack.includes('blob:')) {
     event.preventDefault();
     console.error('[Ship Studio] Plugin unhandled rejection caught by global handler:', reason);
+    return;
+  }
+
+  // Silently drop Tauri's internal race: when a plugin:pty|read invoke's
+  // response arrives after the component that issued it unmounted (common
+  // during rapid project switches), the runtime looks up a listener that
+  // was already garbage-collected and throws TypeError accessing
+  // `listeners[eventId].handlerId` from its injected bootstrap script.
+  // This is a Tauri v2 runtime bug — not our code — and doesn't affect
+  // functionality. Suppressing to keep the console clean.
+  if (
+    message.includes('listeners[eventId]') ||
+    stack.includes('listeners[eventId]') ||
+    (message.includes('handlerId') && stack.includes('user-script'))
+  ) {
+    event.preventDefault();
   }
 });
 

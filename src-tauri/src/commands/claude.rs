@@ -10,6 +10,41 @@ use crate::external_command::run_with_timeout;
 use crate::types::AgentCliStatus;
 use crate::utils::{create_command, get_extended_path};
 
+/// Check whether a Claude CLI session exists on disk for the given project.
+///
+/// Claude CLI stores conversations under `~/.claude/projects/<sanitized-path>/`,
+/// where each session is either `<session-id>.jsonl` or a directory named
+/// `<session-id>`. Sanitization replaces `/` with `-` (so `/Users/foo/bar`
+/// becomes `-Users-foo-bar`).
+///
+/// Used by the frontend before passing `--resume <session-id>` to the Claude
+/// CLI. Without this check, we optimistically try resume on every project
+/// open — if the project has never had a Claude conversation (or Claude
+/// pruned it), resume exits code 1 and we fall back to a fresh session.
+/// The fallback works but wastes ~1s and produces noisy logs.
+#[tauri::command]
+pub fn claude_session_exists(project_path: String, session_id: String) -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    // Claude CLI's path sanitization: replace path separators with `-`.
+    // The leading `/` also becomes `-`, hence the leading dash in directory names.
+    let sanitized: String = project_path
+        .chars()
+        .map(|c| if c == '/' || c == '\\' { '-' } else { c })
+        .collect();
+    let project_dir = home.join(".claude").join("projects").join(&sanitized);
+    if !project_dir.is_dir() {
+        return false;
+    }
+    let jsonl = project_dir.join(format!("{session_id}.jsonl"));
+    if jsonl.is_file() {
+        return true;
+    }
+    let dir = project_dir.join(&session_id);
+    dir.is_dir()
+}
+
 /// Lightweight detection timeout — version checks should be near-instant.
 const CLAUDE_DETECT_TIMEOUT_SECS: u64 = 10;
 

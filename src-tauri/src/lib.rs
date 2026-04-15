@@ -353,6 +353,7 @@ pub fn run() {
             // Claude integration
             commands::claude::check_claude_cli_status,
             commands::claude::install_claude_cli,
+            commands::claude::claude_session_exists,
             // Claude skills
             commands::skills::list_claude_skills,
             commands::skills::check_skills_cli,

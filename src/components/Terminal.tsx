@@ -439,7 +439,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     // Track if this effect instance is still mounted (handles StrictMode/HMR)
     let mounted = true;
-    let attemptResume = !!shouldResume;
+    // Start pessimistic. We'll flip to true below only if the on-disk
+    // Claude session file actually exists — otherwise `--resume` exits 1
+    // ("No conversation found") every time, wasting a full Claude spawn
+    // per project open. Gating on disk-presence turns a ~1s miss into a
+    // ~5ms file-exists check.
+    let attemptResume = false;
 
     // Setup PTY connection using tauri-pty with retry logic
     const setupPty = async (retryCount = 0) => {
@@ -459,6 +464,24 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       });
 
       try {
+        // Gate the optimistic resume on whether Claude CLI actually has a
+        // conversation stored for this (projectPath, sessionId). Cheap
+        // filesystem check; only runs on the first setupPty call (retry=0)
+        // because a retry can't turn a missing session into an existing one.
+        if (retryCount === 0 && shouldResume && agent.id === 'claude-code' && sessionName) {
+          try {
+            const exists = await invoke<boolean>('claude_session_exists', {
+              projectPath,
+              sessionId: sessionName,
+            });
+            attemptResume = exists;
+          } catch {
+            // If the check itself fails, fall through to fresh — safer
+            // than attempting a resume we can't verify.
+            attemptResume = false;
+          }
+        }
+
         // Fit again to ensure correct size
         fitAddon.fit();
 

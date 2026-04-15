@@ -417,32 +417,31 @@ export async function startDevServer(
       });
   };
 
-  // Poll for PID availability (tauri-pty doesn't provide PID synchronously)
-  // Check every 50ms for up to 2 seconds
-  const maxRetries = 40;
-  let retryCount = 0;
-  const pidCheckInterval = setInterval(() => {
-    const pid = pty.pid;
-    if (pid) {
-      clearInterval(pidCheckInterval);
-      logger.info('[DevServer] PID became available via polling', { pid, ptyId, retryCount });
-      registerPty(pid);
-    } else {
-      retryCount++;
-      if (retryCount >= maxRetries) {
-        clearInterval(pidCheckInterval);
-        logger.error('[DevServer] Failed to get PID after polling timeout', {
-          ptyId,
-          windowLabel,
-          retries: retryCount,
-        });
-      }
-    }
-  }, 50);
+  // tauri-pty populates `pty.pid` only after its internal `_init` promise
+  // resolves (that's where the backend returns the handler). Await that
+  // directly instead of polling — polling would either busy-loop or, on
+  // slow spawns, hit the retry cap and log a misleading "timeout" error
+  // even though the PID showed up a tick later.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+  const ptyInit = (pty as any)._init as Promise<unknown> | undefined;
+  if (ptyInit) {
+    ptyInit
+      .then(() => {
+        const pid = pty.pid;
+        if (typeof pid === 'number') {
+          logger.info('[DevServer] PID available via _init', { pid, ptyId });
+          registerPty(pid);
+        } else {
+          logger.warn('[DevServer] _init resolved without a PID', { ptyId });
+        }
+      })
+      .catch((e) => {
+        logger.warn('[DevServer] _init rejected', { ptyId, error: String(e) });
+      });
+  }
 
   // Unregister when PTY exits (if it exits normally before window close)
   pty.onExit((e) => {
-    clearInterval(pidCheckInterval);
     logger.info('[DevServer] PTY exited', { ptyId, exitCode: e.exitCode, signal: e.signal });
     invoke('unregister_external_pty', { ptyId }).catch(() => {
       // Ignore - might already be cleaned up by window close
