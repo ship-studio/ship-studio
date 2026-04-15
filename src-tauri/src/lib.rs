@@ -293,6 +293,22 @@ pub fn run() {
             commands::projects::unregister_project_from_window,
             commands::projects::get_project_window,
             commands::projects::focus_window_by_label,
+            // Pinned projects (background sessions rail)
+            commands::projects::pin_project,
+            commands::projects::unpin_project,
+            commands::projects::list_pinned_projects,
+            commands::projects::reorder_pins,
+            commands::projects::save_pin_session,
+            commands::projects::get_pin_session,
+            // Project session lifecycle (background sessions rail)
+            commands::projects::register_project_session,
+            commands::projects::suspend_project_session,
+            commands::projects::unregister_project_session,
+            commands::projects::touch_project_session,
+            commands::projects::list_project_sessions,
+            commands::projects::get_project_session_info,
+            commands::projects::get_active_session_count,
+            commands::projects::get_session_memory,
             // Environment variables
             commands::env::list_env_files,
             commands::env::read_env_file,
@@ -409,6 +425,8 @@ pub fn run() {
             commands::pty::get_system_env,
             commands::pty::register_external_pty,
             commands::pty::unregister_external_pty,
+            commands::pty::kill_project_pty,
+            commands::pty::get_project_pty_pids,
             // Community Templates
             commands::templates::fetch_community_templates,
             commands::templates::download_template_zip,

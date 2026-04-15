@@ -124,6 +124,83 @@ pub async fn kill_window_pty(window_label: String) -> Result<u32, CommandError> 
     Ok(count)
 }
 
+/// Kill all PTY processes associated with a specific project path (sync).
+///
+/// Internal helper shared by the Tauri command and the sessions module.
+/// Returns the number of PTYs killed.
+pub fn kill_project_pty_internal(project_path: &str) -> u32 {
+    let pids_to_kill: Vec<(u32, u32)> = {
+        let Ok(registry) = PTY_REGISTRY.lock() else {
+            return 0;
+        };
+        registry
+            .iter()
+            .filter(|(_, info)| info.project_path.as_deref() == Some(project_path))
+            .map(|(&id, info)| (id, info.pid))
+            .collect()
+    };
+
+    let count = pids_to_kill.len() as u32;
+    tracing::info!(
+        "Killing {} PTY processes for project {}",
+        count,
+        project_path
+    );
+
+    for (id, pid) in &pids_to_kill {
+        #[cfg(unix)]
+        {
+            let _ = create_command("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
+        }
+
+        #[cfg(windows)]
+        {
+            let _ = create_command("taskkill")
+                .args(["/F", "/T", "/PID", &pid.to_string()])
+                .output();
+        }
+
+        if let Ok(mut registry) = PTY_REGISTRY.lock() {
+            registry.remove(id);
+        }
+    }
+
+    count
+}
+
+/// Return PIDs of all PTYs associated with a project (sync internal).
+pub fn get_project_pty_pids_internal(project_path: &str) -> Vec<u32> {
+    let Ok(registry) = PTY_REGISTRY.lock() else {
+        return Vec::new();
+    };
+    registry
+        .iter()
+        .filter(|(_, info)| info.project_path.as_deref() == Some(project_path))
+        .map(|(_, info)| info.pid)
+        .collect()
+}
+
+/// Kill all PTY processes associated with a specific project path.
+///
+/// Used by the background-sessions rail to suspend a pinned project's session
+/// without affecting other pinned projects sharing the same window. Only kills
+/// PTYs whose `project_path` matches; PTYs without a project_path are untouched.
+///
+/// Returns the number of PTYs killed.
+#[tauri::command]
+pub async fn kill_project_pty(project_path: String) -> Result<u32, CommandError> {
+    Ok(kill_project_pty_internal(&project_path))
+}
+
+/// Return the PIDs of all PTYs associated with a project. Used for memory
+/// queries and process-running checks. Returns an empty vec if no PTYs match.
+#[tauri::command]
+pub async fn get_project_pty_pids(project_path: String) -> Result<Vec<u32>, CommandError> {
+    Ok(get_project_pty_pids_internal(&project_path))
+}
+
 /// Kill all tracked PTY processes (all windows).
 ///
 /// WARNING: This kills PTYs across ALL windows. Use `kill_window_pty` instead

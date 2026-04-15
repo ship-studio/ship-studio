@@ -3,8 +3,10 @@
 //! Global state for tracking open windows and their associated projects.
 //! Used to prevent opening duplicate windows for the same project.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Maps project_path -> window_label for all open project windows.
 /// This allows us to focus an existing window if the user tries to open
@@ -180,6 +182,160 @@ pub fn release_port_for_window(window_label: &str) {
             );
         }
     }
+}
+
+// ============ Background Sessions Registry ============
+
+/// Lifecycle status of a project session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionStatus {
+    /// Session is live — PTYs running, dev server up.
+    Active,
+    /// Session is paused — PTYs killed, dev server stopped, but the pin remains.
+    /// Frontend can resume by cold-starting (no in-memory PTY refs to reattach).
+    Suspended,
+}
+
+/// Live session for a pinned project. Kept in-memory only; never persisted.
+/// On app restart the registry is empty and pinned projects start in "suspended"
+/// state from the user's perspective until they click to resume.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSessionBackend {
+    /// The window label currently hosting this session's UI.
+    /// In single-window-multi-project mode (Phase 4+) this is always "main".
+    /// Tracking it explicitly gives us a kill switch if a window dies unexpectedly.
+    pub owning_window_label: String,
+    /// Active vs Suspended.
+    pub status: SessionStatus,
+    /// Unix millis when the session was first created in this app run.
+    pub activated_at: u64,
+    /// Unix millis bumped on user interaction (keystrokes, focus, etc.).
+    /// Used by the soft cap eviction to pick the LRU session for suspend.
+    pub last_activity_at: u64,
+}
+
+/// Registry of all live project sessions, keyed by canonical project path.
+///
+/// **Invariant:** at most one entry per project path. `register_session` is the
+/// only function that grows this map and rejects duplicates; this enforces the
+/// "one project path → at most one live session, ever" rule from the plan.
+pub static PROJECT_SESSIONS: LazyLock<Mutex<HashMap<String, ProjectSessionBackend>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Register a new active session for a project. Returns `Err` if a session
+/// already exists for this project path under a different window — this is
+/// the invariant guard.
+///
+/// If the same `(project_path, window_label)` is already registered, this is
+/// idempotent and bumps `last_activity_at`.
+pub fn register_session(project_path: &str, window_label: &str) -> Result<(), String> {
+    let mut sessions = PROJECT_SESSIONS
+        .lock()
+        .map_err(|_| "PROJECT_SESSIONS lock poisoned")?;
+
+    if let Some(existing) = sessions.get_mut(project_path) {
+        if existing.owning_window_label == window_label {
+            existing.last_activity_at = now_millis();
+            existing.status = SessionStatus::Active;
+            return Ok(());
+        }
+        return Err(format!(
+            "session for {project_path} already owned by window {}",
+            existing.owning_window_label
+        ));
+    }
+
+    let now = now_millis();
+    sessions.insert(
+        project_path.to_string(),
+        ProjectSessionBackend {
+            owning_window_label: window_label.to_string(),
+            status: SessionStatus::Active,
+            activated_at: now,
+            last_activity_at: now,
+        },
+    );
+    tracing::info!(
+        "Registered session: project={}, window={}",
+        project_path,
+        window_label
+    );
+    Ok(())
+}
+
+/// Mark a session as suspended (PTYs killed, dev server stopped).
+/// The entry stays in the map so the rail can still display it.
+pub fn mark_session_suspended(project_path: &str) {
+    if let Ok(mut sessions) = PROJECT_SESSIONS.lock() {
+        if let Some(session) = sessions.get_mut(project_path) {
+            session.status = SessionStatus::Suspended;
+            session.last_activity_at = now_millis();
+            tracing::info!("Marked session suspended: project={}", project_path);
+        }
+    }
+}
+
+/// Bump `last_activity_at` for a session. Called on terminal input, focus, etc.
+/// Cheap and safe to call frequently.
+pub fn touch_session(project_path: &str) {
+    if let Ok(mut sessions) = PROJECT_SESSIONS.lock() {
+        if let Some(session) = sessions.get_mut(project_path) {
+            session.last_activity_at = now_millis();
+        }
+    }
+}
+
+/// Remove a session from the registry. Idempotent.
+pub fn unregister_session(project_path: &str) {
+    if let Ok(mut sessions) = PROJECT_SESSIONS.lock() {
+        if sessions.remove(project_path).is_some() {
+            tracing::info!("Unregistered session: project={}", project_path);
+        }
+    }
+}
+
+/// Snapshot of all current sessions. Used by the rail UI and debugging.
+pub fn list_sessions() -> Vec<(String, ProjectSessionBackend)> {
+    PROJECT_SESSIONS
+        .lock()
+        .map(|sessions| {
+            sessions
+                .iter()
+                .map(|(path, info)| (path.clone(), info.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Look up a session by project path.
+pub fn get_session(project_path: &str) -> Option<ProjectSessionBackend> {
+    PROJECT_SESSIONS
+        .lock()
+        .ok()
+        .and_then(|sessions| sessions.get(project_path).cloned())
+}
+
+/// Count of currently *active* sessions (excludes suspended).
+/// Used for soft-cap enforcement in Phase 5.
+pub fn count_active_sessions() -> usize {
+    PROJECT_SESSIONS
+        .lock()
+        .map(|sessions| {
+            sessions
+                .values()
+                .filter(|s| s.status == SessionStatus::Active)
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 /// Get the reserved port for a window, if any.

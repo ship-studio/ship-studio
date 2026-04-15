@@ -29,13 +29,16 @@ pub async fn spawn_pty(
     app: tauri::AppHandle,
     options: SpawnPtyOptions,
     window_label: String,
+    project_path: Option<String>,
 ) -> Result<u32, CommandError> {
     let id = PTY_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
     let app_handle = app.clone();
     let label_for_thread = window_label.clone();
+    let project_path_for_thread = project_path.clone();
 
     std::thread::spawn(move || {
         let label = label_for_thread;
+        let project_path = project_path_for_thread;
         let result = (|| -> Result<i32, String> {
             // On Windows, commands like npm/npx are .cmd batch scripts,
             // so we must run them through cmd.exe to resolve them.
@@ -65,6 +68,7 @@ pub async fn spawn_pty(
                     PtyInfo {
                         pid,
                         window_label: label.clone(),
+                        project_path: project_path.clone(),
                     },
                 );
             }
@@ -156,6 +160,7 @@ pub fn register_external_pty(
     pid: u32,
     pty_id: u32,
     description: String,
+    project_path: Option<String>,
 ) -> Result<(), CommandError> {
     if let Ok(mut registry) = PTY_REGISTRY.lock() {
         registry.insert(
@@ -163,13 +168,15 @@ pub fn register_external_pty(
             PtyInfo {
                 pid,
                 window_label: window_label.clone(),
+                project_path: project_path.clone(),
             },
         );
         tracing::info!(
-            "Registered external PTY for window {}: pty_id={}, pid={}, desc={}",
+            "Registered external PTY for window {}: pty_id={}, pid={}, project={:?}, desc={}",
             window_label,
             pty_id,
             pid,
+            project_path,
             description
         );
         Ok(())

@@ -24,6 +24,11 @@ pub(super) struct PtyInfo {
     pub(super) pid: u32,
     /// Window label that owns this PTY (for multi-window isolation)
     pub(super) window_label: String,
+    /// Project path this PTY is associated with. `None` means the PTY is not
+    /// scoped to a single project (rare — present mainly for back-compat with
+    /// callers that haven't been updated yet). Required for the background-
+    /// sessions rail to know which PTYs belong to which pinned project.
+    pub(super) project_path: Option<String>,
 }
 
 /// Global registry of spawned PTY processes

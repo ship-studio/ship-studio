@@ -13,6 +13,8 @@
 mod detection;
 mod dev_server;
 mod metadata;
+mod pins;
+mod sessions;
 mod templates;
 mod ui_state;
 mod window_registry;
@@ -20,6 +22,8 @@ mod window_registry;
 pub use detection::*;
 pub use dev_server::*;
 pub use metadata::*;
+pub use pins::*;
+pub use sessions::*;
 pub use templates::*;
 pub use ui_state::*;
 pub use window_registry::*;
