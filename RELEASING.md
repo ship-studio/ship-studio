@@ -97,7 +97,7 @@ After the workflow completes:
 
 ## Windows Releases
 
-Windows builds run on a separate workflow (`.github/workflows/release-windows.yml`) triggered by tags ending in `-win`. The macOS workflow explicitly excludes these tags, so the two pipelines are fully independent.
+Windows builds run on a separate workflow (`.github/workflows/release-windows.yml`) triggered by tags ending in `-win`. The macOS workflow explicitly excludes these tags, so the two build pipelines are independent, but **both workflows publish to the shared `ship-studio/releases` public repo** (see below for how they cooperate).
 
 ### How to publish a Windows build
 
@@ -109,8 +109,75 @@ git push origin v0.5.0-win
 
 GitHub Actions will:
 1. Build the Tauri app on a `windows-latest` runner
-2. Produce a Windows installer (NSIS/MSI)
-3. Create a **draft release** in the main repo with the artifacts
+2. Produce a Windows NSIS installer (`*-setup.exe`) signed with a minisign `.sig` alongside - in Tauri v2 the installer itself IS the update bundle, no `.nsis.zip` wrapper
+3. Create a **draft release** in the main repo with the artifacts (reference/backup)
+4. Read release notes from `RELEASE_NOTES.md`
+5. Generate `latest-windows.json` with the `windows-x86_64` platform entry pointing to the NSIS setup `.exe`
+6. Carry forward `latest.json` from the previous public release (so macOS auto-update keeps working after this release flips the "latest" alias)
+7. Create a **draft** release in `ship-studio/releases` containing the Windows artifacts plus the carried-forward macOS manifest
+
+### Publishing a Windows release to users
+
+Unlike macOS (which auto-publishes to `ship-studio/releases`), **Windows releases land as drafts in the public repo** and need a manual publish step before they reach users:
+
+1. Go to https://github.com/ship-studio/releases/releases
+2. Find the draft labelled "Ship Studio vX.Y.Z (Windows)"
+3. Verify the attached assets (`.exe` installer + `.sig` + `latest-windows.json` + carried-forward `latest.json`)
+4. Click **Publish release**
+
+Until you do this, Windows auto-update stays on the previous published Windows version - the draft is invisible to GitHub's `/releases/latest/download/` alias.
+
+**Why a manual gate for Windows:** Windows builds are still being stabilized and we want human review before every release goes to users. Once the pipeline has proven itself, this step can be flipped to auto-publish by removing `--draft` from `gh release create` in `release-windows.yml`.
+
+### Per-platform manifest architecture
+
+Tauri v2's updater uses a single manifest file per endpoint with a single top-level `version` field. A shared manifest with both macOS and Windows entries breaks staggered releases (e.g. Windows at 0.4.5 while macOS is at 0.5.0 would cause update loops or missed updates on at least one platform).
+
+The fix is per-platform isolation via `{{target}}` substitution in `tauri.conf.json`:
+
+```json
+"endpoints": [
+  "https://github.com/ship-studio/releases/releases/latest/download/latest-{{target}}.json",
+  "https://github.com/ship-studio/releases/releases/latest/download/latest.json"
+]
+```
+
+- On **Windows**, `{{target}}` → `windows`, primary URL → `latest-windows.json`. Works directly
+- On **macOS**, `{{target}}` → `darwin`, primary URL → `latest-darwin.json` which **does not exist** → HTTP 404 → Tauri falls through to `latest.json` (the macOS manifest). Works via fallback
+- Tauri only falls through on non-2XX responses, so content-mismatch isn't a fallback trigger
+
+**Backward compatibility:** already-installed macOS clients (built before this change) have only the old single `latest.json` endpoint. The macOS workflow continues to upload `latest.json` with macOS-only entries forever, so those clients keep working. New macOS clients get the same `latest.json` via the fallback path - the only difference is one extra 404 request per update check (~50ms, negligible).
+
+Only two manifest files exist in the public repo:
+- `latest.json` - macOS (darwin) platforms
+- `latest-windows.json` - windows platforms
+
+No `latest-darwin.json` - it would be redundant since `latest.json` already contains the darwin entries and the HTTP fallthrough handles the 404 cleanly.
+
+### The carry-forward mechanism
+
+Because both workflows publish to the same public repo and GitHub's `/releases/latest/download/` alias serves whichever release was tagged most recently, every release must include the other platform's manifest file - otherwise a Windows release would hide `latest.json` until the next macOS release (and vice versa).
+
+Each workflow's `create-manifest` job:
+1. Generates the manifest file for its own platform
+2. Runs `gh release download` against `ship-studio/releases` to fetch the other platform's manifest from the previous "latest" release
+3. Uploads everything together
+
+### Verification
+
+After a Windows workflow run completes:
+
+- [ ] Draft release exists in the main repo
+- [ ] Draft release exists in `ship-studio/releases` with both Windows artifacts **and** the carried-forward `latest.json`
+- [ ] After manually publishing the public draft, `latest-windows.json` is valid and has a `windows-x86_64` platform entry:
+  ```bash
+  curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest-windows.json | jq
+  ```
+- [ ] `latest.json` still exists at the public latest URL and still points at the most recent macOS bundle:
+  ```bash
+  curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest.json | jq '.version'
+  ```
+- [ ] Install an older Windows build, tag a newer `-win`, verify the in-app update banner appears and applies cleanly
 
 ## Troubleshooting
 

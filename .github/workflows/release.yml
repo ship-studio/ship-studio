@@ -243,7 +243,19 @@ jobs:
           # Validate JSON
           python3 -c "import json; json.load(open('latest.json'))" && echo "JSON is valid"
 
-      # Upload to the PRIVATE main repo (for reference/backup)
+      # Carry forward Windows manifest so Windows auto-update keeps working
+      # when this macOS release flips the "latest" alias
+      - name: Carry forward Windows manifest file
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          mkdir -p carry-forward
+          gh release download \
+            --repo ship-studio/releases \
+            --pattern "latest-windows.json" \
+            --dir carry-forward
+          ls -la carry-forward/
+
       - name: Upload updater tarballs to main repo release
         uses: softprops/action-gh-release@v2
         with:
@@ -254,7 +266,8 @@ jobs:
             latest.json
           draft: true
 
-      # Upload to the PUBLIC releases repo (for auto-updater)
+      # Upload to public repo for auto-updater. Includes carry-forward
+      # Windows manifest so "latest" alias flip doesn't drop Windows.
       - name: Create release in public releases repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_PAT }}
@@ -262,7 +275,6 @@ jobs:
           TAG="${{ github.ref_name }}"
           VERSION="${{ steps.version.outputs.version }}"
 
-          # Create the release in the public repo (auto-published, no draft)
           gh release create "$TAG" \
             --repo ship-studio/releases \
             --title "Ship Studio v${VERSION}" \
@@ -271,4 +283,5 @@ jobs:
             artifacts/updater-darwin-x86_64/ShipStudio_darwin-x86_64.app.tar.gz \
             artifacts/updater-darwin-aarch64/ShipStudio_darwin-aarch64.dmg \
             artifacts/updater-darwin-x86_64/ShipStudio_darwin-x86_64.dmg \
-            latest.json
+            latest.json \
+            carry-forward/latest-windows.json
