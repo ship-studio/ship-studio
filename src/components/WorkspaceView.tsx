@@ -287,6 +287,8 @@ export interface WorkspaceViewProps {
   pluginActions: WorkspacePluginActions;
   pluginTheme: PluginThemeData;
   handleEnterCompactMode: () => Promise<void>;
+  /** Optional left rail rendered below the titlebar. */
+  rail?: React.ReactNode;
 }
 
 export const WorkspaceView = memo(function WorkspaceView({
@@ -308,6 +310,7 @@ export const WorkspaceView = memo(function WorkspaceView({
   pluginActions,
   pluginTheme,
   handleEnterCompactMode,
+  rail,
 }: WorkspaceViewProps) {
   // Destructure domain groups for readability in JSX
   const {
@@ -597,467 +600,484 @@ export const WorkspaceView = memo(function WorkspaceView({
     }
   }, [activeTerminalTab, terminalRefsMap]);
 
+  const header = WorkspaceHeader({
+    projectPath: currentProject.path,
+    projectName: currentProject.name,
+    onBackToProjects: () => void handleBackToProjects(),
+    isEducationMode,
+    onToggleEducationMode: () => setIsEducationMode(!isEducationMode),
+    onOpenPluginManager: pluginManagerModal.open,
+    onOpenAssetsPanel: assetsPanelModal.open,
+    onOpenEnvEditor: envEditorModal.open,
+    onOpenBackupsModal: backupsModal.open,
+    integrations,
+    onGitHubStatusChange: handleGitHubStatusChange,
+    onGitHubConnect: handleGitHubConnect,
+    focusActiveTerminal,
+    currentBranch,
+    hasUncommittedChanges,
+    isPublishing,
+    setIsPublishing,
+    onPublishError: handlePublishError,
+    onPublishStatusChange: () => {
+      void handleGitHubStatusChange();
+      void fetchBranchInfo(currentProject.path);
+    },
+    onCreatePR: () => setShowSubmitReview(currentBranch || 'main'),
+    forcePublishOpen,
+    onForcePublishOpenHandled: () => setForcePublishOpen(false),
+    getSlotPlugins,
+    pluginProject,
+    pluginActions,
+    pluginTheme,
+  });
+
   return (
     <>
       <div className="app workspace">
         <UpdateBanner />
-        <WorkspaceHeader
-          projectPath={currentProject.path}
-          projectName={currentProject.name}
-          onBackToProjects={() => void handleBackToProjects()}
-          isEducationMode={isEducationMode}
-          onToggleEducationMode={() => setIsEducationMode(!isEducationMode)}
-          onOpenPluginManager={pluginManagerModal.open}
-          onOpenAssetsPanel={assetsPanelModal.open}
-          onOpenEnvEditor={envEditorModal.open}
-          onOpenBackupsModal={backupsModal.open}
-          integrations={integrations}
-          onGitHubStatusChange={handleGitHubStatusChange}
-          onGitHubConnect={handleGitHubConnect}
-          focusActiveTerminal={focusActiveTerminal}
-          currentBranch={currentBranch}
-          hasUncommittedChanges={hasUncommittedChanges}
-          isPublishing={isPublishing}
-          setIsPublishing={setIsPublishing}
-          onPublishError={handlePublishError}
-          onPublishStatusChange={() => {
-            void handleGitHubStatusChange();
-            void fetchBranchInfo(currentProject.path);
-          }}
-          onCreatePR={() => setShowSubmitReview(currentBranch || 'main')}
-          forcePublishOpen={forcePublishOpen}
-          onForcePublishOpenHandled={() => setForcePublishOpen(false)}
-          getSlotPlugins={getSlotPlugins}
-          pluginProject={pluginProject}
-          pluginActions={pluginActions}
-          pluginTheme={pluginTheme}
-        />
+        {header.titlebar}
 
-        {(currentBranch === 'main' || currentBranch === 'master') && (
-          <MainBranchBanner
-            projectPath={currentProject.path}
-            onCreateBranch={() => setWorkspaceTab('branches')}
-          />
-        )}
+        <div className="workspace-body">
+          {rail}
+          <div className="workspace-main">
+            {header.toolbar}
 
-        <div className="workspace-content">
-          <SplitPane
-            defaultSplit={28}
-            minLeft={20}
-            minRight={35}
-            rightCollapsed={isPreviewHidden}
-            left={
-              <div className="terminal-pane">
-                <HealthIndicatorBar
-                  projectPath={currentProject.path}
-                  healthPanelRef={healthPanelRef}
-                  onAskClaude={sendToClaude}
-                  onHealthOutput={handleHealthOutput}
-                  isWebProject={isWebProject}
-                  customDevCommand={customDevCommand}
-                  hasDevServer={hasDevServer}
-                  projectType={projectType}
-                  isRestartingDevServer={isRestartingDevServer}
-                  isPreviewHidden={isPreviewHidden}
-                  devServerPort={devServerPort}
-                  onRestartDevServer={handleRestartDevServer}
-                  onOpenDevCommand={devCommandModal.open}
-                  onOpenProjectSettings={projectSettingsModal.open}
-                  onEnterCompactMode={handleEnterCompactMode}
-                  onShowPreview={() => setIsPreviewHidden(false)}
-                />
-                {/* Terminal view - hidden in compact mode when viewing branches/PRs */}
-                <div
-                  className={`compact-terminal-view ${compactView !== 'terminal' ? 'compact-hidden' : ''}`}
-                >
-                  <div className="terminal-tabs-bar">
-                    <div className="terminal-tabs" data-education-id="terminal-tabs">
-                      <TerminalTabSelector
-                        tabs={terminalTabs}
-                        activeTabId={activeTerminalTab}
-                        tabTitles={tabTitles}
-                        attentionTabs={attentionTabs}
-                        maxTabs={maxTerminalTabs}
-                        onSelectTab={(tabId) => {
-                          setShowDevServerLogs(false);
-                          setShowHealthLogs(false);
-                          setActiveTerminalTab(tabId);
-                          setAttentionTabs((prev) => {
-                            const next = new Set(prev);
-                            next.delete(tabId);
-                            return next;
-                          });
-                        }}
-                        onAddTab={addTerminalTab}
-                        onCloseTab={closeTerminalTab}
-                        onSwitchAgent={(tabId, agentId) => {
-                          setTabTitles((prev) => {
-                            const next = new Map(prev);
-                            next.delete(tabId);
-                            return next;
-                          });
-                          switchTabAgent(tabId, agentId);
-                        }}
-                      />
-                    </div>
-                    <div className="terminal-logs-tabs">
-                      {(isWebProject || hasDevServer) && (
-                        <>
-                          <button
-                            className={`workspace-tab icon-only ${showDevServerLogs && !showHealthLogs ? 'active' : ''}`}
-                            onClick={() => {
-                              setShowDevServerLogs(true);
+            {(currentBranch === 'main' || currentBranch === 'master') && (
+              <MainBranchBanner
+                projectPath={currentProject.path}
+                onCreateBranch={() => setWorkspaceTab('branches')}
+              />
+            )}
+
+            <div className="workspace-content">
+              <SplitPane
+                defaultSplit={28}
+                minLeft={20}
+                minRight={35}
+                rightCollapsed={isPreviewHidden}
+                left={
+                  <div className="terminal-pane">
+                    <HealthIndicatorBar
+                      projectPath={currentProject.path}
+                      healthPanelRef={healthPanelRef}
+                      onAskClaude={sendToClaude}
+                      onHealthOutput={handleHealthOutput}
+                      isWebProject={isWebProject}
+                      customDevCommand={customDevCommand}
+                      hasDevServer={hasDevServer}
+                      projectType={projectType}
+                      isRestartingDevServer={isRestartingDevServer}
+                      isPreviewHidden={isPreviewHidden}
+                      devServerPort={devServerPort}
+                      onRestartDevServer={handleRestartDevServer}
+                      onOpenDevCommand={devCommandModal.open}
+                      onOpenProjectSettings={projectSettingsModal.open}
+                      onEnterCompactMode={handleEnterCompactMode}
+                      onShowPreview={() => setIsPreviewHidden(false)}
+                    />
+                    {/* Terminal view - hidden in compact mode when viewing branches/PRs */}
+                    <div
+                      className={`compact-terminal-view ${compactView !== 'terminal' ? 'compact-hidden' : ''}`}
+                    >
+                      <div className="terminal-tabs-bar">
+                        <div className="terminal-tabs" data-education-id="terminal-tabs">
+                          <TerminalTabSelector
+                            tabs={terminalTabs}
+                            activeTabId={activeTerminalTab}
+                            tabTitles={tabTitles}
+                            attentionTabs={attentionTabs}
+                            maxTabs={maxTerminalTabs}
+                            onSelectTab={(tabId) => {
+                              setShowDevServerLogs(false);
                               setShowHealthLogs(false);
+                              setActiveTerminalTab(tabId);
+                              setAttentionTabs((prev) => {
+                                const next = new Set(prev);
+                                next.delete(tabId);
+                                return next;
+                              });
                             }}
-                            title="View dev server logs"
-                            data-education-id="server-logs"
-                          >
-                            <TerminalIcon size={12} />
-                          </button>
-                          <button
-                            className={`workspace-tab icon-only ${showHealthLogs ? 'active' : ''}`}
-                            onClick={() => {
-                              setShowDevServerLogs(true);
-                              setShowHealthLogs(true);
+                            onAddTab={addTerminalTab}
+                            onCloseTab={closeTerminalTab}
+                            onSwitchAgent={(tabId, agentId) => {
+                              setTabTitles((prev) => {
+                                const next = new Map(prev);
+                                next.delete(tabId);
+                                return next;
+                              });
+                              switchTabAgent(tabId, agentId);
                             }}
-                            title="View health check logs"
-                            data-education-id="health-logs"
+                          />
+                        </div>
+                        <div className="terminal-logs-tabs">
+                          {(isWebProject || hasDevServer) && (
+                            <>
+                              <button
+                                className={`workspace-tab icon-only ${showDevServerLogs && !showHealthLogs ? 'active' : ''}`}
+                                onClick={() => {
+                                  setShowDevServerLogs(true);
+                                  setShowHealthLogs(false);
+                                }}
+                                title="View dev server logs"
+                                data-education-id="server-logs"
+                              >
+                                <TerminalIcon size={12} />
+                              </button>
+                              <button
+                                className={`workspace-tab icon-only ${showHealthLogs ? 'active' : ''}`}
+                                onClick={() => {
+                                  setShowDevServerLogs(true);
+                                  setShowHealthLogs(true);
+                                }}
+                                title="View health check logs"
+                                data-education-id="health-logs"
+                              >
+                                <ActivityIcon size={12} />
+                              </button>
+                            </>
+                          )}
+                          <ToolbarDropdown
+                            agent={getActiveTabAgent()}
+                            autoAcceptMode={autoAcceptMode}
+                            onNotificationSettings={() => setShowNotificationSettings(true)}
+                            onSkills={skillsModal.open}
+                            onMcp={mcpModal.open}
+                            onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
+                            onHelp={helpModal.open}
+                            terminalPlugins={getSlotPlugins('terminal')}
+                            pluginProject={pluginProject}
+                            pluginActions={pluginActions}
+                            pluginTheme={pluginTheme}
+                          />
+                        </div>
+
+                        {/* Compact mode controls - visible only at narrow widths via CSS */}
+                        <CompactModeToggle
+                          isPinned={isPinned}
+                          onPinToggle={handlePinToggle}
+                          onExpandToFull={handleExpandToFull}
+                        />
+                      </div>
+                      <div className="terminal-content" data-education-id="claude-terminal">
+                        {terminalTabs.map((tab) => (
+                          <div
+                            key={`session-${terminalSessionId}-tab-${tab.id}`}
+                            className={`terminal-tab-content ${!showDevServerLogs && activeTerminalTab === tab.id ? 'active' : ''}`}
                           >
-                            <ActivityIcon size={12} />
-                          </button>
-                        </>
-                      )}
-                      <ToolbarDropdown
-                        agent={getActiveTabAgent()}
-                        autoAcceptMode={autoAcceptMode}
-                        onNotificationSettings={() => setShowNotificationSettings(true)}
-                        onSkills={skillsModal.open}
-                        onMcp={mcpModal.open}
-                        onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
-                        onHelp={helpModal.open}
-                        terminalPlugins={getSlotPlugins('terminal')}
-                        pluginProject={pluginProject}
-                        pluginActions={pluginActions}
-                        pluginTheme={pluginTheme}
-                      />
+                            <Terminal
+                              ref={(ref) => {
+                                if (ref) {
+                                  terminalRefsMap.current.set(tab.id, ref);
+                                }
+                              }}
+                              agent={getAgentById(tab.agentId)}
+                              projectPath={currentProject.path}
+                              onExit={handleTerminalExit}
+                              autoAcceptMode={autoAcceptMode}
+                              onStatusChange={createTabStatusHandler(tab.id)}
+                              onTitleChange={handleTabTitleChange(tab.id)}
+                              sessionName={tab.sessionId}
+                              isActive={!showDevServerLogs && activeTerminalTab === tab.id}
+                              shouldResume={tab.shouldResume}
+                            />
+                          </div>
+                        ))}
+                        {showDevServerLogs && !showHealthLogs && (
+                          <div className="terminal-tab-content active">
+                            <DevServerLogs
+                              output={devServerOutput}
+                              outputVersion={devServerOutputVersion}
+                            />
+                          </div>
+                        )}
+                        {showHealthLogs && (
+                          <div className="terminal-tab-content active">
+                            <DevServerLogs
+                              output={healthOutput}
+                              outputVersion={healthOutputVersion}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Compact mode controls - visible only at narrow widths via CSS */}
-                    <CompactModeToggle
+                    <CompactBranchPRView
+                      compactView={compactView}
+                      setCompactView={setCompactView}
                       isPinned={isPinned}
                       onPinToggle={handlePinToggle}
                       onExpandToFull={handleExpandToFull}
+                      projectPath={currentProject.path}
+                      currentBranch={currentBranch || ''}
+                      branches={branches}
+                      openPRs={openPRs}
+                      integrations={integrations}
+                      onBranchSwitchFromBranches={(branchName) =>
+                        void handleBranchSwitch(branchName)
+                      }
+                      onBranchSwitchFromPR={(branchName) => {
+                        void handleBranchSwitch(branchName);
+                        // TODO: chain off handleBranchSwitch promise instead of arbitrary timeout
+                        setTimeout(() => void handleRestartDevServer(), 1500);
+                      }}
+                      onSubmitForReview={(branchName) => setShowSubmitReview(branchName)}
+                      onRefresh={() => void fetchBranchInfo(currentProject.path)}
+                      onResolveConflicts={(headBranch, baseBranch) =>
+                        void handleResolveConflicts(headBranch, baseBranch)
+                      }
                     />
                   </div>
-                  <div className="terminal-content" data-education-id="claude-terminal">
-                    {terminalTabs.map((tab) => (
-                      <div
-                        key={`session-${terminalSessionId}-tab-${tab.id}`}
-                        className={`terminal-tab-content ${!showDevServerLogs && activeTerminalTab === tab.id ? 'active' : ''}`}
-                      >
-                        <Terminal
-                          ref={(ref) => {
-                            if (ref) {
-                              terminalRefsMap.current.set(tab.id, ref);
+                }
+                right={
+                  <div className="preview-pane">
+                    {/* Preview/Branches/PRs Tabs - always show all tabs */}
+                    <div className="preview-tabs-bar">
+                      {/* Branch Indicator - only show when GitHub is connected and we have branch info */}
+                      {integrations.projectGithub?.status === 'connected' && currentBranch && (
+                        <BranchIndicator
+                          currentBranch={currentBranch}
+                          hasUncommittedChanges={hasUncommittedChanges}
+                          changedFiles={changedFiles}
+                          projectPath={currentProject.path}
+                          isOnBranchesTab={workspaceTab === 'branches' || workspaceTab === 'prs'}
+                          isWebProject={isWebProject}
+                          onClick={() => {
+                            if (workspaceTab === 'branches' || workspaceTab === 'prs') {
+                              setWorkspaceTab(isWebProject ? 'preview' : 'code');
+                            } else {
+                              setWorkspaceTab('branches');
                             }
                           }}
-                          agent={getAgentById(tab.agentId)}
-                          projectPath={currentProject.path}
-                          onExit={handleTerminalExit}
-                          autoAcceptMode={autoAcceptMode}
-                          onStatusChange={createTabStatusHandler(tab.id)}
-                          onTitleChange={handleTabTitleChange(tab.id)}
-                          sessionName={tab.sessionId}
-                          isActive={!showDevServerLogs && activeTerminalTab === tab.id}
-                          shouldResume={tab.shouldResume}
+                          onDiscard={() => {
+                            void checkGitStatus(currentProject.path);
+                          }}
+                          onSave={() => setForcePublishOpen(true)}
                         />
-                      </div>
-                    ))}
-                    {showDevServerLogs && !showHealthLogs && (
-                      <div className="terminal-tab-content active">
-                        <DevServerLogs
-                          output={devServerOutput}
-                          outputVersion={devServerOutputVersion}
-                        />
-                      </div>
-                    )}
-                    {showHealthLogs && (
-                      <div className="terminal-tab-content active">
-                        <DevServerLogs output={healthOutput} outputVersion={healthOutputVersion} />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <CompactBranchPRView
-                  compactView={compactView}
-                  setCompactView={setCompactView}
-                  isPinned={isPinned}
-                  onPinToggle={handlePinToggle}
-                  onExpandToFull={handleExpandToFull}
-                  projectPath={currentProject.path}
-                  currentBranch={currentBranch || ''}
-                  branches={branches}
-                  openPRs={openPRs}
-                  integrations={integrations}
-                  onBranchSwitchFromBranches={(branchName) => void handleBranchSwitch(branchName)}
-                  onBranchSwitchFromPR={(branchName) => {
-                    void handleBranchSwitch(branchName);
-                    // TODO: chain off handleBranchSwitch promise instead of arbitrary timeout
-                    setTimeout(() => void handleRestartDevServer(), 1500);
-                  }}
-                  onSubmitForReview={(branchName) => setShowSubmitReview(branchName)}
-                  onRefresh={() => void fetchBranchInfo(currentProject.path)}
-                  onResolveConflicts={(headBranch, baseBranch) =>
-                    void handleResolveConflicts(headBranch, baseBranch)
-                  }
-                />
-              </div>
-            }
-            right={
-              <div className="preview-pane">
-                {/* Preview/Branches/PRs Tabs - always show all tabs */}
-                <div className="preview-tabs-bar">
-                  {/* Branch Indicator - only show when GitHub is connected and we have branch info */}
-                  {integrations.projectGithub?.status === 'connected' && currentBranch && (
-                    <BranchIndicator
-                      currentBranch={currentBranch}
-                      hasUncommittedChanges={hasUncommittedChanges}
-                      changedFiles={changedFiles}
-                      projectPath={currentProject.path}
-                      isOnBranchesTab={workspaceTab === 'branches' || workspaceTab === 'prs'}
-                      isWebProject={isWebProject}
-                      onClick={() => {
-                        if (workspaceTab === 'branches' || workspaceTab === 'prs') {
-                          setWorkspaceTab(isWebProject ? 'preview' : 'code');
-                        } else {
-                          setWorkspaceTab('branches');
-                        }
-                      }}
-                      onDiscard={() => {
-                        void checkGitStatus(currentProject.path);
-                      }}
-                      onSave={() => setForcePublishOpen(true)}
-                    />
-                  )}
-                  <div style={{ flex: 1 }} />
-                  <div className="workspace-tabs">
-                    {isWebProject && (
-                      <button
-                        className={`workspace-tab ${workspaceTab === 'preview' ? 'active' : ''}`}
-                        onClick={() => setWorkspaceTab('preview')}
-                      >
-                        <EyeIcon size={14} />
-                        <span>Preview</span>
-                      </button>
-                    )}
-                    <button
-                      className={`workspace-tab ${workspaceTab === 'code' ? 'active' : ''}`}
-                      onClick={() => setWorkspaceTab('code')}
-                    >
-                      <CodeIcon size={14} />
-                      <span>Code</span>
-                    </button>
-                    {integrations.projectGithub?.status === 'connected' && (
-                      <>
+                      )}
+                      <div style={{ flex: 1 }} />
+                      <div className="workspace-tabs">
+                        {isWebProject && (
+                          <button
+                            className={`workspace-tab ${workspaceTab === 'preview' ? 'active' : ''}`}
+                            onClick={() => setWorkspaceTab('preview')}
+                          >
+                            <EyeIcon size={14} />
+                            <span>Preview</span>
+                          </button>
+                        )}
                         <button
-                          className={`workspace-tab ${workspaceTab === 'branches' ? 'active' : ''}`}
-                          onClick={() => setWorkspaceTab('branches')}
-                          data-education-id="branches-tab"
+                          className={`workspace-tab ${workspaceTab === 'code' ? 'active' : ''}`}
+                          onClick={() => setWorkspaceTab('code')}
                         >
-                          <BranchIcon size={14} />
-                          <span>Branches</span>
+                          <CodeIcon size={14} />
+                          <span>Code</span>
                         </button>
-                        <button
-                          className={`workspace-tab ${workspaceTab === 'prs' ? 'active' : ''}`}
-                          onClick={() => setWorkspaceTab('prs')}
-                          data-education-id="prs-tab"
-                        >
-                          <PullRequestIcon size={14} />
-                          <span>PRs</span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  <div className="preview-tabs-divider" />
-                  <div className="preview-actions">
-                    {isWebProject && (
-                      <>
+                        {integrations.projectGithub?.status === 'connected' && (
+                          <>
+                            <button
+                              className={`workspace-tab ${workspaceTab === 'branches' ? 'active' : ''}`}
+                              onClick={() => setWorkspaceTab('branches')}
+                              data-education-id="branches-tab"
+                            >
+                              <BranchIcon size={14} />
+                              <span>Branches</span>
+                            </button>
+                            <button
+                              className={`workspace-tab ${workspaceTab === 'prs' ? 'active' : ''}`}
+                              onClick={() => setWorkspaceTab('prs')}
+                              data-education-id="prs-tab"
+                            >
+                              <PullRequestIcon size={14} />
+                              <span>PRs</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div className="preview-tabs-divider" />
+                      <div className="preview-actions">
+                        {isWebProject && (
+                          <>
+                            <button
+                              className="preview-action-btn-icon"
+                              onClick={() => void handleEnterCompactMode()}
+                              title="Compact Mode"
+                              data-education-id="compact-button"
+                            >
+                              <CompactIcon size={12} />
+                            </button>
+                            <span data-education-id="browser-button">
+                              <BrowserDropdown
+                                url={`http://localhost:${devServerPort}`}
+                                buttonClassName="preview-action-btn-icon"
+                                iconOnly
+                              />
+                            </span>
+                          </>
+                        )}
                         <button
                           className="preview-action-btn-icon"
-                          onClick={() => void handleEnterCompactMode()}
-                          title="Compact Mode"
-                          data-education-id="compact-button"
+                          onClick={() => setIsPreviewHidden(true)}
+                          title="Hide Panel"
+                          data-education-id="hide-preview"
                         >
-                          <CompactIcon size={12} />
+                          <PanelRightIcon size={12} />
                         </button>
-                        <span data-education-id="browser-button">
-                          <BrowserDropdown
-                            url={`http://localhost:${devServerPort}`}
-                            buttonClassName="preview-action-btn-icon"
-                            iconOnly
-                          />
-                        </span>
-                      </>
-                    )}
-                    <button
-                      className="preview-action-btn-icon"
-                      onClick={() => setIsPreviewHidden(true)}
-                      title="Hide Panel"
-                      data-education-id="hide-preview"
-                    >
-                      <PanelRightIcon size={12} />
-                    </button>
-                  </div>
-                </div>
+                      </div>
+                    </div>
 
-                {/* Tab content */}
-                {workspaceTab === 'preview' && isWebProject && (
-                  <div style={{ flex: 1, display: 'flex' }}>
-                    <Preview
-                      key={`${currentProject.path}-${devServerPort}`}
-                      ref={previewRef}
-                      port={devServerPort}
-                      projectPath={currentProject.path}
-                      isStaticProject={projectType === 'statichtml'}
-                      onServerReady={handlePreviewReady}
-                      onPageChange={setCurrentPreviewPage}
-                      isCropMode={isCropMode}
-                      onCropStart={handleCropStart}
-                      onCropComplete={handleCropComplete}
-                      onCropCancel={handleCropCancel}
-                      isBranchSwitching={isBranchSwitching}
-                      isDevServerRestarting={isRestartingDevServer}
-                      onSendToClaude={sendToClaude}
-                      previewPlugins={
-                        <PluginSlot
-                          name="preview"
-                          plugins={getSlotPlugins('preview')}
-                          project={pluginProject}
-                          actions={pluginActions}
-                          theme={pluginTheme}
+                    {/* Tab content */}
+                    {workspaceTab === 'preview' && isWebProject && (
+                      <div style={{ flex: 1, display: 'flex' }}>
+                        <Preview
+                          key={`${currentProject.path}-${devServerPort}`}
+                          ref={previewRef}
+                          port={devServerPort}
+                          projectPath={currentProject.path}
+                          isStaticProject={projectType === 'statichtml'}
+                          onServerReady={handlePreviewReady}
+                          onPageChange={setCurrentPreviewPage}
+                          isCropMode={isCropMode}
+                          onCropStart={handleCropStart}
+                          onCropComplete={handleCropComplete}
+                          onCropCancel={handleCropCancel}
+                          isBranchSwitching={isBranchSwitching}
+                          isDevServerRestarting={isRestartingDevServer}
+                          onSendToClaude={sendToClaude}
+                          previewPlugins={
+                            <PluginSlot
+                              name="preview"
+                              plugins={getSlotPlugins('preview')}
+                              project={pluginProject}
+                              actions={pluginActions}
+                              theme={pluginTheme}
+                            />
+                          }
+                          toolbarExtra={
+                            <div className="agent-toolbar">
+                              <button
+                                className="agent-capture-btn"
+                                onClick={() => void handleCaptureScreenshot()}
+                                disabled={isCapturing || isCropMode}
+                                title="Screenshot preview for Claude (⌘⇧S)"
+                                data-education-id="screenshot-button"
+                              >
+                                {isCapturing ? (
+                                  <div className="capture-spinner" />
+                                ) : (
+                                  <CameraIcon size={14} />
+                                )}
+                                <span className="capture-shortcut">&#8984;&#8679;S</span>
+                              </button>
+                              <button
+                                className={`agent-capture-btn ${isCropMode ? 'active' : ''}`}
+                                onClick={() => setIsCropMode(!isCropMode)}
+                                disabled={isCapturing || isCropCapturing}
+                                title="Crop screenshot for Claude (⌘⇧C)"
+                                data-education-id="crop-button"
+                              >
+                                {isCropCapturing ? (
+                                  <div className="capture-spinner" />
+                                ) : (
+                                  <CropIcon size={14} />
+                                )}
+                                <span className="capture-shortcut">&#8984;&#8679;C</span>
+                              </button>
+                            </div>
+                          }
                         />
-                      }
-                      toolbarExtra={
-                        <div className="agent-toolbar">
-                          <button
-                            className="agent-capture-btn"
-                            onClick={() => void handleCaptureScreenshot()}
-                            disabled={isCapturing || isCropMode}
-                            title="Screenshot preview for Claude (⌘⇧S)"
-                            data-education-id="screenshot-button"
-                          >
-                            {isCapturing ? (
-                              <div className="capture-spinner" />
-                            ) : (
-                              <CameraIcon size={14} />
-                            )}
-                            <span className="capture-shortcut">&#8984;&#8679;S</span>
-                          </button>
-                          <button
-                            className={`agent-capture-btn ${isCropMode ? 'active' : ''}`}
-                            onClick={() => setIsCropMode(!isCropMode)}
-                            disabled={isCapturing || isCropCapturing}
-                            title="Crop screenshot for Claude (⌘⇧C)"
-                            data-education-id="crop-button"
-                          >
-                            {isCropCapturing ? (
-                              <div className="capture-spinner" />
-                            ) : (
-                              <CropIcon size={14} />
-                            )}
-                            <span className="capture-shortcut">&#8984;&#8679;C</span>
-                          </button>
-                        </div>
-                      }
+                      </div>
+                    )}
+                    {workspaceTab === 'code' && (
+                      <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
+                        <CodeTab projectPath={currentProject.path} onSendToAgent={sendToClaude} />
+                      </div>
+                    )}
+                    <BranchPRTabContainer
+                      workspaceTab={workspaceTab}
+                      setWorkspaceTab={setWorkspaceTab}
+                      isWebProject={isWebProject}
+                      integrations={integrations}
+                      branches={branches}
+                      openPRs={openPRs}
+                      currentBranch={currentBranch}
+                      projectPath={currentProject.path}
+                      handleBranchSwitch={handleBranchSwitch}
+                      handleRestartDevServer={handleRestartDevServer}
+                      setShowSubmitReview={setShowSubmitReview}
+                      fetchBranchInfo={fetchBranchInfo}
+                      handleResolveConflicts={handleResolveConflicts}
+                      handleGitHubConnect={handleGitHubConnect}
                     />
                   </div>
-                )}
-                {workspaceTab === 'code' && (
-                  <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-                    <CodeTab projectPath={currentProject.path} onSendToAgent={sendToClaude} />
-                  </div>
-                )}
-                <BranchPRTabContainer
-                  workspaceTab={workspaceTab}
-                  setWorkspaceTab={setWorkspaceTab}
-                  isWebProject={isWebProject}
-                  integrations={integrations}
-                  branches={branches}
-                  openPRs={openPRs}
-                  currentBranch={currentBranch}
+                }
+              />
+            </div>
+
+            {/* Compact footer - visible only at narrow window widths via CSS */}
+            <div className="compact-footer-container">
+              {/* Compact publish dropdown - uses controlled mode (forceOpen synced with state)
+              The button is hidden via CSS; only the dropdown menu appears */}
+              <div className="compact-publish-dropdown">
+                <PublishBranchDropdown
+                  currentBranch={currentBranch || 'main'}
+                  projectGithubStatus={integrations.projectGithub}
                   projectPath={currentProject.path}
-                  handleBranchSwitch={handleBranchSwitch}
-                  handleRestartDevServer={handleRestartDevServer}
-                  setShowSubmitReview={setShowSubmitReview}
-                  fetchBranchInfo={fetchBranchInfo}
-                  handleResolveConflicts={handleResolveConflicts}
-                  handleGitHubConnect={handleGitHubConnect}
+                  hasChangesToSync={hasUncommittedChanges}
+                  onStatusChange={() => {
+                    void handleGitHubStatusChange();
+                    void fetchBranchInfo(currentProject.path);
+                  }}
+                  onModalClose={() => {
+                    setIsCompactPublishOpen(false);
+                    focusActiveTerminal();
+                  }}
+                  isPublishing={isPublishing}
+                  setIsPublishing={setIsPublishing}
+                  onPublishError={handlePublishError}
+                  onCreatePR={() => setShowSubmitReview(currentBranch || 'main')}
+                  forceOpen={isCompactPublishOpen}
+                  onForceOpenHandled={() => {}}
+                  excludeClickOutsideSelector=".compact-publish-btn"
                 />
               </div>
-            }
-          />
-        </div>
-
-        {/* Compact footer - visible only at narrow window widths via CSS */}
-        <div className="compact-footer-container">
-          {/* Compact publish dropdown - uses controlled mode (forceOpen synced with state)
-              The button is hidden via CSS; only the dropdown menu appears */}
-          <div className="compact-publish-dropdown">
-            <PublishBranchDropdown
-              currentBranch={currentBranch || 'main'}
-              projectGithubStatus={integrations.projectGithub}
-              projectPath={currentProject.path}
-              hasChangesToSync={hasUncommittedChanges}
-              onStatusChange={() => {
-                void handleGitHubStatusChange();
-                void fetchBranchInfo(currentProject.path);
-              }}
-              onModalClose={() => {
-                setIsCompactPublishOpen(false);
-                focusActiveTerminal();
-              }}
-              isPublishing={isPublishing}
-              setIsPublishing={setIsPublishing}
-              onPublishError={handlePublishError}
-              onCreatePR={() => setShowSubmitReview(currentBranch || 'main')}
-              forceOpen={isCompactPublishOpen}
-              onForceOpenHandled={() => {}}
-              excludeClickOutsideSelector=".compact-publish-btn"
-            />
+              <CompactActionsRow
+                serverHealth={
+                  projectType === 'statichtml' || projectType === 'generic' || hasDevServer
+                    ? 'healthy'
+                    : isRestartingDevServer
+                      ? 'starting'
+                      : 'unhealthy'
+                }
+                currentBranch={currentBranch}
+                hasUncommittedChanges={hasUncommittedChanges}
+                prStatus={openPRs.find((pr) => pr.headRef === currentBranch) ? 'open' : 'none'}
+                isGitHubConnected={integrations.projectGithub?.status === 'connected'}
+                isSynced={!hasUncommittedChanges}
+                onRestartServer={() => void handleRestartDevServer()}
+                onOpenAssets={assetsPanelModal.open}
+                onOpenEnvEditor={envEditorModal.open}
+                onCreateRepo={() => {
+                  // Button only shows when GitHub not connected, so prompt GitHub connection
+                  void handleGitHubConnect();
+                }}
+                onSwitchBranch={() => {
+                  // Toggle between terminal and branches view in compact mode
+                  setCompactView(compactView === 'branches' ? 'terminal' : 'branches');
+                }}
+                onCreatePR={() => {
+                  // Toggle between terminal and PRs view in compact mode
+                  setCompactView(compactView === 'prs' ? 'terminal' : 'prs');
+                }}
+                onPublish={() => setIsCompactPublishOpen((prev) => !prev)}
+              />
+            </div>
           </div>
-          <CompactActionsRow
-            serverHealth={
-              projectType === 'statichtml' || projectType === 'generic' || hasDevServer
-                ? 'healthy'
-                : isRestartingDevServer
-                  ? 'starting'
-                  : 'unhealthy'
-            }
-            currentBranch={currentBranch}
-            hasUncommittedChanges={hasUncommittedChanges}
-            prStatus={openPRs.find((pr) => pr.headRef === currentBranch) ? 'open' : 'none'}
-            isGitHubConnected={integrations.projectGithub?.status === 'connected'}
-            isSynced={!hasUncommittedChanges}
-            onRestartServer={() => void handleRestartDevServer()}
-            onOpenAssets={assetsPanelModal.open}
-            onOpenEnvEditor={envEditorModal.open}
-            onCreateRepo={() => {
-              // Button only shows when GitHub not connected, so prompt GitHub connection
-              void handleGitHubConnect();
-            }}
-            onSwitchBranch={() => {
-              // Toggle between terminal and branches view in compact mode
-              setCompactView(compactView === 'branches' ? 'terminal' : 'branches');
-            }}
-            onCreatePR={() => {
-              // Toggle between terminal and PRs view in compact mode
-              setCompactView(compactView === 'prs' ? 'terminal' : 'prs');
-            }}
-            onPublish={() => setIsCompactPublishOpen((prev) => !prev)}
-          />
+          {/* .workspace-main */}
         </div>
+        {/* .workspace-body */}
 
+        {header.supportPanel}
         <WorkspaceModals
           projectPath={currentProject.path}
           currentProjectPath={currentProject.path}

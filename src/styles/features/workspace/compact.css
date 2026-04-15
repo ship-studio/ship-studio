@@ -2,8 +2,8 @@
 /* When window is narrow (<= 550px), show only terminal + compact footer */
 
 @media (max-width: 550px) {
-  /* Hide workspace header and titlebar in compact mode */
-  .workspace-titlebar,
+  /* Hide workspace header (Learn Mode toolbar) in compact mode.
+   * Titlebar stays visible so traffic lights and back-link work normally. */
   .workspace-header {
     display: none;
   }
@@ -35,10 +35,9 @@
     min-height: 36px;
   }
 
-  /* Simplify terminal toolbar — add left padding for macOS traffic lights */
+  /* Hide terminal toolbar — titlebar stays visible instead */
   .terminal-toolbar {
-    padding: 6px 8px 6px 78px;
-    min-height: 28px;
+    display: none;
   }
 
   /* Shrink toolbar buttons to align with macOS traffic lights */

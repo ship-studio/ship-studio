@@ -190,170 +190,172 @@ export function WorkspaceHeader({
     }
   };
 
-  return (
-    <>
-      <div
-        className="workspace-titlebar"
-        onMouseDown={handleDrag}
-        onDoubleClick={handleDoubleClick}
+  const titlebar = (
+    <div className="workspace-titlebar" onMouseDown={handleDrag} onDoubleClick={handleDoubleClick}>
+      <button className="back-link" onClick={onBackToProjects}>
+        ← Projects
+      </button>
+      <h1>{projectName}</h1>
+      <button
+        className="project-path"
+        onClick={() => projectPath && void openInFinder(projectPath)}
+        title="Open in Finder"
       >
-        <button className="back-link" onClick={onBackToProjects}>
-          ← Projects
-        </button>
-        <h1>{projectName}</h1>
-        <button
-          className="project-path"
-          onClick={() => projectPath && void openInFinder(projectPath)}
-          title="Open in Finder"
-        >
-          {projectPath}
-        </button>
-      </div>
-      <header className="workspace-header">
-        {/* Left side — utility buttons + plugin toolbar slots */}
-        <div className="workspace-header-left">
-          <button
-            className={`toolbar-icon-btn ${isEducationMode ? 'active' : ''}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleEducationMode();
-            }}
-            title="Learn Mode"
-            data-education-id="education-button"
-          >
-            <GraduationCapIcon size={12} />
-            <span>Learn Mode</span>
-          </button>
-          <button
-            className="toolbar-icon-btn"
-            onClick={onOpenBackupsModal}
-            title="Backups"
-            data-education-id="backups-button"
-          >
-            <HistoryIcon size={12} />
-          </button>
-          <button
-            className="toolbar-icon-btn"
-            onClick={onOpenEnvEditor}
-            title="Environment Variables"
-            data-education-id="env-button"
-          >
-            <DollarIcon size={12} />
-          </button>
-          <button
-            className="toolbar-icon-btn"
-            onClick={() => setIsSupportPanelOpen(true)}
-            title="Support"
-            data-education-id="support-button"
-          >
-            <HelpIcon size={12} />
-          </button>
-          <button
-            className="toolbar-icon-btn"
-            onClick={onOpenAssetsPanel}
-            title="Assets"
-            data-education-id="assets-button"
-          >
-            <ImageIcon size={12} />
-          </button>
-          <button
-            className="toolbar-icon-btn"
-            onClick={onOpenPluginManager}
-            title="Manage Plugins"
-            data-education-id="plugin-manager"
-          >
-            <PuzzleIcon size={12} />
-          </button>
-          <div
-            className="ide-dropdown-container"
-            onMouseEnter={() => setShowIdeDropdown(true)}
-            onMouseLeave={() => setShowIdeDropdown(false)}
-            data-education-id="ide-button"
-          >
-            <button className="toolbar-icon-btn" title="Open in IDE">
-              <CodeIcon size={12} />
-            </button>
-            {showIdeDropdown && (
-              <div className="ide-dropdown">
-                <div className="ide-dropdown-inner">
-                  {ideAvailability.vscode && (
-                    <button onClick={() => void openInIde('vscode')} disabled={openingIde !== null}>
-                      <VSCodeIcon size={14} />
-                      {openingIde === 'vscode' ? 'Opening...' : 'VS Code'}
-                    </button>
-                  )}
-                  {ideAvailability.cursor && (
-                    <button onClick={() => void openInIde('cursor')} disabled={openingIde !== null}>
-                      <CursorIcon size={14} />
-                      {openingIde === 'cursor' ? 'Opening...' : 'Cursor'}
-                    </button>
-                  )}
-                  {!ideAvailability.vscode && !ideAvailability.cursor && (
-                    <div className="ide-dropdown-empty">No IDEs found</div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          <PluginSlot
-            name="toolbar"
-            plugins={toolbarPlugins.regular}
-            project={pluginProject}
-            actions={pluginActions}
-            theme={pluginTheme}
-          />
-        </div>
-
-        {/* Right side — client editor, hosting plugin, GitHub, Publish */}
-        <div className="workspace-header-right">
-          <ClientEditorButton projectPath={projectPath} />
-          <PluginSlot
-            name="toolbar"
-            plugins={toolbarPlugins.hosting}
-            project={pluginProject}
-            actions={pluginActions}
-            theme={pluginTheme}
-          />
-          <PluginSlot
-            name="publish"
-            plugins={getSlotPlugins('publish')}
-            project={pluginProject}
-            actions={pluginActions}
-            theme={pluginTheme}
-          />
-          <span data-education-id="github-button">
-            <GitHubButton
-              githubState={integrations.github}
-              projectStatus={integrations.projectGithub}
-              projectPath={projectPath}
-              projectName={projectName}
-              onStatusChange={onGitHubStatusChange}
-              onGitHubConnect={onGitHubConnect}
-              onModalClose={focusActiveTerminal}
-            />
-          </span>
-          <PublishBranchDropdown
-            currentBranch={currentBranch || 'main'}
-            projectGithubStatus={integrations.projectGithub}
-            projectPath={projectPath}
-            hasChangesToSync={hasUncommittedChanges}
-            onStatusChange={onPublishStatusChange}
-            onModalClose={focusActiveTerminal}
-            isPublishing={isPublishing}
-            setIsPublishing={setIsPublishing}
-            onPublishError={onPublishError}
-            onCreatePR={onCreatePR}
-            forceOpen={forcePublishOpen}
-            onForceOpenHandled={onForcePublishOpenHandled}
-          />
-        </div>
-      </header>
-      <SupportPanel
-        isOpen={isSupportPanelOpen}
-        onClose={() => setIsSupportPanelOpen(false)}
-        projectPath={projectPath}
-        projectName={projectName}
-      />
-    </>
+        {projectPath}
+      </button>
+    </div>
   );
+
+  const toolbar = (
+    <header className="workspace-header">
+      {/* Left side — utility buttons + plugin toolbar slots */}
+      <div className="workspace-header-left">
+        <button
+          className={`toolbar-icon-btn ${isEducationMode ? 'active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleEducationMode();
+          }}
+          title="Learn Mode"
+          data-education-id="education-button"
+        >
+          <GraduationCapIcon size={12} />
+          <span>Learn Mode</span>
+        </button>
+        <button
+          className="toolbar-icon-btn"
+          onClick={onOpenBackupsModal}
+          title="Backups"
+          data-education-id="backups-button"
+        >
+          <HistoryIcon size={12} />
+        </button>
+        <button
+          className="toolbar-icon-btn"
+          onClick={onOpenEnvEditor}
+          title="Environment Variables"
+          data-education-id="env-button"
+        >
+          <DollarIcon size={12} />
+        </button>
+        <button
+          className="toolbar-icon-btn"
+          onClick={() => setIsSupportPanelOpen(true)}
+          title="Support"
+          data-education-id="support-button"
+        >
+          <HelpIcon size={12} />
+        </button>
+        <button
+          className="toolbar-icon-btn"
+          onClick={onOpenAssetsPanel}
+          title="Assets"
+          data-education-id="assets-button"
+        >
+          <ImageIcon size={12} />
+        </button>
+        <button
+          className="toolbar-icon-btn"
+          onClick={onOpenPluginManager}
+          title="Manage Plugins"
+          data-education-id="plugin-manager"
+        >
+          <PuzzleIcon size={12} />
+        </button>
+        <div
+          className="ide-dropdown-container"
+          onMouseEnter={() => setShowIdeDropdown(true)}
+          onMouseLeave={() => setShowIdeDropdown(false)}
+          data-education-id="ide-button"
+        >
+          <button className="toolbar-icon-btn" title="Open in IDE">
+            <CodeIcon size={12} />
+          </button>
+          {showIdeDropdown && (
+            <div className="ide-dropdown">
+              <div className="ide-dropdown-inner">
+                {ideAvailability.vscode && (
+                  <button onClick={() => void openInIde('vscode')} disabled={openingIde !== null}>
+                    <VSCodeIcon size={14} />
+                    {openingIde === 'vscode' ? 'Opening...' : 'VS Code'}
+                  </button>
+                )}
+                {ideAvailability.cursor && (
+                  <button onClick={() => void openInIde('cursor')} disabled={openingIde !== null}>
+                    <CursorIcon size={14} />
+                    {openingIde === 'cursor' ? 'Opening...' : 'Cursor'}
+                  </button>
+                )}
+                {!ideAvailability.vscode && !ideAvailability.cursor && (
+                  <div className="ide-dropdown-empty">No IDEs found</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <PluginSlot
+          name="toolbar"
+          plugins={toolbarPlugins.regular}
+          project={pluginProject}
+          actions={pluginActions}
+          theme={pluginTheme}
+        />
+      </div>
+
+      {/* Right side — client editor, hosting plugin, GitHub, Publish */}
+      <div className="workspace-header-right">
+        <ClientEditorButton projectPath={projectPath} />
+        <PluginSlot
+          name="toolbar"
+          plugins={toolbarPlugins.hosting}
+          project={pluginProject}
+          actions={pluginActions}
+          theme={pluginTheme}
+        />
+        <PluginSlot
+          name="publish"
+          plugins={getSlotPlugins('publish')}
+          project={pluginProject}
+          actions={pluginActions}
+          theme={pluginTheme}
+        />
+        <span data-education-id="github-button">
+          <GitHubButton
+            githubState={integrations.github}
+            projectStatus={integrations.projectGithub}
+            projectPath={projectPath}
+            projectName={projectName}
+            onStatusChange={onGitHubStatusChange}
+            onGitHubConnect={onGitHubConnect}
+            onModalClose={focusActiveTerminal}
+          />
+        </span>
+        <PublishBranchDropdown
+          currentBranch={currentBranch || 'main'}
+          projectGithubStatus={integrations.projectGithub}
+          projectPath={projectPath}
+          hasChangesToSync={hasUncommittedChanges}
+          onStatusChange={onPublishStatusChange}
+          onModalClose={focusActiveTerminal}
+          isPublishing={isPublishing}
+          setIsPublishing={setIsPublishing}
+          onPublishError={onPublishError}
+          onCreatePR={onCreatePR}
+          forceOpen={forcePublishOpen}
+          onForceOpenHandled={onForcePublishOpenHandled}
+        />
+      </div>
+    </header>
+  );
+
+  const supportPanel = (
+    <SupportPanel
+      isOpen={isSupportPanelOpen}
+      onClose={() => setIsSupportPanelOpen(false)}
+      projectPath={projectPath}
+      projectName={projectName}
+    />
+  );
+
+  return { titlebar, toolbar, supportPanel };
 }

@@ -62,10 +62,11 @@ export async function suspendProjectSession(projectPath: string): Promise<number
  * Fully remove a session from the registry. Kills PTYs first.
  * Distinct from `unpinProject` — callers may want to close a session while
  * leaving the pin in place (so it can be cold-started later).
- * Returns the number of PTYs killed.
+ * PTY cleanup is handled separately by the existing cleanup flow
+ * (stopServer → kill_window_pty → kill_port).
  */
-export async function unregisterProjectSession(projectPath: string): Promise<number> {
-  return invoke<number>('unregister_project_session', { projectPath });
+export async function unregisterProjectSession(projectPath: string): Promise<void> {
+  return invoke<void>('unregister_project_session', { projectPath });
 }
 
 /**

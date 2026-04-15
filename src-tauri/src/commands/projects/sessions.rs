@@ -113,23 +113,23 @@ pub async fn suspend_project_session(project_path: String) -> Result<u32, Comman
     Ok(killed)
 }
 
-/// Fully remove a project session from the registry. Kills PTYs first.
-/// Used when the user closes a session entirely (not just suspends).
+/// Fully remove a project session from the registry.
+///
+/// Does NOT kill PTYs — the frontend's existing cleanup flow
+/// (`stopServer` → `kill_window_pty` → `kill_port`) already handles
+/// PTY teardown with proper ordering and nav-version guards. Killing
+/// PTYs here raced with that flow and, in dev mode, could `kill -9`
+/// processes in the Tauri dev server's process tree.
 ///
 /// Note: this does NOT unpin the project — that's a separate `unpin_project`
 /// call. A user might want to close a session while leaving the pin in place
 /// so it can be reactivated later.
 #[tauri::command]
 #[tracing::instrument]
-pub async fn unregister_project_session(project_path: String) -> Result<u32, CommandError> {
-    let killed = kill_project_pty_internal(&project_path);
+pub async fn unregister_project_session(project_path: String) -> Result<(), CommandError> {
     state_unregister_session(&project_path);
-    tracing::info!(
-        "Unregistered session: project={}, killed_ptys={}",
-        project_path,
-        killed
-    );
-    Ok(killed)
+    tracing::info!("Unregistered session: project={}", project_path,);
+    Ok(())
 }
 
 /// Bump the session's last-activity timestamp. Cheap, safe to call frequently

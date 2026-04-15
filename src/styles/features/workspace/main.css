@@ -78,6 +78,22 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* Two-column row below the titlebar: optional rail + main content. */
+.workspace-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .workspace-content {
   flex: 1;
   display: flex;
