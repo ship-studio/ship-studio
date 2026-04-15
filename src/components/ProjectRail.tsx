@@ -26,6 +26,9 @@ interface ProjectRailProps {
   /** Right-click handler. Phase 3 surfaces only "Unpin"; later phases add
    *  Reveal in Finder, Open in IDE, Suspend, etc. */
   onUnpin: (projectPath: string) => void;
+  /** Reorder handler — receives the new ordered list of project paths.
+   *  Must contain exactly the same set as `rows` (no adds/removes). */
+  onReorder?: (orderedPaths: string[]) => void;
 }
 
 /**
@@ -35,7 +38,54 @@ interface ProjectRailProps {
  */
 const thumbnailCache = new Map<string, string | null>();
 
-export function ProjectRail({ rows, onPinClick, onUnpin }: ProjectRailProps) {
+export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRailProps) {
+  // Drag state lives on the rail, not the item — only one drag is active at
+  // a time, and the drop target's visual feedback depends on the dragged item.
+  const [dragSource, setDragSource] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  const handleDragStart = (projectPath: string) => {
+    setDragSource(projectPath);
+  };
+
+  const handleDragEnd = () => {
+    setDragSource(null);
+    setDropTarget(null);
+  };
+
+  const handleDragOver = (projectPath: string, e: React.DragEvent) => {
+    if (!dragSource || dragSource === projectPath) return;
+    e.preventDefault(); // required for drop to fire
+    e.dataTransfer.dropEffect = 'move';
+    if (dropTarget !== projectPath) setDropTarget(projectPath);
+  };
+
+  const handleDrop = (targetPath: string) => {
+    if (!onReorder || !dragSource || dragSource === targetPath) {
+      handleDragEnd();
+      return;
+    }
+    const currentOrder = rows.map((r) => r.projectPath);
+    const sourceIdx = currentOrder.indexOf(dragSource);
+    const targetIdx = currentOrder.indexOf(targetPath);
+    if (sourceIdx === -1 || targetIdx === -1) {
+      handleDragEnd();
+      return;
+    }
+    // Compute the target's index AFTER removing the source. When source
+    // appeared before target, removing it shifts target down by one. We
+    // insert at the post-removal target index, which puts source where
+    // target was — the standard "drop on item X = take X's slot, X shifts
+    // out of the way" UX. Without this adjustment, dragging an item past
+    // another lands it on the wrong side.
+    const reordered = [...currentOrder];
+    reordered.splice(sourceIdx, 1);
+    const insertAt = sourceIdx < targetIdx ? targetIdx - 1 : targetIdx;
+    reordered.splice(insertAt, 0, dragSource);
+    onReorder(reordered);
+    handleDragEnd();
+  };
+
   // Don't render anything if there are no pins. Reduces visual noise for
   // users who haven't discovered the feature yet — they only see the rail
   // after pinning their first project.
@@ -47,7 +97,19 @@ export function ProjectRail({ rows, onPinClick, onUnpin }: ProjectRailProps) {
     <div className="project-rail" role="navigation" aria-label="Pinned projects">
       <ul className="project-rail-list">
         {rows.map((row) => (
-          <RailItem key={row.projectPath} row={row} onClick={onPinClick} onUnpin={onUnpin} />
+          <RailItem
+            key={row.projectPath}
+            row={row}
+            onClick={onPinClick}
+            onUnpin={onUnpin}
+            isDragging={dragSource === row.projectPath}
+            isDropTarget={dropTarget === row.projectPath && dragSource !== row.projectPath}
+            draggable={onReorder !== undefined}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          />
         ))}
       </ul>
     </div>
@@ -58,9 +120,27 @@ interface RailItemProps {
   row: PinnedProjectRow;
   onClick: (projectPath: string) => void;
   onUnpin: (projectPath: string) => void;
+  isDragging: boolean;
+  isDropTarget: boolean;
+  draggable: boolean;
+  onDragStart: (projectPath: string) => void;
+  onDragEnd: () => void;
+  onDragOver: (projectPath: string, e: React.DragEvent) => void;
+  onDrop: (projectPath: string) => void;
 }
 
-function RailItem({ row, onClick, onUnpin }: RailItemProps) {
+function RailItem({
+  row,
+  onClick,
+  onUnpin,
+  isDragging,
+  isDropTarget,
+  draggable,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDrop,
+}: RailItemProps) {
   // Lazy-init from the in-memory cache so the cache hit doesn't require a
   // setState inside an effect (which the project's lint flags as an
   // anti-pattern). On a cache miss the effect below fetches and updates.
@@ -118,8 +198,37 @@ function RailItem({ row, onClick, onUnpin }: RailItemProps) {
   const tooltip = buildTooltip(row);
   const dotClass = statusDotClassName(row);
 
+  // The drag handlers live on the <li> so the entire 40x40 hit zone is
+  // both a drag source and a drop target; the <button> inside still
+  // receives clicks normally because dragstart fires before click only
+  // when there's actual mouse movement.
+  const wrapperClassName = [
+    'project-rail-item-wrapper',
+    isDragging ? 'is-dragging' : '',
+    isDropTarget ? 'is-drop-target' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <li ref={itemRef} className="project-rail-item-wrapper">
+    <li
+      ref={itemRef}
+      className={wrapperClassName}
+      draggable={draggable}
+      onDragStart={(e) => {
+        // Required by Firefox: setData triggers the drag image. The value
+        // itself is unused — the rail tracks source via React state.
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', row.projectPath);
+        onDragStart(row.projectPath);
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => onDragOver(row.projectPath, e)}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDrop(row.projectPath);
+      }}
+    >
       <button
         className={`project-rail-item ${row.isCurrent ? 'is-current' : ''} status-${row.status}`}
         title={tooltip}

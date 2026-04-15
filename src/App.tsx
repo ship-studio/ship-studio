@@ -913,6 +913,7 @@ function AppContents({ initialProjectPath }: AppProps) {
           rows={pinnedProjects.rows}
           onPinClick={handleRailClick}
           onUnpin={handleRailUnpin}
+          onReorder={(orderedPaths) => void pinnedProjects.reorder(orderedPaths)}
         />
         <ProjectsView
           onSelectProject={handleSelectProjectCallback}
@@ -991,6 +992,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         rows={pinnedProjects.rows}
         onPinClick={handleRailClick}
         onUnpin={handleRailUnpin}
+        onReorder={(orderedPaths) => void pinnedProjects.reorder(orderedPaths)}
       />
       <WorkspaceView
         currentProject={currentProject}

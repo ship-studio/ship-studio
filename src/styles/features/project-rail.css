@@ -49,6 +49,42 @@
   position: relative;
   width: 40px;
   height: 40px;
+  transition: opacity 0.15s ease;
+}
+
+/* Source item while being dragged — fades to indicate it's the one moving. */
+.project-rail-item-wrapper.is-dragging {
+  opacity: 0.4;
+}
+
+/*
+ * Drop target indicator: a thin horizontal bar above the target item.
+ * Using ::before so it doesn't disturb the item's layout, and `top: -4px`
+ * sits it in the inter-item gap (`.project-rail-list { gap: var(--spacing-sm) }`,
+ * which is 8px, so -4px is centered in the gap).
+ */
+.project-rail-item-wrapper.is-drop-target::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: -6px;
+  height: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  pointer-events: none;
+}
+
+/*
+ * Make the wrapper grab-cursor when draggable so users get the affordance
+ * even before they start dragging.
+ */
+.project-rail-item-wrapper[draggable='true'] {
+  cursor: grab;
+}
+
+.project-rail-item-wrapper.is-dragging[draggable='true'] {
+  cursor: grabbing;
 }
 
 .project-rail-item {
