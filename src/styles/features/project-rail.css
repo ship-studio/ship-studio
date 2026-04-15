@@ -58,32 +58,49 @@
 }
 
 /*
- * Drop target indicator: a thin horizontal bar above the target item.
- * Using ::before so it doesn't disturb the item's layout, and `top: -4px`
- * sits it in the inter-item gap (`.project-rail-list { gap: var(--spacing-sm) }`,
- * which is 8px, so -4px is centered in the gap).
+ * Drop target indicator: a thin horizontal bar in the gap above or below
+ * the target item, depending on which half of the target the cursor is on.
+ * Using ::before so it doesn't disturb item layout. The `gap` between
+ * items is `var(--spacing-sm)` (8px), so an offset of -6px centers the
+ * 2px bar nicely in the gap.
  */
 .project-rail-item-wrapper.is-drop-target::before {
   content: '';
   position: absolute;
   left: -4px;
   right: -4px;
-  top: -6px;
   height: 2px;
   border-radius: var(--radius-sm);
   background: var(--accent);
   pointer-events: none;
 }
 
-/*
- * Grab cursor on the draggable item (the inner div with role="button").
- * Falls back to default pointer when not draggable.
- */
-.project-rail-item[draggable='true'] {
-  cursor: grab;
+.project-rail-item-wrapper.is-drop-target.drop-before::before {
+  top: -6px;
 }
 
-.project-rail-item-wrapper.is-dragging .project-rail-item[draggable='true'] {
+.project-rail-item-wrapper.is-drop-target.drop-after::before {
+  bottom: -6px;
+}
+
+/*
+ * Grab cursor on a reorderable item. Falls back to default pointer when
+ * the rail is rendered without onReorder (e.g. in tests).
+ */
+.project-rail-item.is-reorderable {
+  cursor: grab;
+  /* Disable native text selection so pointer-down on the thumb starts a
+   * pointer drag instead of trying to highlight content. */
+  -webkit-user-select: none;
+  user-select: none;
+  /* Disable native touch behaviors (text selection, callouts, image
+   * dragging) so our pointer event handlers control the gesture. */
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  touch-action: none;
+}
+
+.project-rail-item-wrapper.is-dragging .project-rail-item.is-reorderable {
   cursor: grabbing;
 }
 

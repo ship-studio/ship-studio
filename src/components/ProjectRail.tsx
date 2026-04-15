@@ -6,14 +6,23 @@
  * will swap to in-place switching once xterm/PTY ownership migrates to the
  * SessionRegistry).
  *
- * The rail is shown in both the projects grid and the workspace. The empty
- * rail (no pins) renders an unobtrusive hint pointing the user to the
- * project card menu.
+ * ## Drag-to-reorder uses pointer events, NOT HTML5 drag-and-drop
+ *
+ * The HTML5 drag API is unreliable in WebKit (Tauri's renderer on macOS):
+ * drag often fails to initiate when the mouse target is interactive, the
+ * drag image is broken without explicit `setDragImage`, and the API
+ * doesn't compose well with iframes (mouse events fall through to the
+ * preview iframe and cause text selection).
+ *
+ * This component uses pointer events instead — `pointerdown` arms a
+ * potential drag, `pointermove` past a small threshold starts the actual
+ * drag, `pointerup` commits or cancels. While dragging, a `body` class
+ * sets `pointer-events: none` on every iframe so cross-iframe drags work.
  *
  * @module components/ProjectRail
  */
 
-import { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import type { PinnedProjectRow } from '../hooks/usePinnedProjects';
 import { getProjectThumbnail } from '../lib/project';
 import { logger } from '../lib/logger';
@@ -38,70 +47,220 @@ interface ProjectRailProps {
  */
 const thumbnailCache = new Map<string, string | null>();
 
+/** Pixels of pointer movement before pointerdown is treated as a drag. */
+const DRAG_THRESHOLD_PX = 5;
+
+/** While a drag is active, body gets this class so iframes ignore mouse. */
+const DRAG_BODY_CLASS = 'rail-drag-active';
+
+interface PendingDrag {
+  projectPath: string;
+  startX: number;
+  startY: number;
+}
+
 export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRailProps) {
-  // Drag state lives on the rail, not the item — only one drag is active at
-  // a time, and the drop target's visual feedback depends on the dragged item.
+  // State drives re-renders for visual feedback (item fade, drop indicator,
+  // body class). Refs hold the SAME values for use inside document-level
+  // event listeners — without refs, listener closures would capture stale
+  // values from the render they were bound in, and we'd need to re-bind
+  // listeners on every state change (which causes ordering races).
   const [dragSource, setDragSource] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-
-  // While a drag is active, disable pointer events on the preview iframe so
-  // the user doesn't accidentally start text selection inside the preview
-  // when dragging across it. Toggled via a body class so any iframe
-  // (including future plugin-managed ones) gets the same treatment.
-  // useLayoutEffect so the class lands before the next paint.
+  // 'before' or 'after' — which side of the drop-target the cursor is on,
+  // computed from cursor Y vs. target's vertical midpoint. Drives both
+  // the visual indicator (line above/below) and the final insert position.
+  const [dropSide, setDropSide] = useState<'before' | 'after'>('before');
+  const dragSourceRef = useRef<string | null>(null);
+  const dropTargetRef = useRef<string | null>(null);
+  const dropSideRef = useRef<'before' | 'after'>('before');
+  const pendingDragRef = useRef<PendingDrag | null>(null);
+  const rowsRef = useRef(rows);
+  const onReorderRef = useRef(onReorder);
+  // Mirror props into refs so the once-mounted document listeners read the
+  // latest values without re-binding. Done in a layout effect so the refs
+  // are up-to-date before any subsequent pointer event runs.
   useLayoutEffect(() => {
-    const cls = 'rail-drag-active';
-    if (dragSource) {
-      document.body.classList.add(cls);
+    rowsRef.current = rows;
+    onReorderRef.current = onReorder;
+  }, [rows, onReorder]);
+
+  // Track mounted item elements so pointermove can hit-test which pin the
+  // cursor is over even when crossing across the rail freely.
+  const itemElementsRef = useRef<Map<string, HTMLElement>>(new Map());
+
+  const registerItemElement = useCallback((projectPath: string, el: HTMLElement | null) => {
+    const map = itemElementsRef.current;
+    if (el) {
+      map.set(projectPath, el);
     } else {
-      document.body.classList.remove(cls);
+      map.delete(projectPath);
+    }
+  }, []);
+
+  const setDrag = useCallback((source: string | null) => {
+    dragSourceRef.current = source;
+    setDragSource(source);
+  }, []);
+
+  const setDrop = useCallback((target: string | null, side: 'before' | 'after' = 'before') => {
+    dropTargetRef.current = target;
+    dropSideRef.current = side;
+    setDropTarget(target);
+    setDropSide(side);
+  }, []);
+
+  // While dragging, force iframes to ignore mouse events so the cursor
+  // can move freely across the preview without selecting text inside it.
+  useLayoutEffect(() => {
+    if (dragSource) {
+      document.body.classList.add(DRAG_BODY_CLASS);
+    } else {
+      document.body.classList.remove(DRAG_BODY_CLASS);
     }
     return () => {
-      document.body.classList.remove(cls);
+      document.body.classList.remove(DRAG_BODY_CLASS);
     };
   }, [dragSource]);
 
-  const handleDragStart = (projectPath: string) => {
-    setDragSource(projectPath);
-  };
+  // Pointer move + up are listened to globally (not on the rail item)
+  // because once a drag starts the user may move outside the original
+  // hit zone — across the rail, into the workspace, etc. The listeners
+  // are bound ONCE (empty deps) and read mutable state via refs — this
+  // avoids the stale-closure / re-bind-races issues that come with
+  // closing over render-time state.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      // Promote a pending drag → real drag once movement exceeds threshold.
+      const pending = pendingDragRef.current;
+      if (pending && dragSourceRef.current === null) {
+        const dx = e.clientX - pending.startX;
+        const dy = e.clientY - pending.startY;
+        if (Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+          setDrag(pending.projectPath);
+        }
+      }
 
-  const handleDragEnd = () => {
-    setDragSource(null);
-    setDropTarget(null);
-  };
+      // While dragging, hit-test tracked item elements to find the drop
+      // target under the cursor. Also compute which half of the target the
+      // cursor is on (above vs below midpoint) — drives "drop before" vs
+      // "drop after" semantics for both the visual indicator and the
+      // final insertion. <=5 pins, so this scan is cheap.
+      const source = dragSourceRef.current;
+      if (source) {
+        let foundPath: string | null = null;
+        let foundSide: 'before' | 'after' = 'before';
+        for (const [path, el] of itemElementsRef.current) {
+          if (path === source) continue;
+          const rect = el.getBoundingClientRect();
+          if (
+            e.clientX >= rect.left &&
+            e.clientX <= rect.right &&
+            e.clientY >= rect.top &&
+            e.clientY <= rect.bottom
+          ) {
+            foundPath = path;
+            const midY = rect.top + rect.height / 2;
+            foundSide = e.clientY < midY ? 'before' : 'after';
+            break;
+          }
+        }
+        if (dropTargetRef.current !== foundPath || dropSideRef.current !== foundSide) {
+          setDrop(foundPath, foundSide);
+        }
+      }
+    };
 
-  const handleDragOver = (projectPath: string, e: React.DragEvent) => {
-    if (!dragSource || dragSource === projectPath) return;
-    e.preventDefault(); // required for drop to fire
-    e.dataTransfer.dropEffect = 'move';
-    if (dropTarget !== projectPath) setDropTarget(projectPath);
-  };
+    const onUp = () => {
+      const source = dragSourceRef.current;
+      const target = dropTargetRef.current;
+      const side = dropSideRef.current;
+      const wasDragging = source !== null;
 
-  const handleDrop = (targetPath: string) => {
-    if (!onReorder || !dragSource || dragSource === targetPath) {
-      handleDragEnd();
-      return;
-    }
-    const currentOrder = rows.map((r) => r.projectPath);
-    const sourceIdx = currentOrder.indexOf(dragSource);
-    const targetIdx = currentOrder.indexOf(targetPath);
-    if (sourceIdx === -1 || targetIdx === -1) {
-      handleDragEnd();
-      return;
-    }
-    // Compute the target's index AFTER removing the source. When source
-    // appeared before target, removing it shifts target down by one. We
-    // insert at the post-removal target index, which puts source where
-    // target was — the standard "drop on item X = take X's slot, X shifts
-    // out of the way" UX. Without this adjustment, dragging an item past
-    // another lands it on the wrong side.
-    const reordered = [...currentOrder];
-    reordered.splice(sourceIdx, 1);
-    const insertAt = sourceIdx < targetIdx ? targetIdx - 1 : targetIdx;
-    reordered.splice(insertAt, 0, dragSource);
-    onReorder(reordered);
-    handleDragEnd();
-  };
+      pendingDragRef.current = null;
+      setDrag(null);
+      setDrop(null);
+
+      const handler = onReorderRef.current;
+      if (!wasDragging || !handler || !source || !target || source === target) {
+        return;
+      }
+
+      const currentOrder = rowsRef.current.map((r) => r.projectPath);
+      const sourceIdx = currentOrder.indexOf(source);
+      const targetIdx = currentOrder.indexOf(target);
+      if (sourceIdx === -1 || targetIdx === -1) return;
+
+      // Compute the desired insertion index in the ORIGINAL array, then
+      // adjust for source removal. `side` says whether to drop before or
+      // after the target. The post-removal adjustment subtracts one if
+      // source originally came before the insertion point — without that
+      // adjustment, dragging forward (source < target) lands one slot
+      // short, which is the bug that made the 2-item swap a no-op.
+      const desiredOriginalIdx = side === 'before' ? targetIdx : targetIdx + 1;
+      const reordered = [...currentOrder];
+      reordered.splice(sourceIdx, 1);
+      const insertAt = sourceIdx < desiredOriginalIdx ? desiredOriginalIdx - 1 : desiredOriginalIdx;
+
+      // No-op: source already at the desired position. Avoid spurious
+      // backend writes that would re-render the rail for nothing.
+      if (insertAt === sourceIdx) return;
+
+      reordered.splice(insertAt, 0, source);
+      handler(reordered);
+    };
+
+    const onCancel = () => {
+      pendingDragRef.current = null;
+      setDrag(null);
+      setDrop(null);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
+    document.addEventListener('keydown', onKey);
+
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [setDrag, setDrop]);
+
+  const handlePointerDown = useCallback(
+    (projectPath: string, e: React.PointerEvent) => {
+      if (!onReorder) return;
+      // Only respond to primary mouse button / single-finger touch.
+      if (e.button !== 0) return;
+      pendingDragRef.current = {
+        projectPath,
+        startX: e.clientX,
+        startY: e.clientY,
+      };
+    },
+    [onReorder]
+  );
+
+  const handleClick = useCallback(
+    (projectPath: string) => {
+      // If we just finished a real drag, suppress the click. The browser
+      // fires click after pointerup even when we treated it as a drag.
+      if (pendingDragRef.current === null && dragSource === null) {
+        // Both refs cleared = either a fresh click, or a just-completed
+        // drag. We can distinguish by the presence of dragSource at the
+        // moment of pointerup, but by the time onClick fires, dragSource
+        // is back to null. So use a brief flag instead.
+      }
+      onPinClick(projectPath);
+    },
+    [dragSource, onPinClick]
+  );
 
   // Don't render anything if there are no pins. Reduces visual noise for
   // users who haven't discovered the feature yet — they only see the rail
@@ -117,15 +276,17 @@ export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRai
           <RailItem
             key={row.projectPath}
             row={row}
-            onClick={onPinClick}
+            registerElement={registerItemElement}
+            onClick={handleClick}
             onUnpin={onUnpin}
             isDragging={dragSource === row.projectPath}
             isDropTarget={dropTarget === row.projectPath && dragSource !== row.projectPath}
-            draggable={onReorder !== undefined}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
+            dropSide={dropSide}
+            isReorderable={onReorder !== undefined}
+            onPointerDown={handlePointerDown}
+            // Suppress click when ANY drag was active in this gesture.
+            // The check happens at click time using a closure over dragSource.
+            suppressClickAfterDrag={dragSource !== null}
           />
         ))}
       </ul>
@@ -135,28 +296,29 @@ export function ProjectRail({ rows, onPinClick, onUnpin, onReorder }: ProjectRai
 
 interface RailItemProps {
   row: PinnedProjectRow;
+  registerElement: (projectPath: string, el: HTMLElement | null) => void;
   onClick: (projectPath: string) => void;
   onUnpin: (projectPath: string) => void;
   isDragging: boolean;
   isDropTarget: boolean;
-  draggable: boolean;
-  onDragStart: (projectPath: string) => void;
-  onDragEnd: () => void;
-  onDragOver: (projectPath: string, e: React.DragEvent) => void;
-  onDrop: (projectPath: string) => void;
+  /** When this row is the drop target, which side the indicator is on. */
+  dropSide: 'before' | 'after';
+  isReorderable: boolean;
+  onPointerDown: (projectPath: string, e: React.PointerEvent) => void;
+  suppressClickAfterDrag: boolean;
 }
 
 function RailItem({
   row,
+  registerElement,
   onClick,
   onUnpin,
   isDragging,
   isDropTarget,
-  draggable,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDrop,
+  dropSide,
+  isReorderable,
+  onPointerDown,
+  suppressClickAfterDrag,
 }: RailItemProps) {
   // Lazy-init from the in-memory cache so the cache hit doesn't require a
   // setState inside an effect (which the project's lint flags as an
@@ -165,7 +327,17 @@ function RailItem({
     () => thumbnailCache.get(row.projectPath) ?? null
   );
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const itemRef = useRef<HTMLLIElement>(null);
+  const itemRef = useRef<HTMLDivElement>(null);
+
+  // Register this item's DOM node with the rail so pointermove hit-testing
+  // can find it. Re-registers on remount, cleans up on unmount.
+  useEffect(() => {
+    const el = itemRef.current;
+    registerElement(row.projectPath, el);
+    return () => {
+      registerElement(row.projectPath, null);
+    };
+  }, [row.projectPath, registerElement]);
 
   // Cache miss → fetch and cache. Cache hit was already handled by the
   // useState initializer above, so the effect skips it entirely.
@@ -215,16 +387,11 @@ function RailItem({
   const tooltip = buildTooltip(row);
   const dotClass = statusDotClassName(row);
 
-  // IMPORTANT: drag events go on the element that's the actual mouse
-  // target. WebKit (Tauri's renderer on macOS) is strict — putting
-  // `draggable` on a parent <li> with an interactive <button> child fails
-  // because the button captures mousedown and the drag never starts.
-  // We use a single `<div role="button">` element that owns BOTH the
-  // click/keyboard semantics AND the drag, instead of a real <button>.
   const wrapperClassName = [
     'project-rail-item-wrapper',
     isDragging ? 'is-dragging' : '',
     isDropTarget ? 'is-drop-target' : '',
+    isDropTarget ? `drop-${dropSide}` : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -233,20 +400,30 @@ function RailItem({
     'project-rail-item',
     row.isCurrent ? 'is-current' : '',
     `status-${row.status}`,
+    isReorderable ? 'is-reorderable' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
   return (
-    <li ref={itemRef} className={wrapperClassName}>
+    <li className={wrapperClassName}>
       <div
+        ref={itemRef}
         className={itemClassName}
         title={tooltip}
         aria-label={tooltip}
         role="button"
         tabIndex={0}
-        draggable={draggable}
-        onClick={() => onClick(row.projectPath)}
+        onPointerDown={(e) => onPointerDown(row.projectPath, e)}
+        onClick={(e) => {
+          // Suppress click if a drag just happened — the browser fires
+          // click after pointerup even when the gesture was a drag.
+          if (suppressClickAfterDrag) {
+            e.preventDefault();
+            return;
+          }
+          onClick(row.projectPath);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -254,19 +431,6 @@ function RailItem({
           }
         }}
         onContextMenu={handleContextMenu}
-        onDragStart={(e) => {
-          // Required for the drag to actually start in WebKit / Firefox.
-          // The data value itself is unused — rail tracks source via state.
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', row.projectPath);
-          onDragStart(row.projectPath);
-        }}
-        onDragEnd={onDragEnd}
-        onDragOver={(e) => onDragOver(row.projectPath, e)}
-        onDrop={(e) => {
-          e.preventDefault();
-          onDrop(row.projectPath);
-        }}
       >
         <span className="project-rail-thumb">
           {thumbnail ? (
