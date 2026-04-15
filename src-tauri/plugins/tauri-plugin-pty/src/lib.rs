@@ -112,16 +112,18 @@ async fn write(
 
 #[tauri::command]
 async fn read(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<Vec<u8>, String> {
+    // Session gone → the frontend's read loop checks for "EOF" to exit
+    // cleanly. Returning any other error here would log a rejected
+    // promise on every iteration during teardown, flooding the Tauri
+    // IPC bridge and (on macOS WebKit) eventually crashing the network
+    // process.
     let session = state
         .sessions
         .read()
         .await
         .get(&pid)
-        .ok_or("Unavaliable pid")?
+        .ok_or("EOF")?
         .clone();
-    // Use spawn_blocking to avoid blocking a tokio worker thread.
-    // Without this, each PTY's read call blocks a worker thread indefinitely,
-    // exhausting the thread pool and preventing all other Tauri commands from executing.
     tokio::task::spawn_blocking(move || {
         let mut buf = vec![0u8; 4096];
         let n = session
@@ -129,6 +131,13 @@ async fn read(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<V
             .blocking_lock()
             .read(&mut buf)
             .map_err(|e| e.to_string())?;
+        if n == 0 {
+            // n == 0 on a blocking read means the PTY master side saw
+            // the slave close (child process exited). Signal EOF so the
+            // frontend loop terminates instead of spinning on empty
+            // buffers forever.
+            return Err("EOF".to_string());
+        }
         buf.truncate(n);
         Ok::<Vec<u8>, String>(buf)
     })
@@ -167,13 +176,18 @@ async fn resize(
 
 #[tauri::command]
 async fn kill(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<(), String> {
+    // Remove the session from the map so any in-flight `read` call that
+    // races with us either returns EOF on its next iteration or, if the
+    // next iteration fires after this removal, hits the "EOF" path at
+    // the top of `read`. Without the removal, the frontend's read loop
+    // keeps polling an Arc<Session> whose child is dead, generating a
+    // cascade of rejected invoke() calls during project switches.
     let session = state
         .sessions
-        .read()
+        .write()
         .await
-        .get(&pid)
-        .ok_or("Unavaliable pid")?
-        .clone();
+        .remove(&pid)
+        .ok_or("EOF")?;
     session
         .child_killer
         .lock()

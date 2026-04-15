@@ -473,18 +473,20 @@ export async function startDevServer(
     ptyId,
     stop: async () => {
       try {
-        // Dispose the onData listener FIRST to stop IPC message flood
+        // Dispose the onData listener FIRST to stop any remaining writes.
         dataDisposable?.dispose();
-        // Kill the PTY process
-        pty.kill();
-        // Invalidate PID to break tauri-pty's infinite readData() loop.
-        // tauri-pty runs `for(;;) { yield invoke('plugin:pty|read', { pid }) }` —
-        // after kill(), this loop continues generating microtasks (100% CPU).
-        // Setting pid to undefined makes the next invoke fail, breaking the loop.
+        // Kill via the plugin directly so we can await it and know the
+        // session was removed from backend state. The backend's updated
+        // `kill` handler removes the session from its map, which causes
+        // the next `read` invoke to return "EOF" — tauri-pty's internal
+        // for(;;) loop catches that and exits cleanly, no CPU spin.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-        (pty as any).pid = undefined;
-        // Small delay to let the PTY cleanup complete before unregistering
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        const pid = (pty as any).pid as number | undefined;
+        if (typeof pid === 'number') {
+          await invoke('plugin:pty|kill', { pid }).catch(() => {
+            // Already dead — fine.
+          });
+        }
         // Unregister from backend
         await invoke('unregister_external_pty', { ptyId }).catch(() => {});
       } catch (e) {
