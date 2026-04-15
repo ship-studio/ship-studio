@@ -42,6 +42,8 @@ import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 import { useAppSetup } from './hooks/useAppSetup';
 import { ProjectsView } from './components/ProjectsView';
 import { WorkspaceView } from './components/WorkspaceView';
+import { ProjectRail } from './components/ProjectRail';
+import { usePinnedProjects } from './hooks/usePinnedProjects';
 import { OnboardingScreen } from './components/setup';
 import { Project } from './lib/project';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
@@ -374,6 +376,56 @@ function AppContents({ initialProjectPath }: AppProps) {
     setIsEducationMode(false);
     await enterCompactMode();
   };
+
+  // Pinned projects rail. Hook owns the joined view of pins.json + live
+  // session registry. Click handlers go through the existing project-open
+  // flow today; Phase 4 will swap to in-place activation for pinned sessions.
+  const pinnedProjects = usePinnedProjects(currentProject?.path ?? null);
+  // Toggle a body-level class so global CSS can leave left padding for the
+  // rail. We do this from JS rather than per-view className wiring because
+  // the rail is rendered as a fixed-position sibling of every view.
+  useEffect(() => {
+    const className = 'has-project-rail';
+    if (pinnedProjects.hasPins) {
+      document.body.classList.add(className);
+    } else {
+      document.body.classList.remove(className);
+    }
+    return () => {
+      document.body.classList.remove(className);
+    };
+  }, [pinnedProjects.hasPins]);
+  const handleTogglePin = useCallback(
+    async (projectPath: string, shouldPin: boolean) => {
+      try {
+        if (shouldPin) {
+          await pinnedProjects.pin(projectPath);
+        } else {
+          await pinnedProjects.unpin(projectPath);
+        }
+      } catch (e) {
+        showToast(shouldPin ? 'Failed to pin project' : 'Failed to unpin project', 'error');
+        logger.error('[App] Pin toggle failed', { error: String(e), projectPath, shouldPin });
+      }
+    },
+    [pinnedProjects, showToast]
+  );
+  const handleRailClick = useCallback(
+    (projectPath: string) => {
+      // Phase 3: just route through the existing open flow. Phase 4 will
+      // detect "session already active for this path" and swap in-place
+      // instead of going through the full open dance.
+      const projectName = projectPath.split('/').pop() ?? 'project';
+      void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
+    },
+    [handleSelectProject]
+  );
+  const handleRailUnpin = useCallback(
+    (projectPath: string) => {
+      void handleTogglePin(projectPath, false);
+    },
+    [handleTogglePin]
+  );
 
   // App setup, onboarding, HMR recovery, auto-open, keyboard shortcuts
   const { projectsLoading, setProjectsLoading } = useAppSetup({
@@ -857,6 +909,11 @@ function AppContents({ initialProjectPath }: AppProps) {
   if (view === 'projects') {
     return (
       <>
+        <ProjectRail
+          rows={pinnedProjects.rows}
+          onPinClick={handleRailClick}
+          onUnpin={handleRailUnpin}
+        />
         <ProjectsView
           onSelectProject={handleSelectProjectCallback}
           onCreateProject={handleCreateProject}
@@ -882,6 +939,8 @@ function AppContents({ initialProjectPath }: AppProps) {
           projectsLoading={projectsLoading}
           onLoadingChange={setProjectsLoading}
           cleanupStatus={cleanupStatus}
+          pinnedSet={pinnedProjects.pinnedSet}
+          onTogglePin={(path, pinned) => void handleTogglePin(path, pinned)}
         />
         {toasts.length > 0 && (
           <div className="toast-container">
@@ -928,6 +987,11 @@ function AppContents({ initialProjectPath }: AppProps) {
   }
   return (
     <ToastContext.Provider value={toastsProps}>
+      <ProjectRail
+        rows={pinnedProjects.rows}
+        onPinClick={handleRailClick}
+        onUnpin={handleRailUnpin}
+      />
       <WorkspaceView
         currentProject={currentProject}
         previewRef={previewRef}

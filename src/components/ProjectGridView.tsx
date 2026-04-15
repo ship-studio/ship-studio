@@ -33,6 +33,11 @@ export interface ProjectGridViewProps {
   onOpenFolder: (folderId: string) => void;
   onRenameFolder: (folder: FolderInfo) => void;
   onDeleteFolder: (folder: FolderInfo) => void;
+
+  /** Set of currently pinned project paths (for menu state). */
+  pinnedSet?: ReadonlySet<string>;
+  /** Toggle pin state for a project. */
+  onTogglePin?: (projectPath: string, pinned: boolean) => void;
 }
 
 export function ProjectGridView({
@@ -51,6 +56,8 @@ export function ProjectGridView({
   onOpenFolder,
   onRenameFolder,
   onDeleteFolder,
+  pinnedSet,
+  onTogglePin,
 }: ProjectGridViewProps) {
   if (totalCount === 0) {
     return (
@@ -99,6 +106,8 @@ export function ProjectGridView({
           onOpenInNewWindow={() => onOpenInNewWindow(project)}
           isExternal={project.is_external}
           onRemove={project.is_external ? () => onRemoveExternal(project) : undefined}
+          isPinned={pinnedSet?.has(project.path) ?? false}
+          onTogglePin={onTogglePin ? (pinned) => onTogglePin(project.path, pinned) : undefined}
         />
       ))}
     </div>

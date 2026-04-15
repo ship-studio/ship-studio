@@ -1,0 +1,215 @@
+/**
+ * ProjectRail — fixed left sidebar of pinned projects.
+ *
+ * Layout slot: rendered as a sibling of the main app container; the rail's
+ * presence is what gives the workspace its left padding (see `.app--with-rail`
+ * modifier defined here).
+ *
+ * Width is fixed to keep the workspace layout calculations predictable —
+ * Preview iframe sizing, terminal fit, etc. all assume a stable canvas width.
+ */
+
+.project-rail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 56px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Top padding leaves clearance for the macOS traffic-light buttons
+   * (they live at ~y=12, ~14px tall; we want the first pin to start
+   * comfortably below them). Bottom padding is the normal small gap. */
+  padding: 44px 0 var(--spacing-sm);
+  z-index: var(--z-dropdown);
+  user-select: none;
+}
+
+.project-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  width: 100%;
+  align-items: center;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.project-rail-list::-webkit-scrollbar {
+  display: none;
+}
+
+.project-rail-item-wrapper {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+.project-rail-item {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  overflow: hidden;
+  display: block;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.project-rail-item:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.project-rail-item:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.project-rail-item.is-current {
+  border-color: var(--action);
+  box-shadow: 0 0 0 1px var(--action);
+}
+
+.project-rail-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-rail-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.project-rail-placeholder {
+  font-family: var(--font-mono, Menlo, monospace);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.project-rail-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--bg-secondary);
+  pointer-events: none;
+}
+
+.project-rail-dot.dot-inactive {
+  background: var(--text-muted);
+}
+
+.project-rail-dot.dot-idle {
+  background: var(--success);
+}
+
+.project-rail-dot.dot-thinking {
+  background: var(--warning);
+  animation: rail-dot-pulse 1.5s ease-in-out infinite;
+}
+
+.project-rail-dot.dot-waiting {
+  background: var(--accent);
+  animation: rail-dot-pulse 2s ease-in-out infinite;
+}
+
+.project-rail-dot.dot-error {
+  background: var(--error);
+}
+
+@keyframes rail-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.project-rail-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--error);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Right-click context menu — anchored to viewport coords from the click. */
+.project-rail-menu {
+  position: fixed;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: var(--spacing-xs);
+  z-index: var(--z-tooltip);
+  min-width: 180px;
+}
+
+.project-rail-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.project-rail-menu-item:hover {
+  background: var(--bg-primary);
+}
+
+.project-rail-menu-item.danger {
+  color: var(--error);
+}
+
+.project-rail-menu-item.danger:hover {
+  background: var(--error);
+  color: #ffffff;
+}
+
+/*
+ * Layout shift: when the rail has at least one pin, push the rest of the
+ * app over by 56px. The body-level class is toggled in App.tsx so this
+ * applies to every view (projects, workspace, etc.) without per-view CSS.
+ */
+body.has-project-rail {
+  padding-left: 56px;
+}

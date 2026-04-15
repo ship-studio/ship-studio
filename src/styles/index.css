@@ -50,6 +50,7 @@
 @import './features/changelog.css';
 @import './features/settings.css';
 @import './features/support-panel.css';
+@import './features/project-rail.css';
 
 /* Modes */
 @import './modes/compact-mode.css';

@@ -94,6 +94,10 @@ interface ProjectListProps {
   onLoadingChange?: (loading: boolean) => void;
   /** Background cleanup status message (shown below loading spinner) */
   cleanupStatus?: string | null;
+  /** Set of currently pinned project paths. */
+  pinnedSet?: ReadonlySet<string>;
+  /** Toggle pin state for a project. */
+  onTogglePin?: (projectPath: string, pinned: boolean) => void;
 }
 
 export function ProjectList({
@@ -107,6 +111,8 @@ export function ProjectList({
   isAuthCheckDone = false,
   onLoadingChange,
   cleanupStatus,
+  pinnedSet,
+  onTogglePin,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<ProjectWithThumbnail[]>([]);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
@@ -543,6 +549,8 @@ export function ProjectList({
           onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
           onRenameFolder={(folder) => setRenamingFolder(folder)}
           onDeleteFolder={(folder) => setDeleteFolderConfirm(folder)}
+          pinnedSet={pinnedSet}
+          onTogglePin={onTogglePin}
         />
 
         <button
