@@ -763,7 +763,6 @@ export const WorkspaceView = memo(function WorkspaceView({
                           }}
                           agent={getAgentById(tab.agentId)}
                           projectPath={currentProject.path}
-                          tabId={tab.id}
                           onExit={handleTerminalExit}
                           autoAcceptMode={autoAcceptMode}
                           onStatusChange={createTabStatusHandler(tab.id)}

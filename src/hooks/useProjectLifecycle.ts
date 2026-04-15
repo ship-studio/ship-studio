@@ -296,11 +296,6 @@ export function useProjectLifecycle({
     try {
       await registerProjectSession(project.path, windowLabel);
       sessionRegistry.getOrCreate(project.path);
-      // Tell the registry which project is now focused. Drives the rail's
-      // unread-badge math: status updates arriving for OTHER projects
-      // (parked terminals firing in the background) increment unread,
-      // while updates for THIS project don't.
-      sessionRegistry.setActiveProject(project.path);
     } catch (e) {
       // Backend may reject with Validation if another window owns this
       // session — in current code paths this shouldn't happen since
@@ -323,32 +318,22 @@ export function useProjectLifecycle({
       logger.warn('[OpenProject] Failed to ensure external project registration', { error: e });
     }
 
-    // Phase 2d: when the OLD project is pinned, we keep its session alive
-    // in the background — skip the dev-server stop, port kill, and
-    // window-PTY kill so the dev server keeps serving and Claude (parked
-    // in the SessionRegistry) keeps running. Without this, switching
-    // between two pinned projects via the rail would tear down the one
-    // we're leaving every time, defeating the whole point.
-    const oldProject = currentProject;
-    const oldProjectIsPinned = oldProject !== null && sessionRegistry.isPinned(oldProject.path);
-
-    // Stop any existing dev server first (skip if old project is pinned —
-    // we want its dev server to stay up while we're elsewhere).
-    if (devServerRef.current && !oldProjectIsPinned) {
+    // Stop any existing dev server first
+    if (devServerRef.current) {
       await devServerRef.current.stop();
       devServerRef.current = null;
     }
     logger.info(
-      `[OpenProject] Step 1: Stop existing dev server (skipped: ${oldProjectIsPinned}) - ${Math.round(performance.now() - stepStart)}ms`
+      `[OpenProject] Step 1: Stop existing dev server - ${Math.round(performance.now() - stepStart)}ms`
     );
 
-    // Kill any process on our ACTUALLY reserved port. Skip if the old
-    // project is pinned — we want its dev server's port to stay reserved.
+    // Kill any process on our ACTUALLY reserved port (query backend, don't use stale React state)
+    // This prevents HMR reload from killing other windows' ports when state resets to 3000
     stepStart = performance.now();
     const actualReservedPort = await invoke<number | null>('get_reserved_port_for_window', {
       windowLabel,
     });
-    if (actualReservedPort !== null && !oldProjectIsPinned) {
+    if (actualReservedPort !== null) {
       try {
         await Promise.race([
           invoke('kill_port', { port: actualReservedPort }),
@@ -359,24 +344,19 @@ export function useProjectLifecycle({
       }
     }
     logger.info(
-      `[OpenProject] Step 2: Kill reserved port ${actualReservedPort ?? 'none'} (skipped: ${oldProjectIsPinned}) - ${Math.round(performance.now() - stepStart)}ms`
+      `[OpenProject] Step 2: Kill reserved port ${actualReservedPort ?? 'none'} - ${Math.round(performance.now() - stepStart)}ms`
     );
 
-    // Clean up PTY processes owned by this window. Skip when leaving a
-    // pinned project — its PTYs (dev server, agent) need to keep running
-    // in the background. cleanup_orphaned_processes only kills processes
-    // with PPID=1 (truly orphaned), so it's safe to call unconditionally.
+    // Clean up PTY processes owned by this window (not other windows' PTYs)
     stepStart = performance.now();
     try {
-      if (!oldProjectIsPinned) {
-        await invoke('kill_window_pty', { windowLabel: getWindowLabel() });
-      }
+      await invoke('kill_window_pty', { windowLabel: getWindowLabel() });
       await invoke('cleanup_orphaned_processes');
     } catch {
       // Ignore cleanup errors
     }
     logger.info(
-      `[OpenProject] Step 3: Kill PTY (skipped: ${oldProjectIsPinned}) + orphan cleanup - ${Math.round(performance.now() - stepStart)}ms`
+      `[OpenProject] Step 3: Kill PTY and cleanup orphaned processes - ${Math.round(performance.now() - stepStart)}ms`
     );
 
     // Check if navigation was superseded during cleanup
@@ -617,22 +597,17 @@ export function useProjectLifecycle({
       // Ignore - non-critical
     }
 
-    // Phase 2d: pinned projects survive back-to-projects — their terminal
-    // slots stay parked in the SessionRegistry so the agent session
-    // continues running in the background. Only fully tear down the
-    // session for non-pinned projects. Always clear the active focus so
-    // status updates from background terminals correctly increment unread.
-    sessionRegistry.setActiveProject(null);
+    // Tear down the session in both backend (authority) and frontend mirror.
+    // In Phase 2b this preserves current behavior — back-to-projects still
+    // means "this project is fully closed." Phase 4 will change this so that
+    // pinned projects skip the unregister and stay alive in the background.
     if (currentProject) {
-      const pinned = sessionRegistry.isPinned(currentProject.path);
-      if (!pinned) {
-        try {
-          await unregisterProjectSession(currentProject.path);
-        } catch (e) {
-          logger.warn('[BackToProjects] Failed to unregister project session', { error: e });
-        }
-        sessionRegistry.destroy(currentProject.path);
+      try {
+        await unregisterProjectSession(currentProject.path);
+      } catch (e) {
+        logger.warn('[BackToProjects] Failed to unregister project session', { error: e });
       }
+      sessionRegistry.destroy(currentProject.path);
     }
 
     // Bail if user already opened another project

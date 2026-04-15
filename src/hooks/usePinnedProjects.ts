@@ -148,14 +148,6 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
     return unsubscribe;
   }, []);
 
-  // Sync pinned paths into the registry so it knows which terminal slots
-  // to park (vs. destroy) on Terminal-component unmount. Crucial for the
-  // background-sessions feature: without this, the registry would tear
-  // down every terminal on project switch, defeating the whole point.
-  useEffect(() => {
-    sessionRegistry.setPinnedPaths(pinnedPaths);
-  }, [pinnedPaths]);
-
   const pin = useCallback(async (projectPath: string) => {
     try {
       const updated = await pinProjectApi(projectPath);
