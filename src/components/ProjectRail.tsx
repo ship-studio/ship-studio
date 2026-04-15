@@ -321,7 +321,7 @@ export function ProjectRail({
     }
   }, [rows]);
 
-  // Close picker on click outside
+  // Close picker on click outside or Escape
   useEffect(() => {
     if (!showPicker) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -329,8 +329,15 @@ export function ProjectRail({
         setShowPicker(false);
       }
     };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowPicker(false);
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKey);
+    };
   }, [showPicker]);
 
   // Don't render anything if there are no pins. Reduces visual noise for
@@ -394,9 +401,14 @@ export function ProjectRail({
             spellCheck={false}
           />
           <ul className="project-rail-picker-list">
-            {pickerProjects
-              .filter((p) => p.name.toLowerCase().includes(pickerFilter.toLowerCase()))
-              .map((p) => (
+            {(() => {
+              const filtered = pickerProjects.filter((p) =>
+                p.name.toLowerCase().includes(pickerFilter.toLowerCase())
+              );
+              if (filtered.length === 0) {
+                return <li className="project-rail-picker-empty">No projects found</li>;
+              }
+              return filtered.map((p) => (
                 <li key={p.path}>
                   <button
                     className="project-rail-picker-item"
@@ -408,9 +420,8 @@ export function ProjectRail({
                     {p.name}
                   </button>
                 </li>
-              ))}
-            {pickerProjects.filter((p) => p.name.toLowerCase().includes(pickerFilter.toLowerCase()))
-              .length === 0 && <li className="project-rail-picker-empty">No projects found</li>}
+              ));
+            })()}
           </ul>
         </div>
       )}

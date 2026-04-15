@@ -11,7 +11,7 @@
  * @module hooks/useProjectRail
  */
 
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import type { Project } from '../lib/project';
 import { usePinnedProjects, type UsePinnedProjectsReturn } from './usePinnedProjects';
 import { logger } from '../lib/logger';
@@ -38,30 +38,12 @@ export interface UseProjectRailReturn {
   handleAddProject: (projectPath: string) => void;
 }
 
-/**
- * The `has-project-rail` body class drives the global left-padding that
- * keeps content out from under the fixed-position rail. Applied here
- * (rather than per-view) because the rail is a sibling of every view.
- */
-const BODY_CLASS = 'has-project-rail';
-
 export function useProjectRail({
   currentProjectPath,
   handleSelectProject,
   showToast,
 }: UseProjectRailParams): UseProjectRailReturn {
   const pinnedProjects = usePinnedProjects(currentProjectPath);
-
-  useEffect(() => {
-    if (pinnedProjects.hasPins) {
-      document.body.classList.add(BODY_CLASS);
-    } else {
-      document.body.classList.remove(BODY_CLASS);
-    }
-    return () => {
-      document.body.classList.remove(BODY_CLASS);
-    };
-  }, [pinnedProjects.hasPins]);
 
   const handleTogglePin = useCallback(
     async (projectPath: string, shouldPin: boolean) => {
