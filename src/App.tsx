@@ -43,7 +43,7 @@ import { useAppSetup } from './hooks/useAppSetup';
 import { ProjectsView } from './components/ProjectsView';
 import { WorkspaceView } from './components/WorkspaceView';
 import { ProjectRail } from './components/ProjectRail';
-import { usePinnedProjects } from './hooks/usePinnedProjects';
+import { useProjectRail } from './hooks/useProjectRail';
 import { OnboardingScreen } from './components/setup';
 import { Project } from './lib/project';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
@@ -377,55 +377,11 @@ function AppContents({ initialProjectPath }: AppProps) {
     await enterCompactMode();
   };
 
-  // Pinned projects rail. Hook owns the joined view of pins.json + live
-  // session registry. Click handlers go through the existing project-open
-  // flow today; Phase 4 will swap to in-place activation for pinned sessions.
-  const pinnedProjects = usePinnedProjects(currentProject?.path ?? null);
-  // Toggle a body-level class so global CSS can leave left padding for the
-  // rail. We do this from JS rather than per-view className wiring because
-  // the rail is rendered as a fixed-position sibling of every view.
-  useEffect(() => {
-    const className = 'has-project-rail';
-    if (pinnedProjects.hasPins) {
-      document.body.classList.add(className);
-    } else {
-      document.body.classList.remove(className);
-    }
-    return () => {
-      document.body.classList.remove(className);
-    };
-  }, [pinnedProjects.hasPins]);
-  const handleTogglePin = useCallback(
-    async (projectPath: string, shouldPin: boolean) => {
-      try {
-        if (shouldPin) {
-          await pinnedProjects.pin(projectPath);
-        } else {
-          await pinnedProjects.unpin(projectPath);
-        }
-      } catch (e) {
-        showToast(shouldPin ? 'Failed to pin project' : 'Failed to unpin project', 'error');
-        logger.error('[App] Pin toggle failed', { error: String(e), projectPath, shouldPin });
-      }
-    },
-    [pinnedProjects, showToast]
-  );
-  const handleRailClick = useCallback(
-    (projectPath: string) => {
-      // Phase 3: just route through the existing open flow. Phase 4 will
-      // detect "session already active for this path" and swap in-place
-      // instead of going through the full open dance.
-      const projectName = projectPath.split('/').pop() ?? 'project';
-      void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
-    },
-    [handleSelectProject]
-  );
-  const handleRailUnpin = useCallback(
-    (projectPath: string) => {
-      void handleTogglePin(projectPath, false);
-    },
-    [handleTogglePin]
-  );
+  const { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin } = useProjectRail({
+    currentProjectPath: currentProject?.path ?? null,
+    handleSelectProject,
+    showToast,
+  });
 
   // App setup, onboarding, HMR recovery, auto-open, keyboard shortcuts
   const { projectsLoading, setProjectsLoading } = useAppSetup({
