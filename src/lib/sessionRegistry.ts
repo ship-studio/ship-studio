@@ -165,8 +165,12 @@ class SessionRegistry {
   resume(projectPath: string): void {
     const session = this.sessions.get(projectPath);
     if (!session) return;
-    if (session.status === 'active') return;
+    if (session.status === 'active' && session.lastAgentStatus === 'idle') return;
     session.status = 'active';
+    // Cold-start wipes the terminal, so the stale thinking/waiting from
+    // the previous run doesn't carry over. Without this, the rail dot
+    // flickers the old color until the new agent emits its first title.
+    session.lastAgentStatus = 'idle';
     session.lastFocusedAt = Date.now();
     logger.info('[SessionRegistry] Resumed session', { projectPath });
     this.notify(projectPath);

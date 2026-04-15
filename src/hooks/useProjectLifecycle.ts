@@ -296,6 +296,17 @@ export function useProjectLifecycle({
     try {
       await registerProjectSession(project.path, windowLabel);
       sessionRegistry.getOrCreate(project.path);
+      // The rail's status dot means "this project's session is live in
+      // this window." Until we actually keep background sessions alive,
+      // only the currently-open project qualifies. Mark everyone else
+      // suspended so their dots show as gray — green on an unopened
+      // project would be lying.
+      sessionRegistry.resume(project.path);
+      for (const snap of sessionRegistry.snapshotAll()) {
+        if (snap.projectPath !== project.path && snap.status === 'active') {
+          sessionRegistry.suspend(snap.projectPath);
+        }
+      }
     } catch (e) {
       // Backend may reject with Validation if another window owns this
       // session — in current code paths this shouldn't happen since
