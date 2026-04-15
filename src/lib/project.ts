@@ -402,9 +402,15 @@ export async function startDevServer(
       pid,
       ptyId,
       description: `Dev server on port ${port}`,
+      projectPath,
     })
       .then(() => {
-        logger.info('[DevServer] PTY registered with backend', { ptyId, pid, windowLabel });
+        logger.info('[DevServer] PTY registered with backend', {
+          ptyId,
+          pid,
+          windowLabel,
+          projectPath,
+        });
       })
       .catch((e) => {
         logger.warn('[DevServer] Failed to register PTY with backend', { error: e });
@@ -512,6 +518,7 @@ async function startDevServerWindows(
       cols: 80,
     },
     windowLabel,
+    projectPath,
   });
 
   logger.info('[DevServer] Windows backend PTY spawned', {

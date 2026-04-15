@@ -16,6 +16,8 @@ import { getAutoAcceptMode, setAutoAcceptMode as setAutoAcceptModeApi } from '..
 import { getProjectGitHubStatus } from '../lib/github';
 import { GITHUB_STATUS_FALLBACK } from './useIntegrationStatus';
 import { registerExternalProject } from '../lib/external-projects';
+import { registerProjectSession, unregisterProjectSession } from '../lib/projectSessions';
+import { sessionRegistry } from '../lib/sessionRegistry';
 import {
   setWindowTitle,
   getWindowLabel,
@@ -280,6 +282,26 @@ export function useProjectLifecycle({
       });
     } catch (e) {
       logger.warn('[OpenProject] Failed to register project for window', { error: e });
+    }
+
+    // Register the project session — both backend (authority) and frontend
+    // (mirror for UI subscriptions). The backend invariant guard rejects if
+    // the same project is already owned by another window. Same-window
+    // re-registration is idempotent (just bumps last_activity_at).
+    //
+    // Note (Phase 2b): this runs on every project open today. In Phase 4,
+    // when the rail allows in-place project switching, we'll only register
+    // when actually creating a new session (not when activating an existing
+    // pinned one).
+    try {
+      await registerProjectSession(project.path, windowLabel);
+      sessionRegistry.getOrCreate(project.path);
+    } catch (e) {
+      // Backend may reject with Validation if another window owns this
+      // session — in current code paths this shouldn't happen since
+      // duplicate-window detection already ran above and would have
+      // focused the existing window. Logged for diagnostics.
+      logger.warn('[OpenProject] Failed to register project session', { error: e });
     }
 
     // Ensure external projects are registered before any backend commands run.
@@ -573,6 +595,19 @@ export function useProjectLifecycle({
       await invoke('unregister_project_from_window', { windowLabel });
     } catch {
       // Ignore - non-critical
+    }
+
+    // Tear down the session in both backend (authority) and frontend mirror.
+    // In Phase 2b this preserves current behavior — back-to-projects still
+    // means "this project is fully closed." Phase 4 will change this so that
+    // pinned projects skip the unregister and stay alive in the background.
+    if (currentProject) {
+      try {
+        await unregisterProjectSession(currentProject.path);
+      } catch (e) {
+        logger.warn('[BackToProjects] Failed to unregister project session', { error: e });
+      }
+      sessionRegistry.destroy(currentProject.path);
     }
 
     // Bail if user already opened another project
