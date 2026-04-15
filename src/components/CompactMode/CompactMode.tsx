@@ -185,6 +185,7 @@ export function CompactMode({
           ref={terminalRef}
           agent={getActiveAgent()}
           projectPath={projectPath}
+          tabId={1}
           autoAcceptMode={autoAcceptMode}
           onExit={onTerminalExit}
         />
