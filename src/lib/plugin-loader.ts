@@ -142,6 +142,22 @@ export function unloadPluginModule(projectPath: string, pluginId: string): void 
 }
 
 /**
+ * Look up which plugin owns a blob URL.
+ * Returns `{ projectPath, pluginId }` or null if not found.
+ */
+export function lookupBlobOwner(blobUrl: string): { projectPath: string; pluginId: string } | null {
+  // Strip fragment (cache-busting `#t=...`) before comparing
+  const base = blobUrl.split('#')[0];
+  for (const [key, url] of blobUrlCache) {
+    if (url === base) {
+      const sep = key.indexOf(':');
+      return { projectPath: key.slice(0, sep), pluginId: key.slice(sep + 1) };
+    }
+  }
+  return null;
+}
+
+/**
  * Expose React and ReactDOM as window globals for plugins.
  *
  * Plugins mark react/react-dom as externals that resolve to these globals,

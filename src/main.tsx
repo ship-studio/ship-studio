@@ -17,7 +17,8 @@ import ReactDOM from 'react-dom/client';
 import { reactErrorHandler } from '@sentry/react';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { exposeReactGlobals } from './lib/plugin-loader';
+import { exposeReactGlobals, lookupBlobOwner } from './lib/plugin-loader';
+import { uninstallPlugin } from './lib/plugins';
 import { exposePluginContextRef } from './contexts/PluginContext';
 import { OverlayScrollbars } from 'overlayscrollbars';
 import 'overlayscrollbars/overlayscrollbars.css';
@@ -28,7 +29,9 @@ exposePluginContextRef();
 
 // Global safety net: catch unhandled errors from plugins.
 // Plugins that bundle their own React can throw errors that escape React error
-// boundaries entirely. This prevents those from crashing the whole app.
+// boundaries entirely. This catches them, auto-removes the plugin, and prevents
+// the app from crashing.
+const removedPlugins = new Set<string>();
 window.addEventListener('error', (event) => {
   const err = event.error as { message?: string } | undefined;
   const msg: string = (typeof err?.message === 'string' ? err.message : event.message) ?? '';
@@ -36,9 +39,20 @@ window.addEventListener('error', (event) => {
     event.filename?.startsWith('blob:') ||
     msg.includes('Plugin context') ||
     msg.includes('plugin-sdk');
-  if (isPluginError) {
-    event.preventDefault();
-    console.error('[Ship Studio] Plugin error caught by global handler:', msg);
+  if (!isPluginError) return;
+
+  event.preventDefault();
+  console.error('[Ship Studio] Plugin error caught by global handler:', msg);
+
+  // Identify and auto-remove the crashing plugin
+  const blobUrl = event.filename?.startsWith('blob:') ? event.filename : null;
+  const owner = blobUrl ? lookupBlobOwner(blobUrl) : null;
+  if (owner && !removedPlugins.has(owner.pluginId)) {
+    removedPlugins.add(owner.pluginId);
+    console.warn(`[Ship Studio] Auto-removing crashed plugin "${owner.pluginId}"`);
+    void uninstallPlugin(owner.projectPath, owner.pluginId).catch((e) =>
+      console.error(`Failed to auto-remove plugin "${owner.pluginId}":`, e)
+    );
   }
 });
 window.addEventListener('unhandledrejection', (event) => {
