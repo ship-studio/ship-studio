@@ -38,7 +38,13 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
     execute: fetchBackups,
   } = useAsyncState<Backup[]>(() => getBackups(projectPath, 50), { initial: [] });
   const [actionError, setActionError] = useState<string | null>(null);
-  const error = actionError ?? (loadError ? loadError.message : null);
+  const rawError = actionError ?? (loadError ? loadError.message : null);
+  const isNotGitRepo =
+    rawError != null &&
+    (rawError.includes('not a git repository') ||
+      rawError.includes('Failed to get git log') ||
+      rawError.includes('does not have any commits'));
+  const error = isNotGitRepo ? null : rawError;
   const setError = setActionError;
   const [modalState, setModalState] = useState<ModalState>({ type: 'list' });
 
@@ -204,6 +210,11 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
             <SpinnerIcon size={20} className="spinner-icon" />
             <span>Loading backups...</span>
           </div>
+        ) : isNotGitRepo ? (
+          <EmptyState
+            title="Not a Git repo yet"
+            description="Once this project is connected to GitHub, you can restore to any previous version"
+          />
         ) : !backups || backups.length === 0 ? (
           <EmptyState
             title="No backups yet"

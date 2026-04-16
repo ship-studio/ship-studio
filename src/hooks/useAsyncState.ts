@@ -72,7 +72,14 @@ export function useAsyncState<T, Args extends unknown[] = []>(
       }
       return result;
     } catch (e) {
-      const err = e instanceof Error ? e : new Error(String(e));
+      const err =
+        e instanceof Error
+          ? e
+          : new Error(
+              typeof e === 'object' && e !== null && 'message' in e
+                ? String((e as { message: unknown }).message)
+                : String(e)
+            );
       if (mountedRef.current) {
         setError(err);
         onErrorRef.current?.(err);
