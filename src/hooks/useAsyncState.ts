@@ -52,12 +52,14 @@ export function useAsyncState<T, Args extends unknown[] = []>(
     onErrorRef.current = onError;
   }, [fn, onSuccess, onError]);
 
-  useEffect(
-    () => () => {
+  // Reset mountedRef on (re-)mount so StrictMode's double-effect cycle
+  // (mount → cleanup → remount) doesn't leave it permanently false.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    []
-  );
+    };
+  }, []);
 
   const execute = useCallback(async (...args: Args): Promise<T | null> => {
     setIsLoading(true);

@@ -160,9 +160,9 @@ pub async fn publish_to_staging(
             warn!(error = %stderr, "Push rejected - staging branch has diverged");
             // Retain the legacy PUSH_REJECTED sentinel so the frontend can
             // still discriminate this case via substring match.
-            return Err(CommandError::Other(format!(
+            return Err(CommandError::Other { message: format!(
                 "PUSH_REJECTED: Staging branch has diverged. Pull changes first or resolve conflicts.\n{stderr}"
-            )));
+            ) });
         }
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, "Failed to push to staging");
@@ -293,7 +293,9 @@ pub async fn publish_branch(
         // Check for common errors
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, branch = %branch, "Push rejected");
-            return Err(CommandError::Other(format!("PUSH_REJECTED:{stderr}")));
+            return Err(CommandError::Other {
+                message: format!("PUSH_REJECTED:{stderr}"),
+            });
         }
         if stderr.contains("Permission denied") || stderr.contains("could not read Username") {
             error!(error = %stderr, branch = %branch, "Authentication error");

@@ -126,6 +126,7 @@ fn get_branch_name(path: &std::path::Path) -> Result<String, CommandError> {
 fn get_commit_messages(path: &std::path::Path, base: &str) -> Result<String, String> {
     let output = create_command("git")
         .args([
+            "--no-pager",
             "log",
             &format!("{base}..HEAD"),
             "--pretty=format:%s",
@@ -141,7 +142,7 @@ fn get_commit_messages(path: &std::path::Path, base: &str) -> Result<String, Str
 
 fn get_diff_stat(path: &std::path::Path, base: &str) -> Result<String, String> {
     let output = create_command("git")
-        .args(["diff", &format!("{base}...HEAD"), "--stat"])
+        .args(["--no-pager", "diff", &format!("{base}...HEAD"), "--stat"])
         .current_dir(path)
         .output()
         .map_err(|e| e.to_string())?;
@@ -151,7 +152,7 @@ fn get_diff_stat(path: &std::path::Path, base: &str) -> Result<String, String> {
 
 fn get_diff(path: &std::path::Path, base: &str) -> Result<String, String> {
     let output = create_command("git")
-        .args(["diff", &format!("{base}...HEAD")])
+        .args(["--no-pager", "diff", &format!("{base}...HEAD")])
         .current_dir(path)
         .output()
         .map_err(|e| e.to_string())?;

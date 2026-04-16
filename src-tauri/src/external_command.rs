@@ -47,7 +47,9 @@ pub async fn run_with_timeout(
         }
         Ok(Err(io_err)) => {
             warn!(cmd = %label, error = %io_err, "external command spawn failed");
-            Err(CommandError::Io(io_err.to_string()))
+            Err(CommandError::Io {
+                message: io_err.to_string(),
+            })
         }
         Err(_) => {
             warn!(cmd = %label, timeout_secs, "external command timed out");
@@ -97,7 +99,7 @@ mod tests {
         let cmd = Command::new("definitely-not-a-real-binary-shipstudio");
         let err = run_with_timeout(cmd, "ghost", 5).await.unwrap_err();
         match err {
-            CommandError::Io(_) => {}
+            CommandError::Io { .. } => {}
             other => panic!("expected Io, got {other:?}"),
         }
     }

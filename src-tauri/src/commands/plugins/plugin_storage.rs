@@ -42,8 +42,9 @@ pub fn read_plugin_storage(
     let content = fs::read_to_string(&storage_path)
         .map_err(|e| format!("Failed to read plugin storage: {e}"))?;
 
-    serde_json::from_str(&content)
-        .map_err(|e| CommandError::Other(format!("Failed to parse plugin storage: {e}")))
+    serde_json::from_str(&content).map_err(|e| CommandError::Other {
+        message: format!("Failed to parse plugin storage: {e}"),
+    })
 }
 
 /// Write plugin storage data
@@ -72,8 +73,9 @@ pub fn write_plugin_storage(
     let content = serde_json::to_string_pretty(&data)
         .map_err(|e| format!("Failed to serialize storage data: {e}"))?;
 
-    fs::write(&storage_path, content)
-        .map_err(|e| CommandError::Io(format!("Failed to write plugin storage: {e}")))
+    fs::write(&storage_path, content).map_err(|e| CommandError::Io {
+        message: format!("Failed to write plugin storage: {e}"),
+    })
 }
 
 /// Execute a shell command in a plugin's context

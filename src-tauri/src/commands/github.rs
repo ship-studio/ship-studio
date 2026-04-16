@@ -456,8 +456,10 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, Command
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
-    let repos: Vec<GitHubRepo> = serde_json::from_str(&json_str)
-        .map_err(|e| CommandError::Other(format!("Failed to parse repo list: {e}")))?;
+    let repos: Vec<GitHubRepo> =
+        serde_json::from_str(&json_str).map_err(|e| CommandError::Other {
+            message: format!("Failed to parse repo list: {e}"),
+        })?;
 
     Ok(repos)
 }
@@ -506,8 +508,10 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
     let json_str = String::from_utf8_lossy(&output.stdout);
 
     // The API returns an array of repo objects with different field names
-    let api_repos: Vec<GitHubApiRepo> = serde_json::from_str(&json_str)
-        .map_err(|e| CommandError::Other(format!("Failed to parse collaborator repo list: {e}")))?;
+    let api_repos: Vec<GitHubApiRepo> =
+        serde_json::from_str(&json_str).map_err(|e| CommandError::Other {
+            message: format!("Failed to parse collaborator repo list: {e}"),
+        })?;
 
     // Convert to our GitHubRepo format
     let repos: Vec<GitHubRepo> = api_repos

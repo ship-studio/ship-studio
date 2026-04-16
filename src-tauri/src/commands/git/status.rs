@@ -48,7 +48,7 @@ pub async fn check_git_has_changes(project_path: String) -> Result<bool, Command
 
     // Check for unpushed commits
     let unpushed = create_command("git")
-        .args(["log", "@{u}..", "--oneline"])
+        .args(["--no-pager", "log", "@{u}..", "--oneline"])
         .current_dir(&project)
         .output();
 
@@ -60,7 +60,7 @@ pub async fn check_git_has_changes(project_path: String) -> Result<bool, Command
         Err(_) => {
             // No upstream set, check if we have commits
             let commits = create_command("git")
-                .args(["log", "--oneline", "-1"])
+                .args(["--no-pager", "log", "--oneline", "-1"])
                 .current_dir(&project)
                 .output()
                 .map_err(|e| e.to_string())?;

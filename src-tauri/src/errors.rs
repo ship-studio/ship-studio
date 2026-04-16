@@ -28,28 +28,32 @@ pub enum CommandError {
     #[error("Not authenticated with {service}")]
     NotAuthenticated { service: String },
 
-    #[error("I/O error: {0}")]
-    Io(String),
+    #[error("I/O error: {message}")]
+    Io { message: String },
 
-    #[error("{0}")]
-    Other(String),
+    #[error("{message}")]
+    Other { message: String },
 }
 
 impl From<std::io::Error> for CommandError {
     fn from(err: std::io::Error) -> Self {
-        CommandError::Io(err.to_string())
+        CommandError::Io {
+            message: err.to_string(),
+        }
     }
 }
 
 impl From<String> for CommandError {
     fn from(s: String) -> Self {
-        CommandError::Other(s)
+        CommandError::Other { message: s }
     }
 }
 
 impl From<&str> for CommandError {
     fn from(s: &str) -> Self {
-        CommandError::Other(s.to_string())
+        CommandError::Other {
+            message: s.to_string(),
+        }
     }
 }
 
@@ -95,7 +99,7 @@ mod tests {
     fn from_string_maps_to_other() {
         let err: CommandError = "boom".to_string().into();
         match err {
-            CommandError::Other(msg) => assert_eq!(msg, "boom"),
+            CommandError::Other { message } => assert_eq!(message, "boom"),
             _ => panic!("expected Other variant"),
         }
     }
@@ -105,7 +109,7 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
         let err: CommandError = io_err.into();
         match err {
-            CommandError::Io(msg) => assert!(msg.contains("missing")),
+            CommandError::Io { message } => assert!(message.contains("missing")),
             _ => panic!("expected Io variant"),
         }
     }

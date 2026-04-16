@@ -375,8 +375,9 @@ pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<Str
         return Err((format!("Plugin bundle not found: {}", bundle_path.display())).into());
     }
 
-    fs::read_to_string(&bundle_path)
-        .map_err(|e| CommandError::Io(format!("Failed to read plugin bundle: {e}")))
+    fs::read_to_string(&bundle_path).map_err(|e| CommandError::Io {
+        message: format!("Failed to read plugin bundle: {e}"),
+    })
 }
 
 /// Read a plugin's manifest

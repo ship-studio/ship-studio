@@ -93,7 +93,12 @@ pub async fn get_backups(
 
     // Format: hash|full_hash|message|timestamp|relative_time
     let output = create_command("git")
-        .args(["log", &format!("-{limit}"), "--format=%h|%H|%s|%ct|%cr"])
+        .args([
+            "--no-pager",
+            "log",
+            &format!("-{limit}"),
+            "--format=%h|%H|%s|%ct|%cr",
+        ])
         .current_dir(&validated_path)
         .output()
         .map_err(|e| e.to_string())?;
@@ -148,7 +153,7 @@ pub async fn restore_backup(
 
     // Get the commit message of the target backup
     let msg_output = create_command("git")
-        .args(["log", "-1", "--format=%s", &commit_hash])
+        .args(["--no-pager", "log", "-1", "--format=%s", &commit_hash])
         .current_dir(&validated_path)
         .output()
         .map_err(|e| e.to_string())?;

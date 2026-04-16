@@ -61,10 +61,9 @@ pub async fn fetch_community_templates(
         return Err((format!("API returned status {}", response.status())).into());
     }
 
-    response
-        .text()
-        .await
-        .map_err(|e| CommandError::Other(format!("Failed to read response: {e}")))
+    response.text().await.map_err(|e| CommandError::Other {
+        message: format!("Failed to read response: {e}"),
+    })
 }
 
 /// Download a template zip from a signed URL to a temporary file.
@@ -103,5 +102,7 @@ pub async fn download_template_zip(url: String) -> Result<String, CommandError> 
     file_path
         .to_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| CommandError::Other("Invalid temp file path".to_string()))
+        .ok_or_else(|| CommandError::Other {
+            message: "Invalid temp file path".to_string(),
+        })
 }

@@ -25,6 +25,22 @@ export class ErrorBoundary extends Component<Props, State> {
     logger.logError(error, { componentStack: errorInfo.componentStack ?? undefined });
   }
 
+  /** Check if the error likely originated from a plugin */
+  private isPluginError(): boolean {
+    const msg = this.state.error?.message ?? '';
+    const stack = this.state.error?.stack ?? '';
+    return (
+      msg.includes('Plugin context') ||
+      msg.includes('plugin-sdk') ||
+      stack.includes('blob:') ||
+      stack.includes('usePluginContext')
+    );
+  }
+
+  handleContinue = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
   handleRestart = async () => {
     try {
       await relaunch();
@@ -74,26 +90,58 @@ export class ErrorBoundary extends Component<Props, State> {
             Something went wrong
           </h1>
           <p style={{ fontSize: '14px', color: '#888', margin: '0 0 24px 0', maxWidth: '400px' }}>
-            {this.state.error?.message || 'An unexpected error occurred'}
+            {this.isPluginError()
+              ? 'A plugin crashed. You can continue without it or restart the app.'
+              : this.state.error?.message || 'An unexpected error occurred'}
           </p>
-          <button
-            onClick={() => void this.handleRestart()}
-            style={{
-              backgroundColor: '#2472c8',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '10px 20px',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              transition: 'background-color 150ms',
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#1e5fa8')}
-            onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#2472c8')}
-          >
-            Restart App
-          </button>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            {this.isPluginError() && (
+              <button
+                onClick={this.handleContinue}
+                style={{
+                  backgroundColor: '#2472c8',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '10px 20px',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'background-color 150ms',
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#1e5fa8')}
+                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#2472c8')}
+              >
+                Continue
+              </button>
+            )}
+            <button
+              onClick={() => void this.handleRestart()}
+              style={{
+                backgroundColor: this.isPluginError() ? '#3a3a3a' : '#2472c8',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '10px 20px',
+                fontSize: '14px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'background-color 150ms',
+              }}
+              onMouseOver={(e) =>
+                (e.currentTarget.style.backgroundColor = this.isPluginError()
+                  ? '#4a4a4a'
+                  : '#1e5fa8')
+              }
+              onMouseOut={(e) =>
+                (e.currentTarget.style.backgroundColor = this.isPluginError()
+                  ? '#3a3a3a'
+                  : '#2472c8')
+              }
+            >
+              Restart App
+            </button>
+          </div>
           {this.state.error && (
             <details
               style={{

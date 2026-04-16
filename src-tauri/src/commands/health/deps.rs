@@ -237,8 +237,9 @@ pub async fn get_package_json(project_path: String) -> Result<String, CommandErr
         return Err(("package.json not found".to_string()).into());
     }
 
-    std::fs::read_to_string(&package_json_path)
-        .map_err(|e| CommandError::Io(format!("Failed to read package.json: {e}")))
+    std::fs::read_to_string(&package_json_path).map_err(|e| CommandError::Io {
+        message: format!("Failed to read package.json: {e}"),
+    })
 }
 
 #[cfg(test)]

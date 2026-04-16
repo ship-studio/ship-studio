@@ -12,8 +12,8 @@ export type CommandError =
   | { type: 'Process'; cmd: string; exit_code: number; stderr: string }
   | { type: 'Validation'; field: string; reason: string }
   | { type: 'NotAuthenticated'; service: string }
-  | { type: 'Io'; '0': string }
-  | { type: 'Other'; '0': string };
+  | { type: 'Io'; message: string }
+  | { type: 'Other'; message: string };
 
 /**
  * Best-effort coercion of an unknown caught value into a `CommandError`. Used
@@ -26,12 +26,12 @@ export function asCommandError(value: unknown): CommandError {
     return value as CommandError;
   }
   if (typeof value === 'string') {
-    return { type: 'Other', '0': value };
+    return { type: 'Other', message: value };
   }
   if (value instanceof Error) {
-    return { type: 'Other', '0': value.message };
+    return { type: 'Other', message: value.message };
   }
-  return { type: 'Other', '0': String(value) };
+  return { type: 'Other', message: String(value) };
 }
 
 /** Render a `CommandError` to a user-facing string. */
@@ -46,8 +46,8 @@ export function formatCommandError(err: CommandError): string {
     case 'NotAuthenticated':
       return `Not authenticated with ${err.service}`;
     case 'Io':
-      return `I/O error: ${err['0']}`;
+      return `I/O error: ${err.message}`;
     case 'Other':
-      return err['0'];
+      return err.message;
   }
 }

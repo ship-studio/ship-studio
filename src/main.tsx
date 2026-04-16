@@ -26,16 +26,19 @@ import 'overlayscrollbars/overlayscrollbars.css';
 exposeReactGlobals(React, ReactDOM);
 exposePluginContextRef();
 
-// Global safety net: catch unhandled errors from plugin blob: URLs.
+// Global safety net: catch unhandled errors from plugins.
 // Plugins that bundle their own React can throw errors that escape React error
 // boundaries entirely. This prevents those from crashing the whole app.
 window.addEventListener('error', (event) => {
-  if (event.filename?.startsWith('blob:')) {
+  const err = event.error as { message?: string } | undefined;
+  const msg: string = (typeof err?.message === 'string' ? err.message : event.message) ?? '';
+  const isPluginError =
+    event.filename?.startsWith('blob:') ||
+    msg.includes('Plugin context') ||
+    msg.includes('plugin-sdk');
+  if (isPluginError) {
     event.preventDefault();
-    console.error(
-      '[Ship Studio] Plugin error caught by global handler:',
-      event.error || event.message
-    );
+    console.error('[Ship Studio] Plugin error caught by global handler:', msg);
   }
 });
 window.addEventListener('unhandledrejection', (event) => {
