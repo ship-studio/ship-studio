@@ -1,6 +1,8 @@
 import { Component, ReactNode } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { logger } from '../lib/logger';
+import { lookupBlobOwner } from '../lib/plugin-loader';
+import { uninstallPlugin } from '../lib/plugins';
 
 interface Props {
   children: ReactNode;
@@ -23,6 +25,19 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     logger.logError(error, { componentStack: errorInfo.componentStack ?? undefined });
+
+    // Auto-remove crashing plugins by extracting blob URLs from the stack trace
+    const stack = error.stack ?? '';
+    const blobMatch = /blob:[^\s:)]+/.exec(stack);
+    if (blobMatch) {
+      const owner = lookupBlobOwner(blobMatch[0]);
+      if (owner) {
+        console.warn(`[ErrorBoundary] Auto-removing crashed plugin "${owner.pluginId}"`);
+        void uninstallPlugin(owner.projectPath, owner.pluginId).catch((e) =>
+          console.error(`Failed to auto-remove plugin "${owner.pluginId}":`, e)
+        );
+      }
+    }
   }
 
   /** Check if the error likely originated from a plugin */
@@ -91,7 +106,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </h1>
           <p style={{ fontSize: '14px', color: '#888', margin: '0 0 24px 0', maxWidth: '400px' }}>
             {this.isPluginError()
-              ? 'A plugin crashed. You can continue without it or restart the app.'
+              ? 'A plugin crashed and was removed. Click Continue to keep working.'
               : this.state.error?.message || 'An unexpected error occurred'}
           </p>
           <div style={{ display: 'flex', gap: '12px' }}>
