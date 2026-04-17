@@ -405,6 +405,7 @@ export function AgentsPanel() {
           isOpen
           onClose={() => setConfirmUninstall(null)}
           title={`Uninstall ${confirmUninstall.displayName}?`}
+          className="agents-panel-confirm-modal"
         >
           <div className="agents-panel-confirm-body">
             <p>

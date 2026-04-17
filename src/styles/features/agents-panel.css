@@ -250,9 +250,13 @@
   overflow: hidden;
 }
 
-/* Confirm modal body */
+/* Confirm modal — cap width and match header padding for consistent gutters. */
+.agents-panel-confirm-modal {
+  width: min(420px, 90vw);
+}
+
 .agents-panel-confirm-body {
-  padding: 0 var(--spacing-lg) var(--spacing-lg);
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
