@@ -130,6 +130,9 @@ export const ChatView = forwardRef<TerminalHandle, ChatViewProps>(function ChatV
       unlistenRef.current = null;
       void stopClientAgent(windowLabel.current).catch(() => {});
     },
+    fit() {
+      // No-op: ChatView uses CSS layout, not xterm fit addon
+    },
   }));
 
   // ============ Event Handler ============
