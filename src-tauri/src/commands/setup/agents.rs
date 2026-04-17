@@ -176,3 +176,151 @@ pub async fn uninstall_agent(agent_id: String) -> Result<String, CommandError> {
     tracing::info!(agent_id = agent_id.as_str(), "Agent uninstalled");
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============ sign_out_agent ============
+
+    #[tokio::test]
+    async fn sign_out_agent_rejects_unknown_id() {
+        let result = sign_out_agent("not-a-real-agent".to_string()).await;
+        assert!(result.is_err(), "unknown agent id must be rejected");
+        let err = format!("{:?}", result.unwrap_err());
+        assert!(
+            err.contains("Unknown agent"),
+            "error should mention unknown agent, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn sign_out_agent_rejects_empty_id() {
+        let result = sign_out_agent(String::new()).await;
+        assert!(result.is_err(), "empty agent id must be rejected");
+    }
+
+    #[tokio::test]
+    async fn sign_out_agent_accepts_all_known_ids() {
+        // Every agent in ALL_AGENTS must round-trip through sign_out_agent's
+        // id-validation step without the "Unknown agent" error. (The actual
+        // file-removal step may be a no-op on a machine that never signed in,
+        // but the id check should always pass.)
+        for agent in crate::agent::ALL_AGENTS {
+            let result = sign_out_agent(agent.id.to_string()).await;
+            if let Err(e) = &result {
+                let msg = format!("{:?}", e);
+                assert!(
+                    !msg.contains("Unknown agent"),
+                    "agent {} should not be rejected as unknown: {msg}",
+                    agent.id
+                );
+            }
+        }
+    }
+
+    // ============ uninstall_agent ============
+
+    #[tokio::test]
+    async fn uninstall_agent_rejects_unknown_id() {
+        let result = uninstall_agent("not-a-real-agent".to_string()).await;
+        assert!(result.is_err(), "unknown agent id must be rejected");
+        let err = format!("{:?}", result.unwrap_err());
+        assert!(
+            err.contains("Unknown agent"),
+            "error should mention unknown agent, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn uninstall_agent_rejects_empty_id() {
+        let result = uninstall_agent(String::new()).await;
+        assert!(result.is_err());
+    }
+
+    // ============ get_agents_status ============
+
+    #[tokio::test]
+    async fn get_agents_status_returns_one_entry_per_known_agent() {
+        let statuses = get_agents_status().await;
+        assert_eq!(
+            statuses.len(),
+            crate::agent::ALL_AGENTS.len(),
+            "should return one status per agent in ALL_AGENTS"
+        );
+        // Order and IDs should match ALL_AGENTS.
+        for (status, agent) in statuses.iter().zip(crate::agent::ALL_AGENTS.iter()) {
+            assert_eq!(status.id, agent.id);
+            assert_eq!(status.display_name, agent.display_name);
+            assert_eq!(status.binary_name, agent.binary_name);
+        }
+    }
+
+    #[tokio::test]
+    async fn get_agents_status_marks_exactly_one_default() {
+        let statuses = get_agents_status().await;
+        let default_count = statuses.iter().filter(|s| s.is_default).count();
+        assert_eq!(
+            default_count, 1,
+            "exactly one agent should be marked as default"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_agents_status_install_supported_tracks_platform() {
+        let statuses = get_agents_status().await;
+        for status in &statuses {
+            let agent = crate::agent::get_agent_by_id(&status.id);
+            #[cfg(windows)]
+            let expected = agent.install_message_windows.is_some();
+            #[cfg(not(windows))]
+            let expected = agent.install_command_unix.is_some();
+            assert_eq!(
+                status.install_supported, expected,
+                "install_supported for {} should match platform-specific install command presence",
+                status.id
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn get_agents_status_uninstall_supported_tracks_platform() {
+        let statuses = get_agents_status().await;
+        for status in &statuses {
+            let agent = crate::agent::get_agent_by_id(&status.id);
+            #[cfg(windows)]
+            let expected = agent.uninstall_command_windows.is_some();
+            #[cfg(not(windows))]
+            let expected = agent.uninstall_command_unix.is_some();
+            assert_eq!(
+                status.uninstall_supported, expected,
+                "uninstall_supported for {} should match platform-specific uninstall command presence",
+                status.id
+            );
+        }
+    }
+
+    // ============ AgentStatus serialization ============
+
+    #[test]
+    fn agent_status_serializes_to_camel_case_for_frontend() {
+        let status = AgentStatus {
+            id: "claude-code".to_string(),
+            display_name: "Claude Code".to_string(),
+            binary_name: "claude".to_string(),
+            installed: true,
+            version: Some("1.2.3".to_string()),
+            authed: true,
+            is_default: true,
+            install_supported: true,
+            uninstall_supported: true,
+        };
+        let json = serde_json::to_string(&status).expect("serialize");
+        // The frontend reads these as camelCase — lock the contract.
+        assert!(json.contains("\"displayName\":\"Claude Code\""));
+        assert!(json.contains("\"binaryName\":\"claude\""));
+        assert!(json.contains("\"isDefault\":true"));
+        assert!(json.contains("\"installSupported\":true"));
+        assert!(json.contains("\"uninstallSupported\":true"));
+    }
+}
