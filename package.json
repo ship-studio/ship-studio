@@ -41,7 +41,9 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-github-calendar": "^5.0.5",
+    "react-markdown": "^10.1.0",
     "react-tooltip": "^5.30.0",
+    "remark-gfm": "^4.0.1",
     "shiki": "^3.22.0",
     "tauri-plugin-screenshots-api": "^2.2.0",
     "tauri-pty": "^0.2.0"
