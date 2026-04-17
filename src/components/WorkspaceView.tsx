@@ -764,6 +764,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                           <div
                             key={`session-${terminalSessionId}-tab-${tab.id}`}
                             className={`terminal-tab-content ${!showDevServerLogs && activeTerminalTab === tab.id ? 'active' : ''}`}
+                            data-agent-id={tab.agentId}
                           >
                             <Terminal
                               ref={(ref) => {

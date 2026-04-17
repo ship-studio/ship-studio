@@ -454,6 +454,9 @@ pub fn run() {
             commands::setup::reset_setup_state,
             commands::setup::get_default_agent_id,
             commands::setup::set_default_agent_id,
+            commands::setup::get_agents_status,
+            commands::setup::sign_out_agent,
+            commands::setup::uninstall_agent,
             // Client Editor
             commands::client_editor::detect_client_editor,
             // Code Browser

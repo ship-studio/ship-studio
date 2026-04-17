@@ -32,6 +32,8 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
             ("claude_auth", "Claude Account", Some("claude")),
             ("codex", "Codex", None),
             ("codex_auth", "Codex Account", Some("codex")),
+            ("opencode", "Opencode", None),
+            ("opencode_auth", "Opencode Account", Some("opencode")),
             ("vercel", "Vercel CLI", None),
             ("vercel_auth", "Vercel Account", Some("vercel")),
         ];

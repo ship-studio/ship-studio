@@ -50,7 +50,7 @@ export function AgentStep({
     <div className="wizard-step-items">
       {showSelection && (
         <p className="wizard-agent-selection-hint">
-          Both agents are ready. Choose your default below.
+          {readyPairs.length} agents are ready. Choose your default below.
         </p>
       )}
 

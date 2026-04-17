@@ -18,6 +18,7 @@ import { GITHUB_STATUS_FALLBACK } from './useIntegrationStatus';
 import { registerExternalProject } from '../lib/external-projects';
 import { registerProjectSession, unregisterProjectSession } from '../lib/projectSessions';
 import { sessionRegistry } from '../lib/sessionRegistry';
+import { getDefaultAgentId } from '../lib/agent';
 import {
   setWindowTitle,
   getWindowLabel,
@@ -227,12 +228,21 @@ export function useProjectLifecycle({
     } | null>('get_terminal_state', { projectPath: project.path })
       .then((savedState) => {
         if (savedState && savedState.tabs.length > 0) {
+          // Always use the current global default agent for restored tabs.
+          // "Default agent" applies to every new terminal — including the first
+          // tab when a project reopens — so saved per-project agent IDs are
+          // ignored in favour of the user's latest preference.
+          const currentDefault = getDefaultAgentId();
           logger.info('[OpenProject] Restoring saved terminal tabs', {
             tabCount: savedState.tabs.length,
             activeIndex: savedState.active_tab_index,
+            defaultAgent: currentDefault,
           });
           restoreTerminalTabs(
-            savedState.tabs.map((t) => ({ agentId: t.agent_id, sessionId: t.session_id })),
+            savedState.tabs.map((t) => ({
+              agentId: currentDefault,
+              sessionId: t.session_id,
+            })),
             savedState.active_tab_index
           );
         } else {

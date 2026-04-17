@@ -29,6 +29,7 @@
 @import './features/publish/toasts.css';
 @import './features/env-editor.css';
 @import './features/assets-panel.css';
+@import './features/agents-panel.css';
 @import './features/ide-dropdown.css';
 @import './features/browser-dropdown.css';
 @import './features/dashboard/main.css';

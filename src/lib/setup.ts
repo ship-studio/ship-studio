@@ -8,6 +8,7 @@
  * - GitHub CLI + auth
  * - Claude Code + auth
  * - Codex + auth
+ * - Opencode + auth
  *
  * @module lib/setup
  */
@@ -92,6 +93,8 @@ export const OPTIONAL_ITEMS = new Set([
   'claude_auth',
   'codex',
   'codex_auth',
+  'opencode',
+  'opencode_auth',
   'vercel',
   'vercel_auth',
 ]);
@@ -117,6 +120,8 @@ export function getSetupDependencies(): Record<string, string[]> {
     claude_auth: ['claude'],
     codex: [], // Uses npm global install
     codex_auth: ['codex'],
+    opencode: [], // Uses its own installer
+    opencode_auth: ['opencode'],
     vercel: [], // Uses npm global install
     vercel_auth: ['vercel'],
   };
@@ -137,6 +142,8 @@ export const SETUP_ITEM_ORDER = [
   'claude_auth',
   'codex',
   'codex_auth',
+  'opencode',
+  'opencode_auth',
   'vercel',
   'vercel_auth',
 ];
@@ -153,6 +160,8 @@ export const SETUP_FRIENDLY_NAMES: Record<string, string> = {
   claude_auth: 'Claude Account',
   codex: 'Codex',
   codex_auth: 'Codex Account',
+  opencode: 'Opencode',
+  opencode_auth: 'Opencode Account',
   vercel: 'Vercel CLI',
   vercel_auth: 'Vercel Account',
 };
@@ -169,6 +178,8 @@ export const SETUP_PROGRESS_MESSAGES: Record<string, string> = {
   claude_auth: 'Connecting to Claude...',
   codex: 'Installing Codex...',
   codex_auth: 'Connecting to Codex...',
+  opencode: 'Installing Opencode...',
+  opencode_auth: 'Connecting to Opencode...',
   vercel: 'Installing Vercel CLI...',
   vercel_auth: 'Connecting to Vercel...',
 };
@@ -185,6 +196,8 @@ export const SETUP_TIME_ESTIMATES: Record<string, string> = {
   claude_auth: '~15 sec',
   codex: '~15 sec',
   codex_auth: '~15 sec',
+  opencode: '~15 sec',
+  opencode_auth: '~15 sec',
   vercel: '~10 sec',
   vercel_auth: '~15 sec',
 };
@@ -195,6 +208,7 @@ export const SETUP_TIME_ESTIMATES: Record<string, string> = {
 export const AGENT_ITEM_PAIRS = [
   { binaryId: 'claude', authId: 'claude_auth' },
   { binaryId: 'codex', authId: 'codex_auth' },
+  { binaryId: 'opencode', authId: 'opencode_auth' },
 ] as const;
 
 /** Agent item IDs (all binary + auth IDs) */
@@ -297,7 +311,7 @@ export const WIZARD_STEPS: WizardStepDef[] = [
     id: 'agent',
     title: 'AI Agent',
     subtitle: 'Install at least one AI coding assistant',
-    itemIds: ['claude', 'claude_auth', 'codex', 'codex_auth'],
+    itemIds: ['claude', 'claude_auth', 'codex', 'codex_auth', 'opencode', 'opencode_auth'],
     skippable: false,
   },
   {
@@ -530,6 +544,17 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         command: 'codex',
         args: [],
       },
+      opencode: {
+        command: 'powershell',
+        args: [
+          '-Command',
+          'Write-Host "Please download Opencode from https://opencode.ai"; Start-Process "https://opencode.ai"',
+        ],
+      },
+      opencode_auth: {
+        command: 'opencode',
+        args: ['auth', 'login'],
+      },
       vercel: {
         command: 'npm',
         args: ['install', '-g', 'vercel'],
@@ -593,6 +618,14 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         command: 'codex',
         args: [],
       },
+      opencode: {
+        command: '/bin/bash',
+        args: ['-c', 'curl -fsSL https://opencode.ai/install | bash'],
+      },
+      opencode_auth: {
+        command: 'opencode',
+        args: ['auth', 'login'],
+      },
       vercel: {
         command: '/bin/bash',
         args: ['-c', 'npm install -g vercel'],
@@ -617,6 +650,8 @@ export const USES_TERMINAL = new Set([
   'claude_auth',
   'codex',
   'codex_auth',
+  'opencode',
+  'opencode_auth',
   'vercel',
   'vercel_auth',
 ]);

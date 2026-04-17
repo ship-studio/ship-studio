@@ -39,6 +39,10 @@ pub struct AgentConfig {
     pub install_command_unix: Option<&'static str>,
     /// Windows install message (manual download)
     pub install_message_windows: Option<&'static str>,
+    /// Unix uninstall command (removes binary + associated files, leaves auth indicators alone)
+    pub uninstall_command_unix: Option<&'static str>,
+    /// Windows uninstall command or message
+    pub uninstall_command_windows: Option<&'static str>,
     /// Setup item IDs: (binary_id, auth_id)
     pub setup_item_ids: (&'static str, &'static str),
     /// Setup display names: (binary_name, auth_name)
@@ -63,6 +67,10 @@ pub const CLAUDE_CODE: AgentConfig = AgentConfig {
     install_message_windows: Some(
         "Please download Claude Code from https://claude.ai and run the installer.",
     ),
+    uninstall_command_unix: Some(
+        "rm -rf \"$HOME/.local/share/Claude\" \"$HOME/Library/Application Support/Claude/claude-code\" 2>/dev/null; rm -f \"$HOME/.local/bin/claude\" 2>/dev/null; npm uninstall -g @anthropic-ai/claude-code 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: Some("npm uninstall -g @anthropic-ai/claude-code"),
     setup_item_ids: ("claude", "claude_auth"),
     setup_display_names: ("Claude Code", "Claude Account"),
 };
@@ -83,12 +91,40 @@ pub const CODEX: AgentConfig = AgentConfig {
     skills_dir_name: Some("skills"),
     install_command_unix: Some("npm install -g @openai/codex"),
     install_message_windows: Some("Install Codex: npm install -g @openai/codex"),
+    uninstall_command_unix: Some("npm uninstall -g @openai/codex"),
+    uninstall_command_windows: Some("npm uninstall -g @openai/codex"),
     setup_item_ids: ("codex", "codex_auth"),
     setup_display_names: ("Codex", "Codex Account"),
 };
 
+/// Opencode agent configuration.
+pub const OPENCODE: AgentConfig = AgentConfig {
+    id: "opencode",
+    display_name: "Opencode",
+    binary_name: "opencode",
+    process_name: "opencode",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &["auth", "login"],
+    auth_config_dir: ".local/share/opencode",
+    auth_indicators: &["auth.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("curl -fsSL https://opencode.ai/install | bash"),
+    install_message_windows: Some(
+        "Please download Opencode from https://opencode.ai and run the installer.",
+    ),
+    uninstall_command_unix: Some(
+        "rm -rf \"$HOME/.opencode\" \"$HOME/.local/share/opencode\" 2>/dev/null; rm -f \"$HOME/.local/bin/opencode\" 2>/dev/null; npm uninstall -g opencode-ai 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: Some("npm uninstall -g opencode-ai"),
+    setup_item_ids: ("opencode", "opencode_auth"),
+    setup_display_names: ("Opencode", "Opencode Account"),
+};
+
 /// All available agent configurations.
-pub const ALL_AGENTS: &[&AgentConfig] = &[&CLAUDE_CODE, &CODEX];
+pub const ALL_AGENTS: &[&AgentConfig] = &[&CLAUDE_CODE, &CODEX, &OPENCODE];
 
 /// In-memory cache for the default agent ID. `None` means unset (falls back to Claude Code).
 static DEFAULT_AGENT_ID: RwLock<Option<String>> = RwLock::new(None);
@@ -123,6 +159,7 @@ pub fn get_active_agent() -> &'static AgentConfig {
 pub fn get_agent_by_id(id: &str) -> &'static AgentConfig {
     match id {
         "codex" => &CODEX,
+        "opencode" => &OPENCODE,
         _ => &CLAUDE_CODE,
     }
 }
@@ -152,8 +189,20 @@ mod tests {
     }
 
     #[test]
-    fn all_agents_has_length_2() {
-        assert_eq!(ALL_AGENTS.len(), 2);
+    fn all_agents_has_length_3() {
+        assert_eq!(ALL_AGENTS.len(), 3);
+    }
+
+    #[test]
+    fn get_agent_by_id_opencode() {
+        let agent = get_agent_by_id("opencode");
+        assert_eq!(agent.id, "opencode");
+        assert_eq!(agent.display_name, "Opencode");
+    }
+
+    #[test]
+    fn opencode_setup_item_ids() {
+        assert_eq!(OPENCODE.setup_item_ids, ("opencode", "opencode_auth"));
     }
 
     #[test]

@@ -27,11 +27,13 @@
 //! - `install` — Tool installation via Homebrew/Winget
 //! - `auth` — Authentication flows, process cleanup, version management
 
+mod agents;
 mod auth;
 mod install;
 mod state;
 mod status;
 
+pub use agents::*;
 pub use auth::*;
 pub use install::*;
 pub use state::*;
@@ -67,12 +69,16 @@ const ALL_ITEMS: &[&str] = &[
     "claude_auth",
     "codex",
     "codex_auth",
+    "opencode",
+    "opencode_auth",
     "vercel",
     "vercel_auth",
 ];
 
 /// Tool items (not auth)
-const TOOL_ITEMS: &[&str] = &["homebrew", "node", "git", "gh", "claude", "codex", "vercel"];
+const TOOL_ITEMS: &[&str] = &[
+    "homebrew", "node", "git", "gh", "claude", "codex", "opencode", "vercel",
+];
 
 // ============ App State Persistence (shared helpers) ============
 
@@ -150,10 +156,24 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
         // Vercel installed and authed (for testing hosting step)
         "vercel-ready" => vec!["vercel", "vercel_auth"],
 
-        // Only Codex installed (no Claude)
+        // Only Codex installed (no Claude, no Opencode)
         "codex-only" => ALL_ITEMS
             .iter()
-            .filter(|&&item| item != "claude" && item != "claude_auth")
+            .filter(|&&item| {
+                item != "claude"
+                    && item != "claude_auth"
+                    && item != "opencode"
+                    && item != "opencode_auth"
+            })
+            .copied()
+            .collect(),
+
+        // Only Opencode installed (no Claude, no Codex)
+        "opencode-only" => ALL_ITEMS
+            .iter()
+            .filter(|&&item| {
+                item != "claude" && item != "claude_auth" && item != "codex" && item != "codex_auth"
+            })
             .copied()
             .collect(),
 
@@ -301,20 +321,32 @@ mod tests {
     }
 
     #[test]
-    fn all_items_contains_11_items_including_codex_and_vercel() {
-        assert_eq!(ALL_ITEMS.len(), 11);
+    fn all_items_contains_13_items_including_all_agents_and_vercel() {
+        assert_eq!(ALL_ITEMS.len(), 13);
         assert!(ALL_ITEMS.contains(&"codex"));
         assert!(ALL_ITEMS.contains(&"codex_auth"));
+        assert!(ALL_ITEMS.contains(&"opencode"));
+        assert!(ALL_ITEMS.contains(&"opencode_auth"));
         assert!(ALL_ITEMS.contains(&"vercel"));
         assert!(ALL_ITEMS.contains(&"vercel_auth"));
     }
 
     #[test]
-    fn tool_items_contains_7_items_including_codex_and_vercel() {
-        assert_eq!(TOOL_ITEMS.len(), 7);
+    fn tool_items_contains_8_items_including_all_agents_and_vercel() {
+        assert_eq!(TOOL_ITEMS.len(), 8);
         assert!(TOOL_ITEMS.contains(&"codex"));
         assert!(TOOL_ITEMS.contains(&"claude"));
+        assert!(TOOL_ITEMS.contains(&"opencode"));
         assert!(TOOL_ITEMS.contains(&"vercel"));
+    }
+
+    #[test]
+    fn scenario_opencode_only_excludes_claude_and_codex() {
+        let items = get_scenario_items("opencode-only");
+        assert!(!items.contains(&"claude"));
+        assert!(!items.contains(&"codex"));
+        assert!(items.contains(&"opencode"));
+        assert!(items.contains(&"opencode_auth"));
     }
 
     // ============ AppState ============

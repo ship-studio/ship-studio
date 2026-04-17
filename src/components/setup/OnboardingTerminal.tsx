@@ -195,6 +195,8 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             `${homeNormalized}.local/bin`,
             `${homeNormalized}.cargo/bin`,
             `${homeNormalized}n/bin`, // n version manager
+            `${homeNormalized}.opencode/bin`, // opencode installer default
+            `${homeNormalized}.bun/bin`, // bun-installed tools
           ];
 
           // Try to find nvm node versions and add their bin directories

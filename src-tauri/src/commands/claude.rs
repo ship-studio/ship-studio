@@ -142,6 +142,9 @@ pub fn find_binary_by_name(binary_name: &str) -> Option<std::path::PathBuf> {
                     .join("*")
                     .join(format!("bin/{binary_name}")),
                 home.join(format!("n/bin/{binary_name}")),
+                // Tools that install into ~/.<name>/bin/<name> (opencode, bun, cargo, etc.)
+                home.join(format!(".{binary_name}/bin/{binary_name}")),
+                home.join(format!(".bun/bin/{binary_name}")),
                 std::path::PathBuf::from(format!("/usr/local/bin/{binary_name}")),
                 std::path::PathBuf::from(format!("/opt/homebrew/bin/{binary_name}")),
             ];

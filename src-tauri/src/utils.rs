@@ -111,6 +111,8 @@ fn build_extended_path() -> String {
         let home_str = home.to_string_lossy();
         paths.push(format!("{home_str}/.npm-global/bin"));
         paths.push(format!("{home_str}/.local/bin")); // Official Claude installer location
+        paths.push(format!("{home_str}/.opencode/bin")); // Opencode installer location
+        paths.push(format!("{home_str}/.bun/bin")); // Bun-installed tools
         paths.push(format!("{home_str}/n/bin"));
 
         // Add NVM current/default version if it exists

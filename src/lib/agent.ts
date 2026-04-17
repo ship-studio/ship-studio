@@ -66,6 +66,21 @@ export const CODEX: AgentConfig = {
   installHint: 'Make sure Codex is installed: npm install -g @openai/codex',
 };
 
+/** Opencode agent configuration. */
+export const OPENCODE: AgentConfig = {
+  id: 'opencode',
+  displayName: 'Opencode',
+  binaryName: 'opencode',
+  processName: 'opencode',
+  autoAcceptFlag: null,
+  supportsSkills: false,
+  supportsMcp: true,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Opencode...',
+  notFoundMessage: 'Error starting Opencode',
+  installHint: 'Make sure Opencode is installed: curl -fsSL https://opencode.ai/install | bash',
+};
+
 /** Raw terminal (shell) configuration — not an AI agent. */
 export const TERMINAL: AgentConfig = {
   id: 'terminal',
@@ -82,10 +97,10 @@ export const TERMINAL: AgentConfig = {
 };
 
 /** All available agents (AI coding assistants). */
-export const ALL_AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX];
+export const ALL_AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE];
 
 /** All options available in the tab dropdown (agents + terminal). */
-export const ALL_TAB_OPTIONS: AgentConfig[] = [CLAUDE_CODE, CODEX, TERMINAL];
+export const ALL_TAB_OPTIONS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE, TERMINAL];
 
 /** In-memory cache for the default agent ID. Null means unset (falls back to Claude Code). */
 let defaultAgentId: string | null = null;
