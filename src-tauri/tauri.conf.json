@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ship Studio",
-  "version": "0.4.13",
+  "version": "0.4.25",
   "identifier": "com.memberstack.shipstudio",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -22,6 +22,8 @@
         "fullscreen": false,
         "dragDropEnabled": true,
         "transparent": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "theme": "Dark",
         "backgroundColor": "#2d2d2d"
       }
@@ -31,7 +33,9 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$HOME/ShipStudio/**"
+          "$HOME/ShipStudio/**",
+          "$HOME/**",
+          "/Volumes/**"
         ]
       }
     }

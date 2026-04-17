@@ -3,8 +3,52 @@
 //! Detects framework types (Next.js, SvelteKit, Astro, Nuxt, static HTML)
 //! and scans project directories for page routes.
 
+use crate::cache::TtlCache;
+use crate::errors::CommandError;
 use crate::types::{PageInfo, ProjectType};
 use crate::utils::validate_project_path;
+use std::sync::LazyLock;
+use std::time::{Duration, SystemTime};
+
+/// Cache for project type detection, keyed by (path, mtime-signature).
+/// The mtime-signature changes whenever package.json or a lockfile is
+/// touched, which is exactly when detection could return a different type.
+/// Short TTL (30s) bounds staleness from rename/delete events we don't see.
+static PROJECT_TYPE_CACHE: LazyLock<TtlCache<(String, u128), ProjectType>> =
+    LazyLock::new(|| TtlCache::new(Duration::from_secs(30)));
+
+/// Compute an mtime fingerprint across the files that determine project type.
+/// Returns the max mtime nanos across package.json + common lockfiles. If
+/// none exist, returns 0 (directory has no signals — cache keys by path only).
+fn detection_signature(project_path: &std::path::Path) -> u128 {
+    const SENTINELS: &[&str] = &[
+        "package.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "package-lock.json",
+        "svelte.config.js",
+        "svelte.config.ts",
+        "astro.config.mjs",
+        "astro.config.ts",
+        "nuxt.config.ts",
+        "next.config.js",
+        "next.config.mjs",
+        "next.config.ts",
+        "vite.config.js",
+        "vite.config.ts",
+    ];
+    let mut max_nanos: u128 = 0;
+    for name in SENTINELS {
+        if let Ok(metadata) = std::fs::metadata(project_path.join(name)) {
+            if let Ok(mtime) = metadata.modified() {
+                if let Ok(since) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
+                    max_nanos = max_nanos.max(since.as_nanos());
+                }
+            }
+        }
+    }
+    max_nanos
+}
 
 /// Detect if this is a SvelteKit project
 pub(crate) fn is_sveltekit_project(project_path: &std::path::Path) -> bool {
@@ -132,8 +176,22 @@ pub(crate) fn is_nextjs_project(project_path: &std::path::Path) -> bool {
     false
 }
 
-/// Detect the project type from config files and directory structure
+/// Detect the project type from config files and directory structure.
+/// Results are cached for 30s keyed on (path, mtime-signature) so that the
+/// dashboard's frequent per-tick calls don't re-hit disk for every project.
 pub fn detect_project_type(project_path: &std::path::Path) -> ProjectType {
+    let path_key = project_path.to_string_lossy().into_owned();
+    let sig = detection_signature(project_path);
+    let cache_key = (path_key, sig);
+    if let Some(cached) = PROJECT_TYPE_CACHE.get(&cache_key) {
+        return cached;
+    }
+    let result = detect_project_type_uncached(project_path);
+    PROJECT_TYPE_CACHE.insert(cache_key, result.clone());
+    result
+}
+
+fn detect_project_type_uncached(project_path: &std::path::Path) -> ProjectType {
     // Check framework-specific configs first
     if is_astro_project(project_path) {
         return ProjectType::Astro;
@@ -168,7 +226,10 @@ pub fn detect_project_type(project_path: &std::path::Path) -> ProjectType {
 
 /// Detect the project type for a given project path
 #[tauri::command]
-pub async fn detect_project_type_command(project_path: String) -> Result<ProjectType, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn detect_project_type_command(
+    project_path: String,
+) -> Result<ProjectType, CommandError> {
     let project = validate_project_path(&project_path)?;
     Ok(detect_project_type(&project))
 }
@@ -177,7 +238,7 @@ pub async fn detect_project_type_command(project_path: String) -> Result<Project
 pub(crate) fn scan_nextjs_pages(
     dir: &std::path::Path,
     base_dir: &std::path::Path,
-) -> Result<Vec<PageInfo>, String> {
+) -> Result<Vec<PageInfo>, CommandError> {
     let mut pages = Vec::new();
 
     if !dir.exists() {
@@ -526,4 +587,149 @@ pub(crate) fn sort_pages(pages: &mut [PageInfo]) {
         }
         a.route.cmp(&b.route)
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn detects_nextjs_from_config_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("next.config.js"), "module.exports = {};").unwrap();
+        assert!(is_nextjs_project(tmp.path()));
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Nextjs
+        );
+    }
+
+    #[test]
+    fn detects_nextjs_from_package_json() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"dependencies":{"next":"14.0.0"}}"#,
+        )
+        .unwrap();
+        assert!(is_nextjs_project(tmp.path()));
+    }
+
+    #[test]
+    fn detects_sveltekit_from_config() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("svelte.config.js"), "export default {}").unwrap();
+        assert!(is_sveltekit_project(tmp.path()));
+    }
+
+    #[test]
+    fn detects_astro_precedence_over_vite() {
+        // Astro projects use Vite internally — detection must prefer Astro.
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("astro.config.mjs"), "export default {};").unwrap();
+        std::fs::write(tmp.path().join("vite.config.ts"), "export default {};").unwrap();
+        assert_eq!(detect_project_type_uncached(tmp.path()), ProjectType::Astro);
+    }
+
+    #[test]
+    fn detects_static_html_when_no_package_json() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "<html></html>").unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Statichtml
+        );
+    }
+
+    #[test]
+    fn detects_generic_when_package_json_but_no_framework() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("package.json"), r#"{"name":"x"}"#).unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Generic
+        );
+    }
+
+    #[test]
+    fn detects_unknown_for_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Unknown
+        );
+    }
+
+    /// Integration: detect_project_type caches results. Repeated calls with
+    /// the same signature must return the same value and not re-read the
+    /// framework. (We verify stability; timing assertions are flaky.)
+    #[test]
+    fn detect_project_type_cache_returns_stable_value_within_ttl() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"dependencies":{"next":"14"}}"#,
+        )
+        .unwrap();
+        let first = detect_project_type(tmp.path());
+        // Deleting the signal file between calls should NOT change the cached
+        // answer if the mtime-signature stays the same (file is already gone
+        // so the signature becomes 0 — different key → recompute → different
+        // result). So instead we verify two calls in a row are equal.
+        let second = detect_project_type(tmp.path());
+        assert_eq!(first, second);
+        assert_eq!(first, ProjectType::Nextjs);
+    }
+
+    /// The cache key includes the mtime-signature. When we modify
+    /// package.json (changing its mtime), the key changes and detection
+    /// re-runs. This validates we don't serve stale results after edits.
+    #[test]
+    fn detect_project_type_picks_up_config_changes_via_signature_key() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("package.json"), r#"{"name":"x"}"#).unwrap();
+        let first = detect_project_type(tmp.path());
+        assert_eq!(first, ProjectType::Generic);
+        // Sleep a tiny bit to ensure mtime differs on filesystems with low
+        // resolution, then rewrite to add nextjs.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"dependencies":{"next":"14"}}"#,
+        )
+        .unwrap();
+        let second = detect_project_type(tmp.path());
+        assert_eq!(second, ProjectType::Nextjs, "must re-detect after change");
+    }
+
+    #[test]
+    fn sort_pages_puts_root_first() {
+        let mut pages = vec![
+            PageInfo {
+                route: "/about".to_string(),
+                file_path: "about.tsx".to_string(),
+            },
+            PageInfo {
+                route: "/".to_string(),
+                file_path: "index.tsx".to_string(),
+            },
+            PageInfo {
+                route: "/blog".to_string(),
+                file_path: "blog.tsx".to_string(),
+            },
+        ];
+        sort_pages(&mut pages);
+        assert_eq!(pages[0].route, "/");
+        assert_eq!(pages[1].route, "/about");
+        assert_eq!(pages[2].route, "/blog");
+    }
+
+    #[test]
+    fn has_html_files_detects_top_level_html() {
+        let tmp = TempDir::new().unwrap();
+        assert!(!has_html_files(tmp.path()));
+        std::fs::write(tmp.path().join("index.html"), "").unwrap();
+        assert!(has_html_files(tmp.path()));
+    }
 }

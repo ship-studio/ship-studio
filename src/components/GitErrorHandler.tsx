@@ -8,6 +8,8 @@
  */
 
 import { WarningIcon, CopyIcon } from './icons';
+import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface GitErrorHandlerProps {
   /** Type of git error */
@@ -20,8 +22,6 @@ interface GitErrorHandlerProps {
   onClose: () => void;
   /** Callback to send prompt to Claude (paste into terminal) */
   onSendToClaude?: (prompt: string) => void;
-  /** Callback for toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Callback to open conflict resolution UI (only for merge_conflict type) */
   onResolveConflicts?: () => void;
 }
@@ -32,9 +32,10 @@ export function GitErrorHandler({
   branchName,
   onClose,
   onSendToClaude,
-  onToast,
   onResolveConflicts,
 }: GitErrorHandlerProps) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const getErrorInfo = () => {
     switch (errorType) {
       case 'push_rejected':
@@ -80,12 +81,13 @@ Please help me understand what went wrong and how to fix it.`,
   };
 
   const errorInfo = getErrorInfo();
+  const { copy } = useCopyToClipboard({
+    onCopy: () => onToast?.('Prompt copied to clipboard', 'success'),
+    onError: () => onToast?.('Failed to copy to clipboard', 'error'),
+  });
 
   const handleCopyPrompt = () => {
-    navigator.clipboard.writeText(errorInfo.claudePrompt).then(
-      () => onToast?.('Prompt copied to clipboard', 'success'),
-      () => onToast?.('Failed to copy to clipboard', 'error')
-    );
+    void copy(errorInfo.claudePrompt);
   };
 
   const handleSendToClaude = () => {

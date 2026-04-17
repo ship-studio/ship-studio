@@ -13,6 +13,8 @@
 pub mod agent;
 pub mod cache;
 pub mod commands;
+pub mod errors;
+pub mod external_command;
 pub mod logging;
 pub mod proxy;
 pub mod state;
@@ -21,6 +23,11 @@ pub mod types;
 pub mod utils;
 
 use tauri::Manager;
+
+#[cfg(target_os = "macos")]
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+#[cfg(target_os = "macos")]
+use tauri::Emitter;
 
 #[cfg(unix)]
 use std::process::Command;
@@ -70,6 +77,9 @@ fn cleanup_agent_processes() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Sentry must init before the tracing subscriber so its layer can attach.
+    logging::init_sentry();
+
     // Initialize logging first
     if let Err(e) = logging::init_logging() {
         eprintln!("Failed to initialize logging: {e}");
@@ -98,6 +108,95 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|_app| {
+            // Build a custom menu on macOS that replaces Cmd+W (Close Window)
+            // with a custom "Close Tab" action that emits an event to the frontend
+            #[cfg(target_os = "macos")]
+            {
+                let app = _app;
+                let close_tab = MenuItemBuilder::with_id("close_tab", "Close Tab")
+                    .accelerator("CmdOrCtrl+W")
+                    .build(app)?;
+
+                let quit_item = MenuItemBuilder::with_id("confirm_quit", "Quit Ship Studio")
+                    .accelerator("CmdOrCtrl+Q")
+                    .build(app)?;
+
+                // Hidden menu items to register native accelerators for screenshot shortcuts.
+                // Native accelerators work even when the preview iframe has keyboard focus.
+                let screenshot_item =
+                    MenuItemBuilder::with_id("capture_screenshot", "Capture Screenshot")
+                        .accelerator("CmdOrCtrl+Shift+S")
+                        .build(app)?;
+                let crop_item = MenuItemBuilder::with_id("toggle_crop", "Crop Screenshot")
+                    .accelerator("CmdOrCtrl+Shift+C")
+                    .build(app)?;
+
+                let app_menu = SubmenuBuilder::new(app, "Ship Studio")
+                    .about(None)
+                    .separator()
+                    .services()
+                    .separator()
+                    .hide()
+                    .hide_others()
+                    .show_all()
+                    .separator()
+                    .item(&quit_item)
+                    .build()?;
+
+                let file_menu = SubmenuBuilder::new(app, "File")
+                    .item(&close_tab)
+                    .separator()
+                    .item(&screenshot_item)
+                    .item(&crop_item)
+                    .build()?;
+
+                let edit_menu = SubmenuBuilder::new(app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
+
+                let view_menu = SubmenuBuilder::new(app, "View").fullscreen().build()?;
+
+                let window_menu = SubmenuBuilder::new(app, "Window")
+                    .minimize()
+                    .maximize()
+                    .build()?;
+
+                let menu = MenuBuilder::new(app)
+                    .item(&app_menu)
+                    .item(&file_menu)
+                    .item(&edit_menu)
+                    .item(&view_menu)
+                    .item(&window_menu)
+                    .build()?;
+
+                app.set_menu(menu)?;
+
+                // Handle custom menu items
+                let app_handle = app.handle().clone();
+                app.on_menu_event(move |_app, event| {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        if event.id() == "close_tab" {
+                            let _ = window.emit("close-tab", ());
+                        } else if event.id() == "confirm_quit" {
+                            let _ = window.emit("confirm-quit", ());
+                        } else if event.id() == "capture_screenshot" {
+                            let _ = window.emit("capture-screenshot", ());
+                        } else if event.id() == "toggle_crop" {
+                            let _ = window.emit("toggle-crop", ());
+                        }
+                    }
+                });
+            }
+
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 let label = window.label().to_string();
@@ -186,6 +285,7 @@ pub fn run() {
             commands::projects::get_branch_prefix_preference,
             commands::projects::set_branch_prefix_preference,
             commands::projects::ensure_gitignore_has_shipstudio,
+            commands::projects::create_blank_project,
             commands::projects::remove_git_history,
             commands::projects::delete_project,
             commands::projects::clear_project_cache,
@@ -197,6 +297,8 @@ pub fn run() {
             commands::projects::set_custom_dev_command,
             commands::projects::get_dev_server_port,
             commands::projects::set_dev_server_port,
+            commands::projects::get_terminal_state,
+            commands::projects::set_terminal_state,
             commands::projects::extract_template_zip,
             commands::projects::export_project_as_template,
             commands::projects::open_project_in_new_window,
@@ -204,6 +306,22 @@ pub fn run() {
             commands::projects::unregister_project_from_window,
             commands::projects::get_project_window,
             commands::projects::focus_window_by_label,
+            // Pinned projects (background sessions rail)
+            commands::projects::pin_project,
+            commands::projects::unpin_project,
+            commands::projects::list_pinned_projects,
+            commands::projects::reorder_pins,
+            commands::projects::save_pin_session,
+            commands::projects::get_pin_session,
+            // Project session lifecycle (background sessions rail)
+            commands::projects::register_project_session,
+            commands::projects::suspend_project_session,
+            commands::projects::unregister_project_session,
+            commands::projects::touch_project_session,
+            commands::projects::list_project_sessions,
+            commands::projects::get_project_session_info,
+            commands::projects::get_active_session_count,
+            commands::projects::get_session_memory,
             // Environment variables
             commands::env::list_env_files,
             commands::env::read_env_file,
@@ -241,6 +359,8 @@ pub fn run() {
             // Settings
             commands::settings::get_calendar_hidden,
             commands::settings::set_calendar_hidden,
+            commands::settings::get_slack_cta_hidden,
+            commands::settings::set_slack_cta_hidden,
             commands::settings::get_openrouter_api_key,
             commands::settings::set_openrouter_api_key,
             commands::settings::get_client_agent_spending_limit,
@@ -254,6 +374,7 @@ pub fn run() {
             // Claude integration
             commands::claude::check_claude_cli_status,
             commands::claude::install_claude_cli,
+            commands::claude::claude_session_exists,
             // Claude skills
             commands::skills::list_claude_skills,
             commands::skills::check_skills_cli,
@@ -333,6 +454,11 @@ pub fn run() {
             commands::pty::get_system_env,
             commands::pty::register_external_pty,
             commands::pty::unregister_external_pty,
+            commands::pty::kill_project_pty,
+            commands::pty::get_project_pty_pids,
+            // Community Templates
+            commands::templates::fetch_community_templates,
+            commands::templates::download_template_zip,
             // Setup/Onboarding
             commands::setup::get_full_setup_status,
             commands::setup::install_homebrew,
@@ -353,6 +479,8 @@ pub fn run() {
             commands::setup::reset_setup_state,
             commands::setup::get_default_agent_id,
             commands::setup::set_default_agent_id,
+            // Client Editor
+            commands::client_editor::detect_client_editor,
             // Code Browser
             commands::code::list_project_files,
             commands::code::read_project_file,
@@ -372,6 +500,7 @@ pub fn run() {
             commands::external_projects::register_external_project,
             commands::external_projects::unregister_external_project,
             commands::external_projects::is_project_external,
+            commands::external_projects::ensure_external_project_registered,
             // Folders
             commands::folders::list_folders,
             commands::folders::create_folder,
@@ -384,6 +513,8 @@ pub fn run() {
             commands::folders::get_filed_project_paths,
             commands::folders::get_folder_projects,
             commands::folders::get_folder,
+            // Support (cStar) — identity signing only; tickets use ChatClient SDK
+            commands::support::get_support_identity,
             // Logging
             logging::get_log_path,
             logging::log_frontend_event,

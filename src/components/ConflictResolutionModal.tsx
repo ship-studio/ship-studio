@@ -17,12 +17,16 @@ import {
 } from '../lib/conflicts';
 import { WarningIcon, CopyIcon, ChevronIcon, InfoIcon } from './icons';
 import { trackEvent, trackError } from '../lib/analytics';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
+import { useAsyncState } from '../hooks/useAsyncState';
+import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface ConflictResolutionModalProps {
   projectPath: string;
   onClose: () => void;
   onResolved: () => void;
-  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 /** Maximum lines to show before truncating with "and X more lines" */
@@ -32,35 +36,43 @@ export function ConflictResolutionModal({
   projectPath,
   onClose,
   onResolved,
-  onToast,
 }: ConflictResolutionModalProps) {
-  const [files, setFiles] = useState<ConflictedFile[]>([]);
+  const { showToast } = useOptionalToast();
+  // Wrapped in useCallback so downstream useCallback deps stay stable.
+  const onToast = useCallback(
+    (message: string, type?: 'success' | 'error') => showToast(message, type),
+    [showToast]
+  );
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [currentConflictIndex, setCurrentConflictIndex] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
   const [isApplying, setIsApplying] = useState(false);
   const [showMoreInfo, setShowMoreInfo] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const {
+    data: filesData,
+    isLoading,
+    error: loadError,
+    execute: fetchConflicts,
+    setData: setFiles,
+  } = useAsyncState<ConflictedFile[]>(() => getConflictInfo(projectPath), { initial: [] });
+  const files = filesData ?? [];
+  const error = loadError ? loadError.message : null;
+  const { copy } = useCopyToClipboard({
+    onCopy: () => onToast?.('Copied to clipboard', 'success'),
+    onError: () => onToast?.('Failed to copy to clipboard', 'error'),
+  });
 
   const loadConflicts = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const conflictInfo = await getConflictInfo(projectPath);
-      setFiles(conflictInfo);
-      if (conflictInfo.length === 0) {
-        // No conflicts found - merge may already be resolved
-        onToast?.('No conflicts found', 'success');
-        onResolved();
-        onClose();
-      }
-    } catch (e) {
-      trackError('conflict_load', e, 'Conflict Resolution');
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsLoading(false);
+    const conflictInfo = await fetchConflicts();
+    if (conflictInfo && conflictInfo.length === 0) {
+      onToast?.('No conflicts found', 'success');
+      onResolved();
+      onClose();
     }
-  }, [projectPath, onToast, onResolved, onClose]);
+    if (conflictInfo === null) {
+      trackError('conflict_load', loadError ?? new Error('unknown'), 'Conflict Resolution');
+    }
+  }, [fetchConflicts, onToast, onResolved, onClose, loadError]);
 
   // Load conflict info on mount
   useEffect(() => {
@@ -130,6 +142,9 @@ export function ConflictResolutionModal({
         setIsApplying(false);
       }
     },
+    // setFiles is the stable useAsyncState setter; including it would add
+    // churn with no behavior change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       currentFile,
       currentFileIndex,
@@ -149,6 +164,7 @@ export function ConflictResolutionModal({
     setIsApplying(true);
     try {
       await abortMerge(projectPath);
+      void trackEvent('merge_aborted', { $screen_name: 'Conflict Resolution' });
       onToast?.('Merge aborted', 'success');
       onClose();
     } catch (e) {
@@ -184,11 +200,8 @@ ${currentConflict.contextBefore ? `**Context before:**\n\`\`\`\n${currentConflic
 ${currentConflict.contextAfter ? `**Context after:**\n\`\`\`\n${currentConflict.contextAfter}\n\`\`\`\n` : ''}
 Please help me understand what each version does and recommend which one to keep, or suggest a manual merge if both changes are needed.`;
 
-    navigator.clipboard.writeText(prompt).then(
-      () => onToast?.('Copied to clipboard', 'success'),
-      () => onToast?.('Failed to copy to clipboard', 'error')
-    );
-  }, [currentFile, currentConflict, onToast]);
+    void copy(prompt);
+  }, [currentFile, currentConflict, copy]);
 
   const truncateContent = (content: string): { text: string; truncated: number } => {
     const lines = content.split('\n');
@@ -203,30 +216,26 @@ Please help me understand what each version does and recommend which one to keep
 
   if (isLoading) {
     return (
-      <div className="conflict-modal" onClick={handleClose}>
-        <div className="conflict-content" onClick={(e) => e.stopPropagation()}>
-          <div className="conflict-loading">
-            <div className="conflict-spinner" />
-            <p>Analyzing conflicts...</p>
-          </div>
+      <ModalFrame isOpen onClose={handleClose} showCloseButton={false} className="conflict-content">
+        <div className="conflict-loading">
+          <div className="conflict-spinner" />
+          <p>Analyzing conflicts...</p>
         </div>
-      </div>
+      </ModalFrame>
     );
   }
 
   if (error) {
     return (
-      <div className="conflict-modal" onClick={handleClose}>
-        <div className="conflict-content" onClick={(e) => e.stopPropagation()}>
-          <div className="conflict-error">
-            <WarningIcon size={32} />
-            <p>{error}</p>
-            <button className="conflict-btn secondary" onClick={handleClose}>
-              Close
-            </button>
-          </div>
+      <ModalFrame isOpen onClose={handleClose} showCloseButton={false} className="conflict-content">
+        <div className="conflict-error">
+          <WarningIcon size={32} />
+          <p>{error}</p>
+          <Button variant="secondary" onClick={handleClose}>
+            Close
+          </Button>
         </div>
-      </div>
+      </ModalFrame>
     );
   }
 
@@ -242,8 +251,14 @@ Please help me understand what each version does and recommend which one to keep
   const isIncomingDeleted = !currentConflict.incomingContent.trim();
 
   return (
-    <div className="conflict-modal" onClick={handleClose}>
-      <div className="conflict-content conflict-content-wide" onClick={(e) => e.stopPropagation()}>
+    <ModalFrame
+      isOpen
+      onClose={handleClose}
+      dismissable={!isApplying}
+      showCloseButton={false}
+      className="conflict-content conflict-content-wide"
+    >
+      <>
         {/* Header */}
         <div className="conflict-header">
           <div className="conflict-header-icon">
@@ -401,15 +416,11 @@ Please help me understand what each version does and recommend which one to keep
 
         {/* Footer */}
         <div className="conflict-footer">
-          <button
-            className="conflict-btn danger-outline"
-            onClick={() => void handleAbort()}
-            disabled={isApplying}
-          >
+          <Button variant="danger" onClick={() => void handleAbort()} disabled={isApplying}>
             Abort Merge
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </>
+    </ModalFrame>
   );
 }

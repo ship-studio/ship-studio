@@ -12,6 +12,7 @@ mod screenshots;
 pub use preview::*;
 pub use screenshots::*;
 
+use crate::errors::CommandError;
 use crate::types::{BrowserInfo, IdeAvailability};
 use crate::utils::{create_command, validate_project_path};
 use std::path::{Path, PathBuf};
@@ -117,6 +118,7 @@ pub(crate) fn resize_thumbnail_image(path: &Path, target_width: u32) {
 }
 
 #[tauri::command]
+#[tracing::instrument]
 pub async fn check_ide_availability() -> IdeAvailability {
     #[cfg(target_os = "macos")]
     {
@@ -136,22 +138,23 @@ pub async fn check_ide_availability() -> IdeAvailability {
 }
 
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn open_in_ide(
     project_path: String,
     ide: String,
     file_path: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // If a file path is provided, validate it's within the project
     let target_path = if let Some(ref fp) = file_path {
         if fp.contains("..") {
-            return Err("Invalid path: path traversal not allowed".to_string());
+            return Err(("Invalid path: path traversal not allowed".to_string()).into());
         }
         let full = validated_path.join(fp);
         let canonical = dunce::canonicalize(&full).map_err(|e| format!("File not found: {e}"))?;
         if !canonical.starts_with(&validated_path) {
-            return Err("Security error: path is outside project directory".to_string());
+            return Err(("Security error: path is outside project directory".to_string()).into());
         }
         canonical.to_string_lossy().to_string()
     } else {
@@ -163,7 +166,7 @@ pub async fn open_in_ide(
         let app_name = match ide.as_str() {
             "vscode" => "Visual Studio Code",
             "cursor" => "Cursor",
-            _ => return Err(format!("Unknown IDE: {ide}")),
+            _ => return Err((format!("Unknown IDE: {ide}")).into()),
         };
 
         // Use 'open -a' on macOS which is more reliable
@@ -178,7 +181,7 @@ pub async fn open_in_ide(
         let cmd = match ide.as_str() {
             "vscode" => "code",
             "cursor" => "cursor",
-            _ => return Err(format!("Unknown IDE: {}", ide)),
+            _ => return Err((format!("Unknown IDE: {}", ide)).into()),
         };
 
         create_command(cmd)
@@ -192,6 +195,7 @@ pub async fn open_in_ide(
 
 /// Check which browsers are available on the system
 #[tauri::command]
+#[tracing::instrument]
 pub async fn check_browser_availability() -> Vec<BrowserInfo> {
     #[cfg(target_os = "macos")]
     {
@@ -235,7 +239,8 @@ pub async fn check_browser_availability() -> Vec<BrowserInfo> {
 
 /// Open a URL in a specific browser
 #[tauri::command]
-pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), String> {
+#[tracing::instrument]
+pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), CommandError> {
     #[cfg(target_os = "macos")]
     {
         let app_name = MACOS_BROWSERS
@@ -274,16 +279,17 @@ pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = (url, browser_id);
-        Err("Browser selection not supported on this platform".to_string())
+        Err(("Browser selection not supported on this platform".to_string()).into())
     }
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(app))]
 pub async fn open_studio_window(
     app: tauri::AppHandle,
     url: String,
     title: String,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     use tauri::WebviewWindowBuilder;
 
     // Check if studio window already exists

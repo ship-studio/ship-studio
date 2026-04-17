@@ -1,0 +1,55 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - '*-win'
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Force LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Use bash for package scripts
+        run: npm config set script-shell "C:\Program Files\Git\bin\bash.exe"
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        id: tauri
+        timeout-minutes: 30
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Ship Studio ${{ github.ref_name }}'
+          releaseBody: 'Windows release. See the main repository for full release notes.'
+          releaseDraft: true
+          prerelease: false

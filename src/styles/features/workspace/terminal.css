@@ -1,0 +1,294 @@
+/* Terminal Tabs Bar */
+.terminal-tabs-bar {
+  display: flex;
+  align-items: center;
+  padding: 9px 12px;
+  min-height: 48px;
+  background: #252525;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Terminal Tab Selector Dropdown */
+.tab-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tab-selector-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  max-width: 220px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+  outline: none;
+}
+
+.tab-selector-trigger:hover,
+.tab-selector-trigger.open {
+  background: var(--border);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.tab-selector-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tab-selector-shortcut {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.tab-selector-cmd {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.tab-selector-trigger svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.tab-selector-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: var(--z-modal-overlay);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  width: 260px;
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+}
+
+.tab-selector-section-label {
+  padding: 4px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.tab-selector-item-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tab-selector-item-row .tab-selector-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-selector-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+  white-space: nowrap;
+}
+
+.tab-selector-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.tab-selector-item.active {
+  color: var(--accent);
+}
+
+.tab-selector-item.add {
+  color: var(--text-muted);
+  gap: 6px;
+}
+
+.tab-selector-item.add:hover {
+  color: var(--text-primary);
+}
+
+.tab-selector-item-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tab-selector-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-selector-item-shortcut {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.tab-selector-attention-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--success-light);
+  flex-shrink: 0;
+}
+
+.tab-selector-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition:
+    opacity 0.1s,
+    background 0.1s,
+    color 0.1s;
+}
+
+.tab-selector-item:hover .tab-selector-close-btn {
+  opacity: 1;
+}
+
+.tab-selector-close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+.tab-selector-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.terminal-tab-content {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 12px;
+  visibility: hidden;
+}
+
+.terminal-tab-content.active {
+  visibility: visible;
+}
+
+.terminal-logs-tabs {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Toolbar Dropdown */
+.toolbar-dropdown-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.toolbar-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-modal-overlay);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 200px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+
+.toolbar-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+  white-space: nowrap;
+}
+
+.toolbar-dropdown-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.toolbar-dropdown-item.auto-accept-on {
+  color: var(--warning);
+}
+
+.toolbar-dropdown-item .toggle-indicator {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.toolbar-dropdown-item .toggle-indicator.on {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning);
+}
+
+.toolbar-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}

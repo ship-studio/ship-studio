@@ -11,16 +11,15 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { SearchIcon, SettingsIcon, FolderPlusIcon } from './icons';
-import { trackSearch } from '../lib/analytics';
+import { SearchIcon } from './icons';
+import { trackEvent, trackSearch } from '../lib/analytics';
+import { Button } from './primitives/Button';
 
 interface DashboardHeaderProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onCreateProject: () => void;
   onImportProject?: () => void;
-  onOpenSettings?: () => void;
-  onCreateFolder?: () => void;
   /** Whether GitHub is authenticated (import requires GitHub) */
   isGitHubAuthenticated?: boolean;
   /** Callback when user tries to import without GitHub auth */
@@ -32,8 +31,6 @@ export function DashboardHeader({
   onSearchChange,
   onCreateProject,
   onImportProject,
-  onOpenSettings,
-  onCreateFolder,
   isGitHubAuthenticated = true,
   onGitHubConnectForImport,
 }: DashboardHeaderProps) {
@@ -54,7 +51,7 @@ export function DashboardHeader({
 
   return (
     <div className="dashboard-header">
-      <div className="dashboard-search">
+      <div className="dashboard-search" data-education-id="search-projects">
         <SearchIcon />
         <input
           ref={searchInputRef}
@@ -74,15 +71,12 @@ export function DashboardHeader({
         <span className="dashboard-search-shortcut">⌘K</span>
       </div>
       <div className="dashboard-header-actions">
-        {onCreateFolder && (
-          <button className="btn-secondary btn-icon" onClick={onCreateFolder} title="New Folder">
-            <FolderPlusIcon size={14} />
-          </button>
-        )}
         {onImportProject && (
-          <button
-            className="btn-secondary"
+          <Button
+            variant="secondary"
+            data-education-id="import-button"
             onClick={() => {
+              void trackEvent('import_button_clicked', { $screen_name: 'Dashboard' });
               if (isGitHubAuthenticated) {
                 onImportProject();
               } else if (onGitHubConnectForImport) {
@@ -92,16 +86,18 @@ export function DashboardHeader({
             title={!isGitHubAuthenticated ? 'Connect GitHub to import repositories' : undefined}
           >
             Import
-          </button>
+          </Button>
         )}
-        <button className="btn-primary" onClick={onCreateProject}>
+        <Button
+          variant="primary"
+          data-education-id="new-project-button"
+          onClick={() => {
+            void trackEvent('new_project_clicked', { $screen_name: 'Dashboard' });
+            onCreateProject();
+          }}
+        >
           + New Project
-        </button>
-        {onOpenSettings && (
-          <button className="dashboard-settings-btn" onClick={onOpenSettings} title="Settings">
-            <SettingsIcon size={14} />
-          </button>
-        )}
+        </Button>
       </div>
     </div>
   );

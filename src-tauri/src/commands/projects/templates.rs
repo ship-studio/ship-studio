@@ -4,6 +4,7 @@
 //! existing projects as zip template files.
 
 use super::detection::has_html_files;
+use crate::errors::CommandError;
 use std::io::{Read, Write};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -19,11 +20,12 @@ use zip::ZipArchive;
 /// - `zip_data`: Raw zip bytes (from browser File API)
 /// - `zip_path`: Path to a zip file on disk (from Tauri drag-drop)
 #[tauri::command]
+#[tracing::instrument]
 pub async fn extract_template_zip(
     project_name: String,
     zip_data: Option<Vec<u8>>,
     zip_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
 
@@ -41,14 +43,14 @@ pub async fn extract_template_zip(
         .collect::<String>();
 
     if safe_name.is_empty() {
-        return Err("Invalid project name".to_string());
+        return Err(("Invalid project name".to_string()).into());
     }
 
     let project_path = shipstudio_dir.join(&safe_name);
 
     // Check if project already exists
     if project_path.exists() {
-        return Err(format!("A project named '{safe_name}' already exists"));
+        return Err((format!("A project named '{safe_name}' already exists")).into());
     }
 
     // Get zip data either from direct bytes or by reading from path
@@ -57,7 +59,7 @@ pub async fn extract_template_zip(
     } else if let Some(path) = zip_path {
         std::fs::read(&path).map_err(|e| format!("Failed to read zip file: {e}"))?
     } else {
-        return Err("No zip data or path provided".to_string());
+        return Err(("No zip data or path provided".to_string()).into());
     };
 
     // Create a cursor from the zip data
@@ -66,7 +68,7 @@ pub async fn extract_template_zip(
         ZipArchive::new(cursor).map_err(|e| format!("Failed to open zip file: {e}"))?;
 
     if archive.is_empty() {
-        return Err("Zip file is empty".to_string());
+        return Err(("Zip file is empty".to_string()).into());
     }
 
     // Detect if zip has a single root directory (GitHub-style download)
@@ -179,10 +181,9 @@ pub async fn extract_template_zip(
     if !project_path.join("package.json").exists() && !has_html_files(&project_path) {
         // Clean up invalid project
         std::fs::remove_dir_all(&project_path).ok();
-        return Err(
-            "Invalid template: no package.json or .html files found. Please use a valid project template."
-                .to_string(),
-        );
+        return Err("Invalid template: no package.json or .html files found. Please use a valid project template."
+            .to_string()
+            .into());
     }
 
     Ok(project_path.to_string_lossy().to_string())
@@ -209,15 +210,16 @@ const EXPORT_EXCLUDED_DIRS: &[&str] = &[
 /// Opens a save dialog for the user to choose the destination.
 /// Returns the path to the saved file, or None if cancelled.
 #[tauri::command]
+#[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn export_project_as_template(
     app: AppHandle,
     project_path: String,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, CommandError> {
     let project = std::path::PathBuf::from(&project_path);
 
     // Validate project exists
     if !project.exists() {
-        return Err("Project does not exist".to_string());
+        return Err(("Project does not exist".to_string()).into());
     }
 
     // Get project name for default filename

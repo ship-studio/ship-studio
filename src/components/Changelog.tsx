@@ -14,6 +14,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { WarningIcon } from './icons';
 import { trackEvent, trackError } from '../lib/analytics';
 import { installVersion } from '../lib/updater';
+import { Button } from './primitives/Button';
 
 interface ChangelogEntry {
   version: string;
@@ -23,6 +24,117 @@ interface ChangelogEntry {
 // Changelog data - update this with each release!
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.4.25', // v0.4.25
+    items: [
+      'Pinned-projects sidebar — pin projects for quick switching, drag to reorder',
+      '"+" button in sidebar to pin and open any project from a searchable picker',
+      'Fixed crash when clicking back to projects (dev server no longer killed)',
+      'Sidebar layout uses proper flex structure — no more overlapping with titlebar or toolbars',
+      'Titlebar stays visible in compact mode for consistent navigation',
+      'Fixed Vercel "multiple users" error by ensuring git identity before commits',
+    ],
+  },
+  {
+    version: '0.4.24',
+    items: [
+      'Community template gallery — browse, search, and download starter templates',
+      'Learn Mode — renamed from Education Mode, now covers all dashboard and workspace elements',
+      'Screenshot shortcuts (⌘⇧S / ⌘⇧C) now work even when the preview has focus',
+      'Learn Mode uses agent-agnostic language — works with Claude Code, Codex, or any terminal agent',
+      'Toolbar button text no longer wraps at narrow window sizes',
+    ],
+  },
+  {
+    version: '0.4.23',
+    items: [
+      'New "Add Clients" button — introduces the Client Editor for inline content editing',
+      'Panel toggle button now visible when preview is hidden on all project types',
+    ],
+  },
+  {
+    version: '0.4.22',
+    items: [
+      'New "Blank Project" template — start from scratch with just a terminal',
+      'Non-web projects default to Code tab instead of empty Preview',
+      'Hide panel button now available on all project types',
+      'Compact mode: toolbar buttons align with macOS traffic lights',
+      'Dashboard buttons no longer overlap traffic lights at narrow widths',
+    ],
+  },
+  {
+    version: '0.4.21',
+    items: [
+      'Fixed terminal freeze when switching between tabs',
+      'Fixed double-typing bug where each keystroke appeared twice',
+      'New tabs now autofocus immediately — no need to click',
+      'Failed project imports now show the actual error instead of just an exit code',
+      'Built-in support panel for help and bug reports',
+    ],
+  },
+  {
+    version: '0.4.20',
+    items: [
+      'Fixed terminal hanging and "no output" errors with multiple tabs',
+      'GPU-accelerated terminal rendering via WebGL',
+      'Hidden tabs no longer consume CPU — output is buffered until you switch to them',
+      'New tabs only start Claude Code when you switch to them',
+      'Back-to-projects cleanup is fast and no longer freezes',
+      'Tab name updates immediately when switching agents',
+    ],
+  },
+  {
+    version: '0.4.19',
+    items: [
+      'Fixed terminal resize when switching tabs — no more narrow text wrapping',
+      'Smaller, consistent toolbar buttons matching workspace tab proportions',
+      'Screenshot shortcuts: ⌘⇧S for capture, ⌘⇧C for crop mode',
+      'Removed broken full page screenshot option',
+      'Window dragging restricted to title bar only',
+    ],
+  },
+  {
+    version: '0.4.18',
+    items: [
+      'New overlay title bar — cleaner look with traffic lights inline',
+      'Toolbar split into left (utilities) and right (hosting/GitHub/Publish)',
+      'Vercel plugin now appears on the right side of the toolbar',
+      'Drag to move window from title bar or toolbar empty space',
+      'Double-click title bar to maximize/restore',
+      'Slack community banner can be dismissed (eye icon or Settings)',
+      'Terminal auto-focuses when switching tabs via ⌘1-5, ⌘T, or ⌘W',
+      'Fixed session resume — stale sessions now reliably restart',
+    ],
+  },
+  {
+    version: '0.4.17',
+    items: [
+      'External projects no longer hit "forbidden path" errors when starting dev server',
+      'Cmd+W closes the active terminal tab instead of quitting the app',
+      'Cmd+Q now shows a quit confirmation dialog',
+      'Dashboard UI cleanup — settings and new folder moved out of header',
+      'Failed session resume now auto-starts a fresh Claude Code session',
+    ],
+  },
+  {
+    version: '0.4.16',
+    items: [
+      'Terminal sessions now persist — reopen a project and your conversations resume',
+      'New terminal tab dropdown with ⌘T shortcut and agent switching',
+      'File search in the Code tab sidebar',
+      'Keyboard shortcuts ⌘1-5 to switch terminal tabs',
+      'Cleanup status shown when closing projects',
+      'Fixed terminal resize issues when switching tabs',
+    ],
+  },
+  {
+    version: '0.4.15',
+    items: ['Plugin errors no longer crash the entire app'],
+  },
+  {
+    version: '0.4.14',
+    items: ['Fixed rapid project switching causing app to hang', 'Faster port cleanup on macOS'],
+  },
   {
     version: '0.4.13',
     items: [
@@ -305,7 +417,7 @@ export function Changelog({ className = '' }: ChangelogProps) {
   const isWorking = rewindStage === 'downloading' || rewindStage === 'installing';
 
   return (
-    <div className={`changelog ${className}`}>
+    <div className={`changelog ${className}`} data-education-id="changelog-sidebar">
       <div className="changelog-header">
         <h3>What's New</h3>
         <span className="changelog-subtitle">Recent updates</span>
@@ -386,32 +498,32 @@ export function Changelog({ className = '' }: ChangelogProps) {
             <div className="rewind-actions">
               {rewindStage === 'confirm' && (
                 <>
-                  <button className="rewind-btn secondary" onClick={closeModal}>
+                  <Button variant="secondary" onClick={closeModal}>
                     Cancel
-                  </button>
-                  <button className="rewind-btn primary" onClick={() => void handleRewind()}>
+                  </Button>
+                  <Button variant="primary" onClick={() => void handleRewind()}>
                     Install
-                  </button>
+                  </Button>
                 </>
               )}
               {isWorking && (
-                <button className="rewind-btn secondary" disabled>
+                <Button variant="secondary" disabled>
                   Please wait...
-                </button>
+                </Button>
               )}
               {rewindStage === 'done' && (
-                <button className="rewind-btn primary" onClick={() => void handleRestart()}>
+                <Button variant="primary" onClick={() => void handleRestart()}>
                   Restart Now
-                </button>
+                </Button>
               )}
               {rewindStage === 'error' && (
                 <>
-                  <button className="rewind-btn secondary" onClick={closeModal}>
+                  <Button variant="secondary" onClick={closeModal}>
                     Cancel
-                  </button>
-                  <button className="rewind-btn primary" onClick={() => void handleRewind()}>
+                  </Button>
+                  <Button variant="primary" onClick={() => void handleRewind()}>
                     Retry
-                  </button>
+                  </Button>
                 </>
               )}
             </div>

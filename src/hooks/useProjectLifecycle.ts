@@ -16,6 +16,8 @@ import { getAutoAcceptMode, setAutoAcceptMode as setAutoAcceptModeApi } from '..
 import { getProjectGitHubStatus } from '../lib/github';
 import { GITHUB_STATUS_FALLBACK } from './useIntegrationStatus';
 import { registerExternalProject } from '../lib/external-projects';
+import { registerProjectSession, unregisterProjectSession } from '../lib/projectSessions';
+import { sessionRegistry } from '../lib/sessionRegistry';
 import {
   setWindowTitle,
   getWindowLabel,
@@ -54,8 +56,16 @@ export interface UseProjectLifecycleParams {
   // Terminal
   resetTerminals: () => void;
   pasteToActiveTerminal: (text: string) => void;
+  terminalTabs: Array<{ id: number; agentId: string; sessionId: string }>;
+  activeTerminalTab: number;
+  restoreTerminalTabs: (
+    tabs: Array<{ agentId: string; sessionId: string }>,
+    activeIndex: number
+  ) => void;
   // Toast
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  // Cleanup status
+  setCleanupStatus: (status: string | null) => void;
   // Screenshot
   clearScreenshotInterval: () => void;
   startScreenshotInterval: (projectPath: string) => void;
@@ -88,7 +98,11 @@ export function useProjectLifecycle({
   enterCompact,
   resetTerminals,
   pasteToActiveTerminal,
+  terminalTabs,
+  activeTerminalTab,
+  restoreTerminalTabs,
   showToast,
+  setCleanupStatus,
   clearScreenshotInterval,
   startScreenshotInterval,
   onPreviewReady,
@@ -125,6 +139,10 @@ export function useProjectLifecycle({
 
   // Track project path currently being opened to prevent concurrent opens (race condition guard)
   const openingProjectPathRef = useRef<string | null>(null);
+
+  // Navigation version counter — incremented on every navigation action (open project, back to projects).
+  // Used to detect when a stale async handleSelectProject should stop modifying view state.
+  const navigationVersionRef = useRef(0);
 
   // Send prompt to Claude terminal
   const sendToClaude = useCallback(
@@ -173,6 +191,10 @@ export function useProjectLifecycle({
     const totalStart = performance.now();
     let stepStart = performance.now();
 
+    // Claim a new navigation version — any prior handleSelectProject or handleBackToProjects
+    // that captured an older version will know it's been superseded.
+    const navVersion = ++navigationVersionRef.current;
+
     logger.info(`[OpenProject] Starting: ${project.name}`, { windowLabel });
     void trackEvent('project_opened', {
       project_name: project.name,
@@ -186,6 +208,51 @@ export function useProjectLifecycle({
       return;
     }
     openingProjectPathRef.current = project.path;
+
+    // ─── IMMEDIATE: Show loading screen before any async work ───
+    // This ensures the user sees visual feedback instantly when clicking a project,
+    // even if cleanup (kill_port, kill_window_pty, etc.) takes time.
+    setCurrentProject(project);
+    setCurrentPreviewPage('/');
+    currentProjectPathRef.current = project.path;
+    clearScreenshotInterval();
+    setIsPublishing(false);
+    setShowDevServerLogs(false);
+    setView('project-loading');
+
+    // Restore saved terminal tabs (non-blocking — don't delay project loading)
+    invoke<{
+      tabs: Array<{ agent_id: string; session_id: string }>;
+      active_tab_index: number;
+    } | null>('get_terminal_state', { projectPath: project.path })
+      .then((savedState) => {
+        if (savedState && savedState.tabs.length > 0) {
+          logger.info('[OpenProject] Restoring saved terminal tabs', {
+            tabCount: savedState.tabs.length,
+            activeIndex: savedState.active_tab_index,
+          });
+          restoreTerminalTabs(
+            savedState.tabs.map((t) => ({ agentId: t.agent_id, sessionId: t.session_id })),
+            savedState.active_tab_index
+          );
+        } else {
+          resetTerminals();
+        }
+      })
+      .catch(() => {
+        resetTerminals();
+      });
+
+    // Store project path for HMR recovery (critical for main window which doesn't have initialProjectPath)
+    const storageKey = `ship-studio-project-loaded-${windowLabel}`;
+    sessionStorage.setItem(storageKey, project.path);
+
+    // Set window title to include project name
+    void setWindowTitle(`Ship Studio - ${project.name}`).catch((error) => {
+      logger.error('Failed to set window title', { error });
+    });
+
+    // ─── ASYNC: Cleanup, register, reserve port, then start server ───
 
     // Check if project is already open in another window
     try {
@@ -217,6 +284,51 @@ export function useProjectLifecycle({
       logger.warn('[OpenProject] Failed to register project for window', { error: e });
     }
 
+    // Register the project session — both backend (authority) and frontend
+    // (mirror for UI subscriptions). The backend invariant guard rejects if
+    // the same project is already owned by another window. Same-window
+    // re-registration is idempotent (just bumps last_activity_at).
+    //
+    // Note (Phase 2b): this runs on every project open today. In Phase 4,
+    // when the rail allows in-place project switching, we'll only register
+    // when actually creating a new session (not when activating an existing
+    // pinned one).
+    try {
+      await registerProjectSession(project.path, windowLabel);
+      sessionRegistry.getOrCreate(project.path);
+      // The rail's status dot means "this project's session is live in
+      // this window." Until we actually keep background sessions alive,
+      // only the currently-open project qualifies. Mark everyone else
+      // suspended so their dots show as gray — green on an unopened
+      // project would be lying.
+      sessionRegistry.resume(project.path);
+      for (const snap of sessionRegistry.snapshotAll()) {
+        if (snap.projectPath !== project.path && snap.status === 'active') {
+          sessionRegistry.suspend(snap.projectPath);
+        }
+      }
+    } catch (e) {
+      // Backend may reject with Validation if another window owns this
+      // session — in current code paths this shouldn't happen since
+      // duplicate-window detection already ran above and would have
+      // focused the existing window. Logged for diagnostics.
+      logger.warn('[OpenProject] Failed to register project session', { error: e });
+    }
+
+    // Ensure external projects are registered before any backend commands run.
+    // Projects outside ~/ShipStudio can enter the app via session restore, URL params,
+    // or direct path — without this, all validate_project_path() calls would fail.
+    try {
+      const wasRegistered = await invoke<boolean>('ensure_external_project_registered', {
+        path: project.path,
+      });
+      if (wasRegistered) {
+        logger.info(`[OpenProject] Auto-registered external project: ${project.path}`);
+      }
+    } catch (e) {
+      logger.warn('[OpenProject] Failed to ensure external project registration', { error: e });
+    }
+
     // Stop any existing dev server first
     if (devServerRef.current) {
       await devServerRef.current.stop();
@@ -234,7 +346,10 @@ export function useProjectLifecycle({
     });
     if (actualReservedPort !== null) {
       try {
-        await invoke('kill_port', { port: actualReservedPort });
+        await Promise.race([
+          invoke('kill_port', { port: actualReservedPort }),
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
       } catch {
         // Ignore errors - port may already be free
       }
@@ -254,6 +369,13 @@ export function useProjectLifecycle({
     logger.info(
       `[OpenProject] Step 3: Kill PTY and cleanup orphaned processes - ${Math.round(performance.now() - stepStart)}ms`
     );
+
+    // Check if navigation was superseded during cleanup
+    if (navigationVersionRef.current !== navVersion) {
+      logger.info(`[OpenProject] Aborted (superseded) after cleanup: ${project.name}`);
+      openingProjectPathRef.current = null;
+      return;
+    }
 
     // Load saved dev server port preference
     stepStart = performance.now();
@@ -284,7 +406,10 @@ export function useProjectLifecycle({
     }
     // Kill any orphaned process on the newly reserved port (e.g. from a previous crashed session)
     try {
-      await invoke('kill_port', { port });
+      await Promise.race([
+        invoke('kill_port', { port }),
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
     } catch {
       // Ignore - port may already be free
     }
@@ -292,31 +417,6 @@ export function useProjectLifecycle({
       `[OpenProject] Step 4: Reserved port ${port} (killed orphans) - ${Math.round(performance.now() - stepStart)}ms`
     );
     setDevServerPort(port);
-
-    // Clear any existing screenshot interval
-    clearScreenshotInterval();
-
-    // Reset publishing state when switching projects
-    setIsPublishing(false);
-
-    // Kill all terminals and reset tabs
-    resetTerminals();
-    setShowDevServerLogs(false);
-
-    setCurrentProject(project);
-    setCurrentPreviewPage('/');
-    currentProjectPathRef.current = project.path;
-
-    // Store project path for HMR recovery (critical for main window which doesn't have initialProjectPath)
-    const storageKey = `ship-studio-project-loaded-${windowLabel}`;
-    sessionStorage.setItem(storageKey, project.path);
-
-    setView('project-loading');
-
-    // Set window title to include project name
-    void setWindowTitle(`Ship Studio - ${project.name}`).catch((error) => {
-      logger.error('Failed to set window title', { error });
-    });
 
     // Fetch auto-accept mode preference for this project
     stepStart = performance.now();
@@ -329,6 +429,13 @@ export function useProjectLifecycle({
     logger.info(
       `[OpenProject] Step 5: Fetch auto-accept mode - ${Math.round(performance.now() - stepStart)}ms`
     );
+
+    // Check if navigation was superseded
+    if (navigationVersionRef.current !== navVersion) {
+      logger.info(`[OpenProject] Aborted (superseded) after step 5: ${project.name}`);
+      openingProjectPathRef.current = null;
+      return;
+    }
 
     // Mark project as opened (for sorting by last opened)
     void invoke('mark_project_opened', { projectPath: project.path }).catch((err) =>
@@ -347,12 +454,26 @@ export function useProjectLifecycle({
       `[OpenProject] Step 6: Fetch branch info - ${Math.round(performance.now() - stepStart)}ms`
     );
 
+    // Check again after await
+    if (navigationVersionRef.current !== navVersion) {
+      logger.info(`[OpenProject] Aborted (superseded) after step 6: ${project.name}`);
+      openingProjectPathRef.current = null;
+      return;
+    }
+
     // Detect project type and start appropriate server
     stepStart = performance.now();
     const detectedType = await startServerForProject(project.path, project.name, port, windowLabel);
     logger.info(
       `[OpenProject] Step 7: Start dev server - ${Math.round(performance.now() - stepStart)}ms`
     );
+
+    // Final check before committing to workspace view
+    if (navigationVersionRef.current !== navVersion) {
+      logger.info(`[OpenProject] Aborted (superseded) after step 7: ${project.name}`);
+      openingProjectPathRef.current = null;
+      return;
+    }
 
     // Generic projects don't have a web preview — default to branches tab
     if (detectedType === 'generic') {
@@ -429,6 +550,27 @@ export function useProjectLifecycle({
   };
 
   const handleBackToProjects = async () => {
+    // Save terminal state in background (non-blocking)
+    if (currentProject && terminalTabs.length > 0) {
+      const activeIdx = terminalTabs.findIndex((t) => t.id === activeTerminalTab);
+      invoke('set_terminal_state', {
+        projectPath: currentProject.path,
+        state: {
+          tabs: terminalTabs.map((t) => ({
+            agent_id: t.agentId,
+            session_id: t.sessionId,
+          })),
+          active_tab_index: Math.max(0, activeIdx),
+        },
+      })
+        .then(() => {
+          logger.info('[BackToProjects] Saved terminal state', { tabCount: terminalTabs.length });
+        })
+        .catch((err) => {
+          logger.warn('[BackToProjects] Failed to save terminal state', { error: String(err) });
+        });
+    }
+
     // Mark that user explicitly went back to projects - this prevents auto-open from
     // firing again even after HMR reloads (survives page refresh)
     const windowLabel = getWindowLabel();
@@ -437,12 +579,55 @@ export function useProjectLifecycle({
     sessionStorage.removeItem(storageKey);
     sessionStorage.setItem(dismissedKey, 'true');
 
-    // Unregister this window from the project registry so "Open in New Window"
-    // will create a fresh window instead of focusing this one (which is now showing projects)
+    // Bump navigation version to cancel any in-flight handleSelectProject async chains.
+    // Capture it so we can check if a new handleSelectProject started during our cleanup.
+    const backNavVersion = ++navigationVersionRef.current;
+
+    logger.info('[BackToProjects] Starting');
+
+    // Switch view IMMEDIATELY — all cleanup below is background work
+    setCurrentProject(null);
+    clearProjectStatuses();
+    setView('projects');
+    setCleanupStatus('Closing terminals...');
+
+    // Clear the opening guard so handleSelectProject can proceed for a new project
+    openingProjectPathRef.current = null;
+
+    // Reset window title when closing project
+    void setWindowTitle('Ship Studio').catch(console.error);
+
+    // --- Background cleanup (non-blocking) ---
+    // IMPORTANT: Each step checks navVersion before doing destructive work.
+    // If the user opens a new project during cleanup, we must stop immediately
+    // to avoid killing the new project's dev server or PTY processes.
+
     try {
       await invoke('unregister_project_from_window', { windowLabel });
     } catch {
       // Ignore - non-critical
+    }
+
+    // Tear down the session in both backend (authority) and frontend mirror.
+    // In Phase 2b this preserves current behavior — back-to-projects still
+    // means "this project is fully closed." Phase 4 will change this so that
+    // pinned projects skip the unregister and stay alive in the background.
+    if (currentProject) {
+      try {
+        await unregisterProjectSession(currentProject.path);
+      } catch (e) {
+        logger.warn('[BackToProjects] Failed to unregister project session', { error: e });
+      }
+      sessionRegistry.destroy(currentProject.path);
+    }
+
+    // Bail if user already opened another project
+    if (navigationVersionRef.current !== backNavVersion) {
+      logger.info('[BackToProjects] Cleanup aborted - new project opened', {
+        backNavVersion,
+        currentNavVersion: navigationVersionRef.current,
+      });
+      return;
     }
 
     // Clear screenshot interval and project ref
@@ -456,35 +641,58 @@ export function useProjectLifecycle({
     // Clear branch state
     clearBranchState();
 
-    // Kill all terminals and reset tabs
-    resetTerminals();
     resetLayout();
 
-    // Stop dev server or static server
-    await stopServer();
+    // Yield to browser so the projects view renders before heavy terminal cleanup
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    resetTerminals();
+
+    // Check again before destructive server/process cleanup
+    if (navigationVersionRef.current !== backNavVersion) {
+      logger.info('[BackToProjects] Cleanup aborted - new project opened before stopServer', {
+        backNavVersion,
+        currentNavVersion: navigationVersionRef.current,
+      });
+      return;
+    }
+
+    setCleanupStatus('Stopping server...');
+    // Yield again so the status update renders
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.race([stopServer(), new Promise((resolve) => setTimeout(resolve, 5000))]);
+
+    // Check again — stopServer may have taken a while
+    if (navigationVersionRef.current !== backNavVersion) {
+      logger.info('[BackToProjects] Cleanup aborted - new project opened after stopServer', {
+        backNavVersion,
+        currentNavVersion: navigationVersionRef.current,
+      });
+      return;
+    }
+
     const currentWindowLabel = getWindowLabel();
 
-    // Clean up PTY processes owned by this window
+    setCleanupStatus('Cleaning up processes...');
     try {
-      await invoke('kill_window_pty', { windowLabel: currentWindowLabel });
-      await invoke('cleanup_orphaned_processes');
-      // Query backend for the actual reserved port (don't rely on potentially stale React state)
+      // Run all cleanup in parallel with a 5-second hard timeout
       const actualPort = await invoke<number | null>('get_reserved_port_for_window', {
         windowLabel: currentWindowLabel,
       });
-      if (actualPort !== null) {
-        await invoke('kill_port', { port: actualPort });
-      }
+      await Promise.race([
+        Promise.allSettled([
+          invoke('kill_window_pty', { windowLabel: currentWindowLabel }),
+          invoke('cleanup_orphaned_processes'),
+          ...(actualPort !== null ? [invoke('kill_port', { port: actualPort })] : []),
+        ]),
+        new Promise((resolve) => setTimeout(resolve, 5000)),
+      ]);
     } catch {
       // Ignore cleanup errors
     }
 
-    setCurrentProject(null);
-    clearProjectStatuses();
-    setView('projects');
-
-    // Reset window title when closing project
-    void setWindowTitle('Ship Studio').catch(console.error);
+    setCleanupStatus(null);
+    logger.info('[BackToProjects] Cleanup completed', { backNavVersion });
   };
 
   const handleRestartDevServer = async () => {

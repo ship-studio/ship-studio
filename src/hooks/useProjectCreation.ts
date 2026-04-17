@@ -74,6 +74,12 @@ export const TEMPLATES: Template[] = [
     description: 'A plain HTML starter — no framework, no build step',
     repo: 'https://github.com/ship-studio/html-starter',
   },
+  {
+    id: 'blank',
+    name: 'Blank Project',
+    description: 'An empty folder — start from scratch',
+    repo: '',
+  },
 ];
 
 /** Form wizard steps before creation starts */
@@ -184,19 +190,40 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
 
   const waitForPtyExit = async (targetId: number): Promise<number | null> => {
     return new Promise((resolve, reject) => {
-      let unlisten: UnlistenFn | null = null;
+      let unlistenExit: UnlistenFn | null = null;
+      let unlistenOutput: UnlistenFn | null = null;
+      const outputLines: string[] = [];
+      const MAX_OUTPUT_LINES = 30;
 
-      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
+      // Capture process output so we can surface it on failure
+      void listen<{ id: number; data: string }>('pty-output', (event) => {
         if (event.payload.id === targetId) {
-          unlisten?.();
-          if (event.payload.code === 0 || event.payload.code === null) {
-            resolve(event.payload.code);
-          } else {
-            reject(new Error(`Process exited with code ${event.payload.code}`));
+          const lines = event.payload.data.split(/\r?\n/).filter((l) => l.trim());
+          for (const line of lines) {
+            outputLines.push(line);
+            if (outputLines.length > MAX_OUTPUT_LINES) outputLines.shift();
           }
         }
       }).then((fn) => {
-        unlisten = fn;
+        unlistenOutput = fn;
+      });
+
+      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
+        if (event.payload.id === targetId) {
+          unlistenExit?.();
+          unlistenOutput?.();
+          if (event.payload.code === 0 || event.payload.code === null) {
+            resolve(event.payload.code);
+          } else {
+            const output = outputLines.join('\n').trim();
+            const msg = output
+              ? `Process exited with code ${event.payload.code}\n\n${output}`
+              : `Process exited with code ${event.payload.code}`;
+            reject(new Error(msg));
+          }
+        }
+      }).then((fn) => {
+        unlistenExit = fn;
       });
     });
   };
@@ -217,7 +244,8 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
         return 'Xcode Command Line Tools license has not been accepted. Open Terminal and run:\nsudo xcodebuild -license accept\n\nThen try creating the project again.';
       }
     }
-    return msg;
+    // Strip the "Error: " prefix that comes from Error.toString()
+    return msg.replace(/^Error:\s*/, '');
   };
 
   /** Run npm install via PTY, with a pre-check for permissions */
@@ -310,38 +338,45 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
       const shipstudioDir = await invoke<string>('ensure_shipstudio_dir');
       const projectPath = `${shipstudioDir}/${safeName}`;
 
-      // Clone template
-      const cloneId = await invoke<number>('spawn_pty', {
-        options: {
-          cwd: shipstudioDir,
-          command: 'git',
-          args: ['clone', selectedTemplate.repo, safeName],
-          rows: 10,
-          cols: 80,
-        },
-        windowLabel: getWindowLabel(),
-      });
-
-      await waitForPtyExit(cloneId);
-
-      // Remove .git folder so project starts fresh (not connected to template repo)
-      setCurrentStep('init');
-      await invoke('remove_git_history', { projectPath });
-
-      // Ensure .shipstudio/ is gitignored to prevent phantom changes
-      await invoke('ensure_gitignore_has_shipstudio', { projectPath: projectPath });
-
-      // Pre-install Vercel plugin (fire-and-forget, don't block creation)
-      installPlugin(projectPath, VERCEL_PLUGIN_REPO).catch(() => {});
-
-      // Install dependencies (skip for HTML-only templates with no package.json)
-      setCreatedProjectPath(projectPath);
-      if (selectedTemplate.id === 'html-basic') {
+      if (selectedTemplate.id === 'blank') {
+        // Blank project: just create the directory
+        await invoke('create_blank_project', { projectPath });
+        setCreatedProjectPath(projectPath);
         setCurrentStep('done');
       } else {
-        setCurrentStep('install');
-        await runNpmInstall(projectPath);
-        setCurrentStep('done');
+        // Clone template
+        const cloneId = await invoke<number>('spawn_pty', {
+          options: {
+            cwd: shipstudioDir,
+            command: 'git',
+            args: ['clone', selectedTemplate.repo, safeName],
+            rows: 10,
+            cols: 80,
+          },
+          windowLabel: getWindowLabel(),
+        });
+
+        await waitForPtyExit(cloneId);
+
+        // Remove .git folder so project starts fresh (not connected to template repo)
+        setCurrentStep('init');
+        await invoke('remove_git_history', { projectPath });
+
+        // Ensure .shipstudio/ is gitignored to prevent phantom changes
+        await invoke('ensure_gitignore_has_shipstudio', { projectPath: projectPath });
+
+        // Pre-install Vercel plugin (fire-and-forget, don't block creation)
+        installPlugin(projectPath, VERCEL_PLUGIN_REPO).catch(() => {});
+
+        // Install dependencies (skip for HTML-only templates with no package.json)
+        setCreatedProjectPath(projectPath);
+        if (selectedTemplate.id === 'html-basic') {
+          setCurrentStep('done');
+        } else {
+          setCurrentStep('install');
+          await runNpmInstall(projectPath);
+          setCurrentStep('done');
+        }
       }
 
       // Small delay before opening
@@ -590,6 +625,10 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
     handleDrop,
     handleFileSelect,
     handleRemoveZip,
+
+    // Zip state setters (for community template download flow)
+    setZipPath,
+    setZipFileName,
 
     // Default template
     saveDefaultTemplate,

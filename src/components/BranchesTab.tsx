@@ -30,6 +30,9 @@ import { gitPull } from '../lib/git';
 import { BranchIcon, PlusIcon } from './icons';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
 import { trackEvent, trackError } from '../lib/analytics';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface BranchesTabProps {
   /** List of all branches */
@@ -50,8 +53,6 @@ interface BranchesTabProps {
   onViewPR?: () => void;
   /** Callback to refresh branch list */
   onRefresh: () => void;
-  /** Callback for toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
 export function BranchesTab({
@@ -64,8 +65,9 @@ export function BranchesTab({
   onSubmitForReview,
   onViewPR,
   onRefresh,
-  onToast,
 }: BranchesTabProps) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [deletingBranch, setDeletingBranch] = useState<string | null>(null);
   const [branchToDelete, setBranchToDelete] = useState<string | null>(null);
@@ -404,74 +406,70 @@ export function BranchesTab({
 
       {/* Delete confirmation modal */}
       {branchToDelete && (
-        <div
-          className="post-merge-modal"
-          onClick={() => !deletingBranch && setBranchToDelete(null)}
+        <ModalFrame
+          isOpen
+          onClose={() => setBranchToDelete(null)}
+          dismissable={!deletingBranch}
+          title="Delete Branch?"
+          className="post-merge-content"
         >
-          <div className="post-merge-content" onClick={(e) => e.stopPropagation()}>
-            <div className="post-merge-header">
-              <h3>Delete Branch?</h3>
-            </div>
-            <div className="post-merge-body">
-              <p>
-                Are you sure you want to delete <strong>{branchToDelete}</strong>? This action
-                cannot be undone.
-              </p>
-            </div>
-            <div className="post-merge-footer">
-              <button
-                className="post-merge-btn secondary"
-                onClick={() => setBranchToDelete(null)}
-                disabled={!!deletingBranch}
-              >
-                Cancel
-              </button>
-              <button
-                className="post-merge-btn danger"
-                onClick={() => void handleDeleteConfirm()}
-                disabled={!!deletingBranch}
-              >
-                {deletingBranch ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
+          <div className="post-merge-body">
+            <p>
+              Are you sure you want to delete <strong>{branchToDelete}</strong>? This action cannot
+              be undone.
+            </p>
           </div>
-        </div>
+          <div className="post-merge-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setBranchToDelete(null)}
+              disabled={!!deletingBranch}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => void handleDeleteConfirm()}
+              disabled={!!deletingBranch}
+            >
+              {deletingBranch ? 'Deleting...' : 'Delete'}
+            </Button>
+          </div>
+        </ModalFrame>
       )}
 
       {/* Revert confirmation modal */}
       {showRevertConfirm && (
-        <div
-          className="post-merge-modal"
-          onClick={() => !isReverting && setShowRevertConfirm(false)}
+        <ModalFrame
+          isOpen
+          onClose={() => setShowRevertConfirm(false)}
+          dismissable={!isReverting}
+          title="Revert to GitHub?"
+          className="post-merge-content"
         >
-          <div className="post-merge-content" onClick={(e) => e.stopPropagation()}>
-            <div className="post-merge-header">
-              <h3>Revert to GitHub?</h3>
-            </div>
-            <div className="post-merge-body">
-              <p>
-                This will discard all local changes on <strong>{currentBranch}</strong> and pull the
-                latest version from GitHub. This action cannot be undone.
-              </p>
-            </div>
-            <div className="post-merge-footer">
-              <button
-                className="post-merge-btn secondary"
-                onClick={() => setShowRevertConfirm(false)}
-                disabled={isReverting}
-              >
-                Cancel
-              </button>
-              <button
-                className="post-merge-btn danger"
-                onClick={() => void handleRevertToGitHub()}
-                disabled={isReverting}
-              >
-                {isReverting ? 'Reverting...' : 'Revert'}
-              </button>
-            </div>
+          <div className="post-merge-body">
+            <p>
+              This will discard all local changes on <strong>{currentBranch}</strong> and pull the
+              latest version from GitHub. This action cannot be undone.
+            </p>
           </div>
-        </div>
+          <div className="post-merge-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setShowRevertConfirm(false)}
+              disabled={isReverting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => void handleRevertToGitHub()}
+              disabled={isReverting}
+            >
+              {isReverting ? 'Reverting...' : 'Revert'}
+            </Button>
+          </div>
+        </ModalFrame>
       )}
 
       {/* Unsaved changes modal */}
@@ -485,7 +483,6 @@ export function BranchesTab({
             setPendingSwitch(null);
           }}
           onClose={() => setPendingSwitch(null)}
-          onToast={onToast}
         />
       )}
     </div>

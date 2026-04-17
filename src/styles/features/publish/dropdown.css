@@ -1,0 +1,96 @@
+/* Publish Dropdown */
+.publish-dropdown {
+  position: relative;
+}
+
+.publish-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 28px;
+  background: var(--action);
+  border: 1px solid var(--action-hover);
+  border-radius: var(--radius);
+  color: var(--action-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.publish-button:hover {
+  background: var(--action-hover);
+}
+
+.publish-button.no-changes {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.publish-button.no-changes:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.publish-button.publishing {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.publish-button.publish-disabled {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.publish-button.publish-checking {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.publish-button.synced {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.publish-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-modal-overlay);
+  overflow: hidden;
+}
+
+.publish-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.publish-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-muted);
+  border-radius: var(--radius-full);
+  animation: spin 1s linear infinite;
+}

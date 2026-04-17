@@ -1,0 +1,581 @@
+/* Environment Variables Editor */
+.env-editor-modal {
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.env-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.env-editor-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.env-close-btn {
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.env-close-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.env-editor-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.env-file-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.env-file-tab {
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: monospace;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-file-tab:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.env-file-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1e1e1e;
+}
+
+.env-file-tab.env-add-file {
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.env-new-file-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.env-new-file-input input {
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: monospace;
+  width: 140px;
+}
+
+.env-new-file-input input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.env-new-file-input button {
+  padding: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.env-new-file-input button:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.env-vars-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.env-vars-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+}
+
+.env-var-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.env-var-key {
+  flex: 0 0 180px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.env-var-key:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.env-var-equals {
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.env-var-value {
+  flex: 1;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.env-var-value:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.env-var-visibility {
+  padding: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.env-var-visibility:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.env-var-delete {
+  padding: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.env-var-delete:hover {
+  background: var(--bg-tertiary);
+  color: var(--error);
+}
+
+.env-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.env-actions-left {
+  display: flex;
+  gap: 8px;
+}
+
+.env-actions-right {
+  display: flex;
+  gap: 8px;
+}
+
+.env-add-btn {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-add-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.env-save-btn {
+  padding: 8px 16px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #1e1e1e;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-save-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.env-save-btn:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.env-delete-file-btn {
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-delete-file-btn:hover {
+  background: rgba(244, 71, 71, 0.1);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.env-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.env-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.env-empty-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-family: monospace;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.env-empty-state h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.env-empty-state p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 20px 0;
+  max-width: 260px;
+}
+
+.env-create-btn {
+  padding: 10px 20px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #1e1e1e;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-create-btn:hover {
+  background: var(--accent-hover);
+}
+
+.env-loading {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.env-error {
+  color: var(--error);
+  font-size: 13px;
+  padding: 8px 12px;
+  background: rgba(244, 71, 71, 0.1);
+  border-radius: var(--radius);
+}
+
+/* Env Button in Header */
+
+/* Env Sync Warning */
+.env-sync-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: var(--radius-md);
+}
+
+.env-sync-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.env-sync-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--warning-light);
+  font-size: 13px;
+}
+
+.env-sync-info svg {
+  flex-shrink: 0;
+}
+
+.env-sync-btn {
+  padding: 6px 12px;
+  background: rgba(251, 191, 36, 0.2);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: var(--radius);
+  color: var(--warning-light);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-sync-btn:hover {
+  background: rgba(251, 191, 36, 0.3);
+  border-color: var(--warning-light);
+}
+
+/* Paste .env Button */
+.env-paste-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-paste-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.env-paste-btn svg {
+  flex-shrink: 0;
+}
+
+/* Paste Modal */
+.env-paste-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: var(--radius-lg);
+}
+
+.env-paste-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  width: 90%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.env-paste-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.env-paste-header h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.env-paste-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.env-paste-textarea {
+  width: 100%;
+  min-height: 180px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: monospace;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.env-paste-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.env-paste-textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.env-paste-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.env-paste-cancel {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-paste-cancel:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.env-paste-confirm {
+  padding: 8px 16px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #1e1e1e;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.env-paste-confirm:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.env-paste-confirm:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}

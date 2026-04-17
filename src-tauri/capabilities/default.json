@@ -8,6 +8,10 @@
     "core:app:allow-version",
     "core:window:allow-create",
     "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
     "core:webview:allow-create-webview-window",
     "core:event:default",
     "opener:default",
@@ -30,7 +34,9 @@
     {
       "identifier": "fs:allow-read-text-file",
       "allow": [
-        { "path": "$HOME/ShipStudio/**/package.json" }
+        { "path": "$HOME/ShipStudio/**/package.json" },
+        { "path": "$HOME/**/package.json" },
+        { "path": "/Volumes/**/package.json" }
       ]
     },
     {

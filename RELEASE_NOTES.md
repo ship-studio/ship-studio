@@ -6,6 +6,112 @@ These notes appear in the update dialog that users see when a new version is ava
 Write clear, user-friendly notes about what changed in this version.
 -->
 
+## What's New in v0.4.25
+
+- **Pinned-projects sidebar** — Pin projects for quick switching with drag-to-reorder, searchable picker, and proper flex layout
+
+
+## What's New in v0.4.25
+
+- **Pinned-projects sidebar** — Pin projects for quick switching with drag-to-reorder, searchable picker, and proper flex layout
+
+
+## What's New in v0.4.24
+
+- **Community template gallery** — browse, search, and download starter templates
+- **Learn Mode** — renamed from Education Mode, now covers all dashboard and workspace elements
+- **Screenshot shortcuts fixed** — ⌘⇧S and ⌘⇧C now work even when preview iframe has focus
+- **Agent-agnostic language** — Learn Mode works with Claude Code, Codex, or any terminal agent
+- **Toolbar buttons** no longer wrap text at narrow window sizes
+
+
+## What's New in v0.4.23
+
+- **Client Editor** — New "Add Clients" button in the toolbar introduces the inline Client Editor for your clients
+- **Panel toggle** — Show/hide panel button now visible on all project types
+
+
+## What's New in v0.4.22
+
+- **Blank Project template** — start from scratch with just a terminal
+- **Non-web projects** — default to Code tab, hide panel button always available
+- **Compact mode** — toolbar buttons align with macOS traffic lights
+- **Dashboard** — buttons no longer overlap traffic lights at narrow widths
+
+
+## What's New in v0.4.21
+
+- **Fixed terminal freeze** — Switching tabs no longer kills terminal input
+- **Fixed double-typing** — Each keystroke now registers once, not twice
+- **New tab autofocus** — Cmd+T creates a tab that's immediately ready for input
+- **Better error messages** — Failed project imports show actual error output instead of cryptic exit codes
+- **Support panel** — Built-in help and bug reporting
+
+
+## What's New in v0.4.20
+
+- **Fixed terminal stability** — No more hangs, freezes, or 'no output' errors with multiple tabs
+- **GPU-accelerated terminal** — WebGL rendering for smoother output
+- **Smarter tab management** — Hidden tabs don't consume CPU; new tabs start on demand
+- **Faster project switching** — Back-to-projects cleanup no longer freezes
+
+
+## What's New in v0.4.19
+
+- **Fixed terminal resize** — No more narrow text wrapping when switching tabs
+- **Smaller toolbar buttons** — Consistent sizing across all toolbar actions
+- **Screenshot shortcuts** — ⌘⇧S for capture, ⌘⇧C for crop mode
+- **Removed broken full page screenshot**
+
+
+## What's New in v0.4.18
+
+- **Overlay title bar** - Cleaner look with traffic lights inline, drag-to-move, and double-click to maximize
+- **Toolbar redesign** - Split into left (utilities) and right (hosting/GitHub/Publish) sides
+- **Dismissible Slack banner** - Hide via eye icon or Settings toggle
+- **Terminal focus fix** - Auto-focuses when switching tabs via keyboard shortcuts
+- **Session resume fix** - Stale sessions now reliably auto-restart
+
+
+## What's New in v0.4.17
+
+- **External project support** — Projects outside ~/ShipStudio no longer show forbidden path errors
+- **Cmd+W closes tab** — Closes the active terminal tab instead of quitting the app
+- **Cmd+Q confirmation** — Shows a quit confirmation dialog before exiting
+- **Dashboard UI cleanup** — Settings and new folder moved to more logical locations
+- **Session resume fix** — Failed session resume now auto-starts a fresh Claude Code session
+
+
+## What's New in v0.4.16
+
+- **Terminal session persistence** — Conversations resume when reopening projects
+- **Terminal tab dropdown** — Compact dropdown with ⌘T shortcut and agent switching
+- **File search** — Search files by name in the Code tab sidebar
+- **Keyboard shortcuts** — ⌘1-5 to switch tabs
+- **Stability** — Fixed PTY cleanup hangs, added startup logging, cleanup status indicator
+
+
+## What's New in v0.4.16
+
+- **Terminal session persistence** — Reopen a project and your Claude Code conversations automatically resume where you left off, with each tab restoring independently
+- **Terminal tab dropdown** — Tabs redesigned as a compact dropdown selector with agent switching, close buttons, and attention indicators all in one place
+- **File search in Code tab** — Filter the file tree by name with a search bar in the Code browser sidebar
+- **Keyboard shortcuts** — ⌘T to open a new terminal tab, ⌘1-5 to switch between tabs
+- **Cleanup status indicator** — See what's happening when closing a project instead of staring at a spinner
+- **Terminal stability** — Fixed PTY cleanup hanging the UI, added startup timeout logging, and improved error handling for failed sessions
+- **External project support** — Projects outside ~/ShipStudio no longer show forbidden path errors on reopen
+- **Back button redesign** — Styled consistently with other toolbar buttons
+
+## What's New in v0.4.15
+
+- **Plugin crash isolation** - Plugin errors no longer crash the entire app
+
+
+## What's New in v0.4.14
+
+- **Fixed rapid project switching** - Clicking back then immediately opening another project no longer hangs
+- **Faster port cleanup** - Port detection on macOS is now significantly faster with timeout protection
+
 ## What's New in v0.4.13
 
 - **Fixed 100% CPU on back-navigation** - Resolved tauri-pty infinite read loop that caused permanent CPU spike when navigating from workspace back to projects

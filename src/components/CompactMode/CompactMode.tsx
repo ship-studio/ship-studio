@@ -21,7 +21,7 @@ import { CompactActionsRow } from './CompactActionsRow';
 import { exitCompactMode, setAlwaysOnTop, startWindowDrag, setWindowTitle } from '../../lib/window';
 import { getActiveAgent } from '../../lib/agent';
 import { logger } from '../../lib/logger';
-import '../../styles/compact-mode.css';
+import '../../styles/modes/compact-mode.css';
 
 export interface CompactModeProps {
   /** Current project path */

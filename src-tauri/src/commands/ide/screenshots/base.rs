@@ -1,11 +1,13 @@
 //! Base screenshot operations: crop and save, read as base64, and comparison.
 
+use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use image::GenericImageView;
 
 /// Crop an image and save it to the project's screenshots folder
 /// Takes the source image path, crop bounds (x, y, width, height), and returns the saved path
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn crop_and_save_screenshot(
     project_path: String,
     source_path: String,
@@ -13,7 +15,7 @@ pub async fn crop_and_save_screenshot(
     y: u32,
     width: u32,
     height: u32,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
 
@@ -58,13 +60,14 @@ pub async fn crop_and_save_screenshot(
 /// Read a screenshot file and return it as a base64 data URL.
 /// Used for displaying screenshot previews in the UI.
 #[tauri::command]
-pub async fn get_screenshot_base64(file_path: String) -> Result<String, String> {
+#[tracing::instrument]
+pub async fn get_screenshot_base64(file_path: String) -> Result<String, CommandError> {
     use base64::Engine;
 
     let path = std::path::PathBuf::from(&file_path);
 
     if !path.exists() {
-        return Err(format!("Screenshot file not found: {file_path}"));
+        return Err((format!("Screenshot file not found: {file_path}")).into());
     }
 
     let data = std::fs::read(&path).map_err(|e| format!("Failed to read screenshot: {e}"))?;
@@ -77,11 +80,12 @@ pub async fn get_screenshot_base64(file_path: String) -> Result<String, String> 
 /// captures will be identical (same footer/content).
 /// This is more reliable than comparing the whole image.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn compare_screenshots(
     path1: String,
     path2: String,
     _skip_header_pixels: u32, // kept for API compatibility
-) -> Result<bool, String> {
+) -> Result<bool, CommandError> {
     let img1 = image::open(&path1).map_err(|e| format!("Failed to open image 1: {e}"))?;
     let img2 = image::open(&path2).map_err(|e| format!("Failed to open image 2: {e}"))?;
 

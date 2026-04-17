@@ -9,6 +9,8 @@
 
 import { useState, useEffect } from 'react';
 import { BranchInfo, formatRelativeTime } from '../lib/branches';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
 
 interface BranchSelectorModalProps {
   /** Absolute path to the project */
@@ -102,9 +104,7 @@ export function BranchSelectorModal({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    } else if (e.key === 'Enter' && !isSubmitting) {
+    if (e.key === 'Enter' && !isSubmitting) {
       void handleSubmit();
     }
   };
@@ -114,8 +114,14 @@ export function BranchSelectorModal({
     : selectedBranch.length > 0;
 
   return (
-    <div className="branch-selector-modal" onKeyDown={handleKeyDown} onClick={onClose}>
-      <div className="branch-selector-content" onClick={(e) => e.stopPropagation()}>
+    <ModalFrame
+      isOpen
+      onClose={onClose}
+      dismissable={!isSubmitting}
+      showCloseButton={false}
+      className="branch-selector-content"
+    >
+      <div onKeyDown={handleKeyDown}>
         <div className="branch-selector-header">
           <h2>Choose where to work</h2>
           <p>Select a branch to start editing {projectName}</p>
@@ -231,19 +237,19 @@ export function BranchSelectorModal({
         {error && <div className="branch-selector-error">{error}</div>}
 
         <div className="branch-selector-footer">
-          <button className="branch-selector-cancel" onClick={onClose} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
             Cancel
-          </button>
-          <button
-            className="branch-selector-submit"
+          </Button>
+          <Button
+            variant="primary"
             onClick={() => void handleSubmit()}
             disabled={isSubmitting || !canSubmit}
           >
             {isSubmitting ? 'Opening...' : showCreateForm ? 'Create & Open' : 'Open Project'}
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 }
 

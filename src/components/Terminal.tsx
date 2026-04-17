@@ -16,17 +16,22 @@ import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHand
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { spawn, IPty } from 'tauri-pty';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { loadNerdFonts } from '../lib/fonts';
 import { isWindows } from '../lib/setup';
+import { logger } from '../lib/logger';
 import type { AgentConfig } from '../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
 /** Agent status based on terminal title */
 export type AgentStatus = 'thinking' | 'waiting' | 'idle';
+
+/** Max buffer size for hidden terminal output (500KB) */
+const MAX_HIDDEN_BUFFER = 512 * 1024;
 
 /** Props for the Terminal component */
 interface TerminalProps {
@@ -40,6 +45,14 @@ interface TerminalProps {
   autoAcceptMode?: boolean;
   /** Callback fired when the agent's status changes (thinking, waiting for input, idle) */
   onStatusChange?: (status: AgentStatus, title: string) => void;
+  /** Callback fired when the terminal title changes (for tab display) */
+  onTitleChange?: (title: string) => void;
+  /** Unique session name for naming/resuming agent conversations */
+  sessionName?: string;
+  /** Whether this terminal tab is currently visible */
+  isActive?: boolean;
+  /** Whether to resume a previous session with this name */
+  shouldResume?: boolean;
 }
 
 /**
@@ -55,30 +68,71 @@ export interface TerminalHandle {
   paste: (data: string) => void;
   /** Kill the PTY process */
   kill: () => void;
+  /** Re-fit the terminal to its container (call after display changes) */
+  fit: () => void;
 }
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal(
-  { agent, projectPath, onExit, autoAcceptMode = false, onStatusChange },
+  {
+    agent,
+    projectPath,
+    onExit,
+    autoAcceptMode = false,
+    onStatusChange,
+    onTitleChange,
+    sessionName,
+    isActive = true,
+    shouldResume,
+  },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyRef = useRef<IPty | null>(null);
+  // Buffer for data received while terminal is hidden
+  const hiddenBufferRef = useRef<string[]>([]);
+  const hiddenBufferSizeRef = useRef(0);
+  const isActiveRef = useRef(isActive);
+  // Deferred spawn: set by the main effect, called when tab becomes active
+  const deferredSpawnRef = useRef<(() => void) | null>(null);
   // Track IDisposable handles from pty.onData/onExit so we can remove listeners on cleanup.
   // Without this, killed PTY processes continue flooding Tauri IPC → microtasks → 100% CPU.
   const ptyDisposablesRef = useRef<Array<{ dispose(): void }>>([]);
   const [isReady, setIsReady] = useState(false);
   const [isFocused, setIsFocused] = useState(false); // Start unfocused to show overlay until user clicks
 
+  // When tab becomes active: flush hidden buffer and spawn PTY if deferred
+  useEffect(() => {
+    isActiveRef.current = isActive;
+    if (isActive) {
+      // Flush buffered output
+      if (terminalRef.current && hiddenBufferRef.current.length > 0) {
+        for (const chunk of hiddenBufferRef.current) {
+          terminalRef.current.write(chunk);
+        }
+        hiddenBufferRef.current = [];
+        hiddenBufferSizeRef.current = 0;
+      }
+      // Spawn PTY if it was deferred (tab was created while hidden)
+      if (deferredSpawnRef.current) {
+        const spawn = deferredSpawnRef.current;
+        deferredSpawnRef.current = null;
+        spawn();
+      }
+    }
+  }, [isActive]);
+
   // Use refs for callbacks to prevent effect re-runs when callback references change
   const onExitRef = useRef(onExit);
   const onStatusChangeRef = useRef(onStatusChange);
+  const onTitleChangeRef = useRef(onTitleChange);
   const lastStatusRef = useRef<AgentStatus>('idle');
   useEffect(() => {
     onExitRef.current = onExit;
     onStatusChangeRef.current = onStatusChange;
-  }, [onExit, onStatusChange]);
+    onTitleChangeRef.current = onTitleChange;
+  }, [onExit, onStatusChange, onTitleChange]);
 
   const cleanup = useCallback(() => {
     // Dispose PTY event listeners FIRST to stop IPC message flood
@@ -92,16 +146,17 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     ptyDisposablesRef.current = [];
 
     if (ptyRef.current) {
-      try {
-        ptyRef.current.kill();
-        // Invalidate PID to break tauri-pty's infinite readData() loop.
-        // tauri-pty runs `for(;;) { yield invoke('plugin:pty|read', { pid }) }` —
-        // after kill(), this loop continues generating microtasks (100% CPU).
-        // Setting pid to undefined makes the next invoke fail, breaking the loop.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-        (ptyRef.current as any).pid = undefined;
-      } catch {
-        // Ignore - PTY may already be dead
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+      const pid = (ptyRef.current as any).pid as number | undefined;
+      if (typeof pid === 'number') {
+        // Fire-and-forget: backend `kill` removes the session from the
+        // plugin's map, so the next tauri-pty read invoke returns "EOF"
+        // and its internal `for(;;)` loop exits cleanly. Do NOT call
+        // `pty.kill()` here — that version swallows the return value
+        // so we can't discriminate between a real kill and a race.
+        void invoke('plugin:pty|kill', { pid }).catch(() => {
+          // Session may already be gone (e.g. child exited on its own).
+        });
       }
       ptyRef.current = null;
     }
@@ -117,20 +172,69 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     const container = containerRef.current;
     if (!container) return;
 
+    let cancelled = false;
+    const startTime = Date.now();
+
     // Wait for container to have dimensions AND fonts to load
     const checkReady = () => {
+      if (cancelled) return;
+
       const rect = container.getBoundingClientRect();
+      const elapsed = Date.now() - startTime;
+
       if (rect.width > 0 && rect.height > 0) {
-        // Load Nerd Fonts before initializing terminal
-        void loadNerdFonts().then(() => {
-          setIsReady(true);
+        logger.info('[Terminal] Container ready', {
+          agent: agent.id,
+          width: rect.width,
+          height: rect.height,
+          waitMs: elapsed,
         });
+        void loadNerdFonts()
+          .then(() => {
+            if (!cancelled) {
+              logger.info('[Terminal] Fonts loaded, setting ready', { agent: agent.id });
+              setIsReady(true);
+            }
+          })
+          .catch((err) => {
+            logger.error('[Terminal] Font loading failed, proceeding anyway', {
+              agent: agent.id,
+              error: String(err),
+            });
+            if (!cancelled) setIsReady(true);
+          });
+      } else if (elapsed > 10_000) {
+        // Safety: if container never gets dimensions after 10s, log and try anyway
+        logger.error('[Terminal] Container never got dimensions after 10s, forcing ready', {
+          agent: agent.id,
+          width: rect.width,
+          height: rect.height,
+          display: container.style.display,
+          parentDisplay: container.parentElement?.style.display,
+        });
+        void loadNerdFonts()
+          .catch(() => {})
+          .then(() => {
+            if (!cancelled) setIsReady(true);
+          });
       } else {
+        if (elapsed > 2000 && elapsed % 1000 < 50) {
+          logger.warn('[Terminal] Still waiting for container dimensions', {
+            agent: agent.id,
+            width: rect.width,
+            height: rect.height,
+            waitMs: elapsed,
+          });
+        }
         requestAnimationFrame(checkReady);
       }
     };
     checkReady();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.id]);
 
   // Listen for Tauri file drop events
   // Use a ref for debounce to persist across HMR
@@ -234,9 +338,25 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Open terminal in container
     term.open(container);
 
+    // Use WebGL renderer for GPU-accelerated rendering (reduces flickering)
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => {
+        webglAddon.dispose();
+      });
+      term.loadAddon(webglAddon);
+    } catch {
+      logger.warn('[Terminal] WebGL not available, using canvas renderer');
+    }
+
     // Initial fit
     setTimeout(() => {
       fitAddon.fit();
+      // Auto-focus if this is the active tab — must happen after fit so
+      // xterm's textarea is properly sized and ready to receive input.
+      if (isActiveRef.current) {
+        term.focus();
+      }
     }, 0);
 
     terminalRef.current = term;
@@ -256,8 +376,18 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Claude Code updates the terminal title with icons:
     // - Dot (· char ~10242/10256) when thinking/processing
     // - Star (* char ~10035) when done/waiting for input
-    if (agent.supportsStatusDetection) {
-      term.onTitleChange((title) => {
+    term.onTitleChange((title) => {
+      // Forward the display title (strip leading status icon if present)
+      const displayTitle = title.replace(/^[·•✳✱✲*\u2802\u2810\u00B7]\s*/, '').trim();
+      // Skip UUIDs and empty titles — these come from session naming, not user-facing content
+      if (
+        displayTitle &&
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(displayTitle)
+      ) {
+        onTitleChangeRef.current?.(displayTitle);
+      }
+
+      if (agent.supportsStatusDetection) {
         let status: AgentStatus = 'idle';
 
         // Check first character code to detect status
@@ -289,8 +419,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           lastStatusRef.current = status;
           onStatusChangeRef.current?.(status, title);
         }
-      });
-    }
+      }
+    });
 
     // For agents that don't support title-based status detection,
     // listen for OSC 9 (desktop notification) sequences instead.
@@ -309,17 +439,73 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     // Track if this effect instance is still mounted (handles StrictMode/HMR)
     let mounted = true;
+    // Start pessimistic. We'll flip to true below only if the on-disk
+    // Claude session file actually exists — otherwise `--resume` exits 1
+    // ("No conversation found") every time, wasting a full Claude spawn
+    // per project open. Gating on disk-presence turns a ~1s miss into a
+    // ~5ms file-exists check.
+    let attemptResume = false;
 
     // Setup PTY connection using tauri-pty with retry logic
     const setupPty = async (retryCount = 0) => {
       const maxRetries = 3;
 
       // Check if still mounted before proceeding
-      if (!mounted) return;
+      if (!mounted) {
+        logger.info('[Terminal] PTY setup skipped - component unmounted', { agent: agent.id });
+        return;
+      }
+
+      logger.info('[Terminal] Setting up PTY', {
+        agent: agent.id,
+        binary: agent.binaryName,
+        projectPath,
+        retry: retryCount,
+      });
 
       try {
+        // Gate the optimistic resume on whether Claude CLI actually has a
+        // conversation stored for this (projectPath, sessionId). Cheap
+        // filesystem check; only runs on the first setupPty call (retry=0)
+        // because a retry can't turn a missing session into an existing one.
+        if (retryCount === 0 && shouldResume && agent.id === 'claude-code' && sessionName) {
+          try {
+            const exists = await invoke<boolean>('claude_session_exists', {
+              projectPath,
+              sessionId: sessionName,
+            });
+            attemptResume = exists;
+          } catch {
+            // If the check itself fails, fall through to fresh — safer
+            // than attempting a resume we can't verify.
+            attemptResume = false;
+          }
+        }
+
         // Fit again to ensure correct size
         fitAddon.fit();
+
+        // If terminal has zero dimensions, wait for it to become visible
+        if (term.cols <= 1 || term.rows <= 1) {
+          logger.warn('[Terminal] Zero dimensions at spawn time, waiting for resize', {
+            cols: term.cols,
+            rows: term.rows,
+          });
+          await new Promise<void>((resolve) => {
+            const checkSize = () => {
+              fitAddon.fit();
+              if (term.cols > 1 && term.rows > 1) {
+                resolve();
+              } else {
+                setTimeout(checkSize, 100);
+              }
+            };
+            setTimeout(checkSize, 100);
+            // Safety timeout - proceed anyway after 3s
+            setTimeout(resolve, 3000);
+          });
+          logger.info('[Terminal] Dimensions ready', { cols: term.cols, rows: term.rows });
+        }
 
         // Get extended PATH from backend (includes nvm, Claude desktop app, etc.)
         const home = await homeDir();
@@ -350,8 +536,26 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           };
         }
 
+        const agentArgs: string[] = [];
+
+        // Session persistence for Claude Code: assign a fixed session ID per tab
+        // so we can resume the exact conversation when the project is reopened
+        if (agent.id === 'claude-code' && sessionName) {
+          if (attemptResume) {
+            agentArgs.push('--resume', sessionName);
+          } else {
+            agentArgs.push('--session-id', sessionName);
+          }
+          logger.info('[Terminal] Session config', {
+            sessionId: sessionName,
+            resuming: attemptResume,
+          });
+        }
+
         // When autoAcceptMode is enabled, pass the agent's auto-accept flag
-        const agentArgs = autoAcceptMode && agent.autoAcceptFlag ? [agent.autoAcceptFlag] : [];
+        if (autoAcceptMode && agent.autoAcceptFlag) {
+          agentArgs.push(agent.autoAcceptFlag);
+        }
 
         // On Windows, agent may be a .cmd script - must run through cmd.exe
         const spawnCmd = isWin ? 'cmd.exe' : agent.binaryName;
@@ -367,13 +571,60 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
         // Check again after async operation
         if (!mounted) {
-          pty.kill();
           // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-          (pty as any).pid = undefined;
+          const ppid = (pty as any).pid as number | undefined;
+          if (typeof ppid === 'number') {
+            void invoke('plugin:pty|kill', { pid: ppid }).catch(() => {});
+          }
           return;
         }
 
         ptyRef.current = pty;
+        logger.info('[Terminal] PTY spawned successfully', { agent: agent.id });
+
+        // Startup timeout: if no output is received within 10s, the agent
+        // likely failed to launch (binary not found, permission error, etc.).
+        // Show an error instead of hanging on "Starting..." forever.
+        let receivedOutput = false;
+        const startupTimeout = setTimeout(() => {
+          if (!receivedOutput && mounted) {
+            logger.error('[Terminal] Startup timeout - no output after 10s', {
+              agent: agent.id,
+              binary: agent.binaryName,
+            });
+            terminalRef.current?.write(
+              `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
+                `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
+            );
+          }
+        }, 10_000);
+
+        // Buffer early output to detect resume failures on exit
+        let outputBuffer = '';
+
+        // Write data to xterm, or buffer it if the terminal is hidden.
+        // Note: tauri-pty's read command returns Vec<u8> from Rust, which Tauri
+        // serializes as a JSON number[]. We must convert to Uint8Array for both
+        // xterm.write() and TextDecoder.decode() to work.
+        const writeToTerminal = (data: string | Uint8Array | number[]) => {
+          const normalized = Array.isArray(data) ? new Uint8Array(data) : data;
+          if (isActiveRef.current) {
+            terminalRef.current?.write(normalized);
+          } else {
+            const str =
+              typeof normalized === 'string' ? normalized : new TextDecoder().decode(normalized);
+            hiddenBufferRef.current.push(str);
+            hiddenBufferSizeRef.current += str.length;
+            // Cap buffer to prevent memory growth
+            while (
+              hiddenBufferSizeRef.current > MAX_HIDDEN_BUFFER &&
+              hiddenBufferRef.current.length > 1
+            ) {
+              const removed = hiddenBufferRef.current.shift()!;
+              hiddenBufferSizeRef.current -= removed.length;
+            }
+          }
+        };
 
         // Handle PTY output -> terminal
         // Store disposables so cleanup() can remove IPC listeners and prevent CPU leak.
@@ -382,7 +633,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         if (!agent.supportsStatusDetection) {
           let idleTimer: ReturnType<typeof setTimeout> | null = null;
           const dataDisposable = pty.onData((data) => {
-            terminalRef.current?.write(data);
+            receivedOutput = true;
+            if (outputBuffer.length < 2000) outputBuffer += String(data);
+            clearTimeout(startupTimeout);
+            writeToTerminal(data);
             if (lastStatusRef.current === 'thinking') {
               if (idleTimer) clearTimeout(idleTimer);
               idleTimer = setTimeout(() => {
@@ -396,20 +650,104 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           ptyDisposablesRef.current.push(dataDisposable);
         } else {
           const dataDisposable = pty.onData((data) => {
-            terminalRef.current?.write(data);
+            receivedOutput = true;
+            if (outputBuffer.length < 2000) outputBuffer += String(data);
+            clearTimeout(startupTimeout);
+            writeToTerminal(data);
           });
           ptyDisposablesRef.current.push(dataDisposable);
         }
 
         // Handle PTY exit
         const exitDisposable = pty.onExit(({ exitCode }) => {
+          clearTimeout(startupTimeout);
+          logger.info('[Terminal] PTY process exited', {
+            agent: agent.id,
+            exitCode,
+            receivedOutput,
+            outputBufferLen: outputBuffer.length,
+            outputSnippet: outputBuffer.slice(0, 200),
+          });
+
+          const retryFreshSession = () => {
+            logger.info('[Terminal] Resume failed, retrying as fresh session');
+            terminalRef.current?.write(
+              '\r\n\x1b[33mSession not found, starting fresh...\x1b[0m\r\n'
+            );
+            // Clean up current PTY
+            for (const d of ptyDisposablesRef.current) {
+              try {
+                d.dispose();
+              } catch {
+                /* ignore */
+              }
+            }
+            ptyDisposablesRef.current = [];
+            ptyRef.current = null;
+            // Retry without --resume
+            attemptResume = false;
+            void setupPty(0);
+          };
+
+          // If resume failed, retry as a fresh session.
+          // Primary signal: non-zero exit code during a resume attempt means
+          // the session is gone — retry without parsing output at all.
+          // Secondary signal: output contains "no conversation found" etc.
+          if (attemptResume && agent.id === 'claude-code') {
+            if (exitCode !== 0) {
+              logger.info('[Terminal] Resume exited non-zero, retrying fresh', { exitCode });
+              retryFreshSession();
+              return;
+            }
+
+            // Zero exit code but might still be a resume failure (edge case).
+            // Strip ANSI escape sequences before matching.
+            // Strip ANSI escape sequences so substring matching works on raw PTY output.
+            // Uses a single combined pattern to avoid chained .replace type issues.
+            const ansiPattern = new RegExp(
+              [
+                String.fromCharCode(0x1b) + '\\[[\\x20-\\x3f]*[\\x40-\\x7e]', // CSI
+                String.fromCharCode(0x1b) +
+                  '\\][^' +
+                  String.fromCharCode(0x07) +
+                  ']*(?:' +
+                  String.fromCharCode(0x07) +
+                  '|' +
+                  String.fromCharCode(0x1b) +
+                  '\\\\)', // OSC
+                String.fromCharCode(0x1b) + '[^\\[\\]]', // other ESC
+              ].join('|'),
+              'g'
+            );
+            const stripAnsi = (s: string): string => s.replace(ansiPattern, '');
+            const isResumeFail = () => {
+              const clean = stripAnsi(outputBuffer).toLowerCase();
+              return clean.includes('no conversation found') || clean.includes('session not found');
+            };
+
+            if (isResumeFail()) {
+              retryFreshSession();
+              return;
+            }
+            // Data may arrive after exit event — wait briefly and check again
+            setTimeout(() => {
+              if (isResumeFail()) {
+                retryFreshSession();
+              } else {
+                terminalRef.current?.write('\r\n[Process exited]\r\n');
+                onExitRef.current?.(exitCode);
+              }
+            }, 200);
+            return;
+          }
+
           terminalRef.current?.write('\r\n[Process exited]\r\n');
           onExitRef.current?.(exitCode);
         });
         ptyDisposablesRef.current.push(exitDisposable);
 
         // Handle terminal input -> PTY
-        term.onData((data) => {
+        const inputDisposable = term.onData((data) => {
           ptyRef.current?.write(data);
           // When user sends input to an agent without title-based status detection,
           // assume it transitions to "thinking" (processing the request).
@@ -420,6 +758,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             }
           }
         });
+        ptyDisposablesRef.current.push(inputDisposable);
 
         // Handle special key combinations
         term.attachCustomKeyEventHandler((event) => {
@@ -447,7 +786,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           return true; // Allow all other keys
         });
       } catch (err) {
-        console.warn(`Failed to spawn ${agent.displayName}:`, err);
+        logger.error('[Terminal] Failed to spawn PTY', {
+          agent: agent.id,
+          binary: agent.binaryName,
+          error: String(err),
+          retry: retryCount,
+        });
 
         if (!mounted) return;
 
@@ -466,28 +810,40 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Show a loading message while agent starts up
     term.write(`\r\n  \x1b[2m${agent.loadingMessage}\x1b[0m`);
 
-    // Small delay before starting to ensure terminal is ready
-    setTimeout(() => void setupPty(), 100);
+    // Only spawn PTY when this tab is active to avoid IPC congestion
+    // from multiple concurrent PTY read loops.
+    // If hidden, defer until the tab becomes active.
+    if (isActiveRef.current) {
+      setTimeout(() => void setupPty(), 100);
+    } else {
+      deferredSpawnRef.current = () => setTimeout(() => void setupPty(), 100);
+    }
 
-    // Handle resize
+    // Handle resize — debounce with rAF to avoid layout thrashing during drags/animations
+    let resizeRaf: number | null = null;
     const resizeObserver = new ResizeObserver(() => {
-      if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
-        fitAddonRef.current.fit();
-        ptyRef.current.resize(terminalRef.current.cols, terminalRef.current.rows);
-      }
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = null;
+        if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
+          fitAddonRef.current.fit();
+          ptyRef.current.resize(terminalRef.current.cols, terminalRef.current.rows);
+        }
+      });
     });
     resizeObserver.observe(container);
 
     return () => {
       mounted = false;
       resizeObserver.disconnect();
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
       if (textarea) {
         textarea.removeEventListener('focus', onTextareaFocus);
         textarea.removeEventListener('blur', onTextareaBlur);
       }
       cleanup();
     };
-  }, [isReady, projectPath, cleanup, autoAcceptMode, agent]);
+  }, [isReady, projectPath, cleanup, autoAcceptMode, agent, sessionName, shouldResume]);
 
   // Click to focus terminal
   const handleClick = useCallback(() => {
@@ -529,6 +885,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       },
       kill: () => {
         cleanup();
+      },
+      fit: () => {
+        if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
+          fitAddonRef.current.fit();
+          ptyRef.current.resize(terminalRef.current.cols, terminalRef.current.rows);
+        }
       },
     }),
     [cleanup]

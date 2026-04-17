@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react';
 import { WarningIcon, CloseIcon, BranchIcon } from './icons';
 import { getHideMainBranchWarning, setHideMainBranchWarning } from '../lib/project';
-import '../styles/main-branch-banner.css';
+import '../styles/features/main-branch-banner.css';
 
 interface MainBranchBannerProps {
   /** Absolute path to the project directory */

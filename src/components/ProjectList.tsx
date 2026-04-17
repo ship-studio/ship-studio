@@ -12,7 +12,8 @@
  * @module components/ProjectList
  */
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   DashboardProject,
@@ -25,6 +26,7 @@ import {
 } from '../lib/project';
 import { unregisterExternalProject } from '../lib/external-projects';
 import { logger } from '../lib/logger';
+import { trackEvent, trackError } from '../lib/analytics';
 import {
   FolderInfo,
   Folder,
@@ -38,16 +40,21 @@ import {
   moveProjectToFolder,
 } from '../lib/folders';
 import { DashboardHeader } from './DashboardHeader';
-import { ProjectCard } from './ProjectCard';
-import { FolderCard } from './FolderCard';
 import { IntegrationBar } from './IntegrationBar';
 import { NewFolderModal } from './NewFolderModal';
+import { ProjectGridView } from './ProjectGridView';
+import { SearchAndSort } from './SearchAndSort';
+import { FolderBreadcrumb } from './FolderBreadcrumb';
 import { MoveFolderModal } from './MoveFolderModal';
 import { SettingsModal } from './SettingsModal';
 import { GitHubCalendar } from './GitHubCalendar';
-import { getCalendarHidden, setCalendarHidden as persistCalendarHidden } from '../lib/settings';
-import { ChevronIcon, CheckIcon, ArrowLeftIcon, SlackIcon } from './icons';
-import { useClickOutside } from '../hooks/useClickOutside';
+import {
+  getCalendarHidden,
+  setCalendarHidden as persistCalendarHidden,
+  getSlackCtaHidden,
+  setSlackCtaHidden as persistSlackCtaHidden,
+} from '../lib/settings';
+import { SlackIcon, SettingsIcon, EyeOffIcon } from './icons';
 
 /** Basic project info for selection callback */
 interface Project {
@@ -85,6 +92,12 @@ interface ProjectListProps {
   isAuthCheckDone?: boolean;
   /** Callback when loading state changes */
   onLoadingChange?: (loading: boolean) => void;
+  /** Background cleanup status message (shown below loading spinner) */
+  cleanupStatus?: string | null;
+  /** Set of currently pinned project paths. */
+  pinnedSet?: ReadonlySet<string>;
+  /** Toggle pin state for a project. */
+  onTogglePin?: (projectPath: string, pinned: boolean) => void;
 }
 
 export function ProjectList({
@@ -97,6 +110,9 @@ export function ProjectList({
   githubUsername,
   isAuthCheckDone = false,
   onLoadingChange,
+  cleanupStatus,
+  pinnedSet,
+  onTogglePin,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<ProjectWithThumbnail[]>([]);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
@@ -123,10 +139,17 @@ export function ProjectList({
   // Settings modal state
   const [showSettings, setShowSettings] = useState(false);
   const [calendarHidden, setCalendarHidden] = useState(false);
+  const [slackCtaHidden, setSlackCtaHidden] = useState(false);
 
-  // Load calendar visibility preference
+  // Load visibility preferences
   useEffect(() => {
     void getCalendarHidden().then(setCalendarHidden);
+    void getSlackCtaHidden().then(setSlackCtaHidden);
+  }, []);
+
+  const hideSlackCta = useCallback(() => {
+    setSlackCtaHidden(true);
+    void persistSlackCtaHidden(true);
   }, []);
 
   const hideCalendar = useCallback(() => {
@@ -138,12 +161,6 @@ export function ProjectList({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('last_opened');
   const [showSortDropdown, setShowSortDropdown] = useState(false);
-
-  const sortDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close sort dropdown when clicking outside
-  const closeSortDropdown = useCallback(() => setShowSortDropdown(false), []);
-  useClickOutside(sortDropdownRef, closeSortDropdown, showSortDropdown);
 
   const loadProjects = async () => {
     try {
@@ -272,9 +289,11 @@ export function ProjectList({
     setDeleting(true);
     try {
       await deleteProject(project.path);
+      void trackEvent('project_deleted', { $screen_name: 'Dashboard' });
       setDeleteConfirm(null);
       await loadAll();
     } catch (error) {
+      trackError('project_delete', error, 'Dashboard');
       logger.error('Failed to delete project', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -303,6 +322,7 @@ export function ProjectList({
     try {
       const result = await exportProjectAsTemplate(projectPath);
       if (result) {
+        void trackEvent('project_exported_as_template', { $screen_name: 'Dashboard' });
         alert(`Template exported to:\n${result}`);
       }
       // If result is null, user cancelled the dialog - no action needed
@@ -329,6 +349,7 @@ export function ProjectList({
   const handleOpenInNewWindow = async (project: DashboardProject) => {
     try {
       await openProjectInNewWindow(project.path, project.name);
+      void trackEvent('project_opened_in_new_window', { $screen_name: 'Dashboard' });
     } catch (error) {
       logger.error('[ProjectList] Failed to open in new window', {
         error,
@@ -341,6 +362,7 @@ export function ProjectList({
 
   const handleCreateFolder = async (name: string) => {
     await createFolder(name);
+    void trackEvent('folder_created', { $screen_name: 'Dashboard' });
     await loadFolders();
   };
 
@@ -354,6 +376,7 @@ export function ProjectList({
     setDeletingFolder(true);
     try {
       await deleteFolder(folder.id);
+      void trackEvent('folder_deleted', { $screen_name: 'Dashboard' });
       setDeleteFolderConfirm(null);
       await loadAll();
     } catch (error) {
@@ -369,9 +392,11 @@ export function ProjectList({
   const handleMoveProject = async (folderId: string | null) => {
     if (!moveProject) return;
     await moveProjectToFolder(moveProject.path, folderId);
+    void trackEvent('project_moved_to_folder', { $screen_name: 'Dashboard' });
     setMoveProject(null);
     setMoveProjectFolderId(null);
-    await loadAll();
+    // Refresh data without showing the full loading spinner
+    await Promise.all([loadProjects(), loadFolders()]);
   };
 
   const handleOpenMoveModal = async (project: DashboardProject) => {
@@ -395,23 +420,38 @@ export function ProjectList({
     setMoveProject(project);
   };
 
+  const handleDashboardDrag = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
+    e.preventDefault();
+    void getCurrentWindow().startDragging();
+  }, []);
+
+  const handleDashboardDoubleClick = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
+    const win = getCurrentWindow();
+    void win.isMaximized().then((maximized) => {
+      void (maximized ? win.unmaximize() : win.maximize());
+    });
+  }, []);
+
   if (loading) {
     return (
       <div className="dashboard-scroll-container">
+        <div
+          className="dashboard-drag-region"
+          onMouseDown={handleDashboardDrag}
+          onDoubleClick={handleDashboardDoubleClick}
+        />
         <div className="project-list dashboard">
           <div className="project-list-loading">
             <div className="spinner" />
             <p>Loading projects...</p>
+            {cleanupStatus && <p className="project-list-cleanup-status">{cleanupStatus}</p>}
           </div>
         </div>
       </div>
     );
   }
-
-  const sortLabels: Record<SortOption, string> = {
-    last_opened: 'Last opened',
-    name: 'Name',
-  };
 
   const totalCount = currentFolderId
     ? filteredProjects.length
@@ -419,26 +459,41 @@ export function ProjectList({
 
   return (
     <div className="dashboard-scroll-container">
+      <div
+        className="dashboard-drag-region"
+        onMouseDown={handleDashboardDrag}
+        onDoubleClick={handleDashboardDoubleClick}
+      />
       <div className="project-list dashboard">
-        <div className="slack-cta">
-          <div className="slack-cta-content">
-            <SlackIcon />
-            <span>
-              <strong>Join our community</strong> — suggest features, share what you're building,
-              and shape the future of how we build for the web.
-            </span>
+        {!slackCtaHidden && (
+          <div className="slack-cta" data-education-id="slack-cta">
+            <div className="slack-cta-content">
+              <SlackIcon />
+              <span>
+                <strong>Join the Slack</strong> — suggest features, share what you're building, and
+                shape the future of how we build for the web.
+              </span>
+            </div>
+            <button
+              className="slack-cta-join"
+              onClick={() =>
+                void openUrl(
+                  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ'
+                )
+              }
+            >
+              Join Slack
+            </button>
+            <button
+              className="slack-cta-hide"
+              onClick={hideSlackCta}
+              title="Hide"
+              aria-label="Hide community banner"
+            >
+              <EyeOffIcon size={14} />
+            </button>
           </div>
-          <button
-            className="slack-cta-join"
-            onClick={() =>
-              void openUrl(
-                'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ'
-              )
-            }
-          >
-            Join Slack
-          </button>
-        </div>
+        )}
 
         {!calendarHidden && (
           <GitHubCalendar
@@ -454,112 +509,61 @@ export function ProjectList({
           onSearchChange={setSearchQuery}
           onCreateProject={onCreateProject}
           onImportProject={onImportProject}
-          onCreateFolder={() => setShowNewFolderModal(true)}
-          onOpenSettings={() => setShowSettings(true)}
           isGitHubAuthenticated={isGitHubAuthenticated}
           onGitHubConnectForImport={onGitHubConnectForImport}
         />
 
         {/* Folder breadcrumb when inside a folder */}
         {currentFolderId && currentFolder && (
-          <div className="folder-breadcrumb">
-            <button className="folder-breadcrumb-back" onClick={() => setCurrentFolderId(null)}>
-              <ArrowLeftIcon size={14} />
-              All Projects
-            </button>
-            <span className="folder-breadcrumb-separator">/</span>
-            <span className="folder-breadcrumb-current">{currentFolder.name}</span>
-          </div>
+          <FolderBreadcrumb
+            folderName={currentFolder.name}
+            onBack={() => setCurrentFolderId(null)}
+          />
         )}
 
-        <div className="dashboard-section-header">
-          <span className="dashboard-section-title">
-            {currentFolderId ? 'Projects' : 'All Projects'} {totalCount > 0 && `(${totalCount})`}
-          </span>
-          <div className="dashboard-section-controls">
-            <div className="sort-dropdown" ref={sortDropdownRef}>
-              <button
-                className="sort-dropdown-btn"
-                onClick={() => setShowSortDropdown(!showSortDropdown)}
-              >
-                {sortLabels[sortBy]}
-                <ChevronIcon />
-              </button>
-              {showSortDropdown && (
-                <div className="sort-dropdown-menu">
-                  {(Object.keys(sortLabels) as SortOption[]).map((option) => (
-                    <button
-                      key={option}
-                      className={`sort-dropdown-item ${sortBy === option ? 'active' : ''}`}
-                      onClick={() => {
-                        setSortBy(option);
-                        setShowSortDropdown(false);
-                      }}
-                    >
-                      {sortLabels[option]}
-                      {sortBy === option && <CheckIcon />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <SearchAndSort
+          title={currentFolderId ? 'Projects' : 'All Projects'}
+          totalCount={totalCount}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+          showSortDropdown={showSortDropdown}
+          onToggleSortDropdown={setShowSortDropdown}
+          onNewFolder={() => setShowNewFolderModal(true)}
+        />
 
-        {totalCount === 0 ? (
-          <div className="project-list-empty">
-            {searchQuery ? (
-              <>
-                <p>No items found</p>
-                <p className="hint">Try a different search term</p>
-              </>
-            ) : currentFolderId ? (
-              <>
-                <p>This folder is empty</p>
-                <p className="hint">Move projects here or create a new project</p>
-              </>
-            ) : (
-              <>
-                <p>No projects yet</p>
-                <p className="hint">Create your first project to get started</p>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="project-grid">
-            {/* Render folders first (only at root level) */}
-            {!currentFolderId &&
-              filteredFolders.map((folder) => (
-                <FolderCard
-                  key={folder.id}
-                  folder={folder}
-                  onOpen={() => setCurrentFolderId(folder.id)}
-                  onRename={() => setRenamingFolder(folder)}
-                  onDelete={() => setDeleteFolderConfirm(folder)}
-                />
-              ))}
-            {/* Render projects */}
-            {filteredProjects.map((project) => (
-              <ProjectCard
-                key={project.path}
-                project={project}
-                thumbnailData={project.thumbnailData}
-                onSelect={() => onSelectProject(project)}
-                onDelete={() => setDeleteConfirm(project)}
-                onToggleMainBranchWarning={(hidden) =>
-                  void handleToggleMainBranchWarning(project.path, hidden)
-                }
-                onMoveToFolder={() => void handleOpenMoveModal(project)}
-                onExportAsTemplate={() => void handleExportAsTemplate(project.path)}
-                onOpenInNewWindow={() => void handleOpenInNewWindow(project)}
-                isExternal={project.is_external}
-                onRemove={
-                  project.is_external ? () => void handleRemoveExternal(project) : undefined
-                }
-              />
-            ))}
-          </div>
-        )}
+        <ProjectGridView
+          currentFolderId={currentFolderId}
+          searchQuery={searchQuery}
+          totalCount={totalCount}
+          filteredFolders={filteredFolders}
+          filteredProjects={filteredProjects}
+          onSelectProject={(project) => onSelectProject(project)}
+          onDeleteProject={(project) => setDeleteConfirm(project)}
+          onToggleMainBranchWarning={(path, hidden) =>
+            void handleToggleMainBranchWarning(path, hidden)
+          }
+          onOpenMoveModal={(project) => void handleOpenMoveModal(project)}
+          onExportAsTemplate={(path) => void handleExportAsTemplate(path)}
+          onOpenInNewWindow={(project) => void handleOpenInNewWindow(project)}
+          onRemoveExternal={(project) => void handleRemoveExternal(project)}
+          onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
+          onRenameFolder={(folder) => setRenamingFolder(folder)}
+          onDeleteFolder={(folder) => setDeleteFolderConfirm(folder)}
+          pinnedSet={pinnedSet}
+          onTogglePin={onTogglePin}
+        />
+
+        <button
+          className="dashboard-settings-row"
+          data-education-id="settings-button"
+          onClick={() => {
+            void trackEvent('settings_opened', { $screen_name: 'Dashboard' });
+            setShowSettings(true);
+          }}
+        >
+          <SettingsIcon size={14} />
+          <span>Settings</span>
+        </button>
 
         <IntegrationBar onGitHubConnect={onGitHubConnect} />
 
@@ -652,6 +656,7 @@ export function ProjectList({
           isOpen={showSettings}
           onClose={() => setShowSettings(false)}
           onCalendarHiddenChange={setCalendarHidden}
+          onSlackCtaHiddenChange={setSlackCtaHidden}
         />
       </div>
     </div>

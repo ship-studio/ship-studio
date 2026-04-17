@@ -31,6 +31,9 @@ import {
 } from '../lib/project';
 import { getWindowLabel } from '../lib/window';
 import { checkNpmCachePermissions } from '../lib/setup';
+import { Step1AccountSelection } from './import-project/steps/Step1AccountSelection';
+import { Step2RepoSelection } from './import-project/steps/Step2RepoSelection';
+import { Step3ImportProgress, type Step } from './import-project/steps/Step3ImportProgress';
 
 /** Props for the ImportProject component */
 interface ImportProjectProps {
@@ -42,24 +45,6 @@ interface ImportProjectProps {
 
 /** Form wizard steps before import starts */
 type FormStep = 'select-account' | 'select-repo';
-/** Import progress steps */
-type Step = 'clone' | 'install' | 'setup' | 'done';
-
-/** Step definitions with display labels */
-const STEPS: { id: Step; label: string }[] = [
-  { id: 'clone', label: 'Clone repository' },
-  { id: 'install', label: 'Install dependencies' },
-  { id: 'setup', label: 'Setup project' },
-  { id: 'done', label: 'Done' },
-];
-
-/** User-facing status messages for each import step */
-const STATUS_MESSAGES: Record<Step, string> = {
-  clone: 'Cloning repository...',
-  install: 'Installing dependencies... This may take a minute.',
-  setup: 'Setting up project...',
-  done: 'Almost done...',
-};
 
 export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
   const [formStep, setFormStep] = useState<FormStep>('select-account');
@@ -127,19 +112,41 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
   const waitForPtyExit = async (targetId: number): Promise<number | null> => {
     return new Promise((resolve, reject) => {
-      let unlisten: UnlistenFn | null = null;
+      let unlistenExit: UnlistenFn | null = null;
+      let unlistenOutput: UnlistenFn | null = null;
+      const outputLines: string[] = [];
+      const MAX_OUTPUT_LINES = 30;
 
-      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
+      // Capture process output so we can surface it on failure
+      void listen<{ id: number; data: string }>('pty-output', (event) => {
         if (event.payload.id === targetId) {
-          unlisten?.();
-          if (event.payload.code === 0 || event.payload.code === null) {
-            resolve(event.payload.code);
-          } else {
-            reject(new Error(`Process exited with code ${event.payload.code}`));
+          // Split into lines and keep a rolling window
+          const lines = event.payload.data.split(/\r?\n/).filter((l) => l.trim());
+          for (const line of lines) {
+            outputLines.push(line);
+            if (outputLines.length > MAX_OUTPUT_LINES) outputLines.shift();
           }
         }
       }).then((fn) => {
-        unlisten = fn;
+        unlistenOutput = fn;
+      });
+
+      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
+        if (event.payload.id === targetId) {
+          unlistenExit?.();
+          unlistenOutput?.();
+          if (event.payload.code === 0 || event.payload.code === null) {
+            resolve(event.payload.code);
+          } else {
+            const output = outputLines.join('\n').trim();
+            const msg = output
+              ? `Process exited with code ${event.payload.code}\n\n${output}`
+              : `Process exited with code ${event.payload.code}`;
+            reject(new Error(msg));
+          }
+        }
+      }).then((fn) => {
+        unlistenExit = fn;
       });
     });
   };
@@ -157,7 +164,8 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
         return "Git authentication failed. Make sure you're signed into GitHub.";
       }
     }
-    return msg;
+    // Strip the "Error: " prefix that comes from Error.toString()
+    return msg.replace(/^Error:\s*/, '');
   };
 
   /** Run package manager install via PTY, with a pre-check for permissions */
@@ -291,16 +299,6 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     }
   };
 
-  const getStepStatus = (stepId: Step): 'pending' | 'active' | 'done' => {
-    const stepOrder = STEPS.map((s) => s.id);
-    const currentIndex = stepOrder.indexOf(currentStep);
-    const stepIndex = stepOrder.indexOf(stepId);
-
-    if (stepIndex < currentIndex) return 'done';
-    if (stepIndex === currentIndex) return 'active';
-    return 'pending';
-  };
-
   // Filter repos based on search
   const filteredRepos = repos.filter((repo) => {
     if (!searchQuery) return true;
@@ -333,63 +331,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     // Importing state - show progress
     if (isImporting) {
       return (
-        <div className="create-modal-content creating">
-          <h2>Importing "{selectedRepo?.name}"</h2>
-
-          <div className="create-spinner" />
-
-          <p className="create-status">{STATUS_MESSAGES[currentStep]}</p>
-
-          <div className="create-checklist">
-            {STEPS.slice(0, -1).map((step) => {
-              const status = getStepStatus(step.id);
-              return (
-                <div key={step.id} className={`checklist-item ${status}`}>
-                  {status === 'done' ? (
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  ) : status === 'active' ? (
-                    <div className="checklist-spinner" />
-                  ) : (
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                    </svg>
-                  )}
-                  <span>{step.label}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          {error && (
-            <div className="create-error">
-              <p style={{ whiteSpace: 'pre-line' }}>{error}</p>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {currentStep === 'install' && importedProjectPath && (
-                  <button className="btn-primary" onClick={() => void retryInstall()}>
-                    Retry
-                  </button>
-                )}
-                <button onClick={onCancel}>Close</button>
-              </div>
-            </div>
-          )}
-        </div>
+        <Step3ImportProgress
+          repoName={selectedRepo?.name ?? ''}
+          currentStep={currentStep}
+          error={error}
+          importedProjectPath={importedProjectPath}
+          onRetryInstall={() => void retryInstall()}
+          onCancel={onCancel}
+        />
       );
     }
 
@@ -406,189 +355,33 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     // Account selection step
     if (formStep === 'select-account') {
       return (
-        <div className="create-modal-content">
-          <div className="create-modal-header">
-            <div>
-              <h2>Import Project</h2>
-              <p>Select a GitHub account</p>
-            </div>
-            <button className="create-modal-close" onClick={onCancel} type="button">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="import-owner-list">
-            {username && (
-              <button
-                className={`import-owner-btn ${selectedOwner === username ? 'selected' : ''}`}
-                onClick={() => handleOwnerSelect(username)}
-              >
-                <div className="import-owner-avatar">{username[0].toUpperCase()}</div>
-                <div className="import-owner-info">
-                  <span className="import-owner-name">{username}</span>
-                  <span className="import-owner-type">Personal</span>
-                </div>
-              </button>
-            )}
-            {orgs.map((org) => (
-              <button
-                key={org}
-                className={`import-owner-btn ${selectedOwner === org ? 'selected' : ''}`}
-                onClick={() => handleOwnerSelect(org)}
-              >
-                <div className="import-owner-avatar org">{org[0].toUpperCase()}</div>
-                <div className="import-owner-info">
-                  <span className="import-owner-name">{org}</span>
-                  <span className="import-owner-type">Organization</span>
-                </div>
-              </button>
-            ))}
-            {/* Collaborator repos - repos owned by others where user has access */}
-            <button
-              className={`import-owner-btn ${selectedOwner === '__collaborator__' ? 'selected' : ''}`}
-              onClick={() => handleOwnerSelect('__collaborator__')}
-            >
-              <div className="import-owner-avatar collab">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-              </div>
-              <div className="import-owner-info">
-                <span className="import-owner-name">Collaborator Access</span>
-                <span className="import-owner-type">Repos shared with you</span>
-              </div>
-            </button>
-          </div>
-
-          {error && <p className="error">{error}</p>}
-
-          <div className="create-actions">
-            <button type="button" onClick={onCancel}>
-              Cancel
-            </button>
-          </div>
-        </div>
+        <Step1AccountSelection
+          username={username}
+          orgs={orgs}
+          selectedOwner={selectedOwner}
+          error={error}
+          onOwnerSelect={handleOwnerSelect}
+          onCancel={onCancel}
+        />
       );
     }
 
     // Repository selection step
     if (formStep === 'select-repo') {
       return (
-        <div className="create-modal-content import-repo-step">
-          <div className="create-modal-header">
-            <div>
-              <h2>Import Project</h2>
-              <p className="template-context">
-                {selectedOwner === '__collaborator__' ? (
-                  <>Repos shared with you</>
-                ) : (
-                  <>
-                    From <strong>{selectedOwner}</strong>
-                  </>
-                )}
-              </p>
-            </div>
-            <button className="create-modal-close" onClick={onCancel} type="button">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="import-search">
-            <input
-              type="text"
-              placeholder="Search repositories..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              autoFocus
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-            />
-          </div>
-
-          <div className="import-repo-list">
-            {loadingRepos ? (
-              <div className="import-repo-loading">
-                <div className="checklist-spinner" />
-                <span>Loading repositories...</span>
-              </div>
-            ) : filteredRepos.length === 0 ? (
-              <div className="import-repo-empty">
-                {searchQuery ? (
-                  <p>No repositories found matching "{searchQuery}"</p>
-                ) : (
-                  <p>No repositories found</p>
-                )}
-              </div>
-            ) : (
-              filteredRepos.map((repo) => (
-                <button
-                  key={repo.name}
-                  className={`import-repo-item ${selectedRepo?.name === repo.name ? 'selected' : ''}`}
-                  onClick={() => handleRepoSelect(repo)}
-                >
-                  <div className="import-repo-header">
-                    <span className="import-repo-name">{repo.name}</span>
-                    {repo.isPrivate && <span className="import-repo-badge private">Private</span>}
-                    {repo.primaryLanguage && (
-                      <span className="import-repo-badge lang">{repo.primaryLanguage.name}</span>
-                    )}
-                  </div>
-                  {repo.description && (
-                    <p className="import-repo-description">{repo.description}</p>
-                  )}
-                </button>
-              ))
-            )}
-          </div>
-
-          {error && <p className="error">{error}</p>}
-
-          <div className="create-actions">
-            <button type="button" onClick={handleBack}>
-              Back
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={!selectedRepo}
-              onClick={() => void handleImport()}
-            >
-              Import Project
-            </button>
-          </div>
-        </div>
+        <Step2RepoSelection
+          selectedOwner={selectedOwner}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          loadingRepos={loadingRepos}
+          filteredRepos={filteredRepos}
+          selectedRepo={selectedRepo}
+          onRepoSelect={handleRepoSelect}
+          error={error}
+          onBack={handleBack}
+          onImport={() => void handleImport()}
+          onCancel={onCancel}
+        />
       );
     }
 

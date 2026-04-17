@@ -1,0 +1,504 @@
+/* JetBrains Mono Nerd Font for terminal - using WOFF2 format for better web support */
+@font-face {
+  font-family: 'JetBrainsMono NF';
+  src: url('../assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'JetBrainsMono NF';
+  src: url('../assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
+  font-weight: bold;
+  font-style: normal;
+  font-display: block;
+}
+
+/*
+ * ============================================================================
+ * Ship Studio design tokens (single source of truth)
+ * ============================================================================
+ * When editing CSS, ALWAYS prefer these tokens over raw values.
+ * Adding a new color/spacing/radius? Add it here first, then reference it.
+ *
+ * Stable plugin API: --bg-*, --text-*, --accent, --action, --border, --warning,
+ * --success, --error, --font-mono. Renaming any of these is a breaking change.
+ * See CLAUDE.md "Shared CSS Classes" for the related component-level API.
+ * ============================================================================
+ */
+:root {
+  /* Surfaces */
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d2d;
+
+  /* Text */
+  --text-primary: #cccccc;
+  --text-secondary: #9d9d9d;
+  --text-muted: #6d6d6d;
+
+  /* Brand / interactive */
+  --accent: #ffffff;
+  --accent-hover: #e0e0e0;
+  --action: #54e36e;
+  --action-hover: #45c55d;
+  --action-text: #1e1e1e;
+
+  /* Status colors (light variants for tinted backgrounds / pill states) */
+  --success: #4ecdc4;
+  --success-light: #22c55e;
+  --warning: #f59e0b;
+  --warning-light: #fbbf24;
+  --error: #f44747;
+  --error-light: #ef4444;
+
+  /* Structure */
+  --border: #3c3c3c;
+
+  /* Spacing scale (use for padding, margin, gap) */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+
+  /* Border radius scale */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 50%;
+
+  /* Z-index scale (use these — never raw numbers)
+   * Tiers:
+   *   content   — local stacking (content-on-content): 1, 2, 5, 10 raw ok
+   *   dropdown  — menus / tooltips / floating UI over page content
+   *   modal-*   — full-screen overlays + modal content on top of overlay
+   *   app-*     — global overlays owning the full viewport (connect overlay,
+   *               education mode, high-priority toasts). Pre-existing code
+   *               used 10000+ here; the tokens preserve that layering.
+   */
+  --z-dropdown: 100;
+  --z-modal-overlay: 1000;
+  --z-modal: 1001;
+  --z-tooltip: 1100;
+  --z-notification: 1200;
+  --z-app-overlay: 9999;
+  --z-app-modal: 10000;
+  --z-app-modal-content: 10001;
+  --z-app-modal-top: 10002;
+  --z-app-modal-max: 10010;
+  --z-toast: 10000;
+  --z-toast-top: 10001;
+  --z-changelog-sentinel: 100000;
+
+  /* Shadow scale */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
+
+  /* Transition tokens (durations + easing bundled — use as `transition: var(--transition)`) */
+  --transition-fast: 0.1s ease;
+  --transition: 0.15s ease;
+  --transition-slow: 0.3s ease;
+
+  /* Typography */
+  --font-mono: 'JetBrainsMono NF', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+
+/* Common flex centering utility */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* OverlayScrollbars dark theme */
+.os-theme-shipstudio.os-scrollbar {
+  --os-size: 8px;
+  --os-padding-perpendicular: 2px;
+  --os-padding-axis: 2px;
+  --os-track-border-radius: 4px;
+  --os-handle-border-radius: 4px;
+}
+
+.os-theme-shipstudio.os-scrollbar .os-scrollbar-track {
+  background: transparent;
+}
+
+.os-theme-shipstudio.os-scrollbar .os-scrollbar-handle {
+  background: var(--border);
+  transition: background-color 0.2s ease;
+}
+
+.os-theme-shipstudio.os-scrollbar .os-scrollbar-handle:hover {
+  background: var(--text-muted);
+}
+
+.os-theme-shipstudio.os-scrollbar .os-scrollbar-handle:active {
+  background: var(--text-secondary);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+html {
+  background: var(--bg-primary);
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans',
+    'Helvetica Neue', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Compact mode wrapper - transparent background to show rounded corners */
+body.compact-mode-active {
+  background: transparent;
+}
+
+body.compact-mode-active html {
+  background: transparent;
+}
+
+/* App Container */
+.app {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.app.loading {
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+
+.app-logo {
+  height: 48px;
+  width: auto;
+}
+
+/* Spinner */
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--text-muted);
+  border-radius: var(--radius-full);
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Buttons */
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  padding: 10px 16px;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    opacity 0.2s;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+button:hover {
+  background: var(--border);
+}
+
+.btn-primary {
+  background: var(--action);
+  color: var(--action-text);
+  font-weight: 500;
+}
+
+.btn-primary:hover {
+  background: var(--action-hover);
+  color: var(--action-text);
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.btn-secondary:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+}
+
+/* Toolbar icon buttons (header actions row) */
+.toolbar-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 28px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.toolbar-icon-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.toolbar-icon-btn svg {
+  color: var(--text-muted);
+}
+
+.toolbar-icon-btn:hover svg {
+  color: var(--text-secondary);
+}
+
+/* ===== Primitive: ModalFrame ===== */
+.modal-frame-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-overlay);
+  padding: var(--spacing-lg);
+}
+
+.modal-frame-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-modal);
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  width: 480px;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-frame-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-frame-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.modal-frame-close {
+  background: transparent;
+  border: none;
+  padding: var(--spacing-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.modal-frame-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* ===== Primitive: Button ===== */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition),
+    opacity var(--transition);
+  white-space: nowrap;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.button--primary {
+  background: var(--action);
+  color: var(--action-text);
+  border-color: var(--action);
+}
+
+.button--primary:hover:not(:disabled) {
+  background: var(--action-hover);
+  border-color: var(--action-hover);
+}
+
+.button--secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.button--secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.button--danger {
+  background: transparent;
+  color: var(--error-light);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.button--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.button--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+
+.button--ghost:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.button--sm {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: 12px;
+}
+
+.button--block {
+  width: 100%;
+}
+
+/* ===== Primitive: EmptyState ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state-icon {
+  color: var(--text-muted);
+}
+
+.empty-state-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.empty-state-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+/* ===== Primitive: Skeleton ===== */
+@keyframes skeleton-pulse {
+  0% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0.5;
+  }
+}
+
+.skeleton {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton--text {
+  height: 12px;
+  width: 100%;
+}
+
+.skeleton--card {
+  height: 96px;
+  width: 100%;
+  border-radius: var(--radius-md);
+}
+
+.skeleton--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-md);
+}

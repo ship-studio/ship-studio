@@ -6,7 +6,7 @@
  * @module components/PullRequestsTab
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   PullRequestInfo,
@@ -17,8 +17,12 @@ import {
   deleteBranch,
   switchBranch,
 } from '../lib/branches';
+import { useAsyncState } from '../hooks/useAsyncState';
 import { GitHubIcon, WarningIcon, BranchIcon } from './icons';
-import { trackError } from '../lib/analytics';
+import { trackEvent, trackError } from '../lib/analytics';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface PullRequestsTabProps {
   /** Project path for PR operations */
@@ -29,8 +33,6 @@ interface PullRequestsTabProps {
   currentBranch?: string;
   /** Callback to refresh after merge */
   onRefresh: () => void;
-  /** Callback for toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Callback when switching branches */
   onBranchSwitch?: (branchName: string) => void;
   /** Callback to navigate to branches tab */
@@ -44,13 +46,34 @@ export function PullRequestsTab({
   githubUsername,
   currentBranch,
   onRefresh,
-  onToast,
   onBranchSwitch,
   onNavigateToBranches,
   onResolveConflicts,
 }: PullRequestsTabProps) {
-  const [pullRequests, setPullRequests] = useState<PullRequestInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+
+  const fetchPrsFn = useCallback(async (path: string) => {
+    try {
+      return await listPullRequests(path);
+    } catch (e) {
+      trackError('pr_list', e, 'Workspace');
+      throw e;
+    }
+  }, []);
+  const {
+    data: pullRequestsData,
+    isLoading,
+    error: fetchError,
+    execute: executeFetchPrs,
+  } = useAsyncState<PullRequestInfo[], [string]>(fetchPrsFn, { initial: [] });
+  const pullRequests = pullRequestsData ?? [];
+  const error = fetchError ? fetchError.message : null;
+  const fetchPullRequests = useCallback(
+    () => executeFetchPrs(projectPath),
+    [executeFetchPrs, projectPath]
+  );
+
   const [mergingPr, setMergingPr] = useState<number | null>(null);
   const [checkingOutPr, setCheckingOutPr] = useState<number | null>(null);
   const [checkedOutHead, setCheckedOutHead] = useState<string | null>(null);
@@ -58,7 +81,6 @@ export function PullRequestsTab({
   const [confirmClosePr, setConfirmClosePr] = useState<PullRequestInfo | null>(null);
   const [confirmCheckoutPr, setConfirmCheckoutPr] = useState<PullRequestInfo | null>(null);
   const [confirmMergePr, setConfirmMergePr] = useState<PullRequestInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [postMergeInfo, setPostMergeInfo] = useState<{
     branchName: string;
     baseBranch: string;
@@ -85,27 +107,17 @@ export function PullRequestsTab({
   // Fetch pull requests
   useEffect(() => {
     void fetchPullRequests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectPath]);
-
-  const fetchPullRequests = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const prs = await listPullRequests(projectPath);
-      setPullRequests(prs);
-    } catch (e) {
-      trackError('pr_list', e, 'Workspace');
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [fetchPullRequests]);
 
   const handleMerge = async (prNumber: number, headRef: string, baseRef: string) => {
     setMergingPr(prNumber);
     try {
       await mergePullRequest(projectPath, prNumber);
+      void trackEvent('pr_merged', {
+        head_ref: headRef,
+        base_ref: baseRef,
+        $screen_name: 'Workspace',
+      });
       onToast?.('Pull request merged', 'success');
       await fetchPullRequests();
       onRefresh();
@@ -129,6 +141,10 @@ export function PullRequestsTab({
         onBranchSwitch?.(postMergeInfo.baseBranch);
         // Delete the merged branch
         await deleteBranch(projectPath, postMergeInfo.branchName, true);
+        void trackEvent('post_merge_cleanup', {
+          deleted_branch: postMergeInfo.branchName,
+          $screen_name: 'Workspace',
+        });
         onToast?.(
           `Switched to ${postMergeInfo.baseBranch} and deleted ${postMergeInfo.branchName}`,
           'success'
@@ -152,6 +168,7 @@ export function PullRequestsTab({
       await checkoutPullRequest(projectPath, prNumber);
       setCheckedOutHead(headRef);
       onBranchSwitch?.(headRef);
+      void trackEvent('pr_checked_out', { head_ref: headRef, $screen_name: 'Workspace' });
       onToast?.(`Checked out branch ${headRef}`, 'success');
     } catch (e) {
       trackError('pr_checkout', e, 'Workspace');
@@ -165,6 +182,7 @@ export function PullRequestsTab({
     setClosingPr(prNumber);
     try {
       await closePullRequest(projectPath, prNumber);
+      void trackEvent('pr_closed', { $screen_name: 'Workspace' });
       onToast?.('Pull request closed', 'success');
       await fetchPullRequests();
       onRefresh();
@@ -259,155 +277,156 @@ export function PullRequestsTab({
 
       {/* Merge PR confirmation modal */}
       {confirmMergePr && (
-        <div className="post-merge-modal" onClick={() => !mergingPr && setConfirmMergePr(null)}>
-          <div className="post-merge-content" onClick={(e) => e.stopPropagation()}>
-            <div className="post-merge-header">
-              <h3>Merge Pull Request?</h3>
-            </div>
-            <div className="post-merge-body">
-              <p>
-                This will merge <strong>{confirmMergePr.headRef}</strong> into{' '}
-                <strong>{confirmMergePr.baseRef}</strong>. The changes will go live, but can be
-                rolled back if needed.
-              </p>
-            </div>
-            <div className="post-merge-footer">
-              <button
-                className="post-merge-btn secondary"
-                onClick={() => setConfirmMergePr(null)}
-                disabled={!!mergingPr}
-              >
-                Cancel
-              </button>
-              <button
-                className="post-merge-btn primary"
-                onClick={() => {
-                  void handleMerge(
-                    confirmMergePr.number,
-                    confirmMergePr.headRef,
-                    confirmMergePr.baseRef
-                  ).then(() => setConfirmMergePr(null));
-                }}
-                disabled={!!mergingPr}
-              >
-                {mergingPr ? 'Merging...' : 'Merge'}
-              </button>
-            </div>
+        <ModalFrame
+          isOpen
+          onClose={() => setConfirmMergePr(null)}
+          dismissable={!mergingPr}
+          title="Merge Pull Request?"
+          className="post-merge-content"
+        >
+          <div className="post-merge-body">
+            <p>
+              This will merge <strong>{confirmMergePr.headRef}</strong> into{' '}
+              <strong>{confirmMergePr.baseRef}</strong>. The changes will go live, but can be rolled
+              back if needed.
+            </p>
           </div>
-        </div>
+          <div className="post-merge-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmMergePr(null)}
+              disabled={!!mergingPr}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                void handleMerge(
+                  confirmMergePr.number,
+                  confirmMergePr.headRef,
+                  confirmMergePr.baseRef
+                ).then(() => setConfirmMergePr(null));
+              }}
+              disabled={!!mergingPr}
+            >
+              {mergingPr ? 'Merging...' : 'Merge'}
+            </Button>
+          </div>
+        </ModalFrame>
       )}
 
       {/* Post-merge cleanup modal */}
       {postMergeInfo && (
-        <div className="post-merge-modal" onClick={() => !isCleaningUp && setPostMergeInfo(null)}>
-          <div className="post-merge-content" onClick={(e) => e.stopPropagation()}>
-            <div className="post-merge-header">
-              <h3>Branch Merged!</h3>
-            </div>
-            <div className="post-merge-body">
-              <p>
-                Would you like to switch to <strong>{postMergeInfo.baseBranch}</strong> and delete
-                the <strong>{postMergeInfo.branchName}</strong> branch?
-              </p>
-            </div>
-            <div className="post-merge-footer">
-              <button
-                className="post-merge-btn secondary"
-                onClick={() => setPostMergeInfo(null)}
-                disabled={isCleaningUp}
-              >
-                No, thanks
-              </button>
-              <button
-                className="post-merge-btn primary"
-                onClick={() => void handlePostMergeCleanup()}
-                disabled={isCleaningUp}
-              >
-                {isCleaningUp ? 'Cleaning up...' : 'Yes, clean up'}
-              </button>
-            </div>
+        <ModalFrame
+          isOpen
+          onClose={() => setPostMergeInfo(null)}
+          dismissable={!isCleaningUp}
+          title="Branch Merged!"
+          className="post-merge-content"
+        >
+          <div className="post-merge-body">
+            <p>
+              Would you like to switch to <strong>{postMergeInfo.baseBranch}</strong> and delete the{' '}
+              <strong>{postMergeInfo.branchName}</strong> branch?
+            </p>
           </div>
-        </div>
+          <div className="post-merge-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setPostMergeInfo(null)}
+              disabled={isCleaningUp}
+            >
+              No, thanks
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => void handlePostMergeCleanup()}
+              disabled={isCleaningUp}
+            >
+              {isCleaningUp ? 'Cleaning up...' : 'Yes, clean up'}
+            </Button>
+          </div>
+        </ModalFrame>
       )}
 
       {/* Close PR confirmation modal */}
       {confirmClosePr && (
-        <div className="post-merge-modal" onClick={() => !closingPr && setConfirmClosePr(null)}>
-          <div className="post-merge-content" onClick={(e) => e.stopPropagation()}>
-            <div className="post-merge-header">
-              <h3>Close Pull Request?</h3>
-            </div>
-            <div className="post-merge-body">
-              <p>
-                This will close{' '}
-                <strong>
-                  #{confirmClosePr.number} {confirmClosePr.title}
-                </strong>{' '}
-                without merging. The <strong>{confirmClosePr.headRef}</strong> branch will still
-                exist and no progress will be lost. You can reopen this PR later from GitHub.
-              </p>
-            </div>
-            <div className="post-merge-footer">
-              <button
-                className="post-merge-btn secondary"
-                onClick={() => setConfirmClosePr(null)}
-                disabled={!!closingPr}
-              >
-                Cancel
-              </button>
-              <button
-                className="post-merge-btn danger"
-                onClick={() => {
-                  void handleClose(confirmClosePr.number).then(() => setConfirmClosePr(null));
-                }}
-                disabled={!!closingPr}
-              >
-                {closingPr ? 'Closing...' : 'Close PR'}
-              </button>
-            </div>
+        <ModalFrame
+          isOpen
+          onClose={() => setConfirmClosePr(null)}
+          dismissable={!closingPr}
+          title="Close Pull Request?"
+          className="post-merge-content"
+        >
+          <div className="post-merge-body">
+            <p>
+              This will close{' '}
+              <strong>
+                #{confirmClosePr.number} {confirmClosePr.title}
+              </strong>{' '}
+              without merging. The <strong>{confirmClosePr.headRef}</strong> branch will still exist
+              and no progress will be lost. You can reopen this PR later from GitHub.
+            </p>
           </div>
-        </div>
+          <div className="post-merge-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmClosePr(null)}
+              disabled={!!closingPr}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                void handleClose(confirmClosePr.number).then(() => setConfirmClosePr(null));
+              }}
+              disabled={!!closingPr}
+            >
+              {closingPr ? 'Closing...' : 'Close PR'}
+            </Button>
+          </div>
+        </ModalFrame>
       )}
 
       {/* Checkout PR confirmation modal */}
       {confirmCheckoutPr && (
-        <div
-          className="post-merge-modal"
-          onClick={() => !checkingOutPr && setConfirmCheckoutPr(null)}
+        <ModalFrame
+          isOpen
+          onClose={() => setConfirmCheckoutPr(null)}
+          dismissable={!checkingOutPr}
+          title="Pull this branch?"
+          className="post-merge-content"
         >
-          <div className="post-merge-content" onClick={(e) => e.stopPropagation()}>
-            <div className="post-merge-header">
-              <h3>Pull this branch?</h3>
-            </div>
-            <div className="post-merge-body">
-              <p>
-                This will switch your project to the <strong>{confirmCheckoutPr.headRef}</strong>{' '}
-                branch and pull the latest changes from the pull request. Any uncommitted changes on
-                your current branch will be stashed.
-              </p>
-            </div>
-            <div className="post-merge-footer">
-              <button
-                className="post-merge-btn secondary"
-                onClick={() => setConfirmCheckoutPr(null)}
-                disabled={!!checkingOutPr}
-              >
-                Cancel
-              </button>
-              <button
-                className="post-merge-btn primary"
-                onClick={() => {
-                  void handleCheckout(confirmCheckoutPr.number, confirmCheckoutPr.headRef).then(
-                    () => setConfirmCheckoutPr(null)
-                  );
-                }}
-                disabled={!!checkingOutPr}
-              >
-                {checkingOutPr ? 'Pulling...' : 'Pull'}
-              </button>
-            </div>
+          <div className="post-merge-body">
+            <p>
+              This will switch your project to the <strong>{confirmCheckoutPr.headRef}</strong>{' '}
+              branch and pull the latest changes from the pull request. Any uncommitted changes on
+              your current branch will be stashed.
+            </p>
           </div>
-        </div>
+          <div className="post-merge-footer">
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmCheckoutPr(null)}
+              disabled={!!checkingOutPr}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                void handleCheckout(confirmCheckoutPr.number, confirmCheckoutPr.headRef).then(() =>
+                  setConfirmCheckoutPr(null)
+                );
+              }}
+              disabled={!!checkingOutPr}
+            >
+              {checkingOutPr ? 'Pulling...' : 'Pull'}
+            </Button>
+          </div>
+        </ModalFrame>
       )}
     </div>
   );

@@ -21,8 +21,10 @@ import {
 import { getChangedFiles, ChangedFile } from '../lib/git';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
+import { trackEvent } from '../lib/analytics';
 import type { PreviewHandle } from '../components/Preview';
 import type { CodeHealthPanelRef } from '../components/CodeHealthPanel';
+import { usePolling } from './usePolling';
 import type { Project } from '../lib/project';
 
 export interface UseBranchManagementParams {
@@ -87,6 +89,9 @@ export function useBranchManagement({
   const currentBranchRef = useRef(currentBranch);
   currentBranchRef.current = currentBranch;
 
+  // Track previous hasChanges state to detect external pushes (agent/CLI)
+  const hadChangesRef = useRef(false);
+
   // Track branch-switch timeouts so they can be cancelled on unmount or re-switch
   const branchSwitchTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -100,14 +105,30 @@ export function useBranchManagement({
           getChangedFiles(projectPath).catch(() => []),
         ]);
 
-        // Update branch if changed (e.g., user switched via CLI)
+        // Update branch if changed (e.g., user switched via CLI/agent)
         if (branch && branch !== currentBranchRef.current) {
           setCurrentBranch(branch);
+          void trackEvent('branch_switched', {
+            source: 'external',
+            from_branch: currentBranchRef.current,
+            to_branch: branch,
+            $screen_name: 'Workspace',
+          });
           // Refresh full branch list when branch changes
           void listBranches(projectPath)
             .then(setBranches)
             .catch((err) => logger.warn('Failed to refresh branch list', { error: err }));
         }
+
+        // Detect external push: had changes before, now synced, same branch
+        if (hadChangesRef.current && !hasChanges && branch === currentBranchRef.current) {
+          void trackEvent('branch_published', {
+            source: 'external',
+            branch: branch,
+            $screen_name: 'Workspace',
+          });
+        }
+        hadChangesRef.current = hasChanges;
 
         setHasUncommittedChanges(hasChanges);
         setChangedFiles(files);
@@ -119,49 +140,30 @@ export function useBranchManagement({
     [] // stable — reads currentBranch from ref
   );
 
-  // Periodically check git status when a project is open and window is focused
+  // Track tab visibility so polling pauses when the window is hidden
+  const [isTabVisible, setIsTabVisible] = useState(() =>
+    typeof document === 'undefined' ? true : !document.hidden
+  );
   useEffect(() => {
-    if (!currentProject?.path) return;
+    const handler = () => setIsTabVisible(!document.hidden);
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, []);
 
-    let interval: ReturnType<typeof setInterval> | null = null;
-
-    const startPolling = () => {
-      // Check immediately when starting/resuming
-      void checkGitStatus(currentProject.path);
-      // Then check every 10 seconds (reduced from 3s to lower CPU usage)
-      interval = setInterval(() => {
-        void checkGitStatus(currentProject.path);
-      }, 10000);
-    };
-
-    const stopPolling = () => {
-      if (interval) {
-        clearInterval(interval);
-        interval = null;
+  // Periodically check git status when a project is open and window is focused
+  const projectPath = currentProject?.path ?? null;
+  usePolling(
+    async () => {
+      if (projectPath) {
+        await checkGitStatus(projectPath);
       }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopPolling();
-      } else {
-        startPolling();
-      }
-    };
-
-    // Start polling if window is visible
-    if (!document.hidden) {
-      startPolling();
+    },
+    {
+      intervalMs: 10000,
+      enabled: !!projectPath && isTabVisible,
+      name: 'branchManagement.checkGitStatus',
     }
-
-    // Listen for visibility changes
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      stopPolling();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [currentProject?.path, checkGitStatus]);
+  );
 
   // Clear branch-switch timers on unmount
   useEffect(() => {

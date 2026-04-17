@@ -107,7 +107,7 @@ export const GitHubCalendar = memo(function GitHubCalendar({
   const showSkeleton = !isAuthCheckDone || !username || !dataLoaded;
 
   return (
-    <div className="github-calendar-wrapper">
+    <div className="github-calendar-wrapper" data-education-id="github-calendar">
       {onHide && (
         <button
           className="github-calendar-hide-btn"

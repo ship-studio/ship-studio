@@ -14,8 +14,10 @@
  * @module components/WorkspaceHeader
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { GitHubButton } from './GitHubButton';
+import { ClientEditorButton } from './ClientEditorButton';
 import { checkIdeAvailability, openInIde as launchIde, openInFinder } from '../lib/ide';
 import { PublishBranchDropdown } from './PublishBranchDropdown';
 import { PluginSlot } from './PluginSlot';
@@ -28,14 +30,16 @@ import {
   HistoryIcon,
   DollarIcon,
   PuzzleIcon,
-  BugIcon,
+  HelpIcon,
 } from './icons';
-import { BugReportModal } from './BugReportButton';
+import { SupportPanel } from './support/SupportPanel';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import type { IntegrationState } from '../hooks/useIntegrationStatus';
 import type { LoadedPlugin } from '../hooks/usePlugins';
 import type { PluginThemeData } from '../contexts/PluginContext';
+
+const HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare', 'netlify'];
 
 export interface WorkspaceHeaderProps {
   // Project
@@ -60,7 +64,6 @@ export interface WorkspaceHeaderProps {
   onGitHubStatusChange: () => void;
   onGitHubConnect: () => void;
   focusActiveTerminal: () => void;
-  onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 
   // Publish
   currentBranch: string | null;
@@ -114,7 +117,6 @@ export function WorkspaceHeader({
   onGitHubStatusChange,
   onGitHubConnect,
   focusActiveTerminal,
-  onToast,
   currentBranch,
   hasUncommittedChanges,
   isPublishing,
@@ -129,8 +131,32 @@ export function WorkspaceHeader({
   pluginActions,
   pluginTheme,
 }: WorkspaceHeaderProps) {
-  // Bug report modal state
-  const [isBugReportOpen, setIsBugReportOpen] = useState(false);
+  // Window dragging — only from the title bar (not the toolbar with plugins)
+  const handleDrag = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
+    e.preventDefault();
+    void getCurrentWindow().startDragging();
+  }, []);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
+    const win = getCurrentWindow();
+    void win.isMaximized().then((maximized) => {
+      void (maximized ? win.unmaximize() : win.maximize());
+    });
+  }, []);
+
+  // Split toolbar plugins: hosting plugins (vercel, etc.) go on the right side
+  const toolbarPlugins = useMemo(() => {
+    const all = getSlotPlugins('toolbar');
+    return {
+      regular: all.filter((p) => !HOSTING_PLUGIN_IDS.includes(p.info.manifest.id)),
+      hosting: all.filter((p) => HOSTING_PLUGIN_IDS.includes(p.info.manifest.id)),
+    };
+  }, [getSlotPlugins]);
+
+  // Support panel state
+  const [isSupportPanelOpen, setIsSupportPanelOpen] = useState(false);
 
   // IDE dropdown state (internal to header)
   const [showIdeDropdown, setShowIdeDropdown] = useState(false);
@@ -164,9 +190,9 @@ export function WorkspaceHeader({
     }
   };
 
-  return (
-    <header className="workspace-header">
-      <button className="back-button" onClick={onBackToProjects}>
+  const titlebar = (
+    <div className="workspace-titlebar" onMouseDown={handleDrag} onDoubleClick={handleDoubleClick}>
+      <button className="back-link" onClick={onBackToProjects}>
         ← Projects
       </button>
       <h1>{projectName}</h1>
@@ -177,33 +203,48 @@ export function WorkspaceHeader({
       >
         {projectPath}
       </button>
+    </div>
+  );
 
-      <div className="workspace-header-actions">
-        <PluginSlot
-          name="toolbar"
-          plugins={getSlotPlugins('toolbar')}
-          project={pluginProject}
-          actions={pluginActions}
-          theme={pluginTheme}
-        />
+  const toolbar = (
+    <header className="workspace-header">
+      {/* Left side — utility buttons + plugin toolbar slots */}
+      <div className="workspace-header-left">
         <button
           className={`toolbar-icon-btn ${isEducationMode ? 'active' : ''}`}
           onClick={(e) => {
             e.stopPropagation();
             onToggleEducationMode();
           }}
-          title="Education Mode"
+          title="Learn Mode"
           data-education-id="education-button"
         >
-          <GraduationCapIcon size={14} />
+          <GraduationCapIcon size={12} />
+          <span>Learn Mode</span>
         </button>
         <button
           className="toolbar-icon-btn"
-          onClick={onOpenPluginManager}
-          title="Manage Plugins"
-          data-education-id="plugin-manager"
+          onClick={onOpenBackupsModal}
+          title="Backups"
+          data-education-id="backups-button"
         >
-          <PuzzleIcon size={14} />
+          <HistoryIcon size={12} />
+        </button>
+        <button
+          className="toolbar-icon-btn"
+          onClick={onOpenEnvEditor}
+          title="Environment Variables"
+          data-education-id="env-button"
+        >
+          <DollarIcon size={12} />
+        </button>
+        <button
+          className="toolbar-icon-btn"
+          onClick={() => setIsSupportPanelOpen(true)}
+          title="Support"
+          data-education-id="support-button"
+        >
+          <HelpIcon size={12} />
         </button>
         <button
           className="toolbar-icon-btn"
@@ -211,7 +252,15 @@ export function WorkspaceHeader({
           title="Assets"
           data-education-id="assets-button"
         >
-          <ImageIcon size={14} />
+          <ImageIcon size={12} />
+        </button>
+        <button
+          className="toolbar-icon-btn"
+          onClick={onOpenPluginManager}
+          title="Manage Plugins"
+          data-education-id="plugin-manager"
+        >
+          <PuzzleIcon size={12} />
         </button>
         <div
           className="ide-dropdown-container"
@@ -220,7 +269,7 @@ export function WorkspaceHeader({
           data-education-id="ide-button"
         >
           <button className="toolbar-icon-btn" title="Open in IDE">
-            <CodeIcon size={14} />
+            <CodeIcon size={12} />
           </button>
           {showIdeDropdown && (
             <div className="ide-dropdown">
@@ -244,30 +293,32 @@ export function WorkspaceHeader({
             </div>
           )}
         </div>
-        <button
-          className="toolbar-icon-btn"
-          onClick={onOpenEnvEditor}
-          title="Environment Variables"
-          data-education-id="env-button"
-        >
-          <DollarIcon size={14} />
-        </button>
-        <button
-          className="toolbar-icon-btn"
-          onClick={onOpenBackupsModal}
-          title="Backups"
-          data-education-id="backups-button"
-        >
-          <HistoryIcon size={14} />
-        </button>
-        <button
-          className="toolbar-icon-btn"
-          onClick={() => setIsBugReportOpen(true)}
-          title="Report a Bug"
-          data-education-id="bug-report-button"
-        >
-          <BugIcon size={14} />
-        </button>
+        <PluginSlot
+          name="toolbar"
+          plugins={toolbarPlugins.regular}
+          project={pluginProject}
+          actions={pluginActions}
+          theme={pluginTheme}
+        />
+      </div>
+
+      {/* Right side — client editor, hosting plugin, GitHub, Publish */}
+      <div className="workspace-header-right">
+        <ClientEditorButton projectPath={projectPath} />
+        <PluginSlot
+          name="toolbar"
+          plugins={toolbarPlugins.hosting}
+          project={pluginProject}
+          actions={pluginActions}
+          theme={pluginTheme}
+        />
+        <PluginSlot
+          name="publish"
+          plugins={getSlotPlugins('publish')}
+          project={pluginProject}
+          actions={pluginActions}
+          theme={pluginTheme}
+        />
         <span data-education-id="github-button">
           <GitHubButton
             githubState={integrations.github}
@@ -277,7 +328,6 @@ export function WorkspaceHeader({
             onStatusChange={onGitHubStatusChange}
             onGitHubConnect={onGitHubConnect}
             onModalClose={focusActiveTerminal}
-            onToast={onToast}
           />
         </span>
         <PublishBranchDropdown
@@ -287,7 +337,6 @@ export function WorkspaceHeader({
           hasChangesToSync={hasUncommittedChanges}
           onStatusChange={onPublishStatusChange}
           onModalClose={focusActiveTerminal}
-          onToast={onToast}
           isPublishing={isPublishing}
           setIsPublishing={setIsPublishing}
           onPublishError={onPublishError}
@@ -295,15 +344,18 @@ export function WorkspaceHeader({
           forceOpen={forcePublishOpen}
           onForceOpenHandled={onForcePublishOpenHandled}
         />
-        <PluginSlot
-          name="publish"
-          plugins={getSlotPlugins('publish')}
-          project={pluginProject}
-          actions={pluginActions}
-          theme={pluginTheme}
-        />
       </div>
-      <BugReportModal isOpen={isBugReportOpen} onClose={() => setIsBugReportOpen(false)} />
     </header>
   );
+
+  const supportPanel = (
+    <SupportPanel
+      isOpen={isSupportPanelOpen}
+      onClose={() => setIsSupportPanelOpen(false)}
+      projectPath={projectPath}
+      projectName={projectName}
+    />
+  );
+
+  return { titlebar, toolbar, supportPanel };
 }

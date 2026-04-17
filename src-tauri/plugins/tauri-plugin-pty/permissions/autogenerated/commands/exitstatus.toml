@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-exitstatus"
+description = "Enables the exitstatus command without any pre-configured scope."
+commands.allow = ["exitstatus"]
+
+[[permission]]
+identifier = "deny-exitstatus"
+description = "Denies the exitstatus command without any pre-configured scope."
+commands.deny = ["exitstatus"]

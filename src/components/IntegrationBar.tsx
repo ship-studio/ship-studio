@@ -82,7 +82,10 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
   };
 
   return (
-    <div className={`integration-bar ${isExpanded ? 'expanded' : ''}`}>
+    <div
+      className={`integration-bar ${isExpanded ? 'expanded' : ''}`}
+      data-education-id="integration-bar"
+    >
       <button className="integration-bar-toggle" onClick={() => setIsExpanded(!isExpanded)}>
         {isLoading ? (
           <>

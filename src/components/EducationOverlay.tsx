@@ -184,7 +184,7 @@ export function EducationOverlay({ onClose }: EducationOverlayProps) {
 
       {/* Exit hint */}
       <div className="education-exit-hint">
-        Press <kbd>Esc</kbd> or click anywhere to exit Education Mode
+        Press <kbd>Esc</kbd> or click anywhere to exit Learn Mode
       </div>
     </div>
   );

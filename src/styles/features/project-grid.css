@@ -1,0 +1,344 @@
+/* Project Grid */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: visible;
+  transition: border-color var(--transition);
+  min-width: 0;
+}
+
+.project-card:hover {
+  border-color: var(--text-muted);
+}
+
+.project-card-thumbnail {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 8.85;
+  padding: 0;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.project-card-thumbnail img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: auto;
+  background: var(--bg-tertiary);
+}
+
+.project-card-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.project-card-info {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 16px;
+  gap: 8px;
+  overflow: visible;
+  background: var(--bg-secondary);
+  border-radius: 0 0 12px 12px;
+}
+
+.project-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.project-card-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-path {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-menu {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.project-card-menu:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.project-list-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 300px;
+  gap: 16px;
+}
+
+.project-list-cleanup-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Project Card Menu Dropdown */
+.project-card-menu-container {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.project-card-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: var(--z-modal-overlay);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  min-width: 200px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+  margin-top: 4px;
+}
+
+.project-card-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+  white-space: nowrap;
+}
+
+.project-card-dropdown-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.project-card-dropdown-item.danger {
+  color: var(--danger);
+}
+
+.project-card-dropdown-item.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.project-card-dropdown-item .toggle-indicator {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.project-card-dropdown-item .toggle-indicator.on {
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--success);
+}
+
+.project-card-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* Auto-accept mode badge on project card */
+.project-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-card-auto-accept-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--warning-light);
+  flex-shrink: 0;
+}
+
+/* Auto-accept warning modal */
+.auto-accept-warning-modal {
+  max-width: 480px;
+  text-align: center;
+}
+
+.auto-accept-warning-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  border-radius: var(--radius-full);
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning-light);
+}
+
+.auto-accept-warning-modal h3 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.auto-accept-warning-modal p {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.auto-accept-warning-list {
+  text-align: left;
+  margin: 0 0 16px;
+  padding-left: 24px;
+  color: var(--text-secondary);
+}
+
+.auto-accept-warning-list li {
+  margin: 4px 0;
+}
+
+.auto-accept-warning-disclaimer {
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+.btn-warning {
+  background: var(--warning-light);
+  color: var(--text-on-warning, #000);
+}
+
+.btn-warning:hover {
+  background: var(--warning);
+}
+
+/* ============ Responsive Project Grid ============ */
+
+/* Medium screens - 2 columns */
+@media (max-width: 700px) {
+  .project-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .project-card-info {
+    padding: 10px 12px;
+  }
+
+  .project-card-name {
+    font-size: 14px;
+  }
+
+  .folder-card-info {
+    padding: 10px 12px;
+  }
+
+  .folder-card-name {
+    font-size: 14px;
+  }
+}
+
+/* Narrow screens - single column */
+@media (max-width: 550px) {
+  .project-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .project-card-info {
+    padding: 10px 12px;
+  }
+
+  .project-card-name {
+    font-size: 14px;
+  }
+
+  .project-card-meta {
+    font-size: 11px;
+  }
+
+  .project-card-deployment {
+    font-size: 11px;
+  }
+
+  .folder-card-info {
+    padding: 10px 12px;
+  }
+
+  .folder-card-name {
+    font-size: 14px;
+  }
+
+  .folder-card-count {
+    font-size: 11px;
+  }
+
+  /* Smaller dropdown for narrow screens */
+  .project-card-dropdown {
+    min-width: 180px;
+  }
+
+  .project-card-dropdown-item {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+}

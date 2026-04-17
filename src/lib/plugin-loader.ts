@@ -141,6 +141,34 @@ export function unloadPluginModule(projectPath: string, pluginId: string): void 
   }
 }
 
+/** Plugins that crashed at render time. Checked synchronously by PluginSlot to skip them. */
+const crashedPlugins = new Set<string>();
+
+/** Mark a plugin as crashed so it's immediately skipped on next render. */
+export function markPluginCrashed(pluginId: string): void {
+  crashedPlugins.add(pluginId);
+}
+
+/** Check if a plugin has been marked as crashed. */
+export function isPluginCrashed(pluginId: string): boolean {
+  return crashedPlugins.has(pluginId);
+}
+
+/**
+ * Look up which plugin owns a blob URL.
+ * Returns `{ projectPath, pluginId }` or null if not found.
+ */
+export function lookupBlobOwner(blobUrl: string): { projectPath: string; pluginId: string } | null {
+  const base = blobUrl.split('#')[0];
+  for (const [key, url] of blobUrlCache) {
+    if (url === base) {
+      const sep = key.indexOf(':');
+      return { projectPath: key.slice(0, sep), pluginId: key.slice(sep + 1) };
+    }
+  }
+  return null;
+}
+
 /**
  * Expose React and ReactDOM as window globals for plugins.
  *

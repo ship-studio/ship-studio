@@ -299,6 +299,10 @@ export function useDevServer() {
           }
           await stopAndRestart();
         }
+        void trackEvent('dev_server_restarted', {
+          project_type: projectType,
+          $screen_name: 'Workspace',
+        });
       } catch (error) {
         logger.error('Failed to restart dev server', { error });
       } finally {
@@ -317,6 +321,10 @@ export function useDevServer() {
         logger.error('Failed to save custom dev command', { error: e });
       }
       setCustomDevCommand(command);
+      void trackEvent('custom_dev_command_saved', {
+        has_command: !!command,
+        $screen_name: 'Workspace',
+      });
 
       // Stop current dev server if running
       if (devServerRef.current) {

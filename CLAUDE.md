@@ -233,6 +233,167 @@ CSS variables (`--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--text-primar
 - Vercel: Check via `vercel whoami`
 - Claude: Check via `claude --version`
 
+## How to Do Things in Ship Studio
+
+These are the canonical patterns. Follow them — a DX refactor (see [DX_REFACTOR_PLAN.md](DX_REFACTOR_PLAN.md)) established primitives so the same logic isn't re-invented in every component. New code that bypasses these patterns will get flagged in review.
+
+### New modal → use `<ModalFrame>` from `src/components/primitives/ModalFrame.tsx`
+
+Don't hand-roll overlay divs, ESC handling, or close buttons.
+
+```tsx
+// ❌ Don't
+<div className="my-modal-overlay" onClick={onClose}>
+  <div className="my-modal-content" onClick={(e) => e.stopPropagation()}>
+    <h3>Title</h3>
+    <button onClick={onClose}>×</button>
+    ...
+  </div>
+</div>
+
+// ✅ Do
+import { ModalFrame } from './primitives/ModalFrame';
+
+<ModalFrame isOpen={isOpen} onClose={onClose} title="Title">
+  {/* body */}
+</ModalFrame>
+```
+
+For toggling state, pair with `useModalState()` from `src/hooks/useModalState.ts`.
+
+### New button → use `<Button variant="...">` from `src/components/primitives/Button.tsx`
+
+Don't invent per-domain button classes (`foo-btn`, `xyz-action`, etc.) — they fragment the design system.
+
+```tsx
+// ❌ Don't
+<button className="publish-btn primary" onClick={...}>Publish</button>
+
+// ✅ Do
+import { Button } from './primitives/Button';
+
+<Button variant="primary" onClick={...}>Publish</Button>
+```
+
+Variants: `primary | secondary | danger | ghost`. Sizes: `md | sm`. Use `block` for full-width.
+
+### Async state in components → use `useAsyncState` or `useInvoke`
+
+Don't hand-roll `isLoading` + `error` + `data` state triples; they forget the mount guard, forget the `finally`, and drift.
+
+```tsx
+// ❌ Don't
+const [data, setData] = useState(null);
+const [isLoading, setIsLoading] = useState(false);
+const [error, setError] = useState<string | null>(null);
+const load = async () => {
+  setIsLoading(true);
+  try { setData(await invoke('cmd', {...})); } catch (e) { setError(String(e)); } finally { setIsLoading(false); }
+};
+
+// ✅ Do
+import { useInvoke } from '../hooks/useInvoke';
+const { data, isLoading, error, execute } = useInvoke<ResultType>('cmd');
+// call execute({ args }) when ready
+```
+
+For non-Tauri promises use `useAsyncState(fn)` directly.
+
+### Calling Tauri commands → prefer `useInvoke` in components
+
+Reserve raw `invoke` calls for `src/lib/*.ts` wrappers. Components should call the wrapper functions (which can internally use `invoke` directly), and when the component needs loading/error state, they should use `useInvoke`.
+
+### Copy-to-clipboard → use `useCopyToClipboard`
+
+Don't call `navigator.clipboard.writeText` directly in components.
+
+```tsx
+// ✅ Do
+const { copy, isCopied } = useCopyToClipboard({ onCopy: () => showToast('Copied', 'success') });
+<button onClick={() => copy(text)}>{isCopied ? 'Copied!' : 'Copy'}</button>
+```
+
+### Polling → use `usePolling(fn, { intervalMs, enabled })`
+
+Don't use raw `setInterval` in components — you'll forget the cleanup and you'll skip backoff on error.
+
+```tsx
+// ✅ Do
+usePolling(async () => refreshStatus(path), { intervalMs: 3000, enabled: isFocused });
+```
+
+### CSS values → always use design tokens
+
+The tokens live at the top of [src/styles/base.css](src/styles/base.css) under a documented block. Never use raw hex colors, raw spacing px, raw z-index numbers, or raw durations.
+
+```css
+/* ❌ Don't */
+.thing {
+  color: #f59e0b;
+  padding: 12px 16px;
+  border-radius: 8px;
+  z-index: 1000;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  transition: background 0.15s ease;
+}
+
+/* ✅ Do */
+.thing {
+  color: var(--warning);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  z-index: var(--z-modal-overlay);
+  box-shadow: var(--shadow-md);
+  transition: background var(--transition);
+}
+```
+
+Need a value that doesn't exist yet? Add the token to `:root` in [base.css](src/styles/base.css) first, then use it.
+
+### New CSS file → mind the folder structure
+
+Targets (post–Block 13 of the refactor):
+
+```
+src/styles/
+├── global/      base.css, typography, utility classes
+├── features/    branches/, plugins/, dashboard/, publish/
+├── modes/       compact-mode, education-mode
+└── components/  modal, tooltip, button
+```
+
+Don't dump new files into `src/styles/` root unless they're genuinely cross-cutting.
+
+### New Rust Tauri command → follow the four rules
+
+1. **Return `Result<T, CommandError>`** (see [src-tauri/src/errors.rs](src-tauri/src/errors.rs) once Block 8 lands). Don't return `Result<T, String>` — the frontend can't discriminate error variants.
+2. **Validate paths** with `validate_project_path()` from `utils.rs` on any user-supplied filesystem path. Path traversal is a real threat model.
+3. **Shell out via `ExternalCommand`** trait (once Block 9 lands) — gives you timeouts, structured stderr capture, and extended-PATH spawning for free.
+4. **Add `#[tracing::instrument]`** to every command function — even trivial ones. Observability is cheaper than forensics.
+
+### Modal state → use `ModalContext` (once Block 6 lands)
+
+Don't add new `show*`/`open*`/`close*` triples to `App.tsx` or `useWorkspaceModals`. Use `useModal('myModalId')` from the `ModalContext` (forthcoming); modals read their own open state rather than being passed `isOpen` props.
+
+---
+
+## Patterns That Are "Out"
+
+These patterns existed in the pre-refactor codebase and are deliberately
+avoided now. New code that re-introduces any of them will get caught by
+CI (`pnpm check:patterns`, `pnpm check:loc`) and/or a reviewer.
+
+- **Hand-rolled modal overlays** — use `<ModalFrame>`. Re-implementing ESC / click-outside / z-index fights is how accessibility regressions creep back in.
+- **Per-domain button classes** (`publish-btn primary`, `rewind-btn`, `xyz-submit`) — use `<Button variant="…">`. Fragmented button CSS is how the design system dies.
+- **`isLoading`/`error`/`data` state triples in components** — use `useAsyncState` or `useInvoke`. Hand-rolled triples forget mount guards, forget `finally`, and drift.
+- **`onToast?:` prop chains** — use `useOptionalToast()` from `contexts/ToastContext`. Prop drilling for cross-cutting UI.
+- **`show*` / `open*` / `close*` state in App.tsx** — use `useModal('id')` from `contexts/ModalContext`. Modals read their own state.
+- **Raw `navigator.clipboard.writeText` in components** — use `useCopyToClipboard`. Centralizes error handling and the "copied!" flag.
+- **Raw `setInterval` polling** — use `usePolling`. Handles backoff on error and teardown.
+- **`Result<T, String>` on `#[tauri::command]` entry points** — use `Result<T, CommandError>` from `src-tauri/src/errors.rs`. String errors can't be discriminated by the frontend.
+- **Bare `.output().await` on network CLI calls** — use `run_with_timeout` from `src-tauri/src/external_command.rs`. Unbounded CLI calls can hang the UI forever.
+- **Raw hex colors, raw px spacing, raw z-index numbers in CSS** — use tokens from `src/styles/base.css`. Adding a new value? Add the token first.
+
 ## Known Gotchas
 
 ### CSP Must Be Null for Terminal Fonts
@@ -246,14 +407,9 @@ The Content Security Policy in `src-tauri/tauri.conf.json` MUST be set to `null`
 
 Use `scripts/release.sh` to automate the release process. The script bumps the version in all 3 files (`package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`), updates `Cargo.lock`, commits, and tags.
 
-### Quick Release
-
 ```bash
 # Patch bump with release notes (most common)
 ./scripts/release.sh -n "**Fixed bug X** - Description"
-
-# Multiple notes
-./scripts/release.sh -n "**Feature A** - Description" -n "**Fix B** - Description"
 
 # Minor or major bump
 ./scripts/release.sh minor -n "**New feature** - Description"
@@ -264,45 +420,8 @@ git push origin main && git push origin vX.Y.Z
 
 The `-n` flag automatically adds notes to `RELEASE_NOTES.md`. Without `-n`, you must update `RELEASE_NOTES.md` manually before running the script.
 
-### Dashboard Changelog
+**IMPORTANT:** Also update the changelog data in `src/components/Changelog.tsx` before each release — it displays "What's New" on the dashboard sidebar.
 
-**IMPORTANT:** Update the changelog data in `src/components/Changelog.tsx` before each release. This displays "What's New" on the dashboard sidebar. Add the new version at the top of the `CHANGELOG` array with a brief list of user-facing changes.
+For Windows builds, tag with a `-win` suffix (e.g. `v0.5.0-win`) — this triggers a separate workflow independent from the macOS pipeline.
 
-### What Happens After Push
-
-1. GitHub Actions builds for ARM64 + Intel, signs with Apple Developer ID, and notarizes
-2. Uploads artifacts to the private repo as a **draft** release
-3. Auto-publishes to the public `ship-studio/releases` repo (updater bundles + DMGs + `latest.json`)
-4. **You must manually publish the draft** in the main repo at https://github.com/ship-studio/ship-studio/releases
-
-### Auto-Update Flow
-
-The app checks `latest.json` from the public releases repo. When a newer version is found, `UpdateBanner` shows release notes with a download button. The update is verified using minisign signatures before installing.
-
-### Two-Repo Strategy
-
-- **`ship-studio/ship-studio`** (private) — source code, draft releases
-- **`ship-studio/releases`** (public) — update bundles (`.tar.gz` + `.sig`), DMGs, `latest.json`
-
-DMG download links for the marketing site:
-- ARM64: `https://github.com/ship-studio/releases/releases/latest/download/ShipStudio_darwin-aarch64.dmg`
-- Intel: `https://github.com/ship-studio/releases/releases/latest/download/ShipStudio_darwin-x86_64.dmg`
-
-### Required GitHub Secrets
-
-| Secret | Purpose |
-|--------|---------|
-| `APPLE_CERTIFICATE` | Base64-encoded .p12 Developer ID Application certificate |
-| `APPLE_CERTIFICATE_PASSWORD` | Password for the .p12 |
-| `APPLE_API_ISSUER` | App Store Connect API issuer ID (for notarization) |
-| `APPLE_API_KEY` | App Store Connect API key ID (for notarization) |
-| `APPLE_API_KEY_CONTENT` | Base64-encoded .p8 private key file (for notarization) |
-| `TAURI_SIGNING_PRIVATE_KEY` | Minisign private key for update bundle signing |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the signing key |
-| `RELEASES_PAT` | GitHub PAT with `public_repo` scope for cross-repo publishing |
-
-### Local Notarized Build (for testing)
-
-Use `scripts/build-notarized.sh` with the Apple env vars set to build, sign, and notarize locally. See the script for required environment variables.
-
-See `RELEASING.md` for full details.
+See `RELEASING.md` for the full process: secrets, two-repo strategy, auto-update flow, troubleshooting, and Windows release details.

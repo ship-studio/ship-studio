@@ -16,6 +16,91 @@ use tracing_subscriber::{
 // Hold the guard to keep the non-blocking writer alive
 static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
+// Hold the Sentry guard for the lifetime of the process so events get flushed on exit.
+static SENTRY_GUARD: OnceLock<sentry::ClientInitGuard> = OnceLock::new();
+
+const SENTRY_DSN: &str =
+    "https://ca46a435b1b22d7b60f2a83817395fb6@o4511226863353856.ingest.us.sentry.io/4511226875412480";
+
+/// Initialize Sentry. Must be called before `init_logging()` so the
+/// `sentry_tracing` layer can forward events. Skipped in debug builds unless
+/// the `SENTRY_FORCE=1` env var is set.
+pub fn init_sentry() {
+    let force = std::env::var("SENTRY_FORCE").ok().as_deref() == Some("1");
+    let enabled = !cfg!(debug_assertions) || force;
+    if !enabled {
+        return;
+    }
+
+    let environment = if cfg!(debug_assertions) {
+        "development"
+    } else {
+        "production"
+    };
+
+    let guard = sentry::init((
+        SENTRY_DSN,
+        sentry::ClientOptions {
+            release: Some(env!("CARGO_PKG_VERSION").into()),
+            environment: Some(environment.into()),
+            send_default_pii: false,
+            before_send: Some(std::sync::Arc::new(|mut event| {
+                scrub_event(&mut event);
+                Some(event)
+            })),
+            before_breadcrumb: Some(std::sync::Arc::new(|mut breadcrumb| {
+                if let Some(msg) = breadcrumb.message.as_mut() {
+                    *msg = scrub_string(msg);
+                }
+                Some(breadcrumb)
+            })),
+            ..Default::default()
+        },
+    ));
+    let _ = SENTRY_GUARD.set(guard);
+}
+
+fn scrub_string(s: &str) -> String {
+    // Strip local paths so Sentry doesn't see usernames or project folder names.
+    let re_unix = regex_lite_replace(s, "/Users/", "/Users/<redacted>");
+    let re_home = regex_lite_replace(&re_unix, "/home/", "/home/<redacted>");
+    regex_lite_replace(&re_home, "C:\\Users\\", "C:\\Users\\<redacted>")
+}
+
+fn regex_lite_replace(input: &str, prefix: &str, replacement: &str) -> String {
+    // Replace `<prefix><username>` with `<replacement>` where username runs until
+    // the next path separator or whitespace. Avoids a full regex crate dependency.
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(idx) = rest.find(prefix) {
+        out.push_str(&rest[..idx]);
+        out.push_str(replacement);
+        let after = &rest[idx + prefix.len()..];
+        let end = after
+            .find(|c: char| c == '/' || c == '\\' || c.is_whitespace() || c == '"' || c == '\'')
+            .unwrap_or(after.len());
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn scrub_event(event: &mut sentry::protocol::Event<'static>) {
+    if let Some(msg) = event.message.as_mut() {
+        *msg = scrub_string(msg);
+    }
+    for exception in event.exception.values.iter_mut() {
+        if let Some(value) = exception.value.as_mut() {
+            *value = scrub_string(value);
+        }
+    }
+    for breadcrumb in event.breadcrumbs.values.iter_mut() {
+        if let Some(msg) = breadcrumb.message.as_mut() {
+            *msg = scrub_string(msg);
+        }
+    }
+}
+
 /// Get the log directory path
 fn get_log_dir() -> PathBuf {
     // Use platform-specific log directories
@@ -85,6 +170,11 @@ pub fn init_logging() -> Result<(), String> {
     // In debug builds, also log to console
     #[cfg(debug_assertions)]
     let subscriber = subscriber.with(fmt::layer().with_target(true).with_level(true).compact());
+
+    // Forward tracing events to Sentry. The layer is a no-op if Sentry wasn't
+    // initialized (e.g. debug builds without SENTRY_FORCE=1), so it's safe to
+    // attach unconditionally.
+    let subscriber = subscriber.with(sentry_tracing::layer());
 
     subscriber.init();
 

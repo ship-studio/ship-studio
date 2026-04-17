@@ -14,6 +14,7 @@ import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon, SpinnerIcon } from './
 import { useClickOutside } from '../hooks/useClickOutside';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError } from '../lib/analytics';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface PublishBranchDropdownProps {
   /** Current branch name */
@@ -28,8 +29,6 @@ interface PublishBranchDropdownProps {
   onStatusChange: () => void;
   /** Callback when modal closes */
   onModalClose?: () => void;
-  /** Callback for toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
   /** Publishing state (lifted from parent) */
   isPublishing: boolean;
   /** Set publishing state */
@@ -69,7 +68,6 @@ export function PublishBranchDropdown({
   hasChangesToSync,
   onStatusChange,
   onModalClose,
-  onToast,
   isPublishing,
   setIsPublishing,
   onPublishError,
@@ -78,6 +76,8 @@ export function PublishBranchDropdown({
   onForceOpenHandled,
   excludeClickOutsideSelector,
 }: PublishBranchDropdownProps) {
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const [isOpen, setIsOpen] = useState(false);
   const [publishState, setPublishState] = useState<PublishState>({ status: 'idle' });
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -174,7 +174,12 @@ export function PublishBranchDropdown({
   if (projectGithubStatus === null) {
     return (
       <div className="publish-dropdown" ref={dropdownRef}>
-        <button className="publish-button publish-checking" disabled title="Checking status...">
+        <button
+          className="publish-button publish-checking"
+          data-education-id="publish-button"
+          disabled
+          title="Checking status..."
+        >
           Checking...
           <ChevronIcon />
         </button>
@@ -188,6 +193,7 @@ export function PublishBranchDropdown({
       <div className="publish-dropdown" ref={dropdownRef}>
         <button
           className="publish-button publish-disabled"
+          data-education-id="publish-button"
           disabled
           title="Create a GitHub repository first"
         >
@@ -202,9 +208,10 @@ export function PublishBranchDropdown({
   const canSync = hasChangesToSync || isPublishing || publishState.status !== 'idle';
 
   return (
-    <div className="publish-dropdown" ref={dropdownRef} data-education-id="publish-button">
+    <div className="publish-dropdown" ref={dropdownRef}>
       <button
         className={`publish-button ${isPublishing ? 'publishing' : ''} ${!canSync ? 'synced' : ''}`}
+        data-education-id="publish-button"
         onClick={() => setIsOpen(!isOpen)}
       >
         {isPublishing
@@ -309,7 +316,7 @@ export function PublishBranchDropdown({
 
               <div className="publish-branch-body">
                 <div className="publish-branch-info">
-                  <BranchIcon size={14} />
+                  <BranchIcon size={12} />
                   <span className="publish-branch-name">{currentBranch}</span>
                   {isMainBranch && <span className="branch-live-badge">Live</span>}
                 </div>

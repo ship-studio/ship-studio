@@ -5,8 +5,48 @@
 
 use crate::agent::get_active_agent;
 use crate::commands::setup::is_mock_mode;
+use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::AgentCliStatus;
 use crate::utils::{create_command, get_extended_path};
+
+/// Check whether a Claude CLI session exists on disk for the given project.
+///
+/// Claude CLI stores conversations under `~/.claude/projects/<sanitized-path>/`,
+/// where each session is either `<session-id>.jsonl` or a directory named
+/// `<session-id>`. Sanitization replaces `/` with `-` (so `/Users/foo/bar`
+/// becomes `-Users-foo-bar`).
+///
+/// Used by the frontend before passing `--resume <session-id>` to the Claude
+/// CLI. Without this check, we optimistically try resume on every project
+/// open — if the project has never had a Claude conversation (or Claude
+/// pruned it), resume exits code 1 and we fall back to a fresh session.
+/// The fallback works but wastes ~1s and produces noisy logs.
+#[tauri::command]
+pub fn claude_session_exists(project_path: String, session_id: String) -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    // Claude CLI's path sanitization: replace path separators with `-`.
+    // The leading `/` also becomes `-`, hence the leading dash in directory names.
+    let sanitized: String = project_path
+        .chars()
+        .map(|c| if c == '/' || c == '\\' { '-' } else { c })
+        .collect();
+    let project_dir = home.join(".claude").join("projects").join(&sanitized);
+    if !project_dir.is_dir() {
+        return false;
+    }
+    let jsonl = project_dir.join(format!("{session_id}.jsonl"));
+    if jsonl.is_file() {
+        return true;
+    }
+    let dir = project_dir.join(&session_id);
+    dir.is_dir()
+}
+
+/// Lightweight detection timeout — version checks should be near-instant.
+const CLAUDE_DETECT_TIMEOUT_SECS: u64 = 10;
 
 /// Finds the active agent's CLI binary by checking common installation paths.
 pub fn find_agent_binary() -> Option<std::path::PathBuf> {
@@ -26,11 +66,10 @@ pub fn find_binary_by_name(binary_name: &str) -> Option<std::path::PathBuf> {
         return Some(path);
     }
 
-    let _exe_name = format!("{binary_name}.exe");
-    let _cmd_name = format!("{binary_name}.cmd");
-
     #[cfg(windows)]
     {
+        let exe_name = format!("{binary_name}.exe");
+        let cmd_name = format!("{binary_name}.cmd");
         // On Windows, also try with .exe extension
         if let Ok(path) = which::which(&exe_name) {
             return Some(path);
@@ -162,6 +201,7 @@ pub fn find_binary_by_name(binary_name: &str) -> Option<std::path::PathBuf> {
 }
 
 #[tauri::command]
+#[tracing::instrument]
 pub async fn check_claude_cli_status() -> AgentCliStatus {
     let agent = get_active_agent();
 
@@ -176,18 +216,24 @@ pub async fn check_claude_cli_status() -> AgentCliStatus {
         }
     };
 
-    // Get version
-    let version = create_command(&agent_path)
-        .args([agent.version_flag])
-        .output()
-        .ok()
-        .and_then(|output| {
-            if output.status.success() {
-                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-            } else {
-                None
-            }
-        });
+    // Get version — short timeout so a hung CLI doesn't stall onboarding.
+    let mut cmd = create_command(&agent_path);
+    cmd.args([agent.version_flag]);
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    let version = run_with_timeout(
+        tokio_cmd,
+        format!("{} --version", agent.display_name),
+        CLAUDE_DETECT_TIMEOUT_SECS,
+    )
+    .await
+    .ok()
+    .and_then(|output| {
+        if output.status.success() {
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            None
+        }
+    });
 
     AgentCliStatus {
         installed: true,
@@ -196,7 +242,8 @@ pub async fn check_claude_cli_status() -> AgentCliStatus {
 }
 
 #[tauri::command]
-pub async fn install_claude_cli() -> Result<(), String> {
+#[tracing::instrument]
+pub async fn install_claude_cli() -> Result<(), CommandError> {
     let agent = get_active_agent();
 
     if is_mock_mode() {
@@ -208,12 +255,13 @@ pub async fn install_claude_cli() -> Result<(), String> {
     #[cfg(windows)]
     {
         if let Some(msg) = agent.install_message_windows {
-            return Err(msg.to_string());
+            return Err((msg.to_string()).into());
         }
-        return Err(format!(
+        return Err((format!(
             "{} does not support automatic installation on Windows.",
             agent.display_name
-        ));
+        ))
+        .into());
     }
 
     #[cfg(not(windows))]
@@ -233,10 +281,7 @@ pub async fn install_claude_cli() -> Result<(), String> {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "Failed to install {}: {}",
-                agent.display_name, stderr
-            ));
+            return Err((format!("Failed to install {}: {}", agent.display_name, stderr)).into());
         }
 
         Ok(())

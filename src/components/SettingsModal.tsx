@@ -8,29 +8,46 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { CloseIcon } from './icons';
+import { ModalFrame } from './primitives/ModalFrame';
 import { getAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../lib/analytics';
-import { getCalendarHidden, setCalendarHidden } from '../lib/settings';
+import {
+  getCalendarHidden,
+  setCalendarHidden,
+  getSlackCtaHidden,
+  setSlackCtaHidden,
+} from '../lib/settings';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCalendarHiddenChange?: (hidden: boolean) => void;
+  onSlackCtaHiddenChange?: (hidden: boolean) => void;
 }
 
-export function SettingsModal({ isOpen, onClose, onCalendarHiddenChange }: SettingsModalProps) {
+export function SettingsModal({
+  isOpen,
+  onClose,
+  onCalendarHiddenChange,
+  onSlackCtaHiddenChange,
+}: SettingsModalProps) {
   const [analyticsEnabled, setLocalAnalyticsEnabled] = useState(true);
   const [calendarVisible, setLocalCalendarVisible] = useState(true);
+  const [slackCtaVisible, setLocalSlackCtaVisible] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
     void (async () => {
-      const [enabled, hidden] = await Promise.all([getAnalyticsEnabled(), getCalendarHidden()]);
+      const [enabled, calHidden, slackHidden] = await Promise.all([
+        getAnalyticsEnabled(),
+        getCalendarHidden(),
+        getSlackCtaHidden(),
+      ]);
       if (!cancelled) {
         setLocalAnalyticsEnabled(enabled);
-        setLocalCalendarVisible(!hidden);
+        setLocalCalendarVisible(!calHidden);
+        setLocalSlackCtaVisible(!slackHidden);
         setLoading(false);
       }
     })();
@@ -53,64 +70,83 @@ export function SettingsModal({ isOpen, onClose, onCalendarHiddenChange }: Setti
     const newVisible = !calendarVisible;
     setLocalCalendarVisible(newVisible);
     void setCalendarHidden(!newVisible);
+    void trackEvent('calendar_visibility_toggled', {
+      visible: newVisible,
+      $screen_name: 'Settings',
+    });
     onCalendarHiddenChange?.(!newVisible);
   }, [calendarVisible, onCalendarHiddenChange]);
 
-  if (!isOpen) return null;
+  const handleSlackCtaToggle = useCallback(() => {
+    const newVisible = !slackCtaVisible;
+    setLocalSlackCtaVisible(newVisible);
+    void setSlackCtaHidden(!newVisible);
+    onSlackCtaHiddenChange?.(!newVisible);
+  }, [slackCtaVisible, onSlackCtaHiddenChange]);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="settings-modal-header">
-          <h2>Settings</h2>
-          <button className="plugins-close-btn" onClick={onClose}>
-            <CloseIcon size={16} />
-          </button>
-        </div>
-
-        <div className="settings-modal-body">
-          <div className="settings-section">
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-row-label">Activity calendar</span>
-                <span className="settings-row-description">
-                  Show your GitHub contribution graph on the dashboard.
-                </span>
-              </div>
-              <button
-                className={`settings-toggle ${calendarVisible ? 'on' : 'off'}`}
-                onClick={handleCalendarToggle}
-                disabled={loading}
-                role="switch"
-                aria-checked={calendarVisible}
-              >
-                <span className="settings-toggle-track">
-                  <span className="settings-toggle-thumb" />
-                </span>
-              </button>
+    <ModalFrame isOpen={isOpen} onClose={onClose} title="Settings" className="settings-modal">
+      <div className="settings-modal-body">
+        <div className="settings-section">
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-row-label">Activity calendar</span>
+              <span className="settings-row-description">
+                Show your GitHub contribution graph on the dashboard.
+              </span>
             </div>
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-row-label">Usage analytics</span>
-                <span className="settings-row-description">
-                  Help improve Ship Studio by sharing usage data like feature usage, and errors.
-                </span>
-              </div>
-              <button
-                className={`settings-toggle ${analyticsEnabled ? 'on' : 'off'}`}
-                onClick={handleToggle}
-                disabled={loading}
-                role="switch"
-                aria-checked={analyticsEnabled}
-              >
-                <span className="settings-toggle-track">
-                  <span className="settings-toggle-thumb" />
-                </span>
-              </button>
+            <button
+              className={`settings-toggle ${calendarVisible ? 'on' : 'off'}`}
+              onClick={handleCalendarToggle}
+              disabled={loading}
+              role="switch"
+              aria-checked={calendarVisible}
+            >
+              <span className="settings-toggle-track">
+                <span className="settings-toggle-thumb" />
+              </span>
+            </button>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-row-label">Community banner</span>
+              <span className="settings-row-description">
+                Show the Slack community invite on the dashboard.
+              </span>
             </div>
+            <button
+              className={`settings-toggle ${slackCtaVisible ? 'on' : 'off'}`}
+              onClick={handleSlackCtaToggle}
+              disabled={loading}
+              role="switch"
+              aria-checked={slackCtaVisible}
+            >
+              <span className="settings-toggle-track">
+                <span className="settings-toggle-thumb" />
+              </span>
+            </button>
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-row-label">Usage analytics</span>
+              <span className="settings-row-description">
+                Help improve Ship Studio by sharing usage data like feature usage, and errors.
+              </span>
+            </div>
+            <button
+              className={`settings-toggle ${analyticsEnabled ? 'on' : 'off'}`}
+              onClick={handleToggle}
+              disabled={loading}
+              role="switch"
+              aria-checked={analyticsEnabled}
+            >
+              <span className="settings-toggle-track">
+                <span className="settings-toggle-thumb" />
+              </span>
+            </button>
           </div>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 }

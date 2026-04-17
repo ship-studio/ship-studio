@@ -1,0 +1,10 @@
+[default]
+description = "Allows all PTY commands"
+permissions = [
+    "allow-spawn",
+    "allow-read",
+    "allow-write",
+    "allow-resize",
+    "allow-kill",
+    "allow-exitstatus",
+]

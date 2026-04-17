@@ -6,12 +6,14 @@
 use super::{is_mock_installed, is_mock_mode, mock_install, AUTH_PIDS};
 use crate::agent::{get_active_agent, get_agent_by_id};
 use crate::commands::claude::find_binary_by_name;
+use crate::errors::CommandError;
 use crate::utils::{create_command, find_executable};
 use tauri::Emitter;
 
 /// Start GitHub authentication (opens browser)
 #[tauri::command]
-pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, String> {
+#[tracing::instrument(skip(app))]
+pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, CommandError> {
     let _ = app.emit(
         "setup-progress",
         serde_json::json!({
@@ -59,10 +61,11 @@ pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, String> 
 /// Start agent authentication.
 /// If `agent_id` is provided, authenticate that specific agent. Otherwise, use the active agent.
 #[tauri::command]
+#[tracing::instrument(skip(app))]
 pub async fn start_claude_auth(
     app: tauri::AppHandle,
     agent_id: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let agent = match agent_id.as_deref() {
         Some(id) => get_agent_by_id(id),
         None => get_active_agent(),
@@ -113,6 +116,7 @@ pub async fn start_claude_auth(
 /// Check if an agent is authenticated.
 /// If `agent_id` is provided, check that specific agent. Otherwise, use the active agent.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn check_claude_auth_status(agent_id: Option<String>) -> bool {
     let agent = match agent_id.as_deref() {
         Some(id) => get_agent_by_id(id),
@@ -182,12 +186,14 @@ pub fn cleanup_auth_processes_sync() -> u32 {
 /// This is useful for cleanup when closing the app to prevent orphaned processes.
 /// Returns the number of processes that were killed.
 #[tauri::command]
-pub async fn cleanup_auth_processes() -> Result<u32, String> {
+#[tracing::instrument]
+pub async fn cleanup_auth_processes() -> Result<u32, CommandError> {
     Ok(cleanup_auth_processes_sync())
 }
 
 /// Get the system CPU architecture (e.g., "aarch64" or "x86_64").
 #[tauri::command]
+#[tracing::instrument]
 pub fn get_system_arch() -> String {
     std::env::consts::ARCH.to_string()
 }
@@ -199,9 +205,10 @@ pub fn get_system_arch() -> String {
 /// The frontend should call `relaunch()` after this completes (macOS only;
 /// on Windows the installer handles restart).
 #[tauri::command]
-pub async fn install_version(app: tauri::AppHandle, version: String) -> Result<(), String> {
+#[tracing::instrument(skip(app))]
+pub async fn install_version(app: tauri::AppHandle, version: String) -> Result<(), CommandError> {
     if cfg!(debug_assertions) {
-        return Err("Version rewind is only available in production builds.".to_string());
+        return Err(("Version rewind is only available in production builds.".to_string()).into());
     }
 
     let _ = app.emit(
@@ -228,7 +235,7 @@ pub async fn install_version(app: tauri::AppHandle, version: String) -> Result<(
 }
 
 /// Download a file from the releases repo using curl.
-async fn download_release_artifact(url: &str, dest: &std::path::Path) -> Result<(), String> {
+async fn download_release_artifact(url: &str, dest: &std::path::Path) -> Result<(), CommandError> {
     tracing::info!("Rewind: downloading {}", url);
 
     let dest_str = dest
@@ -242,10 +249,11 @@ async fn download_release_artifact(url: &str, dest: &std::path::Path) -> Result<
 
     if !download.status.success() {
         let stderr = String::from_utf8_lossy(&download.stderr);
-        return Err(format!(
+        return Err((format!(
             "Download failed. This version may not be available.\n{}",
             stderr.lines().next().unwrap_or("")
-        ));
+        ))
+        .into());
     }
 
     Ok(())
@@ -256,7 +264,7 @@ async fn install_version_platform(
     app: &tauri::AppHandle,
     version: &str,
     temp_dir: &std::path::Path,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let arch = std::env::consts::ARCH;
     let arch_suffix = if arch == "aarch64" {
         "aarch64"
@@ -307,13 +315,13 @@ async fn install_version_platform(
 
     if !extract.status.success() {
         let stderr = String::from_utf8_lossy(&extract.stderr);
-        return Err(format!("Extraction failed: {stderr}"));
+        return Err((format!("Extraction failed: {stderr}")).into());
     }
 
     // Find the extracted .app bundle
     let extracted_app = extract_dir.join("Ship Studio.app");
     if !extracted_app.exists() {
-        return Err("Extracted app bundle not found".to_string());
+        return Err(("Extracted app bundle not found".to_string()).into());
     }
 
     // Swap the app bundle: rename current -> .old, move new -> current, delete .old
@@ -333,7 +341,7 @@ async fn install_version_platform(
                 restore_err
             );
         }
-        return Err(format!("Cannot install new version: {e}"));
+        return Err((format!("Cannot install new version: {e}")).into());
     }
 
     // Cleanup backup
@@ -347,7 +355,7 @@ async fn install_version_platform(
     app: &tauri::AppHandle,
     version: &str,
     temp_dir: &std::path::Path,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let url = format!(
         "https://github.com/ship-studio/releases/releases/download/v{}/ShipStudio_windows-x86_64.nsis.zip",
         version
@@ -381,7 +389,7 @@ async fn install_version_platform(
 
     if !extract.status.success() {
         let stderr = String::from_utf8_lossy(&extract.stderr);
-        return Err(format!("Extraction failed: {}", stderr));
+        return Err((format!("Extraction failed: {}", stderr)).into());
     }
 
     // Find the setup exe inside the extracted directory
@@ -403,7 +411,7 @@ async fn install_version_platform(
 
 /// Find the NSIS setup .exe inside an extracted directory.
 #[cfg(target_os = "windows")]
-fn find_setup_exe(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+fn find_setup_exe(dir: &std::path::Path) -> Result<std::path::PathBuf, CommandError> {
     for entry in walkdir::WalkDir::new(dir).max_depth(2) {
         if let Ok(entry) = entry {
             let path = entry.path();
@@ -414,7 +422,7 @@ fn find_setup_exe(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
             }
         }
     }
-    Err("Setup installer not found in downloaded archive".to_string())
+    Err(("Setup installer not found in downloaded archive".to_string()).into())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -422,6 +430,6 @@ async fn install_version_platform(
     _app: &tauri::AppHandle,
     _version: &str,
     _temp_dir: &std::path::Path,
-) -> Result<(), String> {
-    Err("Version rewind is not yet available on this platform.".to_string())
+) -> Result<(), CommandError> {
+    Err(("Version rewind is not yet available on this platform.".to_string()).into())
 }

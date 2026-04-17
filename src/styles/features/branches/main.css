@@ -1,0 +1,413 @@
+/* Branch Indicator */
+.branch-indicator {
+  position: relative;
+}
+
+.branch-indicator-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.preview-tabs-bar .branch-indicator {
+  margin-left: 4px;
+}
+
+.branch-indicator-button:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.branch-indicator-button svg {
+  opacity: 0.7;
+}
+
+/* Main branch warning style */
+.branch-indicator-button.main-branch {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: var(--warning);
+}
+
+.branch-indicator-button.main-branch:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: rgba(245, 158, 11, 0.6);
+  color: var(--warning-light);
+}
+
+.branch-indicator-button.main-branch svg {
+  opacity: 1;
+  color: var(--warning);
+}
+
+.branch-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-live-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success-light);
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.branch-changes-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--warning);
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.branch-unsaved-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* Back to Preview button */
+.branch-indicator-back .back-chevron {
+  transform: rotate(90deg);
+}
+
+/* Branch Changes Hover Dropdown */
+.branch-changes-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 280px;
+  max-width: 400px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  z-index: var(--z-modal-overlay);
+}
+
+.branch-changes-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.branch-changes-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.branch-changes-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  transition: background var(--transition-fast);
+}
+
+.branch-changes-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.branch-changes-item-clickable {
+  cursor: pointer;
+}
+
+.branch-changes-item svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.change-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 3px;
+  flex-shrink: 0;
+  padding-bottom: 2px;
+  padding-left: 1px;
+}
+
+.change-modified {
+  background: rgba(234, 179, 8, 0.2);
+  color: var(--warning);
+}
+
+.change-added {
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--success);
+}
+
+.change-deleted {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--error);
+}
+
+.change-renamed {
+  background: rgba(168, 85, 247, 0.2);
+  color: #a855f7;
+}
+
+.branch-changes-path {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.branch-changes-dir {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-changes-filename {
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.branch-changes-footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.branch-changes-save-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.branch-changes-save-btn:hover {
+  background: var(--primary-hover);
+}
+
+.branch-changes-discard-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--error);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.branch-changes-discard-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--error);
+}
+
+.branch-changes-discard-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.branch-changes-discard-btn.confirming {
+  background: var(--error);
+  border-color: var(--error);
+  color: white;
+  animation: pulse-danger 0.6s ease-in-out infinite;
+}
+
+@keyframes pulse-danger {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.branch-changes-discard-btn svg {
+  flex-shrink: 0;
+}
+
+/* Branch Indicator Dropdown */
+.branch-indicator-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 260px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-modal-overlay);
+  overflow: hidden;
+}
+
+.branch-dropdown-header {
+  padding: 12px 14px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.branch-dropdown-section {
+  padding: 4px 0;
+}
+
+.branch-dropdown-section-label {
+  padding: 8px 14px 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.branch-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.branch-dropdown-item:hover {
+  background: var(--bg-tertiary);
+  border-radius: 0;
+}
+
+.branch-dropdown-item:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.branch-dropdown-item.current {
+  background: var(--bg-tertiary);
+  cursor: default;
+}
+
+.branch-dropdown-item.current:hover {
+  background: var(--bg-tertiary);
+}
+
+.branch-item-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.branch-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-item-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+}
+
+.branch-item-badge.live {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: transparent;
+  color: var(--success-light);
+}
+
+.branch-item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.branch-item-meta.behind {
+  color: var(--warning);
+}
+
+.branch-item-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-muted);
+  border-radius: var(--radius-full);
+  animation: spin 1s linear infinite;
+}
+
+.branch-dropdown-footer {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.branch-dropdown-link {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  color: #3b82f6;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.branch-dropdown-link:hover {
+  color: #60a5fa;
+  background: var(--bg-secondary);
+}

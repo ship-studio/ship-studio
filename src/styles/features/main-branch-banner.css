@@ -1,0 +1,193 @@
+/* Main Branch Warning Banner */
+.main-branch-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.main-branch-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.main-branch-banner-content svg {
+  flex-shrink: 0;
+  color: var(--warning);
+}
+
+.main-branch-banner-text {
+  font-size: 13px;
+  color: var(--warning-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Responsive: stack banner content on narrow windows */
+@media (max-width: 600px) {
+  .main-branch-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .main-branch-banner-text {
+    white-space: normal;
+  }
+
+  .main-branch-banner-action {
+    align-self: flex-start;
+  }
+}
+
+.main-branch-banner-text strong {
+  font-weight: 600;
+  color: #fcd34d;
+}
+
+.main-branch-banner-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  color: var(--warning-light);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+  white-space: nowrap;
+}
+
+.main-branch-banner-action:hover {
+  background: rgba(245, 158, 11, 0.3);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fcd34d;
+}
+
+.main-branch-banner-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--warning-light);
+  cursor: pointer;
+  white-space: nowrap;
+  opacity: 0.8;
+  transition: opacity var(--transition);
+}
+
+.main-branch-banner-checkbox:hover {
+  opacity: 1;
+}
+
+.main-branch-banner-checkbox input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.main-branch-banner-checkbox input[type='checkbox']:hover {
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.main-branch-banner-checkbox input[type='checkbox']:checked {
+  background: var(--warning);
+  border-color: var(--warning);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.main-branch-banner-checkbox input[type='checkbox']:checked::after {
+  content: '';
+  width: 4px;
+  height: 8px;
+  border: solid #1a1a1a;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translateY(-1px);
+}
+
+.main-branch-banner-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--warning);
+  cursor: pointer;
+  opacity: 0.6;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.main-branch-banner-close:hover {
+  opacity: 1;
+  background: rgba(245, 158, 11, 0.2);
+}
+
+/* Compact mode: minimal single-line banner */
+@media (max-width: 550px) {
+  .main-branch-banner {
+    flex-direction: row;
+    align-items: center;
+    padding: 6px 12px;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  .main-branch-banner-content {
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .main-branch-banner-content svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .main-branch-banner-text {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* Hide extra text, action button, and checkbox in compact mode */
+  .main-branch-banner-text-extra,
+  .main-branch-banner-action,
+  .main-branch-banner-checkbox {
+    display: none;
+  }
+
+  .main-branch-banner-close {
+    padding: 2px;
+    flex-shrink: 0;
+  }
+}

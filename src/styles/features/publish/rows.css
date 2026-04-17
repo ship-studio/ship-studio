@@ -1,0 +1,326 @@
+/* Publish Row - Simple checkbox row */
+.publish-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--transition);
+}
+
+.publish-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.publish-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.publish-row input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--text-muted);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.publish-row input[type='checkbox']:checked {
+  background: var(--action);
+  border-color: var(--action);
+}
+
+.publish-row input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 3px;
+  height: 6px;
+  border: solid white;
+  border-width: 0 1.5px 1.5px 0;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.publish-row-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.publish-row-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+
+.publish-row-badge-synced {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.publish-row-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.publish-row-disabled:hover {
+  background: transparent;
+}
+
+.publish-row-link {
+  padding: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.publish-row-link:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.url-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.url-text.url-pending {
+  color: var(--text-secondary);
+}
+
+.url-link {
+  padding: 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.url-link:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.publish-option-status {
+  font-size: 12px;
+}
+
+.deployment-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.deployment-state.state-ready {
+  color: var(--success);
+}
+
+.deployment-state.state-building {
+  color: var(--warning);
+}
+
+.deployment-state.state-queued {
+  color: var(--text-muted);
+}
+
+.deployment-state.state-error {
+  color: #dc2626;
+}
+
+.deployment-state.state-canceled {
+  color: var(--text-muted);
+}
+
+.deployment-state.state-none {
+  color: var(--text-muted);
+}
+
+.deployment-time {
+  color: var(--text-muted);
+}
+
+.branch-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  padding-left: 26px;
+}
+
+.publish-hint {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+}
+
+.publish-error {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+  border-top: 1px solid var(--border);
+}
+
+.publish-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-top: none;
+}
+
+.publish-deployments-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.publish-deployments-link:hover {
+  color: var(--text-primary);
+  background: none;
+}
+
+.publish-deployments-link svg {
+  width: 10px;
+  height: 10px;
+}
+
+.publish-actions-right {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.publish-close {
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.publish-close:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.publish-submit {
+  padding: 8px 16px;
+  background: var(--action);
+  border: none;
+  border-radius: var(--radius);
+  color: var(--action-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.publish-submit:hover {
+  background: var(--action-hover);
+}
+
+.publish-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Publish Option Labels (simplified) */
+.publish-option-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.publish-option-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.publish-option-status {
+  color: var(--text-muted);
+}
+
+/* Quick Links */
+.publish-quick-links {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.publish-quick-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.publish-quick-link:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}

@@ -1,5 +1,6 @@
 //! Playwright-based screenshot capture: environment setup, full-page, and viewport captures.
 
+use crate::errors::CommandError;
 use crate::utils::{create_command, validate_project_path};
 
 /// Get or create a shared Playwright environment directory.
@@ -64,10 +65,11 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
 /// Scrolls through the page first to trigger lazy-loaded content and animations,
 /// then captures the full page in one shot.
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn capture_fullpage_playwright(
     project_path: String,
     url: String,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
 
@@ -188,19 +190,18 @@ const {{ chromium }} = require('playwright');
     // If failed, return error with details
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Err(format!(
-        "Playwright screenshot failed. stdout: {stdout} stderr: {stderr}"
-    ))
+    Err((format!("Playwright screenshot failed. stdout: {stdout} stderr: {stderr}")).into())
 }
 
 /// Capture a viewport screenshot using Playwright.
 /// Hides Next.js dev tools and other overlays before capturing.
 /// Faster than full-page since it doesn't scroll.
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn capture_viewport_playwright(
     project_path: String,
     url: String,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
 
@@ -295,7 +296,8 @@ const {{ chromium }} = require('playwright');
     // If failed, return error with details
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Err(format!(
-        "Playwright viewport screenshot failed. stdout: {stdout} stderr: {stderr}"
-    ))
+    Err(
+        (format!("Playwright viewport screenshot failed. stdout: {stdout} stderr: {stderr}"))
+            .into(),
+    )
 }

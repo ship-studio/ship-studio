@@ -28,6 +28,11 @@ interface ProjectCardMenuProps {
   isExternal?: boolean;
   /** Callback when remove from list is clicked (for external projects) */
   onRemove?: () => void;
+  /** Whether the project is currently pinned to the rail. Optional — when
+   *  omitted, the pin/unpin row is hidden entirely (legacy callers). */
+  isPinned?: boolean;
+  /** Toggle pin state. Receives the desired new state. */
+  onTogglePin?: (pinned: boolean) => void;
 }
 
 export function ProjectCardMenu({
@@ -38,6 +43,8 @@ export function ProjectCardMenu({
   onDelete,
   isExternal,
   onRemove,
+  isPinned,
+  onTogglePin,
 }: ProjectCardMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -108,6 +115,24 @@ export function ProjectCardMenu({
             <button className="project-card-dropdown-item" onClick={handleExportAsTemplateClick}>
               <DownloadIcon size={14} />
               <span>Export as template</span>
+            </button>
+          )}
+          {onTogglePin && (
+            <button
+              className="project-card-dropdown-item"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsOpen(false);
+                onTogglePin(!isPinned);
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{ width: 14, display: 'inline-block', textAlign: 'center' }}
+              >
+                {isPinned ? '\u25CB' : '\u25CF'}
+              </span>
+              <span>{isPinned ? 'Unpin from sidebar' : 'Pin to sidebar'}</span>
             </button>
           )}
           <div className="project-card-dropdown-divider" />

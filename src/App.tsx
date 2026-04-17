@@ -25,6 +25,8 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { exit } from '@tauri-apps/plugin-process';
 import { useToasts } from './hooks/useToasts';
 import { useTerminalManagement } from './hooks/useTerminalManagement';
 import { usePlugins } from './hooks/usePlugins';
@@ -40,11 +42,17 @@ import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 import { useAppSetup } from './hooks/useAppSetup';
 import { ProjectsView } from './components/ProjectsView';
 import { WorkspaceView } from './components/WorkspaceView';
+import { ProjectRail } from './components/ProjectRail';
+import { useProjectRail } from './hooks/useProjectRail';
 import { OnboardingScreen } from './components/setup';
 import { Project } from './lib/project';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
 import { initDefaultAgent } from './lib/agent';
 import { UpdateBanner } from './components/UpdateBanner';
+import { ModalFrame } from './components/primitives/ModalFrame';
+import { Button } from './components/primitives/Button';
+import { ToastContext } from './contexts/ToastContext';
+import { ModalProvider, useModal } from './contexts/ModalContext';
 import { SuccessIcon, InfoIcon, CloseIcon } from './components/icons';
 import { logger } from './lib/logger';
 import { trackEvent } from './lib/analytics';
@@ -63,9 +71,24 @@ interface AppProps {
   initialProjectPath?: string | null;
 }
 
+/**
+ * Top-level wrapper. Hosts the Toast and Modal providers so every view
+ * (loading, onboarding, projects, workspace) can call `useToast` / `useModal`
+ * without crashing. The actual app body lives in `AppContents`.
+ */
 function App({ initialProjectPath }: AppProps) {
+  return (
+    <ModalProvider>
+      <AppContents initialProjectPath={initialProjectPath} />
+    </ModalProvider>
+  );
+}
+
+function AppContents({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
+  const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
+  const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const previewRef = useRef<import('./components/Preview').PreviewHandle | null>(null);
   const currentProjectPathRef = useRef<string | null>(null);
 
@@ -84,7 +107,18 @@ function App({ initialProjectPath }: AppProps) {
     pasteToActiveTerminal,
     switchTabAgent,
     getActiveTabAgent,
+    restoreTerminalTabs,
   } = useTerminalManagement();
+
+  // Listen for Cmd+Q quit confirmation from native menu
+  useEffect(() => {
+    const unlisten = listen('confirm-quit', () => {
+      setShowQuitConfirm(true);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
 
   // Cleanup dev server when window is closed (prevents orphaned processes)
   useEffect(() => {
@@ -209,39 +243,14 @@ function App({ initialProjectPath }: AppProps) {
     installSuggestedPlugin,
   } = usePluginState();
 
-  // Workspace modal visibility state
-  const {
-    showEnvEditor,
-    openEnvEditor,
-    closeEnvEditor,
-    showBackupsModal,
-    openBackupsModal,
-    closeBackupsModal,
-    showAssetsPanel,
-    openAssetsPanel,
-    closeAssetsPanel,
-    isEducationMode,
-    setIsEducationMode,
-    closeEducation,
-    showHelpModal,
-    openHelpModal,
-    closeHelpModal,
-    showSkillsModal,
-    openSkillsModal,
-    closeSkillsModal,
-    showMcpModal,
-    openMcpModal,
-    closeMcpModal,
-    showPluginManager,
-    openPluginManager,
-    closePluginManager,
-    showDevCommandModal,
-    openDevCommandModal,
-    closeDevCommandModal,
-    showProjectSettings,
-    openProjectSettings,
-    closeProjectSettings,
-  } = useWorkspaceModals({ focusActiveTerminal });
+  // Education-mode toggle state (the rest of the modal state lives in ModalContext)
+  const { isEducationMode, setIsEducationMode, closeEducation } = useWorkspaceModals({
+    focusActiveTerminal,
+  });
+
+  // Modal openers from context. App is now wrapped in ModalProvider so this works
+  // even on non-workspace views (loading / onboarding / projects).
+  const helpModal = useModal('help');
 
   // Toast notifications
   const { toasts, showToast, dismissToast } = useToasts();
@@ -326,7 +335,11 @@ function App({ initialProjectPath }: AppProps) {
     enterCompact,
     resetTerminals,
     pasteToActiveTerminal,
+    terminalTabs,
+    activeTerminalTab,
+    restoreTerminalTabs,
     showToast,
+    setCleanupStatus,
     clearScreenshotInterval,
     startScreenshotInterval,
     onPreviewReady,
@@ -347,14 +360,15 @@ function App({ initialProjectPath }: AppProps) {
       try {
         await invoke('set_dev_server_port', { projectPath: currentProject.path, port: newPort });
         setDevServerPort(newPort);
-        closeProjectSettings();
+        // ProjectSettingsModal closes itself via useModal('projectSettings').close()
+        // when its save handler returns successfully.
         await restartDevServer(currentProject.path, newPort);
         showToast('Port updated and server restarted', 'success');
       } catch {
         showToast('Failed to save port setting', 'error');
       }
     },
-    [currentProject, restartDevServer, showToast, closeProjectSettings, setDevServerPort]
+    [currentProject, restartDevServer, showToast, setDevServerPort]
   );
 
   // Wrapper for compact mode that also clears education mode (UI state stays in App)
@@ -362,6 +376,13 @@ function App({ initialProjectPath }: AppProps) {
     setIsEducationMode(false);
     await enterCompactMode();
   };
+
+  const { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin, handleAddProject } =
+    useProjectRail({
+      currentProjectPath: currentProject?.path ?? null,
+      handleSelectProject,
+      showToast,
+    });
 
   // App setup, onboarding, HMR recovery, auto-open, keyboard shortcuts
   const { projectsLoading, setProjectsLoading } = useAppSetup({
@@ -374,7 +395,7 @@ function App({ initialProjectPath }: AppProps) {
     refreshAllCliStatuses,
     setProjectGitHubStatus,
     fetchBranchInfo,
-    openHelpModal,
+    openHelpModal: helpModal.open,
   });
 
   // Plugin data for PluginSlot components (defined before early returns so all views can use them)
@@ -483,11 +504,14 @@ function App({ initialProjectPath }: AppProps) {
       handleHealthOutput,
     }),
     [
+      devServerRef,
       devServerPort,
       projectType,
       isRestartingDevServer,
       customDevCommand,
+      devServerOutputRef,
       devServerOutputVersion,
+      healthOutputRef,
       healthOutputVersion,
       handleHealthOutput,
       healthPanelRef,
@@ -631,69 +655,11 @@ function App({ initialProjectPath }: AppProps) {
 
   const modalsProps = useMemo(
     () => ({
-      showEnvEditor,
-      openEnvEditor,
-      closeEnvEditor,
-      showBackupsModal,
-      openBackupsModal,
-      closeBackupsModal,
-      showAssetsPanel,
-      openAssetsPanel,
-      closeAssetsPanel,
       isEducationMode,
       setIsEducationMode,
       closeEducation,
-      showHelpModal,
-      openHelpModal,
-      closeHelpModal,
-      showSkillsModal,
-      openSkillsModal,
-      closeSkillsModal,
-      showMcpModal,
-      openMcpModal,
-      closeMcpModal,
-      showPluginManager,
-      openPluginManager,
-      closePluginManager,
-      showDevCommandModal,
-      openDevCommandModal,
-      closeDevCommandModal,
-      showProjectSettings,
-      openProjectSettings,
-      closeProjectSettings,
     }),
-    [
-      showEnvEditor,
-      openEnvEditor,
-      closeEnvEditor,
-      showBackupsModal,
-      openBackupsModal,
-      closeBackupsModal,
-      showAssetsPanel,
-      openAssetsPanel,
-      closeAssetsPanel,
-      isEducationMode,
-      setIsEducationMode,
-      closeEducation,
-      showHelpModal,
-      openHelpModal,
-      closeHelpModal,
-      showSkillsModal,
-      openSkillsModal,
-      closeSkillsModal,
-      showMcpModal,
-      openMcpModal,
-      closeMcpModal,
-      showPluginManager,
-      openPluginManager,
-      closePluginManager,
-      showDevCommandModal,
-      openDevCommandModal,
-      closeDevCommandModal,
-      showProjectSettings,
-      openProjectSettings,
-      closeProjectSettings,
-    ]
+    [isEducationMode, setIsEducationMode, closeEducation]
   );
 
   const toastsProps = useMemo(
@@ -837,12 +803,40 @@ function App({ initialProjectPath }: AppProps) {
     ]
   );
 
+  const quitConfirmModal = showQuitConfirm && (
+    <ModalFrame
+      isOpen
+      onClose={() => setShowQuitConfirm(false)}
+      showCloseButton={false}
+      className="quit-confirm-modal"
+    >
+      <div
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void exit(0);
+        }}
+      >
+        <p>Are you sure you want to quit Ship Studio?</p>
+        <div className="quit-confirm-actions">
+          <Button variant="secondary" onClick={() => setShowQuitConfirm(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={() => void exit(0)} autoFocus>
+            Quit
+          </Button>
+        </div>
+      </div>
+    </ModalFrame>
+  );
+
   if (view === 'loading') {
     return (
-      <div className="app loading">
-        <img src="/ship_studio_full_noshadow.svg" alt="Ship Studio" className="app-logo" />
-        <div className="spinner" />
-      </div>
+      <>
+        <div className="app loading">
+          <img src="/ship_studio_full_noshadow.svg" alt="Ship Studio" className="app-logo" />
+          <div className="spinner" />
+        </div>
+        {quitConfirmModal}
+      </>
     );
   }
 
@@ -859,41 +853,59 @@ function App({ initialProjectPath }: AppProps) {
     };
 
     return (
-      <div className="app">
-        <UpdateBanner />
-        <OnboardingScreen onComplete={() => void handleOnboardingComplete()} />
-      </div>
+      <>
+        <div className="app">
+          <UpdateBanner />
+          <OnboardingScreen onComplete={() => void handleOnboardingComplete()} />
+        </div>
+        {quitConfirmModal}
+      </>
     );
   }
 
   if (view === 'projects') {
     return (
       <>
-        <ProjectsView
-          onSelectProject={handleSelectProjectCallback}
-          onCreateProject={handleCreateProject}
-          onImportProject={handleImportProject}
-          onImportLocalFolder={handleImportLocalFolderCallback}
-          isGitHubAuthenticated={integrations.github.cliStatus.authenticated}
-          githubUsername={integrations.github.username}
-          isAuthCheckDone={isInitialCheckDone}
-          onGitHubConnect={handleGitHubConnectFromOverlay}
-          showCreateModal={showCreateModal}
-          onCloseCreateModal={handleCloseCreateModal}
-          onProjectCreated={handleProjectCreated}
-          importView={importView}
-          setImportView={setImportView}
-          onProjectImported={handleProjectImported}
-          authTerminalConfig={authTerminalConfig}
-          closeAuthTerminal={closeAuthTerminal}
-          onAuthTerminalExit={handleAuthTerminalExitForProjects}
-          pluginProject={pluginProject}
-          pluginActions={pluginActions}
-          pluginTheme={pluginTheme}
-          getSlotPlugins={getSlotPlugins}
-          projectsLoading={projectsLoading}
-          onLoadingChange={setProjectsLoading}
-        />
+        <div className="projects-with-rail">
+          {pinnedProjects.rows.length > 0 && (
+            <ProjectRail
+              rows={pinnedProjects.rows}
+              onPinClick={handleRailClick}
+              onUnpin={handleRailUnpin}
+              onReorder={(orderedPaths) => void pinnedProjects.reorder(orderedPaths)}
+              onAddProject={handleAddProject}
+            />
+          )}
+          <ProjectsView
+            onSelectProject={handleSelectProjectCallback}
+            onCreateProject={handleCreateProject}
+            onImportProject={handleImportProject}
+            onImportLocalFolder={handleImportLocalFolderCallback}
+            isGitHubAuthenticated={integrations.github.cliStatus.authenticated}
+            githubUsername={integrations.github.username}
+            isAuthCheckDone={isInitialCheckDone}
+            onGitHubConnect={handleGitHubConnectFromOverlay}
+            showCreateModal={showCreateModal}
+            onCloseCreateModal={handleCloseCreateModal}
+            onProjectCreated={handleProjectCreated}
+            importView={importView}
+            setImportView={setImportView}
+            onProjectImported={handleProjectImported}
+            authTerminalConfig={authTerminalConfig}
+            closeAuthTerminal={closeAuthTerminal}
+            onAuthTerminalExit={handleAuthTerminalExitForProjects}
+            pluginProject={pluginProject}
+            pluginActions={pluginActions}
+            pluginTheme={pluginTheme}
+            getSlotPlugins={getSlotPlugins}
+            projectsLoading={projectsLoading}
+            onLoadingChange={setProjectsLoading}
+            cleanupStatus={cleanupStatus}
+            pinnedSet={pinnedProjects.pinnedSet}
+            onTogglePin={(path, pinned) => void handleTogglePin(path, pinned)}
+          />
+        </div>
+        {/* .projects-with-rail */}
         {toasts.length > 0 && (
           <div className="toast-container">
             {toasts.map((t) => (
@@ -909,48 +921,70 @@ function App({ initialProjectPath }: AppProps) {
             ))}
           </div>
         )}
+        {quitConfirmModal}
       </>
     );
   }
 
   if (view === 'project-loading') {
     return (
-      <div className="app loading">
-        <div className="spinner" />
-        <p>Opening {currentProject?.name}...</p>
-      </div>
+      <>
+        <div className="app loading">
+          <div className="spinner" />
+          <p>Opening {currentProject?.name}...</p>
+        </div>
+        {quitConfirmModal}
+      </>
     );
   }
 
   // Workspace view (guard against null during back-navigation transition)
   if (!currentProject) {
     return (
-      <div className="app loading">
-        <div className="spinner" />
-      </div>
+      <>
+        <div className="app loading">
+          <div className="spinner" />
+        </div>
+        {quitConfirmModal}
+      </>
     );
   }
+  const railElement =
+    pinnedProjects.rows.length > 0 ? (
+      <ProjectRail
+        rows={pinnedProjects.rows}
+        onPinClick={handleRailClick}
+        onUnpin={handleRailUnpin}
+        onReorder={(orderedPaths) => void pinnedProjects.reorder(orderedPaths)}
+        onAddProject={handleAddProject}
+      />
+    ) : null;
+
   return (
-    <WorkspaceView
-      currentProject={currentProject}
-      previewRef={previewRef}
-      terminal={terminalProps}
-      devServer={devServerProps}
-      notifications={notificationsProps}
-      integrationStatus={integrationStatusProps}
-      screenshots={screenshotsProps}
-      layout={layoutProps}
-      pluginState={pluginStateProps}
-      modals={modalsProps}
-      toasts={toastsProps}
-      branchMgmt={branchMgmtProps}
-      plugins={pluginsProps}
-      lifecycle={lifecycleProps}
-      pluginProject={pluginProject}
-      pluginActions={pluginActions}
-      pluginTheme={pluginTheme}
-      handleEnterCompactMode={handleEnterCompactMode}
-    />
+    <ToastContext.Provider value={toastsProps}>
+      <WorkspaceView
+        currentProject={currentProject}
+        previewRef={previewRef}
+        terminal={terminalProps}
+        devServer={devServerProps}
+        notifications={notificationsProps}
+        integrationStatus={integrationStatusProps}
+        screenshots={screenshotsProps}
+        layout={layoutProps}
+        pluginState={pluginStateProps}
+        modals={modalsProps}
+        toasts={toastsProps}
+        branchMgmt={branchMgmtProps}
+        plugins={pluginsProps}
+        lifecycle={lifecycleProps}
+        pluginProject={pluginProject}
+        pluginActions={pluginActions}
+        pluginTheme={pluginTheme}
+        handleEnterCompactMode={handleEnterCompactMode}
+        rail={railElement}
+      />
+      {quitConfirmModal}
+    </ToastContext.Provider>
   );
 }
 

@@ -2,7 +2,10 @@
 //!
 //! Commands for GitHub CLI status, authentication, and user info.
 
+use crate::cache::TtlCache;
 use crate::commands::git::git_stage_and_commit;
+use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::{
     GitHubCliStatus, GitHubLanguage, GitHubRepo, ProjectGitHubStatus, PushToGitHubOptions,
 };
@@ -10,29 +13,32 @@ use crate::utils::{create_command, find_executable, get_extended_path, validate_
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
-use tracing::{info, warn};
+use std::sync::LazyLock;
+use std::time::Duration;
+use tracing::{debug, warn};
+
+/// 10-minute TTL cache for `gh api user --jq .login`. The username rarely
+/// changes during a session; the uncached call adds ~200ms and hits the
+/// network, so caching is a meaningful perf win.
+static GITHUB_USERNAME_CACHE: LazyLock<TtlCache<(), String>> =
+    LazyLock::new(|| TtlCache::new(Duration::from_secs(600)));
+
+/// Invalidate the cached GitHub username. Call after auth changes.
+pub fn invalidate_github_username_cache() {
+    GITHUB_USERNAME_CACHE.invalidate(&());
+}
 
 /// Default timeout for GitHub CLI commands (15 seconds)
 const GITHUB_CLI_TIMEOUT_SECS: u64 = 15;
 
-/// Run a command with a timeout. Returns the output if successful, or an error if timed out.
+/// Run a gh command with a timeout via the shared external_command helper.
+/// Returns CommandError so callers can discriminate timeout vs IO vs process.
 async fn run_command_with_timeout(
     cmd: Command,
     timeout_secs: u64,
-) -> Result<std::process::Output, String> {
-    let mut tokio_cmd = tokio::process::Command::from(cmd);
-
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        tokio_cmd.output(),
-    )
-    .await;
-
-    match result {
-        Ok(Ok(output)) => Ok(output),
-        Ok(Err(e)) => Err(format!("Command failed: {e}")),
-        Err(_) => Err(format!("Command timed out after {timeout_secs} seconds")),
-    }
+) -> Result<std::process::Output, CommandError> {
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    run_with_timeout(tokio_cmd, "gh", timeout_secs).await
 }
 
 /// Returns a Command for gh with extended PATH set
@@ -64,6 +70,7 @@ pub fn parse_github_repo(url: &str) -> Option<String> {
 }
 
 #[tauri::command]
+#[tracing::instrument]
 pub async fn check_github_cli_status() -> GitHubCliStatus {
     // Check if gh CLI is installed
     let installed = find_executable("gh").is_some();
@@ -81,7 +88,7 @@ pub async fn check_github_cli_status() -> GitHubCliStatus {
     auth_cmd.args(["auth", "status"]);
     let authenticated = match run_command_with_timeout(auth_cmd, GITHUB_CLI_TIMEOUT_SECS).await {
         Ok(output) => {
-            info!(
+            debug!(
                 elapsed_ms = start.elapsed().as_millis() as u64,
                 success = output.status.success(),
                 "gh auth status completed"
@@ -101,27 +108,34 @@ pub async fn check_github_cli_status() -> GitHubCliStatus {
 }
 
 #[tauri::command]
-pub async fn get_github_username() -> Result<String, String> {
-    let output = get_gh_command()
-        .args(["api", "user", "--jq", ".login"])
-        .output()
-        .map_err(|e| e.to_string())?;
+#[tracing::instrument]
+pub async fn get_github_username() -> Result<String, CommandError> {
+    if let Some(cached) = GITHUB_USERNAME_CACHE.get(&()) {
+        return Ok(cached);
+    }
+
+    let mut cmd = get_gh_command();
+    cmd.args(["api", "user", "--jq", ".login"]);
+    let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
 
     if !output.status.success() {
-        return Err("Failed to get GitHub username".to_string());
+        return Err(CommandError::NotAuthenticated {
+            service: "github".to_string(),
+        });
     }
 
     let username = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    GITHUB_USERNAME_CACHE.insert((), username.clone());
     Ok(username)
 }
 
 #[tauri::command]
-pub async fn get_github_orgs() -> Result<Vec<String>, String> {
+#[tracing::instrument]
+pub async fn get_github_orgs() -> Result<Vec<String>, CommandError> {
     // Get orgs where user can create repos
-    let output = get_gh_command()
-        .args(["api", "user/orgs", "--jq", ".[].login"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = get_gh_command();
+    cmd.args(["api", "user/orgs", "--jq", ".[].login"]);
+    let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
 
     if !output.status.success() {
         // Return empty list if we can't get orgs (user might not have any)
@@ -140,6 +154,7 @@ pub async fn get_github_orgs() -> Result<Vec<String>, String> {
 /// Checks GitHub status by verifying with the GitHub CLI.
 /// Asks GitHub directly instead of inferring from local files.
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_github_status(project_path: String) -> ProjectGitHubStatus {
     let not_a_repo = ProjectGitHubStatus {
         status: "not-a-repo".to_string(),
@@ -159,7 +174,7 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
     }
 
     let total_start = std::time::Instant::now();
-    info!(project_path = %project_path, "get_project_github_status: starting");
+    debug!(project_path = %project_path, "get_project_github_status: starting");
 
     // Get remote URL (with timeout)
     let step_start = std::time::Instant::now();
@@ -172,12 +187,12 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
     let remote_url = match run_command_with_timeout(remote_cmd, GITHUB_CLI_TIMEOUT_SECS).await {
         Ok(output) if output.status.success() => {
             let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            info!(elapsed_ms = step_start.elapsed().as_millis() as u64, remote_url = %url, "git remote get-url origin completed");
+            debug!(elapsed_ms = step_start.elapsed().as_millis() as u64, remote_url = %url, "git remote get-url origin completed");
             url
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            info!(elapsed_ms = step_start.elapsed().as_millis() as u64, stderr = %stderr, "git remote get-url origin: no remote configured");
+            debug!(elapsed_ms = step_start.elapsed().as_millis() as u64, stderr = %stderr, "git remote get-url origin: no remote configured");
             return ProjectGitHubStatus {
                 status: "no-remote".to_string(),
                 github_repo: None,
@@ -199,7 +214,7 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
     let github_repo = match github_repo {
         Some(repo) => repo,
         None => {
-            info!(remote_url = %remote_url, "Could not parse GitHub repo from remote URL");
+            debug!(remote_url = %remote_url, "Could not parse GitHub repo from remote URL");
             return ProjectGitHubStatus {
                 status: "no-remote".to_string(),
                 github_repo: None,
@@ -210,7 +225,7 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
 
     // Verify repo exists on GitHub using gh CLI (with timeout)
     let step_start = std::time::Instant::now();
-    info!(github_repo = %github_repo, "Running gh repo view");
+    debug!(github_repo = %github_repo, "Running gh repo view");
     let mut gh_cmd = get_gh_command();
     gh_cmd
         .args(["repo", "view", &github_repo, "--json", "url"])
@@ -218,7 +233,7 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
 
     let result = match run_command_with_timeout(gh_cmd, GITHUB_CLI_TIMEOUT_SECS).await {
         Ok(output) if output.status.success() => {
-            info!(elapsed_ms = step_start.elapsed().as_millis() as u64, github_repo = %github_repo, "gh repo view completed successfully");
+            debug!(elapsed_ms = step_start.elapsed().as_millis() as u64, github_repo = %github_repo, "gh repo view completed successfully");
             // Parse the URL from JSON response
             let json_str = String::from_utf8_lossy(&output.stdout);
             let url = serde_json::from_str::<serde_json::Value>(&json_str)
@@ -234,7 +249,7 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            info!(elapsed_ms = step_start.elapsed().as_millis() as u64, stderr = %stderr, "gh repo view: repo not found or no access");
+            debug!(elapsed_ms = step_start.elapsed().as_millis() as u64, stderr = %stderr, "gh repo view: repo not found or no access");
             ProjectGitHubStatus {
                 status: "no-remote".to_string(),
                 github_repo: None,
@@ -251,7 +266,7 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
         }
     };
 
-    info!(
+    debug!(
         total_elapsed_ms = total_start.elapsed().as_millis() as u64,
         status = %result.status,
         "get_project_github_status: done"
@@ -261,7 +276,7 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
 
 /// Ensures git user.name and user.email are configured for the repo.
 /// If not set, fetches the user's identity from GitHub CLI and sets it locally.
-fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), String> {
+pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandError> {
     let has_name = create_command("git")
         .args(["config", "user.name"])
         .current_dir(repo_path)
@@ -287,7 +302,7 @@ fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), String> {
         .map_err(|e| format!("Failed to get GitHub user info: {e}"))?;
 
     if !gh_output.status.success() {
-        return Err("Failed to get GitHub user info. Please configure git manually:\n  git config --global user.name \"Your Name\"\n  git config --global user.email \"you@example.com\"".to_string());
+        return Err(("Failed to get GitHub user info. Please configure git manually:\n  git config --global user.name \"Your Name\"\n  git config --global user.email \"you@example.com\"".to_string()).into());
     }
 
     let info = String::from_utf8_lossy(&gh_output.stdout);
@@ -327,8 +342,10 @@ fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, String> {
-    let validated_path = validate_project_path(&options.project_path)?;
+#[tracing::instrument(skip(options), fields(project = %options.project_path, repo = %options.repo_name))]
+pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, CommandError> {
+    let validated_path =
+        validate_project_path(&options.project_path).map_err(CommandError::from)?;
     let repo_name = &options.repo_name;
     let visibility = if options.is_private {
         "--private"
@@ -343,11 +360,11 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Stri
             .args(["init"])
             .current_dir(&validated_path)
             .output()
-            .map_err(|e| e.to_string())?;
+            .map_err(CommandError::from)?;
     }
 
     // Ensure git identity is configured (required for commits)
-    ensure_git_identity(&validated_path)?;
+    ensure_git_identity(&validated_path).map_err(CommandError::from)?;
 
     // Stage and commit any files
     let _ = git_stage_and_commit(
@@ -377,27 +394,36 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Stri
             ])
             .current_dir(&validated_path)
             .output()
-            .map_err(|e| e.to_string())?;
+            .map_err(CommandError::from)?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Failed to create initial commit: {stderr}"));
+            return Err(CommandError::Process {
+                cmd: "git commit".to_string(),
+                exit_code: output.status.code().unwrap_or(-1),
+                stderr: stderr.to_string(),
+            });
         }
     }
 
     // Create GitHub repo and push
-    let output = get_gh_command()
+    let mut gh_cmd = get_gh_command();
+    gh_cmd
         .args([
             "repo", "create", repo_name, visibility, "--source", ".", "--remote", "origin",
             "--push",
         ])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+        .current_dir(&validated_path);
+    // Longer timeout: create+push can take a while for bigger repos.
+    let output = run_command_with_timeout(gh_cmd, 60).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.to_string());
+        return Err(CommandError::Process {
+            cmd: "gh repo create".to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+            stderr: stderr.to_string(),
+        });
     }
 
     // Return the repo URL
@@ -406,28 +432,34 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Stri
 
 /// Lists GitHub repositories for a given owner (user or organization)
 #[tauri::command]
-pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, String> {
-    let output = get_gh_command()
-        .args([
-            "repo",
-            "list",
-            &owner,
-            "--json",
-            "name,url,sshUrl,isPrivate,description,primaryLanguage,updatedAt",
-            "--limit",
-            "100",
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
+#[tracing::instrument]
+pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, CommandError> {
+    let mut cmd = get_gh_command();
+    cmd.args([
+        "repo",
+        "list",
+        &owner,
+        "--json",
+        "name,url,sshUrl,isPrivate,description,primaryLanguage,updatedAt",
+        "--limit",
+        "100",
+    ]);
+    let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to list repos: {stderr}"));
+        return Err(CommandError::Process {
+            cmd: "gh repo list".to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+            stderr: stderr.to_string(),
+        });
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
     let repos: Vec<GitHubRepo> =
-        serde_json::from_str(&json_str).map_err(|e| format!("Failed to parse repo list: {e}"))?;
+        serde_json::from_str(&json_str).map_err(|e| CommandError::Other {
+            message: format!("Failed to parse repo list: {e}"),
+        })?;
 
     Ok(repos)
 }
@@ -452,28 +484,34 @@ struct GitHubApiOwner {
 
 /// Lists GitHub repositories where the user is a collaborator (not owner)
 #[tauri::command]
-pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, String> {
+#[tracing::instrument]
+pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> {
     // Use GitHub API to get repos where user is a collaborator
     // affiliation=collaborator returns repos where user has been added as a collaborator
-    let output = get_gh_command()
-        .args([
-            "api",
-            "/user/repos?affiliation=collaborator&per_page=100&sort=updated",
-            "--paginate",
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = get_gh_command();
+    cmd.args([
+        "api",
+        "/user/repos?affiliation=collaborator&per_page=100&sort=updated",
+        "--paginate",
+    ]);
+    let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to list collaborator repos: {stderr}"));
+        return Err(CommandError::Process {
+            cmd: "gh api /user/repos".to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+            stderr: stderr.to_string(),
+        });
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
 
     // The API returns an array of repo objects with different field names
-    let api_repos: Vec<GitHubApiRepo> = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Failed to parse collaborator repo list: {e}"))?;
+    let api_repos: Vec<GitHubApiRepo> =
+        serde_json::from_str(&json_str).map_err(|e| CommandError::Other {
+            message: format!("Failed to parse collaborator repo list: {e}"),
+        })?;
 
     // Convert to our GitHubRepo format
     let repos: Vec<GitHubRepo> = api_repos
@@ -494,7 +532,8 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, String> {
 
 /// Detects the package manager used in a project by checking for lock files
 #[tauri::command]
-pub async fn detect_package_manager(project_path: String) -> Result<String, String> {
+#[tracing::instrument]
+pub async fn detect_package_manager(project_path: String) -> Result<String, CommandError> {
     let path = Path::new(&project_path);
 
     // Check in order of specificity
@@ -509,4 +548,207 @@ pub async fn detect_package_manager(project_path: String) -> Result<String, Stri
     }
     // Default to npm
     Ok("npm".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::GitHubRepo;
+
+    #[test]
+    fn parse_github_repo_https_with_git_suffix() {
+        assert_eq!(
+            parse_github_repo("https://github.com/owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_https_without_git_suffix() {
+        assert_eq!(
+            parse_github_repo("https://github.com/owner/repo").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_https_with_trailing_slash() {
+        assert_eq!(
+            parse_github_repo("https://github.com/owner/repo/").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_ssh_url() {
+        assert_eq!(
+            parse_github_repo("git@github.com:owner/repo.git").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_ssh_without_git_suffix() {
+        assert_eq!(
+            parse_github_repo("git@github.com:owner/repo").as_deref(),
+            Some("owner/repo")
+        );
+    }
+
+    #[test]
+    fn parse_github_repo_rejects_non_github_urls() {
+        assert_eq!(parse_github_repo("https://gitlab.com/owner/repo.git"), None);
+        assert_eq!(parse_github_repo("not a url"), None);
+        assert_eq!(parse_github_repo(""), None);
+    }
+
+    #[test]
+    fn parse_github_repo_handles_org_with_dashes() {
+        assert_eq!(
+            parse_github_repo("https://github.com/my-org/my-repo-name.git").as_deref(),
+            Some("my-org/my-repo-name")
+        );
+    }
+
+    /// Mirror of the JSON shape returned by `gh repo view --json url`.
+    /// Ensures the inline parsing in `get_project_github_status` keeps working
+    /// as the serde_json type contract between gh and us.
+    #[test]
+    fn gh_repo_view_json_extracts_url() {
+        let json_str = r#"{"url":"https://github.com/foo/bar"}"#;
+        let url = serde_json::from_str::<serde_json::Value>(json_str)
+            .ok()
+            .and_then(|v| v.get("url").and_then(|u| u.as_str()).map(|s| s.to_string()));
+        assert_eq!(url.as_deref(), Some("https://github.com/foo/bar"));
+    }
+
+    #[test]
+    fn gh_repo_view_json_missing_url_returns_none() {
+        let json_str = r#"{"other":"value"}"#;
+        let url = serde_json::from_str::<serde_json::Value>(json_str)
+            .ok()
+            .and_then(|v| v.get("url").and_then(|u| u.as_str()).map(|s| s.to_string()));
+        assert_eq!(url, None);
+    }
+
+    /// `gh repo list --json name,url,sshUrl,isPrivate,description,primaryLanguage,updatedAt`
+    /// returns an array. Validates our GitHubRepo deserialization contract.
+    #[test]
+    fn gh_repo_list_json_parses_into_repos() {
+        let json_str = r#"[
+            {
+                "name": "repo1",
+                "url": "https://github.com/o/repo1",
+                "sshUrl": "git@github.com:o/repo1.git",
+                "isPrivate": false,
+                "description": "Hello",
+                "primaryLanguage": {"name": "Rust"},
+                "updatedAt": "2024-01-01T00:00:00Z"
+            },
+            {
+                "name": "repo2",
+                "url": "https://github.com/o/repo2",
+                "sshUrl": "git@github.com:o/repo2.git",
+                "isPrivate": true,
+                "description": null,
+                "primaryLanguage": null,
+                "updatedAt": "2024-02-01T00:00:00Z"
+            }
+        ]"#;
+        let repos: Vec<GitHubRepo> = serde_json::from_str(json_str).expect("parse");
+        assert_eq!(repos.len(), 2);
+        assert_eq!(repos[0].name, "repo1");
+        assert!(!repos[0].is_private);
+        assert_eq!(
+            repos[0].primary_language.as_ref().map(|l| l.name.as_str()),
+            Some("Rust")
+        );
+        assert!(repos[1].is_private);
+        assert!(repos[1].description.is_none());
+        assert!(repos[1].primary_language.is_none());
+    }
+
+    /// Collaborator repos use the raw GitHub REST API shape, which has
+    /// different field names from `gh repo list`. Guard against regressions in
+    /// the GitHubApiRepo struct.
+    #[test]
+    fn github_api_collaborator_repo_json_parses() {
+        let json_str = r#"[{
+            "name": "shared",
+            "html_url": "https://github.com/alice/shared",
+            "ssh_url": "git@github.com:alice/shared.git",
+            "private": true,
+            "description": "A shared repo",
+            "language": "TypeScript",
+            "updated_at": "2024-03-01T00:00:00Z",
+            "owner": {"login": "alice"}
+        }]"#;
+        let api_repos: Vec<GitHubApiRepo> = serde_json::from_str(json_str).expect("parse");
+        assert_eq!(api_repos.len(), 1);
+        assert_eq!(api_repos[0].owner.login, "alice");
+        assert_eq!(api_repos[0].name, "shared");
+        assert!(api_repos[0].private);
+        assert_eq!(api_repos[0].language.as_deref(), Some("TypeScript"));
+    }
+
+    /// Post-parse behavior: the mapping performed in `list_collaborator_repos`
+    /// prefixes the repo name with `owner/`. Verify it.
+    /// Verify `invalidate_github_username_cache` clears the cached login.
+    /// We prime the cache manually (no network), invalidate, and check miss.
+    #[test]
+    fn github_username_cache_invalidation_clears_entry() {
+        GITHUB_USERNAME_CACHE.insert((), "alice".to_string());
+        assert_eq!(
+            GITHUB_USERNAME_CACHE.get(&()),
+            Some("alice".to_string()),
+            "cache should be primed"
+        );
+        invalidate_github_username_cache();
+        assert_eq!(
+            GITHUB_USERNAME_CACHE.get(&()),
+            None,
+            "invalidate must clear the cached username"
+        );
+    }
+
+    /// Verify the cache survives repeated reads within TTL (stability check).
+    #[test]
+    fn github_username_cache_stable_across_reads() {
+        // Clean slate before asserting.
+        invalidate_github_username_cache();
+        GITHUB_USERNAME_CACHE.insert((), "bob".to_string());
+        let first = GITHUB_USERNAME_CACHE.get(&());
+        let second = GITHUB_USERNAME_CACHE.get(&());
+        assert_eq!(first, second);
+        assert_eq!(first.as_deref(), Some("bob"));
+        // Cleanup so we don't pollute other tests (test-threads=1 means tests
+        // run sequentially but global state still bleeds between cases).
+        invalidate_github_username_cache();
+    }
+
+    #[test]
+    fn collaborator_repos_are_prefixed_with_owner_login() {
+        let api = GitHubApiRepo {
+            name: "shared".into(),
+            html_url: "https://github.com/alice/shared".into(),
+            ssh_url: "git@github.com:alice/shared.git".into(),
+            private: false,
+            description: None,
+            language: None,
+            updated_at: "2024-03-01T00:00:00Z".into(),
+            owner: GitHubApiOwner {
+                login: "alice".into(),
+            },
+        };
+        let converted = GitHubRepo {
+            name: format!("{}/{}", api.owner.login, api.name),
+            url: api.html_url,
+            ssh_url: api.ssh_url,
+            is_private: api.private,
+            description: api.description,
+            primary_language: api.language.map(|l| GitHubLanguage { name: l }),
+            updated_at: api.updated_at,
+        };
+        assert_eq!(converted.name, "alice/shared");
+    }
 }

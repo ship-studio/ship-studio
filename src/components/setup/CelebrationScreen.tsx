@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Button } from '../primitives/Button';
 
 interface CelebrationScreenProps {
   /** Called when user clicks to continue */
@@ -43,9 +44,9 @@ export function CelebrationScreen({ onContinue }: CelebrationScreenProps) {
         </div>
         <h1 className="celebration-title">You're all set!</h1>
         <p className="celebration-subtitle">Everything is installed and connected</p>
-        <button className="btn-primary celebration-btn" onClick={onContinue}>
+        <Button variant="primary" className="celebration-btn" onClick={onContinue}>
           Get Started
-        </button>
+        </Button>
       </div>
     </div>
   );

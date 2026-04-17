@@ -74,6 +74,7 @@ export function ToolbarDropdown({
         <div className="toolbar-dropdown-menu">
           <button
             className="toolbar-dropdown-item"
+            data-education-id="notification-settings"
             onClick={() => {
               setIsOpen(false);
               onNotificationSettings();
@@ -85,6 +86,7 @@ export function ToolbarDropdown({
           {agent.supportsSkills && (
             <button
               className="toolbar-dropdown-item"
+              data-education-id="skills-manager"
               onClick={() => {
                 setIsOpen(false);
                 onSkills();
@@ -137,6 +139,7 @@ export function ToolbarDropdown({
           <div className="toolbar-dropdown-divider" />
           <button
             className="toolbar-dropdown-item"
+            data-education-id="help-commands"
             onClick={() => {
               setIsOpen(false);
               onHelp();

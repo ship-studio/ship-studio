@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { trackEvent } from '../lib/analytics';
 
 /** Responsive breakpoint options */
 export type Breakpoint = 'full' | 'desktop' | 'laptop' | 'tablet' | 'mobile';
@@ -154,6 +155,7 @@ export function usePreviewResize({ iframeWrapperRef }: UsePreviewResizeParams) {
     } else {
       setCustomWidth(375);
     }
+    void trackEvent('preview_breakpoint_changed', { breakpoint: bp, $screen_name: 'Workspace' });
   }, []);
 
   return {

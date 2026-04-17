@@ -25,12 +25,13 @@ import {
   type PluginRegistryEntry,
 } from '../lib/plugins';
 import type { LoadedPlugin } from '../hooks/usePlugins';
+import { useModal } from '../contexts/ModalContext';
+import { PluginInstallForm } from './PluginInstallForm';
+import { PluginStatusGrid } from './PluginStatusGrid';
 
 type Tab = 'installed' | 'library';
 
 interface PluginManagerProps {
-  isOpen: boolean;
-  onClose: () => void;
   onPluginsChanged: () => void;
   projectPath: string | null;
   /** Loaded plugins from usePlugins hook, used to render toolbar icons */
@@ -38,12 +39,11 @@ interface PluginManagerProps {
 }
 
 export function PluginManager({
-  isOpen,
-  onClose,
   onPluginsChanged,
   projectPath,
   loadedPlugins = [],
 }: PluginManagerProps) {
+  const { isOpen, close: onClose } = useModal('pluginManager');
   const [activeTab, setActiveTab] = useState<Tab>('installed');
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -446,120 +446,21 @@ export function PluginManager({
                 <div className="plugins-empty">No matching plugins</div>
               )}
 
-              <div className="plugins-list">
-                {filteredPlugins.map((plugin) => {
-                  const loaded = loadedPlugins.find(
-                    (lp) => lp.info.manifest.id === plugin.manifest.id
-                  );
-                  const ToolbarIcon = loaded?.module.slots['toolbar'];
-
-                  return (
-                    <div key={plugin.manifest.id} className="plugin-row">
-                      <div className="plugin-icon-container">
-                        {ToolbarIcon ? <ToolbarIcon /> : null}
-                      </div>
-                      <div className="plugin-info">
-                        <div className="plugin-header">
-                          <div>
-                            <span className="plugin-name">
-                              {plugin.manifest.name}
-                              {plugin.is_dev && <span className="plugin-dev-badge">DEV</span>}
-                            </span>
-                            <span className="plugin-meta">
-                              v{plugin.manifest.version}
-                              {plugin.manifest.author && <> · {plugin.manifest.author}</>}
-                            </span>
-                          </div>
-                          <button
-                            className={`plugin-toggle-btn ${plugin.enabled ? 'enabled' : ''}`}
-                            onClick={() => {
-                              void handleToggle(plugin.manifest.id, !plugin.enabled);
-                            }}
-                            disabled={togglingId === plugin.manifest.id}
-                            title={plugin.enabled ? 'Disable' : 'Enable'}
-                          >
-                            {plugin.enabled ? 'On' : 'Off'}
-                          </button>
-                        </div>
-                        {plugin.is_dev && plugin.local_path && (
-                          <div className="plugin-local-path" title={plugin.local_path}>
-                            {plugin.local_path}
-                          </div>
-                        )}
-                        <div className="plugin-desc">{plugin.manifest.description}</div>
-                        <div className="plugin-actions">
-                          {plugin.is_dev ? (
-                            <>
-                              <button
-                                className="plugin-action-link"
-                                onClick={() => handleReloadDevPlugin(plugin.manifest.id)}
-                                disabled={reloadingId === plugin.manifest.id}
-                              >
-                                {reloadingId === plugin.manifest.id ? 'Reloading...' : 'Reload'}
-                              </button>
-                              <button
-                                className="plugin-action-link plugin-action-danger"
-                                onClick={() => {
-                                  void handleUnlinkDevPlugin(plugin.manifest.id);
-                                }}
-                                disabled={unlinkingId === plugin.manifest.id}
-                              >
-                                {unlinkingId === plugin.manifest.id ? 'Unlinking...' : 'Unlink'}
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              {(() => {
-                                const state = updateStates[plugin.manifest.id] || 'idle';
-                                if (state === 'checking') {
-                                  return <span className="plugin-action-status">Checking...</span>;
-                                }
-                                if (state === 'available') {
-                                  return (
-                                    <button
-                                      className="plugin-action-link plugin-action-update"
-                                      onClick={() => {
-                                        void handleUpdate(plugin.manifest.id);
-                                      }}
-                                    >
-                                      Update available
-                                    </button>
-                                  );
-                                }
-                                if (state === 'updating') {
-                                  return <span className="plugin-action-status">Updating...</span>;
-                                }
-                                if (state === 'up_to_date') {
-                                  return <span className="plugin-action-status">Up to date</span>;
-                                }
-                                return (
-                                  <button
-                                    className="plugin-action-link"
-                                    onClick={() => {
-                                      void handleCheckUpdate(plugin.manifest.id);
-                                    }}
-                                  >
-                                    Check for updates
-                                  </button>
-                                );
-                              })()}
-                              <button
-                                className="plugin-action-link plugin-action-danger"
-                                onClick={() => {
-                                  void handleUninstall(plugin.manifest.id);
-                                }}
-                                disabled={removingId === plugin.manifest.id}
-                              >
-                                {removingId === plugin.manifest.id ? 'Removing...' : 'Remove'}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <PluginStatusGrid
+                plugins={filteredPlugins}
+                loadedPlugins={loadedPlugins}
+                togglingId={togglingId}
+                removingId={removingId}
+                reloadingId={reloadingId}
+                unlinkingId={unlinkingId}
+                updateStates={updateStates}
+                onToggle={(id, enabled) => void handleToggle(id, enabled)}
+                onCheckUpdate={(id) => void handleCheckUpdate(id)}
+                onUpdate={(id) => void handleUpdate(id)}
+                onUninstall={(id) => void handleUninstall(id)}
+                onReloadDev={(id) => handleReloadDevPlugin(id)}
+                onUnlinkDev={(id) => void handleUnlinkDevPlugin(id)}
+              />
 
               {error && activeTab === 'installed' && <div className="plugins-error">{error}</div>}
 
@@ -638,40 +539,14 @@ export function PluginManager({
 
               {error && <div className="plugins-error">{error}</div>}
 
-              <div className="plugins-url-section">
-                {!showUrlInput ? (
-                  <button className="plugins-url-toggle" onClick={() => setShowUrlInput(true)}>
-                    Install from URL
-                  </button>
-                ) : (
-                  <div className="plugins-install-input-wrapper">
-                    <input
-                      type="text"
-                      className="plugins-install-input"
-                      placeholder="https://github.com/owner/repo"
-                      value={repoUrl}
-                      onChange={(e) => setRepoUrl(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void handleUrlInstall();
-                      }}
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      autoFocus
-                    />
-                    <button
-                      className="plugins-install-btn"
-                      onClick={() => {
-                        void handleUrlInstall();
-                      }}
-                      disabled={isInstallingUrl || !repoUrl.trim()}
-                    >
-                      {isInstallingUrl ? 'Installing...' : 'Install'}
-                    </button>
-                  </div>
-                )}
-              </div>
+              <PluginInstallForm
+                showUrlInput={showUrlInput}
+                onShowUrlInput={() => setShowUrlInput(true)}
+                repoUrl={repoUrl}
+                onRepoUrlChange={setRepoUrl}
+                isInstallingUrl={isInstallingUrl}
+                onInstall={() => void handleUrlInstall()}
+              />
             </>
           )}
         </div>

@@ -1,0 +1,133 @@
+/* Update Banner Styles - matches app dark theme */
+
+.update-banner {
+  position: relative;
+  z-index: 10;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  /* Top padding clears the macOS traffic lights (overlay title bar) */
+  padding: 40px 16px 12px;
+}
+
+.update-banner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.update-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-banner-badge {
+  background: var(--action);
+  color: var(--action-text);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.update-banner-version {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.update-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-banner-btn {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.update-banner-btn.secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.update-banner-btn.secondary:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.update-banner-btn.primary {
+  background: var(--action);
+  color: var(--action-text);
+}
+
+.update-banner-btn.primary:hover {
+  background: var(--action-hover);
+}
+
+.update-banner-progress-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-banner-progress {
+  width: 140px;
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.update-banner-progress-bar {
+  height: 100%;
+  background: var(--action);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.update-banner-progress-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 36px;
+}
+
+.update-banner-error {
+  color: var(--error);
+  font-size: 12px;
+  font-family: 'JetBrainsMono NF', monospace;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-banner-notes {
+  margin-top: 10px;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+.update-banner-notes li {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 2px;
+}
+
+.update-banner-notes li:last-child {
+  margin-bottom: 0;
+}

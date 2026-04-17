@@ -1,0 +1,12 @@
+# Pattern enforcement for ship-studio Rust backend.
+# See ../CLAUDE.md → "How to Do Things → New Rust Tauri command" for context.
+#
+# Block 15.5 of the DX refactor enables these lints. Adjust as patterns evolve.
+
+# Force CLI invocations through `external_command::run_with_timeout` rather than
+# building one-off `std::process::Command` calls in command modules. Still allowed
+# in places that legitimately need streaming or special spawn semantics (PTY).
+disallowed-methods = [
+  { path = "std::process::Command::output", reason = "use external_command::run_with_timeout for timeout + structured CommandError mapping" },
+  { path = "std::process::Command::status", reason = "use external_command::run_with_timeout (or run_to_stdout) instead" },
+]

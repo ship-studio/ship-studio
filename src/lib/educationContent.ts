@@ -24,7 +24,61 @@ export interface EducationItem {
  * The keys correspond to data-education-id attributes on UI elements.
  */
 export const educationContent: Record<string, EducationItem> = {
-  // Header toolbar items
+  // ─── Dashboard ───
+
+  'search-projects': {
+    title: 'Search Projects',
+    description:
+      'Quickly find any project by name. Press ⌘K to jump straight to search from anywhere on this screen.',
+  },
+  'import-button': {
+    title: 'Import Project',
+    description:
+      'Bring in an existing project from GitHub. Your code will be downloaded so you can start working on it right away.',
+  },
+  'new-project-button': {
+    title: 'New Project',
+    description:
+      'Create a brand new website project. Choose from starter templates or start from scratch.',
+  },
+  'sort-projects': {
+    title: 'Sort Projects',
+    description:
+      'Change how your projects are ordered — by when you last worked on them or by name.',
+  },
+  'new-folder-button': {
+    title: 'New Folder',
+    description:
+      'Organize your projects into folders. Drag or move projects into folders to keep things tidy.',
+  },
+  'settings-button': {
+    title: 'Settings',
+    description:
+      'Customize your dashboard — show or hide the activity calendar and community banner, and manage analytics preferences.',
+  },
+  'integration-bar': {
+    title: 'Integrations',
+    description:
+      'See which tools are connected and ready. Click to expand and check the status of your coding agent, GitHub, and other services.',
+  },
+  'changelog-sidebar': {
+    title: "What's New",
+    description:
+      'See the latest updates and improvements to Ship Studio. Click any version to install it if you want to try it.',
+  },
+  'github-calendar': {
+    title: 'Activity Calendar',
+    description:
+      "Your GitHub contribution history at a glance. Shows how active you've been over the past year.",
+  },
+  'slack-cta': {
+    title: 'Community',
+    description:
+      "Join the Ship Studio Slack community to suggest features, share what you're building, and connect with other builders.",
+  },
+
+  // ─── Workspace header toolbar ───
+
   'branch-indicator': {
     title: 'Current Version',
     description:
@@ -46,19 +100,35 @@ export const educationContent: Record<string, EducationItem> = {
       'GitHub stores all your project files online and keeps a history of every change. Connect to back up your work and collaborate with others.',
   },
   'env-button': {
-    title: 'Secret Settings',
+    title: 'Environment Variables',
     description:
-      'Store private information like API keys and passwords. These values are used by your app but stay hidden and secure.',
+      'Set values like API keys and configuration options that your app can read at runtime. These are stored in a .env file in your project.',
   },
   'backups-button': {
-    title: 'Backups',
+    title: 'GitHub Backups',
     description:
       'View and restore previous versions of your project. Every time you save, a backup is created automatically. You can go back to any earlier state.',
   },
   'ide-button': {
     title: 'Open in Code Editor',
     description:
-      'Open your project in VS Code or Cursor for more advanced editing features beyond what Claude can help with here.',
+      'If you want to manually edit any of your code, you can open it with VS Code or Cursor.',
+  },
+
+  'project-settings-button': {
+    title: 'Project Settings',
+    description:
+      'Configure settings specific to this project, like the dev server command and other project-level preferences.',
+  },
+  'client-editor-button': {
+    title: 'Add Clients',
+    description:
+      'Let your clients edit text, images, and content directly on their live site — no code required. Edits become pull requests in your repo automatically.',
+  },
+  'support-button': {
+    title: 'Support',
+    description:
+      "Get help or report a bug. Reach out to the Ship Studio team if something isn't working right.",
   },
 
   // Workspace tabs
@@ -85,9 +155,9 @@ export const educationContent: Record<string, EducationItem> = {
       'Shows whether your code has any errors or warnings. Green means everything looks good, red means something needs attention.',
   },
   'claude-terminal': {
-    title: 'Chat with Claude',
+    title: 'Terminal Window',
     description:
-      'Ask Claude to help build features, fix problems, or explain your code. Just type what you want in plain English.',
+      'A full terminal where you can run coding agents like Claude Code, Codex, or any other terminal-based tool. Type commands or ask your agent to build features, fix problems, and more.',
   },
   'server-logs': {
     title: 'Server Output',
@@ -101,14 +171,14 @@ export const educationContent: Record<string, EducationItem> = {
   'terminal-tabs': {
     title: 'Chat Sessions',
     description:
-      'Each tab is a separate conversation with Claude. Use multiple tabs to work on different tasks at the same time.',
+      'Each tab is a separate terminal session. Use multiple tabs to work on different tasks at the same time.',
   },
 
   // Preview area - granular elements
   'preview-viewport': {
     title: 'Live Preview',
     description:
-      'See your website as you build it. Changes appear here automatically when Claude updates your code.',
+      'See your website as you build it. Changes appear here automatically when your agent updates your code.',
   },
   'page-switcher': {
     title: 'Page Navigation',
@@ -127,7 +197,7 @@ export const educationContent: Record<string, EducationItem> = {
   'compact-button': {
     title: 'Compact Mode',
     description:
-      'Shrink the app to a smaller window that stays on top. Great for chatting with Claude while working in another app.',
+      'Shrink the app to a smaller window that stays on top. Great for working with your agent while using another app.',
   },
   'browser-button': {
     title: 'Open in Browser',
@@ -139,34 +209,28 @@ export const educationContent: Record<string, EducationItem> = {
   'screenshot-button': {
     title: 'Screenshot',
     description:
-      'Take a picture of the current preview and share it with Claude. Useful for showing Claude exactly what you see.',
+      'Take a picture of the current preview and share it with your agent. Useful for showing exactly what you see.',
   },
   'crop-button': {
     title: 'Crop Screenshot',
     description:
       'Select a specific area of the preview to screenshot. Click this, then drag on the preview to select the region.',
   },
-  'fullpage-button': {
-    title: 'Full Page Screenshot',
-    description:
-      'Capture the entire page, including parts you need to scroll to see. Great for showing Claude a complete page layout.',
-  },
-
   // Terminal header buttons
   'notification-settings': {
     title: 'Notification Sounds',
     description:
-      'Turn sound alerts on or off. Get notified when Claude finishes a task or needs your attention.',
+      'Turn sound alerts on or off. Get notified when your agent finishes a task or needs your attention.',
   },
   'skills-manager': {
     title: 'Manage Skills',
     description:
-      'Install and manage skills that give Claude specialized abilities. Skills add commands for specific tasks like React patterns or code review.',
+      'Install and manage skills that give your agent specialized abilities. Skills add commands for specific tasks like React patterns or code review.',
   },
   'mcp-manager': {
     title: 'MCP Servers',
     description:
-      'Manage Model Context Protocol servers that connect Claude to external tools and data sources. MCP servers let Claude interact with databases, APIs, and other services.',
+      'Manage Model Context Protocol servers that connect your agent to external tools and data sources. MCP servers let your agent interact with databases, APIs, and other services.',
   },
   'help-commands': {
     title: 'Help & Commands',
@@ -196,7 +260,7 @@ export const educationContent: Record<string, EducationItem> = {
   'hide-preview': {
     title: 'Hide Preview',
     description:
-      'Hide the preview panel to give Claude more room. Useful when you want to focus on chatting.',
+      'Hide the preview panel to give the terminal more room. Useful when you want to focus on your agent.',
   },
 
   // Education mode button itself

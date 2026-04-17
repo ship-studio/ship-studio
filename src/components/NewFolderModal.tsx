@@ -7,6 +7,8 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
 
 /** Props for the NewFolderModal component */
 interface NewFolderModalProps {
@@ -48,18 +50,6 @@ export function NewFolderModal({
     }
   }, [isOpen, initialName]);
 
-  // Handle escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -82,40 +72,35 @@ export function NewFolderModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
-        <form onSubmit={(e) => void handleSubmit(e)}>
-          <div className="form-group">
-            <label htmlFor="folder-name">Folder name</label>
-            <input
-              ref={inputRef}
-              id="folder-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="My Projects"
-              disabled={loading}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-            />
-          </div>
-          {error && <p className="form-error">{error}</p>}
-          <div className="modal-actions">
-            <button type="button" onClick={onClose} disabled={loading}>
-              Cancel
-            </button>
-            <button type="submit" className="btn-primary" disabled={loading || !name.trim()}>
-              {loading ? 'Creating...' : buttonLabel}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <ModalFrame isOpen={isOpen} onClose={onClose} title={title} dismissable={!loading}>
+      <form onSubmit={(e) => void handleSubmit(e)} style={{ padding: 'var(--spacing-xl)' }}>
+        <div className="form-group">
+          <label htmlFor="folder-name">Folder name</label>
+          <input
+            ref={inputRef}
+            id="folder-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="My Projects"
+            disabled={loading}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+          />
+        </div>
+        {error && <p className="form-error">{error}</p>}
+        <div className="modal-actions">
+          <Button variant="secondary" type="button" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={loading || !name.trim()}>
+            {loading ? 'Creating...' : buttonLabel}
+          </Button>
+        </div>
+      </form>
+    </ModalFrame>
   );
 }

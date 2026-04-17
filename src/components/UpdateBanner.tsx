@@ -18,7 +18,7 @@ import { Update } from '@tauri-apps/plugin-updater';
 import { checkForUpdate, downloadAndInstall, restartApp, UpdateInfo } from '../lib/updater';
 import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
-import '../styles/update-banner.css';
+import '../styles/features/update-banner.css';
 
 /** How often to check for updates (1 hour) */
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;

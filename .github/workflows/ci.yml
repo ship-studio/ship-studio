@@ -55,6 +55,18 @@ jobs:
       - name: Run tests
         run: pnpm test:run
 
+      - name: Pattern regression check
+        run: pnpm check:patterns
+
+      - name: LOC regression guard
+        run: pnpm check:loc
+
+      - name: Coverage floor
+        # Floor set at current baseline (~5% lines, 16% branches, 4% functions).
+        # Plan's aspirational target is 25% lines / 20% branches; raise
+        # thresholds as more tests land (see Block 14 follow-ups).
+        run: pnpm test:coverage --coverage.thresholds.lines=4 --coverage.thresholds.functions=4 --coverage.thresholds.branches=15 --coverage.thresholds.statements=4
+
   # Backend checks
   backend:
     name: Backend Checks
@@ -88,9 +100,13 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: Clippy
+        env:
+          CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
         run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -A clippy::uninlined_format_args
 
       - name: Run tests
+        env:
+          CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
   # Build verification (PRs and main)
@@ -126,4 +142,6 @@ jobs:
         run: pnpm build
 
       - name: Check Tauri build (no bundle)
+        env:
+          CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
         run: pnpm tauri build --no-bundle

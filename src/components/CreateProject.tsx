@@ -11,10 +11,14 @@
  * @module components/CreateProject
  */
 
-import { useState, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { trackEvent } from '../lib/analytics';
+import { logger } from '../lib/logger';
 import { UploadIcon } from './icons';
+import { Button } from './primitives/Button';
 import { useProjectCreation, TEMPLATES, STEPS, STATUS_MESSAGES } from '../hooks/useProjectCreation';
-import { useClickOutside } from '../hooks/useClickOutside';
+import { TemplateGallery, type CommunityTemplate } from './TemplateGallery';
 
 /** Props for the CreateProject component */
 interface CreateProjectProps {
@@ -52,20 +56,97 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
     handleDrop,
     handleFileSelect,
     handleRemoveZip,
+    setZipPath,
+    setZipFileName,
     saveDefaultTemplate,
     defaultTemplateId,
   } = useProjectCreation({ onComplete, onCancel });
 
-  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [setAsDefaultChecked, setSetAsDefaultChecked] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  useClickOutside(dropdownRef, () => setDropdownOpen(false), dropdownOpen);
 
-  const handleContinue = () => {
-    if (setAsDefaultChecked && selectedTemplate) {
-      saveDefaultTemplate(selectedTemplate.id);
+  // Tab state: "scratch" = start from scratch, "template" = community templates
+  const [activeTab, setActiveTab] = useState<'scratch' | 'template'>('scratch');
+
+  // Community templates from API
+  const [communityTemplates, setCommunityTemplates] = useState<CommunityTemplate[]>([]);
+  const [communityLoading, setCommunityLoading] = useState(true);
+  const [communitySearch, setCommunitySearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  // Debounce search input — hit the API server-side
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(communitySearch), 300);
+    return () => clearTimeout(timer);
+  }, [communitySearch]);
+
+  // Fetch templates from API (server-side search)
+  const fetchTemplates = useCallback(() => {
+    setCommunityLoading(true);
+    const params: Record<string, string | number> = {};
+    if (debouncedSearch) params.search = debouncedSearch;
+    invoke<string>('fetch_community_templates', params)
+      .then((raw) => {
+        const data = JSON.parse(raw) as { templates: CommunityTemplate[] };
+        setCommunityTemplates(data.templates);
+      })
+      .catch(() => {
+        // Silently fail — user sees empty state
+      })
+      .finally(() => setCommunityLoading(false));
+  }, [debouncedSearch]);
+
+  // Fetch on mount and when search changes
+  useEffect(() => {
+    fetchTemplates();
+  }, [fetchTemplates]);
+
+  // Re-fetch every 50 minutes to keep signed zip_urls fresh (they expire after 1 hour)
+  useEffect(() => {
+    const interval = setInterval(fetchTemplates, 50 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchTemplates]);
+
+  const handleCommunitySelect = (template: CommunityTemplate) => {
+    setSelectedCommunityId(template.id === selectedCommunityId ? null : template.id);
+  };
+
+  const selectedCommunityTemplate =
+    communityTemplates.find((t) => t.id === selectedCommunityId) ?? null;
+
+  const handleContinue = async () => {
+    if (activeTab === 'scratch') {
+      if (setAsDefaultChecked && selectedTemplate) {
+        saveDefaultTemplate(selectedTemplate.id);
+      }
+      rawHandleContinue();
+      return;
     }
-    rawHandleContinue();
+
+    // Template tab — community template selected
+    if (selectedCommunityTemplate?.zip_url) {
+      setDownloading(true);
+      try {
+        const tempPath = await invoke<string>('download_template_zip', {
+          url: selectedCommunityTemplate.zip_url,
+        });
+        setZipPath(tempPath);
+        setZipFileName(selectedCommunityTemplate.name + '.zip');
+        rawHandleContinue();
+      } catch (err) {
+        // Show error inline — don't block the modal
+        logger.error('Failed to download community template', { error: err });
+      } finally {
+        setDownloading(false);
+      }
+      return;
+    }
+
+    // Template tab — zip upload selected
+    if (hasZipTemplate) {
+      rawHandleContinue();
+    }
   };
 
   const renderContent = () => {
@@ -117,14 +198,18 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
 
           {error && (
             <div className="create-error">
-              <p style={{ whiteSpace: 'pre-line' }}>{error}</p>
+              <p style={{ whiteSpace: 'pre-line', maxHeight: '200px', overflowY: 'auto' }}>
+                {error}
+              </p>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {currentStep === 'install' && createdProjectPath && (
-                  <button className="btn-primary" onClick={() => void retryInstall()}>
+                  <Button variant="primary" onClick={() => void retryInstall()}>
                     Retry
-                  </button>
+                  </Button>
                 )}
-                <button onClick={onCancel}>Close</button>
+                <Button variant="secondary" onClick={onCancel}>
+                  Close
+                </Button>
               </div>
             </div>
           )}
@@ -156,144 +241,161 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
             </button>
           </div>
 
-          <div className="template-select-wrapper" ref={dropdownRef}>
+          <div className="create-tabs">
             <button
               type="button"
-              className={`template-select-trigger ${hasZipTemplate ? 'dimmed' : ''}`}
-              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className={`create-tab ${activeTab === 'scratch' ? 'active' : ''}`}
+              onClick={() => setActiveTab('scratch')}
             >
-              <span>{selectedTemplate?.name ?? 'Select a template'}</span>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                style={{
-                  transform: dropdownOpen ? 'rotate(180deg)' : undefined,
-                  transition: 'transform 0.15s',
-                }}
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
+              Start from Scratch
             </button>
-            {dropdownOpen && (
-              <div className="template-select-menu">
+            <button
+              type="button"
+              className={`create-tab ${activeTab === 'template' ? 'active' : ''}`}
+              onClick={() => setActiveTab('template')}
+            >
+              Start from Template
+            </button>
+          </div>
+
+          {activeTab === 'scratch' && (
+            <>
+              <div className="stack-grid">
                 {TEMPLATES.map((template) => (
                   <button
                     key={template.id}
                     type="button"
-                    className={`template-select-option ${selectedTemplate?.id === template.id && !hasZipTemplate ? 'selected' : ''}`}
+                    className={`stack-card ${selectedTemplate?.id === template.id && !hasZipTemplate ? 'stack-card-selected' : ''}`}
                     onClick={() => {
                       handleTemplateSelect(template);
-                      setDropdownOpen(false);
+                      void trackEvent('template_selected', {
+                        template_id: template.id,
+                        $screen_name: 'Create Project',
+                      });
                       setSetAsDefaultChecked(false);
                     }}
                   >
-                    <div className="template-option-text">
-                      <span className="template-option-name">{template.name}</span>
-                      <span className="template-option-desc">{template.description}</span>
-                    </div>
+                    <span className="stack-card-name">{template.name}</span>
+                    <span className="stack-card-desc">{template.description}</span>
                     {selectedTemplate?.id === template.id && !hasZipTemplate && (
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
+                      <div className="stack-card-check">
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
                     )}
                   </button>
                 ))}
               </div>
-            )}
-          </div>
 
-          {selectedTemplate && selectedTemplate.id !== defaultTemplateId && !hasZipTemplate && (
-            <button
-              type="button"
-              className={`template-default-toggle ${setAsDefaultChecked ? 'active' : ''}`}
-              onClick={() => setSetAsDefaultChecked(!setAsDefaultChecked)}
-            >
-              {setAsDefaultChecked ? 'Will be your default' : 'Set as default?'}
-            </button>
+              {selectedTemplate && selectedTemplate.id !== defaultTemplateId && !hasZipTemplate && (
+                <button
+                  type="button"
+                  className={`template-default-toggle ${setAsDefaultChecked ? 'active' : ''}`}
+                  onClick={() => setSetAsDefaultChecked(!setAsDefaultChecked)}
+                >
+                  {setAsDefaultChecked ? 'Will be your default' : 'Set as default?'}
+                </button>
+              )}
+            </>
           )}
 
-          <div className="template-divider">
-            <span>or use a template</span>
-          </div>
-
-          {!hasZipTemplate ? (
-            <div
-              ref={dropZoneRef}
-              className={`template-dropzone ${isDragging ? 'dragging' : ''}`}
-              onDragEnter={handleDragEnter}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".zip"
-                onChange={handleFileSelect}
-                style={{ display: 'none' }}
+          {activeTab === 'template' && (
+            <>
+              <TemplateGallery
+                templates={communityTemplates}
+                loading={communityLoading}
+                onSelect={handleCommunitySelect}
+                selectedId={selectedCommunityId}
+                searchQuery={communitySearch}
+                onSearchChange={setCommunitySearch}
               />
-              <UploadIcon size={24} />
-              <p>Drop a template .zip file here</p>
-              <span>or click to browse</span>
-            </div>
-          ) : (
-            <div className="template-zip-selected">
-              <div className="template-zip-info">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                <span>{displayZipName}</span>
+
+              <div className="template-divider">
+                <span>or upload a template</span>
               </div>
-              <button type="button" className="template-zip-remove" onClick={handleRemoveZip}>
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
+
+              {!hasZipTemplate ? (
+                <div
+                  ref={dropZoneRef}
+                  className={`template-dropzone ${isDragging ? 'dragging' : ''}`}
+                  onDragEnter={handleDragEnter}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".zip"
+                    onChange={handleFileSelect}
+                    style={{ display: 'none' }}
+                  />
+                  <UploadIcon size={24} />
+                  <p>Drop a template .zip file here</p>
+                  <span>or click to browse</span>
+                </div>
+              ) : (
+                <div className="template-zip-selected">
+                  <div className="template-zip-info">
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    <span>{displayZipName}</span>
+                  </div>
+                  <button type="button" className="template-zip-remove" onClick={handleRemoveZip}>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
           {error && <p className="error">{error}</p>}
 
           <div className="create-actions">
-            <button type="button" onClick={onCancel}>
+            <Button variant="secondary" type="button" onClick={onCancel}>
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="button"
-              className="btn-primary"
-              disabled={!selectedTemplate && !hasZipTemplate}
-              onClick={handleContinue}
+              disabled={
+                downloading ||
+                (activeTab === 'scratch'
+                  ? !selectedTemplate && !hasZipTemplate
+                  : !selectedCommunityId && !hasZipTemplate)
+              }
+              onClick={() => void handleContinue()}
             >
-              Continue
-            </button>
+              {downloading ? 'Downloading...' : 'Continue'}
+            </Button>
           </div>
         </div>
       );
@@ -355,12 +457,12 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
           {error && <p className="error">{error}</p>}
 
           <div className="create-actions">
-            <button type="button" onClick={handleBack}>
+            <Button variant="secondary" type="button" onClick={handleBack}>
               Back
-            </button>
-            <button type="submit" className="btn-primary">
+            </Button>
+            <Button variant="primary" type="submit">
               Create Project
-            </button>
+            </Button>
           </div>
         </form>
       </div>

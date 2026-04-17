@@ -7,7 +7,7 @@
  * @module components/PluginSlot
  */
 
-import { Component, type ReactNode, useState } from 'react';
+import { Component, type ReactNode, useState, useRef, useEffect, type ComponentType } from 'react';
 import {
   PluginContext,
   exposePluginContext,
@@ -16,7 +16,13 @@ import {
   type PluginAppActions,
   type PluginThemeData,
 } from '../contexts/PluginContext';
-import { execPluginShell, readPluginStorage, writePluginStorage } from '../lib/plugins';
+import {
+  execPluginShell,
+  readPluginStorage,
+  writePluginStorage,
+  uninstallPlugin,
+} from '../lib/plugins';
+import { markPluginCrashed, isPluginCrashed } from '../lib/plugin-loader';
 import { invoke } from '@tauri-apps/api/core';
 import type { LoadedPlugin } from '../hooks/usePlugins';
 
@@ -43,76 +49,38 @@ interface ErrorBoundaryProps {
   pluginId: string;
   pluginName: string;
   compact: boolean;
+  onCrash?: () => void;
   children: ReactNode;
 }
 
-/** Inline fallback for expanded (non-toolbar) plugin errors */
-function PluginErrorFallback({
-  pluginName,
-  error,
-  onRetry,
-}: {
-  pluginName: string;
-  error: Error | null;
-  onRetry: () => void;
-}) {
-  const [showDetails, setShowDetails] = useState(false);
+/**
+ * Outermost isolation boundary — wraps the entire plugin render including
+ * the Context.Provider. Catches errors that escape the inner PluginErrorBoundary
+ * (e.g. plugins bundling their own React, errors during Provider setup, or
+ * dual-React-instance edge cases).
+ */
+class PluginIsolationBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
 
-  return (
-    <div style={{ padding: '8px 12px', color: 'var(--text-secondary)', fontSize: '12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <span style={{ color: 'var(--error)' }}>!</span>
-        <span>
-          <strong>{pluginName}</strong> crashed: {error?.message || 'Unknown error'}
-        </span>
-      </div>
-      <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-        <button
-          onClick={() => setShowDetails((v) => !v)}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            padding: 0,
-            fontSize: '11px',
-            textDecoration: 'underline',
-          }}
-        >
-          {showDetails ? 'Hide Details' : 'Details'}
-        </button>
-        <button
-          onClick={onRetry}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--accent)',
-            cursor: 'pointer',
-            padding: 0,
-            fontSize: '11px',
-            textDecoration: 'underline',
-          }}
-        >
-          Retry
-        </button>
-      </div>
-      {showDetails && error?.stack && (
-        <pre
-          style={{
-            marginTop: '4px',
-            fontSize: '10px',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            color: 'var(--text-muted)',
-            maxHeight: '120px',
-            overflow: 'auto',
-          }}
-        >
-          {error.stack}
-        </pre>
-      )}
-    </div>
-  );
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error(
+      `[PluginIsolation] Plugin "${this.props.pluginId}" crashed (outer boundary):`,
+      error
+    );
+    this.props.onCrash?.();
+  }
+
+  render() {
+    if (this.state.hasError) return null;
+    return this.props.children;
+  }
 }
 
 /** Error boundary that isolates plugin crashes */
@@ -128,33 +96,11 @@ class PluginErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
 
   componentDidCatch(error: Error) {
     console.error(`Plugin ${this.props.pluginId} crashed:`, error);
+    this.props.onCrash?.();
   }
 
-  handleRetry = () => {
-    this.setState({ hasError: false, error: null });
-  };
-
   render() {
-    if (this.state.hasError) {
-      if (this.props.compact) {
-        return (
-          <span
-            className="plugin-error-indicator"
-            title={`${this.props.pluginName} crashed: ${this.state.error?.message || 'Unknown error'}\n\n${this.state.error?.stack || ''}`}
-          >
-            !
-          </span>
-        );
-      }
-
-      return (
-        <PluginErrorFallback
-          pluginName={this.props.pluginName}
-          error={this.state.error}
-          onRetry={this.handleRetry}
-        />
-      );
-    }
+    if (this.state.hasError) return null;
     return this.props.children;
   }
 }
@@ -196,40 +142,119 @@ function buildContext(
   };
 }
 
+/**
+ * Safely renders a plugin component inside a container div.
+ *
+ * Some plugins bundle their own React, causing hook errors that escape
+ * React error boundaries entirely. This wrapper catches those by:
+ * 1. Rendering the plugin component inside an isolated container
+ * 2. Listening for error events that originate from plugin blob: URLs
+ * 3. Replacing crashed plugin content with an inline error indicator
+ */
+function SafePluginWrapper({
+  Component: PluginComponent,
+  pluginId,
+  onCrash,
+}: {
+  Component: ComponentType;
+  pluginId: string;
+  onCrash?: () => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [crashed, setCrashed] = useState(false);
+
+  useEffect(() => {
+    function handleError(event: ErrorEvent) {
+      if (!event.filename?.startsWith('blob:')) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      console.error(`Plugin "${pluginId}" error caught by safety wrapper:`, event.error);
+      setCrashed(true);
+      onCrash?.();
+    }
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, [pluginId, onCrash]);
+
+  if (crashed) return null;
+
+  return (
+    <div ref={containerRef} style={{ display: 'contents' }}>
+      <PluginComponent />
+    </div>
+  );
+}
+
 export function PluginSlot({ name, plugins, project, actions, theme }: PluginSlotProps) {
   if (plugins.length === 0) return null;
+
+  const compact = name === 'toolbar' || name === 'preview';
 
   return (
     <>
       {plugins.map((plugin) => {
+        const pluginId = plugin.info.manifest.id;
+        const pluginName = plugin.info.manifest.name;
+
+        // Skip plugins that already crashed this session
+        if (isPluginCrashed(pluginId)) return null;
+
         const SlotComponent = plugin.module.slots[name];
         if (!SlotComponent) return null;
 
         const ctx = buildContext(
-          plugin.info.manifest.id,
+          pluginId,
           project,
           actions,
           theme,
           plugin.info.manifest.required_commands || []
         );
-        // Expose context on namespaced map for raw-JS plugins
+
+        // Expose context on window globals for raw-JS and legacy plugins.
         const pluginsMap = ((
           window as unknown as Record<string, unknown>
         ).__SHIPSTUDIO_PLUGINS__ ??= {}) as Record<string, PluginContextValue>;
-        pluginsMap[plugin.info.manifest.id] = ctx;
-        // Legacy single-global write for v0 compat (last-writer-wins)
+        pluginsMap[pluginId] = ctx;
         exposePluginContext(ctx);
 
+        const handleCrash = () => {
+          // 1. Block immediately so next render skips this plugin
+          markPluginCrashed(pluginId);
+          // 2. Toast the user
+          actions.showToast(`"${pluginName}" crashed and was removed.`, 'error');
+          // 3. Uninstall from disk (async, best-effort)
+          const projectPath = project?.path;
+          if (projectPath) {
+            void uninstallPlugin(projectPath, pluginId).catch((e) =>
+              console.error(`Failed to auto-remove plugin "${pluginId}":`, e)
+            );
+          }
+        };
+
         return (
-          <PluginContext.Provider key={plugin.info.manifest.id} value={ctx}>
-            <PluginErrorBoundary
-              pluginId={plugin.info.manifest.id}
-              pluginName={plugin.info.manifest.name}
-              compact={name === 'toolbar' || name === 'preview'}
-            >
-              <SlotComponent />
-            </PluginErrorBoundary>
-          </PluginContext.Provider>
+          <PluginIsolationBoundary
+            key={pluginId}
+            pluginId={pluginId}
+            pluginName={pluginName}
+            compact={compact}
+            onCrash={handleCrash}
+          >
+            <PluginContext.Provider value={ctx}>
+              <PluginErrorBoundary
+                pluginId={pluginId}
+                pluginName={pluginName}
+                compact={compact}
+                onCrash={handleCrash}
+              >
+                <SafePluginWrapper
+                  Component={SlotComponent}
+                  pluginId={pluginId}
+                  onCrash={handleCrash}
+                />
+              </PluginErrorBoundary>
+            </PluginContext.Provider>
+          </PluginIsolationBoundary>
         );
       })}
     </>

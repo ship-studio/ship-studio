@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { trackError } from '../lib/analytics';
+import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
 
 /** Represents an environment file in the project */
@@ -214,6 +214,11 @@ export function useEnvEditor({
       setHasChanges(false);
       // Re-check sync status after saving
       void checkSyncStatus(envFiles);
+      void trackEvent('env_saved', {
+        file: selectedFile.name,
+        var_count: vars.length,
+        $screen_name: 'Workspace',
+      });
       onToast?.(`Saved ${selectedFile.name}`, 'success');
     } catch (e) {
       trackError('env_save', e, 'Workspace');
@@ -289,6 +294,7 @@ export function useEnvEditor({
     setHasChanges(true);
     setShowPasteModal(false);
     setPasteContent('');
+    void trackEvent('env_vars_pasted', { var_count: parsed.length, $screen_name: 'Workspace' });
     onToast?.(`Added ${parsed.length} variable${parsed.length > 1 ? 's' : ''}`, 'success');
   };
 
@@ -353,6 +359,11 @@ export function useEnvEditor({
       if (selectedFile?.name === '.env.example' || selectedFile?.name === '.env') {
         void loadVars();
       }
+      void trackEvent('env_synced', {
+        target: '.env.example',
+        key_count: syncStatus.missingInExample.length,
+        $screen_name: 'Workspace',
+      });
       onToast?.('Synced keys to .env.example', 'success');
     } catch (e) {
       trackError('env_sync_example', e, 'Workspace');
@@ -392,6 +403,11 @@ export function useEnvEditor({
       if (selectedFile?.name === '.env.local') {
         void loadVars();
       }
+      void trackEvent('env_synced', {
+        target: '.env.local',
+        key_count: syncStatus.missingInLocal.length,
+        $screen_name: 'Workspace',
+      });
       onToast?.('Added missing keys to .env.local', 'success');
     } catch (e) {
       trackError('env_sync_local', e, 'Workspace');
@@ -418,6 +434,7 @@ export function useEnvEditor({
       setEnvFiles(files);
       void checkSyncStatus(files);
       setSelectedFile({ name: fileName, path });
+      void trackEvent('env_file_created', { file: fileName, $screen_name: 'Workspace' });
       onToast?.(`Created ${fileName}`, 'success');
     } catch (e) {
       trackError('env_file_create', e, 'Workspace');
@@ -439,6 +456,7 @@ export function useEnvEditor({
       const files = await invoke<EnvFile[]>('list_env_files', { projectPath });
       setEnvFiles(files);
       void checkSyncStatus(files);
+      void trackEvent('env_file_deleted', { file: fileName, $screen_name: 'Workspace' });
       onToast?.(`Deleted ${fileName}`, 'success');
     } catch (e) {
       trackError('env_file_delete', e, 'Workspace');

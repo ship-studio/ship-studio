@@ -1,5 +1,6 @@
 //! Project thumbnail capture and retrieval.
 
+use crate::errors::CommandError;
 use crate::utils::{create_command, validate_project_path};
 use std::net::TcpStream;
 use std::time::Duration;
@@ -7,10 +8,11 @@ use std::time::Duration;
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
 
 #[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn capture_project_thumbnail(
     project_path: String,
     url: String,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     // Quick health check: verify the dev server is still responding before launching Playwright.
     // This reduces (but doesn't eliminate) race conditions where the server dies mid-capture.
     // Extract port from URL (e.g., "http://localhost:3000" -> 3000)
@@ -34,7 +36,7 @@ pub async fn capture_project_thumbnail(
             "Dev server health check failed on both IPv4 and IPv6 for port {}",
             port
         );
-        return Err("Dev server not responding, skipping thumbnail capture".to_string());
+        return Err(("Dev server not responding, skipping thumbnail capture".to_string()).into());
     }
     tracing::info!(
         "Dev server health check passed (IPv4: {}, IPv6: {}) on port {}",
@@ -105,7 +107,7 @@ pub async fn capture_project_thumbnail(
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Browser screenshot failed: {stderr}"));
+            return Err((format!("Browser screenshot failed: {stderr}")).into());
         }
 
         // Read the captured image and resize using the image crate (cross-platform)
@@ -135,13 +137,15 @@ pub async fn capture_project_thumbnail(
     } else {
         Err(
             "No supported browser found for screenshots (Chrome, Chromium, or Edge required)"
-                .to_string(),
+                .to_string()
+                .into(),
         )
     }
 }
 
 #[tauri::command]
-pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String>, String> {
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String>, CommandError> {
     let project = validate_project_path(&project_path)?;
     let thumbnail_path = project.join(".shipstudio").join("thumbnail.png");
 

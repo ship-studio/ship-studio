@@ -37,6 +37,10 @@ interface ProjectCardProps {
   isExternal?: boolean;
   /** Callback when remove from list is clicked (for external projects) */
   onRemove?: () => void;
+  /** Whether the project is currently pinned to the rail. */
+  isPinned?: boolean;
+  /** Toggle pin state. Receives the desired new state. */
+  onTogglePin?: (pinned: boolean) => void;
 }
 
 export const ProjectCard = memo(function ProjectCard({
@@ -51,6 +55,8 @@ export const ProjectCard = memo(function ProjectCard({
   onOpenInNewWindow,
   isExternal,
   onRemove,
+  isPinned,
+  onTogglePin,
 }: ProjectCardProps) {
   const hasChanges = project.uncommitted_count !== null && project.uncommitted_count > 0;
   const hideMainBranchWarning = project.hide_main_branch_warning === true;
@@ -133,6 +139,8 @@ export const ProjectCard = memo(function ProjectCard({
           onDelete={onDelete}
           isExternal={isExternal}
           onRemove={onRemove}
+          isPinned={isPinned}
+          onTogglePin={onTogglePin}
         />
       </div>
     </div>

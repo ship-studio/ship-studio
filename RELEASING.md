@@ -93,6 +93,25 @@ After the workflow completes:
 - [ ] Publish the main repo draft release
 - [ ] Test auto-updater shows update available in-app
 
+---
+
+## Windows Releases
+
+Windows builds run on a separate workflow (`.github/workflows/release-windows.yml`) triggered by tags ending in `-win`. The macOS workflow explicitly excludes these tags, so the two pipelines are fully independent.
+
+### How to publish a Windows build
+
+```bash
+# Tag with a -win suffix and push
+git tag v0.5.0-win
+git push origin v0.5.0-win
+```
+
+GitHub Actions will:
+1. Build the Tauri app on a `windows-latest` runner
+2. Produce a Windows installer (NSIS/MSI)
+3. Create a **draft release** in the main repo with the artifacts
+
 ## Troubleshooting
 
 ### Workflow fails at "Create release in public releases repo"

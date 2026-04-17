@@ -6,10 +6,12 @@
  * @module components/MoveFolderModal
  */
 
-import { useState, useEffect } from 'react';
-import { FolderInfo, listFolders } from '../lib/folders';
-import { FolderIcon, CheckIcon } from './icons';
+import { useState, useEffect, useRef } from 'react';
+import { FolderInfo, listFolders, createFolder } from '../lib/folders';
+import { FolderIcon, CheckIcon, PlusIcon } from './icons';
 import { logger } from '../lib/logger';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
 
 /** Props for the MoveFolderModal component */
 interface MoveFolderModalProps {
@@ -35,10 +37,15 @@ export function MoveFolderModal({
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [selecting, setSelecting] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
 
   // Load folders when modal opens
   useEffect(() => {
     if (isOpen) {
+      setCreatingFolder(false);
+      setNewFolderName('');
       setLoading(true);
       listFolders()
         .then(setFolders)
@@ -51,17 +58,29 @@ export function MoveFolderModal({
     }
   }, [isOpen]);
 
-  // Handle escape key
+  // Focus input when entering create mode
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
+    if (creatingFolder) {
+      newFolderInputRef.current?.focus();
+    }
+  }, [creatingFolder]);
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  const handleCreateFolder = async () => {
+    const trimmed = newFolderName.trim();
+    if (!trimmed) return;
+
+    try {
+      const folder = await createFolder(trimmed);
+      setNewFolderName('');
+      setCreatingFolder(false);
+      // Move the project into the newly created folder
+      await handleSelect(folder.id);
+    } catch (err) {
+      logger.error('Failed to create folder', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
 
   const handleSelect = async (folderId: string | null) => {
     if (selecting) return;
@@ -79,12 +98,15 @@ export function MoveFolderModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal move-folder-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Move to Folder</h3>
+    <ModalFrame
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Move to Folder"
+      className="move-folder-modal"
+      dismissable={!selecting}
+    >
+      <div style={{ padding: 'var(--spacing-xl)' }}>
         <p className="modal-subtitle">
           Move <strong>{projectName}</strong> to:
         </p>
@@ -122,18 +144,52 @@ export function MoveFolderModal({
               </button>
             ))}
 
-            {folders.length === 0 && (
-              <p className="move-folder-empty">No folders yet. Create a folder first.</p>
+            {/* New folder creation */}
+            {creatingFolder ? (
+              <div className="move-folder-create-input">
+                <FolderIcon size={16} />
+                <input
+                  ref={newFolderInputRef}
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleCreateFolder();
+                    if (e.key === 'Escape') {
+                      setCreatingFolder(false);
+                      setNewFolderName('');
+                    }
+                  }}
+                  placeholder="Folder name"
+                  maxLength={50}
+                />
+                <button
+                  className="move-folder-create-confirm"
+                  onClick={() => void handleCreateFolder()}
+                  disabled={!newFolderName.trim()}
+                >
+                  Create
+                </button>
+              </div>
+            ) : (
+              <button
+                className="move-folder-item move-folder-new-btn"
+                onClick={() => setCreatingFolder(true)}
+                disabled={selecting}
+              >
+                <PlusIcon size={16} />
+                <span className="move-folder-item-name">New Folder</span>
+              </button>
             )}
           </div>
         )}
 
         <div className="modal-actions">
-          <button onClick={onClose} disabled={selecting}>
+          <Button variant="secondary" onClick={onClose} disabled={selecting}>
             Cancel
-          </button>
+          </Button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 }

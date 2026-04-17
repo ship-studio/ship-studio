@@ -9,7 +9,8 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { CloseIcon, SearchIcon } from './icons';
+import { SearchIcon } from './icons';
+import { ModalFrame } from './primitives/ModalFrame';
 import {
   type AgentSkill,
   checkSkillsCli,
@@ -21,6 +22,7 @@ import {
 import { listAgentSkills } from '../lib/claude';
 import { trackEvent, trackSearch } from '../lib/analytics';
 import { logger } from '../lib/logger';
+import { useModal } from '../contexts/ModalContext';
 
 /** Format install count as compact string (e.g., 98500 → "98.5K") */
 function formatInstalls(n: number): string {
@@ -34,20 +36,17 @@ type ScopeFilter = 'all' | 'user' | 'project';
 type InstallScope = 'user' | 'project';
 
 interface SkillsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
   projectPath?: string;
   agentId?: string;
   agentDisplayName?: string;
 }
 
 export function SkillsModal({
-  isOpen,
-  onClose,
   projectPath,
   agentId,
   agentDisplayName = 'Claude',
 }: SkillsModalProps) {
+  const { isOpen, close: onClose } = useModal('skills');
   const [activeTab, setActiveTab] = useState<Tab>('installed');
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
   const [skills, setSkills] = useState<AgentSkill[]>([]);
@@ -216,18 +215,14 @@ export function SkillsModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div className="modal skills-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="skills-modal-header">
-          <h3>Skills for {agentDisplayName}</h3>
-          <button className="skills-close-btn" onClick={onClose}>
-            <CloseIcon size={16} />
-          </button>
-        </div>
-
+    <ModalFrame
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Skills for ${agentDisplayName}`}
+      className="skills-modal"
+    >
+      <>
         <div className="skills-tabs">
           <button
             className={`skills-tab ${activeTab === 'installed' ? 'active' : ''}`}
@@ -460,7 +455,7 @@ export function SkillsModal({
             Powered by skills.sh
           </a>
         </div>
-      </div>
-    </div>
+      </>
+    </ModalFrame>
   );
 }

@@ -7,6 +7,7 @@
 //! Users can opt out via the `set_analytics_enabled` command.
 
 use crate::commands::setup::{read_app_state, write_app_state};
+use crate::errors::CommandError;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -188,11 +189,12 @@ fn get_device_id() -> String {
 /// Track an analytics event. Properties are optional key-value pairs.
 /// The distinct_id defaults to the device_id if not provided.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn track_event(
     event_name: String,
     properties: Option<serde_json::Value>,
     distinct_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let id = distinct_id.unwrap_or_else(get_distinct_id);
     let props = properties.unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
 
@@ -203,10 +205,11 @@ pub async fn track_event(
 /// Identify a user by linking their distinct_id with person properties.
 /// Call this when the user authenticates (e.g., GitHub login).
 #[tauri::command]
+#[tracing::instrument]
 pub async fn identify_user(
     user_id: String,
     properties: Option<serde_json::Value>,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     // Cache the identified user ID so all future events use it
     if let Ok(mut guard) = ANALYTICS.lock() {
         if let Some(cache) = guard.as_mut() {
@@ -238,7 +241,8 @@ pub async fn identify_user(
 
 /// Get whether analytics are currently enabled
 #[tauri::command]
-pub fn get_analytics_enabled() -> Result<bool, String> {
+#[tracing::instrument]
+pub fn get_analytics_enabled() -> Result<bool, CommandError> {
     let enabled = ANALYTICS
         .lock()
         .ok()
@@ -249,7 +253,8 @@ pub fn get_analytics_enabled() -> Result<bool, String> {
 
 /// Set whether analytics are enabled (persisted to app state)
 #[tauri::command]
-pub fn set_analytics_enabled(enabled: bool) -> Result<(), String> {
+#[tracing::instrument]
+pub fn set_analytics_enabled(enabled: bool) -> Result<(), CommandError> {
     // Update the in-memory cache
     if let Ok(mut guard) = ANALYTICS.lock() {
         if let Some(cache) = guard.as_mut() {
@@ -278,6 +283,7 @@ pub fn set_analytics_enabled(enabled: bool) -> Result<(), String> {
 
 /// Get the anonymous device ID (useful for frontend to know the distinct_id)
 #[tauri::command]
-pub fn get_device_id_command() -> Result<String, String> {
+#[tracing::instrument]
+pub fn get_device_id_command() -> Result<String, CommandError> {
     Ok(get_device_id())
 }

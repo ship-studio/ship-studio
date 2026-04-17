@@ -18,6 +18,7 @@ pub use stash::*;
 pub use status::*;
 pub use sync::*;
 
+use crate::errors::CommandError;
 use crate::types::PrerequisiteCheck;
 use crate::utils::{create_command, find_executable, validate_project_path};
 use tracing::{debug, error, info, instrument};
@@ -241,7 +242,8 @@ pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
 
 /// Returns the path to ~/ShipStudio directory
 #[tauri::command]
-pub async fn get_shipstudio_dir() -> Result<String, String> {
+#[tracing::instrument]
+pub async fn get_shipstudio_dir() -> Result<String, CommandError> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
     Ok(shipstudio_dir.to_string_lossy().to_string())
@@ -249,7 +251,8 @@ pub async fn get_shipstudio_dir() -> Result<String, String> {
 
 /// Creates ~/ShipStudio directory if it doesn't exist
 #[tauri::command]
-pub async fn ensure_shipstudio_dir() -> Result<String, String> {
+#[tracing::instrument]
+pub async fn ensure_shipstudio_dir() -> Result<String, CommandError> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
 
@@ -262,7 +265,7 @@ pub async fn ensure_shipstudio_dir() -> Result<String, String> {
 
 #[tauri::command]
 #[instrument(name = "init_git_repo", skip(project_path), fields(project = %project_path))]
-pub async fn init_git_repo(project_path: String) -> Result<(), String> {
+pub async fn init_git_repo(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     info!("Initializing git repository");
@@ -280,12 +283,157 @@ pub async fn init_git_repo(project_path: String) -> Result<(), String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         error!(error = %stderr, "git init failed");
-        return Err(stderr);
+        return Err(stderr.into());
     }
 
     // Stage and commit all files
-    git_stage_and_commit(&validated_path, "Initial commit from Ship Studio")?;
+    git_stage_and_commit(&validated_path, "Initial commit from Ship Studio")
+        .map_err(CommandError::from)?;
 
     info!("Git repository initialized successfully");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    /// Initialize a fresh git repo in `dir` with a local user identity so
+    /// commits work in CI environments without global git config.
+    fn init_repo(dir: &std::path::Path) {
+        assert!(Command::new("git")
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(dir)
+            .status()
+            .expect("git init")
+            .success());
+        for (k, v) in [("user.name", "Test"), ("user.email", "test@example.com")] {
+            assert!(Command::new("git")
+                .args(["config", k, v])
+                .current_dir(dir)
+                .status()
+                .expect("git config")
+                .success());
+        }
+    }
+
+    fn commit_all(dir: &std::path::Path, msg: &str) {
+        assert!(Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir)
+            .status()
+            .expect("git add")
+            .success());
+        assert!(Command::new("git")
+            .args(["commit", "-q", "-m", msg])
+            .current_dir(dir)
+            .status()
+            .expect("git commit")
+            .success());
+    }
+
+    #[test]
+    fn has_uncommitted_changes_false_on_clean_repo() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        commit_all(tmp.path(), "initial");
+        let result = git_has_uncommitted_changes(tmp.path()).unwrap();
+        assert!(!result, "clean repo should report no uncommitted changes");
+    }
+
+    #[test]
+    fn has_uncommitted_changes_true_after_modifying_tracked_file() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        commit_all(tmp.path(), "initial");
+        std::fs::write(tmp.path().join("a.txt"), "modified").unwrap();
+        let result = git_has_uncommitted_changes(tmp.path()).unwrap();
+        assert!(result, "modified tracked file must register as uncommitted");
+    }
+
+    #[test]
+    fn has_uncommitted_changes_ignores_untracked_files() {
+        // -uno flag means untracked files are NOT counted.
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        commit_all(tmp.path(), "initial");
+        std::fs::write(tmp.path().join("new.txt"), "untracked").unwrap();
+        let result = git_has_uncommitted_changes(tmp.path()).unwrap();
+        assert!(
+            !result,
+            "untracked file should NOT count as uncommitted (uno)"
+        );
+    }
+
+    #[test]
+    fn has_any_changes_includes_untracked() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        commit_all(tmp.path(), "initial");
+        assert!(!git_has_any_changes(tmp.path()).unwrap());
+        std::fs::write(tmp.path().join("untracked.txt"), "new").unwrap();
+        assert!(
+            git_has_any_changes(tmp.path()).unwrap(),
+            "untracked file must register as any-changes"
+        );
+    }
+
+    #[test]
+    fn stage_and_commit_returns_true_when_changes_exist() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        let committed = git_stage_and_commit(tmp.path(), "first commit").unwrap();
+        assert!(committed, "fresh file should produce a commit");
+        // Verify with rev-parse that HEAD exists
+        let rev = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        assert!(rev.status.success(), "HEAD must exist after commit");
+    }
+
+    #[test]
+    fn stage_and_commit_returns_false_when_nothing_to_commit() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        commit_all(tmp.path(), "initial");
+        // No changes since last commit
+        let committed = git_stage_and_commit(tmp.path(), "should be noop").unwrap();
+        assert!(!committed, "no changes should return false");
+    }
+
+    #[test]
+    fn current_branch_sync_returns_branch_name() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "x").unwrap();
+        commit_all(tmp.path(), "init");
+        let branch = get_current_branch_sync(tmp.path());
+        assert_eq!(branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn ahead_behind_batch_returns_zeroes_for_unknown_remote() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "x").unwrap();
+        commit_all(tmp.path(), "init");
+        let result = get_ahead_behind_batch(tmp.path(), &["main"], "origin/main");
+        // origin/main doesn't exist (no remote), so the fallback inside the
+        // shell script prints 0\t0 for that branch.
+        assert_eq!(
+            result.get("main").copied(),
+            Some((0, 0)),
+            "unknown remote should degrade to (0,0)"
+        );
+    }
 }

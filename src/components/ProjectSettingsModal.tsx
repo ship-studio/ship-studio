@@ -5,13 +5,15 @@
  * The parent component handles persistence via Tauri commands.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import '../styles/notifications.css';
+import { useState } from 'react';
+import '../styles/features/notifications.css';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
+import { useModal } from '../contexts/ModalContext';
 
 interface ProjectSettingsModalProps {
   currentPort: number;
   onSave: (port: number) => void;
-  onClose: () => void;
   /** Only shown for generic (non-web-framework) projects */
   customDevCommand?: string | null;
   onSaveDevCommand?: (command: string | null) => void;
@@ -21,30 +23,16 @@ interface ProjectSettingsModalProps {
 export function ProjectSettingsModal({
   currentPort,
   onSave,
-  onClose,
   customDevCommand,
   onSaveDevCommand,
   isWebProject,
 }: ProjectSettingsModalProps) {
+  const { isOpen, close: onClose } = useModal('projectSettings');
   const [port, setPort] = useState(currentPort);
   const [devCommand, setDevCommand] = useState(customDevCommand ?? '');
   const showDevCommand = !isWebProject && onSaveDevCommand;
 
   const isValid = Number.isInteger(port) && port >= 1 && port <= 65535;
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    },
-    [onClose]
-  );
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
 
   const handleSave = () => {
     if (isValid) {
@@ -53,16 +41,29 @@ export function ProjectSettingsModal({
         const trimmed = devCommand.trim();
         onSaveDevCommand(trimmed || null);
       }
+      onClose();
     }
   };
 
+  if (!isOpen) return null;
+
   return (
-    <div className="notification-settings-modal" onClick={onClose}>
-      <div className="notification-settings-content" onClick={(e) => e.stopPropagation()}>
-        <div className="notification-settings-header">
-          <h2>Project Settings</h2>
-          <p>Configure settings for this project.</p>
-        </div>
+    <ModalFrame
+      isOpen
+      onClose={onClose}
+      title="Project Settings"
+      className="notification-settings-content"
+    >
+      <>
+        <p
+          style={{
+            padding: '0 var(--spacing-xl) var(--spacing-md)',
+            color: 'var(--text-secondary)',
+            fontSize: 13,
+          }}
+        >
+          Configure settings for this project.
+        </p>
         <div className="notification-settings-body">
           <div className="notification-setting-section">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -137,14 +138,14 @@ export function ProjectSettingsModal({
           )}
         </div>
         <div className="notification-settings-footer">
-          <button className="notification-settings-cancel" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button className="notification-settings-save" onClick={handleSave} disabled={!isValid}>
+          </Button>
+          <Button variant="primary" onClick={handleSave} disabled={!isValid}>
             Save
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </>
+    </ModalFrame>
   );
 }

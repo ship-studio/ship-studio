@@ -1,0 +1,346 @@
+/* GitHub Integration - Project List */
+.project-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.github-status {
+  margin-left: auto;
+}
+
+.github-status-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: var(--radius);
+}
+
+.github-status-btn.not-installed {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.github-status-btn.not-connected {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.github-status-btn svg {
+  flex-shrink: 0;
+}
+
+.github-status-connected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.github-status-connected svg {
+  color: var(--success);
+}
+
+/* GitHub Integration - Workspace Header */
+.workspace-header-left,
+.workspace-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-header-right {
+  margin-left: auto;
+}
+
+.github-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 28px;
+  font-size: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.github-button.github-install,
+.github-button.github-connect {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.github-button.github-install:hover,
+.github-button.github-connect:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.github-button.github-create {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.github-button.github-create:hover {
+  background: var(--border);
+}
+
+.github-button.github-publish {
+  background: var(--success);
+  color: #1e1e1e;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.github-button.github-publish:hover:not(:disabled) {
+  background: #5ed9d0;
+}
+
+.github-button.github-publish:disabled,
+.github-button.github-publish.disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.github-button.github-link {
+  padding: 0 8px;
+  background: var(--bg-tertiary);
+}
+
+.github-button.github-link:hover {
+  background: var(--border);
+}
+
+.github-button.github-link svg {
+  color: var(--text-muted);
+}
+
+.github-button.github-link:hover svg {
+  color: var(--text-secondary);
+}
+
+.github-button.github-creating,
+.github-button.github-checking {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.github-error {
+  color: var(--error);
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+/* GitHub Modal */
+/* GitHub Modal - Modern Design */
+.github-modal {
+  max-width: 380px;
+  padding: 0;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.github-modal h3 {
+  padding: 20px 20px 0;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.github-modal > p {
+  padding: 6px 20px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.github-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 16px;
+}
+
+.github-form > label:first-child,
+.github-form > label:nth-child(2) {
+  padding: 0 20px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.owner-select {
+  padding: 12px 14px;
+  padding-right: 36px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: monospace;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.owner-select:focus {
+  border-color: var(--text-muted);
+}
+
+.owner-select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.repo-name-input {
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+
+.repo-name-input:focus-within {
+  border-color: var(--text-muted);
+}
+
+.repo-prefix {
+  padding: 12px 0 12px 14px;
+  color: var(--text-muted);
+  font-family: monospace;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.repo-name-input input {
+  flex: 1;
+  padding: 12px 14px 12px 0;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+}
+
+/* Visibility Options - Row Style */
+.visibility-option {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.visibility-option:hover {
+  background: var(--bg-tertiary);
+}
+
+.visibility-option:has(input[type='radio']:checked) {
+  background: transparent;
+}
+
+.visibility-option input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--text-muted);
+  border-radius: var(--radius-full);
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.visibility-option input[type='radio']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.visibility-option input[type='radio']:checked::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  background: #1e1e1e;
+  border-radius: var(--radius-full);
+  transform: translate(-50%, -50%);
+}
+
+.visibility-option div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.visibility-option strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.visibility-option span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.github-form .github-error {
+  margin: 0;
+  padding: 12px 20px;
+  background: rgba(244, 71, 71, 0.1);
+  font-size: 13px;
+}
+
+/* GitHub Modal Actions */
+.github-modal .modal-actions {
+  padding: 16px 20px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+  margin-top: 0;
+}
+
+.github-modal .modal-actions button:first-child {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+}
+
+.github-modal .modal-actions button:first-child:hover {
+  background: var(--border);
+}

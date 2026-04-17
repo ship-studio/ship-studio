@@ -1,92 +1,27 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 interface UseWorkspaceModalsParams {
+  // Currently unused — kept for API compatibility while education-mode is the
+  // only state still managed here. Will be removed when education-mode moves
+  // into ModalContext too.
   focusActiveTerminal: () => void;
 }
 
-export function useWorkspaceModals({ focusActiveTerminal }: UseWorkspaceModalsParams) {
-  const [showEnvEditor, setShowEnvEditor] = useState(false);
-  const [showBackupsModal, setShowBackupsModal] = useState(false);
-  const [showAssetsPanel, setShowAssetsPanel] = useState(false);
+/**
+ * Workspace-level UI state that hasn't (yet) moved into ModalContext.
+ *
+ * Was previously a 30+ field grab-bag of `show*`/`open*`/`close*` triples for every
+ * workspace modal. The DX refactor (Block 6) migrated all of those to
+ * `useModal('id')` from `ModalContext`. Only education-mode remains because it
+ * isn't a modal — it's a full-screen overlay/tutor mode toggle.
+ */
+export function useWorkspaceModals(_: UseWorkspaceModalsParams) {
   const [isEducationMode, setIsEducationMode] = useState(false);
-  const [showHelpModal, setShowHelpModal] = useState(false);
-  const [showSkillsModal, setShowSkillsModal] = useState(false);
-  const [showMcpModal, setShowMcpModal] = useState(false);
-  const [showPluginManager, setShowPluginManager] = useState(false);
-  const [showDevCommandModal, setShowDevCommandModal] = useState(false);
-  const [showProjectSettings, setShowProjectSettings] = useState(false);
-
-  // Open handlers
-  const openEnvEditor = useCallback(() => setShowEnvEditor(true), []);
-  const openBackupsModal = useCallback(() => setShowBackupsModal(true), []);
-  const openAssetsPanel = useCallback(() => setShowAssetsPanel(true), []);
-  const openHelpModal = useCallback(() => setShowHelpModal(true), []);
-  const openSkillsModal = useCallback(() => setShowSkillsModal(true), []);
-  const openMcpModal = useCallback(() => setShowMcpModal(true), []);
-  const openPluginManager = useCallback(() => setShowPluginManager(true), []);
-  const openDevCommandModal = useCallback(() => setShowDevCommandModal(true), []);
-  const openProjectSettings = useCallback(() => setShowProjectSettings(true), []);
-
-  // Close handlers — some refocus the terminal, matching existing App.tsx behavior
-  const closeEnvEditor = useCallback(() => {
-    setShowEnvEditor(false);
-    focusActiveTerminal();
-  }, [focusActiveTerminal]);
-
-  const closeBackupsModal = useCallback(() => {
-    setShowBackupsModal(false);
-    focusActiveTerminal();
-  }, [focusActiveTerminal]);
-
-  const closeAssetsPanel = useCallback(() => {
-    setShowAssetsPanel(false);
-    focusActiveTerminal();
-  }, [focusActiveTerminal]);
-
   const closeEducation = useCallback(() => setIsEducationMode(false), []);
-  const closeHelpModal = useCallback(() => setShowHelpModal(false), []);
-  const closeSkillsModal = useCallback(() => setShowSkillsModal(false), []);
-  const closeMcpModal = useCallback(() => setShowMcpModal(false), []);
-  const closePluginManager = useCallback(() => setShowPluginManager(false), []);
-  const closeDevCommandModal = useCallback(() => {
-    setShowDevCommandModal(false);
-    focusActiveTerminal();
-  }, [focusActiveTerminal]);
-  const closeProjectSettings = useCallback(() => {
-    setShowProjectSettings(false);
-    focusActiveTerminal();
-  }, [focusActiveTerminal]);
 
   return {
-    showEnvEditor,
-    openEnvEditor,
-    closeEnvEditor,
-    showBackupsModal,
-    openBackupsModal,
-    closeBackupsModal,
-    showAssetsPanel,
-    openAssetsPanel,
-    closeAssetsPanel,
     isEducationMode,
     setIsEducationMode,
     closeEducation,
-    showHelpModal,
-    openHelpModal,
-    closeHelpModal,
-    showSkillsModal,
-    openSkillsModal,
-    closeSkillsModal,
-    showMcpModal,
-    openMcpModal,
-    closeMcpModal,
-    showPluginManager,
-    openPluginManager,
-    closePluginManager,
-    showDevCommandModal,
-    openDevCommandModal,
-    closeDevCommandModal,
-    showProjectSettings,
-    openProjectSettings,
-    closeProjectSettings,
   };
 }

@@ -9,11 +9,14 @@
  * @module components/DiffModal
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getFileDiff, FileDiff, ChangeStatus } from '../lib/git';
-import { CloseIcon, FileIcon } from './icons';
+import { FileIcon } from './icons';
 import { trackError } from '../lib/analytics';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
+import { useAsyncState } from '../hooks/useAsyncState';
 
 // Image extensions to detect for preview
 const IMAGE_EXTENSIONS = [
@@ -42,46 +45,33 @@ interface DiffModalProps {
 }
 
 export function DiffModal({ projectPath, filePath, fileStatus, onClose }: DiffModalProps) {
-  const [diff, setDiff] = useState<FileDiff | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const isImage = isImageFile(filePath);
   const imageSrc = isImage ? convertFileSrc(`${projectPath}/${filePath}`) : null;
 
-  const loadDiff = useCallback(async () => {
-    // Skip loading diff for images
-    if (isImage) {
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
+  const fetchDiff = useCallback(async (proj: string, file: string) => {
     try {
-      const result = await getFileDiff(projectPath, filePath);
-      setDiff(result);
+      return await getFileDiff(proj, file);
     } catch (e) {
       trackError('diff_load', e, 'Workspace');
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsLoading(false);
+      throw e;
     }
-  }, [projectPath, filePath, isImage]);
+  }, []);
+  const {
+    data: diff,
+    isLoading,
+    error: loadError,
+    execute: executeLoadDiff,
+  } = useAsyncState<FileDiff, [string, string]>(fetchDiff);
+  const error = loadError ? loadError.message : null;
+
+  const loadDiff = useCallback(() => {
+    if (isImage) return Promise.resolve(null);
+    return executeLoadDiff(projectPath, filePath);
+  }, [isImage, executeLoadDiff, projectPath, filePath]);
 
   useEffect(() => {
     void loadDiff();
   }, [loadDiff]);
-
-  // Handle escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
 
   // Get filename from path
   const fileName = filePath.split('/').pop() || filePath;
@@ -163,20 +153,19 @@ export function DiffModal({ projectPath, filePath, fileStatus, onClose }: DiffMo
   };
 
   return (
-    <div className="diff-modal" onClick={onClose}>
-      <div className="diff-modal-content" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="diff-header">
-          <div className="diff-header-info">
-            <FileIcon size={16} />
-            <span className="diff-filename">{fileName}</span>
-            <span className={`diff-status diff-status-${fileStatus}`}>{getStatusLabel()}</span>
-          </div>
-          <button className="diff-close-btn" onClick={onClose}>
-            <CloseIcon size={16} />
-          </button>
+    <ModalFrame
+      isOpen
+      onClose={onClose}
+      className="diff-modal-content"
+      title={
+        <div className="diff-header-info">
+          <FileIcon size={16} />
+          <span className="diff-filename">{fileName}</span>
+          <span className={`diff-status diff-status-${fileStatus}`}>{getStatusLabel()}</span>
         </div>
-
+      }
+    >
+      <>
         {/* File path */}
         <div className="diff-path">{filePath}</div>
 
@@ -200,7 +189,9 @@ export function DiffModal({ projectPath, filePath, fileStatus, onClose }: DiffMo
           {error && (
             <div className="diff-error">
               <p>{error}</p>
-              <button onClick={() => void loadDiff()}>Retry</button>
+              <Button variant="secondary" size="sm" onClick={() => void loadDiff()}>
+                Retry
+              </Button>
             </div>
           )}
 
@@ -214,7 +205,7 @@ export function DiffModal({ projectPath, filePath, fileStatus, onClose }: DiffMo
             <pre className="diff-pre">{renderDiffContent()}</pre>
           )}
         </div>
-      </div>
-    </div>
+      </>
+    </ModalFrame>
   );
 }

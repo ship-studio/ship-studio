@@ -3,12 +3,16 @@
 //! Commands for managing GitHub pull requests.
 
 use crate::commands::github::get_gh_command;
+use crate::errors::CommandError;
 use crate::types::PullRequestInfo;
 use crate::utils::{create_command, validate_project_path};
 
 /// List pull requests for the repository
 #[tauri::command]
-pub async fn list_pull_requests(project_path: String) -> Result<Vec<PullRequestInfo>, String> {
+#[tracing::instrument(skip(project_path), fields(project = %project_path))]
+pub async fn list_pull_requests(
+    project_path: String,
+) -> Result<Vec<PullRequestInfo>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let output = get_gh_command()
@@ -29,7 +33,7 @@ pub async fn list_pull_requests(project_path: String) -> Result<Vec<PullRequestI
         if stderr.contains("no pull requests") || stderr.contains("Could not") {
             return Ok(Vec::new());
         }
-        return Err(stderr.to_string());
+        return Err((stderr.to_string()).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -62,12 +66,13 @@ pub async fn list_pull_requests(project_path: String) -> Result<Vec<PullRequestI
 /// Create a new pull request.
 /// Automatically pushes the branch to the remote first if needed.
 #[tauri::command]
+#[tracing::instrument(skip(project_path, title, body, base), fields(project = %project_path, base = %base))]
 pub async fn create_pull_request(
     project_path: String,
     title: String,
     body: Option<String>,
     base: String,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // Push the branch to the remote first (gh pr create requires this)
@@ -81,7 +86,7 @@ pub async fn create_pull_request(
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         // Ignore "everything up-to-date" which isn't a real error
         if !stderr.contains("Everything up-to-date") {
-            return Err(format!("Failed to push branch: {stderr}"));
+            return Err((format!("Failed to push branch: {stderr}")).into());
         }
     }
 
@@ -98,7 +103,7 @@ pub async fn create_pull_request(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.to_string());
+        return Err((stderr.to_string()).into());
     }
 
     // Output contains the PR URL
@@ -108,7 +113,8 @@ pub async fn create_pull_request(
 
 /// Merge a pull request
 #[tauri::command]
-pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<(), String> {
+#[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
+pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let output = get_gh_command()
@@ -119,7 +125,7 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.to_string());
+        return Err((stderr.to_string()).into());
     }
 
     Ok(())
@@ -127,7 +133,11 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
 
 /// Checkout a pull request branch locally for review
 #[tauri::command]
-pub async fn checkout_pull_request(project_path: String, pr_number: i32) -> Result<String, String> {
+#[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
+pub async fn checkout_pull_request(
+    project_path: String,
+    pr_number: i32,
+) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let output = get_gh_command()
@@ -138,7 +148,7 @@ pub async fn checkout_pull_request(project_path: String, pr_number: i32) -> Resu
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to checkout PR: {stderr}"));
+        return Err((format!("Failed to checkout PR: {stderr}")).into());
     }
 
     // Return the branch name that was checked out
@@ -156,7 +166,8 @@ pub async fn checkout_pull_request(project_path: String, pr_number: i32) -> Resu
 
 /// Close a pull request without merging
 #[tauri::command]
-pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<(), String> {
+#[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
+pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     let output = get_gh_command()
@@ -167,7 +178,7 @@ pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to close PR: {stderr}"));
+        return Err((format!("Failed to close PR: {stderr}")).into());
     }
 
     Ok(())

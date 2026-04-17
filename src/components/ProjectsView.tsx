@@ -54,6 +54,12 @@ interface ProjectsViewProps {
 
   projectsLoading: boolean;
   onLoadingChange: (loading: boolean) => void;
+  cleanupStatus?: string | null;
+
+  /** Set of currently pinned project paths (for menu state). */
+  pinnedSet?: ReadonlySet<string>;
+  /** Toggle pin state for a project. */
+  onTogglePin?: (projectPath: string, pinned: boolean) => void;
 }
 
 export const ProjectsView = memo(function ProjectsView({
@@ -80,6 +86,9 @@ export const ProjectsView = memo(function ProjectsView({
   getSlotPlugins,
   projectsLoading,
   onLoadingChange,
+  cleanupStatus,
+  pinnedSet,
+  onTogglePin,
 }: ProjectsViewProps) {
   return (
     <>
@@ -96,6 +105,9 @@ export const ProjectsView = memo(function ProjectsView({
             githubUsername={githubUsername}
             isAuthCheckDone={isAuthCheckDone}
             onLoadingChange={onLoadingChange}
+            cleanupStatus={cleanupStatus}
+            pinnedSet={pinnedSet}
+            onTogglePin={onTogglePin}
           />
           {!projectsLoading && <Changelog />}
           {!projectsLoading && (

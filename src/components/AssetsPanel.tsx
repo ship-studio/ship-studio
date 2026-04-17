@@ -14,6 +14,8 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { formatFileSize, isImageFile, type Asset } from '../lib/assets';
 import { useAssetManagement } from '../hooks/useAssetManagement';
+import { useOptionalToast } from '../contexts/ToastContext';
+import { useModal } from '../contexts/ModalContext';
 import {
   CloseIcon,
   CopyIcon,
@@ -75,15 +77,12 @@ function ListIcon({ size = 14 }: { size?: number }) {
 interface AssetsPanelProps {
   /** Absolute path to the project directory */
   projectPath: string;
-  /** Whether the panel is open */
-  isOpen: boolean;
-  /** Callback to close the panel */
-  onClose: () => void;
-  /** Optional callback to show toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
 }
 
-export function AssetsPanel({ projectPath, isOpen, onClose, onToast }: AssetsPanelProps) {
+export function AssetsPanel({ projectPath }: AssetsPanelProps) {
+  const { isOpen, close: onClose } = useModal('assetsPanel');
+  const { showToast } = useOptionalToast();
+  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const {
     setCurrentPath,
     isLoading,

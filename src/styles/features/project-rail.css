@@ -1,0 +1,352 @@
+/**
+ * ProjectRail — left sidebar column of pinned projects.
+ *
+ * In the workspace view the rail sits inside `.workspace-body` (a flex row
+ * below the titlebar). In the projects view it sits inside
+ * `.projects-with-rail`. Both cases: the rail is a flex child, not fixed.
+ */
+
+.project-rail {
+  width: 67px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--spacing-sm) 0;
+  user-select: none;
+}
+
+/* On the projects view the rail starts at the top of the window (no
+ * titlebar above it), so add padding to clear macOS traffic lights. */
+.projects-with-rail > .project-rail {
+  padding-top: 44px;
+}
+
+.project-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  width: 100%;
+  align-items: center;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.project-rail-list::-webkit-scrollbar {
+  display: none;
+}
+
+.project-rail-item-wrapper {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  transition: opacity 0.15s ease;
+}
+
+/* Source item while being dragged — fades to indicate it's the one moving. */
+.project-rail-item-wrapper.is-dragging {
+  opacity: 0.4;
+}
+
+/*
+ * Drop target indicator: a thin horizontal bar in the gap above or below
+ * the target item, depending on which half of the target the cursor is on.
+ * Using ::before so it doesn't disturb item layout. The `gap` between
+ * items is `var(--spacing-sm)` (8px), so an offset of -6px centers the
+ * 2px bar nicely in the gap.
+ */
+.project-rail-item-wrapper.is-drop-target::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  height: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.project-rail-item-wrapper.is-drop-target.drop-before::before {
+  top: -6px;
+}
+
+.project-rail-item-wrapper.is-drop-target.drop-after::before {
+  bottom: -6px;
+}
+
+/*
+ * Grab cursor on a reorderable item. Falls back to default pointer when
+ * the rail is rendered without onReorder (e.g. in tests).
+ */
+.project-rail-item.is-reorderable {
+  cursor: grab;
+  /* Disable native text selection so pointer-down on the thumb starts a
+   * pointer drag instead of trying to highlight content. */
+  -webkit-user-select: none;
+  user-select: none;
+  /* Disable native touch behaviors (text selection, callouts, image
+   * dragging) so our pointer event handlers control the gesture. */
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  touch-action: none;
+}
+
+.project-rail-item-wrapper.is-dragging .project-rail-item.is-reorderable {
+  cursor: grabbing;
+}
+
+/*
+ * While a rail drag is active, disable pointer events inside iframes
+ * (preview iframe, plugin iframes, etc.) so the user doesn't accidentally
+ * start text selection in the preview when dragging across it. Restored
+ * automatically when the drag ends and the body class is removed.
+ */
+body.rail-drag-active iframe {
+  pointer-events: none;
+  user-select: none;
+}
+
+.project-rail-item {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  overflow: hidden;
+  display: block;
+  transition: border-color 0.15s ease;
+}
+
+.project-rail-item:hover {
+  border-color: var(--accent);
+}
+
+.project-rail-item:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.project-rail-item.is-current {
+  border-color: var(--action);
+}
+
+.project-rail-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.project-rail-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.project-rail-placeholder {
+  font-family: var(--font-mono, Menlo, monospace);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.project-rail-dot {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--bg-secondary);
+  pointer-events: none;
+}
+
+.project-rail-dot.dot-inactive {
+  background: var(--text-muted);
+}
+
+.project-rail-dot.dot-idle {
+  background: var(--success);
+}
+
+.project-rail-dot.dot-thinking {
+  background: var(--warning);
+  animation: rail-dot-pulse 1.5s ease-in-out infinite;
+}
+
+.project-rail-dot.dot-waiting {
+  background: var(--accent);
+  animation: rail-dot-pulse 2s ease-in-out infinite;
+}
+
+.project-rail-dot.dot-error {
+  background: var(--error);
+}
+
+@keyframes rail-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.project-rail-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--error);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Right-click context menu — anchored to viewport coords from the click. */
+.project-rail-menu {
+  position: fixed;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: var(--spacing-xs);
+  z-index: var(--z-tooltip);
+  min-width: 180px;
+}
+
+.project-rail-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.project-rail-menu-item:hover {
+  background: var(--bg-primary);
+}
+
+.project-rail-menu-item.danger {
+  color: var(--error);
+}
+
+.project-rail-menu-item.danger:hover {
+  background: var(--error);
+  color: #ffffff;
+}
+
+/* "+" button — last item in the rail list. */
+.project-rail-add {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  border: 2px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  font-weight: 300;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.project-rail-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Project picker popover — positioned by JS via style prop. */
+.project-rail-picker {
+  position: fixed;
+  width: 220px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-tooltip);
+  overflow: hidden;
+}
+
+.project-rail-picker-search {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.project-rail-picker-search::placeholder {
+  color: var(--text-muted);
+}
+
+.project-rail-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--spacing-xs);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.project-rail-picker-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-rail-picker-item:hover {
+  background: var(--bg-primary);
+}
+
+.project-rail-picker-empty {
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Projects view wrapper: rail + dashboard in a row. */
+.projects-with-rail {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
