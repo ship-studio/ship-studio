@@ -546,12 +546,17 @@ export const WorkspaceView = memo(function WorkspaceView({
   // Generic/unknown projects (Tauri apps, CLI tools, blank projects, etc.) don't have a web preview
   const isWebProject = projectType !== 'generic' && projectType !== 'unknown';
 
-  // Switch to code tab for non-web projects (blank, generic) since preview is unavailable
+  // Reset the preview-side tab to its default whenever the user switches
+  // projects. Web projects land on Preview; generic/unknown projects land
+  // on Code (no preview available). Without this, switching from a web
+  // project while on Branches/PRs would land you on Branches/PRs in the
+  // next project too, which reads as "sticky state from the wrong place".
   useEffect(() => {
-    if (!isWebProject && workspaceTab === 'preview') {
-      setWorkspaceTab('code');
-    }
-  }, [isWebProject, workspaceTab, setWorkspaceTab]);
+    setWorkspaceTab(isWebProject ? 'preview' : 'code');
+    // Only re-fire on project path change. We deliberately *don't* depend
+    // on `workspaceTab` here — that would force-revert every user click.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProject.path, isWebProject]);
 
   // Track terminal tab titles from PTY title changes. Titles live in the
   // session registry so (a) they're scoped per-project (tab ids are
