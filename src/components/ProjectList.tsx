@@ -40,6 +40,7 @@ import {
   moveProjectToFolder,
 } from '../lib/folders';
 import { DashboardHeader } from './DashboardHeader';
+import { AgentsPanel } from './AgentsPanel';
 import { IntegrationBar } from './IntegrationBar';
 import { NewFolderModal } from './NewFolderModal';
 import { ProjectGridView } from './ProjectGridView';
@@ -557,6 +558,8 @@ export function ProjectList({
           pinnedSet={pinnedSet}
           onTogglePin={onTogglePin}
         />
+
+        <AgentsPanel />
 
         {changelogSlot}
 

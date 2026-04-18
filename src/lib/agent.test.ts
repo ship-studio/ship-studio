@@ -14,6 +14,7 @@ import {
   ALL_TAB_OPTIONS,
   CLAUDE_CODE,
   CODEX,
+  OPENCODE,
   TERMINAL,
 } from './agent';
 
@@ -35,6 +36,12 @@ describe('getAgentById', () => {
     const agent = getAgentById('codex');
     expect(agent.id).toBe('codex');
     expect(agent.displayName).toBe('Codex');
+  });
+
+  it('returns OPENCODE for "opencode"', () => {
+    const agent = getAgentById('opencode');
+    expect(agent.id).toBe('opencode');
+    expect(agent.displayName).toBe('Opencode');
   });
 
   it('returns TERMINAL for "terminal"', () => {
@@ -92,22 +99,27 @@ describe('getActiveAgent', () => {
 // ============ ALL_AGENTS / ALL_TAB_OPTIONS ============
 
 describe('ALL_AGENTS', () => {
-  it('has exactly 2 entries', () => {
-    expect(ALL_AGENTS).toHaveLength(2);
+  it('has exactly 3 entries', () => {
+    expect(ALL_AGENTS).toHaveLength(3);
   });
 
-  it('contains CLAUDE_CODE and CODEX', () => {
-    expect(ALL_AGENTS.map((a) => a.id)).toEqual(['claude-code', 'codex']);
+  it('contains CLAUDE_CODE, CODEX, and OPENCODE', () => {
+    expect(ALL_AGENTS.map((a) => a.id)).toEqual(['claude-code', 'codex', 'opencode']);
   });
 });
 
 describe('ALL_TAB_OPTIONS', () => {
-  it('has exactly 3 entries (agents + terminal)', () => {
-    expect(ALL_TAB_OPTIONS).toHaveLength(3);
+  it('has exactly 4 entries (agents + terminal)', () => {
+    expect(ALL_TAB_OPTIONS).toHaveLength(4);
   });
 
-  it('contains CLAUDE_CODE, CODEX, and TERMINAL', () => {
-    expect(ALL_TAB_OPTIONS.map((a) => a.id)).toEqual(['claude-code', 'codex', 'terminal']);
+  it('contains CLAUDE_CODE, CODEX, OPENCODE, and TERMINAL', () => {
+    expect(ALL_TAB_OPTIONS.map((a) => a.id)).toEqual([
+      'claude-code',
+      'codex',
+      'opencode',
+      'terminal',
+    ]);
   });
 });
 
@@ -128,6 +140,14 @@ describe('AgentConfig fields', () => {
     expect(CODEX.autoAcceptFlag).toBe('--yolo');
     expect(CODEX.supportsSkills).toBe(true);
     expect(CODEX.supportsStatusDetection).toBe(false);
+  });
+
+  it('OPENCODE has correct specific values', () => {
+    expect(OPENCODE.binaryName).toBe('opencode');
+    expect(OPENCODE.processName).toBe('opencode');
+    expect(OPENCODE.autoAcceptFlag).toBeNull();
+    expect(OPENCODE.supportsSkills).toBe(false);
+    expect(OPENCODE.supportsStatusDetection).toBe(false);
   });
 
   it('TERMINAL has correct specific values', () => {

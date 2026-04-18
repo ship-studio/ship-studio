@@ -172,7 +172,7 @@ describe('getBlockingDependencies', () => {
 // ============ getReadyAgentPairs ============
 
 describe('getReadyAgentPairs', () => {
-  it('returns both pairs when both agents are ready', () => {
+  it('returns both pairs when claude and codex are ready', () => {
     const pairs = getReadyAgentPairs(ALL_READY_BOTH_AGENTS);
     expect(pairs).toHaveLength(2);
     expect(pairs[0]).toEqual({ binaryId: 'claude', authId: 'claude_auth' });
@@ -234,12 +234,14 @@ describe('isAtLeastOneAgentReady', () => {
 // ============ AGENT_ITEM_IDS ============
 
 describe('AGENT_ITEM_IDS', () => {
-  it('contains all 4 agent item IDs', () => {
+  it('contains all 6 agent item IDs', () => {
     expect(AGENT_ITEM_IDS.has('claude')).toBe(true);
     expect(AGENT_ITEM_IDS.has('claude_auth')).toBe(true);
     expect(AGENT_ITEM_IDS.has('codex')).toBe(true);
     expect(AGENT_ITEM_IDS.has('codex_auth')).toBe(true);
-    expect(AGENT_ITEM_IDS.size).toBe(4);
+    expect(AGENT_ITEM_IDS.has('opencode')).toBe(true);
+    expect(AGENT_ITEM_IDS.has('opencode_auth')).toBe(true);
+    expect(AGENT_ITEM_IDS.size).toBe(6);
   });
 
   it('does not contain non-agent items', () => {
@@ -470,7 +472,14 @@ describe('getStepItems', () => {
   it('returns items for agent step', () => {
     const items = getStepItems('agent', FRESH_INSTALL_ITEMS);
     const ids = items.map((i) => i.id);
-    expect(ids).toEqual(['claude', 'claude_auth', 'codex', 'codex_auth']);
+    expect(ids).toEqual([
+      'claude',
+      'claude_auth',
+      'codex',
+      'codex_auth',
+      'opencode',
+      'opencode_auth',
+    ]);
   });
 
   it('returns vercel items for hosting step', () => {

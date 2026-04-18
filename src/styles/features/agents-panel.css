@@ -1,0 +1,270 @@
+/* Agents panel — dashboard surface for managing coding agents */
+
+.agents-panel {
+  margin: var(--spacing-lg) 0;
+  padding: var(--spacing-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.agents-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.agents-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.agents-panel-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 0 0;
+}
+
+.agents-panel-spinner {
+  color: var(--text-muted);
+}
+
+.agents-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.agents-panel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-md) var(--spacing-md) var(--spacing-lg);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color var(--transition);
+}
+
+.agents-panel-row.is-default {
+  border-color: var(--action);
+  box-shadow: inset 0 0 0 1px var(--action);
+}
+
+.agents-panel-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.agents-panel-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agents-panel-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-panel-row-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-panel-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+/* Default pill — radio-style indicator. Matches .button--sm geometry so it
+   visually balances with the Install / Sign in buttons next to it. */
+.agents-default-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition),
+    border-color var(--transition);
+}
+
+.agents-default-pill:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.agents-default-pill:disabled {
+  cursor: default;
+}
+
+.agents-default-pill.on {
+  background: var(--action);
+  color: var(--action-text);
+  border-color: var(--action);
+}
+
+.agents-default-pill.switching {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+  cursor: wait;
+}
+
+.agents-default-pill.switching .spinner-icon {
+  width: 10px;
+  height: 10px;
+}
+
+.agents-default-pill-radio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: var(--radius-full);
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.agents-default-pill.on .agents-default-pill-radio {
+  background: var(--action-text);
+  color: var(--action);
+  border-color: var(--action-text);
+}
+
+/* Kebab menu */
+.agents-panel-menu-wrap {
+  position: relative;
+}
+
+.agents-panel-kebab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    color var(--transition);
+}
+
+.agents-panel-kebab:hover:not(:disabled) {
+  background: var(--border);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.agents-panel-kebab:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.agents-panel-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 140px;
+  padding: var(--spacing-xs);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+}
+
+.agents-panel-menu button {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+
+.agents-panel-menu button:hover {
+  background: var(--bg-secondary);
+}
+
+.agents-panel-menu .agents-panel-menu-danger {
+  color: var(--error);
+}
+
+/* Terminal modal embedded in panel */
+.agents-panel-terminal-modal {
+  width: min(800px, 90vw);
+  height: min(500px, 80vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.agents-panel-terminal-body {
+  flex: 1;
+  min-height: 0;
+  background: #1e1e1e;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* Confirm modal — cap width and match header padding for consistent gutters. */
+.agents-panel-confirm-modal {
+  width: min(420px, 90vw);
+}
+
+.agents-panel-confirm-body {
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.agents-panel-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+}

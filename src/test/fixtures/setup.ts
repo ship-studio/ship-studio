@@ -31,6 +31,7 @@ const CLAUDE_AUTH_READY = item('claude_auth', 'Claude Account', 'ready', {
 });
 const CODEX_READY = item('codex', 'Codex', 'ready', { version: '0.1.0' });
 const CODEX_AUTH_READY = item('codex_auth', 'Codex Account', 'ready', { username: 'codex-user' });
+const OPENCODE_READY = item('opencode', 'Opencode', 'ready', { version: '0.1.0' });
 const VERCEL_READY = item('vercel', 'Vercel CLI', 'ready', { version: '33.0.0' });
 const VERCEL_AUTH_READY = item('vercel_auth', 'Vercel Account', 'ready', {
   username: 'vercel-user',
@@ -47,6 +48,8 @@ const CLAUDE_MISSING = item('claude', 'Claude Code', 'not_installed');
 const CLAUDE_AUTH_MISSING = item('claude_auth', 'Claude Account', 'not_authenticated');
 const CODEX_MISSING = item('codex', 'Codex', 'not_installed');
 const CODEX_AUTH_MISSING = item('codex_auth', 'Codex Account', 'not_authenticated');
+const OPENCODE_MISSING = item('opencode', 'Opencode', 'not_installed');
+const OPENCODE_AUTH_MISSING = item('opencode_auth', 'Opencode Account', 'not_authenticated');
 const VERCEL_MISSING = item('vercel', 'Vercel CLI', 'not_installed');
 const VERCEL_AUTH_MISSING = item('vercel_auth', 'Vercel Account', 'not_authenticated');
 
@@ -63,11 +66,13 @@ export const FRESH_INSTALL_ITEMS: SetupItem[] = [
   CLAUDE_AUTH_MISSING,
   CODEX_MISSING,
   CODEX_AUTH_MISSING,
+  OPENCODE_MISSING,
+  OPENCODE_AUTH_MISSING,
   VERCEL_MISSING,
   VERCEL_AUTH_MISSING,
 ];
 
-/** All ready with Claude Code only (no Codex) */
+/** All ready with Claude Code only (no Codex, no Opencode) */
 export const ALL_READY_CLAUDE_ONLY: SetupItem[] = [
   HOMEBREW_READY,
   NODE_READY,
@@ -78,11 +83,13 @@ export const ALL_READY_CLAUDE_ONLY: SetupItem[] = [
   CLAUDE_AUTH_READY,
   CODEX_MISSING,
   CODEX_AUTH_MISSING,
+  OPENCODE_MISSING,
+  OPENCODE_AUTH_MISSING,
   VERCEL_READY,
   VERCEL_AUTH_READY,
 ];
 
-/** All ready with both agents */
+/** All ready with Claude and Codex (legacy "both agents" — opencode not installed) */
 export const ALL_READY_BOTH_AGENTS: SetupItem[] = [
   HOMEBREW_READY,
   NODE_READY,
@@ -93,11 +100,13 @@ export const ALL_READY_BOTH_AGENTS: SetupItem[] = [
   CLAUDE_AUTH_READY,
   CODEX_READY,
   CODEX_AUTH_READY,
+  OPENCODE_MISSING,
+  OPENCODE_AUTH_MISSING,
   VERCEL_READY,
   VERCEL_AUTH_READY,
 ];
 
-/** All ready with Codex only (no Claude) */
+/** All ready with Codex only (no Claude, no Opencode) */
 export const ALL_READY_CODEX_ONLY: SetupItem[] = [
   HOMEBREW_READY,
   NODE_READY,
@@ -108,6 +117,8 @@ export const ALL_READY_CODEX_ONLY: SetupItem[] = [
   CLAUDE_AUTH_MISSING,
   CODEX_READY,
   CODEX_AUTH_READY,
+  OPENCODE_MISSING,
+  OPENCODE_AUTH_MISSING,
   VERCEL_READY,
   VERCEL_AUTH_READY,
 ];
@@ -123,6 +134,8 @@ export const BASE_READY_NO_AGENTS: SetupItem[] = [
   CLAUDE_AUTH_MISSING,
   CODEX_MISSING,
   CODEX_AUTH_MISSING,
+  OPENCODE_MISSING,
+  OPENCODE_AUTH_MISSING,
   VERCEL_MISSING,
   VERCEL_AUTH_MISSING,
 ];
@@ -138,6 +151,8 @@ export const AUTH_ONLY_ITEMS: SetupItem[] = [
   CLAUDE_AUTH_MISSING,
   CODEX_READY,
   CODEX_AUTH_MISSING,
+  OPENCODE_READY,
+  OPENCODE_AUTH_MISSING,
   VERCEL_READY,
   VERCEL_AUTH_MISSING,
 ];
@@ -195,6 +210,8 @@ export const STEP1_COMPLETE_ITEMS: SetupItem[] = [
   CLAUDE_AUTH_MISSING,
   CODEX_MISSING,
   CODEX_AUTH_MISSING,
+  OPENCODE_MISSING,
+  OPENCODE_AUTH_MISSING,
   VERCEL_MISSING,
   VERCEL_AUTH_MISSING,
 ];
@@ -215,6 +232,8 @@ export const HAS_BASE_NO_AGENTS_ITEMS: SetupItem[] = [
   CLAUDE_AUTH_MISSING,
   CODEX_MISSING,
   CODEX_AUTH_MISSING,
+  OPENCODE_MISSING,
+  OPENCODE_AUTH_MISSING,
   VERCEL_MISSING,
   VERCEL_AUTH_MISSING,
 ];
@@ -236,6 +255,8 @@ export const HAS_CLAUDE_NO_GITHUB_ITEMS: SetupItem[] = [
   CLAUDE_AUTH_READY,
   CODEX_MISSING,
   CODEX_AUTH_MISSING,
+  OPENCODE_MISSING,
+  OPENCODE_AUTH_MISSING,
   VERCEL_MISSING,
   VERCEL_AUTH_MISSING,
 ];

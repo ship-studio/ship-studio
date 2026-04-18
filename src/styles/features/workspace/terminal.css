@@ -217,6 +217,33 @@
   visibility: hidden;
 }
 
+/* Opencode draws its own full-bleed TUI — it wants 100% of the tab, no
+   gutter on any side. Claude and Codex keep their 12px left gutter. */
+.terminal-tab-content[data-agent-id='opencode'] {
+  left: 0;
+  padding: 0;
+  background: #1e1e1e;
+}
+
+.terminal-tab-content[data-agent-id='opencode'] .xterm,
+.terminal-tab-content[data-agent-id='opencode'] .xterm-viewport,
+.terminal-tab-content[data-agent-id='opencode'] .xterm-screen {
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: #1e1e1e !important;
+}
+
+.terminal-tab-content[data-agent-id='opencode'] .xterm-viewport {
+  scrollbar-width: none;
+  overflow: hidden !important;
+}
+
+.terminal-tab-content[data-agent-id='opencode'] .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+
 .terminal-tab-content.active {
   visibility: visible;
 }
