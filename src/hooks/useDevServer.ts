@@ -234,6 +234,35 @@ export function useDevServer(currentProjectPath: string | null) {
   // Create an output handler bound to a specific project path. Dev server
   // output from background (pinned) projects accumulates into their buffer
   // without triggering a re-render of the active workspace.
+  // Subscribe to the freshly-started dev server's PTY exit event so we can
+  // flip `handle` back to null when the server process dies externally
+  // (Next.js crash, user `kill`s the port, the child just exits). Without
+  // this, `isServerRunning(path)` keeps reporting true, the sidebar shows
+  // Dev server · running indefinitely, and the next project open incorrectly
+  // decides to "reuse" a dead server. Idempotent — only clears state when
+  // the map still points at the same handle we watched.
+  const wireExitWatcher = useCallback(
+    (projectPath: string, s: ProjectServerState) => {
+      const handle = s.handle;
+      if (!handle) return;
+      try {
+        handle.pty.onExit(({ exitCode }) => {
+          const current = statesRef.current.get(projectPath);
+          if (!current || current.handle !== handle) return;
+          logger.warn('[useDevServer] dev server exited', {
+            projectPath,
+            exitCode: exitCode ?? null,
+          });
+          current.handle = null;
+          bump();
+        });
+      } catch (e) {
+        logger.warn('[useDevServer] failed to attach exit watcher', { error: String(e) });
+      }
+    },
+    [bump]
+  );
+
   const createOutputHandler = useCallback(
     (projectPath: string) => {
       return (data: string) => {
@@ -333,6 +362,7 @@ export function useDevServer(currentProjectPath: string | null) {
               createOutputHandler(projectPath),
               cmd
             );
+            wireExitWatcher(projectPath, s);
             logger.info('[OpenProject] Generic project dev server started with custom command', {
               command: cmd,
             });
@@ -376,6 +406,7 @@ export function useDevServer(currentProjectPath: string | null) {
             windowLabel,
             createOutputHandler(projectPath)
           );
+          wireExitWatcher(projectPath, s);
         } catch (error) {
           logger.error('Failed to start dev server', { error });
         }
@@ -513,6 +544,8 @@ export function useDevServer(currentProjectPath: string | null) {
         );
         if (!s.handle) {
           logger.error('Failed to start dev server: spawn timed out');
+        } else {
+          wireExitWatcher(projectPath, s);
         }
       };
 
@@ -595,6 +628,7 @@ export function useDevServer(currentProjectPath: string | null) {
             createOutputHandler(projectPath),
             command
           );
+          wireExitWatcher(projectPath, s);
         } catch (e) {
           logger.error('Failed to start custom dev server', { error: e });
         }
