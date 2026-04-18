@@ -197,7 +197,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     setAttentionTabs,
     createTabStatusHandler,
     handleSaveNotificationSettings,
-  } = useNotifications({ activeTerminalTab });
+  } = useNotifications({ activeTerminalTab, currentProjectPath: currentProject?.path ?? null });
 
   // Integration states consolidated via reducer for atomic updates
   const {

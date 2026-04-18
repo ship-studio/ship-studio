@@ -838,9 +838,16 @@ function SidebarRow({ item }: { item: SidebarItem }) {
     item.onClose?.();
   };
 
+  const isAttention = item.dotState === 'attention';
   return (
     <li
-      className={`sidebar-row ${item.isActive ? 'is-active' : ''}`}
+      className={[
+        'sidebar-row',
+        item.isActive ? 'is-active' : '',
+        isAttention && !item.isActive ? 'is-attention' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       role={item.onSelect ? 'button' : undefined}
       tabIndex={item.onSelect ? 0 : -1}
       onClick={item.onSelect}

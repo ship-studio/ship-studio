@@ -130,6 +130,12 @@ const OS_SKIP_SELECTOR = [
   '.dashboard-scroll-container',
   '.changelog-list',
   '.support-panel',
+  // Workspace sidebar scroll owns its own webkit scrollbar styling and
+  // applies `!important` block layout to its direct children. Letting
+  // OverlayScrollbars wrap it breaks the scrollbar entirely (the OS
+  // viewport gets caught by the `> *` rule) and makes the list unscrollable
+  // when several projects are open.
+  '.workspace-sidebar-scroll',
 ].join(', ');
 
 function initScrollbars() {

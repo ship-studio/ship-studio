@@ -213,6 +213,14 @@
 /* Projects (top-level groups) */
 .sidebar-project {
   padding: 2px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Suppress the divider on the last project in a group so we don't stack
+ * a line directly above a different group's header (which already draws
+ * its own separator visually via the uppercase label). */
+.sidebar-project:last-child {
+  border-bottom: none;
 }
 
 .sidebar-project-row {
@@ -522,6 +530,17 @@
 
 .sidebar-row.is-active {
   background: var(--bg-tertiary);
+}
+
+/* Agent/terminal row needs user attention — the label goes green (success)
+ * so a user scanning the sidebar from any project can spot a tab they need
+ * to check. The dot keeps its amber pulse from `.dot-attention` as the
+ * urgency cue; the label color is the "come-look-at-me" affordance.
+ * Scoped to non-active rows because the active row is where the user
+ * already is (attention clears on activate). */
+.sidebar-row.is-attention .sidebar-row-label {
+  color: var(--success-light);
+  font-weight: 600;
 }
 
 .sidebar-row-dot {

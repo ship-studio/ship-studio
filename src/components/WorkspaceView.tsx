@@ -112,7 +112,10 @@ interface NotificationProps {
   setShowNotificationSettings: (show: boolean) => void;
   attentionTabs: Set<number>;
   setAttentionTabs: React.Dispatch<React.SetStateAction<Set<number>>>;
-  createTabStatusHandler: (tabId: number) => (status: AgentStatus, title: string) => void;
+  createTabStatusHandler: (
+    projectPath: string,
+    tabId: number
+  ) => (status: AgentStatus, title: string) => void;
   handleSaveNotificationSettings: (settings: NotificationSettings) => void;
 }
 
@@ -644,6 +647,19 @@ export const WorkspaceView = memo(function WorkspaceView({
     }
   }, [activeTerminalTab, terminalRefsMap, currentProject.path]);
 
+  // Whenever the user lands on a (project, tab) pair — via sidebar click,
+  // cross-project switch, or restore — clear its attention flag in both
+  // stores. The user is now looking at it, so the indicator is stale.
+  useEffect(() => {
+    setAttentionTabs((prev) => {
+      if (!prev.has(activeTerminalTab)) return prev;
+      const next = new Set(prev);
+      next.delete(activeTerminalTab);
+      return next;
+    });
+    sessionRegistry.setTerminalTabAttention(currentProject.path, activeTerminalTab, false);
+  }, [currentProject.path, activeTerminalTab, setAttentionTabs]);
+
   const header = WorkspaceHeader({
     projectPath: currentProject.path,
     projectName: currentProject.name,
@@ -706,6 +722,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                 next.delete(tabId);
                 return next;
               });
+              sessionRegistry.setTerminalTabAttention(currentProject.path, tabId, false);
             }}
             onAddTab={addTerminalTab}
             onCloseTab={closeTerminalTab}
@@ -829,9 +846,10 @@ export const WorkspaceView = memo(function WorkspaceView({
                                   projectPath={session.projectPath}
                                   onExit={handleTerminalExit}
                                   autoAcceptMode={autoAcceptMode}
-                                  onStatusChange={
-                                    isCurrentProject ? createTabStatusHandler(tab.id) : undefined
-                                  }
+                                  onStatusChange={createTabStatusHandler(
+                                    session.projectPath,
+                                    tab.id
+                                  )}
                                   onTitleChange={handleTabTitleChange(session.projectPath, tab.id)}
                                   sessionName={tab.sessionId}
                                   isActive={isVisible}

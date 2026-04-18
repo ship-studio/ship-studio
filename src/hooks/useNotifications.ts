@@ -15,22 +15,34 @@ import {
   saveNotificationSettings,
   playSound,
 } from '../lib/sounds';
+import { sessionRegistry } from '../lib/sessionRegistry';
 import type { AgentStatus } from '../components/Terminal';
 
 export interface UseNotificationsParams {
   activeTerminalTab: number;
+  /** Path of the currently-focused project. A tab belonging to this project
+   *  AND matching `activeTerminalTab` is the one the user is actually looking
+   *  at — attention stays clear for that tab only. */
+  currentProjectPath: string | null;
 }
 
-export function useNotifications({ activeTerminalTab }: UseNotificationsParams) {
+export function useNotifications({
+  activeTerminalTab,
+  currentProjectPath,
+}: UseNotificationsParams) {
   // Notification settings state
   const [notificationSettings, setNotificationSettings] =
     useState<NotificationSettings>(loadNotificationSettings);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
 
-  // Track previous agent status per tab to detect transitions
-  const prevAgentStatusMap = useRef<Map<number, AgentStatus>>(new Map());
+  // Track previous agent status per (projectPath, tabId) to detect
+  // transitions. Scoped by project since tab ids collide across projects.
+  const prevAgentStatusMap = useRef<Map<string, AgentStatus>>(new Map());
 
-  // Tabs waiting for user attention (finished processing while not active)
+  // Current-project tabs waiting for user attention. Kept as a local Set
+  // so TerminalTabSelector / current-project sidebar rows can read it
+  // without reaching into the registry for every render. Background
+  // projects' attention flags live in sessionRegistry.
   const [attentionTabs, setAttentionTabs] = useState<Set<number>>(new Set());
 
   // Use ref for notification settings to avoid re-creating callback
@@ -45,25 +57,40 @@ export function useNotifications({ activeTerminalTab }: UseNotificationsParams) 
     activeTerminalTabRef.current = activeTerminalTab;
   }, [activeTerminalTab]);
 
-  // Handle agent status changes per tab - play sounds and mark attention
+  const currentProjectPathRef = useRef(currentProjectPath);
+  useEffect(() => {
+    currentProjectPathRef.current = currentProjectPath;
+  }, [currentProjectPath]);
+
+  // Handle agent status changes per (project, tab) — play sounds, mark
+  // attention, and mirror status into sessionRegistry so background
+  // projects' sidebars reflect the state too.
   const createTabStatusHandler = useCallback(
-    (tabId: number) => (status: AgentStatus, _title: string) => {
+    (projectPath: string, tabId: number) => (status: AgentStatus, _title: string) => {
       const settings = notificationSettingsRef.current;
-      const prevStatus = prevAgentStatusMap.current.get(tabId) ?? 'idle';
+      const mapKey = `${projectPath}::${tabId}`;
+      const prevStatus = prevAgentStatusMap.current.get(mapKey) ?? 'idle';
       const wasThinking = prevStatus === 'thinking';
+
+      const isFocusedTab =
+        currentProjectPathRef.current === projectPath && activeTerminalTabRef.current === tabId;
+
+      sessionRegistry.setAgentStatus(projectPath, status, isFocusedTab);
 
       // When agent transitions from thinking to waiting (finished processing)
       if (wasThinking && status === 'waiting') {
         if (settings.enabled) {
           void playSound(settings.sound);
         }
-        // Mark tab as needing attention if it's not the active tab
-        if (activeTerminalTabRef.current !== tabId) {
-          setAttentionTabs((prev) => new Set(prev).add(tabId));
+        if (!isFocusedTab) {
+          sessionRegistry.setTerminalTabAttention(projectPath, tabId, true);
+          if (currentProjectPathRef.current === projectPath) {
+            setAttentionTabs((prev) => new Set(prev).add(tabId));
+          }
         }
       }
 
-      prevAgentStatusMap.current.set(tabId, status);
+      prevAgentStatusMap.current.set(mapKey, status);
     },
     []
   );
