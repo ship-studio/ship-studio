@@ -86,6 +86,13 @@
   overflow: hidden;
 }
 
+/* Workspace-only sidebar toggle. The home/projects view renders its own
+ * sidebar under `.projects-with-rail` and never gets this class, so the
+ * sidebar stays visible there as intended. */
+.workspace-body.is-sidebar-hidden > .workspace-sidebar {
+  display: none;
+}
+
 .workspace-main {
   display: flex;
   flex-direction: column;

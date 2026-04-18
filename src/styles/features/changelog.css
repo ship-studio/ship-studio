@@ -8,18 +8,20 @@
   overflow: hidden;
 }
 
-/* Rendered inline in the dashboard column *after* the project grid —
- * no sticky, no clipped height, just an ordinary block below projects. */
+/* Rendered inline in the dashboard column *after* the project grid.
+ * Capped at 500px tall with a scrollable list so longer changelogs don't
+ * push the Settings row way off-screen. */
 .project-list.dashboard > .changelog {
   width: auto;
-  height: auto;
+  max-height: 500px;
   margin: 24px 0 0;
   position: static;
 }
 
 .project-list.dashboard > .changelog .changelog-list {
-  flex: 0 0 auto;
-  overflow: visible;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .changelog-header {
@@ -223,8 +225,10 @@
   background: var(--bg-tertiary);
 }
 
-/* Hide on narrow screens */
-@media (max-width: 1100px) {
+/* Hide on very narrow screens only — the dashboard column is single-column
+ * below that width and the changelog would otherwise crowd out the
+ * project grid entirely. */
+@media (max-width: 640px) {
   .changelog {
     display: none;
   }

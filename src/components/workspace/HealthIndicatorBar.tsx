@@ -10,7 +10,7 @@ import type { RefObject } from 'react';
 import { CodeHealthPanel } from '../CodeHealthPanel';
 import type { CodeHealthPanelRef } from '../CodeHealthPanel';
 import { BrowserDropdown } from '../BrowserDropdown';
-import { ResetIcon, SettingsIcon, CompactIcon, PanelRightIcon } from '../icons';
+import { ResetIcon, SettingsIcon, CompactIcon, PanelRightIcon, PanelLeftIcon } from '../icons';
 
 export interface HealthIndicatorBarProps {
   projectPath: string;
@@ -31,6 +31,11 @@ export interface HealthIndicatorBarProps {
   onOpenProjectSettings: () => void;
   onEnterCompactMode: () => Promise<void>;
   onShowPreview: () => void;
+  /** Current sidebar visibility in the workspace. Ignored on home/
+   *  projects view since that view always renders the sidebar. */
+  isSidebarHidden: boolean;
+  /** Flip sidebar visibility. */
+  onToggleSidebar: () => void;
 }
 
 export function HealthIndicatorBar({
@@ -50,7 +55,20 @@ export function HealthIndicatorBar({
   onOpenProjectSettings,
   onEnterCompactMode,
   onShowPreview,
+  isSidebarHidden,
+  onToggleSidebar,
 }: HealthIndicatorBarProps) {
+  const sidebarToggleButton = (
+    <button
+      className="show-preview-btn icon-only"
+      onClick={onToggleSidebar}
+      title={isSidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+      aria-label={isSidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+      data-education-id="toggle-sidebar"
+    >
+      <PanelLeftIcon size={12} />
+    </button>
+  );
   const toolbarLeft =
     isWebProject || customDevCommand ? (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -63,6 +81,7 @@ export function HealthIndicatorBar({
         >
           {isRestartingDevServer ? <div className="capture-spinner" /> : <ResetIcon size={12} />}
         </button>
+        {sidebarToggleButton}
         {!isWebProject && (
           <button
             className="show-preview-btn icon-only"
@@ -82,14 +101,17 @@ export function HealthIndicatorBar({
         </button>
       </div>
     ) : (
-      <button
-        className="show-preview-btn icon-only"
-        data-education-id="project-settings-button"
-        onClick={onOpenProjectSettings}
-        title="Project settings"
-      >
-        <SettingsIcon size={12} />
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {sidebarToggleButton}
+        <button
+          className="show-preview-btn icon-only"
+          data-education-id="project-settings-button"
+          onClick={onOpenProjectSettings}
+          title="Project settings"
+        >
+          <SettingsIcon size={12} />
+        </button>
+      </div>
     );
 
   const toolbarRight = isPreviewHidden ? (

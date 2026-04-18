@@ -10,7 +10,15 @@
  * @module components/WorkspaceView
  */
 
-import { memo, useCallback, useEffect, useMemo, useSyncExternalStore, type RefObject } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from './Terminal';
 import { DevServerLogs } from './DevServerLogs';
@@ -571,6 +579,11 @@ export const WorkspaceView = memo(function WorkspaceView({
   );
   // Subscribe to registry so the current project's sidebar / tab selector
   // re-render when a title changes.
+  // Sidebar visibility is workspace-local (not persisted). The home /
+  // projects view renders its own sidebar instance unconditionally, so
+  // this state does not affect it.
+  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
+
   const registryVersion = useSyncExternalStore(
     sessionRegistry.subscribeSimple,
     () => sessionRegistry.getVersion(),
@@ -702,7 +715,7 @@ export const WorkspaceView = memo(function WorkspaceView({
         <UpdateBanner />
         {header.titlebar}
 
-        <div className="workspace-body">
+        <div className={`workspace-body${isSidebarHidden ? ' is-sidebar-hidden' : ''}`}>
           <WorkspaceSidebar
             isHomeActive={false}
             onGoHome={onGoHome}
@@ -779,6 +792,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                       onOpenProjectSettings={projectSettingsModal.open}
                       onEnterCompactMode={handleEnterCompactMode}
                       onShowPreview={() => setIsPreviewHidden(false)}
+                      isSidebarHidden={isSidebarHidden}
+                      onToggleSidebar={() => setIsSidebarHidden((v) => !v)}
                     />
                     {/* Terminal view - hidden in compact mode when viewing branches/PRs */}
                     <div
