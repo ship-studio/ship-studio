@@ -844,7 +844,21 @@ export const WorkspaceView = memo(function WorkspaceView({
                                   }}
                                   agent={getAgentById(tab.agentId)}
                                   projectPath={session.projectPath}
-                                  onExit={handleTerminalExit}
+                                  onSpawn={(pid) => {
+                                    sessionRegistry.patchTerminalTab(session.projectPath, tab.id, {
+                                      status: 'running',
+                                      pid,
+                                      exitCode: null,
+                                    });
+                                  }}
+                                  onExit={(code) => {
+                                    handleTerminalExit(code);
+                                    sessionRegistry.patchTerminalTab(session.projectPath, tab.id, {
+                                      status: code === 0 || code === null ? 'exited' : 'crashed',
+                                      pid: null,
+                                      exitCode: code,
+                                    });
+                                  }}
                                   autoAcceptMode={autoAcceptMode}
                                   onStatusChange={createTabStatusHandler(
                                     session.projectPath,

@@ -16,6 +16,7 @@ import {
   sessionRegistry,
   type SessionSnapshot,
   type SessionTerminalTab,
+  type TabStatus,
 } from '../lib/sessionRegistry';
 
 type SectionId = 'agents' | 'terminals' | 'commands';
@@ -124,11 +125,51 @@ function projectInitials(name: string): string {
   return cleaned.slice(0, 2).toUpperCase();
 }
 
-function projectDotState(row: PinnedProjectRow): SidebarItem['dotState'] {
+/**
+ * Single source of truth for agent/terminal row dots. Used identically by
+ * current-project rows and background-project rows so the sidebar speaks
+ * one language regardless of which project has focus.
+ *
+ * Rules (highest priority first):
+ *   - tab has attention flag               → `attention` (amber pulse)
+ *   - status === 'crashed'                 → `attention` (amber; TODO: red)
+ *   - status === 'exited'                  → `muted` (grey, dimmed)
+ *   - status === 'thinking' | 'waiting'    → `active` (green; agent busy)
+ *   - status === 'running' | 'starting'    → `active` (green; PTY alive)
+ *   - no status yet (freshly-created tab)  → `active`
+ *
+ * `isActive` (selected tab) no longer influences the dot — a non-selected
+ * but running tab is still green. Selection styling is handled by the row
+ * background.
+ */
+function tabDotState(tab: { attention?: boolean; status?: TabStatus }): SidebarItem['dotState'] {
+  if (tab.attention) return 'attention';
+  if (tab.status === 'crashed') return 'attention';
+  if (tab.status === 'exited') return 'muted';
+  return 'active';
+}
+
+/**
+ * Project-row dot — now driven by the tabs themselves (authoritative)
+ * instead of the registry's `lastAgentStatus` (which was "last status
+ * anybody posted" and got stuck on `waiting`). Priority:
+ *   - any tab attention or crash → attention
+ *   - session error               → attention
+ *   - session inactive/suspended  → muted
+ *   - any tab running             → active
+ *   - otherwise                   → muted
+ */
+function projectDotState(
+  row: PinnedProjectRow,
+  tabs: ReadonlyArray<SessionTerminalTab> | undefined
+): SidebarItem['dotState'] {
+  const list = tabs ?? [];
+  if (list.some((t) => t.attention)) return 'attention';
+  if (list.some((t) => t.status === 'crashed')) return 'attention';
   if (row.status === 'error') return 'attention';
   if (row.status === 'inactive' || row.status === 'suspended') return 'muted';
-  if (row.agentStatus === 'thinking' || row.agentStatus === 'waiting') return 'attention';
-  return 'active';
+  if (list.some((t) => t.status !== 'exited')) return 'active';
+  return 'muted';
 }
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({
@@ -208,6 +249,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     return typeof explicit === 'boolean' ? explicit : false;
   };
 
+  // Registry-owned state for the current project's tabs. We join it to
+  // the hook-owned `terminalTabs` list by id to pick up live status/pid
+  // without duplicating the source of truth. `registryVersion` is already
+  // a dep via the enclosing memo so subscription re-renders fire here.
+  const currentRegistryTabs = useMemo<Map<number, SessionTerminalTab>>(() => {
+    void registryVersion;
+    const map = new Map<number, SessionTerminalTab>();
+    if (!currentProjectPath) return map;
+    const snap = sessionRegistry.snapshot(currentProjectPath);
+    if (!snap) return map;
+    for (const t of snap.terminalTabs) map.set(t.id, t);
+    return map;
+  }, [currentProjectPath, registryVersion]);
+
   // Build sidebar items for the current project's sections.
   const { agentItems, terminalItems, commandItems } = useMemo(() => {
     const agents: SidebarItem[] = [];
@@ -219,6 +274,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       const isShell = agent.id === 'terminal';
       const isActive = tab.id === activeTerminalTab;
       const hasAttention = attentionTabs.has(tab.id);
+      const regTab = currentRegistryTabs.get(tab.id);
 
       const count = (agentCounts.get(agent.id) ?? 0) + 1;
       agentCounts.set(agent.id, count);
@@ -230,7 +286,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         key: `tab-${tab.id}`,
         label,
         isActive,
-        dotState: hasAttention ? 'attention' : isActive ? 'active' : 'idle',
+        dotState: tabDotState({ attention: hasAttention, status: regTab?.status }),
         onSelect: () => onSelectTab(tab.id),
         onClose: terminalTabs.length > 1 ? () => onCloseTab(tab.id) : undefined,
       };
@@ -256,6 +312,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     activeTerminalTab,
     tabTitles,
     attentionTabs,
+    currentRegistryTabs,
     hasDevServer,
     isRestartingDevServer,
     devServerRunning,
@@ -567,7 +624,7 @@ function InactiveProjectSections({
     const item: SidebarItem = {
       key: `bg-${tab.sessionId}`,
       label,
-      dotState: tab.attention ? 'attention' : 'active',
+      dotState: tabDotState({ attention: tab.attention, status: tab.status }),
       onSelect: () => onSelectTab(tab.sessionId),
     };
     if (agent.id === 'terminal') terminals.push(item);
@@ -637,7 +694,10 @@ function ProjectGroup({
   children?: React.ReactNode;
 }) {
   const initials = projectInitials(row.fallbackName);
-  const dot = projectDotState(row);
+  // Parent WorkspaceSidebar subscribes to the registry; this snapshot is
+  // therefore re-read on every relevant change.
+  const snap = sessionRegistry.snapshot(row.projectPath);
+  const dot = projectDotState(row, snap?.terminalTabs);
   const memoryLabel =
     row.memoryBytes > 0 ? `${Math.round(row.memoryBytes / (1024 * 1024))}MB` : null;
 

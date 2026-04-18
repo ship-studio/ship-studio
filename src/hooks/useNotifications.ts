@@ -77,6 +77,14 @@ export function useNotifications({
 
       sessionRegistry.setAgentStatus(projectPath, status, isFocusedTab);
 
+      // Fold agent activity into the tab's lifecycle status. `thinking` /
+      // `waiting` live alongside `running` / `exited` / `crashed` on the
+      // tab — one authoritative field the sidebar reads for its dot.
+      // `idle` maps to `running` (PTY is alive but not mid-turn).
+      const tabStatus: 'running' | 'thinking' | 'waiting' =
+        status === 'thinking' ? 'thinking' : status === 'waiting' ? 'waiting' : 'running';
+      sessionRegistry.patchTerminalTab(projectPath, tabId, { status: tabStatus });
+
       // When agent transitions from thinking to waiting (finished processing)
       if (wasThinking && status === 'waiting') {
         if (settings.enabled) {

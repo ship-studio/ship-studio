@@ -39,6 +39,10 @@ interface TerminalProps {
   agent: AgentConfig;
   /** Absolute path to the project directory where the agent will run */
   projectPath: string;
+  /** Callback fired when the PTY is spawned successfully. `pid` is the OS
+   *  process id of the agent — used by the session registry to track
+   *  liveness across project switches. */
+  onSpawn?: (pid: number | null) => void;
   /** Callback fired when the agent process exits */
   onExit?: (code: number | null) => void;
   /** Whether to run the agent in auto-accept mode */
@@ -76,6 +80,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   {
     agent,
     projectPath,
+    onSpawn,
     onExit,
     autoAcceptMode = false,
     onStatusChange,
@@ -125,14 +130,16 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
   // Use refs for callbacks to prevent effect re-runs when callback references change
   const onExitRef = useRef(onExit);
+  const onSpawnRef = useRef(onSpawn);
   const onStatusChangeRef = useRef(onStatusChange);
   const onTitleChangeRef = useRef(onTitleChange);
   const lastStatusRef = useRef<AgentStatus>('idle');
   useEffect(() => {
     onExitRef.current = onExit;
+    onSpawnRef.current = onSpawn;
     onStatusChangeRef.current = onStatusChange;
     onTitleChangeRef.current = onTitleChange;
-  }, [onExit, onStatusChange, onTitleChange]);
+  }, [onExit, onSpawn, onStatusChange, onTitleChange]);
 
   // Auto-accept is a spawn-time flag (CLI arg) — it can't be toggled on a
   // live PTY. Keep it in a ref so a later change to the scalar doesn't
@@ -594,6 +601,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
         ptyRef.current = pty;
         logger.info('[Terminal] PTY spawned successfully', { agent: agent.id });
+        {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+          const spawnedPid = (pty as any).pid as number | undefined;
+          onSpawnRef.current?.(typeof spawnedPid === 'number' ? spawnedPid : null);
+        }
 
         // Startup timeout: if no output is received within 10s, the agent
         // likely failed to launch (binary not found, permission error, etc.).

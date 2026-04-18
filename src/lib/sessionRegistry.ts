@@ -38,6 +38,15 @@ export type SessionStatus = 'active' | 'suspended' | 'error';
 export type AgentActivityStatus = 'thinking' | 'waiting' | 'idle';
 
 /**
+ * Runtime status of a single agent/terminal tab. Derived from explicit
+ * lifecycle events — spawn, exit, title-based activity, liveness reconcile —
+ * never from "whether it's the selected tab". A non-selected-but-running
+ * tab is `running`, not `idle`. Crash vs. clean exit is kept distinct
+ * because the UX differs (auto-restart suggestion vs. silent close).
+ */
+export type TabStatus = 'starting' | 'running' | 'thinking' | 'waiting' | 'exited' | 'crashed';
+
+/**
  * A single terminal tab belonging to a project's session. This is the
  * registry's view of the tab — enough to rehydrate the tab bar and sidebar
  * when we switch back to the project. Live xterm/PTY refs still live in
@@ -52,6 +61,19 @@ export interface SessionTerminalTab {
   title?: string;
   /** Whether this tab has an attention indicator on the sidebar. */
   attention?: boolean;
+  /** Authoritative lifecycle status. Undefined means we haven't heard from
+   *  Terminal yet (treat as `starting`). Updated by Terminal's spawn/exit
+   *  callbacks and the periodic liveness reconciler. */
+  status?: TabStatus;
+  /** OS process id of the backing PTY. Null before spawn and after exit.
+   *  Used by the liveness reconciler to probe whether the process is alive. */
+  pid?: number | null;
+  /** Exit code captured by `onExit`. Present iff status is `exited` or
+   *  `crashed`. Non-zero typically means `crashed`. */
+  exitCode?: number | null;
+  /** Unix millis of the most recent PTY data event, status bump, or user
+   *  input for this tab. Drives "last activity" UX + GC of stale sessions. */
+  lastActivityAt?: number;
 }
 
 /**
@@ -302,13 +324,17 @@ class SessionRegistry {
       const prev = byId.get(t.id);
       if (!prev) return { ...t };
       // sessionId changes when the tab's agent is switched. Drop the
-      // title/attention carried over from the previous agent so the new
-      // Terminal starts with a clean slate and re-emits its own title.
+      // title/attention/status carried over from the previous agent so the
+      // new Terminal starts with a clean slate and re-emits its own state.
       const agentChanged = prev.sessionId !== t.sessionId;
       return {
         ...t,
         title: t.title ?? (agentChanged ? undefined : prev.title),
         attention: t.attention ?? (agentChanged ? undefined : prev.attention),
+        status: t.status ?? (agentChanged ? 'starting' : prev.status),
+        pid: t.pid ?? (agentChanged ? null : prev.pid),
+        exitCode: t.exitCode ?? (agentChanged ? null : prev.exitCode),
+        lastActivityAt: t.lastActivityAt ?? (agentChanged ? Date.now() : prev.lastActivityAt),
       };
     });
     session.activeTabIndex = Math.max(0, Math.min(activeTabIndex, tabs.length - 1));
@@ -341,6 +367,52 @@ class SessionRegistry {
         return { ...tab, attention };
       }
       return tab;
+    });
+    if (changed) this.notify(projectPath);
+  }
+
+  /**
+   * Record a lifecycle update for a tab. Any subset of fields can be patched
+   * in a single call; whatever isn't provided is left unchanged. Bumps
+   * `lastActivityAt` to now on every call since any status/pid change is
+   * itself an activity signal. This is the single entry point that all
+   * runtime sources (Terminal spawn/exit, liveness reconciler, title-based
+   * activity parsing) should go through.
+   */
+  patchTerminalTab(
+    projectPath: string,
+    tabId: number,
+    patch: {
+      status?: TabStatus;
+      pid?: number | null;
+      exitCode?: number | null;
+      bumpActivity?: boolean;
+    }
+  ): void {
+    const session = this.sessions.get(projectPath);
+    if (!session) return;
+    let changed = false;
+    const now = Date.now();
+    session.terminalTabs = session.terminalTabs.map((tab) => {
+      if (tab.id !== tabId) return tab;
+      const next: SessionTerminalTab = { ...tab };
+      if (patch.status !== undefined && tab.status !== patch.status) {
+        next.status = patch.status;
+        changed = true;
+      }
+      if (patch.pid !== undefined && tab.pid !== patch.pid) {
+        next.pid = patch.pid;
+        changed = true;
+      }
+      if (patch.exitCode !== undefined && tab.exitCode !== patch.exitCode) {
+        next.exitCode = patch.exitCode;
+        changed = true;
+      }
+      if (patch.bumpActivity !== false) {
+        next.lastActivityAt = now;
+        changed = true;
+      }
+      return next;
     });
     if (changed) this.notify(projectPath);
   }
