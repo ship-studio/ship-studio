@@ -786,11 +786,14 @@ export const WorkspaceView = memo(function WorkspaceView({
                               !showDevServerLogs &&
                               activeTerminalTab === tab.id;
                             const refKey = `${session.projectPath}::${tab.id}`;
+                            // Background projects use the same `.terminal-tab-content`
+                            // visibility-based hide (position: absolute + visibility: hidden).
+                            // `display: none` would zero out xterm's container dims and leave
+                            // the renderer desynced when the tab became visible again.
                             return (
                               <div
                                 key={`session-${session.sessionEpoch}-${refKey}`}
                                 className={`terminal-tab-content ${isVisible ? 'active' : ''}`}
-                                style={isCurrentProject ? undefined : { display: 'none' }}
                               >
                                 <Terminal
                                   ref={(ref) => {

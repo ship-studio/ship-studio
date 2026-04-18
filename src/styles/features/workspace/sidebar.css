@@ -607,6 +607,17 @@
 .workspace-sidebar-footer {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* Belt-and-suspenders against a horizontal scrollbar appearing inside a
+ * project body when a long tab title would otherwise force it. The row
+ * labels already ellipsize, but if a future descendant forgets min-width: 0
+ * in a flex chain, this caps the damage. */
+.workspace-sidebar .sidebar-project-body,
+.workspace-sidebar .sidebar-project-body-inner,
+.workspace-sidebar .sidebar-section-list {
+  overflow-x: hidden;
 }
 
 .workspace-sidebar-add-project {
