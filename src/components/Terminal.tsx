@@ -118,11 +118,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const [isReady, setIsReady] = useState(false);
   const [isFocused, setIsFocused] = useState(false); // Start unfocused to show overlay until user clicks
 
-  // Just mirror the active flag so other refs can read it. We no longer
-  // buffer data while hidden or defer the PTY spawn — phase 3's backend
-  // owns the buffer, and streaming output into xterm while its wrapper is
-  // visibility:hidden is what lets `term.onTitleChange` (and therefore
-  // notifications for background agents) fire.
+  // Mirror `isActive` to a ref so non-effect closures (input handler,
+  // resize observer) can read it without re-creating.
   useEffect(() => {
     isActiveRef.current = isActive;
   }, [isActive]);
@@ -153,13 +150,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   }, [autoAcceptMode]);
 
   const cleanup = useCallback(() => {
-    // Phase 3: PTYs are backend-owned. Unmount only detaches this
-    // component from the session — it does NOT kill the PTY. Kill
-    // happens exclusively through explicit close-tab / close-project
-    // actions in useTerminalManagement, or app quit via a window-wide
-    // sweep. This decoupling is what makes project switches safe: a
-    // background project's Terminal can unmount freely and the agent
-    // keeps running.
+    // Unmount detaches this component from the backend PTY session — it
+    // does NOT kill the PTY. Kill happens exclusively through the
+    // imperative `kill()` handle (close tab, switch agent, close project).
+    // That separation is what lets a background project's Terminal unmount
+    // freely while its agent keeps running.
     for (const d of ptyDisposablesRef.current) {
       try {
         d.dispose();
@@ -455,7 +450,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // ~5ms file-exists check.
     let attemptResume = false;
 
-    // Setup PTY connection using tauri-pty with retry logic
+    // Open (or re-attach to) the backend PTY session for this tab.
+    // `retryCount` is used by the resume-failed-then-retry-fresh path.
     const setupPty = async (retryCount = 0) => {
       const maxRetries = 3;
 
@@ -637,11 +633,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // Buffer early output to detect resume failures on exit
         let outputBuffer = '';
 
-        // Always stream data into xterm, even when the wrapper is
-        // visibility-hidden. Phase 3's backend already owns the replay
-        // buffer, so there's no reason to queue a second copy here — and
-        // skipping the xterm write meant `term.onTitleChange` never fired
-        // for background tabs, which broke agent-done notifications.
+        // Stream PTY data directly into xterm, even when the wrapper is
+        // visibility-hidden. xterm needs to process the byte stream (not
+        // just when visible) so `term.onTitleChange` fires for background
+        // tabs — that's what drives the agent-done sound + green-label
+        // notification while the user is on another project.
         const writeToTerminal = (data: string | Uint8Array | number[]) => {
           const normalized = Array.isArray(data) ? new Uint8Array(data) : data;
           terminalRef.current?.write(normalized);
@@ -842,10 +838,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Show a loading message while agent starts up
     term.write(`\r\n  \x1b[2m${agent.loadingMessage}\x1b[0m`);
 
-    // Spawn eagerly. Phase 3 moved the PTY read loop into Rust, so there's
-    // no per-tab IPC read that multiplies across background sessions —
-    // and we *want* background agents running, not waiting for the user
-    // to select their tab.
+    // Spawn eagerly — the PTY read loop lives in Rust, so there's no
+    // per-tab IPC polling to multiply across background sessions. We
+    // *want* background agents running, not waiting on the user to focus.
     setTimeout(() => void setupPty(), 100);
 
     // Handle resize — debounce with rAF to avoid layout thrashing during drags/animations

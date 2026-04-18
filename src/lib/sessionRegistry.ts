@@ -1,27 +1,19 @@
 /**
  * # Session Registry — Frontend
  *
- * Module-level (outside React) registry of live project sessions. The single
- * source of truth for "which projects have a live session in this window."
+ * Module-level (outside React) registry of live project sessions. The
+ * single source of truth in the frontend for "which projects have a live
+ * session in this window." Pairs with the Rust `pty_session` registry,
+ * which owns the actual PTY processes.
  *
  * **Core invariant:** one project path → at most one session, ever.
  *
- * `getOrCreate` is the only path that creates a session. If a session for
- * the path already exists, it returns the existing one. No other code path
- * can bypass this guard. React components remount during HMR, project
- * switches, and state changes — putting the registry outside React means
- * a remount cannot accidentally spawn a second session for the same project
- * (which is how the previous memory leak happened).
- *
- * ## Phased migration
- *
- * Phase 2a (this file, initial version) ships only the data structure and
- * invariant. xterm/PTY ownership migration to the registry happens in
- * Phase 2d-2f, where Terminal.tsx is refactored to attach its xterm to a
- * registry-owned instance instead of owning it itself.
- *
- * Until then, the registry holds metadata only — `status`, `activatedAt`,
- * `unreadCount`, etc. The xterm instances still live in the React tree.
+ * `getOrCreate` is the only path that creates a session. If a session
+ * already exists for the path, it's returned unchanged. No other code
+ * path can bypass this guard. React components remount during HMR,
+ * project switches, and state changes — keeping the registry outside
+ * React guarantees a remount cannot accidentally spawn a second session
+ * for the same project.
  *
  * @module lib/sessionRegistry
  */
@@ -39,19 +31,19 @@ export type AgentActivityStatus = 'thinking' | 'waiting' | 'idle';
 
 /**
  * Runtime status of a single agent/terminal tab. Derived from explicit
- * lifecycle events — spawn, exit, title-based activity, liveness reconcile —
- * never from "whether it's the selected tab". A non-selected-but-running
- * tab is `running`, not `idle`. Crash vs. clean exit is kept distinct
- * because the UX differs (auto-restart suggestion vs. silent close).
+ * lifecycle events — spawn, exit, title-based activity — never from
+ * "whether it's the selected tab". A non-selected-but-running tab is
+ * `running`, not `idle`. Crash vs. clean exit is kept distinct because
+ * the UX differs.
  */
 export type TabStatus = 'starting' | 'running' | 'thinking' | 'waiting' | 'exited' | 'crashed';
 
 /**
  * A single terminal tab belonging to a project's session. This is the
  * registry's view of the tab — enough to rehydrate the tab bar and sidebar
- * when we switch back to the project. Live xterm/PTY refs still live in
- * Terminal.tsx today; the plan is to migrate them into the registry in
- * Phase 2d-2f.
+ * when we switch back to the project. The live PTY is owned by the Rust
+ * registry (`pty_session.rs`); this struct carries the metadata that drives
+ * the sidebar's rendering.
  */
 export interface SessionTerminalTab {
   readonly id: number;
@@ -61,32 +53,30 @@ export interface SessionTerminalTab {
   title?: string;
   /** Whether this tab has an attention indicator on the sidebar. */
   attention?: boolean;
-  /** Authoritative lifecycle status. Undefined means we haven't heard from
+  /** Authoritative lifecycle status. Undefined = we haven't heard from
    *  Terminal yet (treat as `starting`). Updated by Terminal's spawn/exit
-   *  callbacks and the periodic liveness reconciler. */
+   *  callbacks and by agent-activity status parsing. */
   status?: TabStatus;
-  /** OS process id of the backing PTY. Null before spawn and after exit.
-   *  Used by the liveness reconciler to probe whether the process is alive. */
+  /** OS process id of the backing PTY. Null before spawn and after exit. */
   pid?: number | null;
   /** Exit code captured by `onExit`. Present iff status is `exited` or
    *  `crashed`. Non-zero typically means `crashed`. */
   exitCode?: number | null;
-  /** Unix millis of the most recent PTY data event, status bump, or user
-   *  input for this tab. Drives "last activity" UX + GC of stale sessions. */
+  /** Unix millis of the most recent status update for this tab. */
   lastActivityAt?: number;
 }
 
 /**
  * In-memory state for a single project session.
  *
- * Notes on ownership (subject to expansion in Phase 2d-2f):
+ * Ownership split:
  *
  * - `status` / `activatedAt` / `lastFocusedAt` / `unreadCount` /
- *   `lastAgentStatus`: owned by the registry from day one.
- * - xterm instances, PTY refs, hidden buffers, dev server handle:
- *   currently still owned by React components (Terminal.tsx, useDevServer).
- *   The registry keeps the slot reserved so when ownership migrates, the
- *   data has a home.
+ *   `lastAgentStatus` / `terminalTabs`: owned by this registry.
+ * - Live PTY handles: owned by the Rust `pty_session` registry, keyed
+ *   by `tab.sessionId`.
+ * - xterm instances + dev server handles: owned by React components
+ *   (Terminal.tsx, useDevServer) while mounted.
  */
 export interface ProjectSession {
   /** Canonical absolute path to the project directory. */
@@ -242,9 +232,8 @@ class SessionRegistry {
   }
 
   /**
-   * Remove a session entirely. Used when the project is unpinned.
-   * In Phase 2d+, this will also be the place that disposes xterm/PTY.
-   * Idempotent.
+   * Remove a session entirely. Called when the project is explicitly
+   * closed from the sidebar. Idempotent.
    */
   destroy(projectPath: string): void {
     const removed = this.sessions.delete(projectPath);
@@ -256,7 +245,7 @@ class SessionRegistry {
 
   /**
    * Bump `lastFocusedAt`. Cheap, idempotent within the same millisecond.
-   * Call on terminal input, focus, etc. Drives LRU eviction in Phase 5.
+   * Call on terminal input, focus, etc.
    */
   touch(projectPath: string): void {
     const session = this.sessions.get(projectPath);
@@ -372,12 +361,11 @@ class SessionRegistry {
   }
 
   /**
-   * Record a lifecycle update for a tab. Any subset of fields can be patched
-   * in a single call; whatever isn't provided is left unchanged. Bumps
-   * `lastActivityAt` to now on every call since any status/pid change is
-   * itself an activity signal. This is the single entry point that all
-   * runtime sources (Terminal spawn/exit, liveness reconciler, title-based
-   * activity parsing) should go through.
+   * Record a lifecycle update for a tab. Any subset of fields can be
+   * patched in a single call; whatever isn't provided is left unchanged.
+   * Bumps `lastActivityAt` to now on every call. Single entry point for
+   * every runtime source (Terminal spawn/exit, title-based activity
+   * parsing) — keeps the sidebar's derived state consistent.
    */
   patchTerminalTab(
     projectPath: string,

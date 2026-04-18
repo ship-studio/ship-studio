@@ -1,23 +1,21 @@
-//! # Backend-owned PTY session registry (phase 3)
+//! # Backend-owned PTY session registry
 //!
 //! Owns PTYs for agent/terminal tabs. The frontend talks to this via
 //! `pty_session_open` / `pty_session_attach` / `pty_session_write` /
 //! `pty_session_resize` / `pty_session_kill` / `pty_session_list`. Data and
 //! exit signals are pushed to the frontend as Tauri events
 //! (`pty-session-data`, `pty-session-exit`), each carrying the owning
-//! `session_id` so any `Terminal` React component that has attached can
-//! filter and render them.
+//! `session_id` so the attached `Terminal` React component can filter and
+//! render them.
 //!
-//! The key property this module buys us: **the PTY is not coupled to the
-//! React component's lifecycle.** A Terminal component can unmount and
-//! remount (project switch, HMR) without the PTY noticing. Kill happens
-//! only when the user explicitly closes a tab or the window goes down.
+//! Why the backend owns it: **the PTY is decoupled from the React
+//! component's lifecycle.** A Terminal can unmount and remount (project
+//! switch, HMR) without the PTY noticing. Kill happens only when the
+//! user explicitly closes a tab / switches agent / closes a project.
 //!
-//! ## Ring buffer
-//!
-//! Each session keeps the tail of its output (~128 KiB) so a newly-attached
-//! frontend can replay recent history into xterm — otherwise a background
-//! project's terminal would look empty when switched back in.
+//! Each session keeps a ~128 KiB tail of its output so a newly-attached
+//! frontend can replay recent history into xterm — a background
+//! project's terminal would otherwise look empty when switched back in.
 
 use crate::errors::CommandError;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, PtySize};

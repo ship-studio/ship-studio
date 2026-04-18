@@ -1,5 +1,5 @@
 /**
- * Frontend client for backend-owned PTY sessions (phase 3).
+ * Frontend client for backend-owned PTY sessions.
  *
  * The Rust registry in `src-tauri/src/commands/pty_session.rs` is the
  * authority for every agent/terminal tab's PTY. A React component calls
