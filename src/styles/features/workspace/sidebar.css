@@ -293,7 +293,7 @@
   justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   font-size: 9px;
