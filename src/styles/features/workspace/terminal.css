@@ -248,6 +248,15 @@
   visibility: visible;
 }
 
+/* Left-side actions in the terminal tabs bar (Restart dev server +
+ * Project settings). Pairs with `.terminal-logs-tabs`, which pushes
+ * itself to the right via `margin-left: auto`. */
+.terminal-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .terminal-logs-tabs {
   display: flex;
   gap: 6px;

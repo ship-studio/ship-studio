@@ -51,6 +51,8 @@ import {
   PanelRightIcon,
   CompactIcon,
   ActivityIcon,
+  ResetIcon,
+  SettingsIcon,
 } from './icons';
 import { ToolbarDropdown } from './ToolbarDropdown';
 import { getAgentById } from '../lib/agent';
@@ -781,15 +783,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                       onAskClaude={sendToClaude}
                       onHealthOutput={handleHealthOutput}
                       isWebProject={isWebProject}
-                      customDevCommand={customDevCommand}
-                      hasDevServer={hasDevServer}
-                      projectType={projectType}
-                      isRestartingDevServer={isRestartingDevServer}
                       isPreviewHidden={isPreviewHidden}
                       devServerPort={devServerPort}
-                      onRestartDevServer={handleRestartDevServer}
-                      onOpenDevCommand={devCommandModal.open}
-                      onOpenProjectSettings={projectSettingsModal.open}
                       onEnterCompactMode={handleEnterCompactMode}
                       onShowPreview={() => setIsPreviewHidden(false)}
                       isSidebarHidden={isSidebarHidden}
@@ -800,6 +795,43 @@ export const WorkspaceView = memo(function WorkspaceView({
                       className={`compact-terminal-view ${compactView !== 'terminal' ? 'compact-hidden' : ''}`}
                     >
                       <div className="terminal-tabs-bar">
+                        <div className="terminal-toolbar-actions">
+                          {(isWebProject || customDevCommand) && (
+                            <button
+                              className="show-preview-btn icon-only"
+                              onClick={() => void handleRestartDevServer()}
+                              disabled={
+                                isRestartingDevServer ||
+                                (!hasDevServer && projectType !== 'statichtml')
+                              }
+                              title="Restart dev server"
+                              data-education-id="restart-server"
+                            >
+                              {isRestartingDevServer ? (
+                                <div className="capture-spinner" />
+                              ) : (
+                                <ResetIcon size={12} />
+                              )}
+                            </button>
+                          )}
+                          {!isWebProject && customDevCommand !== null && (
+                            <button
+                              className="show-preview-btn icon-only"
+                              onClick={devCommandModal.open}
+                              title="Edit dev command"
+                            >
+                              <SettingsIcon size={12} />
+                            </button>
+                          )}
+                          <button
+                            className="show-preview-btn icon-only"
+                            data-education-id="project-settings-button"
+                            onClick={projectSettingsModal.open}
+                            title="Project settings"
+                          >
+                            <SettingsIcon size={12} />
+                          </button>
+                        </div>
                         <div className="terminal-logs-tabs">
                           {(isWebProject || hasDevServer) && (
                             <button
