@@ -49,9 +49,6 @@ import '@xterm/xterm/css/xterm.css';
 /** Agent status based on terminal title */
 export type AgentStatus = 'thinking' | 'waiting' | 'idle';
 
-/** Max buffer size for hidden terminal output (500KB) */
-const MAX_HIDDEN_BUFFER = 512 * 1024;
-
 /** Props for the Terminal component */
 interface TerminalProps {
   /** Agent configuration to use for this terminal */
@@ -114,37 +111,20 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyRef = useRef<SessionHandle | null>(null);
-  // Buffer for data received while terminal is hidden
-  const hiddenBufferRef = useRef<string[]>([]);
-  const hiddenBufferSizeRef = useRef(0);
   const isActiveRef = useRef(isActive);
-  // Deferred spawn: set by the main effect, called when tab becomes active
-  const deferredSpawnRef = useRef<(() => void) | null>(null);
-  // Track IDisposable handles from pty.onData/onExit so we can remove listeners on cleanup.
-  // Without this, killed PTY processes continue flooding Tauri IPC → microtasks → 100% CPU.
+  // Track Unlisten handles from the PTY session events so we can unsubscribe
+  // them on unmount without killing the backend PTY.
   const ptyDisposablesRef = useRef<Array<{ dispose(): void }>>([]);
   const [isReady, setIsReady] = useState(false);
   const [isFocused, setIsFocused] = useState(false); // Start unfocused to show overlay until user clicks
 
-  // When tab becomes active: flush hidden buffer and spawn PTY if deferred
+  // Just mirror the active flag so other refs can read it. We no longer
+  // buffer data while hidden or defer the PTY spawn — phase 3's backend
+  // owns the buffer, and streaming output into xterm while its wrapper is
+  // visibility:hidden is what lets `term.onTitleChange` (and therefore
+  // notifications for background agents) fire.
   useEffect(() => {
     isActiveRef.current = isActive;
-    if (isActive) {
-      // Flush buffered output
-      if (terminalRef.current && hiddenBufferRef.current.length > 0) {
-        for (const chunk of hiddenBufferRef.current) {
-          terminalRef.current.write(chunk);
-        }
-        hiddenBufferRef.current = [];
-        hiddenBufferSizeRef.current = 0;
-      }
-      // Spawn PTY if it was deferred (tab was created while hidden)
-      if (deferredSpawnRef.current) {
-        const spawn = deferredSpawnRef.current;
-        deferredSpawnRef.current = null;
-        spawn();
-      }
-    }
   }, [isActive]);
 
   // Use refs for callbacks to prevent effect re-runs when callback references change
@@ -657,28 +637,14 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // Buffer early output to detect resume failures on exit
         let outputBuffer = '';
 
-        // Write data to xterm, or buffer it if the terminal is hidden.
-        // Note: tauri-pty's read command returns Vec<u8> from Rust, which Tauri
-        // serializes as a JSON number[]. We must convert to Uint8Array for both
-        // xterm.write() and TextDecoder.decode() to work.
+        // Always stream data into xterm, even when the wrapper is
+        // visibility-hidden. Phase 3's backend already owns the replay
+        // buffer, so there's no reason to queue a second copy here — and
+        // skipping the xterm write meant `term.onTitleChange` never fired
+        // for background tabs, which broke agent-done notifications.
         const writeToTerminal = (data: string | Uint8Array | number[]) => {
           const normalized = Array.isArray(data) ? new Uint8Array(data) : data;
-          if (isActiveRef.current) {
-            terminalRef.current?.write(normalized);
-          } else {
-            const str =
-              typeof normalized === 'string' ? normalized : new TextDecoder().decode(normalized);
-            hiddenBufferRef.current.push(str);
-            hiddenBufferSizeRef.current += str.length;
-            // Cap buffer to prevent memory growth
-            while (
-              hiddenBufferSizeRef.current > MAX_HIDDEN_BUFFER &&
-              hiddenBufferRef.current.length > 1
-            ) {
-              const removed = hiddenBufferRef.current.shift()!;
-              hiddenBufferSizeRef.current -= removed.length;
-            }
-          }
+          terminalRef.current?.write(normalized);
         };
 
         // Handle PTY output -> terminal
@@ -876,14 +842,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Show a loading message while agent starts up
     term.write(`\r\n  \x1b[2m${agent.loadingMessage}\x1b[0m`);
 
-    // Only spawn PTY when this tab is active to avoid IPC congestion
-    // from multiple concurrent PTY read loops.
-    // If hidden, defer until the tab becomes active.
-    if (isActiveRef.current) {
-      setTimeout(() => void setupPty(), 100);
-    } else {
-      deferredSpawnRef.current = () => setTimeout(() => void setupPty(), 100);
-    }
+    // Spawn eagerly. Phase 3 moved the PTY read loop into Rust, so there's
+    // no per-tab IPC read that multiplies across background sessions —
+    // and we *want* background agents running, not waiting for the user
+    // to select their tab.
+    setTimeout(() => void setupPty(), 100);
 
     // Handle resize — debounce with rAF to avoid layout thrashing during drags/animations
     let resizeRaf: number | null = null;
