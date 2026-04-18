@@ -431,6 +431,13 @@ pub fn run() {
             commands::pty::unregister_external_pty,
             commands::pty::kill_project_pty,
             commands::pty::get_project_pty_pids,
+            // Backend-owned PTY sessions (phase 3)
+            commands::pty_session::pty_session_open,
+            commands::pty_session::pty_session_write,
+            commands::pty_session::pty_session_resize,
+            commands::pty_session::pty_session_kill,
+            commands::pty_session::pty_session_attach,
+            commands::pty_session::pty_session_list,
             // Community Templates
             commands::templates::fetch_community_templates,
             commands::templates::download_template_zip,

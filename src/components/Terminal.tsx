@@ -17,7 +17,26 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
-import { spawn, IPty } from 'tauri-pty';
+import {
+  openPtySession,
+  attachPtySession,
+  writePtySession,
+  resizePtySession,
+  killPtySession,
+  onPtySessionData,
+  onPtySessionExit,
+} from '../lib/ptySession';
+import type { UnlistenFn } from '@tauri-apps/api/event';
+
+/**
+ * Handle to a backend-owned PTY session. A Terminal component attaches to
+ * one via `openPtySession(sessionId)`; unmounting detaches (unsubscribes)
+ * but leaves the PTY running. Only explicit close-tab actions kill it.
+ */
+interface SessionHandle {
+  sessionId: string;
+  pid: number | null;
+}
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
@@ -94,7 +113,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const ptyRef = useRef<IPty | null>(null);
+  const ptyRef = useRef<SessionHandle | null>(null);
   // Buffer for data received while terminal is hidden
   const hiddenBufferRef = useRef<string[]>([]);
   const hiddenBufferSizeRef = useRef(0);
@@ -154,7 +173,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   }, [autoAcceptMode]);
 
   const cleanup = useCallback(() => {
-    // Dispose PTY event listeners FIRST to stop IPC message flood
+    // Phase 3: PTYs are backend-owned. Unmount only detaches this
+    // component from the session — it does NOT kill the PTY. Kill
+    // happens exclusively through explicit close-tab / close-project
+    // actions in useTerminalManagement, or app quit via a window-wide
+    // sweep. This decoupling is what makes project switches safe: a
+    // background project's Terminal can unmount freely and the agent
+    // keeps running.
     for (const d of ptyDisposablesRef.current) {
       try {
         d.dispose();
@@ -163,22 +188,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       }
     }
     ptyDisposablesRef.current = [];
-
-    if (ptyRef.current) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-      const pid = (ptyRef.current as any).pid as number | undefined;
-      if (typeof pid === 'number') {
-        // Fire-and-forget: backend `kill` removes the session from the
-        // plugin's map, so the next tauri-pty read invoke returns "EOF"
-        // and its internal `for(;;)` loop exits cleanly. Do NOT call
-        // `pty.kill()` here — that version swallows the return value
-        // so we can't discriminate between a real kill and a race.
-        void invoke('plugin:pty|kill', { pid }).catch(() => {
-          // Session may already be gone (e.g. child exited on its own).
-        });
-      }
-      ptyRef.current = null;
-    }
+    ptyRef.current = null;
 
     if (terminalRef.current) {
       terminalRef.current.dispose();
@@ -581,30 +591,50 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         const spawnCmd = isWin ? 'cmd.exe' : agent.binaryName;
         const spawnArgs = isWin ? ['/C', agent.binaryName, ...agentArgs] : agentArgs;
 
-        // eslint-disable-next-line @typescript-eslint/await-thenable
-        const pty = await spawn(spawnCmd, spawnArgs, {
+        // The backend session id is the tab's sessionName UUID — it survives
+        // component unmount/remount and project switches, so attach is
+        // idempotent. `openPtySession` is a no-op if the session is already
+        // alive; it evicts-and-respawns if a previous run exited (retry
+        // path below). `attachPtySession` returns the ring-buffer tail for
+        // xterm to replay before the live stream takes over.
+        const backendSessionId = sessionName || `tab-${Date.now()}`;
+        const opened = await openPtySession({
+          sessionId: backendSessionId,
+          command: spawnCmd,
+          args: spawnArgs,
           cwd: projectPath,
+          env,
           cols: term.cols,
           rows: term.rows,
-          env,
+          projectPath,
+          tabSessionId: sessionName ?? null,
         });
 
-        // Check again after async operation
         if (!mounted) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-          const ppid = (pty as any).pid as number | undefined;
-          if (typeof ppid === 'number') {
-            void invoke('plugin:pty|kill', { pid: ppid }).catch(() => {});
-          }
+          // Unmounted mid-open — leave the PTY alive for the next mount
+          // to attach to. It'll be reaped on explicit close or app quit.
           return;
         }
 
-        ptyRef.current = pty;
-        logger.info('[Terminal] PTY spawned successfully', { agent: agent.id });
-        {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-          const spawnedPid = (pty as any).pid as number | undefined;
-          onSpawnRef.current?.(typeof spawnedPid === 'number' ? spawnedPid : null);
+        ptyRef.current = { sessionId: backendSessionId, pid: opened.pid };
+        logger.info('[Terminal] PTY session opened', {
+          agent: agent.id,
+          sessionId: backendSessionId,
+          pid: opened.pid,
+        });
+        onSpawnRef.current?.(opened.pid);
+
+        const attach = await attachPtySession(backendSessionId);
+        if (!mounted) return;
+        if (attach.buffer.length > 0) {
+          // Replay ring-buffer tail so a newly-attached xterm shows prior
+          // output (critical for project switches back to a background tab).
+          terminalRef.current?.write(attach.buffer);
+        }
+        if (!attach.alive) {
+          // Session already exited between open and attach. Treat as a
+          // normal exit so the retry-on-resume-fail path can kick in.
+          onExitRef.current?.(attach.exitCode ?? -1);
         }
 
         // Startup timeout: if no output is received within 10s, the agent
@@ -655,13 +685,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // Store disposables so cleanup() can remove IPC listeners and prevent CPU leak.
         // For agents without title-based detection, add idle-detection:
         // when output stops flowing for 1.5s after "thinking" state, transition to "waiting".
+        const pushDisposable = (unlisten: UnlistenFn) => {
+          ptyDisposablesRef.current.push({ dispose: () => unlisten() });
+        };
+
         if (!agent.supportsStatusDetection) {
           let idleTimer: ReturnType<typeof setTimeout> | null = null;
-          const dataDisposable = pty.onData((data) => {
+          const unlistenData = await onPtySessionData(backendSessionId, (bytes) => {
             receivedOutput = true;
-            if (outputBuffer.length < 2000) outputBuffer += String(data);
+            if (outputBuffer.length < 2000) {
+              outputBuffer += new TextDecoder().decode(bytes);
+            }
             clearTimeout(startupTimeout);
-            writeToTerminal(data);
+            writeToTerminal(bytes);
             if (lastStatusRef.current === 'thinking') {
               if (idleTimer) clearTimeout(idleTimer);
               idleTimer = setTimeout(() => {
@@ -672,19 +708,21 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
               }, 1500);
             }
           });
-          ptyDisposablesRef.current.push(dataDisposable);
+          pushDisposable(unlistenData);
         } else {
-          const dataDisposable = pty.onData((data) => {
+          const unlistenData = await onPtySessionData(backendSessionId, (bytes) => {
             receivedOutput = true;
-            if (outputBuffer.length < 2000) outputBuffer += String(data);
+            if (outputBuffer.length < 2000) {
+              outputBuffer += new TextDecoder().decode(bytes);
+            }
             clearTimeout(startupTimeout);
-            writeToTerminal(data);
+            writeToTerminal(bytes);
           });
-          ptyDisposablesRef.current.push(dataDisposable);
+          pushDisposable(unlistenData);
         }
 
-        // Handle PTY exit
-        const exitDisposable = pty.onExit(({ exitCode }) => {
+        // Handle PTY exit — subscribe to the backend event stream.
+        const unlistenExit = await onPtySessionExit(backendSessionId, (exitCode) => {
           clearTimeout(startupTimeout);
           logger.info('[Terminal] PTY process exited', {
             agent: agent.id,
@@ -769,11 +807,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           terminalRef.current?.write('\r\n[Process exited]\r\n');
           onExitRef.current?.(exitCode);
         });
-        ptyDisposablesRef.current.push(exitDisposable);
+        pushDisposable(unlistenExit);
 
-        // Handle terminal input -> PTY
+        // Handle terminal input -> PTY. Resolves the session id lazily
+        // from the ref so re-attach doesn't need a new listener.
         const inputDisposable = term.onData((data) => {
-          ptyRef.current?.write(data);
+          const sid = ptyRef.current?.sessionId;
+          if (sid) void writePtySession(sid, data);
           // When user sends input to an agent without title-based status detection,
           // assume it transitions to "thinking" (processing the request).
           if (!agent.supportsStatusDetection && data.includes('\r')) {
@@ -801,7 +841,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             if (event.type === 'keydown') {
               // Send a literal newline character (Ctrl+J / Line Feed)
               // This tells Claude Code to continue on a new line without submitting
-              ptyRef.current?.write('\n');
+              const sid = ptyRef.current?.sessionId;
+              if (sid) void writePtySession(sid, '\n');
             }
             // Prevent both keydown and keypress from being processed
             event.preventDefault();
@@ -852,7 +893,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         resizeRaf = null;
         if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
           fitAddonRef.current.fit();
-          ptyRef.current.resize(terminalRef.current.cols, terminalRef.current.rows);
+          const { sessionId } = ptyRef.current;
+          void resizePtySession(sessionId, terminalRef.current.cols, terminalRef.current.rows);
         }
       });
     });
@@ -902,7 +944,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         textarea?.focus();
       },
       write: (data: string) => {
-        ptyRef.current?.write(data);
+        const sid = ptyRef.current?.sessionId;
+        if (sid) void writePtySession(sid, data);
       },
       paste: (data: string) => {
         if (terminalRef.current) {
@@ -912,12 +955,18 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         }
       },
       kill: () => {
+        // Imperative kill — used by `closeAllTerminalsForProject` and the
+        // close-tab path. Tell the backend to reap the PTY, then let
+        // cleanup unsubscribe and dispose xterm.
+        const sid = ptyRef.current?.sessionId;
+        if (sid) void killPtySession(sid);
         cleanup();
       },
       fit: () => {
         if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
           fitAddonRef.current.fit();
-          ptyRef.current.resize(terminalRef.current.cols, terminalRef.current.rows);
+          const { sessionId } = ptyRef.current;
+          void resizePtySession(sessionId, terminalRef.current.cols, terminalRef.current.rows);
         }
       },
     }),
