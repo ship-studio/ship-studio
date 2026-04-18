@@ -108,8 +108,8 @@ export const ProjectsView = memo(function ProjectsView({
             cleanupStatus={cleanupStatus}
             pinnedSet={pinnedSet}
             onTogglePin={onTogglePin}
+            changelogSlot={!projectsLoading ? <Changelog /> : null}
           />
-          {!projectsLoading && <Changelog />}
           {!projectsLoading && (
             <PluginSlot
               name="sidebar"

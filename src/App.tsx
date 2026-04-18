@@ -42,12 +42,15 @@ import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 import { useAppSetup } from './hooks/useAppSetup';
 import { ProjectsView } from './components/ProjectsView';
 import { WorkspaceView } from './components/WorkspaceView';
-import { ProjectRail } from './components/ProjectRail';
+import { WorkspaceSidebar } from './components/WorkspaceSidebar';
+import { ProjectPickerModal } from './components/ProjectPickerModal';
 import { useProjectRail } from './hooks/useProjectRail';
 import { OnboardingScreen } from './components/setup';
 import { Project } from './lib/project';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
 import { initDefaultAgent } from './lib/agent';
+import { sessionRegistry } from './lib/sessionRegistry';
+import { unregisterProjectSession } from './lib/projectSessions';
 import { UpdateBanner } from './components/UpdateBanner';
 import { ModalFrame } from './components/primitives/ModalFrame';
 import { Button } from './components/primitives/Button';
@@ -84,31 +87,58 @@ function App({ initialProjectPath }: AppProps) {
   );
 }
 
+const EMPTY_TAB_TITLES: Map<number, string> = new Map();
+const EMPTY_ATTENTION_TABS: Set<number> = new Set();
+const noop = () => {};
+
 function AppContents({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
+  const [isProjectPickerOpen, setIsProjectPickerOpen] = useState(false);
   const previewRef = useRef<import('./components/Preview').PreviewHandle | null>(null);
   const currentProjectPathRef = useRef<string | null>(null);
 
-  // Terminal tabs management
+  // Terminal tabs management — per-project, so switching doesn't destroy
+  // background sessions (Slice 4 multitasking).
   const {
     terminalTabs,
     activeTerminalTab,
     terminalSessionId,
+    allSessions,
     terminalRefsMap,
     maxTerminalTabs,
     setActiveTerminalTab,
     addTerminalTab,
     closeTerminalTab,
-    resetTerminals,
+    closeAllTerminalsForProject,
     focusActiveTerminal,
     pasteToActiveTerminal,
     switchTabAgent,
     getActiveTabAgent,
     restoreTerminalTabs,
-  } = useTerminalManagement();
+    ensureProjectSeeded,
+  } = useTerminalManagement(currentProject?.path ?? null);
+
+  // Mirror EVERY active session's tabs into the session registry so the
+  // sidebar reflects both the current project's live tabs and every
+  // background project's tabs accurately. Because terminal state is now
+  // per-project in the hook, there's no cross-project contamination to
+  // guard against.
+  useEffect(() => {
+    for (const session of allSessions) {
+      const activeIdx = Math.max(
+        0,
+        session.tabs.findIndex((t) => t.id === session.activeTabId)
+      );
+      sessionRegistry.setTerminalTabs(
+        session.projectPath,
+        session.tabs.map((t) => ({ id: t.id, agentId: t.agentId, sessionId: t.sessionId })),
+        activeIdx
+      );
+    }
+  }, [allSessions]);
 
   // Listen for Cmd+Q quit confirmation from native menu
   useEffect(() => {
@@ -118,24 +148,6 @@ function AppContents({ initialProjectPath }: AppProps) {
     return () => {
       void unlisten.then((fn) => fn());
     };
-  }, []);
-
-  // Cleanup dev server when window is closed (prevents orphaned processes)
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      // Stop the dev server synchronously as best we can
-      if (devServerRef.current) {
-        try {
-          devServerRef.current.pty.kill();
-        } catch {
-          // Ignore errors during cleanup
-        }
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- devServerRef is a stable ref declared later in the file
   }, []);
 
   // Dev server and health check management
@@ -155,8 +167,26 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleRestartDevServer: restartDevServer,
     startServerForProject,
     stopServer,
+    stopAllServers,
+    isServerRunning,
     saveCustomDevCommand,
-  } = useDevServer();
+  } = useDevServer(currentProject?.path ?? null);
+
+  // Cleanup every live dev server when the window is closed (prevents
+  // orphaned processes — there can be more than one hot server at a time
+  // when projects are pinned across switches).
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        void stopAllServers();
+      } catch {
+        // Ignore errors during cleanup
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [stopAllServers]);
 
   // Notification settings, attention tabs, agent status sound alerts
   const {
@@ -326,18 +356,17 @@ function AppContents({ initialProjectPath }: AppProps) {
     setCurrentProject,
     currentProjectPathRef,
     setView,
-    devServerRef,
     devServerPort,
     setDevServerPort,
     startServerForProject,
-    stopServer,
+    isServerRunning,
     restartDevServer,
     enterCompact,
-    resetTerminals,
     pasteToActiveTerminal,
     terminalTabs,
     activeTerminalTab,
     restoreTerminalTabs,
+    ensureProjectSeeded,
     showToast,
     setCleanupStatus,
     clearScreenshotInterval,
@@ -377,12 +406,75 @@ function AppContents({ initialProjectPath }: AppProps) {
     await enterCompactMode();
   };
 
-  const { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin, handleAddProject } =
-    useProjectRail({
-      currentProjectPath: currentProject?.path ?? null,
-      handleSelectProject,
-      showToast,
-    });
+  const { pinnedProjects, handleTogglePin, handleRailClick } = useProjectRail({
+    currentProjectPath: currentProject?.path ?? null,
+    handleSelectProject,
+    showToast,
+  });
+
+  // Close an active session from the sidebar: stop its dev server, tear
+  // down the registry entry + backend session, and route home if it was
+  // the current project. This is the only path (besides app quit) that
+  // reaps a hot project.
+  const handleCloseProject = useCallback(
+    (projectPath: string) => {
+      void (async () => {
+        logger.info('[CloseProject] Closing', { projectPath });
+        try {
+          await stopServer(projectPath);
+        } catch (err) {
+          logger.warn('[CloseProject] stopServer threw', { error: String(err) });
+        }
+        closeAllTerminalsForProject(projectPath);
+        try {
+          await unregisterProjectSession(projectPath);
+        } catch (err) {
+          logger.warn('[CloseProject] unregisterProjectSession failed', {
+            error: String(err),
+          });
+        }
+        sessionRegistry.destroy(projectPath);
+        if (currentProject?.path === projectPath) {
+          setCurrentProject(null);
+          currentProjectPathRef.current = null;
+          setView('projects');
+        }
+      })();
+    },
+    [stopServer, closeAllTerminalsForProject, currentProject, setView]
+  );
+
+  // Switch to another project AND focus a specific tab within it. Writes the
+  // desired active tab index to backend first so the restore flow on open
+  // comes up on the right tab.
+  const handleSelectProjectTab = useCallback(
+    (projectPath: string, tabSessionId: string) => {
+      void (async () => {
+        const snap = sessionRegistry.snapshot(projectPath);
+        const idx = snap?.terminalTabs.findIndex((t) => t.sessionId === tabSessionId) ?? -1;
+        if (snap && idx >= 0) {
+          try {
+            await invoke('set_terminal_state', {
+              projectPath,
+              state: {
+                tabs: snap.terminalTabs.map((t) => ({
+                  agent_id: t.agentId,
+                  session_id: t.sessionId,
+                })),
+                active_tab_index: idx,
+              },
+            });
+          } catch (err) {
+            logger.warn('[SelectProjectTab] Failed to persist active tab', {
+              error: String(err),
+            });
+          }
+        }
+        handleRailClick(projectPath);
+      })();
+    },
+    [handleRailClick]
+  );
 
   // App setup, onboarding, HMR recovery, auto-open, keyboard shortcuts
   const { projectsLoading, setProjectsLoading } = useAppSetup({
@@ -465,6 +557,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       terminalTabs,
       activeTerminalTab,
       terminalSessionId,
+      allSessions,
       terminalRefsMap,
       maxTerminalTabs,
       setActiveTerminalTab,
@@ -478,6 +571,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       terminalTabs,
       activeTerminalTab,
       terminalSessionId,
+      allSessions,
       terminalRefsMap,
       maxTerminalTabs,
       setActiveTerminalTab,
@@ -866,16 +960,32 @@ function AppContents({ initialProjectPath }: AppProps) {
   if (view === 'projects') {
     return (
       <>
-        <div className="projects-with-rail">
-          {pinnedProjects.rows.length > 0 && (
-            <ProjectRail
-              rows={pinnedProjects.rows}
-              onPinClick={handleRailClick}
-              onUnpin={handleRailUnpin}
-              onReorder={(orderedPaths) => void pinnedProjects.reorder(orderedPaths)}
-              onAddProject={handleAddProject}
-            />
-          )}
+        <div className="projects-with-rail" key="view-projects">
+          <WorkspaceSidebar
+            key="sidebar-projects"
+            isHomeActive={true}
+            onGoHome={() => {
+              /* already on Home */
+            }}
+            onOpenProjectPicker={() => setIsProjectPickerOpen(true)}
+            projects={pinnedProjects.rows}
+            currentProjectPath={null}
+            currentProjectName={null}
+            onSelectProject={handleRailClick}
+            onCloseProject={handleCloseProject}
+            onSelectProjectTab={handleSelectProjectTab}
+            terminalTabs={[]}
+            activeTerminalTab={0}
+            tabTitles={EMPTY_TAB_TITLES}
+            attentionTabs={EMPTY_ATTENTION_TABS}
+            maxTabs={5}
+            onSelectTab={noop}
+            onAddTab={noop}
+            onCloseTab={noop}
+            hasDevServer={false}
+            isRestartingDevServer={false}
+            devServerRunning={false}
+          />
           <ProjectsView
             onSelectProject={handleSelectProjectCallback}
             onCreateProject={handleCreateProject}
@@ -921,6 +1031,12 @@ function AppContents({ initialProjectPath }: AppProps) {
             ))}
           </div>
         )}
+        <ProjectPickerModal
+          isOpen={isProjectPickerOpen}
+          onClose={() => setIsProjectPickerOpen(false)}
+          onSelectProject={handleRailClick}
+          currentProjectPath={currentProject?.path ?? null}
+        />
         {quitConfirmModal}
       </>
     );
@@ -929,9 +1045,34 @@ function AppContents({ initialProjectPath }: AppProps) {
   if (view === 'project-loading') {
     return (
       <>
-        <div className="app loading">
-          <div className="spinner" />
-          <p>Opening {currentProject?.name}...</p>
+        <div className="projects-with-rail" key="view-project-loading">
+          <WorkspaceSidebar
+            key="sidebar-project-loading"
+            isHomeActive={false}
+            onGoHome={() => setView('projects')}
+            onOpenProjectPicker={() => setIsProjectPickerOpen(true)}
+            projects={pinnedProjects.rows}
+            currentProjectPath={currentProject?.path ?? null}
+            currentProjectName={currentProject?.name ?? null}
+            onSelectProject={handleRailClick}
+            onCloseProject={handleCloseProject}
+            onSelectProjectTab={handleSelectProjectTab}
+            terminalTabs={[]}
+            activeTerminalTab={0}
+            tabTitles={EMPTY_TAB_TITLES}
+            attentionTabs={EMPTY_ATTENTION_TABS}
+            maxTabs={5}
+            onSelectTab={noop}
+            onAddTab={noop}
+            onCloseTab={noop}
+            hasDevServer={false}
+            isRestartingDevServer={false}
+            devServerRunning={false}
+          />
+          <div className="project-loading-body">
+            <div className="spinner" />
+            <p>Opening {currentProject?.name}...</p>
+          </div>
         </div>
         {quitConfirmModal}
       </>
@@ -949,17 +1090,6 @@ function AppContents({ initialProjectPath }: AppProps) {
       </>
     );
   }
-  const railElement =
-    pinnedProjects.rows.length > 0 ? (
-      <ProjectRail
-        rows={pinnedProjects.rows}
-        onPinClick={handleRailClick}
-        onUnpin={handleRailUnpin}
-        onReorder={(orderedPaths) => void pinnedProjects.reorder(orderedPaths)}
-        onAddProject={handleAddProject}
-      />
-    ) : null;
-
   return (
     <ToastContext.Provider value={toastsProps}>
       <WorkspaceView
@@ -981,7 +1111,18 @@ function AppContents({ initialProjectPath }: AppProps) {
         pluginActions={pluginActions}
         pluginTheme={pluginTheme}
         handleEnterCompactMode={handleEnterCompactMode}
-        rail={railElement}
+        projectRows={pinnedProjects.rows}
+        onSelectProject={handleRailClick}
+        onCloseProject={handleCloseProject}
+        onSelectProjectTab={handleSelectProjectTab}
+        onGoHome={() => setView('projects')}
+        onOpenProjectPicker={() => setIsProjectPickerOpen(true)}
+      />
+      <ProjectPickerModal
+        isOpen={isProjectPickerOpen}
+        onClose={() => setIsProjectPickerOpen(false)}
+        onSelectProject={handleRailClick}
+        currentProjectPath={currentProject?.path ?? null}
       />
       {quitConfirmModal}
     </ToastContext.Provider>

@@ -1,18 +1,25 @@
-/* Changelog Panel - sticky sidebar */
+/* Changelog Panel — inline block below projects. */
 .changelog {
-  position: sticky;
-  top: 44px;
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  width: 260px;
-  /* 100vh minus top padding (44px for traffic lights) and matching bottom padding */
-  height: calc(100vh - 88px);
-  flex-shrink: 0;
   overflow: hidden;
-  margin-left: 24px;
+}
+
+/* Rendered inline in the dashboard column *after* the project grid —
+ * no sticky, no clipped height, just an ordinary block below projects. */
+.project-list.dashboard > .changelog {
+  width: auto;
+  height: auto;
+  margin: 24px 0 0;
+  position: static;
+}
+
+.project-list.dashboard > .changelog .changelog-list {
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 .changelog-header {

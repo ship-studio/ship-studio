@@ -9,20 +9,19 @@
  */
 
 import { useState, useRef, useCallback, type RefObject } from 'react';
-import type { DevServerHandle, Project } from '../lib/project';
+import type { Project } from '../lib/project';
 import type { ProjectType } from '../lib/static-server';
 import type { ProjectGitHubStatus } from '../lib/github';
 import { getAutoAcceptMode, setAutoAcceptMode as setAutoAcceptModeApi } from '../lib/project';
 import { getProjectGitHubStatus } from '../lib/github';
 import { GITHUB_STATUS_FALLBACK } from './useIntegrationStatus';
 import { registerExternalProject } from '../lib/external-projects';
-import { registerProjectSession, unregisterProjectSession } from '../lib/projectSessions';
+import { registerProjectSession } from '../lib/projectSessions';
 import { sessionRegistry } from '../lib/sessionRegistry';
 import {
   setWindowTitle,
   getWindowLabel,
   findAndReservePort,
-  releaseReservedPort,
   getProjectWindow,
   focusWindowByLabel,
 } from '../lib/window';
@@ -41,27 +40,29 @@ export interface UseProjectLifecycleParams {
   currentProjectPathRef: RefObject<string | null>;
   setView: (view: AppView | ((prev: AppView) => AppView)) => void;
   // Dev server
-  devServerRef: RefObject<DevServerHandle | null>;
   devServerPort: number;
-  setDevServerPort: (port: number) => void;
+  setDevServerPort: (port: number, projectPath?: string) => void;
   startServerForProject: (
     projectPath: string,
     projectName: string,
     port: number,
     windowLabel: string
   ) => Promise<ProjectType>;
-  stopServer: () => Promise<void>;
+  isServerRunning: (projectPath: string) => boolean;
   restartDevServer: (projectPath: string, portOverride?: number) => Promise<void>;
   enterCompact: (port: number) => Promise<void>;
   // Terminal
-  resetTerminals: () => void;
   pasteToActiveTerminal: (text: string) => void;
   terminalTabs: Array<{ id: number; agentId: string; sessionId: string }>;
   activeTerminalTab: number;
+  /** Seed a project's tab list from persisted backend state on first open. */
   restoreTerminalTabs: (
+    projectPath: string,
     tabs: Array<{ agentId: string; sessionId: string }>,
     activeIndex: number
   ) => void;
+  /** Seed the project with a default tab when no persisted state exists. */
+  ensureProjectSeeded: (projectPath: string) => void;
   // Toast
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   // Cleanup status
@@ -89,18 +90,17 @@ export function useProjectLifecycle({
   setCurrentProject,
   currentProjectPathRef,
   setView,
-  devServerRef,
   devServerPort,
   setDevServerPort,
   startServerForProject,
-  stopServer,
+  isServerRunning,
   restartDevServer,
   enterCompact,
-  resetTerminals,
   pasteToActiveTerminal,
   terminalTabs,
   activeTerminalTab,
   restoreTerminalTabs,
+  ensureProjectSeeded,
   showToast,
   setCleanupStatus,
   clearScreenshotInterval,
@@ -209,38 +209,78 @@ export function useProjectLifecycle({
     }
     openingProjectPathRef.current = project.path;
 
-    // ─── IMMEDIATE: Show loading screen before any async work ───
-    // This ensures the user sees visual feedback instantly when clicking a project,
-    // even if cleanup (kill_port, kill_window_pty, etc.) takes time.
+    // Every active session is hot: once a project has a dev server, it
+    // stays alive until the user explicitly closes it via the sidebar (or
+    // quits the app). Pinning is orthogonal — it persists the project in
+    // the sidebar across launches, nothing more.
+    const outgoingProjectPath = currentProject?.path ?? null;
+    const incomingAlreadyRunning = isServerRunning(project.path);
+    const reuseIncomingServer = incomingAlreadyRunning;
+
+    // Save the OUTGOING project's terminal state before we clobber it. This
+    // is what lets switching A → B → A restore A's tab layout and resume
+    // its agents via their persisted session IDs. Fire-and-forget; the
+    // write is idempotent and a late failure just means next visit starts
+    // with a cold tab list (safe fallback).
+    if (currentProject && currentProject.path !== project.path && terminalTabs.length > 0) {
+      const outgoingPath = currentProject.path;
+      const outgoingTabs = terminalTabs;
+      const outgoingActiveIdx = Math.max(
+        0,
+        outgoingTabs.findIndex((t) => t.id === activeTerminalTab)
+      );
+      invoke('set_terminal_state', {
+        projectPath: outgoingPath,
+        state: {
+          tabs: outgoingTabs.map((t) => ({
+            agent_id: t.agentId,
+            session_id: t.sessionId,
+          })),
+          active_tab_index: outgoingActiveIdx,
+        },
+      }).catch((err) => {
+        logger.warn('[OpenProject] Failed to save outgoing terminal state', {
+          project: outgoingPath,
+          error: String(err),
+        });
+      });
+    }
+
+    // ─── IMMEDIATE: Show workspace right away ───
+    // We always land in the workspace view so WorkspaceView stays mounted
+    // continuously — unmounting it would take every Terminal child (and
+    // their PTYs) down with it, killing background sessions. Dev servers
+    // for fresh projects spin up asynchronously in the background while
+    // the workspace is already visible.
     setCurrentProject(project);
     setCurrentPreviewPage('/');
     currentProjectPathRef.current = project.path;
     clearScreenshotInterval();
     setIsPublishing(false);
     setShowDevServerLogs(false);
-    setView('project-loading');
+    setView('workspace');
 
-    // Restore saved terminal tabs (non-blocking — don't delay project loading)
+    // Restore terminal tabs only on the FIRST open of a project this
+    // session. If the project already has in-memory state (hot multi-
+    // tasking session), restoreTerminalTabs is a no-op and we just
+    // reveal the existing tabs. Fresh opens seed a default tab list.
     invoke<{
       tabs: Array<{ agent_id: string; session_id: string }>;
       active_tab_index: number;
     } | null>('get_terminal_state', { projectPath: project.path })
       .then((savedState) => {
         if (savedState && savedState.tabs.length > 0) {
-          logger.info('[OpenProject] Restoring saved terminal tabs', {
-            tabCount: savedState.tabs.length,
-            activeIndex: savedState.active_tab_index,
-          });
           restoreTerminalTabs(
+            project.path,
             savedState.tabs.map((t) => ({ agentId: t.agent_id, sessionId: t.session_id })),
             savedState.active_tab_index
           );
         } else {
-          resetTerminals();
+          ensureProjectSeeded(project.path);
         }
       })
       .catch(() => {
-        resetTerminals();
+        ensureProjectSeeded(project.path);
       });
 
     // Store project path for HMR recovery (critical for main window which doesn't have initialProjectPath)
@@ -296,17 +336,11 @@ export function useProjectLifecycle({
     try {
       await registerProjectSession(project.path, windowLabel);
       sessionRegistry.getOrCreate(project.path);
-      // The rail's status dot means "this project's session is live in
-      // this window." Until we actually keep background sessions alive,
-      // only the currently-open project qualifies. Mark everyone else
-      // suspended so their dots show as gray — green on an unopened
-      // project would be lying.
+      // Slice 4 — every active session stays hot (dev server + PTYs all
+      // running) until the user explicitly closes. Just resume the one
+      // we're switching to; other sessions keep their 'active' status
+      // because their processes are still alive in the background.
       sessionRegistry.resume(project.path);
-      for (const snap of sessionRegistry.snapshotAll()) {
-        if (snap.projectPath !== project.path && snap.status === 'active') {
-          sessionRegistry.suspend(snap.projectPath);
-        }
-      }
     } catch (e) {
       // Backend may reject with Validation if another window owns this
       // session — in current code paths this shouldn't happen since
@@ -329,46 +363,45 @@ export function useProjectLifecycle({
       logger.warn('[OpenProject] Failed to ensure external project registration', { error: e });
     }
 
-    // Stop any existing dev server first
-    if (devServerRef.current) {
-      await devServerRef.current.stop();
-      devServerRef.current = null;
-    }
+    // We never stop the outgoing project's dev server on switch — that's
+    // the hot-session contract. Only an explicit close button / app quit
+    // tears a session down.
     logger.info(
-      `[OpenProject] Step 1: Stop existing dev server - ${Math.round(performance.now() - stepStart)}ms`
+      `[OpenProject] Step 1: Outgoing session preserved (${outgoingProjectPath ?? 'none'}) - ${Math.round(performance.now() - stepStart)}ms`
     );
 
-    // Kill any process on our ACTUALLY reserved port (query backend, don't use stale React state)
-    // This prevents HMR reload from killing other windows' ports when state resets to 3000
+    // Kill any process on the incoming project's reserved port ONLY when
+    // we don't already have a live server on it — otherwise we'd shoot our
+    // own foot. Note: other active sessions keep their ports (Slice 1's
+    // per-(window, project) reservation makes this safe).
     stepStart = performance.now();
-    const actualReservedPort = await invoke<number | null>('get_reserved_port_for_window', {
-      windowLabel,
-    });
-    if (actualReservedPort !== null) {
-      try {
-        await Promise.race([
-          invoke('kill_port', { port: actualReservedPort }),
-          new Promise((resolve) => setTimeout(resolve, 3000)),
-        ]);
-      } catch {
-        // Ignore errors - port may already be free
+    if (!reuseIncomingServer) {
+      const actualReservedPort = await invoke<number | null>('get_reserved_port_for_window', {
+        windowLabel,
+        projectPath: project.path,
+      });
+      if (actualReservedPort !== null) {
+        try {
+          await Promise.race([
+            invoke('kill_port', { port: actualReservedPort }),
+            new Promise((resolve) => setTimeout(resolve, 3000)),
+          ]);
+        } catch {
+          // Ignore errors - port may already be free
+        }
       }
+      logger.info(
+        `[OpenProject] Step 2: Kill reserved port ${actualReservedPort ?? 'none'} - ${Math.round(performance.now() - stepStart)}ms`
+      );
+    } else {
+      logger.info('[OpenProject] Step 2: Reusing live server — skipping port kill');
     }
-    logger.info(
-      `[OpenProject] Step 2: Kill reserved port ${actualReservedPort ?? 'none'} - ${Math.round(performance.now() - stepStart)}ms`
-    );
 
-    // Clean up PTY processes owned by this window (not other windows' PTYs)
-    stepStart = performance.now();
-    try {
-      await invoke('kill_window_pty', { windowLabel: getWindowLabel() });
-      await invoke('cleanup_orphaned_processes');
-    } catch {
-      // Ignore cleanup errors
-    }
-    logger.info(
-      `[OpenProject] Step 3: Kill PTY and cleanup orphaned processes - ${Math.round(performance.now() - stepStart)}ms`
-    );
+    // NOTE: we intentionally no longer call `kill_window_pty` or
+    // `cleanup_orphaned_processes` on switch. Those kill *every* PTY in
+    // the window, which would tear down sibling hot projects' dev servers.
+    // PTYs get reaped per-project by `stopServer(path)` on explicit close,
+    // and by `stopAllServers()` on window unload.
 
     // Check if navigation was superseded during cleanup
     if (navigationVersionRef.current !== navVersion) {
@@ -394,29 +427,34 @@ export function useProjectLifecycle({
       `[OpenProject] Step 4a: Load saved port preference (${preferredPort}) - ${Math.round(performance.now() - stepStart)}ms`
     );
 
-    // Find and reserve an available port for this window (prevents race conditions in multi-window)
+    // Find and reserve an available port for THIS project in THIS window.
+    // Per-(window, project) keying means we don't need to release anything
+    // for *other* projects — they keep their ports. find_and_reserve_port
+    // is idempotent for the same (window, project) pair.
     stepStart = performance.now();
     let port = preferredPort;
     try {
-      // Release any previously reserved port for this window before getting a new one
-      await releaseReservedPort().catch(() => {});
-      port = await findAndReservePort(preferredPort);
+      port = await findAndReservePort(project.path, preferredPort);
     } catch (error) {
       logger.error('Failed to find and reserve port, using default', { error });
     }
-    // Kill any orphaned process on the newly reserved port (e.g. from a previous crashed session)
-    try {
-      await Promise.race([
-        invoke('kill_port', { port }),
-        new Promise((resolve) => setTimeout(resolve, 3000)),
-      ]);
-    } catch {
-      // Ignore - port may already be free
+    // Kill any orphaned process on the newly reserved port — but only when
+    // we aren't reusing a live server. Otherwise we'd kill the very
+    // server we were about to reuse.
+    if (!reuseIncomingServer) {
+      try {
+        await Promise.race([
+          invoke('kill_port', { port }),
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      } catch {
+        // Ignore - port may already be free
+      }
     }
     logger.info(
-      `[OpenProject] Step 4: Reserved port ${port} (killed orphans) - ${Math.round(performance.now() - stepStart)}ms`
+      `[OpenProject] Step 4: Reserved port ${port}${reuseIncomingServer ? ' (reuse)' : ' (killed orphans)'} - ${Math.round(performance.now() - stepStart)}ms`
     );
-    setDevServerPort(port);
+    setDevServerPort(port, project.path);
 
     // Fetch auto-accept mode preference for this project
     stepStart = performance.now();
@@ -461,12 +499,19 @@ export function useProjectLifecycle({
       return;
     }
 
-    // Detect project type and start appropriate server
+    // Detect project type and start appropriate server — unless we're
+    // reusing an already-running pinned server, in which case the existing
+    // state in useDevServer is authoritative.
     stepStart = performance.now();
-    const detectedType = await startServerForProject(project.path, project.name, port, windowLabel);
-    logger.info(
-      `[OpenProject] Step 7: Start dev server - ${Math.round(performance.now() - stepStart)}ms`
-    );
+    let detectedType: ProjectType = 'unknown';
+    if (reuseIncomingServer) {
+      logger.info(`[OpenProject] Step 7: Reusing live pinned server for ${project.name}`);
+    } else {
+      detectedType = await startServerForProject(project.path, project.name, port, windowLabel);
+      logger.info(
+        `[OpenProject] Step 7: Start dev server - ${Math.round(performance.now() - stepStart)}ms`
+      );
+    }
 
     // Final check before committing to workspace view
     if (navigationVersionRef.current !== navVersion) {
@@ -475,8 +520,10 @@ export function useProjectLifecycle({
       return;
     }
 
-    // Generic projects don't have a web preview — default to branches tab
-    if (detectedType === 'generic') {
+    // Generic projects don't have a web preview — default to branches tab.
+    // We only force this for fresh starts; when reusing a pinned session we
+    // preserve whichever tab the user was on.
+    if (!reuseIncomingServer && detectedType === 'generic') {
       setWorkspaceTab('branches');
     }
 
@@ -549,7 +596,9 @@ export function useProjectLifecycle({
     }
   };
 
-  const handleBackToProjects = async () => {
+  const handleBackToProjects = () => {
+    const leavingProjectPath = currentProject?.path ?? null;
+
     // Save terminal state in background (non-blocking)
     if (currentProject && terminalTabs.length > 0) {
       const activeIdx = terminalTabs.findIndex((t) => t.id === activeTerminalTab);
@@ -579,120 +628,40 @@ export function useProjectLifecycle({
     sessionStorage.removeItem(storageKey);
     sessionStorage.setItem(dismissedKey, 'true');
 
-    // Bump navigation version to cancel any in-flight handleSelectProject async chains.
-    // Capture it so we can check if a new handleSelectProject started during our cleanup.
-    const backNavVersion = ++navigationVersionRef.current;
+    // Bump navigation version so any in-flight handleSelectProject chain
+    // sees it's been superseded.
+    ++navigationVersionRef.current;
 
-    logger.info('[BackToProjects] Starting');
+    logger.info('[BackToProjects] Leaving session alive', { leavingProjectPath });
 
-    // Switch view IMMEDIATELY — all cleanup below is background work
+    // New model: back-to-projects is a *view switch*, not a teardown. The
+    // leaving project's dev server, PTYs, and session registry entry all
+    // stay alive so the user can pick up where they left off. The only
+    // way to stop a session is the sidebar's close button or app quit.
     setCurrentProject(null);
     clearProjectStatuses();
     setView('projects');
-    setCleanupStatus('Closing terminals...');
-
-    // Clear the opening guard so handleSelectProject can proceed for a new project
     openingProjectPathRef.current = null;
-
-    // Reset window title when closing project
-    void setWindowTitle('Ship Studio').catch(console.error);
-
-    // --- Background cleanup (non-blocking) ---
-    // IMPORTANT: Each step checks navVersion before doing destructive work.
-    // If the user opens a new project during cleanup, we must stop immediately
-    // to avoid killing the new project's dev server or PTY processes.
-
-    try {
-      await invoke('unregister_project_from_window', { windowLabel });
-    } catch {
-      // Ignore - non-critical
-    }
-
-    // Tear down the session in both backend (authority) and frontend mirror.
-    // In Phase 2b this preserves current behavior — back-to-projects still
-    // means "this project is fully closed." Phase 4 will change this so that
-    // pinned projects skip the unregister and stay alive in the background.
-    if (currentProject) {
-      try {
-        await unregisterProjectSession(currentProject.path);
-      } catch (e) {
-        logger.warn('[BackToProjects] Failed to unregister project session', { error: e });
-      }
-      sessionRegistry.destroy(currentProject.path);
-    }
-
-    // Bail if user already opened another project
-    if (navigationVersionRef.current !== backNavVersion) {
-      logger.info('[BackToProjects] Cleanup aborted - new project opened', {
-        backNavVersion,
-        currentNavVersion: navigationVersionRef.current,
-      });
-      return;
-    }
-
-    // Clear screenshot interval and project ref
-    clearScreenshotInterval();
     currentProjectPathRef.current = null;
 
-    // Reset publishing and auto-accept state
+    // Reset window title now that no project is focused.
+    void setWindowTitle('Ship Studio').catch(console.error);
+
+    // The leaving project's session stays 'active' in the registry —
+    // its processes keep running, sidebar dot stays green. No suspend.
+
+    // Clear per-project UI state (screenshots, publishing, auto-accept,
+    // branch panel, layout) so returning home doesn't surface stale bits.
+    // Crucially we do NOT call resetTerminals — the terminal tabs stay
+    // attached to the session and are restored on re-entry.
+    clearScreenshotInterval();
     setIsPublishing(false);
     setAutoAcceptMode(false);
-
-    // Clear branch state
     clearBranchState();
-
     resetLayout();
-
-    // Yield to browser so the projects view renders before heavy terminal cleanup
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    resetTerminals();
-
-    // Check again before destructive server/process cleanup
-    if (navigationVersionRef.current !== backNavVersion) {
-      logger.info('[BackToProjects] Cleanup aborted - new project opened before stopServer', {
-        backNavVersion,
-        currentNavVersion: navigationVersionRef.current,
-      });
-      return;
-    }
-
-    setCleanupStatus('Stopping server...');
-    // Yield again so the status update renders
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await Promise.race([stopServer(), new Promise((resolve) => setTimeout(resolve, 5000))]);
-
-    // Check again — stopServer may have taken a while
-    if (navigationVersionRef.current !== backNavVersion) {
-      logger.info('[BackToProjects] Cleanup aborted - new project opened after stopServer', {
-        backNavVersion,
-        currentNavVersion: navigationVersionRef.current,
-      });
-      return;
-    }
-
-    const currentWindowLabel = getWindowLabel();
-
-    setCleanupStatus('Cleaning up processes...');
-    try {
-      // Run all cleanup in parallel with a 5-second hard timeout
-      const actualPort = await invoke<number | null>('get_reserved_port_for_window', {
-        windowLabel: currentWindowLabel,
-      });
-      await Promise.race([
-        Promise.allSettled([
-          invoke('kill_window_pty', { windowLabel: currentWindowLabel }),
-          invoke('cleanup_orphaned_processes'),
-          ...(actualPort !== null ? [invoke('kill_port', { port: actualPort })] : []),
-        ]),
-        new Promise((resolve) => setTimeout(resolve, 5000)),
-      ]);
-    } catch {
-      // Ignore cleanup errors
-    }
-
     setCleanupStatus(null);
-    logger.info('[BackToProjects] Cleanup completed', { backNavVersion });
+
+    logger.info('[BackToProjects] Done');
   };
 
   const handleRestartDevServer = async () => {

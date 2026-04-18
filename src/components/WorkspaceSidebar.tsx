@@ -1,0 +1,850 @@
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
+import { SearchIcon, ChevronIcon } from './icons';
+import { ALL_AGENTS, TERMINAL, getAgentById, type AgentConfig } from '../lib/agent';
+import type { TerminalTab } from '../hooks/useTerminalManagement';
+import type { PinnedProjectRow } from '../hooks/usePinnedProjects';
+import {
+  sessionRegistry,
+  type SessionSnapshot,
+  type SessionTerminalTab,
+} from '../lib/sessionRegistry';
+
+type SectionId = 'agents' | 'terminals' | 'commands';
+type GroupId = 'pinned' | 'projects';
+
+interface SidebarItem {
+  key: string;
+  label: string;
+  dotState: 'idle' | 'active' | 'attention' | 'muted';
+  onSelect?: () => void;
+  onClose?: () => void;
+  isActive?: boolean;
+  meta?: string;
+}
+
+interface Props {
+  // Home / navigation
+  isHomeActive: boolean;
+  onGoHome: () => void;
+  onOpenProjectPicker: () => void;
+
+  // Projects
+  /** Pinned projects (in pin order). Have live registry data. */
+  projects: PinnedProjectRow[];
+  currentProjectPath: string | null;
+  currentProjectName: string | null;
+  onSelectProject: (projectPath: string) => void;
+  /** Close an active session: stop its dev server, tear down the registry
+   *  entry, and (if it was the current project) route back to home. Called
+   *  by the per-row close button. */
+  onCloseProject?: (projectPath: string) => void;
+  /**
+   * Switch to a non-current project and focus a specific tab (by session id)
+   * once the restore completes. The caller is responsible for persisting
+   * the target `activeTabIndex` to backend before invoking the project open.
+   */
+  onSelectProjectTab?: (projectPath: string, tabSessionId: string) => void;
+
+  // Terminal tabs (scoped to current project)
+  terminalTabs: TerminalTab[];
+  activeTerminalTab: number;
+  tabTitles: Map<number, string>;
+  attentionTabs: Set<number>;
+  maxTabs: number;
+  onSelectTab: (id: number) => void;
+  onAddTab: (agentId?: string) => void;
+  onCloseTab: (id: number) => void;
+
+  // Dev server
+  hasDevServer: boolean;
+  isRestartingDevServer: boolean;
+  devServerRunning: boolean;
+  onOpenDevServerLogs?: () => void;
+}
+
+const SECTION_STORAGE_KEY = 'ship-studio:workspace-sidebar:collapsed';
+const PROJECT_EXPAND_STORAGE_KEY = 'ship-studio:workspace-sidebar:expanded-projects';
+
+function readCollapsed(): Record<SectionId, boolean> {
+  try {
+    const raw = localStorage.getItem(SECTION_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as Record<SectionId, boolean>;
+  } catch {
+    // ignore
+  }
+  return { agents: false, terminals: false, commands: false };
+}
+
+function writeCollapsed(state: Record<SectionId, boolean>) {
+  try {
+    localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+function readProjectExpanded(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(PROJECT_EXPAND_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, boolean>;
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function writeProjectExpanded(state: Record<string, boolean>) {
+  try {
+    localStorage.setItem(PROJECT_EXPAND_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+function projectInitials(name: string): string {
+  const cleaned = name.trim();
+  if (!cleaned) return '··';
+  const parts = cleaned.split(/[\s\-_]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return cleaned.slice(0, 2).toUpperCase();
+}
+
+function projectDotState(row: PinnedProjectRow): SidebarItem['dotState'] {
+  if (row.status === 'error') return 'attention';
+  if (row.status === 'inactive' || row.status === 'suspended') return 'muted';
+  if (row.agentStatus === 'thinking' || row.agentStatus === 'waiting') return 'attention';
+  return 'active';
+}
+
+export const WorkspaceSidebar = memo(function WorkspaceSidebar({
+  isHomeActive,
+  onGoHome,
+  onOpenProjectPicker,
+  projects,
+  currentProjectPath,
+  currentProjectName,
+  onSelectProject,
+  onCloseProject,
+  onSelectProjectTab,
+  terminalTabs,
+  activeTerminalTab,
+  tabTitles,
+  attentionTabs,
+  maxTabs,
+  onSelectTab,
+  onAddTab,
+  onCloseTab,
+  hasDevServer,
+  isRestartingDevServer,
+  devServerRunning,
+  onOpenDevServerLogs,
+}: Props) {
+  const [filter, setFilter] = useState('');
+  const [collapsed, setCollapsed] = useState<Record<SectionId, boolean>>(readCollapsed);
+  const [projectExpanded, setProjectExpanded] =
+    useState<Record<string, boolean>>(readProjectExpanded);
+  // Groups default to open at mount — we deliberately don't persist
+  // collapsed state to localStorage because users were losing sight of
+  // their pinned projects after a stale setting survived reloads.
+  const [groupCollapsed, setGroupCollapsed] = useState<Record<GroupId, boolean>>({
+    pinned: false,
+    projects: false,
+  });
+
+  const toggleGroup = (id: GroupId) => {
+    setGroupCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Subscribe to the session registry — re-renders when any project's
+  // terminal tabs or status change. We read the actual per-project tab list
+  // on demand from `sessionRegistry.snapshot(path)` below. The version is
+  // also fed into the `otherRows` memo so non-pinned rows pick up live
+  // status/memory updates when the registry moves.
+  const registryVersion = useSyncExternalStore(
+    sessionRegistry.subscribeSimple,
+    () => sessionRegistry.getVersion(),
+    () => 0
+  );
+
+  const toggleSection = (id: SectionId) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      writeCollapsed(next);
+      return next;
+    });
+  };
+
+  const toggleProjectExpanded = (projectPath: string) => {
+    setProjectExpanded((prev) => {
+      const next = { ...prev, [projectPath]: !(prev[projectPath] ?? false) };
+      writeProjectExpanded(next);
+      return next;
+    });
+  };
+
+  // Determine whether a given project row is expanded. The current project
+  // is ALWAYS expanded — switching to a project opens its folder, even if
+  // the user had previously collapsed it. Others default to collapsed
+  // unless explicitly expanded by the user.
+  const isProjectExpanded = (projectPath: string): boolean => {
+    if (projectPath === currentProjectPath) return true;
+    const explicit = projectExpanded[projectPath];
+    return typeof explicit === 'boolean' ? explicit : false;
+  };
+
+  // Build sidebar items for the current project's sections.
+  const { agentItems, terminalItems, commandItems } = useMemo(() => {
+    const agents: SidebarItem[] = [];
+    const terms: SidebarItem[] = [];
+    const agentCounts = new Map<string, number>();
+
+    for (const tab of terminalTabs) {
+      const agent = getAgentById(tab.agentId);
+      const isShell = agent.id === 'terminal';
+      const isActive = tab.id === activeTerminalTab;
+      const hasAttention = attentionTabs.has(tab.id);
+
+      const count = (agentCounts.get(agent.id) ?? 0) + 1;
+      agentCounts.set(agent.id, count);
+      const ordinal = `${agent.displayName} ${count}`;
+      const title = tabTitles.get(tab.id)?.trim();
+      const label = title && title.length > 0 ? title : ordinal;
+
+      const item: SidebarItem = {
+        key: `tab-${tab.id}`,
+        label,
+        isActive,
+        dotState: hasAttention ? 'attention' : isActive ? 'active' : 'idle',
+        onSelect: () => onSelectTab(tab.id),
+        onClose: terminalTabs.length > 1 ? () => onCloseTab(tab.id) : undefined,
+      };
+
+      if (isShell) terms.push(item);
+      else agents.push(item);
+    }
+
+    const commands: SidebarItem[] = [];
+    if (hasDevServer || isRestartingDevServer) {
+      commands.push({
+        key: 'dev-server',
+        label: 'Dev server',
+        dotState: isRestartingDevServer ? 'attention' : devServerRunning ? 'active' : 'idle',
+        onSelect: onOpenDevServerLogs,
+        meta: isRestartingDevServer ? 'restarting' : devServerRunning ? 'running' : undefined,
+      });
+    }
+
+    return { agentItems: agents, terminalItems: terms, commandItems: commands };
+  }, [
+    terminalTabs,
+    activeTerminalTab,
+    tabTitles,
+    attentionTabs,
+    hasDevServer,
+    isRestartingDevServer,
+    devServerRunning,
+    onSelectTab,
+    onCloseTab,
+    onOpenDevServerLogs,
+  ]);
+
+  const filterLower = filter.trim().toLowerCase();
+  const matchesFilter = (label: string) =>
+    !filterLower || label.toLowerCase().includes(filterLower);
+
+  const filteredAgents = agentItems.filter((i) => matchesFilter(i.label));
+  const filteredTerminals = terminalItems.filter((i) => matchesFilter(i.label));
+  const filteredCommands = commandItems.filter((i) => matchesFilter(i.label));
+
+  const atMaxTabs = terminalTabs.length >= maxTabs;
+
+  // Pinned projects keep their pin-list order exactly — no pop-to-top on
+  // activation, so cells don't shift when the user switches between them.
+  const pinnedRows: PinnedProjectRow[] = projects;
+  const pinnedPaths = useMemo(() => new Set(pinnedRows.map((p) => p.projectPath)), [pinnedRows]);
+
+  // Active sessions that aren't pinned — "Active" group. Source of truth is
+  // the session registry, which tracks every project that's been opened
+  // this launch. Dev servers stay alive for these rows until the user hits
+  // the close button.
+  const activeRows: PinnedProjectRow[] = useMemo(() => {
+    // `registryVersion` is the reactivity trigger — snapshots are read below.
+    void registryVersion;
+    const snaps = sessionRegistry.snapshotAll();
+    const rows: PinnedProjectRow[] = [];
+    for (const snap of snaps) {
+      if (pinnedPaths.has(snap.projectPath)) continue;
+      rows.push({
+        projectPath: snap.projectPath,
+        fallbackName: snap.projectPath.split('/').pop() ?? 'Project',
+        status: snap.status,
+        agentStatus: snap.lastAgentStatus,
+        unreadCount: snap.unreadCount,
+        memoryBytes: snap.memoryBytes,
+        isCurrent: snap.projectPath === currentProjectPath,
+      });
+    }
+    // Registry order is activation order; stabilize by path so swapping
+    // between two active projects doesn't reorder rows.
+    rows.sort((a, b) => a.projectPath.localeCompare(b.projectPath));
+    return rows;
+  }, [pinnedPaths, currentProjectPath, registryVersion]);
+
+  // Edge case: current project isn't in pinned or active (e.g. the session
+  // registry hasn't picked it up yet during the initial open). Synthesize
+  // a row so the workspace still has a sidebar entry.
+  const currentIsKnown =
+    currentProjectPath !== null &&
+    (pinnedPaths.has(currentProjectPath) ||
+      activeRows.some((p) => p.projectPath === currentProjectPath));
+  const currentExternalRow: PinnedProjectRow | null =
+    currentProjectPath && !currentIsKnown
+      ? {
+          projectPath: currentProjectPath,
+          fallbackName: currentProjectName ?? currentProjectPath.split('/').pop() ?? 'Project',
+          status: 'active',
+          agentStatus: 'idle',
+          unreadCount: 0,
+          memoryBytes: 0,
+          isCurrent: true,
+        }
+      : null;
+
+  const visiblePinned = pinnedRows.filter((p) => matchesFilter(p.fallbackName));
+  const visibleActive = [...(currentExternalRow ? [currentExternalRow] : []), ...activeRows].filter(
+    (p) => matchesFilter(p.fallbackName)
+  );
+
+  // Force-open the group containing the current project. We honor the
+  // user's manual collapsed state for the OTHER group.
+  const currentInPinned = currentProjectPath !== null && pinnedPaths.has(currentProjectPath);
+  const currentInActive =
+    currentProjectPath !== null &&
+    !currentInPinned &&
+    (currentExternalRow !== null || activeRows.some((r) => r.projectPath === currentProjectPath));
+  const pinnedOpen = currentInPinned || !groupCollapsed.pinned;
+  const activeOpen = currentInActive || !groupCollapsed.projects;
+
+  // Single row renderer shared by both groups — the current project gets its
+  // live agent/terminal/command sections; anyone else gets the read-only
+  // InactiveProjectSections view fed from the session registry.
+  const renderProjectRow = (row: PinnedProjectRow) => {
+    const isCurrent = row.projectPath === currentProjectPath;
+    const expanded = isProjectExpanded(row.projectPath);
+    // Only rows with a live session can be closed. Pinned rows that have
+    // never been opened this launch show status 'inactive' and get no X.
+    const canClose = !!onCloseProject && row.status !== 'inactive';
+    return (
+      <ProjectGroup
+        key={row.projectPath}
+        row={row}
+        isCurrent={isCurrent}
+        isExpanded={expanded}
+        onToggleExpand={() => toggleProjectExpanded(row.projectPath)}
+        onSelectProject={onSelectProject}
+        onClose={canClose ? () => onCloseProject(row.projectPath) : undefined}
+      >
+        {expanded &&
+          (isCurrent ? (
+            <div key="current-body" className="sidebar-project-body-inner">
+              <SidebarSection
+                id="agents"
+                label="Agents"
+                total={agentItems.length}
+                collapsed={collapsed.agents}
+                onToggle={() => toggleSection('agents')}
+                addOptions={atMaxTabs ? undefined : AGENT_ADD_OPTIONS}
+                onAdd={atMaxTabs ? undefined : (agentId) => onAddTab(agentId)}
+                addLabel="Add agent tab"
+                items={filteredAgents}
+                emptyHint={filter ? 'No matches' : 'No agents running'}
+              />
+              <SidebarSection
+                id="terminals"
+                label="Terminals"
+                total={terminalItems.length}
+                collapsed={collapsed.terminals}
+                onToggle={() => toggleSection('terminals')}
+                onAdd={atMaxTabs ? undefined : () => onAddTab(TERMINAL.id)}
+                addLabel="Add terminal"
+                items={filteredTerminals}
+                emptyHint={filter ? 'No matches' : 'No terminals'}
+              />
+              <SidebarSection
+                id="commands"
+                label="Commands"
+                total={commandItems.length}
+                collapsed={collapsed.commands}
+                onToggle={() => toggleSection('commands')}
+                items={filteredCommands}
+                emptyHint={filter ? 'No matches' : 'No commands'}
+              />
+            </div>
+          ) : (
+            <div key="inactive-body" className="sidebar-project-body-inner">
+              <InactiveProjectSections
+                snapshot={sessionRegistry.snapshot(row.projectPath)}
+                filterLower={filterLower}
+                onSelectTab={(sessionId) => {
+                  if (onSelectProjectTab) {
+                    onSelectProjectTab(row.projectPath, sessionId);
+                  } else {
+                    onSelectProject(row.projectPath);
+                  }
+                }}
+              />
+            </div>
+          ))}
+      </ProjectGroup>
+    );
+  };
+
+  return (
+    <aside className="workspace-sidebar" aria-label="Processes">
+      <button
+        type="button"
+        className={`workspace-sidebar-home ${isHomeActive ? 'is-active' : ''}`}
+        onClick={onGoHome}
+        aria-current={isHomeActive ? 'page' : undefined}
+      >
+        <span className="workspace-sidebar-home-icon" aria-hidden="true">
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <polyline points="9 22 9 12 15 12 15 22" />
+          </svg>
+        </span>
+        <span>Home</span>
+      </button>
+
+      <div className="workspace-sidebar-filter">
+        <SearchIcon size={12} />
+        <input
+          type="text"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Search"
+          aria-label="Search"
+          spellCheck={false}
+        />
+      </div>
+
+      <div className="workspace-sidebar-scroll">
+        <SidebarGroupHeader
+          label="Pinned"
+          count={pinnedRows.length}
+          collapsed={!pinnedOpen}
+          onToggle={() => toggleGroup('pinned')}
+          emptyHint="Pin a project from the Projects list below"
+        />
+        {pinnedOpen &&
+          (visiblePinned.length === 0 && !filterLower ? (
+            <div className="sidebar-group-empty">Nothing pinned yet</div>
+          ) : (
+            visiblePinned.map((row) => renderProjectRow(row))
+          ))}
+
+        <SidebarGroupHeader
+          label="Active"
+          count={activeRows.length + (currentExternalRow ? 1 : 0)}
+          collapsed={!activeOpen}
+          onToggle={() => toggleGroup('projects')}
+        />
+        {activeOpen &&
+          (visibleActive.length === 0 && !filterLower ? (
+            <div className="sidebar-group-empty">No active projects. Open one from Home.</div>
+          ) : (
+            visibleActive.map((row) => renderProjectRow(row))
+          ))}
+      </div>
+
+      <div className="workspace-sidebar-footer">
+        <button
+          type="button"
+          className="workspace-sidebar-add-project"
+          onClick={onOpenProjectPicker}
+          title="Open a project"
+        >
+          <span className="workspace-sidebar-add-icon">+</span>
+          <span>Open project</span>
+        </button>
+      </div>
+    </aside>
+  );
+});
+
+const AGENT_ADD_OPTIONS: AgentConfig[] = ALL_AGENTS;
+
+/**
+ * Top-level collapsible group header ("Pinned" / "Projects"). Style-wise
+ * distinct from the per-project SidebarSection so users read the hierarchy
+ * as three levels: group → project → section.
+ */
+function SidebarGroupHeader({
+  label,
+  count,
+  collapsed,
+  onToggle,
+  emptyHint: _emptyHint,
+}: {
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  emptyHint?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`sidebar-group-header ${collapsed ? 'is-collapsed' : ''}`}
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+    >
+      <ChevronIcon size={10} className={collapsed ? 'chevron-collapsed' : 'chevron-expanded'} />
+      <span className="sidebar-group-label">{label}</span>
+      <span className="sidebar-group-count">{count}</span>
+    </button>
+  );
+}
+
+/**
+ * Read-only view of another project's agent/terminal lists, pulled from
+ * the session registry snapshot. Under Slice 4 these tabs' PTYs are STILL
+ * RUNNING in the background (we keep every active session hot), so dots
+ * render active. Clicking a tab switches to that project and focuses the
+ * tab — the live Terminal just unhides, no reconnect required.
+ */
+function InactiveProjectSections({
+  snapshot,
+  filterLower,
+  onSelectTab,
+}: {
+  snapshot: SessionSnapshot | undefined;
+  filterLower: string;
+  onSelectTab: (sessionId: string) => void;
+}) {
+  const tabs: ReadonlyArray<SessionTerminalTab> = snapshot?.terminalTabs ?? [];
+  if (tabs.length === 0) {
+    return (
+      <div className="sidebar-project-inactive">
+        <p>No saved agents yet. Switch to this project to get started.</p>
+      </div>
+    );
+  }
+
+  const matches = (label: string) => !filterLower || label.toLowerCase().includes(filterLower);
+  const agentCounts = new Map<string, number>();
+
+  const agents: SidebarItem[] = [];
+  const terminals: SidebarItem[] = [];
+  for (const tab of tabs) {
+    const agent = getAgentById(tab.agentId);
+    const count = (agentCounts.get(agent.id) ?? 0) + 1;
+    agentCounts.set(agent.id, count);
+    const title = tab.title?.trim();
+    const label = title && title.length > 0 ? title : `${agent.displayName} ${count}`;
+    if (!matches(label)) continue;
+    const item: SidebarItem = {
+      key: `bg-${tab.sessionId}`,
+      label,
+      dotState: tab.attention ? 'attention' : 'active',
+      onSelect: () => onSelectTab(tab.sessionId),
+    };
+    if (agent.id === 'terminal') terminals.push(item);
+    else agents.push(item);
+  }
+
+  return (
+    <>
+      {agents.length > 0 && (
+        <SidebarSection
+          id="agents"
+          label="Agents"
+          total={agents.length}
+          collapsed={false}
+          onToggle={() => {}}
+          items={agents}
+          emptyHint="No agents"
+        />
+      )}
+      {terminals.length > 0 && (
+        <SidebarSection
+          id="terminals"
+          label="Terminals"
+          total={terminals.length}
+          collapsed={false}
+          onToggle={() => {}}
+          items={terminals}
+          emptyHint="No terminals"
+        />
+      )}
+    </>
+  );
+}
+
+function ProjectGroup({
+  row,
+  isCurrent,
+  isExpanded,
+  onToggleExpand,
+  onSelectProject,
+  onClose,
+  children,
+}: {
+  row: PinnedProjectRow;
+  isCurrent: boolean;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  onSelectProject: (path: string) => void;
+  /** Shown as a hover-only X when defined. */
+  onClose?: () => void;
+  children?: React.ReactNode;
+}) {
+  const initials = projectInitials(row.fallbackName);
+  const dot = projectDotState(row);
+  const memoryLabel =
+    row.memoryBytes > 0 ? `${Math.round(row.memoryBytes / (1024 * 1024))}MB` : null;
+
+  return (
+    <div className={`sidebar-project ${isCurrent ? 'is-current' : ''}`}>
+      <div
+        className="sidebar-project-row"
+        role="button"
+        tabIndex={0}
+        aria-current={isCurrent ? 'true' : undefined}
+        onClick={() => {
+          if (!isCurrent) onSelectProject(row.projectPath);
+        }}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && !isCurrent) {
+            e.preventDefault();
+            onSelectProject(row.projectPath);
+          }
+        }}
+      >
+        <button
+          type="button"
+          className="sidebar-project-chevron"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleExpand();
+          }}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? 'Collapse project' : 'Expand project'}
+        >
+          <ChevronIcon
+            size={10}
+            className={isExpanded ? 'chevron-expanded' : 'chevron-collapsed'}
+          />
+        </button>
+        <span className="sidebar-project-initials" aria-hidden="true">
+          {initials}
+        </span>
+        <span className="sidebar-project-name" title={row.fallbackName}>
+          {row.fallbackName}
+        </span>
+        {memoryLabel && <span className="sidebar-project-meta">{memoryLabel}</span>}
+        {onClose && (
+          <button
+            type="button"
+            className="sidebar-project-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            aria-label={`Close ${row.fallbackName}`}
+            title="Close project (stops dev server)"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+              <path
+                d="M1 1 L9 9 M9 1 L1 9"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
+        <span className={`sidebar-row-dot dot-${dot}`} aria-hidden="true" />
+      </div>
+      {isExpanded && children && <div className="sidebar-project-body">{children}</div>}
+    </div>
+  );
+}
+
+interface SectionProps {
+  id: SectionId;
+  label: string;
+  total: number;
+  collapsed: boolean;
+  items: SidebarItem[];
+  emptyHint: string;
+  onToggle: () => void;
+  /** Simple "+" click handler. If `addOptions` is provided, this is invoked with the chosen agent id. */
+  onAdd?: (agentId?: string) => void;
+  addLabel?: string;
+  /** If provided, the "+" opens a popover picker with these options instead of an instant add. */
+  addOptions?: AgentConfig[];
+}
+
+function SidebarSection({
+  id,
+  label,
+  total,
+  collapsed,
+  items,
+  emptyHint,
+  onToggle,
+  onAdd,
+  addLabel,
+  addOptions,
+}: SectionProps) {
+  const headerId = `sidebar-section-${id}`;
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const handleClickOutside = (e: globalThis.MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const handleKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [pickerOpen]);
+
+  const handleAddClick = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!onAdd) return;
+    if (addOptions && addOptions.length > 0) {
+      setPickerOpen((v) => !v);
+    } else {
+      onAdd();
+    }
+  };
+
+  return (
+    <section className={`sidebar-section ${collapsed ? 'is-collapsed' : ''}`}>
+      <header className="sidebar-section-header">
+        <button
+          type="button"
+          className="sidebar-section-toggle"
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+          aria-controls={headerId}
+        >
+          <ChevronIcon size={10} className={collapsed ? 'chevron-collapsed' : 'chevron-expanded'} />
+          <span className="sidebar-section-label">{label}</span>
+        </button>
+        <div className="sidebar-section-meta" ref={pickerRef}>
+          <span className="sidebar-section-count">{total}</span>
+          {onAdd && (
+            <button
+              type="button"
+              className="sidebar-section-add"
+              onClick={handleAddClick}
+              title={addLabel}
+              aria-label={addLabel}
+            >
+              +
+            </button>
+          )}
+          {pickerOpen && addOptions && (
+            <div className="sidebar-section-picker" role="menu">
+              {addOptions.map((agent) => (
+                <button
+                  key={agent.id}
+                  type="button"
+                  className="sidebar-section-picker-item"
+                  onClick={() => {
+                    setPickerOpen(false);
+                    onAdd?.(agent.id);
+                  }}
+                >
+                  {agent.displayName}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </header>
+      {!collapsed && (
+        <ul className="sidebar-section-list" id={headerId}>
+          {items.length === 0 ? (
+            <li className="sidebar-section-empty">{emptyHint}</li>
+          ) : (
+            items.map((item) => <SidebarRow key={item.key} item={item} />)
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SidebarRow({ item }: { item: SidebarItem }) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLLIElement>) => {
+    if ((e.key === 'Enter' || e.key === ' ') && item.onSelect) {
+      e.preventDefault();
+      item.onSelect();
+    }
+  };
+
+  const handleClose = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    item.onClose?.();
+  };
+
+  return (
+    <li
+      className={`sidebar-row ${item.isActive ? 'is-active' : ''}`}
+      role={item.onSelect ? 'button' : undefined}
+      tabIndex={item.onSelect ? 0 : -1}
+      onClick={item.onSelect}
+      onKeyDown={handleKeyDown}
+    >
+      <span className={`sidebar-row-dot dot-${item.dotState}`} aria-hidden="true" />
+      <span className="sidebar-row-label" title={item.label}>
+        {item.label}
+      </span>
+      {item.meta && <span className="sidebar-row-meta">{item.meta}</span>}
+      {item.onClose && (
+        <button
+          type="button"
+          className="sidebar-row-close"
+          onClick={handleClose}
+          title="Close"
+          aria-label={`Close ${item.label}`}
+        >
+          ×
+        </button>
+      )}
+    </li>
+  );
+}

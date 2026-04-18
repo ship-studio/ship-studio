@@ -1,11 +1,14 @@
 /**
  * Hook for dev server lifecycle management.
  *
- * Manages dev server start/stop/restart, output buffering,
- * health check output, and project type detection.
+ * Tracks one dev-server handle per project path so that pinned projects can
+ * keep their servers running across project switches. External callers still
+ * see a single "current project" scalar API — `devServerPort`, `projectType`,
+ * `customDevCommand`, output buffers, etc. — which is derived from the map
+ * keyed by the `currentProjectPath` argument.
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import {
   startDevServer,
   DevServerHandle,
@@ -24,100 +27,275 @@ import { trackEvent } from '../lib/analytics';
 import { getWindowLabel } from '../lib/window';
 import type { CodeHealthPanelRef } from '../components/CodeHealthPanel';
 
-export function useDevServer() {
-  const devServerRef = useRef<DevServerHandle | null>(null);
-  const [devServerPort, setDevServerPort] = useState(3000);
-  const [projectType, setProjectType] = useState<ProjectType>('unknown');
+/** All the per-project server state we track in the map. */
+interface ProjectServerState {
+  handle: DevServerHandle | null;
+  port: number;
+  type: ProjectType;
+  customCommand: string | null;
+  outputBuffer: string;
+  healthBuffer: string;
+  outputVersion: number;
+  healthVersion: number;
+  outputThrottleTimer: ReturnType<typeof setTimeout> | null;
+  outputPending: boolean;
+  healthThrottleTimer: ReturnType<typeof setTimeout> | null;
+  healthPending: boolean;
+  suppressed: boolean;
+}
+
+const DEFAULT_PORT = 3000;
+const OUTPUT_BUFFER_MAX = 100_000;
+const OUTPUT_THROTTLE_MS = 300;
+
+function makeState(): ProjectServerState {
+  return {
+    handle: null,
+    port: DEFAULT_PORT,
+    type: 'unknown',
+    customCommand: null,
+    outputBuffer: '',
+    healthBuffer: '',
+    outputVersion: 0,
+    healthVersion: 0,
+    outputThrottleTimer: null,
+    outputPending: false,
+    healthThrottleTimer: null,
+    healthPending: false,
+    suppressed: false,
+  };
+}
+
+export function useDevServer(currentProjectPath: string | null) {
+  const statesRef = useRef<Map<string, ProjectServerState>>(new Map());
+  // Sync the ref synchronously during render so handlers that fire between
+  // a `setCurrentProject(...)` state update and the next committed render
+  // still see the incoming path via the optional `projectPath` argument.
+  const currentPathRef = useRef<string | null>(currentProjectPath);
+  currentPathRef.current = currentProjectPath;
+
   const [isRestartingDevServer, setIsRestartingDevServer] = useState(false);
-  const [customDevCommand, setCustomDevCommand] = useState<string | null>(null);
 
-  // Dev server output buffering
-  const devServerOutputRef = useRef<string>('');
-  const [devServerOutputVersion, setDevServerOutputVersion] = useState(0);
+  // Bump on any state change that should cause the "current project" scalars
+  // to re-read. Output from non-current projects accumulates silently.
+  const [renderKey, setRenderKey] = useState(0);
+  const bump = useCallback(() => setRenderKey((v) => v + 1), []);
 
-  // Health check output buffering
-  const healthOutputRef = useRef<string>('');
-  const [healthOutputVersion, setHealthOutputVersion] = useState(0);
   const healthPanelRef = useRef<CodeHealthPanelRef>(null);
 
-  // Throttle refs for output version updates (limit re-renders to ~3/sec)
-  const devServerThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const devServerPendingRef = useRef(false);
-  const healthThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const healthPendingRef = useRef(false);
-
-  // Suppression flag: when true, output handlers skip state updates.
-  // This prevents leaked PTY onData listeners from causing infinite re-renders
-  // after the dev server is stopped (pty.kill() doesn't remove event listeners).
-  const outputSuppressedRef = useRef(false);
-
-  // Handle health check output
-  const handleHealthOutput = useCallback((output: string) => {
-    healthOutputRef.current += output;
-    if (healthOutputRef.current.length > 100000) {
-      healthOutputRef.current = healthOutputRef.current.slice(-100000);
+  const getOrCreateState = useCallback((path: string): ProjectServerState => {
+    let s = statesRef.current.get(path);
+    if (!s) {
+      s = makeState();
+      statesRef.current.set(path, s);
     }
-    if (!healthThrottleRef.current) {
-      setHealthOutputVersion((v) => v + 1);
-      healthThrottleRef.current = setTimeout(() => {
-        healthThrottleRef.current = null;
-        if (healthPendingRef.current) {
-          healthPendingRef.current = false;
-          setHealthOutputVersion((v) => v + 1);
-        }
-      }, 300);
-    } else {
-      healthPendingRef.current = true;
-    }
+    return s;
   }, []);
 
-  // Create the output callback for dev server
-  const createOutputHandler = useCallback(() => {
-    return (data: string) => {
-      // Skip state updates if server has been stopped (prevents leaked PTY listeners
-      // from causing infinite re-renders after back-navigation)
-      if (outputSuppressedRef.current) return;
-      devServerOutputRef.current += data;
-      if (devServerOutputRef.current.length > 100000) {
-        devServerOutputRef.current = devServerOutputRef.current.slice(-100000);
+  const getState = useCallback((path: string | null): ProjectServerState | null => {
+    if (!path) return null;
+    return statesRef.current.get(path) ?? null;
+  }, []);
+
+  // ───────────── Current-project scalar views (backwards-compat API) ─────────────
+  // `renderKey` is referenced here so these memos recompute when any mutation
+  // bumps it.
+  const activeState = useMemo(
+    () => getState(currentProjectPath),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- renderKey is the reactivity trigger
+    [currentProjectPath, renderKey]
+  );
+
+  const devServerPort = activeState?.port ?? DEFAULT_PORT;
+  const projectType = activeState?.type ?? 'unknown';
+  const customDevCommand = activeState?.customCommand ?? null;
+  const devServerOutputVersion = activeState?.outputVersion ?? 0;
+  const healthOutputVersion = activeState?.healthVersion ?? 0;
+
+  // Synthetic refs so existing callers that read `devServerOutputRef.current`
+  // (and `devServerRef.current` for beforeunload cleanup) keep working without
+  // knowing about the map. The `.current` getter reads the latest state each
+  // access — safe because callers read on demand, not once and cache.
+  const devServerOutputRef = useMemo(
+    () => ({
+      get current() {
+        return currentPathRef.current
+          ? (statesRef.current.get(currentPathRef.current)?.outputBuffer ?? '')
+          : '';
+      },
+      set current(_v: string) {
+        /* setter kept for type compatibility; buffers are written through
+           the output handler and `clearOutputBuffers`. */
+      },
+    }),
+    []
+  );
+
+  const healthOutputRef = useMemo(
+    () => ({
+      get current() {
+        return currentPathRef.current
+          ? (statesRef.current.get(currentPathRef.current)?.healthBuffer ?? '')
+          : '';
+      },
+      set current(_v: string) {
+        /* setter kept for type compatibility */
+      },
+    }),
+    []
+  );
+
+  const devServerRef = useMemo(
+    () => ({
+      get current(): DevServerHandle | null {
+        return currentPathRef.current
+          ? (statesRef.current.get(currentPathRef.current)?.handle ?? null)
+          : null;
+      },
+      set current(v: DevServerHandle | null) {
+        const path = currentPathRef.current;
+        if (!path) return;
+        const s = getOrCreateState(path);
+        s.handle = v;
+      },
+    }),
+    [getOrCreateState]
+  );
+
+  // ───────────── Per-project setters for "current project" ─────────────
+
+  // Setters accept an optional `projectPath` so callers can write state for a
+  // freshly-selected project before the `currentProjectPath` prop has made it
+  // through React's render cycle. Omit the arg to target the current project.
+  const setDevServerPort = useCallback(
+    (port: number, projectPath?: string) => {
+      const path = projectPath ?? currentPathRef.current;
+      if (!path) return;
+      const s = getOrCreateState(path);
+      s.port = port;
+      bump();
+    },
+    [bump, getOrCreateState]
+  );
+
+  const setProjectType = useCallback(
+    (type: ProjectType, projectPath?: string) => {
+      const path = projectPath ?? currentPathRef.current;
+      if (!path) return;
+      const s = getOrCreateState(path);
+      s.type = type;
+      bump();
+    },
+    [bump, getOrCreateState]
+  );
+
+  const setCustomDevCommand = useCallback(
+    (command: string | null, projectPath?: string) => {
+      const path = projectPath ?? currentPathRef.current;
+      if (!path) return;
+      const s = getOrCreateState(path);
+      s.customCommand = command;
+      bump();
+    },
+    [bump, getOrCreateState]
+  );
+
+  // ───────────── Output handling ─────────────
+
+  const handleHealthOutput = useCallback(
+    (output: string) => {
+      // Health output always belongs to the current project (CodeHealthPanel
+      // is only mounted in the active workspace).
+      const path = currentPathRef.current;
+      if (!path) return;
+      const s = getOrCreateState(path);
+      s.healthBuffer += output;
+      if (s.healthBuffer.length > OUTPUT_BUFFER_MAX) {
+        s.healthBuffer = s.healthBuffer.slice(-OUTPUT_BUFFER_MAX);
       }
-      if (!devServerThrottleRef.current) {
-        setDevServerOutputVersion((v) => v + 1);
-        devServerThrottleRef.current = setTimeout(() => {
-          devServerThrottleRef.current = null;
-          if (devServerPendingRef.current) {
-            devServerPendingRef.current = false;
-            if (!outputSuppressedRef.current) {
-              setDevServerOutputVersion((v) => v + 1);
-            }
+      if (!s.healthThrottleTimer) {
+        s.healthVersion += 1;
+        bump();
+        s.healthThrottleTimer = setTimeout(() => {
+          s.healthThrottleTimer = null;
+          if (s.healthPending) {
+            s.healthPending = false;
+            s.healthVersion += 1;
+            bump();
           }
-        }, 300);
+        }, OUTPUT_THROTTLE_MS);
       } else {
-        devServerPendingRef.current = true;
+        s.healthPending = true;
       }
-    };
-  }, []);
+    },
+    [bump, getOrCreateState]
+  );
 
-  // Clear output buffers
+  // Create an output handler bound to a specific project path. Dev server
+  // output from background (pinned) projects accumulates into their buffer
+  // without triggering a re-render of the active workspace.
+  const createOutputHandler = useCallback(
+    (projectPath: string) => {
+      return (data: string) => {
+        const s = statesRef.current.get(projectPath);
+        if (!s) return;
+        if (s.suppressed) return;
+        s.outputBuffer += data;
+        if (s.outputBuffer.length > OUTPUT_BUFFER_MAX) {
+          s.outputBuffer = s.outputBuffer.slice(-OUTPUT_BUFFER_MAX);
+        }
+        const isActive = projectPath === currentPathRef.current;
+        if (!s.outputThrottleTimer) {
+          s.outputVersion += 1;
+          if (isActive) bump();
+          s.outputThrottleTimer = setTimeout(() => {
+            s.outputThrottleTimer = null;
+            if (s.outputPending && !s.suppressed) {
+              s.outputPending = false;
+              s.outputVersion += 1;
+              if (projectPath === currentPathRef.current) bump();
+            }
+          }, OUTPUT_THROTTLE_MS);
+        } else {
+          s.outputPending = true;
+        }
+      };
+    },
+    [bump]
+  );
+
+  // Clear the CURRENT project's output buffers (mirrors previous behavior —
+  // clearOutputBuffers was only ever called while starting/restarting the
+  // active project's server).
   const clearOutputBuffers = useCallback(() => {
-    devServerOutputRef.current = '';
-    setDevServerOutputVersion(0);
-    healthOutputRef.current = '';
-    setHealthOutputVersion(0);
-  }, []);
+    const path = currentPathRef.current;
+    if (!path) return;
+    const s = getOrCreateState(path);
+    s.outputBuffer = '';
+    s.healthBuffer = '';
+    s.outputVersion = 0;
+    s.healthVersion = 0;
+    bump();
+  }, [bump, getOrCreateState]);
 
-  // Detect project type and start appropriate server
+  // ───────────── Lifecycle ─────────────
+
   const startServerForProject = useCallback(
     async (projectPath: string, projectName: string, port: number, windowLabel: string) => {
-      // Re-enable output handling for the new server
-      outputSuppressedRef.current = false;
+      const s = getOrCreateState(projectPath);
+      // Re-enable output handling for the (possibly new) server on this path.
+      s.suppressed = false;
+      s.port = port;
+
       let detectedType: ProjectType = 'unknown';
       try {
         detectedType = await detectProjectType(projectPath);
       } catch {
         logger.warn('[OpenProject] Failed to detect project type, defaulting to unknown');
       }
-      setProjectType(detectedType);
+      s.type = detectedType;
+      bump();
+
       void trackEvent('project_type_detected', {
         project_type: detectedType,
         project_name: projectName,
@@ -126,29 +304,33 @@ export function useDevServer() {
       logger.info(`[OpenProject] Detected project type: ${detectedType}`);
 
       if (detectedType === 'generic') {
-        // Generic projects: check for a custom dev command
         let cmd: string | null = null;
         try {
           cmd = await getCustomDevCommand(projectPath);
         } catch {
-          // Ignore - no custom command configured
+          /* no custom command configured */
         }
-        setCustomDevCommand(cmd);
+        s.customCommand = cmd;
+        bump();
 
         if (cmd) {
           try {
-            clearOutputBuffers();
+            s.outputBuffer = '';
+            s.healthBuffer = '';
+            s.outputVersion = 0;
+            s.healthVersion = 0;
+            bump();
             void trackEvent('dev_server_started', {
               project_type: 'generic',
               port,
               project_name: projectName,
               $screen_name: 'Workspace',
             });
-            devServerRef.current = await startDevServer(
+            s.handle = await startDevServer(
               projectPath,
               port,
               windowLabel,
-              createOutputHandler(),
+              createOutputHandler(projectPath),
               cmd
             );
             logger.info('[OpenProject] Generic project dev server started with custom command', {
@@ -163,7 +345,8 @@ export function useDevServer() {
       } else if (detectedType === 'statichtml') {
         try {
           const staticPort = await startStaticServer(windowLabel, projectPath);
-          setDevServerPort(staticPort);
+          s.port = staticPort;
+          bump();
           void trackEvent('dev_server_started', {
             project_type: 'statichtml',
             port: staticPort,
@@ -176,66 +359,123 @@ export function useDevServer() {
         }
       } else {
         try {
-          clearOutputBuffers();
+          s.outputBuffer = '';
+          s.healthBuffer = '';
+          s.outputVersion = 0;
+          s.healthVersion = 0;
+          bump();
           void trackEvent('dev_server_started', {
             project_type: detectedType,
             port,
             project_name: projectName,
             $screen_name: 'Workspace',
           });
-          devServerRef.current = await startDevServer(
+          s.handle = await startDevServer(
             projectPath,
             port,
             windowLabel,
-            createOutputHandler()
+            createOutputHandler(projectPath)
           );
         } catch (error) {
           logger.error('Failed to start dev server', { error });
         }
       }
 
+      // Warn when we start hoarding hot dev servers. Slice 5 will add a hard cap.
+      if (statesRef.current.size > 3) {
+        logger.warn(`[OpenProject] ${statesRef.current.size} dev servers alive`, {
+          paths: Array.from(statesRef.current.keys()),
+        });
+      }
+
       return detectedType;
     },
-    [clearOutputBuffers, createOutputHandler]
+    [bump, createOutputHandler, getOrCreateState]
   );
 
-  // Stop dev server or static server
-  const stopServer = useCallback(async () => {
-    // Suppress output handler BEFORE stopping — prevents leaked PTY onData
-    // listeners from calling setDevServerOutputVersion after stop
-    outputSuppressedRef.current = true;
+  // Stop the dev/static server for a specific project (or the current project
+  // if no path given). Safe to call when nothing is running.
+  const stopServer = useCallback(
+    async (projectPath?: string) => {
+      const targetPath = projectPath ?? currentPathRef.current;
+      if (!targetPath) return;
+      const s = statesRef.current.get(targetPath);
+      if (!s) return;
 
-    // Clear any pending throttle timers
-    if (devServerThrottleRef.current) {
-      clearTimeout(devServerThrottleRef.current);
-      devServerThrottleRef.current = null;
-    }
-    devServerPendingRef.current = false;
-    if (healthThrottleRef.current) {
-      clearTimeout(healthThrottleRef.current);
-      healthThrottleRef.current = null;
-    }
-    healthPendingRef.current = false;
+      // Suppress output BEFORE stopping — prevents leaked PTY onData listeners
+      // from appending to a buffer that consumers think is "cleared."
+      s.suppressed = true;
 
-    if (devServerRef.current) {
-      await devServerRef.current.stop();
-      devServerRef.current = null;
-    }
-    const windowLabel = getWindowLabel();
-    try {
-      await stopStaticServer(windowLabel);
-    } catch {
-      // Ignore - may not have been started
-    }
-    setProjectType('unknown');
+      if (s.outputThrottleTimer) {
+        clearTimeout(s.outputThrottleTimer);
+        s.outputThrottleTimer = null;
+      }
+      s.outputPending = false;
+      if (s.healthThrottleTimer) {
+        clearTimeout(s.healthThrottleTimer);
+        s.healthThrottleTimer = null;
+      }
+      s.healthPending = false;
+
+      if (s.handle) {
+        try {
+          await s.handle.stop();
+        } catch (e) {
+          logger.warn('[stopServer] handle.stop threw', { error: String(e), path: targetPath });
+        }
+        s.handle = null;
+      }
+
+      // Static server runs per-window, not per-project. If the stopped path
+      // had a running static server, stopping it is correct. If it didn't,
+      // this is a no-op and safely swallowed.
+      try {
+        await stopStaticServer(getWindowLabel());
+      } catch {
+        /* not started / already stopped */
+      }
+
+      s.type = 'unknown';
+      bump();
+
+      // Drop the entry entirely so the map doesn't leak for closed projects.
+      // (Pinned-project guards in useProjectLifecycle make sure we don't call
+      // stopServer for hot projects we intend to keep.)
+      statesRef.current.delete(targetPath);
+      bump();
+    },
+    [bump]
+  );
+
+  // Stop every running dev/static server. Used by beforeunload so no PTYs
+  // leak when the window closes with multiple hot projects.
+  const stopAllServers = useCallback(async () => {
+    const paths = Array.from(statesRef.current.keys());
+    await Promise.allSettled(paths.map((p) => stopServer(p)));
+  }, [stopServer]);
+
+  // Whether a dev server is currently tracked for the given project. Used by
+  // `useProjectLifecycle` to decide whether to skip the cleanup + restart
+  // pipeline on re-entering a pinned project whose server is still alive.
+  const isServerRunning = useCallback((projectPath: string): boolean => {
+    const s = statesRef.current.get(projectPath);
+    return !!s && s.handle !== null;
   }, []);
 
-  // Restart dev server
+  // Read-only accessor for the tracked project type of any project, current
+  // or not. Returns 'unknown' when the project has no state.
+  const getProjectType = useCallback(
+    (projectPath: string): ProjectType => statesRef.current.get(projectPath)?.type ?? 'unknown',
+    []
+  );
+
+  // ───────────── Restart ─────────────
+
   const handleRestartDevServer = useCallback(
     async (projectPath: string, portOverride?: number) => {
       setIsRestartingDevServer(true);
-
-      const effectivePort = portOverride ?? devServerPort;
+      const s = getOrCreateState(projectPath);
+      const effectivePort = portOverride ?? s.port ?? DEFAULT_PORT;
 
       const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
         return Promise.race([
@@ -246,61 +486,66 @@ export function useDevServer() {
       const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
       const stopAndRestart = async (customCmd?: string) => {
-        if (devServerRef.current) {
+        if (s.handle) {
           try {
-            await withTimeout(devServerRef.current.stop(), 5000, undefined);
+            await withTimeout(s.handle.stop(), 5000, undefined);
           } catch (e) {
             logger.warn('Error stopping dev server, continuing with restart', { error: e });
           }
-          devServerRef.current = null;
+          s.handle = null;
         }
-        clearOutputBuffers();
+        s.outputBuffer = '';
+        s.healthBuffer = '';
+        s.outputVersion = 0;
+        s.healthVersion = 0;
+        bump();
         await delay(500);
-        devServerRef.current = await withTimeout(
+        s.handle = await withTimeout(
           startDevServer(
             projectPath,
             effectivePort,
             getWindowLabel(),
-            createOutputHandler(),
+            createOutputHandler(projectPath),
             customCmd
           ),
           10000,
           null as unknown as DevServerHandle
         );
-        if (!devServerRef.current) {
+        if (!s.handle) {
           logger.error('Failed to start dev server: spawn timed out');
         }
       };
 
       try {
-        if (projectType === 'generic') {
-          if (!customDevCommand) return;
-          await stopAndRestart(customDevCommand);
-        } else if (projectType === 'statichtml') {
+        if (s.type === 'generic') {
+          if (!s.customCommand) return;
+          await stopAndRestart(s.customCommand);
+        } else if (s.type === 'statichtml') {
           const windowLabel = getWindowLabel();
           try {
             await stopStaticServer(windowLabel);
           } catch {
-            // Ignore
+            /* Ignore */
           }
           await delay(300);
           const newPort = await startStaticServer(windowLabel, projectPath);
-          setDevServerPort(newPort);
+          s.port = newPort;
+          bump();
         } else {
           try {
             await withTimeout(invoke('kill_port', { port: effectivePort }), 5000, undefined);
           } catch {
-            // Ignore if nothing to kill
+            /* Ignore if nothing to kill */
           }
           try {
             await withTimeout(invoke('clear_project_cache', { projectPath }), 10000, undefined);
           } catch {
-            // Non-critical
+            /* Non-critical */
           }
           await stopAndRestart();
         }
         void trackEvent('dev_server_restarted', {
-          project_type: projectType,
+          project_type: s.type,
           $screen_name: 'Workspace',
         });
       } catch (error) {
@@ -309,42 +554,45 @@ export function useDevServer() {
         setIsRestartingDevServer(false);
       }
     },
-    [projectType, devServerPort, customDevCommand, clearOutputBuffers, createOutputHandler]
+    [bump, createOutputHandler, getOrCreateState]
   );
 
-  // Persist a custom dev command, stop old server, start new (or clear)
   const saveCustomDevCommand = useCallback(
     async (projectPath: string, command: string | null) => {
+      const s = getOrCreateState(projectPath);
       try {
         await setCustomDevCommandApi(projectPath, command);
       } catch (e) {
         logger.error('Failed to save custom dev command', { error: e });
       }
-      setCustomDevCommand(command);
+      s.customCommand = command;
+      bump();
       void trackEvent('custom_dev_command_saved', {
         has_command: !!command,
         $screen_name: 'Workspace',
       });
 
-      // Stop current dev server if running
-      if (devServerRef.current) {
+      if (s.handle) {
         try {
-          await devServerRef.current.stop();
+          await s.handle.stop();
         } catch {
-          // Ignore
+          /* Ignore */
         }
-        devServerRef.current = null;
+        s.handle = null;
       }
 
-      // Start new server if command is set
       if (command) {
         try {
-          clearOutputBuffers();
-          devServerRef.current = await startDevServer(
+          s.outputBuffer = '';
+          s.healthBuffer = '';
+          s.outputVersion = 0;
+          s.healthVersion = 0;
+          bump();
+          s.handle = await startDevServer(
             projectPath,
-            devServerPort,
+            s.port,
             getWindowLabel(),
-            createOutputHandler(),
+            createOutputHandler(projectPath),
             command
           );
         } catch (e) {
@@ -352,15 +600,17 @@ export function useDevServer() {
         }
       }
     },
-    [devServerPort, clearOutputBuffers, createOutputHandler]
+    [bump, createOutputHandler, getOrCreateState]
   );
 
   return {
-    // Refs
+    // Refs (synthetic — read current project's slot)
     devServerRef,
     healthPanelRef,
+    devServerOutputRef,
+    healthOutputRef,
 
-    // State
+    // Current-project scalars
     devServerPort,
     setDevServerPort,
     projectType,
@@ -368,9 +618,7 @@ export function useDevServer() {
     isRestartingDevServer,
     customDevCommand,
     setCustomDevCommand,
-    devServerOutputRef,
     devServerOutputVersion,
-    healthOutputRef,
     healthOutputVersion,
 
     // Handlers
@@ -378,6 +626,9 @@ export function useDevServer() {
     handleRestartDevServer,
     startServerForProject,
     stopServer,
+    stopAllServers,
+    isServerRunning,
+    getProjectType,
     clearOutputBuffers,
     saveCustomDevCommand,
   };

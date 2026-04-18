@@ -29,7 +29,7 @@ export interface UseAppSetupParams {
   setView: (view: AppView | ((prev: AppView) => AppView)) => void;
   initialProjectPath?: string | null;
   setCurrentProject: (project: Project | null) => void;
-  setDevServerPort: (port: number) => void;
+  setDevServerPort: (port: number, projectPath?: string) => void;
   handleSelectProject: (project: Project) => Promise<void>;
   refreshAllCliStatuses: () => Promise<void>;
   setProjectGitHubStatus: (status: ProjectGitHubStatus | null) => void;
@@ -153,11 +153,17 @@ export function useAppSetup({
       return;
     }
 
-    // Check backend for existing port reservation (most reliable HMR indicator)
+    // Check backend for existing port reservation (most reliable HMR indicator).
+    // Requires a project path to key on — if we don't have one yet, we can't
+    // look up a reservation, so skip the HMR recovery path.
+    if (!storedProjectPath) {
+      return;
+    }
     void (async () => {
       try {
         const existingPort = await invoke<number | null>('get_reserved_port_for_window', {
           windowLabel,
+          projectPath: storedProjectPath,
         });
 
         // If we have a reserved port, this is likely an HMR reload
@@ -178,7 +184,7 @@ export function useAppSetup({
             path: storedProjectPath,
             thumbnail: null,
           });
-          setDevServerPort(existingPort);
+          setDevServerPort(existingPort, storedProjectPath);
           setView('workspace');
 
           // Refresh branch info and statuses in background

@@ -350,3 +350,23 @@ body.rail-drag-active iframe {
   height: 100%;
   width: 100%;
 }
+
+/* Centered spinner + "Opening X..." body shown while a project is booting.
+ * Sits in the main area beside the sidebar so the user keeps their
+ * navigation context during the load. */
+.project-loading-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  color: var(--text-muted);
+  padding-top: 32px;
+}
+
+.project-loading-body p {
+  margin: 0;
+  font-size: 13px;
+}

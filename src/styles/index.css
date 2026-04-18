@@ -17,6 +17,7 @@
 @import './features/workspace/split-pane.css';
 @import './features/workspace/tabs.css';
 @import './features/workspace/terminal.css';
+@import './features/workspace/sidebar.css';
 @import './features/workspace/connect-overlay.css';
 @import './features/workspace/compact.css';
 @import './features/toolbar.css';

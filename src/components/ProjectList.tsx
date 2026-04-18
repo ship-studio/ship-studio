@@ -98,6 +98,10 @@ interface ProjectListProps {
   pinnedSet?: ReadonlySet<string>;
   /** Toggle pin state for a project. */
   onTogglePin?: (projectPath: string, pinned: boolean) => void;
+  /** Optional slot rendered inside the dashboard column *after* the
+   *  project grid. Used to put "What's New" below the grid instead of
+   *  sticky alongside it. */
+  changelogSlot?: React.ReactNode;
 }
 
 export function ProjectList({
@@ -113,6 +117,7 @@ export function ProjectList({
   cleanupStatus,
   pinnedSet,
   onTogglePin,
+  changelogSlot,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<ProjectWithThumbnail[]>([]);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
@@ -552,6 +557,8 @@ export function ProjectList({
           pinnedSet={pinnedSet}
           onTogglePin={onTogglePin}
         />
+
+        {changelogSlot}
 
         <button
           className="dashboard-settings-row"

@@ -88,19 +88,21 @@ pub(super) fn kill_process(pid: u32) {
     }
 }
 
-/// Get the reserved port for a specific window.
-/// Returns None if no port is reserved for this window.
+/// Get the reserved port for a `(window, project)` pair, if any.
+/// Returns None if no port is reserved for this pair.
 #[tauri::command]
-pub fn get_reserved_port_for_window(window_label: String) -> Option<u16> {
+pub fn get_reserved_port_for_window(window_label: String, project_path: String) -> Option<u16> {
     tracing::info!(
-        "get_reserved_port_for_window command called with window_label='{}'",
-        window_label
+        "get_reserved_port_for_window called: window='{}', project='{}'",
+        window_label,
+        project_path
     );
-    let result = crate::state::get_reserved_port(&window_label);
+    let result = crate::state::get_reserved_port(&window_label, &project_path);
     tracing::info!(
-        "get_reserved_port_for_window returning {:?} for '{}'",
+        "get_reserved_port_for_window returning {:?} for ({}, {})",
         result,
-        window_label
+        window_label,
+        project_path
     );
     result
 }
@@ -136,28 +138,31 @@ pub fn find_available_port(preferred_port: u16) -> Result<u16, CommandError> {
     .into())
 }
 
-/// Find and reserve an available port for a specific window.
-/// This atomically finds a port and reserves it to prevent race conditions.
-/// If the window already has a port reserved, returns that port (idempotent).
-/// Returns the reserved port.
+/// Find and reserve an available port for a `(window, project)` pair.
+/// Atomically finds a port and reserves it. If the pair already holds one,
+/// returns it (idempotent) — different projects in the same window each get
+/// their own port independently.
 #[tauri::command]
 pub fn find_and_reserve_port(
     window_label: String,
+    project_path: String,
     preferred_port: u16,
 ) -> Result<u16, CommandError> {
     use std::net::TcpListener;
 
     tracing::info!(
-        "find_and_reserve_port command called: window_label='{}', preferred_port={}",
+        "find_and_reserve_port called: window='{}', project='{}', preferred_port={}",
         window_label,
+        project_path,
         preferred_port
     );
 
-    // First check if this window already has a port reserved (idempotent)
-    if let Some(existing_port) = crate::state::get_reserved_port(&window_label) {
+    // Idempotent: if this pair already has a port, return it.
+    if let Some(existing_port) = crate::state::get_reserved_port(&window_label, &project_path) {
         tracing::info!(
-            "Window {} already has port {} reserved, returning existing",
+            "({}, {}) already has port {} reserved, returning existing",
             window_label,
+            project_path,
             existing_port
         );
         return Ok(existing_port);
@@ -165,16 +170,21 @@ pub fn find_and_reserve_port(
 
     // Try ports starting from preferred, up to preferred + 100
     for port in preferred_port..preferred_port.saturating_add(100) {
-        // Check if port is reserved by another window
+        // Check if port is reserved by some other (window, project)
         if crate::state::is_port_reserved(port) {
             continue;
         }
 
-        // Check if port is actually available
+        // Check if port is actually available on the machine
         if TcpListener::bind(("127.0.0.1", port)).is_ok() {
             // Try to reserve this port atomically
-            if crate::state::reserve_port(&window_label, port) {
-                tracing::info!("Reserved port {} for window {}", port, window_label);
+            if crate::state::reserve_port(&window_label, &project_path, port) {
+                tracing::info!(
+                    "Reserved port {} for ({}, {})",
+                    port,
+                    window_label,
+                    project_path
+                );
                 return Ok(port);
             }
             // If reservation failed (race condition), try next port
@@ -189,15 +199,21 @@ pub fn find_and_reserve_port(
     .into())
 }
 
-/// Release a reserved port for a window.
-/// Called when a window is closing or when dev server stops.
+/// Release a reserved port for a `(window, project)` pair.
+/// Called when a project's dev server is deliberately stopped or the project
+/// is being torn down. For window-wide cleanup on close, the backend calls
+/// `release_port_for_window` directly.
 #[tauri::command]
-pub fn release_reserved_port(window_label: String) -> Result<(), CommandError> {
+pub fn release_reserved_port(
+    window_label: String,
+    project_path: String,
+) -> Result<(), CommandError> {
     tracing::info!(
-        "release_reserved_port command called for window_label='{}'",
-        window_label
+        "release_reserved_port called: window='{}', project='{}'",
+        window_label,
+        project_path
     );
-    crate::state::release_port_for_window(&window_label);
+    crate::state::release_port_for_project(&window_label, &project_path);
     Ok(())
 }
 

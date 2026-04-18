@@ -14,10 +14,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub static OPEN_PROJECT_WINDOWS: LazyLock<Mutex<HashMap<String, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Maps window_label -> reserved port for dev server.
-/// This prevents race conditions where multiple windows try to claim the same port
-/// before any dev server has actually bound to it.
-pub static RESERVED_PORTS: LazyLock<Mutex<HashMap<String, u16>>> =
+/// Maps `(window_label, project_path) -> reserved port`. Keyed by both so a
+/// single window can hold distinct ports for multiple projects simultaneously
+/// — the prerequisite for running more than one project side-by-side.
+pub static RESERVED_PORTS: LazyLock<Mutex<HashMap<(String, String), u16>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Set of all currently reserved ports for quick lookup.
@@ -96,15 +96,16 @@ pub fn unregister_window_by_label(window_label: &str) {
     release_port_for_window(window_label);
 }
 
-/// Reserve a port for a specific window.
-/// Returns true if the port was successfully reserved or if this window already has this port.
-/// Returns false if the port is already taken by another window.
+/// Reserve a port for a specific `(window, project)` pair.
+/// Returns true on success or if that same pair already holds this port (idempotent).
+/// Returns false if the port is already taken by *any* other `(window, project)` pair.
 ///
 /// NOTE: Lock ordering is RESERVED_PORTS then RESERVED_PORT_SET to prevent deadlocks.
-pub fn reserve_port(window_label: &str, port: u16) -> bool {
+pub fn reserve_port(window_label: &str, project_path: &str, port: u16) -> bool {
     tracing::info!(
-        "reserve_port called: window='{}', port={}",
+        "reserve_port called: window='{}', project='{}', port={}",
         window_label,
+        project_path,
         port
     );
     // IMPORTANT: Lock order must be RESERVED_PORTS then RESERVED_PORT_SET (same as release_port_for_window)
@@ -112,38 +113,53 @@ pub fn reserve_port(window_label: &str, port: u16) -> bool {
     let port_set_result = RESERVED_PORT_SET.lock();
 
     if let (Ok(mut ports), Ok(mut port_set)) = (ports_result, port_set_result) {
-        let all_ports_before: Vec<_> = ports.iter().map(|(k, v)| format!("{k}:{v}")).collect();
+        let all_ports_before: Vec<_> = ports
+            .iter()
+            .map(|((w, p), v)| format!("{w}|{p}:{v}"))
+            .collect();
         tracing::info!("reserve_port: state before: {:?}", all_ports_before);
 
-        // Check if this window already has this port (idempotent)
-        if let Some(&existing_port) = ports.get(window_label) {
+        let key = (window_label.to_string(), project_path.to_string());
+
+        // Check if this (window, project) already has this port (idempotent)
+        if let Some(&existing_port) = ports.get(&key) {
             if existing_port == port {
                 tracing::info!(
-                    "Port {} already reserved by this window {}, returning success",
+                    "Port {} already reserved by ({}, {}), returning success",
                     port,
-                    window_label
+                    window_label,
+                    project_path
                 );
                 return true;
             }
-            // Window has a different port - release it first
+            // Pair has a different port - release it first
             port_set.remove(&existing_port);
             tracing::info!(
-                "Releasing previous port {} for window {} before reserving {}",
+                "Releasing previous port {} for ({}, {}) before reserving {}",
                 existing_port,
                 window_label,
+                project_path,
                 port
             );
         }
 
-        // Check if port is taken by another window
+        // Check if port is taken by any other (window, project)
         if port_set.contains(&port) {
-            tracing::info!("Port {} already reserved by another window", port);
+            tracing::info!(
+                "Port {} already reserved by another (window, project)",
+                port
+            );
             return false;
         }
 
         port_set.insert(port);
-        ports.insert(window_label.to_string(), port);
-        tracing::info!("Reserved port {} for window {}", port, window_label);
+        ports.insert(key, port);
+        tracing::info!(
+            "Reserved port {} for ({}, {})",
+            port,
+            window_label,
+            project_path
+        );
         true
     } else {
         tracing::error!("reserve_port: failed to acquire locks");
@@ -159,26 +175,72 @@ pub fn is_port_reserved(port: u16) -> bool {
         .unwrap_or(false)
 }
 
-/// Release the port reserved by a specific window.
+/// Release *every* port reserved by a window (across all its projects).
+/// Called on window close — we tear down everything that window was holding.
 pub fn release_port_for_window(window_label: &str) {
     tracing::info!("release_port_for_window called for '{}'", window_label);
     let ports_result = RESERVED_PORTS.lock();
     let port_set_result = RESERVED_PORT_SET.lock();
 
     if let (Ok(mut ports), Ok(mut port_set)) = (ports_result, port_set_result) {
-        let all_ports_before: Vec<_> = ports.iter().map(|(k, v)| format!("{k}:{v}")).collect();
+        let all_ports_before: Vec<_> = ports
+            .iter()
+            .map(|((w, p), v)| format!("{w}|{p}:{v}"))
+            .collect();
         tracing::info!(
             "release_port_for_window '{}': state before release: {:?}",
             window_label,
             all_ports_before
         );
-        if let Some(port) = ports.remove(window_label) {
+
+        let keys_to_remove: Vec<(String, String)> = ports
+            .keys()
+            .filter(|(w, _)| w == window_label)
+            .cloned()
+            .collect();
+
+        if keys_to_remove.is_empty() {
+            tracing::info!(
+                "release_port_for_window '{}': no ports found to release",
+                window_label
+            );
+        }
+
+        for key in keys_to_remove {
+            if let Some(port) = ports.remove(&key) {
+                port_set.remove(&port);
+                tracing::info!("Released port {} from ({}, {})", port, key.0, key.1);
+            }
+        }
+    }
+}
+
+/// Release the port reserved by a single `(window, project)` pair.
+/// Used when a project is unpinned or its dev server is deliberately stopped.
+pub fn release_port_for_project(window_label: &str, project_path: &str) {
+    tracing::info!(
+        "release_port_for_project called: window='{}', project='{}'",
+        window_label,
+        project_path
+    );
+    let ports_result = RESERVED_PORTS.lock();
+    let port_set_result = RESERVED_PORT_SET.lock();
+
+    if let (Ok(mut ports), Ok(mut port_set)) = (ports_result, port_set_result) {
+        let key = (window_label.to_string(), project_path.to_string());
+        if let Some(port) = ports.remove(&key) {
             port_set.remove(&port);
-            tracing::info!("Released port {} from window {}", port, window_label);
+            tracing::info!(
+                "Released port {} from ({}, {})",
+                port,
+                window_label,
+                project_path
+            );
         } else {
             tracing::info!(
-                "release_port_for_window '{}': no port found to release",
-                window_label
+                "release_port_for_project: no port found for ({}, {})",
+                window_label,
+                project_path
             );
         }
     }
@@ -338,20 +400,27 @@ pub fn count_active_sessions() -> usize {
         .unwrap_or(0)
 }
 
-/// Get the reserved port for a window, if any.
-pub fn get_reserved_port(window_label: &str) -> Option<u16> {
+/// Get the reserved port for a `(window, project)` pair, if any.
+pub fn get_reserved_port(window_label: &str, project_path: &str) -> Option<u16> {
     let result = RESERVED_PORTS.lock().ok().and_then(|ports| {
-        let all_ports: Vec<_> = ports.iter().map(|(k, v)| format!("{k}:{v}")).collect();
+        let all_ports: Vec<_> = ports
+            .iter()
+            .map(|((w, p), v)| format!("{w}|{p}:{v}"))
+            .collect();
         tracing::info!(
-            "get_reserved_port called for '{}', current state: {:?}",
+            "get_reserved_port called for ({}, {}), current state: {:?}",
             window_label,
+            project_path,
             all_ports
         );
-        ports.get(window_label).copied()
+        ports
+            .get(&(window_label.to_string(), project_path.to_string()))
+            .copied()
     });
     tracing::info!(
-        "get_reserved_port for '{}' returning: {:?}",
+        "get_reserved_port for ({}, {}) returning: {:?}",
         window_label,
+        project_path,
         result
     );
     result

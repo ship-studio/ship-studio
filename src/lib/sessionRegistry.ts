@@ -38,6 +38,23 @@ export type SessionStatus = 'active' | 'suspended' | 'error';
 export type AgentActivityStatus = 'thinking' | 'waiting' | 'idle';
 
 /**
+ * A single terminal tab belonging to a project's session. This is the
+ * registry's view of the tab — enough to rehydrate the tab bar and sidebar
+ * when we switch back to the project. Live xterm/PTY refs still live in
+ * Terminal.tsx today; the plan is to migrate them into the registry in
+ * Phase 2d-2f.
+ */
+export interface SessionTerminalTab {
+  readonly id: number;
+  readonly agentId: string;
+  readonly sessionId: string;
+  /** Last-seen PTY title (for sidebar display when the xterm is unmounted). */
+  title?: string;
+  /** Whether this tab has an attention indicator on the sidebar. */
+  attention?: boolean;
+}
+
+/**
  * In-memory state for a single project session.
  *
  * Notes on ownership (subject to expansion in Phase 2d-2f):
@@ -65,6 +82,15 @@ export interface ProjectSession {
   lastFocusedAt: number;
   /** Last known memory usage in bytes (polled from backend). */
   memoryBytes: number;
+  /**
+   * Last-known terminal tabs for this project. Populated from the backend's
+   * persisted `set_terminal_state` when the project is registered, and kept
+   * in sync as the user spawns/closes tabs. Read by the sidebar so non-
+   * current projects can show their tab list without having to switch.
+   */
+  terminalTabs: SessionTerminalTab[];
+  /** Index into `terminalTabs` that should be active on next mount. */
+  activeTabIndex: number;
 }
 
 /** Diff-friendly snapshot used by the rail UI subscription. */
@@ -76,6 +102,8 @@ export interface SessionSnapshot {
   readonly activatedAt: number;
   readonly lastFocusedAt: number;
   readonly memoryBytes: number;
+  readonly terminalTabs: ReadonlyArray<SessionTerminalTab>;
+  readonly activeTabIndex: number;
 }
 
 /**
@@ -98,6 +126,19 @@ export type SessionSubscriber = (
 class SessionRegistry {
   private readonly sessions = new Map<string, ProjectSession>();
   private readonly subscribers = new Set<SessionSubscriber>();
+  /** Monotonic version bumped on every notify — lets React's
+   *  `useSyncExternalStore` detect changes without snapshot equality. */
+  private version = 0;
+
+  /** Current store version (stable until the next `notify`). */
+  getVersion(): number {
+    return this.version;
+  }
+
+  /** `useSyncExternalStore`-compatible subscribe adapter. */
+  subscribeSimple = (callback: () => void): (() => void) => {
+    return this.subscribe(() => callback());
+  };
 
   /**
    * Look up a session by path.
@@ -137,6 +178,8 @@ class SessionRegistry {
       activatedAt: now,
       lastFocusedAt: now,
       memoryBytes: 0,
+      terminalTabs: [],
+      activeTabIndex: 0,
     };
     this.sessions.set(projectPath, session);
     logger.info('[SessionRegistry] Created session', { projectPath });
@@ -234,6 +277,56 @@ class SessionRegistry {
     this.notify(projectPath);
   }
 
+  /**
+   * Replace the cached terminal-tab list for a project. Called when:
+   * - A project is first loaded and its persisted tabs are hydrated.
+   * - The user spawns, closes, or swaps the agent on a tab.
+   * - The user switches to another project (outgoing snapshot).
+   *
+   * Auto-creates the session entry if missing — safer than requiring
+   * consumers to chain `getOrCreate` first, which they often forget.
+   */
+  setTerminalTabs(
+    projectPath: string,
+    tabs: ReadonlyArray<SessionTerminalTab>,
+    activeTabIndex: number
+  ): void {
+    const session = this.sessions.get(projectPath) ?? this.getOrCreate(projectPath);
+    session.terminalTabs = tabs.slice();
+    session.activeTabIndex = Math.max(0, Math.min(activeTabIndex, tabs.length - 1));
+    this.notify(projectPath);
+  }
+
+  /** Update a single tab's title (e.g. after a PTY title-change event). */
+  setTerminalTabTitle(projectPath: string, tabId: number, title: string): void {
+    const session = this.sessions.get(projectPath);
+    if (!session) return;
+    let changed = false;
+    session.terminalTabs = session.terminalTabs.map((tab) => {
+      if (tab.id === tabId && tab.title !== title) {
+        changed = true;
+        return { ...tab, title };
+      }
+      return tab;
+    });
+    if (changed) this.notify(projectPath);
+  }
+
+  /** Mark/clear the attention indicator on a specific tab. */
+  setTerminalTabAttention(projectPath: string, tabId: number, attention: boolean): void {
+    const session = this.sessions.get(projectPath);
+    if (!session) return;
+    let changed = false;
+    session.terminalTabs = session.terminalTabs.map((tab) => {
+      if (tab.id === tabId && (tab.attention ?? false) !== attention) {
+        changed = true;
+        return { ...tab, attention };
+      }
+      return tab;
+    });
+    if (changed) this.notify(projectPath);
+  }
+
   /** Snapshot of a single session for subscribers / equality checks. */
   snapshot(projectPath: string): SessionSnapshot | undefined {
     const session = this.sessions.get(projectPath);
@@ -276,6 +369,7 @@ class SessionRegistry {
   }
 
   private notify(changedPath: string | null): void {
+    this.version += 1;
     if (this.subscribers.size === 0) return;
     const snapshots = this.snapshotAll();
     for (const subscriber of this.subscribers) {
@@ -297,6 +391,8 @@ function toSnapshot(session: ProjectSession): SessionSnapshot {
     activatedAt: session.activatedAt,
     lastFocusedAt: session.lastFocusedAt,
     memoryBytes: session.memoryBytes,
+    terminalTabs: session.terminalTabs.slice(),
+    activeTabIndex: session.activeTabIndex,
   };
 }
 

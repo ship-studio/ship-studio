@@ -30,6 +30,7 @@ import { HealthIndicatorBar } from './workspace/HealthIndicatorBar';
 import { CompactModeToggle } from './workspace/CompactModeToggle';
 import { WorkspaceModals } from './WorkspaceModals';
 import { WorkspaceHeader } from './WorkspaceHeader';
+import { WorkspaceSidebar } from './WorkspaceSidebar';
 import { PluginSlot } from './PluginSlot';
 import { UpdateBanner } from './UpdateBanner';
 import {
@@ -40,12 +41,10 @@ import {
   PullRequestIcon,
   EyeIcon,
   PanelRightIcon,
-  TerminalIcon,
   CompactIcon,
   ActivityIcon,
 } from './icons';
 import { ToolbarDropdown } from './ToolbarDropdown';
-import { TerminalTabSelector } from './TerminalTabSelector';
 import { getAgentById } from '../lib/agent';
 import type { AgentConfig } from '../lib/agent';
 import type { Project } from '../lib/project';
@@ -60,6 +59,7 @@ import type { BranchInfo, PullRequestInfo } from '../lib/branches';
 import type { ChangedFile } from '../lib/git';
 import type { LoadedPlugin } from '../hooks/usePlugins';
 import type { PluginThemeData } from '../contexts/PluginContext';
+import type { PinnedProjectRow } from '../hooks/usePinnedProjects';
 import { useModal } from '../contexts/ModalContext';
 import '../styles/features/notifications.css';
 
@@ -67,11 +67,21 @@ import '../styles/features/notifications.css';
 // Domain-grouped prop interfaces
 // ---------------------------------------------------------------------------
 
+interface TerminalSessionView {
+  projectPath: string;
+  tabs: TerminalTab[];
+  activeTabId: number;
+  sessionEpoch: number;
+}
+
 interface TerminalProps {
   terminalTabs: TerminalTab[];
   activeTerminalTab: number;
   terminalSessionId: number;
-  terminalRefsMap: React.MutableRefObject<Map<number, TerminalHandle | null>>;
+  /** Every active project's tab state — render Terminal components for
+   *  all, hide non-current via CSS so PTYs stay alive. */
+  allSessions: TerminalSessionView[];
+  terminalRefsMap: React.MutableRefObject<Map<string, TerminalHandle | null>>;
   maxTerminalTabs: number;
   setActiveTerminalTab: (id: number) => void;
   addTerminalTab: () => void;
@@ -229,7 +239,7 @@ interface LifecycleProps {
   setIsCompactPublishOpen: React.Dispatch<React.SetStateAction<boolean>>;
   showAutoAcceptWarning: boolean;
   setShowAutoAcceptWarning: (show: boolean) => void;
-  handleBackToProjects: () => Promise<void>;
+  handleBackToProjects: () => void;
   handleRestartDevServer: () => Promise<void>;
   handleGitHubStatusChange: () => void;
   handlePreviewReady: () => void;
@@ -287,8 +297,18 @@ export interface WorkspaceViewProps {
   pluginActions: WorkspacePluginActions;
   pluginTheme: PluginThemeData;
   handleEnterCompactMode: () => Promise<void>;
-  /** Optional left rail rendered below the titlebar. */
-  rail?: React.ReactNode;
+  /** Project list shown in the workspace sidebar. */
+  projectRows: PinnedProjectRow[];
+  /** Switch to a different project from the sidebar. */
+  onSelectProject: (projectPath: string) => void;
+  /** Close an active project session from the sidebar. */
+  onCloseProject: (projectPath: string) => void;
+  /** Switch to another project and focus a specific tab (by session id). */
+  onSelectProjectTab: (projectPath: string, tabSessionId: string) => void;
+  /** Navigate to the Home (projects) view. */
+  onGoHome: () => void;
+  /** Open the project picker modal. */
+  onOpenProjectPicker: () => void;
 }
 
 export const WorkspaceView = memo(function WorkspaceView({
@@ -310,20 +330,24 @@ export const WorkspaceView = memo(function WorkspaceView({
   pluginActions,
   pluginTheme,
   handleEnterCompactMode,
-  rail,
+  projectRows,
+  onSelectProject,
+  onCloseProject,
+  onSelectProjectTab,
+  onGoHome,
+  onOpenProjectPicker,
 }: WorkspaceViewProps) {
   // Destructure domain groups for readability in JSX
   const {
     terminalTabs,
     activeTerminalTab,
-    terminalSessionId,
+    allSessions,
     terminalRefsMap,
     maxTerminalTabs,
     setActiveTerminalTab,
     addTerminalTab,
     closeTerminalTab,
     focusActiveTerminal,
-    switchTabAgent,
     getActiveTabAgent,
   } = terminal;
 
@@ -468,7 +492,6 @@ export const WorkspaceView = memo(function WorkspaceView({
     setIsCompactPublishOpen,
     showAutoAcceptWarning,
     setShowAutoAcceptWarning,
-    handleBackToProjects,
     handleRestartDevServer,
     handleGitHubStatusChange,
     handlePreviewReady,
@@ -594,16 +617,15 @@ export const WorkspaceView = memo(function WorkspaceView({
   // Focus the active terminal tab when switching between existing tabs.
   // For brand-new tabs, the Terminal component auto-focuses itself after init.
   useEffect(() => {
-    const ref = terminalRefsMap.current.get(activeTerminalTab);
+    const ref = terminalRefsMap.current.get(`${currentProject.path}::${activeTerminalTab}`);
     if (ref) {
       ref.focus();
     }
-  }, [activeTerminalTab, terminalRefsMap]);
+  }, [activeTerminalTab, terminalRefsMap, currentProject.path]);
 
   const header = WorkspaceHeader({
     projectPath: currentProject.path,
     projectName: currentProject.name,
-    onBackToProjects: () => void handleBackToProjects(),
     isEducationMode,
     onToggleEducationMode: () => setIsEducationMode(!isEducationMode),
     onOpenPluginManager: pluginManagerModal.open,
@@ -639,7 +661,45 @@ export const WorkspaceView = memo(function WorkspaceView({
         {header.titlebar}
 
         <div className="workspace-body">
-          {rail}
+          <WorkspaceSidebar
+            isHomeActive={false}
+            onGoHome={onGoHome}
+            onOpenProjectPicker={onOpenProjectPicker}
+            projects={projectRows}
+            onCloseProject={onCloseProject}
+            currentProjectPath={currentProject.path}
+            currentProjectName={currentProject.name}
+            onSelectProject={onSelectProject}
+            onSelectProjectTab={onSelectProjectTab}
+            terminalTabs={terminalTabs}
+            activeTerminalTab={activeTerminalTab}
+            tabTitles={tabTitles}
+            attentionTabs={attentionTabs}
+            maxTabs={maxTerminalTabs}
+            onSelectTab={(tabId) => {
+              setShowDevServerLogs(false);
+              setShowHealthLogs(false);
+              setActiveTerminalTab(tabId);
+              setAttentionTabs((prev) => {
+                const next = new Set(prev);
+                next.delete(tabId);
+                return next;
+              });
+            }}
+            onAddTab={addTerminalTab}
+            onCloseTab={closeTerminalTab}
+            hasDevServer={hasDevServer}
+            isRestartingDevServer={isRestartingDevServer}
+            devServerRunning={hasDevServer}
+            onOpenDevServerLogs={
+              isWebProject || hasDevServer
+                ? () => {
+                    setShowDevServerLogs(true);
+                    setShowHealthLogs(false);
+                  }
+                : undefined
+            }
+          />
           <div className="workspace-main">
             {header.toolbar}
 
@@ -681,61 +741,19 @@ export const WorkspaceView = memo(function WorkspaceView({
                       className={`compact-terminal-view ${compactView !== 'terminal' ? 'compact-hidden' : ''}`}
                     >
                       <div className="terminal-tabs-bar">
-                        <div className="terminal-tabs" data-education-id="terminal-tabs">
-                          <TerminalTabSelector
-                            tabs={terminalTabs}
-                            activeTabId={activeTerminalTab}
-                            tabTitles={tabTitles}
-                            attentionTabs={attentionTabs}
-                            maxTabs={maxTerminalTabs}
-                            onSelectTab={(tabId) => {
-                              setShowDevServerLogs(false);
-                              setShowHealthLogs(false);
-                              setActiveTerminalTab(tabId);
-                              setAttentionTabs((prev) => {
-                                const next = new Set(prev);
-                                next.delete(tabId);
-                                return next;
-                              });
-                            }}
-                            onAddTab={addTerminalTab}
-                            onCloseTab={closeTerminalTab}
-                            onSwitchAgent={(tabId, agentId) => {
-                              setTabTitles((prev) => {
-                                const next = new Map(prev);
-                                next.delete(tabId);
-                                return next;
-                              });
-                              switchTabAgent(tabId, agentId);
-                            }}
-                          />
-                        </div>
                         <div className="terminal-logs-tabs">
                           {(isWebProject || hasDevServer) && (
-                            <>
-                              <button
-                                className={`workspace-tab icon-only ${showDevServerLogs && !showHealthLogs ? 'active' : ''}`}
-                                onClick={() => {
-                                  setShowDevServerLogs(true);
-                                  setShowHealthLogs(false);
-                                }}
-                                title="View dev server logs"
-                                data-education-id="server-logs"
-                              >
-                                <TerminalIcon size={12} />
-                              </button>
-                              <button
-                                className={`workspace-tab icon-only ${showHealthLogs ? 'active' : ''}`}
-                                onClick={() => {
-                                  setShowDevServerLogs(true);
-                                  setShowHealthLogs(true);
-                                }}
-                                title="View health check logs"
-                                data-education-id="health-logs"
-                              >
-                                <ActivityIcon size={12} />
-                              </button>
-                            </>
+                            <button
+                              className={`workspace-tab icon-only ${showHealthLogs ? 'active' : ''}`}
+                              onClick={() => {
+                                setShowDevServerLogs(true);
+                                setShowHealthLogs(true);
+                              }}
+                              title="View health check logs"
+                              data-education-id="health-logs"
+                            >
+                              <ActivityIcon size={12} />
+                            </button>
                           )}
                           <ToolbarDropdown
                             agent={getActiveTabAgent()}
@@ -760,29 +778,46 @@ export const WorkspaceView = memo(function WorkspaceView({
                         />
                       </div>
                       <div className="terminal-content" data-education-id="claude-terminal">
-                        {terminalTabs.map((tab) => (
-                          <div
-                            key={`session-${terminalSessionId}-tab-${tab.id}`}
-                            className={`terminal-tab-content ${!showDevServerLogs && activeTerminalTab === tab.id ? 'active' : ''}`}
-                          >
-                            <Terminal
-                              ref={(ref) => {
-                                if (ref) {
-                                  terminalRefsMap.current.set(tab.id, ref);
-                                }
-                              }}
-                              agent={getAgentById(tab.agentId)}
-                              projectPath={currentProject.path}
-                              onExit={handleTerminalExit}
-                              autoAcceptMode={autoAcceptMode}
-                              onStatusChange={createTabStatusHandler(tab.id)}
-                              onTitleChange={handleTabTitleChange(tab.id)}
-                              sessionName={tab.sessionId}
-                              isActive={!showDevServerLogs && activeTerminalTab === tab.id}
-                              shouldResume={tab.shouldResume}
-                            />
-                          </div>
-                        ))}
+                        {allSessions.flatMap((session) =>
+                          session.tabs.map((tab) => {
+                            const isCurrentProject = session.projectPath === currentProject.path;
+                            const isVisible =
+                              isCurrentProject &&
+                              !showDevServerLogs &&
+                              activeTerminalTab === tab.id;
+                            const refKey = `${session.projectPath}::${tab.id}`;
+                            return (
+                              <div
+                                key={`session-${session.sessionEpoch}-${refKey}`}
+                                className={`terminal-tab-content ${isVisible ? 'active' : ''}`}
+                                style={isCurrentProject ? undefined : { display: 'none' }}
+                              >
+                                <Terminal
+                                  ref={(ref) => {
+                                    if (ref) {
+                                      terminalRefsMap.current.set(refKey, ref);
+                                    } else {
+                                      terminalRefsMap.current.delete(refKey);
+                                    }
+                                  }}
+                                  agent={getAgentById(tab.agentId)}
+                                  projectPath={session.projectPath}
+                                  onExit={handleTerminalExit}
+                                  autoAcceptMode={autoAcceptMode}
+                                  onStatusChange={
+                                    isCurrentProject ? createTabStatusHandler(tab.id) : undefined
+                                  }
+                                  onTitleChange={
+                                    isCurrentProject ? handleTabTitleChange(tab.id) : undefined
+                                  }
+                                  sessionName={tab.sessionId}
+                                  isActive={isVisible}
+                                  shouldResume={tab.shouldResume}
+                                />
+                              </div>
+                            );
+                          })
+                        )}
                         {showDevServerLogs && !showHealthLogs && (
                           <div className="terminal-tab-content active">
                             <DevServerLogs

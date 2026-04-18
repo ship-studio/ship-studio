@@ -46,9 +46,6 @@ export interface WorkspaceHeaderProps {
   projectPath: string;
   projectName: string;
 
-  // Navigation
-  onBackToProjects: () => void;
-
   // Education mode
   isEducationMode: boolean;
   onToggleEducationMode: () => void;
@@ -106,7 +103,6 @@ export interface WorkspaceHeaderProps {
 export function WorkspaceHeader({
   projectPath,
   projectName,
-  onBackToProjects,
   isEducationMode,
   onToggleEducationMode,
   onOpenPluginManager,
@@ -192,9 +188,6 @@ export function WorkspaceHeader({
 
   const titlebar = (
     <div className="workspace-titlebar" onMouseDown={handleDrag} onDoubleClick={handleDoubleClick}>
-      <button className="back-link" onClick={onBackToProjects}>
-        ← Projects
-      </button>
       <h1>{projectName}</h1>
       <button
         className="project-path"

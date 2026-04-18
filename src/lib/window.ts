@@ -84,28 +84,45 @@ export function getWindowLabel(): string {
 }
 
 /**
- * Find and reserve an available port for this window's dev server.
- * This prevents race conditions when multiple windows try to start dev servers
- * at the same time.
+ * Find and reserve an available port for a project's dev server.
+ * Keyed by (windowLabel, projectPath) so multiple projects in the same
+ * window can each hold their own port simultaneously.
  *
+ * @param projectPath - Absolute path of the project requesting a port
  * @param preferredPort - Preferred port to start searching from
  * @returns The reserved port number
  */
-export async function findAndReservePort(preferredPort: number): Promise<number> {
+export async function findAndReservePort(
+  projectPath: string,
+  preferredPort: number
+): Promise<number> {
   const windowLabel = getWindowLabel();
   return invoke<number>('find_and_reserve_port', {
     windowLabel,
+    projectPath,
     preferredPort,
   });
 }
 
 /**
- * Release the reserved port for this window.
- * Called when the window closes or dev server stops.
+ * Release the reserved port for a specific project in this window.
+ * Use this when a project's dev server is deliberately stopped or the
+ * project is being torn down. Window-close cleanup is handled separately.
  */
-export async function releaseReservedPort(): Promise<void> {
+export async function releaseReservedPort(projectPath: string): Promise<void> {
   const windowLabel = getWindowLabel();
-  return invoke('release_reserved_port', { windowLabel });
+  return invoke('release_reserved_port', { windowLabel, projectPath });
+}
+
+/**
+ * Look up the port already reserved for a given project in this window, if any.
+ */
+export async function getReservedPortForProject(projectPath: string): Promise<number | null> {
+  const windowLabel = getWindowLabel();
+  return invoke<number | null>('get_reserved_port_for_window', {
+    windowLabel,
+    projectPath,
+  });
 }
 
 /**

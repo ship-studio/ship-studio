@@ -43,7 +43,7 @@ describe('useDevServer', () => {
   });
 
   it('initializes with default state', () => {
-    const { result } = renderHook(() => useDevServer());
+    const { result } = renderHook(() => useDevServer('/path/to/project'));
 
     expect(result.current.devServerPort).toBe(3000);
     expect(result.current.projectType).toBe('unknown');
@@ -55,7 +55,7 @@ describe('useDevServer', () => {
   describe('health output buffering', () => {
     it('accumulates health output', () => {
       vi.useFakeTimers();
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       act(() => {
         result.current.handleHealthOutput('line 1\n');
@@ -76,7 +76,7 @@ describe('useDevServer', () => {
     });
 
     it('truncates health output at 100KB', () => {
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       const largeChunk = 'x'.repeat(60000);
 
@@ -93,7 +93,7 @@ describe('useDevServer', () => {
 
   describe('clearOutputBuffers', () => {
     it('clears both output buffers and resets versions', () => {
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       act(() => {
         result.current.handleHealthOutput('data');
@@ -113,7 +113,7 @@ describe('useDevServer', () => {
 
   describe('setDevServerPort', () => {
     it('updates the dev server port', () => {
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       act(() => {
         result.current.setDevServerPort(8080);
@@ -125,7 +125,7 @@ describe('useDevServer', () => {
 
   describe('setProjectType', () => {
     it('updates the project type', () => {
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       act(() => {
         result.current.setProjectType('statichtml');
@@ -141,7 +141,7 @@ describe('useDevServer', () => {
       vi.mocked(detectProjectType).mockResolvedValue('statichtml');
       vi.mocked(startStaticServer).mockResolvedValue(9090);
 
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       let detectedType: string | undefined;
       await act(async () => {
@@ -164,7 +164,7 @@ describe('useDevServer', () => {
       const { startDevServer } = await import('../lib/project');
       vi.mocked(detectProjectType).mockResolvedValue('nextjs');
 
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       await act(async () => {
         await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
@@ -183,7 +183,7 @@ describe('useDevServer', () => {
       const { detectProjectType } = await import('../lib/static-server');
       vi.mocked(detectProjectType).mockRejectedValue(new Error('fail'));
 
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       let detectedType: string | undefined;
       await act(async () => {
@@ -201,7 +201,7 @@ describe('useDevServer', () => {
 
   describe('stopServer', () => {
     it('clears project type', async () => {
-      const { result } = renderHook(() => useDevServer());
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       act(() => {
         result.current.setProjectType('nextjs');
@@ -212,6 +212,66 @@ describe('useDevServer', () => {
       });
 
       expect(result.current.projectType).toBe('unknown');
+    });
+  });
+
+  describe('per-project state (Slice 3)', () => {
+    it('starting a server for one path leaves another path untouched', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      vi.mocked(detectProjectType).mockResolvedValue('nextjs');
+
+      // Hook's "current" project is /a — scalars read from /a's slot.
+      const { result, rerender } = renderHook(
+        ({ path }: { path: string | null }) => useDevServer(path),
+        { initialProps: { path: '/a' } }
+      );
+
+      await act(async () => {
+        await result.current.startServerForProject('/a', 'a', 3001, 'main');
+      });
+      await act(async () => {
+        await result.current.startServerForProject('/b', 'b', 3002, 'main');
+      });
+
+      expect(result.current.isServerRunning('/a')).toBe(true);
+      expect(result.current.isServerRunning('/b')).toBe(true);
+
+      // Stop /a; /b's handle should survive.
+      await act(async () => {
+        await result.current.stopServer('/a');
+      });
+      expect(result.current.isServerRunning('/a')).toBe(false);
+      expect(result.current.isServerRunning('/b')).toBe(true);
+
+      // Switch the "current" view to /b and confirm its scalars are visible.
+      rerender({ path: '/b' });
+      expect(result.current.devServerPort).toBe(3002);
+      expect(result.current.projectType).toBe('nextjs');
+    });
+
+    it('stopAllServers reaps every live handle', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      vi.mocked(detectProjectType).mockResolvedValue('nextjs');
+
+      const { result } = renderHook(() => useDevServer('/a'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/a', 'a', 3001, 'main');
+        await result.current.startServerForProject('/b', 'b', 3002, 'main');
+        await result.current.startServerForProject('/c', 'c', 3003, 'main');
+      });
+
+      expect(result.current.isServerRunning('/a')).toBe(true);
+      expect(result.current.isServerRunning('/b')).toBe(true);
+      expect(result.current.isServerRunning('/c')).toBe(true);
+
+      await act(async () => {
+        await result.current.stopAllServers();
+      });
+
+      expect(result.current.isServerRunning('/a')).toBe(false);
+      expect(result.current.isServerRunning('/b')).toBe(false);
+      expect(result.current.isServerRunning('/c')).toBe(false);
     });
   });
 });
