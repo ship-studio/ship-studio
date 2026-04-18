@@ -134,6 +134,18 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     onTitleChangeRef.current = onTitleChange;
   }, [onExit, onStatusChange, onTitleChange]);
 
+  // Auto-accept is a spawn-time flag (CLI arg) — it can't be toggled on a
+  // live PTY. Keep it in a ref so a later change to the scalar doesn't
+  // re-run the setup effect and tear the PTY down. This matters during
+  // project switching: `autoAcceptMode` is a single shared scalar whose
+  // value flips to the incoming project's preference, and including it in
+  // the setup-effect deps used to kill every background project's Terminal
+  // in the process.
+  const autoAcceptModeRef = useRef(autoAcceptMode);
+  useEffect(() => {
+    autoAcceptModeRef.current = autoAcceptMode;
+  }, [autoAcceptMode]);
+
   const cleanup = useCallback(() => {
     // Dispose PTY event listeners FIRST to stop IPC message flood
     for (const d of ptyDisposablesRef.current) {
@@ -552,8 +564,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           });
         }
 
-        // When autoAcceptMode is enabled, pass the agent's auto-accept flag
-        if (autoAcceptMode && agent.autoAcceptFlag) {
+        // When autoAcceptMode is enabled, pass the agent's auto-accept flag.
+        // Read from the ref so the setup effect doesn't depend on the scalar.
+        if (autoAcceptModeRef.current && agent.autoAcceptFlag) {
           agentArgs.push(agent.autoAcceptFlag);
         }
 
@@ -843,7 +856,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       }
       cleanup();
     };
-  }, [isReady, projectPath, cleanup, autoAcceptMode, agent, sessionName, shouldResume]);
+    // `autoAcceptMode` is intentionally omitted — it's read from
+    // `autoAcceptModeRef.current` at spawn time, and changing it must not
+    // tear down an existing PTY (it's a CLI flag baked in at spawn).
+  }, [isReady, projectPath, cleanup, agent, sessionName, shouldResume]);
 
   // Click to focus terminal
   const handleClick = useCallback(() => {
