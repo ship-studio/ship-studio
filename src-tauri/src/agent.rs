@@ -167,6 +167,11 @@ pub fn get_agent_by_id(id: &str) -> &'static AgentConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Serialize the tests that mutate `DEFAULT_AGENT_ID` so parallel runs
+    // don't clobber each other (the RwLock is a process singleton).
+    static SINGLETON_GUARD: Mutex<()> = Mutex::new(());
 
     #[test]
     fn get_agent_by_id_claude_code() {
@@ -217,6 +222,7 @@ mod tests {
 
     #[test]
     fn init_and_get_active_agent_round_trip() {
+        let _guard = SINGLETON_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         // Default (None) -> Claude Code
         init_default_agent(None);
         let agent = get_active_agent();
@@ -233,6 +239,7 @@ mod tests {
 
     #[test]
     fn set_default_agent_cached_updates_active_agent() {
+        let _guard = SINGLETON_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         init_default_agent(None);
         set_default_agent_cached("codex");
         let agent = get_active_agent();

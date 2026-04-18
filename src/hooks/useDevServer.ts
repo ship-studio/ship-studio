@@ -421,7 +421,7 @@ export function useDevServer(currentProjectPath: string | null) {
 
       return detectedType;
     },
-    [bump, createOutputHandler, getOrCreateState]
+    [bump, createOutputHandler, getOrCreateState, wireExitWatcher]
   );
 
   // Stop the dev/static server for a specific project (or the current project
@@ -587,7 +587,7 @@ export function useDevServer(currentProjectPath: string | null) {
         setIsRestartingDevServer(false);
       }
     },
-    [bump, createOutputHandler, getOrCreateState]
+    [bump, createOutputHandler, getOrCreateState, wireExitWatcher]
   );
 
   const saveCustomDevCommand = useCallback(
@@ -634,7 +634,7 @@ export function useDevServer(currentProjectPath: string | null) {
         }
       }
     },
-    [bump, createOutputHandler, getOrCreateState]
+    [bump, createOutputHandler, getOrCreateState, wireExitWatcher]
   );
 
   return {
