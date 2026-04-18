@@ -163,9 +163,14 @@
   background: var(--bg-tertiary);
 }
 
-/* Top-level groups: Pinned / Projects */
+/* Top-level groups: Pinned / Projects.
+ *
+ * The `display: flex !important` beats the `.workspace-sidebar-scroll > *`
+ * block rule above — without it the button falls back to inline children
+ * (chevron, label, count glued together as `∨ACTIVE1`).
+ */
 .sidebar-group-header {
-  display: flex;
+  display: flex !important;
   align-items: center;
   gap: var(--spacing-sm);
   width: 100%;
