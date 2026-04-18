@@ -10,7 +10,7 @@
  * @module components/WorkspaceView
  */
 
-import { memo, useCallback, useEffect, useState, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useMemo, useSyncExternalStore, type RefObject } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { Terminal } from './Terminal';
 import { DevServerLogs } from './DevServerLogs';
@@ -61,6 +61,7 @@ import type { LoadedPlugin } from '../hooks/usePlugins';
 import type { PluginThemeData } from '../contexts/PluginContext';
 import type { PinnedProjectRow } from '../hooks/usePinnedProjects';
 import { useModal } from '../contexts/ModalContext';
+import { sessionRegistry } from '../lib/sessionRegistry';
 import '../styles/features/notifications.css';
 
 // ---------------------------------------------------------------------------
@@ -549,19 +550,35 @@ export const WorkspaceView = memo(function WorkspaceView({
     }
   }, [isWebProject, workspaceTab, setWorkspaceTab]);
 
-  // Track terminal tab titles from PTY title changes
-  const [tabTitles, setTabTitles] = useState<Map<number, string>>(new Map());
+  // Track terminal tab titles from PTY title changes. Titles live in the
+  // session registry so (a) they're scoped per-project (tab ids are
+  // per-project counters and would collide as a flat numeric map — that
+  // collision is what made switching projects reset every tab's title) and
+  // (b) background projects keep their titles visible in the sidebar.
   const handleTabTitleChange = useCallback(
-    (tabId: number) => (title: string) => {
-      setTabTitles((prev) => {
-        if (prev.get(tabId) === title) return prev;
-        const next = new Map(prev);
-        next.set(tabId, title);
-        return next;
-      });
+    (projectPath: string, tabId: number) => (title: string) => {
+      sessionRegistry.setTerminalTabTitle(projectPath, tabId, title);
     },
     []
   );
+  // Subscribe to registry so the current project's sidebar / tab selector
+  // re-render when a title changes.
+  const registryVersion = useSyncExternalStore(
+    sessionRegistry.subscribeSimple,
+    () => sessionRegistry.getVersion(),
+    () => 0
+  );
+  const tabTitles = useMemo<Map<number, string>>(() => {
+    void registryVersion;
+    const snap = sessionRegistry.snapshot(currentProject.path);
+    const map = new Map<number, string>();
+    if (snap) {
+      for (const t of snap.terminalTabs) {
+        if (t.title && t.title.length > 0) map.set(t.id, t.title);
+      }
+    }
+    return map;
+  }, [currentProject.path, registryVersion]);
 
   // Cmd/Ctrl+1-5 to switch terminal tabs, Cmd/Ctrl+T to add new tab, Cmd/Ctrl+W to close tab
   useEffect(() => {
@@ -815,9 +832,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                                   onStatusChange={
                                     isCurrentProject ? createTabStatusHandler(tab.id) : undefined
                                   }
-                                  onTitleChange={
-                                    isCurrentProject ? handleTabTitleChange(tab.id) : undefined
-                                  }
+                                  onTitleChange={handleTabTitleChange(session.projectPath, tab.id)}
                                   sessionName={tab.sessionId}
                                   isActive={isVisible}
                                   shouldResume={tab.shouldResume}

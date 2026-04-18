@@ -292,7 +292,25 @@ class SessionRegistry {
     activeTabIndex: number
   ): void {
     const session = this.sessions.get(projectPath) ?? this.getOrCreate(projectPath);
-    session.terminalTabs = tabs.slice();
+    // Preserve `title` and `attention` from the existing snapshot when the
+    // caller (useTerminalManagement) doesn't include them. Otherwise every
+    // tab mutation — add, close, switch agent — would wipe the PTY-reported
+    // title mid-session.
+    const byId = new Map<number, SessionTerminalTab>();
+    for (const t of session.terminalTabs) byId.set(t.id, t);
+    session.terminalTabs = tabs.map((t) => {
+      const prev = byId.get(t.id);
+      if (!prev) return { ...t };
+      // sessionId changes when the tab's agent is switched. Drop the
+      // title/attention carried over from the previous agent so the new
+      // Terminal starts with a clean slate and re-emits its own title.
+      const agentChanged = prev.sessionId !== t.sessionId;
+      return {
+        ...t,
+        title: t.title ?? (agentChanged ? undefined : prev.title),
+        attention: t.attention ?? (agentChanged ? undefined : prev.attention),
+      };
+    });
     session.activeTabIndex = Math.max(0, Math.min(activeTabIndex, tabs.length - 1));
     this.notify(projectPath);
   }
