@@ -215,9 +215,11 @@
   font-size: 11px;
 }
 
-/* Projects (top-level groups) */
+/* Projects (top-level groups). Only top padding — trailing padding was
+ * leaving a visible gap between the last row inside a project and the
+ * divider, which read as a stray line instead of the intended separator. */
 .sidebar-project {
-  padding: 2px 0;
+  padding: 2px 0 0;
   border-bottom: 1px solid var(--border);
 }
 
