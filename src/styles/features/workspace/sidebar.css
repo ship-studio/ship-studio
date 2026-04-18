@@ -125,6 +125,11 @@
   padding: var(--spacing-xs) 0 var(--spacing-md);
   /* Plain block layout. Every child takes a full line. */
   display: block !important;
+  /* Hide the scrollbar visually while keeping the container scrollable.
+   * Production builds (Tauri WKWebView) would otherwise render a default
+   * light grey scrollbar that clashes with the dark sidebar. Firefox gets
+   * `scrollbar-width: none`; WebKit gets the pseudo-element rule below. */
+  scrollbar-width: none;
 }
 
 .workspace-sidebar-scroll > * {
@@ -151,16 +156,9 @@
 }
 
 .workspace-sidebar-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-
-.workspace-sidebar-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: var(--radius-sm);
-}
-
-.workspace-sidebar:hover .workspace-sidebar-scroll::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary);
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Top-level groups: Pinned / Projects.
