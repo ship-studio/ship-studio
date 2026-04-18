@@ -700,6 +700,7 @@
   padding: 10px var(--spacing-md);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
+  border-radius: var(--radius);
   color: var(--text-primary);
   font: inherit;
   font-size: 13px;
@@ -727,6 +728,7 @@
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
+  border-radius: var(--radius);
   color: var(--text-primary);
   font: inherit;
   font-size: 13px;
@@ -749,6 +751,7 @@
   color: var(--text-secondary);
   font-size: 10px;
   font-weight: 700;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
