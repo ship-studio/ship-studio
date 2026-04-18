@@ -32,39 +32,7 @@
   color: var(--text-primary);
 }
 
-.dashboard-settings-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
-  padding-bottom: 0;
-  padding-left: 0;
-  padding-right: 0;
-  background: none;
-  background: transparent;
-  border-bottom: none;
-  border-left: none;
-  border-right: none;
-  border-radius: 0;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: color var(--transition);
-  margin-bottom: 16px;
-}
-
-.dashboard-settings-row:hover {
-  color: var(--text-primary);
-  background: none;
-}
-
-.dashboard-settings-row svg {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
+/* .dashboard-settings-row removed in favor of .dashboard-card + .dashboard-card-row */
 
 /* Sort Dropdown */
 .sort-dropdown {
@@ -280,48 +248,54 @@
   background: var(--text-muted);
 }
 
-/* Integration Bar */
+/* Integration card — extends .dashboard-card (see agents-panel.css).
+   Styles here are the small overrides specific to this card's header
+   button + chevron + connect CTA. */
+
 .integration-bar {
-  padding-bottom: 24px;
+  /* Last card in the dashboard stack — extra room below so it doesn't
+     butt up against the scroll edge. */
+  margin-bottom: var(--spacing-2xl);
 }
 
-.integration-bar-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* When collapsed, drop the header's bottom margin so the card reads as a
+   trim summary row instead of a header with empty space below it. */
+.integration-bar:not(.is-expanded) .dashboard-card-header {
+  margin-bottom: 0;
+}
+
+.integration-bar-header-btn {
   width: 100%;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: 13px;
+  padding: 0;
+  background: none;
+  border: none;
   cursor: pointer;
-  transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  align-items: center;
 }
 
-.integration-bar-toggle:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--text-muted);
+.integration-bar-header-btn:hover .dashboard-card-title {
+  color: var(--text-primary);
 }
 
-.integration-bar-icon {
-  flex-shrink: 0;
+.integration-bar-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
 }
 
-.integration-bar-icon.success {
+.integration-bar-status-icon.success {
   color: var(--success);
 }
 
-.integration-bar-icon.warning {
+.integration-bar-status-icon.warning {
   color: var(--warning);
 }
 
 .integration-bar-chevron {
-  margin-left: auto;
+  color: var(--text-muted);
   transition: transform var(--transition);
 }
 
@@ -329,100 +303,8 @@
   transform: rotate(180deg);
 }
 
-.integration-bar-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.integration-bar-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius);
-  transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
-}
-
-.integration-bar-item.connected {
-  background: rgba(78, 205, 196, 0.08);
-}
-
-.integration-bar-item-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-}
-
-.integration-bar-item.connected .integration-bar-item-icon {
-  background: rgba(78, 205, 196, 0.15);
-  color: var(--success);
-}
-
-.integration-bar-item-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.integration-bar-item-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.integration-bar-item-status {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.integration-bar-item-status.success {
-  color: var(--success);
-}
-
-.integration-bar-item-action {
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  text-decoration: none;
-  transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
-}
-
-.integration-bar-item-action:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.integration-bar-item-action:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .integration-bar-item-connect {
-  padding: 4px 10px;
+  padding: var(--spacing-xs) var(--spacing-md);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -433,7 +315,6 @@
     background-color 0.15s,
     color 0.15s,
     border-color 0.15s;
-  margin-left: auto;
 }
 
 .integration-bar-item-connect:hover {
@@ -558,36 +439,8 @@
     font-size: 13px;
   }
 
-  /* Integration bar */
+  /* Integration card — tighter spacing on narrow screens */
   .integration-bar {
-    margin-top: 24px;
-    padding-top: 16px;
-  }
-
-  .integration-bar-toggle {
-    padding: 10px 12px;
-    font-size: 12px;
-  }
-
-  .integration-bar-content {
-    padding: 10px;
-  }
-
-  .integration-bar-item {
-    padding: 8px 10px;
-    gap: 10px;
-  }
-
-  .integration-bar-item-icon {
-    width: 28px;
-    height: 28px;
-  }
-
-  .integration-bar-item-name {
-    font-size: 12px;
-  }
-
-  .integration-bar-item-status {
-    font-size: 11px;
+    margin-top: var(--spacing-lg);
   }
 }

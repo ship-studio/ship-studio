@@ -10,7 +10,10 @@
   -ms-overflow-style: none;
   /* Center the whole layout */
   justify-content: center;
-  padding: 0 24px;
+  /* Bottom padding keeps the Integrations card off the viewport edge when
+     the user scrolls all the way down. Top stays 0 because the project-list
+     below handles the traffic-light spacing. */
+  padding: 0 24px var(--spacing-2xl);
   gap: 0;
 }
 
@@ -68,8 +71,9 @@
 .project-list.dashboard {
   display: flex;
   flex-direction: column;
-  /* Top padding accounts for macOS traffic lights in overlay mode */
-  padding: 44px 24px 24px;
+  /* Top padding accounts for macOS traffic lights in overlay mode;
+     bottom padding keeps the last card (Integrations) off the scroll edge. */
+  padding: 44px 24px var(--spacing-2xl);
   gap: 0;
   width: 100%;
   max-width: 900px;
@@ -78,6 +82,16 @@
   height: auto;
   min-height: 100%;
   overflow-y: visible;
+}
+
+/* Explicit bottom spacer at the end of the dashboard column — the
+   nested .dashboard-with-changelog / .dashboard-scroll-container layout
+   has enough padding/overflow indirection that relying purely on
+   margin-bottom was not producing a visible gap. A physical block is
+   deterministic. */
+.dashboard-bottom-spacer {
+  height: 24px;
+  flex-shrink: 0;
 }
 
 /* Slack Community CTA */

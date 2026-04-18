@@ -49,13 +49,14 @@ import { FolderBreadcrumb } from './FolderBreadcrumb';
 import { MoveFolderModal } from './MoveFolderModal';
 import { SettingsModal } from './SettingsModal';
 import { GitHubCalendar } from './GitHubCalendar';
+import { ChangelogModal } from './ChangelogModal';
 import {
   getCalendarHidden,
   setCalendarHidden as persistCalendarHidden,
   getSlackCtaHidden,
   setSlackCtaHidden as persistSlackCtaHidden,
 } from '../lib/settings';
-import { SlackIcon, SettingsIcon, EyeOffIcon } from './icons';
+import { SlackIcon, SettingsIcon, EyeOffIcon, ChevronRightIcon, HistoryIcon } from './icons';
 
 /** Basic project info for selection callback */
 interface Project {
@@ -99,10 +100,6 @@ interface ProjectListProps {
   pinnedSet?: ReadonlySet<string>;
   /** Toggle pin state for a project. */
   onTogglePin?: (projectPath: string, pinned: boolean) => void;
-  /** Optional slot rendered inside the dashboard column *after* the
-   *  project grid. Used to put "What's New" below the grid instead of
-   *  sticky alongside it. */
-  changelogSlot?: React.ReactNode;
 }
 
 export function ProjectList({
@@ -118,7 +115,6 @@ export function ProjectList({
   cleanupStatus,
   pinnedSet,
   onTogglePin,
-  changelogSlot,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<ProjectWithThumbnail[]>([]);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
@@ -142,8 +138,9 @@ export function ProjectList({
   const [moveProject, setMoveProject] = useState<DashboardProject | null>(null);
   const [moveProjectFolderId, setMoveProjectFolderId] = useState<string | null>(null);
 
-  // Settings modal state
+  // Settings / Changelog modal state
   const [showSettings, setShowSettings] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
   const [calendarHidden, setCalendarHidden] = useState(false);
   const [slackCtaHidden, setSlackCtaHidden] = useState(false);
 
@@ -561,21 +558,64 @@ export function ProjectList({
 
         <AgentsPanel />
 
-        {changelogSlot}
-
-        <button
-          className="dashboard-settings-row"
-          data-education-id="settings-button"
-          onClick={() => {
-            void trackEvent('settings_opened', { $screen_name: 'Dashboard' });
-            setShowSettings(true);
-          }}
-        >
-          <SettingsIcon size={14} />
-          <span>Settings</span>
-        </button>
+        <section className="dashboard-card">
+          <header className="dashboard-card-header">
+            <div>
+              <h3 className="dashboard-card-title">Preferences</h3>
+              <p className="dashboard-card-subtitle">
+                Adjust app settings or review recent updates.
+              </p>
+            </div>
+          </header>
+          <div className="dashboard-card-rows">
+            <button
+              type="button"
+              className="dashboard-card-row"
+              data-education-id="settings-button"
+              onClick={() => {
+                void trackEvent('settings_opened', { $screen_name: 'Dashboard' });
+                setShowSettings(true);
+              }}
+            >
+              <div className="dashboard-card-row-icon">
+                <SettingsIcon size={18} />
+              </div>
+              <div className="dashboard-card-row-main">
+                <div className="dashboard-card-row-name">Settings</div>
+                <div className="dashboard-card-row-status">
+                  Dashboard widgets, compact mode, learn mode
+                </div>
+              </div>
+              <ChevronRightIcon size={14} />
+            </button>
+            <button
+              type="button"
+              className="dashboard-card-row"
+              onClick={() => {
+                void trackEvent('changelog_opened', { $screen_name: 'Dashboard' });
+                setShowChangelog(true);
+              }}
+            >
+              <div className="dashboard-card-row-icon">
+                <HistoryIcon size={14} />
+              </div>
+              <div className="dashboard-card-row-main">
+                <div className="dashboard-card-row-name">What's New</div>
+                <div className="dashboard-card-row-status">
+                  Recent updates and downgrade to older versions
+                </div>
+              </div>
+              <ChevronRightIcon size={14} />
+            </button>
+          </div>
+        </section>
 
         <IntegrationBar onGitHubConnect={onGitHubConnect} />
+
+        {/* Physical bottom spacer — guarantees the Integrations card never
+            butts up against the scroll edge, regardless of how the outer
+            flex/overflow containers resolve padding. */}
+        <div className="dashboard-bottom-spacer" aria-hidden />
 
         {/* New Folder Modal */}
         <NewFolderModal
@@ -668,6 +708,9 @@ export function ProjectList({
           onCalendarHiddenChange={setCalendarHidden}
           onSlackCtaHiddenChange={setSlackCtaHidden}
         />
+
+        {/* What's New Modal */}
+        <ChangelogModal isOpen={showChangelog} onClose={() => setShowChangelog(false)} />
       </div>
     </div>
   );

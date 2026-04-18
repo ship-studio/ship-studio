@@ -1,7 +1,9 @@
 /* Agents panel — dashboard surface for managing coding agents */
 
 .agents-panel {
-  margin: var(--spacing-lg) 0;
+  /* First card after the project grid — double the default gap so the
+     stack reads as a separate section rather than crowding the projects. */
+  margin: var(--spacing-2xl) 0 var(--spacing-lg);
   padding: var(--spacing-lg);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -267,4 +269,133 @@
   justify-content: flex-end;
   gap: var(--spacing-sm);
   margin-top: var(--spacing-lg);
+}
+
+/* ============================================================
+   Shared dashboard card — same visual shell as .agents-panel.
+   Used by the Preferences and Integrations sections below the
+   project grid so the three read as one coherent stack.
+   ============================================================ */
+
+.dashboard-card {
+  margin: 0 0 var(--spacing-lg);
+  padding: var(--spacing-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.dashboard-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.dashboard-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.dashboard-card-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 2px 0 0 0;
+}
+
+.dashboard-card-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.dashboard-card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  width: 100%;
+  padding: var(--spacing-md) var(--spacing-md) var(--spacing-md) var(--spacing-lg);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    border-color var(--transition);
+}
+
+button.dashboard-card-row {
+  /* Reset default button styling when used as an interactive row */
+  appearance: none;
+}
+
+.dashboard-card-row:hover {
+  border-color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+/* Static (non-interactive) rows — e.g. status lines in Integrations */
+.dashboard-card-row.is-static {
+  cursor: default;
+}
+
+.dashboard-card-row.is-static:hover {
+  border-color: var(--border);
+  background: var(--bg-primary);
+}
+
+.dashboard-card-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.dashboard-card-row-icon.success {
+  color: var(--success);
+}
+
+.dashboard-card-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dashboard-card-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-card-row-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-card-row-status.success {
+  color: var(--success);
+}
+
+.dashboard-card-row-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
 }

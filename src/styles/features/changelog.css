@@ -232,4 +232,48 @@
   .changelog {
     display: none;
   }
+
+  /* …but *do* show it inside the modal at any width. */
+  .changelog-modal .changelog {
+    display: flex;
+  }
+}
+
+/* =========================================================
+   Changelog inside the ChangelogModal (What's New)
+   ========================================================= */
+
+.changelog-modal {
+  width: min(560px, 90vw);
+  max-height: min(720px, 85vh);
+  display: flex;
+  flex-direction: column;
+}
+
+.changelog-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.changelog-in-modal {
+  /* No border — the ModalFrame container already provides the chrome. */
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The inline Changelog has its own "What's New / Recent updates" header.
+   When rendered inside the modal, the ModalFrame already shows a title,
+   so hide the inner one. */
+.changelog-in-modal .changelog-header {
+  display: none;
+}
+
+.changelog-in-modal .changelog-list {
+  padding: 4px 0 var(--spacing-md);
 }

@@ -1,13 +1,10 @@
 /**
- * IntegrationBar component that displays the status of required integrations.
+ * IntegrationBar — required-integrations card at the bottom of the dashboard.
  *
- * Shows a collapsible bar at the bottom of the dashboard indicating:
- * - Overall integration health (all connected vs some missing)
- * - Individual status of each integration (Claude, GitHub, Vercel)
- * - Whether CLI tools are installed and authenticated
- *
- * The bar is collapsed by default showing just a summary, and expands
- * to show detailed status for each integration when clicked.
+ * Styled as a shared .dashboard-card so it reads as part of the same stack
+ * as the Coding Agents and Preferences cards. Collapsed by default — the
+ * summary line ("All integrations connected" or "X/Y ready") sits inside
+ * the card header, and the individual integration rows reveal on expand.
  *
  * @module components/IntegrationBar
  */
@@ -27,13 +24,11 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
   const [setupItems, setSetupItems] = useState<SetupItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch full setup status on mount
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
       try {
         const status = await getFullSetupStatus();
-        // Sort by display order
         const sorted = [...status.items].sort((a, b) => {
           return SETUP_ITEM_ORDER.indexOf(a.id) - SETUP_ITEM_ORDER.indexOf(b.id);
         });
@@ -53,7 +48,6 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
   const totalCount = setupItems.length;
   const allConnected = totalCount > 0 && readyCount === totalCount;
 
-  // Get icon for item
   const getItemIcon = (itemId: string) => {
     switch (itemId) {
       case 'claude':
@@ -67,7 +61,6 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
     }
   };
 
-  // Get status text for item
   const getStatusText = (item: SetupItem) => {
     if (item.status === 'ready') {
       return item.username || item.version || 'Ready';
@@ -75,59 +68,64 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
     return item.status === 'not_installed' ? 'Not installed' : 'Not connected';
   };
 
-  // Get connect handler for auth items
   const getConnectHandler = (itemId: string) => {
     if (itemId === 'gh_auth') return onGitHubConnect;
     return undefined;
   };
 
+  const subtitle = isLoading
+    ? 'Checking…'
+    : allConnected
+      ? 'All integrations connected'
+      : `${readyCount}/${totalCount} ready`;
+
+  const statusIcon = isLoading ? (
+    <SpinnerIcon size={14} className="spinner-icon" />
+  ) : allConnected ? (
+    <CheckIcon size={14} className="integration-bar-status-icon success" />
+  ) : (
+    <WarningIcon size={14} className="integration-bar-status-icon warning" />
+  );
+
   return (
-    <div
-      className={`integration-bar ${isExpanded ? 'expanded' : ''}`}
+    <section
+      className={`dashboard-card integration-bar ${isExpanded ? 'is-expanded' : ''}`}
       data-education-id="integration-bar"
     >
-      <button className="integration-bar-toggle" onClick={() => setIsExpanded(!isExpanded)}>
-        {isLoading ? (
-          <>
-            <SpinnerIcon size={16} className="spinner-icon integration-bar-icon" />
-            <span>Checking integrations...</span>
-          </>
-        ) : allConnected ? (
-          <>
-            <CheckIcon size={16} className="integration-bar-icon success" />
-            <span>All integrations connected</span>
-          </>
-        ) : (
-          <>
-            <WarningIcon size={16} className="integration-bar-icon warning" />
-            <span>
-              {readyCount}/{totalCount} integrations ready
-            </span>
-          </>
-        )}
+      <button
+        type="button"
+        className="dashboard-card-header integration-bar-header-btn"
+        onClick={() => setIsExpanded((v) => !v)}
+        aria-expanded={isExpanded}
+      >
+        <div>
+          <h3 className="dashboard-card-title">Integrations</h3>
+          <p className="dashboard-card-subtitle integration-bar-subtitle">
+            {statusIcon}
+            <span>{subtitle}</span>
+          </p>
+        </div>
         <ChevronIcon
-          size={16}
+          size={14}
           className={`integration-bar-chevron ${isExpanded ? 'up' : 'down'}`}
         />
       </button>
 
       {isExpanded && (
-        <div className="integration-bar-content">
+        <div className="dashboard-card-rows">
           {setupItems.map((item) => {
             const connectHandler = getConnectHandler(item.id);
             const showConnectButton = item.status !== 'ready' && connectHandler;
+            const isReady = item.status === 'ready';
 
             return (
-              <div
-                key={item.id}
-                className={`integration-bar-item ${item.status === 'ready' ? 'connected' : ''}`}
-              >
-                <div className="integration-bar-item-icon">{getItemIcon(item.id)}</div>
-                <div className="integration-bar-item-info">
-                  <span className="integration-bar-item-name">{item.friendlyName}</span>
-                  <span
-                    className={`integration-bar-item-status ${item.status === 'ready' ? 'success' : ''}`}
-                  >
+              <div key={item.id} className="dashboard-card-row is-static">
+                <div className={`dashboard-card-row-icon ${isReady ? 'success' : ''}`}>
+                  {getItemIcon(item.id)}
+                </div>
+                <div className="dashboard-card-row-main">
+                  <span className="dashboard-card-row-name">{item.friendlyName}</span>
+                  <span className={`dashboard-card-row-status ${isReady ? 'success' : ''}`}>
                     {getStatusText(item)}
                   </span>
                 </div>
@@ -147,6 +145,6 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
           })}
         </div>
       )}
-    </div>
+    </section>
   );
 }

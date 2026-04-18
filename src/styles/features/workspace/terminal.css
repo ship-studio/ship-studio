@@ -2,7 +2,9 @@
 .terminal-tabs-bar {
   display: flex;
   align-items: center;
-  padding: 9px 12px;
+  /* Match .terminal-toolbar's 10px horizontal padding so the Restart /
+     Settings buttons align vertically with the sidebar toggle above. */
+  padding: 9px 10px;
   min-height: 48px;
   background: #252525;
   border-bottom: 1px solid var(--border);
