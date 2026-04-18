@@ -985,6 +985,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             hasDevServer={false}
             isRestartingDevServer={false}
             devServerRunning={false}
+            isProjectDevServerRunning={isServerRunning}
           />
           <ProjectsView
             onSelectProject={handleSelectProjectCallback}
@@ -1068,6 +1069,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             hasDevServer={false}
             isRestartingDevServer={false}
             devServerRunning={false}
+            isProjectDevServerRunning={isServerRunning}
           />
           <div className="project-loading-body">
             <div className="spinner" />
@@ -1117,6 +1119,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         onSelectProjectTab={handleSelectProjectTab}
         onGoHome={() => setView('projects')}
         onOpenProjectPicker={() => setIsProjectPickerOpen(true)}
+        isProjectDevServerRunning={isServerRunning}
       />
       <ProjectPickerModal
         isOpen={isProjectPickerOpen}

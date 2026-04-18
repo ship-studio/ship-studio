@@ -69,6 +69,10 @@ interface Props {
   isRestartingDevServer: boolean;
   devServerRunning: boolean;
   onOpenDevServerLogs?: () => void;
+  /** Predicate: is a dev server currently tracked for the given project path?
+   *  Used for background (non-current) project rows so their Commands section
+   *  can reflect the live state. Evaluated on each render. */
+  isProjectDevServerRunning?: (projectPath: string) => boolean;
 }
 
 const SECTION_STORAGE_KEY = 'ship-studio:workspace-sidebar:collapsed';
@@ -149,6 +153,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   isRestartingDevServer,
   devServerRunning,
   onOpenDevServerLogs,
+  isProjectDevServerRunning,
 }: Props) {
   const [filter, setFilter] = useState('');
   const [collapsed, setCollapsed] = useState<Record<SectionId, boolean>>(readCollapsed);
@@ -396,6 +401,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               <InactiveProjectSections
                 snapshot={sessionRegistry.snapshot(row.projectPath)}
                 filterLower={filterLower}
+                hasLiveDevServer={isProjectDevServerRunning?.(row.projectPath) ?? false}
                 onSelectTab={(sessionId) => {
                   if (onSelectProjectTab) {
                     onSelectProjectTab(row.projectPath, sessionId);
@@ -536,21 +542,16 @@ function SidebarGroupHeader({
 function InactiveProjectSections({
   snapshot,
   filterLower,
+  hasLiveDevServer,
   onSelectTab,
 }: {
   snapshot: SessionSnapshot | undefined;
   filterLower: string;
+  /** True if a dev server is currently tracked for this project path. */
+  hasLiveDevServer: boolean;
   onSelectTab: (sessionId: string) => void;
 }) {
   const tabs: ReadonlyArray<SessionTerminalTab> = snapshot?.terminalTabs ?? [];
-  if (tabs.length === 0) {
-    return (
-      <div className="sidebar-project-inactive">
-        <p>No saved agents yet. Switch to this project to get started.</p>
-      </div>
-    );
-  }
-
   const matches = (label: string) => !filterLower || label.toLowerCase().includes(filterLower);
   const agentCounts = new Map<string, number>();
 
@@ -573,30 +574,46 @@ function InactiveProjectSections({
     else agents.push(item);
   }
 
+  const commands: SidebarItem[] = hasLiveDevServer
+    ? [
+        {
+          key: 'dev-server',
+          label: 'Dev server',
+          dotState: 'active',
+          meta: 'running',
+        },
+      ]
+    : [];
+
   return (
     <>
-      {agents.length > 0 && (
-        <SidebarSection
-          id="agents"
-          label="Agents"
-          total={agents.length}
-          collapsed={false}
-          onToggle={() => {}}
-          items={agents}
-          emptyHint="No agents"
-        />
-      )}
-      {terminals.length > 0 && (
-        <SidebarSection
-          id="terminals"
-          label="Terminals"
-          total={terminals.length}
-          collapsed={false}
-          onToggle={() => {}}
-          items={terminals}
-          emptyHint="No terminals"
-        />
-      )}
+      <SidebarSection
+        id="agents"
+        label="Agents"
+        total={agents.length}
+        collapsed={false}
+        onToggle={() => {}}
+        items={agents}
+        emptyHint={filterLower ? 'No matches' : 'No agents running'}
+      />
+      <SidebarSection
+        id="terminals"
+        label="Terminals"
+        total={terminals.length}
+        collapsed={false}
+        onToggle={() => {}}
+        items={terminals}
+        emptyHint={filterLower ? 'No matches' : 'No terminals'}
+      />
+      <SidebarSection
+        id="commands"
+        label="Commands"
+        total={commands.length}
+        collapsed={false}
+        onToggle={() => {}}
+        items={commands}
+        emptyHint={filterLower ? 'No matches' : 'No commands'}
+      />
     </>
   );
 }

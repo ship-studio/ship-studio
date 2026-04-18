@@ -102,15 +102,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const [isReady, setIsReady] = useState(false);
   const [isFocused, setIsFocused] = useState(false); // Start unfocused to show overlay until user clicks
 
-  // When tab becomes active: flush hidden buffer, spawn PTY if deferred, and
-  // refit. The refit covers the case where the terminal spawned while its
-  // container was briefly zero-sized (e.g. a background project's tab that's
-  // only CSS-hidden via `visibility: hidden`) — xterm's renderer caches
-  // dimensions at init, so a later resize without an explicit fit leaves
-  // text fragmented.
+  // When tab becomes active: flush hidden buffer and spawn PTY if deferred
   useEffect(() => {
     isActiveRef.current = isActive;
     if (isActive) {
+      // Flush buffered output
       if (terminalRef.current && hiddenBufferRef.current.length > 0) {
         for (const chunk of hiddenBufferRef.current) {
           terminalRef.current.write(chunk);
@@ -118,18 +114,11 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         hiddenBufferRef.current = [];
         hiddenBufferSizeRef.current = 0;
       }
+      // Spawn PTY if it was deferred (tab was created while hidden)
       if (deferredSpawnRef.current) {
         const spawn = deferredSpawnRef.current;
         deferredSpawnRef.current = null;
         spawn();
-      }
-      if (fitAddonRef.current && terminalRef.current) {
-        requestAnimationFrame(() => {
-          if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
-            fitAddonRef.current.fit();
-            ptyRef.current.resize(terminalRef.current.cols, terminalRef.current.rows);
-          }
-        });
       }
     }
   }, [isActive]);

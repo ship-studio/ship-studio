@@ -309,6 +309,9 @@ export interface WorkspaceViewProps {
   onGoHome: () => void;
   /** Open the project picker modal. */
   onOpenProjectPicker: () => void;
+  /** Predicate: is a dev server currently tracked for the given project path?
+   *  Used by the sidebar to populate background projects' Commands section. */
+  isProjectDevServerRunning: (projectPath: string) => boolean;
 }
 
 export const WorkspaceView = memo(function WorkspaceView({
@@ -336,6 +339,7 @@ export const WorkspaceView = memo(function WorkspaceView({
   onSelectProjectTab,
   onGoHome,
   onOpenProjectPicker,
+  isProjectDevServerRunning,
 }: WorkspaceViewProps) {
   // Destructure domain groups for readability in JSX
   const {
@@ -699,6 +703,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                   }
                 : undefined
             }
+            isProjectDevServerRunning={isProjectDevServerRunning}
           />
           <div className="workspace-main">
             {header.toolbar}
