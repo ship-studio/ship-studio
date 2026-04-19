@@ -198,6 +198,8 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create latest.json
+        env:
+          NOTES: ${{ steps.release_notes.outputs.notes }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ github.ref_name }}"
@@ -211,31 +213,29 @@ jobs:
           echo "aarch64 signature: $AARCH64_SIG"
           echo "x86_64 signature: $X86_64_SIG"
 
-          # Read release notes (escape for JSON)
-          NOTES=$(cat << 'NOTES_EOF'
-          ${{ steps.release_notes.outputs.notes }}
-          NOTES_EOF
-          )
-          # Escape newlines and quotes for JSON
-          NOTES_JSON=$(echo "$NOTES" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
-
-          # Create the manifest using printf to avoid YAML parsing issues
-          # URLs point to the PUBLIC releases repo so auto-updater can download
-          printf '%s\n' '{' \
-            "  \"version\": \"${VERSION}\"," \
-            "  \"notes\": \"${NOTES_JSON}\"," \
-            "  \"pub_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," \
-            '  "platforms": {' \
-            '    "darwin-aarch64": {' \
-            "      \"signature\": \"${AARCH64_SIG}\"," \
-            "      \"url\": \"https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-aarch64.app.tar.gz\"" \
-            '    },' \
-            '    "darwin-x86_64": {' \
-            "      \"signature\": \"${X86_64_SIG}\"," \
-            "      \"url\": \"https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-x86_64.app.tar.gz\"" \
-            '    }' \
-            '  }' \
-            '}' > latest.json
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg aarch64_sig "$AARCH64_SIG" \
+            --arg aarch64_url "https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-aarch64.app.tar.gz" \
+            --arg x86_64_sig "$X86_64_SIG" \
+            --arg x86_64_url "https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-x86_64.app.tar.gz" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": {
+                  signature: $aarch64_sig,
+                  url: $aarch64_url
+                },
+                "darwin-x86_64": {
+                  signature: $x86_64_sig,
+                  url: $x86_64_url
+                }
+              }
+            }' > latest.json
 
           echo "Generated latest.json:"
           cat latest.json

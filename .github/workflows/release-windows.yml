@@ -125,6 +125,8 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create latest-windows.json
+        env:
+          NOTES: ${{ steps.release_notes.outputs.notes }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ github.ref_name }}"
@@ -133,23 +135,23 @@ jobs:
           SIG=$(cat artifacts/signature.txt)
           echo "windows-x86_64 signature: $SIG"
 
-          NOTES=$(cat << 'NOTES_EOF'
-          ${{ steps.release_notes.outputs.notes }}
-          NOTES_EOF
-          )
-          NOTES_JSON=$(echo "$NOTES" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
-
-          printf '%s\n' '{' \
-            "  \"version\": \"${VERSION}\"," \
-            "  \"notes\": \"${NOTES_JSON}\"," \
-            "  \"pub_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," \
-            '  "platforms": {' \
-            '    "windows-x86_64": {' \
-            "      \"signature\": \"${SIG}\"," \
-            "      \"url\": \"https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_windows-x86_64-setup.exe\"" \
-            '    }' \
-            '  }' \
-            '}' > latest-windows.json
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig "$SIG" \
+            --arg url "https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_windows-x86_64-setup.exe" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "windows-x86_64": {
+                  signature: $sig,
+                  url: $url
+                }
+              }
+            }' > latest-windows.json
 
           echo "Generated latest-windows.json:"
           cat latest-windows.json
