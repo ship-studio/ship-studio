@@ -1050,7 +1050,7 @@ function AppContents({ initialProjectPath }: AppProps) {
           <WorkspaceSidebar
             key="sidebar-project-loading"
             isHomeActive={false}
-            onGoHome={() => setView('projects')}
+            onGoHome={handleBackToProjects}
             onOpenProjectPicker={() => setIsProjectPickerOpen(true)}
             projects={pinnedProjects.rows}
             currentProjectPath={currentProject?.path ?? null}
@@ -1117,7 +1117,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         onSelectProject={handleRailClick}
         onCloseProject={handleCloseProject}
         onSelectProjectTab={handleSelectProjectTab}
-        onGoHome={() => setView('projects')}
+        onGoHome={handleBackToProjects}
         onOpenProjectPicker={() => setIsProjectPickerOpen(true)}
         isProjectDevServerRunning={isServerRunning}
       />
