@@ -256,6 +256,7 @@ jobs:
             --dir carry-forward
           ls -la carry-forward/
 
+      # Upload to the PRIVATE main repo (for reference/backup)
       - name: Upload updater tarballs to main repo release
         uses: softprops/action-gh-release@v2
         with:
@@ -275,6 +276,7 @@ jobs:
           TAG="${{ github.ref_name }}"
           VERSION="${{ steps.version.outputs.version }}"
 
+          # Create the release in the public repo (auto-published, no draft)
           gh release create "$TAG" \
             --repo ship-studio/releases \
             --title "Ship Studio v${VERSION}" \
