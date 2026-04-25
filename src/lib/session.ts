@@ -16,7 +16,6 @@
  */
 
 const APP_SESSION_ID = crypto.randomUUID();
-const APP_SESSION_START = Date.now();
 
 let projectSessionId: string | null = null;
 let projectSessionStart: number | null = null;
@@ -24,11 +23,6 @@ let projectSessionStart: number | null = null;
 /** Stable for the lifetime of this app process. */
 export function getAppSessionId(): string {
   return APP_SESSION_ID;
-}
-
-/** Seconds since app boot. */
-export function getAppSessionDuration(): number {
-  return Math.round((Date.now() - APP_SESSION_START) / 1000);
 }
 
 /** Current project session ID, or null if no project is open. */

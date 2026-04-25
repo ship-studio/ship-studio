@@ -184,9 +184,9 @@ describe('useIntegrationStatus', () => {
         github_username: 'myuser',
         latest_app_version: '9.9.9',
       });
-      expect(typeof setProps?.last_seen_at).toBe('string');
+      expect(typeof setProps?.last_identified_at).toBe('string');
       expect(setOnceProps).toMatchObject({ first_app_version: '9.9.9' });
-      expect(typeof setOnceProps?.first_seen_at).toBe('string');
+      expect(typeof setOnceProps?.first_identified_at).toBe('string');
     });
   });
 

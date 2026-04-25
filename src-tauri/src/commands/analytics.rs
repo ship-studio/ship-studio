@@ -238,9 +238,25 @@ pub async fn identify_user(
 
     let mut props = serde_json::Map::new();
     props.insert("$set".to_string(), serde_json::Value::Object(set_props));
-    if let Some(serde_json::Value::Object(once_map)) = set_once {
-        if !once_map.is_empty() {
+    match set_once {
+        Some(serde_json::Value::Object(once_map)) if !once_map.is_empty() => {
             props.insert("$set_once".to_string(), serde_json::Value::Object(once_map));
+        }
+        Some(serde_json::Value::Object(_)) | None => {
+            // Empty or absent — nothing to merge.
+        }
+        Some(other) => {
+            warn!(
+                "identify_user: set_once must be a non-empty object, got {} — ignoring",
+                match other {
+                    serde_json::Value::String(_) => "string",
+                    serde_json::Value::Number(_) => "number",
+                    serde_json::Value::Bool(_) => "bool",
+                    serde_json::Value::Array(_) => "array",
+                    serde_json::Value::Null => "null",
+                    serde_json::Value::Object(_) => unreachable!(),
+                }
+            );
         }
     }
     props.insert(

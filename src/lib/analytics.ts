@@ -112,14 +112,22 @@ export async function trackEvent(
 }
 
 /**
- * Track a screen view. Sets the active screen *and* sends a `$pageview`
- * event so PostHog's path/screen analytics light up. Use this whenever
- * the user navigates between top-level views (dashboard, workspace tabs,
- * onboarding steps).
+ * Track a screen view. Sets the active screen and sends a `$pageview` event
+ * with a synthetic `app://ship-studio/<slug>` URL so PostHog's URL-keyed
+ * dashboards (Paths, Web Analytics) work. Call on every top-level view
+ * change (dashboard, workspace tabs, onboarding steps).
  */
 export function trackPageview(screen: string): void {
   setActiveScreen(screen);
-  void trackEvent('$pageview', { $screen_name: screen });
+  const slug = screen
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9/-]/g, '');
+  void trackEvent('$pageview', {
+    $screen_name: screen,
+    $current_url: `app://ship-studio/${slug}`,
+    $pathname: `/${slug}`,
+  });
 }
 
 /**

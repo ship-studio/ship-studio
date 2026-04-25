@@ -67,7 +67,8 @@ import { useAppCommands } from './commands/useAppCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
 import { SuccessIcon, InfoIcon, CloseIcon } from './components/icons';
 import { logger } from './lib/logger';
-import { trackEvent } from './lib/analytics';
+import { trackEvent, setActiveProject } from './lib/analytics';
+import { endProjectSession } from './lib/session';
 import type { AppView } from './lib/types';
 import './styles/index.css';
 
@@ -472,6 +473,18 @@ function AppContents({ initialProjectPath }: AppProps) {
         }
         sessionRegistry.destroy(projectPath);
         if (currentProject?.path === projectPath) {
+          // Closing the current project ends its analytics session. Switching
+          // away to projects view also clears active project context so any
+          // home-screen events that follow aren't tagged with stale project_id.
+          const ended = endProjectSession();
+          if (ended) {
+            void trackEvent('project_session_ended', {
+              project_session_id: ended.session_id,
+              duration_seconds: ended.duration_seconds,
+              reason: 'project_closed',
+            });
+          }
+          setActiveProject(null);
           setCurrentProject(null);
           currentProjectPathRef.current = null;
           setView('projects');
