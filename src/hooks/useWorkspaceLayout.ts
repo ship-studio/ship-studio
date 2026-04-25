@@ -8,11 +8,21 @@
  */
 
 import { useState, useCallback } from 'react';
+import { trackEvent, trackPageview } from '../lib/analytics';
 
 interface UseWorkspaceLayoutParams {
   /** Whether GitHub is connected for the current project */
   isGitHubConnected: boolean;
 }
+
+type WorkspaceTab = 'preview' | 'code' | 'branches' | 'prs';
+
+const TAB_SCREEN: Record<WorkspaceTab, string> = {
+  preview: 'Workspace - Preview',
+  code: 'Workspace - Code',
+  branches: 'Workspace - Branches',
+  prs: 'Workspace - Pull Requests',
+};
 
 export function useWorkspaceLayout({ isGitHubConnected }: UseWorkspaceLayoutParams) {
   // Health-logs panel visibility (takes over the terminal pane when the user
@@ -26,10 +36,21 @@ export function useWorkspaceLayout({ isGitHubConnected }: UseWorkspaceLayoutPara
   // user selected; `workspaceTab` below projects it through the GitHub-connected
   // gate so branches/prs fall back to preview when GitHub isn't available. We
   // keep the raw value so the user's last selection comes back on reconnect.
-  const [workspaceTabRaw, setWorkspaceTab] = useState<'preview' | 'code' | 'branches' | 'prs'>(
-    'preview'
-  );
-  const workspaceTab: 'preview' | 'code' | 'branches' | 'prs' =
+  const [workspaceTabRaw, setWorkspaceTabRaw] = useState<WorkspaceTab>('preview');
+
+  // Wrap the raw setter with analytics. Functional update lets us see the
+  // previous tab without re-rendering this hook on every workspaceTabRaw change.
+  const setWorkspaceTab = useCallback((tab: WorkspaceTab) => {
+    setWorkspaceTabRaw((prev) => {
+      if (prev !== tab) {
+        void trackEvent('workspace_tab_switched', { from_tab: prev, to_tab: tab });
+        trackPageview(TAB_SCREEN[tab]);
+      }
+      return tab;
+    });
+  }, []);
+
+  const workspaceTab: WorkspaceTab =
     !isGitHubConnected && (workspaceTabRaw === 'branches' || workspaceTabRaw === 'prs')
       ? 'preview'
       : workspaceTabRaw;

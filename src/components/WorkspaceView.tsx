@@ -38,6 +38,7 @@ import { WorkspaceHeader, HOSTING_PLUGIN_IDS } from './WorkspaceHeader';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
 import { PluginSlot } from './PluginSlot';
 import { UpdateBanner } from './UpdateBanner';
+import { trackEvent } from '../lib/analytics';
 import { useWorkspaceCommands } from '../commands/useWorkspaceCommands';
 import {
   CameraIcon,
@@ -570,7 +571,22 @@ export const WorkspaceView = memo(function WorkspaceView({
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const effectiveSidebarHidden = isSidebarHidden;
   const [showPreviewLogs, setShowPreviewLogs] = useState(false);
-  const [inspectTab, setInspectTab] = useState<InspectTab>('logs');
+  const [inspectTab, setInspectTabRaw] = useState<InspectTab>('logs');
+  // Wrap setter so we don't have to remember to track at every call site.
+  const setInspectTab = useCallback((tab: InspectTab) => {
+    setInspectTabRaw((prev) => {
+      if (prev !== tab) {
+        void trackEvent('inspect_subtab_switched', { from_tab: prev, to_tab: tab });
+      }
+      return tab;
+    });
+  }, []);
+  const togglePreviewLogs = useCallback(() => {
+    setShowPreviewLogs((prev) => {
+      void trackEvent('inspect_panel_toggled', { is_open: !prev });
+      return !prev;
+    });
+  }, []);
 
   // Workspace-scoped palette commands (branch + PR flows).
   useWorkspaceCommands({
@@ -690,7 +706,11 @@ export const WorkspaceView = memo(function WorkspaceView({
       />
     ),
     isSidebarHidden: effectiveSidebarHidden,
-    onToggleSidebar: () => setIsSidebarHidden((v) => !v),
+    onToggleSidebar: () =>
+      setIsSidebarHidden((v) => {
+        void trackEvent('sidebar_toggled', { is_hidden: !v });
+        return !v;
+      }),
     integrations,
     onGitHubStatusChange: handleGitHubStatusChange,
     onGitHubConnect: handleGitHubConnect,
@@ -1087,9 +1107,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             isDevServerRestarting={isRestartingDevServer}
                             onSendToClaude={sendToClaude}
                             showLogs={showPreviewLogs}
-                            onToggleLogs={
-                              hasDevServer ? () => setShowPreviewLogs((s) => !s) : undefined
-                            }
+                            onToggleLogs={hasDevServer ? togglePreviewLogs : undefined}
                             devServerOutput={devServerOutput}
                             devServerOutputVersion={devServerOutputVersion}
                             inspectTab={inspectTab}

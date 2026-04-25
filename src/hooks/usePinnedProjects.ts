@@ -33,6 +33,7 @@ import {
   type AgentActivityStatus,
 } from '../lib/sessionRegistry';
 import { logger } from '../lib/logger';
+import { trackEvent } from '../lib/analytics';
 
 /** A pinned project as the rail wants to render it. */
 export interface PinnedProjectRow {
@@ -152,6 +153,7 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
     try {
       const updated = await pinProjectApi(projectPath);
       setPinnedPaths(updated);
+      void trackEvent('project_pinned', { pin_count: updated.length });
     } catch (err) {
       logger.error('[usePinnedProjects] Failed to pin project', {
         projectPath,
@@ -165,6 +167,7 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
     try {
       const updated = await unpinProjectApi(projectPath);
       setPinnedPaths(updated);
+      void trackEvent('project_unpinned', { pin_count: updated.length });
     } catch (err) {
       logger.error('[usePinnedProjects] Failed to unpin project', {
         projectPath,
@@ -178,6 +181,7 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
     try {
       const updated = await reorderPinsApi(orderedPaths);
       setPinnedPaths(updated);
+      void trackEvent('pins_reordered', { pin_count: updated.length });
     } catch (err) {
       logger.error('[usePinnedProjects] Failed to reorder pins', { error: String(err) });
       throw err;

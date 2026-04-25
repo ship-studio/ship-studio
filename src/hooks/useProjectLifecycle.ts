@@ -28,7 +28,7 @@ import {
 } from '../lib/window';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
-import { trackEvent, trackError, setActiveProject } from '../lib/analytics';
+import { trackEvent, trackError, setActiveProject, trackPageview } from '../lib/analytics';
 import { getProjectId } from '../lib/projectIdentity';
 import { startProjectSession, endProjectSession } from '../lib/session';
 
@@ -222,6 +222,10 @@ export function useProjectLifecycle({
 
     void trackEvent('project_opened', { $screen_name: 'Workspace' });
     void trackEvent('project_session_started', { $screen_name: 'Workspace' });
+    // Initial workspace lands on Preview by default (web projects) or Code
+    // (generic projects). useWorkspaceLayout fires its own pageview on tab
+    // change; this seeds the first one.
+    trackPageview('Workspace - Preview');
 
     // Every active session is hot: once a project has a dev server, it
     // stays alive until the user explicitly closes it via the sidebar (or
@@ -672,6 +676,7 @@ export function useProjectLifecycle({
       });
     }
     setActiveProject(null);
+    // App.tsx fires the Dashboard pageview when view becomes 'projects'.
 
     // New model: back-to-projects is a *view switch*, not a teardown. The
     // leaving project's dev server, PTYs, and session registry entry all

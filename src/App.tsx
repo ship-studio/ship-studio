@@ -67,7 +67,7 @@ import { useAppCommands } from './commands/useAppCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
 import { SuccessIcon, InfoIcon, CloseIcon } from './components/icons';
 import { logger } from './lib/logger';
-import { trackEvent, setActiveProject } from './lib/analytics';
+import { trackEvent, setActiveProject, trackPageview } from './lib/analytics';
 import { endProjectSession } from './lib/session';
 import type { AppView } from './lib/types';
 import './styles/index.css';
@@ -123,6 +123,15 @@ function AppContents({ initialProjectPath }: AppProps) {
       setPaletteContext({ kind: 'other', currentProjectName: null, currentProjectPath: null });
     }
   }, [view, currentProject, setPaletteContext]);
+
+  // Top-level pageviews. Workspace fires its own tab-specific pageviews from
+  // useWorkspaceLayout, so we skip it here to avoid double-firing.
+  useEffect(() => {
+    if (view === 'projects') trackPageview('Dashboard');
+    else if (view === 'onboarding') trackPageview('Onboarding');
+    // 'loading', 'project-loading', and 'workspace' are intentionally not
+    // tracked here — they're either transient or handled elsewhere.
+  }, [view]);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const previewRef = useRef<import('./components/Preview').PreviewHandle | null>(null);
@@ -429,7 +438,10 @@ function AppContents({ initialProjectPath }: AppProps) {
   );
 
   const openPalette = useOpenPalette();
-  const openProjectPicker = useCallback(() => openPalette({ tab: 'project' }), [openPalette]);
+  const openProjectPicker = useCallback(() => {
+    void trackEvent('project_picker_opened');
+    openPalette({ tab: 'project' });
+  }, [openPalette]);
 
   // Cmd/Ctrl+1..9 → jump to Nth sidebar project (pinned first, then active).
   useProjectNumberShortcuts({ pinnedPaths, handleSelectProject });
@@ -488,6 +500,7 @@ function AppContents({ initialProjectPath }: AppProps) {
           setCurrentProject(null);
           currentProjectPathRef.current = null;
           setView('projects');
+          // The view-change effect above fires the Dashboard pageview.
         }
       })();
     },
