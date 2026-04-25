@@ -14,6 +14,10 @@ import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon, SpinnerIcon } from './
 import { useClickOutside } from '../hooks/useClickOutside';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError } from '../lib/analytics';
+
+// Module-scoped so the metric spans dropdown re-mounts. Per-project would be
+// better but cross-project publish cadence is also useful and far simpler.
+let lastPublishAt: number | null = null;
 import { useOptionalToast } from '../contexts/ToastContext';
 
 interface PublishBranchDropdownProps {
@@ -130,11 +134,15 @@ export function PublishBranchDropdown({
       }
 
       logger.info('Publish succeeded', { branch: currentBranch });
+      const now = Date.now();
       void trackEvent('branch_published', {
         is_main: isMainBranch,
         branch: currentBranch,
+        time_since_last_publish_seconds:
+          lastPublishAt !== null ? Math.round((now - lastPublishAt) / 1000) : null,
         $screen_name: 'Workspace',
       });
+      lastPublishAt = now;
       onToast?.(isMainBranch ? 'Pushed to GitHub!' : 'Changes synced to GitHub!', 'success');
       onStatusChange();
       setPublishState({ status: 'success' });
