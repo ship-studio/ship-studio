@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { trackEvent } from '../lib/analytics';
 
 /**
  * Registered modal IDs. Add a string here when introducing a new modal so
@@ -52,29 +53,56 @@ interface ProviderProps {
   children: ReactNode;
 }
 
+/**
+ * Modal IDs whose open/close events are *not* fired centrally. The command
+ * palette has its own `palette_opened`/`palette_closed` with richer payload
+ * (context, dismissal reason, search query) — duplicating it here would
+ * inflate counts.
+ */
+const MODAL_TRACKING_EXCLUDED: ReadonlySet<ModalId> = new Set(['commandPalette']);
+
 export function ModalProvider({ children }: ProviderProps) {
   const [openSet, setOpenSet] = useState<Set<ModalId>>(() => new Set());
   const callbacksRef = useRef(new Map<ModalId, Set<() => void>>());
+  // Open-timestamps so `modal_closed` can carry a duration. Keyed by ID;
+  // overwriting on re-open is fine since open and close are paired.
+  const openedAtRef = useRef(new Map<ModalId, number>());
 
   const isOpen = useCallback((id: ModalId) => openSet.has(id), [openSet]);
 
   const open = useCallback((id: ModalId) => {
+    let wasNew = false;
     setOpenSet((prev) => {
       if (prev.has(id)) return prev;
+      wasNew = true;
       const next = new Set(prev);
       next.add(id);
       return next;
     });
+    if (wasNew && !MODAL_TRACKING_EXCLUDED.has(id)) {
+      openedAtRef.current.set(id, Date.now());
+      void trackEvent('modal_opened', { modal_id: id });
+    }
   }, []);
 
   const close = useCallback((id: ModalId) => {
+    let wasOpen = false;
     setOpenSet((prev) => {
       if (!prev.has(id)) return prev;
+      wasOpen = true;
       const next = new Set(prev);
       next.delete(id);
       return next;
     });
     callbacksRef.current.get(id)?.forEach((fn) => fn());
+    if (wasOpen && !MODAL_TRACKING_EXCLUDED.has(id)) {
+      const openedAt = openedAtRef.current.get(id);
+      openedAtRef.current.delete(id);
+      void trackEvent('modal_closed', {
+        modal_id: id,
+        duration_ms: openedAt ? Date.now() - openedAt : null,
+      });
+    }
   }, []);
 
   const toggle = useCallback(
