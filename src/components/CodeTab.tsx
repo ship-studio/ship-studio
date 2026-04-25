@@ -11,6 +11,7 @@ import { FileTree } from './FileTree';
 import { CodeViewer } from './CodeViewer';
 import { ResetIcon, SearchIcon } from './icons';
 import type { FileTreeNode } from '../lib/code';
+import { trackEvent, trackSearch } from '../lib/analytics';
 
 interface CodeTabProps {
   projectPath: string;
@@ -28,9 +29,26 @@ export function CodeTab({ projectPath, onSendToAgent }: CodeTabProps) {
     treeError,
     fileError,
     toggleDirectory,
-    selectFile,
-    refreshTree,
+    selectFile: selectFileRaw,
+    refreshTree: refreshTreeRaw,
   } = useFileTree(projectPath);
+
+  const selectFile = useCallback(
+    (path: string) => {
+      const ext = path.split('.').pop() ?? '';
+      void trackEvent('code_file_opened', {
+        file_extension: ext,
+        path_depth: path.split('/').length,
+      });
+      selectFileRaw(path);
+    },
+    [selectFileRaw]
+  );
+
+  const refreshTree = useCallback(() => {
+    void trackEvent('code_tree_refreshed');
+    refreshTreeRaw();
+  }, [refreshTreeRaw]);
 
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,7 +125,10 @@ export function CodeTab({ projectPath, onSendToAgent }: CodeTabProps) {
             autoCapitalize="off"
             spellCheck={false}
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              trackSearch('code_files', e.target.value);
+            }}
           />
         </div>
         <div className="code-tab-sidebar-content">

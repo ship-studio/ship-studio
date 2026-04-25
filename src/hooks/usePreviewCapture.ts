@@ -11,6 +11,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
+import { trackEvent } from '../lib/analytics';
 
 interface UsePreviewCaptureParams {
   /** Absolute path to the project directory */
@@ -93,11 +94,13 @@ export function usePreviewCapture({
         width: Math.round(rect.width * dpr),
         height: Math.round(rect.height * dpr),
       });
+      void trackEvent('screenshot_captured', { mode: 'viewport', success: true });
       return finalPath;
     } catch (error) {
       logger.error('[Preview] Viewport capture failed', {
         error: error instanceof Error ? error.message : String(error),
       });
+      void trackEvent('screenshot_captured', { mode: 'viewport', success: false });
       return null;
     } finally {
       setIsCapturing(false);
@@ -117,11 +120,13 @@ export function usePreviewCapture({
         projectPath,
         url: captureUrl,
       });
+      void trackEvent('screenshot_captured', { mode: 'fullpage', success: true });
       return filePath;
     } catch (error) {
       logger.error('[Preview] Full page capture failed', {
         error: error instanceof Error ? error.message : String(error),
       });
+      void trackEvent('screenshot_captured', { mode: 'fullpage', success: false, fell_back: true });
       // Fall back to viewport capture if Playwright fails
       return captureForClaude();
     } finally {

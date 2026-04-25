@@ -20,6 +20,7 @@ import { loadNerdFonts } from '../lib/fonts';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { CopyIcon } from './icons';
+import { trackEvent } from '../lib/analytics';
 import '@xterm/xterm/css/xterm.css';
 
 /* Tail-limit the full-buffer send so we don't fire 3k+ lines of HMR
@@ -233,12 +234,25 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
 
   const handleSendFullBuffer = useCallback(() => {
     if (!onSendToAgent) return;
-    onSendToAgent(formatServerLogsForAgent(output));
+    const text = formatServerLogsForAgent(output);
+    void trackEvent('logs_sent_to_agent', {
+      source: 'full_buffer',
+      char_count: text.length,
+      line_count: text.split('\n').length,
+    });
+    onSendToAgent(text);
   }, [onSendToAgent, output]);
 
   const handleSendSelection = useCallback(() => {
     if (!onSendToAgent || !selectionInfo) return;
-    onSendToAgent(formatSelectionForAgent(selectionInfo.text, question));
+    const text = formatSelectionForAgent(selectionInfo.text, question);
+    void trackEvent('logs_sent_to_agent', {
+      source: 'selection',
+      char_count: text.length,
+      line_count: selectionInfo.text.split('\n').length,
+      had_question: question.trim().length > 0,
+    });
+    onSendToAgent(text);
     showToast('Sent to agent', 'success');
     dismissPopover();
   }, [onSendToAgent, selectionInfo, question, showToast, dismissPopover]);

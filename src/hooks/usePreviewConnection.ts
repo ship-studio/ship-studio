@@ -11,6 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useClickOutside } from './useClickOutside';
 import { logger } from '../lib/logger';
 import { getWindowLabel } from '../lib/window';
+import { trackEvent } from '../lib/analytics';
 
 /** How often to refresh the page list (ms) */
 const PAGE_REFRESH_INTERVAL_MS = 5000;
@@ -375,11 +376,13 @@ export function usePreviewConnection({
 
   // Handlers
   const handleRefresh = useCallback(() => {
+    void trackEvent('preview_refreshed', { trigger: 'user' });
     setIframePath(currentPage);
     setCacheBuster(Date.now());
   }, [currentPage]);
 
   const handlePageSelect = useCallback((route: string) => {
+    void trackEvent('preview_page_selected');
     setCurrentPage(route);
     setIframePath(route);
     setShowPageDropdown(false);

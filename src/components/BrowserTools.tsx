@@ -16,6 +16,7 @@ import {
   type DomNode,
   type DomSnapshot,
 } from '../lib/inspectStore';
+import { trackEvent } from '../lib/analytics';
 
 type InnerTab = 'console' | 'network' | 'elements';
 
@@ -25,7 +26,13 @@ interface BrowserToolsProps {
 }
 
 export function BrowserTools({ onSendToAgent }: BrowserToolsProps) {
-  const [tab, setTab] = useState<InnerTab>('console');
+  const [tab, setTabRaw] = useState<InnerTab>('console');
+  const setTab = (next: InnerTab) => {
+    if (next !== tab) {
+      void trackEvent('browser_tools_subtab_switched', { from_tab: tab, to_tab: next });
+    }
+    setTabRaw(next);
+  };
 
   const consoleEntries = useSyncExternalStore(
     inspectStore.subscribe,
@@ -44,21 +51,37 @@ export function BrowserTools({ onSendToAgent }: BrowserToolsProps) {
   }, [tab]);
 
   const handleClear = () => {
-    if (tab === 'console') inspectStore.clearConsole();
-    else if (tab === 'network') inspectStore.clearNetwork();
-    else if (tab === 'elements') inspectStore.refreshDom();
+    if (tab === 'console') {
+      void trackEvent('browser_tools_cleared', { tab: 'console' });
+      inspectStore.clearConsole();
+    } else if (tab === 'network') {
+      void trackEvent('browser_tools_cleared', { tab: 'network' });
+      inspectStore.clearNetwork();
+    } else if (tab === 'elements') {
+      void trackEvent('browser_tools_dom_refreshed');
+      inspectStore.refreshDom();
+    }
   };
 
   const handleSendToAgent = () => {
     if (!onSendToAgent) return;
     let prompt: string;
+    let entryCount = 0;
     if (tab === 'console') {
       prompt = formatConsoleForAgent(consoleEntries);
+      entryCount = consoleEntries.length;
     } else if (tab === 'network') {
       prompt = formatNetworkForAgent(networkEntries);
+      entryCount = networkEntries.length;
     } else {
       prompt = formatElementsForAgent(domSnapshot);
+      entryCount = domSnapshot ? 1 : 0;
     }
+    void trackEvent('browser_tools_sent_to_agent', {
+      tab,
+      entry_count: entryCount,
+      char_count: prompt.length,
+    });
     onSendToAgent(prompt);
   };
 
