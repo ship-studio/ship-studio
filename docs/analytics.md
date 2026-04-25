@@ -124,10 +124,14 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 
 Centralized in [`src/contexts/ModalContext.tsx`](../src/contexts/ModalContext.tsx) — every `open(id)` and `close(id)` fires automatically. `commandPalette` is excluded (Phase 3 tracks it richer).
 
-| Event | Properties |
-|---|---|
-| `modal_opened` | `modal_id` |
-| `modal_closed` | `modal_id`, `duration_ms`, optional `reason` (`'provider_unmount'` on app teardown) |
+The modal id is baked into the event name (`modal_<id>_opened` / `modal_<id>_closed`) so PostHog's default events list is self-describing. `modal_id` is also in the payload for cross-modal filters.
+
+| Event pattern | Properties | Examples |
+|---|---|---|
+| `modal_<id>_opened` | `modal_id` | `modal_envEditor_opened`, `modal_skills_opened`, `modal_pluginManager_opened` |
+| `modal_<id>_closed` | `modal_id`, `duration_ms`, optional `reason` (`'provider_unmount'` on app teardown) | `modal_envEditor_closed`, etc. |
+
+To get an aggregate "any modal opened" count in PostHog, use a regex match on event name (`modal_.*_opened`) or a property filter on `modal_id`.
 
 ### Plugins / Skills / MCP
 

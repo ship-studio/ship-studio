@@ -86,7 +86,10 @@ export function ModalProvider({ children }: ProviderProps) {
     setOpenSet(next);
     if (!MODAL_TRACKING_EXCLUDED.has(id)) {
       openedAtRef.current.set(id, performance.now());
-      void trackEvent('modal_opened', { modal_id: id });
+      // Modal id is baked into the event name so PostHog's default events
+      // list is self-describing — no column add required to know which
+      // modal opened. `modal_id` stays in the payload too for filters.
+      void trackEvent(`modal_${id}_opened`, { modal_id: id });
     }
   }, []);
 
@@ -102,7 +105,7 @@ export function ModalProvider({ children }: ProviderProps) {
     if (!MODAL_TRACKING_EXCLUDED.has(id)) {
       const openedAt = openedAtRef.current.get(id);
       openedAtRef.current.delete(id);
-      void trackEvent('modal_closed', {
+      void trackEvent(`modal_${id}_closed`, {
         modal_id: id,
         // Explicit `undefined` check so a value of 0 (impossible in
         // practice with performance.now()) wouldn't be treated as missing.
@@ -120,7 +123,7 @@ export function ModalProvider({ children }: ProviderProps) {
       for (const id of openSetRef.current) {
         if (MODAL_TRACKING_EXCLUDED.has(id)) continue;
         const openedAt = openedAtRef.current.get(id);
-        void trackEvent('modal_closed', {
+        void trackEvent(`modal_${id}_closed`, {
           modal_id: id,
           duration_ms: openedAt !== undefined ? Math.round(performance.now() - openedAt) : null,
           reason: 'provider_unmount',
