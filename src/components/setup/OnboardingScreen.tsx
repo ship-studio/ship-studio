@@ -46,6 +46,16 @@ import { SlackIcon } from '../icons';
 
 type OnboardingState = 'loading' | 'wizard' | 'complete';
 
+// Module-scoped so React 18 StrictMode's mount→unmount→remount in dev doesn't
+// re-fire `setup_started` after the first launch of this app session. Each
+// app process gets a fresh module load, so this is naturally session-scoped.
+let setupStartedFiredThisSession = false;
+function fireSetupStartedOnce(entryPath: 'wizard' | 'fast_path', entryStep: WizardStepId | null) {
+  if (setupStartedFiredThisSession) return;
+  setupStartedFiredThisSession = true;
+  void trackEvent('setup_started', { entry_path: entryPath, entry_step: entryStep });
+}
+
 /** Configuration for the active terminal command */
 interface TerminalConfig {
   itemId: string;
@@ -69,7 +79,6 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const unlistenRef = useRef<UnlistenFn | null>(null);
-  const setupStartedRef = useRef(false);
   const stepEnteredAtRef = useRef<Map<WizardStepId, number>>(new Map());
 
   // Track each step entry: pageview, setup_step_entered, and remember when
@@ -79,10 +88,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     const stepIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
     const stepDef = WIZARD_STEPS[stepIndex];
     if (!stepDef) return;
-    if (!setupStartedRef.current) {
-      setupStartedRef.current = true;
-      void trackEvent('setup_started', { entry_step: currentStep });
-    }
+    fireSetupStartedOnce('wizard', currentStep);
     trackPageview(`Onboarding - ${stepDef.title}`);
     void trackEvent('setup_step_entered', {
       step_id: currentStep,
@@ -175,9 +181,12 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       await setDefaultAgentId(agentId);
       initDefaultAgent(agentId);
     }
+    // Fast-path users still need a setup_started for funnel completeness.
+    fireSetupStartedOnce('fast_path', null);
     // If multiple agents, they'll be asked to pick in the agent step
     void trackEvent('onboarding_completed', {
       agents: status.detectedAgents,
+      entry_path: 'fast_path',
       $screen_name: 'Onboarding',
     });
     setState('complete');
@@ -266,8 +275,10 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     async (itemId: string) => {
       if (activeItemId || terminalConfig) return;
 
-      // Auth items are "connect"; everything else is "install".
-      const isAuth = itemId === 'gh_auth' || itemId === 'claude_auth' || itemId === 'vercel_auth';
+      // Auth items are "connect"; everything else is "install". Derive from
+      // the convention (`*_auth` suffix) so adding a new auth flow doesn't
+      // require remembering to update this list.
+      const isAuth = itemId.endsWith('_auth');
       void trackEvent('setup_action_clicked', {
         item_id: itemId,
         action: isAuth ? 'connect' : 'install',
@@ -361,9 +372,10 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     [activeItemId, terminalConfig, updateItemStatus, fetchStatus, items, currentStep]
   );
 
-  // Emit setup_step_completed for the step we're leaving. Called from both
-  // handleNext (after we know the advance is happening) and from
-  // handleAllComplete (the auto-skip-to-celebration path).
+  // Emit setup_step_completed for the step the user just clicked Next on.
+  // Only fires from handleNext — the all-complete fast path skips the wizard
+  // entirely and never enters any step, so a per-step completion event there
+  // would be a fabrication.
   const fireStepCompleted = useCallback((stepId: WizardStepId, isFinal: boolean) => {
     const enteredAt = stepEnteredAtRef.current.get(stepId);
     void trackEvent('setup_step_completed', {
@@ -402,18 +414,38 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       }
     }
 
-    // Find next incomplete step after current
+    // Find next incomplete step after current. Anything between current and
+    // the target is auto-skipped because it's already complete; emit a
+    // setup_step_skipped event for each so the funnel shows where the user
+    // breezed through vs. where they actually stopped.
     for (let i = currentIndex + 1; i < WIZARD_STEPS.length; i++) {
       const step = WIZARD_STEPS[i];
       if (!isWizardStepComplete(step.id, items)) {
         fireStepCompleted(currentStep, false);
+        for (let j = currentIndex + 1; j < i; j++) {
+          const skipped = WIZARD_STEPS[j];
+          void trackEvent('setup_step_skipped', {
+            step_id: skipped.id,
+            step_index: j,
+            reason: 'already_complete',
+          });
+        }
         setCurrentStep(step.id);
         return;
       }
     }
 
-    // All steps after current are complete → celebration
+    // All steps after current are complete → celebration. Emit skipped
+    // events for each intermediate so the funnel terminates cleanly.
     fireStepCompleted(currentStep, true);
+    for (let j = currentIndex + 1; j < WIZARD_STEPS.length; j++) {
+      const skipped = WIZARD_STEPS[j];
+      void trackEvent('setup_step_skipped', {
+        step_id: skipped.id,
+        step_index: j,
+        reason: 'already_complete',
+      });
+    }
     setState('complete');
   }, [currentStep, items, selectedAgentId, fireStepCompleted]);
 
