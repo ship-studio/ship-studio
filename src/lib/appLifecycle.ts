@@ -17,12 +17,22 @@ import { logger } from './logger';
 /** Fire `app_idle_detected` after this many ms of no user input. */
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
 
+/**
+ * Window we hold the close open for so the analytics IPC + Rust HTTP
+ * request can leave the box. There's no flush handle from PostHog's
+ * fire-and-forget send, so this is empirical.
+ */
+const QUIT_FLUSH_DELAY_MS = 200;
+
 let installed = false;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
 let isIdle = false;
-let isFocused = true;
+// Use document.hasFocus() — the app may have launched backgrounded, in which
+// case the first blur would otherwise record focus_duration since module load.
+let isFocused = typeof document !== 'undefined' ? document.hasFocus() : true;
 let lastFocusedAt = Date.now();
 let appQuitFired = false;
+let quitInProgress = false;
 
 /**
  * Install lifecycle listeners. Idempotent — calling more than once is a
@@ -67,13 +77,36 @@ export function installAppLifecycleTracking(): () => void {
   window.addEventListener('touchstart', onActivity, { passive: true });
 
   // Tauri-level: OS-initiated close (cmd+Q, red traffic light, alt+f4).
-  // Event payload is ignored; we just want to flush before the window dies.
+  // We preventDefault, fire events, wait briefly for the IPC + HTTP send
+  // to leave the box, then destroy() — destroy bypasses onCloseRequested
+  // so we don't re-enter this handler.
   let unlistenClose: (() => void) | null = null;
+  // Cleanup may run before the listener-registration promise resolves
+  // (StrictMode mount→unmount→remount). Track a cancellation flag so a
+  // late-resolving promise unregisters itself rather than leaking the
+  // listener past the cleanup boundary.
+  let cleanupRan = false;
   void getCurrentWindow()
-    .onCloseRequested(() => {
-      fireAppQuit('os_close');
+    .onCloseRequested((event) => {
+      if (quitInProgress) return;
+      quitInProgress = true;
+      event.preventDefault();
+      void (async () => {
+        fireAppQuit('os_close');
+        await new Promise((resolve) => setTimeout(resolve, QUIT_FLUSH_DELAY_MS));
+        try {
+          await getCurrentWindow().destroy();
+        } catch (err) {
+          logger.warn('[appLifecycle] window.destroy failed', { error: String(err) });
+        }
+      })();
     })
     .then((fn) => {
+      if (cleanupRan) {
+        // Provider already torn down; immediately unregister.
+        fn();
+        return;
+      }
       unlistenClose = fn;
     })
     .catch((err) =>
@@ -83,6 +116,7 @@ export function installAppLifecycleTracking(): () => void {
   resetIdleTimer();
 
   return () => {
+    cleanupRan = true;
     window.removeEventListener('focus', onFocus);
     window.removeEventListener('blur', onBlur);
     window.removeEventListener('mousemove', onActivity);
@@ -134,9 +168,10 @@ function fireAppQuit(reason: 'os_close' | 'user_action'): void {
  * quit reason is recorded.
  */
 export async function quitAppWithTracking(): Promise<void> {
+  if (quitInProgress) return;
+  quitInProgress = true;
   fireAppQuit('user_action');
-  // Give the fire-and-forget HTTP requests on the Rust side a small window
-  // to leave the box. They're async and we don't have a flush handle.
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  // Same flush window the OS-close path uses.
+  await new Promise((resolve) => setTimeout(resolve, QUIT_FLUSH_DELAY_MS));
   await exit(0);
 }
