@@ -52,7 +52,8 @@ export function SubmitReviewModal({
 
   // Track modal open
   useEffect(() => {
-    void trackEvent('submit_review_opened', { branch: branchName, $screen_name: 'Workspace' });
+    // Branch name omitted on purpose — see PublishBranchDropdown for rationale.
+    void trackEvent('submit_review_opened', { $screen_name: 'Workspace' });
   }, [branchName]);
 
   const handleGenerate = async () => {

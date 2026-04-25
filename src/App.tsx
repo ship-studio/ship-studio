@@ -124,13 +124,14 @@ function AppContents({ initialProjectPath }: AppProps) {
     }
   }, [view, currentProject, setPaletteContext]);
 
-  // Top-level pageviews. Workspace fires its own tab-specific pageviews from
-  // useWorkspaceLayout, so we skip it here to avoid double-firing.
+  // Top-level pageviews. Per-step Onboarding pageviews are fired by
+  // OnboardingScreen so we don't double-up on entry. Workspace fires its
+  // own tab-specific pageviews from useWorkspaceLayout.
   useEffect(() => {
     if (view === 'projects') trackPageview('Dashboard');
-    else if (view === 'onboarding') trackPageview('Onboarding');
-    // 'loading', 'project-loading', and 'workspace' are intentionally not
-    // tracked here — they're either transient or handled elsewhere.
+    // 'loading', 'project-loading', 'onboarding', and 'workspace' are
+    // intentionally not tracked here — they're either transient or
+    // handled by the screen itself.
   }, [view]);
 
   // Install app-lifecycle tracking once (focus/blur, idle, OS close). The

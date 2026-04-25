@@ -135,9 +135,11 @@ export function PublishBranchDropdown({
 
       logger.info('Publish succeeded', { branch: currentBranch });
       const now = Date.now();
+      // Don't ship the branch name — `feature/client-acme-flow` style names
+      // routinely contain customer/codename data that doesn't belong in
+      // PostHog. `is_main` carries the question we actually wanted to ask.
       void trackEvent('branch_published', {
         is_main: isMainBranch,
-        branch: currentBranch,
         time_since_last_publish_seconds:
           lastPublishAt !== null ? Math.round((now - lastPublishAt) / 1000) : null,
         $screen_name: 'Workspace',

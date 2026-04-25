@@ -223,10 +223,15 @@ export function trackError(action: string, error: unknown, screenName?: string):
 
 const searchTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 
+/** Cap on every query that lands in PostHog, regardless of search type. */
+const SEARCH_QUERY_CAP = 100;
+
 /**
  * Track a search query with 1-second debounce.
  * Call this on every keystroke — it only fires after the user stops typing.
- * Empty queries are ignored.
+ * Empty queries are ignored. The query is capped at SEARCH_QUERY_CAP chars
+ * so a paste of an arbitrary string into a search box can't dump unbounded
+ * user content to analytics.
  *
  * @param searchType - Category of search (e.g., "project_search", "skills_search")
  * @param query - The raw search string
@@ -235,12 +240,14 @@ const searchTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 export function trackSearch(searchType: string, query: string, screenName?: string): void {
   if (searchTimers[searchType]) clearTimeout(searchTimers[searchType]);
 
-  if (!query.trim()) return;
+  const trimmed = query.trim();
+  if (!trimmed) return;
 
   searchTimers[searchType] = setTimeout(() => {
     const props: Record<string, unknown> = {
       search_type: searchType,
-      query: query.trim(),
+      query: trimmed.slice(0, SEARCH_QUERY_CAP),
+      query_length: trimmed.length,
     };
     if (screenName) props.$screen_name = screenName;
     void trackEvent('search_performed', props);

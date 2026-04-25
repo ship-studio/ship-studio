@@ -35,10 +35,9 @@ export function getProjectSessionId(): string | null {
  * ended (caller is responsible for firing `project_session_ended` first
  * if they want the previous session's metadata).
  */
-export function startProjectSession(): string {
+export function startProjectSession(): void {
   projectSessionId = crypto.randomUUID();
   projectSessionStart = Date.now();
-  return projectSessionId;
 }
 
 /**

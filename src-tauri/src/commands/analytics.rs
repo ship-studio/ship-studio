@@ -296,15 +296,8 @@ pub fn set_analytics_enabled(enabled: bool) -> Result<(), CommandError> {
     app_state.analytics_enabled = Some(enabled);
     write_app_state(&app_state)?;
 
-    if enabled {
-        // Track that analytics were re-enabled
-        let device_id = get_device_id();
-        send_event(
-            "analytics_opted_in",
-            &device_id,
-            serde_json::Value::Object(serde_json::Map::new()),
-        );
-    }
+    // The frontend's SettingsModal fires `analytics_enabled` on the same
+    // user toggle, so we don't fire a second event here.
 
     debug!("Analytics enabled set to: {}", enabled);
     Ok(())

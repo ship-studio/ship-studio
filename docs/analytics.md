@@ -186,7 +186,8 @@ Create these in the PostHog UI and link them here when set up:
 ## Privacy
 
 - Project paths are never sent — only the 8-char `project_id` hash.
+- Branch names are never sent (they routinely contain customer/codename data); the `is_main` boolean carries the meaningful signal.
 - `error_message` is capped at 500 chars.
-- Search queries are sent but capped (palette: 100 chars).
+- Search queries are capped at 100 chars by `trackSearch`; the original length lands in `query_length`.
 - Person properties on `$set_once` (first_seen, first_version) never overwrite — even on re-identify.
 - Users can disable analytics via Settings; the Rust backend short-circuits all sends when disabled.
