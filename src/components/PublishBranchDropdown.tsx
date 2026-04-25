@@ -14,11 +14,11 @@ import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon, SpinnerIcon } from './
 import { useClickOutside } from '../hooks/useClickOutside';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError } from '../lib/analytics';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 // Module-scoped so the metric spans dropdown re-mounts. Per-project would be
 // better but cross-project publish cadence is also useful and far simpler.
 let lastPublishAt: number | null = null;
-import { useOptionalToast } from '../contexts/ToastContext';
 
 interface PublishBranchDropdownProps {
   /** Current branch name */

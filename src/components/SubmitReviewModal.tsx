@@ -120,21 +120,21 @@ export function SubmitReviewModal({
     setIsSubmitting(true);
     setError(null);
 
+    const trimmedTitle = title.trim();
+    const trimmedDescription = description.trim();
+
     try {
       const prUrl = await createPullRequest(
         projectPath,
-        title.trim(),
-        description.trim() || null,
+        trimmedTitle,
+        trimmedDescription || null,
         baseBranch
       );
-      const trimmedTitle = title.trim();
-      const trimmedDescription = description.trim();
       void trackEvent('pr_created', {
         base_branch: baseBranch,
         used_ai: usedAiGeneration,
         title_length: trimmedTitle.length,
         description_length: trimmedDescription.length,
-        had_description: trimmedDescription.length > 0,
         $screen_name: 'Workspace',
       });
       onSuccess(prUrl);
