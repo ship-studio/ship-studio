@@ -18,7 +18,7 @@ import { AgentStep } from './steps/AgentStep';
 import { HostingStep } from './steps/HostingStep';
 import { CelebrationScreen } from './CelebrationScreen';
 import { OnboardingTerminal } from './OnboardingTerminal';
-import { trackEvent } from '../../lib/analytics';
+import { trackEvent, trackPageview } from '../../lib/analytics';
 import { Button } from '../primitives/Button';
 import { logger } from '../../lib/logger';
 import {
@@ -69,6 +69,27 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 
   const unlistenRef = useRef<UnlistenFn | null>(null);
+  const setupStartedRef = useRef(false);
+  const stepEnteredAtRef = useRef<Map<WizardStepId, number>>(new Map());
+
+  // Track each step entry: pageview, setup_step_entered, and remember when
+  // we entered so the completion event can carry duration_ms.
+  useEffect(() => {
+    if (state !== 'wizard') return;
+    const stepIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
+    const stepDef = WIZARD_STEPS[stepIndex];
+    if (!stepDef) return;
+    if (!setupStartedRef.current) {
+      setupStartedRef.current = true;
+      void trackEvent('setup_started', { entry_step: currentStep });
+    }
+    trackPageview(`Onboarding - ${stepDef.title}`);
+    void trackEvent('setup_step_entered', {
+      step_id: currentStep,
+      step_index: stepIndex,
+    });
+    stepEnteredAtRef.current.set(currentStep, performance.now());
+  }, [state, currentStep]);
 
   // Compute completed steps: only show as completed if before the current step
   const completedSteps = useMemo(() => {
@@ -245,6 +266,14 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     async (itemId: string) => {
       if (activeItemId || terminalConfig) return;
 
+      // Auth items are "connect"; everything else is "install".
+      const isAuth = itemId === 'gh_auth' || itemId === 'claude_auth' || itemId === 'vercel_auth';
+      void trackEvent('setup_action_clicked', {
+        item_id: itemId,
+        action: isAuth ? 'connect' : 'install',
+        step_id: currentStep,
+      });
+
       setActiveItemId(itemId);
       updateItemStatus(itemId, { status: 'in_progress', errorMessage: undefined });
 
@@ -329,8 +358,21 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         setActiveItemId(null);
       }
     },
-    [activeItemId, terminalConfig, updateItemStatus, fetchStatus, items]
+    [activeItemId, terminalConfig, updateItemStatus, fetchStatus, items, currentStep]
   );
+
+  // Emit setup_step_completed for the step we're leaving. Called from both
+  // handleNext (after we know the advance is happening) and from
+  // handleAllComplete (the auto-skip-to-celebration path).
+  const fireStepCompleted = useCallback((stepId: WizardStepId, isFinal: boolean) => {
+    const enteredAt = stepEnteredAtRef.current.get(stepId);
+    void trackEvent('setup_step_completed', {
+      step_id: stepId,
+      step_index: WIZARD_STEPS.findIndex((s) => s.id === stepId),
+      duration_ms: enteredAt !== undefined ? Math.round(performance.now() - enteredAt) : null,
+      is_final: isFinal,
+    });
+  }, []);
 
   // Navigate to the next incomplete step
   const handleNext = useCallback(async () => {
@@ -364,20 +406,27 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     for (let i = currentIndex + 1; i < WIZARD_STEPS.length; i++) {
       const step = WIZARD_STEPS[i];
       if (!isWizardStepComplete(step.id, items)) {
+        fireStepCompleted(currentStep, false);
         setCurrentStep(step.id);
         return;
       }
     }
 
     // All steps after current are complete → celebration
+    fireStepCompleted(currentStep, true);
     setState('complete');
-  }, [currentStep, items, selectedAgentId]);
+  }, [currentStep, items, selectedAgentId, fireStepCompleted]);
 
   // Navigate to the previous step
   const handleBack = useCallback(() => {
     const currentIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
     if (currentIndex > 0) {
-      setCurrentStep(WIZARD_STEPS[currentIndex - 1].id);
+      const prevStep = WIZARD_STEPS[currentIndex - 1].id;
+      void trackEvent('setup_step_navigated_back', {
+        from_step: currentStep,
+        to_step: prevStep,
+      });
+      setCurrentStep(prevStep);
     }
   }, [currentStep]);
 
