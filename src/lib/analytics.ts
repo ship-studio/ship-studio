@@ -119,10 +119,12 @@ export async function trackEvent(
  */
 export function trackPageview(screen: string): void {
   setActiveScreen(screen);
+  // Collapse non-alphanumerics (spaces, dashes, etc.) into a single hyphen so
+  // "Workspace - Preview" becomes "workspace-preview", not "workspace---preview".
   const slug = screen
     .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9/-]/g, '');
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
   void trackEvent('$pageview', {
     $screen_name: screen,
     $current_url: `app://ship-studio/${slug}`,
