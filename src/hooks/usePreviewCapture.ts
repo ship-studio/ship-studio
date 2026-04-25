@@ -69,43 +69,61 @@ export function usePreviewCapture({
 
   // Capture viewport screenshot by capturing the window and cropping to iframe bounds
   // This captures what's actually visible on screen (including any navigation the user did in the iframe)
-  const captureForClaude = useCallback(async (): Promise<string | null> => {
-    if (isCapturing) {
-      return null;
-    }
+  const captureForClaude = useCallback(
+    // `silent` suppresses tracking when this is called from `captureFullPage`
+    // as a fallback — the user's intent was a fullpage capture, the
+    // `screenshot_captured` event for that intent already fired.
+    async (opts?: { silent?: boolean }): Promise<string | null> => {
+      if (isCapturing) {
+        return null;
+      }
 
-    setIsCapturing(true);
-    try {
-      if (!iframeWrapperRef.current) return null;
+      setIsCapturing(true);
+      try {
+        if (!iframeWrapperRef.current) return null;
 
-      const tempPath = await captureWindowScreenshot();
-      if (!tempPath) return null;
+        const tempPath = await captureWindowScreenshot();
+        if (!tempPath) return null;
 
-      const rect = iframeWrapperRef.current.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      // Account for macOS title bar in window screenshot
-      const TITLE_BAR_HEIGHT = 31;
+        const rect = iframeWrapperRef.current.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        // Account for macOS title bar in window screenshot
+        const TITLE_BAR_HEIGHT = 31;
 
-      const finalPath = await invoke<string>('crop_and_save_screenshot', {
-        projectPath,
-        sourcePath: tempPath,
-        x: Math.round(rect.left * dpr),
-        y: Math.round((rect.top + TITLE_BAR_HEIGHT) * dpr),
-        width: Math.round(rect.width * dpr),
-        height: Math.round(rect.height * dpr),
-      });
-      void trackEvent('screenshot_captured', { mode: 'viewport', success: true });
-      return finalPath;
-    } catch (error) {
-      logger.error('[Preview] Viewport capture failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      void trackEvent('screenshot_captured', { mode: 'viewport', success: false });
-      return null;
-    } finally {
-      setIsCapturing(false);
-    }
-  }, [projectPath, captureWindowScreenshot, isCapturing]);
+        const finalPath = await invoke<string>('crop_and_save_screenshot', {
+          projectPath,
+          sourcePath: tempPath,
+          x: Math.round(rect.left * dpr),
+          y: Math.round((rect.top + TITLE_BAR_HEIGHT) * dpr),
+          width: Math.round(rect.width * dpr),
+          height: Math.round(rect.height * dpr),
+        });
+        if (!opts?.silent) {
+          void trackEvent('screenshot_captured', {
+            mode: 'viewport',
+            success: true,
+            fell_back: false,
+          });
+        }
+        return finalPath;
+      } catch (error) {
+        logger.error('[Preview] Viewport capture failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (!opts?.silent) {
+          void trackEvent('screenshot_captured', {
+            mode: 'viewport',
+            success: false,
+            fell_back: false,
+          });
+        }
+        return null;
+      } finally {
+        setIsCapturing(false);
+      }
+    },
+    [projectPath, captureWindowScreenshot, isCapturing]
+  );
 
   // Full-page capture using Playwright (scrolls page to trigger lazy content, then captures)
   // Uses currentPage (tracked via proxy) so it captures the actual visible page,
@@ -120,15 +138,23 @@ export function usePreviewCapture({
         projectPath,
         url: captureUrl,
       });
-      void trackEvent('screenshot_captured', { mode: 'fullpage', success: true });
+      void trackEvent('screenshot_captured', {
+        mode: 'fullpage',
+        success: true,
+        fell_back: false,
+      });
       return filePath;
     } catch (error) {
       logger.error('[Preview] Full page capture failed', {
         error: error instanceof Error ? error.message : String(error),
       });
-      void trackEvent('screenshot_captured', { mode: 'fullpage', success: false, fell_back: true });
-      // Fall back to viewport capture if Playwright fails
-      return captureForClaude();
+      void trackEvent('screenshot_captured', {
+        mode: 'fullpage',
+        success: false,
+        fell_back: true,
+      });
+      // Fall back to viewport capture; suppress its own tracking event.
+      return captureForClaude({ silent: true });
     } finally {
       setIsCapturing(false);
     }

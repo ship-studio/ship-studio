@@ -9,6 +9,19 @@
 
 import { invoke } from '@tauri-apps/api/core';
 
+/**
+ * Extract a file extension for analytics. Returns the trailing extension
+ * (lowercase, no dot) when the basename contains a dot AFTER the first
+ * character, otherwise an empty string. Avoids classifying `Dockerfile` as
+ * extension `Dockerfile` and `.gitignore` as `gitignore`.
+ */
+export function fileExtensionForAnalytics(path: string): string {
+  const base = path.split('/').pop() ?? '';
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return ''; // no dot, or only a leading dot (`.gitignore`)
+  return base.slice(dot + 1).toLowerCase();
+}
+
 /** A file or directory entry from the backend. */
 export interface FileEntry {
   name: string;

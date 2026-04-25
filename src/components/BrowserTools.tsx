@@ -66,7 +66,10 @@ export function BrowserTools({ onSendToAgent }: BrowserToolsProps) {
   const handleSendToAgent = () => {
     if (!onSendToAgent) return;
     let prompt: string;
-    let entryCount = 0;
+    // entry_count only makes sense for the list-shaped tabs. For elements we
+    // emit it as null so PostHog doesn't average a fake "1 vs 0" boolean
+    // alongside real list lengths from console/network.
+    let entryCount: number | null = null;
     if (tab === 'console') {
       prompt = formatConsoleForAgent(consoleEntries);
       entryCount = consoleEntries.length;
@@ -75,11 +78,11 @@ export function BrowserTools({ onSendToAgent }: BrowserToolsProps) {
       entryCount = networkEntries.length;
     } else {
       prompt = formatElementsForAgent(domSnapshot);
-      entryCount = domSnapshot ? 1 : 0;
     }
     void trackEvent('browser_tools_sent_to_agent', {
       tab,
       entry_count: entryCount,
+      had_data: tab === 'elements' ? domSnapshot !== null : (entryCount ?? 0) > 0,
       char_count: prompt.length,
     });
     onSendToAgent(prompt);

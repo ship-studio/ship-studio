@@ -238,7 +238,9 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
     void trackEvent('logs_sent_to_agent', {
       source: 'full_buffer',
       char_count: text.length,
-      line_count: text.split('\n').length,
+      // Count actual log lines (raw output), not the wrapped prompt — so
+      // the metric is comparable to the selection branch below.
+      line_count: output.split('\n').length,
     });
     onSendToAgent(text);
   }, [onSendToAgent, output]);

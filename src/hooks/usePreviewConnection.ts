@@ -382,7 +382,12 @@ export function usePreviewConnection({
   }, [currentPage]);
 
   const handlePageSelect = useCallback((route: string) => {
-    void trackEvent('preview_page_selected');
+    void trackEvent('preview_page_selected', {
+      // Strip dynamic-looking segments (numeric ids, uuids) so the cardinality
+      // doesn't explode while still keeping the route shape useful.
+      route_pattern: route.replace(/\/(\d+|[0-9a-f-]{8,})/g, '/:id').slice(0, 200),
+      depth: route.split('/').filter(Boolean).length,
+    });
     setCurrentPage(route);
     setIframePath(route);
     setShowPageDropdown(false);

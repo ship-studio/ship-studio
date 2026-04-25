@@ -10,7 +10,7 @@ import { useFileTree } from '../hooks/useFileTree';
 import { FileTree } from './FileTree';
 import { CodeViewer } from './CodeViewer';
 import { ResetIcon, SearchIcon } from './icons';
-import type { FileTreeNode } from '../lib/code';
+import { type FileTreeNode, fileExtensionForAnalytics } from '../lib/code';
 import { trackEvent, trackSearch } from '../lib/analytics';
 
 interface CodeTabProps {
@@ -35,10 +35,8 @@ export function CodeTab({ projectPath, onSendToAgent }: CodeTabProps) {
 
   const selectFile = useCallback(
     (path: string) => {
-      const ext = path.split('.').pop() ?? '';
       void trackEvent('code_file_opened', {
-        file_extension: ext,
-        path_depth: path.split('/').length,
+        file_extension: fileExtensionForAnalytics(path),
       });
       selectFileRaw(path);
     },
