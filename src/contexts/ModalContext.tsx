@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -64,45 +65,68 @@ const MODAL_TRACKING_EXCLUDED: ReadonlySet<ModalId> = new Set(['commandPalette']
 export function ModalProvider({ children }: ProviderProps) {
   const [openSet, setOpenSet] = useState<Set<ModalId>>(() => new Set());
   const callbacksRef = useRef(new Map<ModalId, Set<() => void>>());
-  // Open-timestamps so `modal_closed` can carry a duration. Keyed by ID;
-  // overwriting on re-open is fine since open and close are paired.
+  // Mirror of `openSet` for synchronous transition detection. We can't read
+  // `openSet` directly from the useCallback below (closure would be stale)
+  // and we don't want to rely on functional-updater side effects (timing
+  // depends on React 18 internals). Mutating both this ref *and* the state
+  // setter keeps the source of truth consistent.
+  const openSetRef = useRef<Set<ModalId>>(new Set());
+  // Open-timestamps so `modal_closed` can carry a duration. Uses
+  // `performance.now()` because it's monotonic — wall-clock changes (NTP,
+  // DST) won't yield negative durations.
   const openedAtRef = useRef(new Map<ModalId, number>());
 
   const isOpen = useCallback((id: ModalId) => openSet.has(id), [openSet]);
 
   const open = useCallback((id: ModalId) => {
-    let wasNew = false;
-    setOpenSet((prev) => {
-      if (prev.has(id)) return prev;
-      wasNew = true;
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-    if (wasNew && !MODAL_TRACKING_EXCLUDED.has(id)) {
-      openedAtRef.current.set(id, Date.now());
+    if (openSetRef.current.has(id)) return;
+    const next = new Set(openSetRef.current);
+    next.add(id);
+    openSetRef.current = next;
+    setOpenSet(next);
+    if (!MODAL_TRACKING_EXCLUDED.has(id)) {
+      openedAtRef.current.set(id, performance.now());
       void trackEvent('modal_opened', { modal_id: id });
     }
   }, []);
 
   const close = useCallback((id: ModalId) => {
-    let wasOpen = false;
-    setOpenSet((prev) => {
-      if (!prev.has(id)) return prev;
-      wasOpen = true;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    callbacksRef.current.get(id)?.forEach((fn) => fn());
-    if (wasOpen && !MODAL_TRACKING_EXCLUDED.has(id)) {
+    if (!openSetRef.current.has(id)) return;
+    const next = new Set(openSetRef.current);
+    next.delete(id);
+    openSetRef.current = next;
+    setOpenSet(next);
+    // Fire the analytics event *before* user-supplied close callbacks so
+    // a slow/throwing callback doesn't inflate `duration_ms` or skip the
+    // event entirely.
+    if (!MODAL_TRACKING_EXCLUDED.has(id)) {
       const openedAt = openedAtRef.current.get(id);
       openedAtRef.current.delete(id);
       void trackEvent('modal_closed', {
         modal_id: id,
-        duration_ms: openedAt ? Date.now() - openedAt : null,
+        // Explicit `undefined` check so a value of 0 (impossible in
+        // practice with performance.now()) wouldn't be treated as missing.
+        duration_ms: openedAt !== undefined ? Math.round(performance.now() - openedAt) : null,
       });
     }
+    callbacksRef.current.get(id)?.forEach((fn) => fn());
+  }, []);
+
+  // Flush a `modal_closed` for any modals still open when the provider
+  // unmounts (app quit, hard reload). Without this, the open event has no
+  // close partner and duration is lost.
+  useEffect(() => {
+    return () => {
+      for (const id of openSetRef.current) {
+        if (MODAL_TRACKING_EXCLUDED.has(id)) continue;
+        const openedAt = openedAtRef.current.get(id);
+        void trackEvent('modal_closed', {
+          modal_id: id,
+          duration_ms: openedAt !== undefined ? Math.round(performance.now() - openedAt) : null,
+          reason: 'provider_unmount',
+        });
+      }
+    };
   }, []);
 
   const toggle = useCallback(
