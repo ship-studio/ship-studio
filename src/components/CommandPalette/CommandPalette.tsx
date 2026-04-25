@@ -6,6 +6,9 @@ import { useRankedCommands, type RankedCommand } from '../../commands/useRankedC
 import { recordRun } from '../../commands/frecency';
 import type { CommandCategory } from '../../commands/types';
 import { logger } from '../../lib/logger';
+import { trackEvent, trackSearch } from '../../lib/analytics';
+
+type DismissReason = 'command_run' | 'manual';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -64,11 +67,17 @@ export function CommandPalette({
   currentProjectName,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<TabId>('all');
+  const [activeTab, setActiveTabRaw] = useState<TabId>('all');
   const [selectedIdx, setSelectedIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const consumePendingTab = useConsumePendingTab();
+
+  // Analytics: track open duration and dismissal reason. The reason ref is set
+  // by runSelected before it calls onClose so the close-side effect knows the
+  // user invoked a command vs. dismissed via esc / click-outside.
+  const openedAtRef = useRef<number | null>(null);
+  const dismissReasonRef = useRef<DismissReason>('manual');
 
   const ranked = useRankedCommands({ kind: context, currentProjectName }, query);
 
@@ -95,14 +104,29 @@ export function CommandPalette({
   useEffect(() => {
     if (isOpen) {
       const pending = consumePendingTab();
-      setActiveTab(pending ?? 'all');
+      setActiveTabRaw(pending ?? 'all');
       inputRef.current?.focus();
+      openedAtRef.current = Date.now();
+      dismissReasonRef.current = 'manual';
+      void trackEvent('palette_opened', {
+        context,
+        initial_tab: pending ?? 'all',
+      });
     } else {
+      // Fire close event before resetting state so we have the active tab.
+      if (openedAtRef.current !== null) {
+        void trackEvent('palette_closed', {
+          context,
+          dismissed_with: dismissReasonRef.current,
+          duration_ms: Date.now() - openedAtRef.current,
+        });
+        openedAtRef.current = null;
+      }
       setQuery('');
-      setActiveTab('all');
+      setActiveTabRaw('all');
       setSelectedIdx(0);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- consumePendingTab is stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- consumePendingTab is stable, context is captured in handlers
   }, [isOpen]);
 
   // Clamp selection when the filtered list changes length.
@@ -121,7 +145,32 @@ export function CommandPalette({
 
   const tabs = context === 'project' ? PROJECT_TABS : HOME_TABS;
 
-  const runSelected = (cmd: RankedCommand) => {
+  // Tab-switch tracking. `cause` distinguishes between explicit clicks and
+  // keyboard navigation so we can tell whether power users prefer arrows.
+  const setActiveTab = (next: TabId, cause: 'click' | 'keyboard') => {
+    if (next !== activeTab) {
+      void trackEvent('palette_tab_switched', {
+        from_tab: activeTab,
+        to_tab: next,
+        cause,
+        context,
+      });
+    }
+    setActiveTabRaw(next);
+  };
+
+  const runSelected = (cmd: RankedCommand, position: number) => {
+    // Mark dismissal reason before close so the open/close effect tags the
+    // resulting palette_closed event correctly.
+    dismissReasonRef.current = 'command_run';
+    void trackEvent('palette_command_run', {
+      command_id: cmd.id,
+      category: cmd.category,
+      position,
+      query_length: query.length,
+      tab: activeTab,
+      context,
+    });
     // Close first so the UI doesn't block on long-running handlers.
     onClose();
     recordRun(cmd.id);
@@ -140,7 +189,7 @@ export function CommandPalette({
   const cycleTab = (direction: 1 | -1) => {
     const currentIdx = tabs.findIndex((t) => t.id === activeTab);
     const nextIdx = (currentIdx + direction + tabs.length) % tabs.length;
-    setActiveTab(tabs[nextIdx].id);
+    setActiveTab(tabs[nextIdx].id, 'keyboard');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -159,7 +208,7 @@ export function CommandPalette({
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const cmd = filtered[selectedIdx];
-      if (cmd) runSelected(cmd);
+      if (cmd) runSelected(cmd, selectedIdx);
     }
   };
 
@@ -182,7 +231,11 @@ export function CommandPalette({
           className="command-palette-input"
           placeholder={placeholderFor(context, currentProjectName)}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            // Debounced (1s) — only the final query lands in PostHog.
+            trackSearch('palette', e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           autoComplete="off"
           autoCorrect="off"
@@ -207,7 +260,7 @@ export function CommandPalette({
             role="tab"
             aria-selected={activeTab === tab.id}
             className={`command-palette-tab ${activeTab === tab.id ? 'is-active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => setActiveTab(tab.id, 'click')}
           >
             {tab.label}
           </button>
@@ -231,7 +284,7 @@ export function CommandPalette({
                     cmd={cmd}
                     selected={idx === selectedIdx}
                     onMouseEnter={() => setSelectedIdx(idx)}
-                    onClick={() => runSelected(cmd)}
+                    onClick={() => runSelected(cmd, idx)}
                   />
                 );
               })}
@@ -244,7 +297,7 @@ export function CommandPalette({
               cmd={cmd}
               selected={idx === selectedIdx}
               onMouseEnter={() => setSelectedIdx(idx)}
-              onClick={() => runSelected(cmd)}
+              onClick={() => runSelected(cmd, idx)}
             />
           ))
         )}
