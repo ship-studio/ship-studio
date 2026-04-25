@@ -570,23 +570,27 @@ export const WorkspaceView = memo(function WorkspaceView({
   // layout owns its own chrome (see `CompactWorkspace`).
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const effectiveSidebarHidden = isSidebarHidden;
+  // Naming note: `showPreviewLogs` is the legacy state for the inspect panel
+  // (which hosts dev-server logs + browser tools). The event keeps the
+  // generic name so future inspect-only telemetry doesn't have to migrate.
   const [showPreviewLogs, setShowPreviewLogs] = useState(false);
   const [inspectTab, setInspectTabRaw] = useState<InspectTab>('logs');
-  // Wrap setter so we don't have to remember to track at every call site.
-  const setInspectTab = useCallback((tab: InspectTab) => {
-    setInspectTabRaw((prev) => {
-      if (prev !== tab) {
-        void trackEvent('inspect_subtab_switched', { from_tab: prev, to_tab: tab });
+
+  // Wrap setters with click tracking. We read previous state from the closure
+  // (not a functional updater) to avoid double-firing under React StrictMode.
+  const setInspectTab = useCallback(
+    (tab: InspectTab) => {
+      if (inspectTab !== tab) {
+        void trackEvent('inspect_subtab_switched', { from_tab: inspectTab, to_tab: tab });
       }
-      return tab;
-    });
-  }, []);
+      setInspectTabRaw(tab);
+    },
+    [inspectTab]
+  );
   const togglePreviewLogs = useCallback(() => {
-    setShowPreviewLogs((prev) => {
-      void trackEvent('inspect_panel_toggled', { is_open: !prev });
-      return !prev;
-    });
-  }, []);
+    void trackEvent('inspect_panel_toggled', { is_open: !showPreviewLogs });
+    setShowPreviewLogs(!showPreviewLogs);
+  }, [showPreviewLogs]);
 
   // Workspace-scoped palette commands (branch + PR flows).
   useWorkspaceCommands({
@@ -706,11 +710,10 @@ export const WorkspaceView = memo(function WorkspaceView({
       />
     ),
     isSidebarHidden: effectiveSidebarHidden,
-    onToggleSidebar: () =>
-      setIsSidebarHidden((v) => {
-        void trackEvent('sidebar_toggled', { is_hidden: !v });
-        return !v;
-      }),
+    onToggleSidebar: () => {
+      void trackEvent('sidebar_toggled', { is_hidden: !isSidebarHidden });
+      setIsSidebarHidden(!isSidebarHidden);
+    },
     integrations,
     onGitHubStatusChange: handleGitHubStatusChange,
     onGitHubConnect: handleGitHubConnect,

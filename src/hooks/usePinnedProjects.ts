@@ -34,6 +34,7 @@ import {
 } from '../lib/sessionRegistry';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
+import { getProjectId } from '../lib/projectIdentity';
 
 /** A pinned project as the rail wants to render it. */
 export interface PinnedProjectRow {
@@ -153,7 +154,11 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
     try {
       const updated = await pinProjectApi(projectPath);
       setPinnedPaths(updated);
-      void trackEvent('project_pinned', { pin_count: updated.length });
+      void trackEvent('project_pinned', {
+        project_id: getProjectId(projectPath),
+        project_name: projectPath.split('/').pop() ?? projectPath,
+        pin_count: updated.length,
+      });
     } catch (err) {
       logger.error('[usePinnedProjects] Failed to pin project', {
         projectPath,
@@ -167,7 +172,11 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
     try {
       const updated = await unpinProjectApi(projectPath);
       setPinnedPaths(updated);
-      void trackEvent('project_unpinned', { pin_count: updated.length });
+      void trackEvent('project_unpinned', {
+        project_id: getProjectId(projectPath),
+        project_name: projectPath.split('/').pop() ?? projectPath,
+        pin_count: updated.length,
+      });
     } catch (err) {
       logger.error('[usePinnedProjects] Failed to unpin project', {
         projectPath,

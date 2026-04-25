@@ -7,7 +7,7 @@
  * not here.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { trackEvent, trackPageview } from '../lib/analytics';
 
 interface UseWorkspaceLayoutParams {
@@ -38,22 +38,33 @@ export function useWorkspaceLayout({ isGitHubConnected }: UseWorkspaceLayoutPara
   // keep the raw value so the user's last selection comes back on reconnect.
   const [workspaceTabRaw, setWorkspaceTabRaw] = useState<WorkspaceTab>('preview');
 
-  // Wrap the raw setter with analytics. Functional update lets us see the
-  // previous tab without re-rendering this hook on every workspaceTabRaw change.
-  const setWorkspaceTab = useCallback((tab: WorkspaceTab) => {
-    setWorkspaceTabRaw((prev) => {
-      if (prev !== tab) {
-        void trackEvent('workspace_tab_switched', { from_tab: prev, to_tab: tab });
-        trackPageview(TAB_SCREEN[tab]);
+  // Wrap the raw setter with `workspace_tab_switched` so click tracking is
+  // automatic. Capture `workspaceTabRaw` from the closure rather than from
+  // a functional updater — functional updaters fire twice under React 18
+  // StrictMode and would double-count clicks in dev/tests. The closure is
+  // refreshed on every state change anyway.
+  const setWorkspaceTab = useCallback(
+    (tab: WorkspaceTab) => {
+      if (workspaceTabRaw !== tab) {
+        void trackEvent('workspace_tab_switched', { from_tab: workspaceTabRaw, to_tab: tab });
       }
-      return tab;
-    });
-  }, []);
+      setWorkspaceTabRaw(tab);
+    },
+    [workspaceTabRaw]
+  );
 
   const workspaceTab: WorkspaceTab =
     !isGitHubConnected && (workspaceTabRaw === 'branches' || workspaceTabRaw === 'prs')
       ? 'preview'
       : workspaceTabRaw;
+
+  // Pageview tracks the *projected* tab (after the GitHub-connected gate),
+  // so a forced fallback when GitHub disconnects is recorded as a screen
+  // change. Also fires once on mount with the initial resolved tab — replaces
+  // the seed previously fired from useProjectLifecycle.
+  useEffect(() => {
+    trackPageview(TAB_SCREEN[workspaceTab]);
+  }, [workspaceTab]);
 
   // Reset layout state (when going back to projects)
   const resetLayout = useCallback(() => {

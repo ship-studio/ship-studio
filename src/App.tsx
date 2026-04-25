@@ -439,7 +439,9 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   const openPalette = useOpenPalette();
   const openProjectPicker = useCallback(() => {
-    void trackEvent('project_picker_opened');
+    // Dedicated picker button only — Cmd+K palette opens are tracked by the
+    // palette itself in Phase 3, with `tab` as a property.
+    void trackEvent('project_picker_button_clicked');
     openPalette({ tab: 'project' });
   }, [openPalette]);
 
