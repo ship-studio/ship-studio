@@ -6,7 +6,7 @@ import { useRankedCommands, type RankedCommand } from '../../commands/useRankedC
 import { recordRun } from '../../commands/frecency';
 import type { CommandCategory } from '../../commands/types';
 import { logger } from '../../lib/logger';
-import { trackEvent, trackSearch } from '../../lib/analytics';
+import { trackEvent, trackSearch, cancelTrackedSearch } from '../../lib/analytics';
 
 type DismissReason = 'command_run' | 'manual';
 
@@ -113,6 +113,9 @@ export function CommandPalette({
         initial_tab: pending ?? 'all',
       });
     } else {
+      // Drop any pending debounced search — otherwise it fires *after* the
+      // palette is gone, attributing a search to a closed surface.
+      cancelTrackedSearch('palette');
       // Fire close event before resetting state so we have the active tab.
       if (openedAtRef.current !== null) {
         void trackEvent('palette_closed', {
@@ -163,11 +166,17 @@ export function CommandPalette({
     // Mark dismissal reason before close so the open/close effect tags the
     // resulting palette_closed event correctly.
     dismissReasonRef.current = 'command_run';
+    const trimmedQuery = query.trim();
     void trackEvent('palette_command_run', {
       command_id: cmd.id,
       category: cmd.category,
+      // `position` is the index in the *currently filtered* list; pair it
+      // with `total_results` so the metric is interpretable across queries.
       position,
-      query_length: query.length,
+      total_results: filtered.length,
+      query: trimmedQuery.slice(0, 100),
+      query_length: trimmedQuery.length,
+      had_query: trimmedQuery.length > 0,
       tab: activeTab,
       context,
     });

@@ -246,3 +246,15 @@ export function trackSearch(searchType: string, query: string, screenName?: stri
     void trackEvent('search_performed', props);
   }, 1000);
 }
+
+/**
+ * Cancel any pending debounced search for the given type. Call when the
+ * surface that owns the search closes — otherwise a search event can fire
+ * after its parent (e.g. a closed palette) is gone, polluting analytics.
+ */
+export function cancelTrackedSearch(searchType: string): void {
+  if (searchTimers[searchType]) {
+    clearTimeout(searchTimers[searchType]);
+    delete searchTimers[searchType];
+  }
+}
