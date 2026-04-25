@@ -204,11 +204,17 @@ pub async fn track_event(
 
 /// Identify a user by linking their distinct_id with person properties.
 /// Call this when the user authenticates (e.g., GitHub login).
+///
+/// `properties` becomes PostHog `$set` (always overwrites person props on
+/// every identify). `set_once` becomes `$set_once` (only written if the
+/// property doesn't already exist on the person — useful for first_seen_*
+/// fields that should never change after the first call).
 #[tauri::command]
 #[tracing::instrument]
 pub async fn identify_user(
     user_id: String,
     properties: Option<serde_json::Value>,
+    set_once: Option<serde_json::Value>,
 ) -> Result<(), CommandError> {
     // Cache the identified user ID so all future events use it
     if let Ok(mut guard) = ANALYTICS.lock() {
@@ -230,12 +236,19 @@ pub async fn identify_user(
         serde_json::Value::String(device_id.clone()),
     );
 
-    let props = serde_json::json!({
-        "$set": serde_json::Value::Object(set_props),
-        "$anon_distinct_id": device_id,
-    });
+    let mut props = serde_json::Map::new();
+    props.insert("$set".to_string(), serde_json::Value::Object(set_props));
+    if let Some(serde_json::Value::Object(once_map)) = set_once {
+        if !once_map.is_empty() {
+            props.insert("$set_once".to_string(), serde_json::Value::Object(once_map));
+        }
+    }
+    props.insert(
+        "$anon_distinct_id".to_string(),
+        serde_json::Value::String(device_id),
+    );
 
-    send_event("$identify", &user_id, props);
+    send_event("$identify", &user_id, serde_json::Value::Object(props));
     Ok(())
 }
 

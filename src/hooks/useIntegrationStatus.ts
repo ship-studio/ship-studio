@@ -14,6 +14,7 @@
  */
 
 import { useReducer, useCallback, useState } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import {
   checkGitHubCliStatus,
   getGitHubUsername,
@@ -189,7 +190,25 @@ export function useIntegrationStatus(): UseIntegrationStatusReturn {
       try {
         ghUsername = await getGitHubUsername();
         if (ghUsername) {
-          void identifyUser(ghUsername, { github_username: ghUsername });
+          // Person props ($set) overwrite on every identify; person props
+          // ($set_once) only land the first time we see this user.
+          let appVersion: string | null = null;
+          try {
+            appVersion = await getVersion();
+          } catch {
+            // Optional — backend already attaches app_version to events
+          }
+          const nowIso = new Date().toISOString();
+          const setProps: Record<string, unknown> = {
+            github_username: ghUsername,
+            last_seen_at: nowIso,
+          };
+          if (appVersion) setProps.latest_app_version = appVersion;
+          const setOnce: Record<string, unknown> = {
+            first_seen_at: nowIso,
+          };
+          if (appVersion) setOnce.first_app_version = appVersion;
+          void identifyUser(ghUsername, setProps, setOnce);
         }
       } catch {
         // Ignore - username is optional

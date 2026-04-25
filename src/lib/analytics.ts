@@ -5,10 +5,90 @@
  * All events are sent through the Tauri IPC bridge to the Rust backend,
  * which forwards them to PostHog. The API key never touches the frontend.
  *
+ * Every event flows through `enrichProperties` which auto-attaches:
+ * - `$session_id` — current app session (PostHog standard)
+ * - `$screen_name` — current screen, if a callsite hasn't set one explicitly
+ * - `project_id` / `project_name` / `project_type` / `project_age_days` — when in a project
+ * - `project_session_id` — current project session, when one is active
+ *
+ * Call `setActiveScreen()` and `setActiveProject()` from view-switching code
+ * so every event picks up correct context without per-call boilerplate.
+ *
  * @module lib/analytics
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { getAppSessionId, getProjectSessionId } from './session';
+
+// ============ Active Context ============
+
+interface ProjectContext {
+  /** 12-char hashed path (privacy-safe, stable across launches) */
+  id: string;
+  /** Human-readable folder name */
+  name: string;
+  /** Detected framework: next, vite, astro, etc. */
+  type?: string;
+  /** Days since the project folder was created */
+  ageDays?: number;
+}
+
+let activeScreen: string | null = null;
+let activeProject: ProjectContext | null = null;
+
+/**
+ * Set the current screen. Future events that don't pass `$screen_name`
+ * explicitly will be tagged with this value. Pass null to clear.
+ */
+export function setActiveScreen(screen: string | null): void {
+  activeScreen = screen;
+}
+
+/**
+ * Set the current project context. Pass null when leaving a project (e.g.
+ * back to dashboard). Future events will auto-include project_id, name,
+ * type, and age.
+ */
+export function setActiveProject(ctx: ProjectContext | null): void {
+  activeProject = ctx;
+}
+
+/**
+ * Build the property bag we ship to PostHog. Pulls in standard context
+ * (screen, app session, project) without overwriting anything the caller
+ * passed explicitly.
+ */
+function enrichProperties(properties?: Record<string, unknown> | null): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(properties ?? {}) };
+
+  if (!('$screen_name' in out) && activeScreen) {
+    out.$screen_name = activeScreen;
+  }
+
+  if (!('$session_id' in out)) {
+    out.$session_id = getAppSessionId();
+  }
+
+  const projSession = getProjectSessionId();
+  if (projSession && !('project_session_id' in out)) {
+    out.project_session_id = projSession;
+  }
+
+  if (activeProject) {
+    if (!('project_id' in out)) out.project_id = activeProject.id;
+    if (!('project_name' in out)) out.project_name = activeProject.name;
+    if (activeProject.type && !('project_type' in out)) {
+      out.project_type = activeProject.type;
+    }
+    if (typeof activeProject.ageDays === 'number' && !('project_age_days' in out)) {
+      out.project_age_days = activeProject.ageDays;
+    }
+  }
+
+  return out;
+}
+
+// ============ Core Tracking ============
 
 /**
  * Track an analytics event. Fire-and-forget — never throws.
@@ -23,7 +103,7 @@ export async function trackEvent(
   try {
     await invoke('track_event', {
       eventName,
-      properties: properties ?? null,
+      properties: enrichProperties(properties),
       distinctId: null,
     });
   } catch {
@@ -32,20 +112,34 @@ export async function trackEvent(
 }
 
 /**
+ * Track a screen view. Sets the active screen *and* sends a `$pageview`
+ * event so PostHog's path/screen analytics light up. Use this whenever
+ * the user navigates between top-level views (dashboard, workspace tabs,
+ * onboarding steps).
+ */
+export function trackPageview(screen: string): void {
+  setActiveScreen(screen);
+  void trackEvent('$pageview', { $screen_name: screen });
+}
+
+/**
  * Identify a user by linking their device to a known user ID.
  * Call this when the user authenticates (e.g., GitHub login).
  *
  * @param userId - Unique user identifier (e.g., GitHub username)
- * @param properties - Optional person properties ($set)
+ * @param properties - Person properties merged via PostHog `$set` (always overwrite)
+ * @param setOnce - Person properties merged via `$set_once` (preserved on later identifies)
  */
 export async function identifyUser(
   userId: string,
-  properties?: Record<string, unknown>
+  properties?: Record<string, unknown>,
+  setOnce?: Record<string, unknown>
 ): Promise<void> {
   try {
     await invoke('identify_user', {
       userId,
       properties: properties ?? null,
+      setOnce: setOnce ?? null,
     });
   } catch {
     // Never let analytics break the app
@@ -82,7 +176,7 @@ export async function setAnalyticsEnabled(enabled: boolean): Promise<void> {
  *
  * @param action - What the user was trying to do (e.g., "git_push", "plugin_install")
  * @param error - The caught error (string, Error, or unknown)
- * @param screenName - Screen where the error occurred
+ * @param screenName - Screen where the error occurred (overrides active screen)
  */
 export function trackError(action: string, error: unknown, screenName?: string): void {
   let message = 'Unknown error';
@@ -91,7 +185,6 @@ export function trackError(action: string, error: unknown, screenName?: string):
   if (error instanceof Error) {
     message = error.message;
     errorType = error.name || 'Error';
-    // Include cause if available
     const cause = (error as Error & { cause?: unknown }).cause;
     if (cause instanceof Error) {
       message += ` (${cause.message})`;
@@ -106,12 +199,14 @@ export function trackError(action: string, error: unknown, screenName?: string):
     errorType = 'object';
   }
 
-  void trackEvent('error_occurred', {
+  const props: Record<string, unknown> = {
     action,
     error_message: message.slice(0, 500), // Cap length for PostHog
     error_type: errorType,
-    $screen_name: screenName ?? 'Ship Studio',
-  });
+  };
+  if (screenName) props.$screen_name = screenName;
+
+  void trackEvent('error_occurred', props);
 }
 
 // ============ Debounced Search Tracking ============
@@ -125,7 +220,7 @@ const searchTimers: Record<string, ReturnType<typeof setTimeout>> = {};
  *
  * @param searchType - Category of search (e.g., "project_search", "skills_search")
  * @param query - The raw search string
- * @param screenName - Screen name for PostHog (e.g., "Dashboard")
+ * @param screenName - Screen name override (defaults to active screen)
  */
 export function trackSearch(searchType: string, query: string, screenName?: string): void {
   if (searchTimers[searchType]) clearTimeout(searchTimers[searchType]);
@@ -133,10 +228,11 @@ export function trackSearch(searchType: string, query: string, screenName?: stri
   if (!query.trim()) return;
 
   searchTimers[searchType] = setTimeout(() => {
-    void trackEvent('search_performed', {
+    const props: Record<string, unknown> = {
       search_type: searchType,
       query: query.trim(),
-      $screen_name: screenName ?? 'Ship Studio',
-    });
+    };
+    if (screenName) props.$screen_name = screenName;
+    void trackEvent('search_performed', props);
   }, 1000);
 }

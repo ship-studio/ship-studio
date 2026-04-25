@@ -19,16 +19,22 @@ vi.mock('../lib/analytics', () => ({
   identifyUser: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('@tauri-apps/api/app', () => ({
+  getVersion: vi.fn().mockResolvedValue('9.9.9'),
+}));
+
 describe('useIntegrationStatus', () => {
   let github: typeof import('../lib/github');
   let claude: typeof import('../lib/claude');
   let analytics: typeof import('../lib/analytics');
+  let app: typeof import('@tauri-apps/api/app');
 
   beforeEach(async () => {
     vi.clearAllMocks();
     github = await import('../lib/github');
     claude = await import('../lib/claude');
     analytics = await import('../lib/analytics');
+    app = await import('@tauri-apps/api/app');
 
     vi.mocked(github.checkGitHubCliStatus).mockResolvedValue({
       installed: false,
@@ -38,6 +44,9 @@ describe('useIntegrationStatus', () => {
     vi.mocked(github.getGitHubUsername).mockResolvedValue('');
     vi.mocked(github.getProjectGitHubStatus).mockResolvedValue(GITHUB_STATUS_FALLBACK);
     vi.mocked(analytics.identifyUser).mockResolvedValue(undefined);
+    // Re-establish each test — global afterEach calls restoreAllMocks which
+    // strips the implementation from the top-of-file `vi.mock`.
+    vi.mocked(app.getVersion).mockResolvedValue('9.9.9');
   });
 
   it('initializes with default state', () => {
@@ -167,9 +176,17 @@ describe('useIntegrationStatus', () => {
         await result.current.refreshAllCliStatuses();
       });
 
-      expect(vi.mocked(analytics.identifyUser)).toHaveBeenCalledWith('myuser', {
+      const identifyMock = vi.mocked(analytics.identifyUser);
+      expect(identifyMock).toHaveBeenCalledTimes(1);
+      const [userId, setProps, setOnceProps] = identifyMock.mock.calls[0];
+      expect(userId).toBe('myuser');
+      expect(setProps).toMatchObject({
         github_username: 'myuser',
+        latest_app_version: '9.9.9',
       });
+      expect(typeof setProps?.last_seen_at).toBe('string');
+      expect(setOnceProps).toMatchObject({ first_app_version: '9.9.9' });
+      expect(typeof setOnceProps?.first_seen_at).toBe('string');
     });
   });
 
