@@ -26,7 +26,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { exit } from '@tauri-apps/plugin-process';
 import { useToasts } from './hooks/useToasts';
 import { useTerminalManagement } from './hooks/useTerminalManagement';
 import { usePlugins } from './hooks/usePlugins';
@@ -69,6 +68,7 @@ import { SuccessIcon, InfoIcon, CloseIcon } from './components/icons';
 import { logger } from './lib/logger';
 import { trackEvent, setActiveProject, trackPageview } from './lib/analytics';
 import { endProjectSession } from './lib/session';
+import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
 import type { AppView } from './lib/types';
 import './styles/index.css';
 
@@ -132,6 +132,13 @@ function AppContents({ initialProjectPath }: AppProps) {
     // 'loading', 'project-loading', and 'workspace' are intentionally not
     // tracked here — they're either transient or handled elsewhere.
   }, [view]);
+
+  // Install app-lifecycle tracking once (focus/blur, idle, OS close). The
+  // empty deps array is intentional — listeners are global and shouldn't
+  // re-bind on re-render.
+  useEffect(() => {
+    return installAppLifecycleTracking();
+  }, []);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const previewRef = useRef<import('./components/Preview').PreviewHandle | null>(null);
@@ -953,7 +960,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     >
       <div
         onKeyDown={(e) => {
-          if (e.key === 'Enter') void exit(0);
+          if (e.key === 'Enter') void quitAppWithTracking();
         }}
       >
         <p>Are you sure you want to quit Ship Studio?</p>
@@ -961,7 +968,7 @@ function AppContents({ initialProjectPath }: AppProps) {
           <Button variant="secondary" onClick={() => setShowQuitConfirm(false)}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => void exit(0)} autoFocus>
+          <Button variant="primary" onClick={() => void quitAppWithTracking()} autoFocus>
             Quit
           </Button>
         </div>
