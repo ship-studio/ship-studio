@@ -78,8 +78,8 @@ export function installAppLifecycleTracking(): () => void {
 
   // Tauri-level: OS-initiated close (cmd+Q, red traffic light, alt+f4).
   // We preventDefault, fire events, wait briefly for the IPC + HTTP send
-  // to leave the box, then destroy() — destroy bypasses onCloseRequested
-  // so we don't re-enter this handler.
+  // to leave the box, then exit(0) — destroy() is blocked by ACL and
+  // we want to terminate the whole process anyway.
   let unlistenClose: (() => void) | null = null;
   // Cleanup may run before the listener-registration promise resolves
   // (StrictMode mount→unmount→remount). Track a cancellation flag so a
@@ -95,9 +95,9 @@ export function installAppLifecycleTracking(): () => void {
         fireAppQuit('os_close');
         await new Promise((resolve) => setTimeout(resolve, QUIT_FLUSH_DELAY_MS));
         try {
-          await getCurrentWindow().destroy();
+          await exit(0);
         } catch (err) {
-          logger.warn('[appLifecycle] window.destroy failed', { error: String(err) });
+          logger.warn('[appLifecycle] exit failed', { error: String(err) });
         }
       })();
     })
