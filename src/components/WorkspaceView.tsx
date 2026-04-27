@@ -30,8 +30,7 @@ import { CodeTab } from './CodeTab';
 import { BranchPRTabContainer } from './workspace/BranchPRTabContainer';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from './MainBranchBanner';
-import type { CodeHealthPanelRef } from './CodeHealthPanel';
-import { HealthIndicatorBar } from './workspace/HealthIndicatorBar';
+import type { HealthTabPanelRef } from './HealthTabPanel';
 import { useIsCompact } from '../hooks/useIsCompact';
 import { WorkspaceModals } from './WorkspaceModals';
 import { WorkspaceHeader, HOSTING_PLUGIN_IDS } from './WorkspaceHeader';
@@ -100,7 +99,7 @@ interface TerminalProps {
 
 interface DevServerProps {
   hasDevServer: boolean;
-  healthPanelRef: RefObject<CodeHealthPanelRef | null>;
+  healthPanelRef: RefObject<HealthTabPanelRef | null>;
   devServerPort: number;
   projectType: ProjectType;
   isRestartingDevServer: boolean;
@@ -934,12 +933,6 @@ export const WorkspaceView = memo(function WorkspaceView({
                   rightCollapsed={isPreviewHidden}
                   left={
                     <div className="terminal-pane">
-                      <HealthIndicatorBar
-                        projectPath={currentProject.path}
-                        healthPanelRef={healthPanelRef}
-                        onAskClaude={sendToClaude}
-                        onHealthOutput={handleHealthOutput}
-                      />
                       <div className="workspace-terminal-view">
                         <div className="terminal-tabs-bar">
                           {/* Restart-dev-server moved to the sidebar row
@@ -1115,6 +1108,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                             devServerOutputVersion={devServerOutputVersion}
                             inspectTab={inspectTab}
                             onInspectTabChange={setInspectTab}
+                            healthPanelRef={healthPanelRef}
+                            onHealthOutput={handleHealthOutput}
                             previewPlugins={
                               <PluginSlot
                                 name="preview"

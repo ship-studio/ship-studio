@@ -25,7 +25,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getWindowLabel } from '../lib/window';
-import type { CodeHealthPanelRef } from '../components/CodeHealthPanel';
+import type { HealthTabPanelRef } from '../components/HealthTabPanel';
 
 /** All the per-project server state we track in the map. */
 interface ProjectServerState {
@@ -42,6 +42,10 @@ interface ProjectServerState {
   healthThrottleTimer: ReturnType<typeof setTimeout> | null;
   healthPending: boolean;
   suppressed: boolean;
+  /** Carry-over of an incomplete trailing line between PTY chunks so the
+   *  probe-line filter can match patterns split across chunk boundaries
+   *  (the PTY emits chunks of arbitrary size — they are not line-aligned). */
+  pendingOutputLine: string;
 }
 
 const DEFAULT_PORT = 3000;
@@ -63,7 +67,55 @@ function makeState(): ProjectServerState {
     healthThrottleTimer: null,
     healthPending: false,
     suppressed: false,
+    pendingOutputLine: '',
   };
+}
+
+/* Lines that match this pattern are the dev server logging Ship Studio's
+   own liveness probe (a `fetch('/')` every 10s from `usePreviewConnection`).
+   Filtering them keeps the visible log focused on real traffic.
+
+   Two shapes covered:
+     - `GET /` or `HEAD /` followed by whitespace or end-of-line — Next.js,
+       Express morgan-style, etc.
+     - `[200] /` or `[304] /` — bracketed-status format used by some custom
+       dev-server loggers (seen in Webflow/Astro tooling).
+
+   ANSI escapes are stripped before matching so colorized loggers still match.
+   The pattern is anchored on the `/` path with no further segments to avoid
+   accidentally swallowing real `/foo` requests. */
+const PROBE_LINE_PATTERN = /(?:GET|HEAD)\s+\/(?:\s|$)|\[(?:200|304)\]\s+\/(?:\s|$)/i;
+
+function isProbeLine(line: string): boolean {
+  // eslint-disable-next-line no-control-regex
+  const stripped = line.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').trim();
+  if (!stripped) return false;
+  return PROBE_LINE_PATTERN.test(stripped);
+}
+
+/** Split incoming PTY data into complete lines + a trailing partial.
+ *  Filters out probe lines and returns the surviving content (with their
+ *  newline terminators preserved) plus the new pending fragment. */
+function filterProbeChunk(pendingLine: string, chunk: string): { kept: string; pending: string } {
+  const combined = pendingLine + chunk;
+  const lastNewline = combined.lastIndexOf('\n');
+  if (lastNewline === -1) {
+    // No complete line yet — keep buffering.
+    return { kept: '', pending: combined };
+  }
+  const completeBlock = combined.slice(0, lastNewline + 1);
+  const pending = combined.slice(lastNewline + 1);
+  // `split('\n')` on a string ending in '\n' yields a trailing '' entry,
+  // which becomes the trailing newline when re-joined. Filter probe lines
+  // from the populated entries; pass everything else through verbatim.
+  const kept = completeBlock
+    .split('\n')
+    .filter((line, i, arr) => {
+      if (i === arr.length - 1 && line === '') return true;
+      return !isProbeLine(line);
+    })
+    .join('\n');
+  return { kept, pending };
 }
 
 export function useDevServer(currentProjectPath: string | null) {
@@ -81,7 +133,7 @@ export function useDevServer(currentProjectPath: string | null) {
   const [renderKey, setRenderKey] = useState(0);
   const bump = useCallback(() => setRenderKey((v) => v + 1), []);
 
-  const healthPanelRef = useRef<CodeHealthPanelRef>(null);
+  const healthPanelRef = useRef<HealthTabPanelRef>(null);
 
   const getOrCreateState = useCallback((path: string): ProjectServerState => {
     let s = statesRef.current.get(path);
@@ -204,7 +256,7 @@ export function useDevServer(currentProjectPath: string | null) {
 
   const handleHealthOutput = useCallback(
     (output: string) => {
-      // Health output always belongs to the current project (CodeHealthPanel
+      // Health output always belongs to the current project (HealthTabPanel
       // is only mounted in the active workspace).
       const path = currentPathRef.current;
       if (!path) return;
@@ -269,7 +321,10 @@ export function useDevServer(currentProjectPath: string | null) {
         const s = statesRef.current.get(projectPath);
         if (!s) return;
         if (s.suppressed) return;
-        s.outputBuffer += data;
+        const { kept, pending } = filterProbeChunk(s.pendingOutputLine, data);
+        s.pendingOutputLine = pending;
+        if (!kept) return; // chunk was entirely buffered or entirely filtered
+        s.outputBuffer += kept;
         if (s.outputBuffer.length > OUTPUT_BUFFER_MAX) {
           s.outputBuffer = s.outputBuffer.slice(-OUTPUT_BUFFER_MAX);
         }
@@ -304,6 +359,7 @@ export function useDevServer(currentProjectPath: string | null) {
     s.healthBuffer = '';
     s.outputVersion = 0;
     s.healthVersion = 0;
+    s.pendingOutputLine = '';
     bump();
   }, [bump, getOrCreateState]);
 

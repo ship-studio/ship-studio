@@ -45,6 +45,7 @@
 @import './features/branches/branch-actions.css';
 @import './features/conflicts.css';
 @import './features/health.css';
+@import './features/health-tab.css';
 @import './features/diff-modal.css';
 @import './features/help-modal.css';
 @import './features/backups-modal.css';

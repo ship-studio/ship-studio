@@ -21,6 +21,7 @@ import { useClickOutside } from '../hooks/useClickOutside';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { CopyIcon } from './icons';
 import { trackEvent } from '../lib/analytics';
+import { stripAnsi } from '../lib/ansi';
 import '@xterm/xterm/css/xterm.css';
 
 /* Tail-limit the full-buffer send so we don't fire 3k+ lines of HMR
@@ -327,13 +328,6 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
         )}
     </div>
   );
-}
-
-/* Strip ANSI escape sequences (colors, cursor moves, OSC titles) so the
-   agent sees plain text instead of `\x1b[32mfoo\x1b[0m` noise. */
-function stripAnsi(input: string): string {
-  // eslint-disable-next-line no-control-regex
-  return input.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
 }
 
 function formatServerLogsForAgent(output: string): string {

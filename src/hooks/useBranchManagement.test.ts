@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useBranchManagement, type UseBranchManagementParams } from './useBranchManagement';
 import type { RefObject } from 'react';
 import type { PreviewHandle } from '../components/Preview';
-import type { CodeHealthPanelRef } from '../components/CodeHealthPanel';
+import type { HealthTabPanelRef } from '../components/HealthTabPanel';
 
 // Mock external dependencies
 vi.mock('../lib/branches', () => ({
@@ -51,7 +51,7 @@ function createParams(overrides?: Partial<UseBranchManagementParams>): UseBranch
         refreshScripts: vi.fn().mockResolvedValue(undefined),
         runAllChecks: vi.fn().mockResolvedValue(undefined),
       },
-    } as unknown as RefObject<CodeHealthPanelRef | null>,
+    } as unknown as RefObject<HealthTabPanelRef | null>,
     showToast: vi.fn(),
     ...overrides,
   };

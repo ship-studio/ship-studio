@@ -12,7 +12,15 @@
  * @module components/Preview
  */
 
-import { useRef, forwardRef, useImperativeHandle, useCallback, useState, useEffect } from 'react';
+import {
+  useRef,
+  forwardRef,
+  useImperativeHandle,
+  useCallback,
+  useState,
+  useEffect,
+  type RefObject,
+} from 'react';
 import { usePreviewConnection, SERVER_MAX_RETRIES } from '../hooks/usePreviewConnection';
 import { usePreviewCapture } from '../hooks/usePreviewCapture';
 import {
@@ -24,6 +32,7 @@ import {
 import { useOptionalToast } from '../contexts/ToastContext';
 import { DevServerLogs } from './DevServerLogs';
 import { BrowserTools } from './BrowserTools';
+import { HealthTabPanel, type HealthTabPanelRef } from './HealthTabPanel';
 
 // SVG icons for breakpoints
 const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
@@ -149,6 +158,10 @@ interface PreviewProps {
   inspectTab?: InspectTab;
   /** Callback when the user switches inspect-panel sub-tabs. */
   onInspectTabChange?: (tab: InspectTab) => void;
+  /** Imperative handle for the Code Health panel hosted in the Inspect "Health" tab. */
+  healthPanelRef?: RefObject<HealthTabPanelRef | null>;
+  /** Receives stdout/stderr from health checks; piped into the dev-server health buffer. */
+  onHealthOutput?: (data: string) => void;
 }
 
 /**
@@ -207,6 +220,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     devServerOutputVersion = 0,
     inspectTab,
     onInspectTabChange,
+    healthPanelRef,
+    onHealthOutput,
   },
   ref
 ) {
@@ -715,21 +730,25 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       <InspectPanel
         ref={inspectPanelRef}
         hidden={!showLogs}
+        projectPath={projectPath}
         devServerOutput={devServerOutput}
         devServerOutputVersion={devServerOutputVersion}
         onClose={onToggleLogs}
         onSendToAgent={onSendToClaude}
         activeTab={inspectTab}
         onActiveTabChange={onInspectTabChange}
+        healthPanelRef={healthPanelRef}
+        onHealthOutput={onHealthOutput}
       />
     </div>
   );
 });
 
-export type InspectTab = 'logs' | 'browser';
+export type InspectTab = 'logs' | 'browser' | 'health';
 
 interface InspectPanelProps {
   hidden: boolean;
+  projectPath: string;
   devServerOutput: string;
   devServerOutputVersion: number;
   onClose?: () => void;
@@ -737,17 +756,22 @@ interface InspectPanelProps {
   /** Controlled tab. When set, the component is fully controlled. */
   activeTab?: InspectTab;
   onActiveTabChange?: (tab: InspectTab) => void;
+  healthPanelRef?: RefObject<HealthTabPanelRef | null>;
+  onHealthOutput?: (data: string) => void;
 }
 
 const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function InspectPanel(
   {
     hidden,
+    projectPath,
     devServerOutput,
     devServerOutputVersion,
     onClose,
     onSendToAgent,
     activeTab: activeTabProp,
     onActiveTabChange,
+    healthPanelRef,
+    onHealthOutput,
   },
   ref
 ) {
@@ -776,6 +800,15 @@ const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function Insp
             onClick={() => setActiveTab('browser')}
           >
             Browser Tools
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'health'}
+            className={`preview-logs-tab ${activeTab === 'health' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('health')}
+          >
+            Health
           </button>
         </div>
         {onClose && (
@@ -819,6 +852,14 @@ const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function Insp
         </div>
         <div className={`preview-logs-slot ${activeTab === 'browser' ? 'is-active' : ''}`}>
           <BrowserTools onSendToAgent={onSendToAgent} />
+        </div>
+        <div className={`preview-logs-slot ${activeTab === 'health' ? 'is-active' : ''}`}>
+          <HealthTabPanel
+            ref={healthPanelRef}
+            projectPath={projectPath}
+            onAskClaude={onSendToAgent}
+            onHealthOutput={onHealthOutput}
+          />
         </div>
       </div>
     </div>

@@ -139,6 +139,15 @@ function writeProjectExpanded(state: Record<string, boolean>) {
   }
 }
 
+function formatDevServerLabel(url: string | undefined): string {
+  if (!url) return 'Dev server';
+  try {
+    return new URL(url).host;
+  } catch {
+    return 'Dev server';
+  }
+}
+
 function projectInitials(name: string): string {
   const cleaned = name.trim();
   if (!cleaned) return '··';
@@ -331,10 +340,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     if (hasDevServer || isRestartingDevServer) {
       commands.push({
         key: 'dev-server',
-        label: 'Dev server',
+        label: formatDevServerLabel(devServerUrl),
         dotState: isRestartingDevServer ? 'attention' : devServerRunning ? 'active' : 'idle',
         onSelect: onOpenDevServerLogs,
-        meta: isRestartingDevServer ? 'restarting' : devServerRunning ? 'running' : undefined,
+        meta: isRestartingDevServer ? 'restarting' : undefined,
         onAction: onRestartDevServer,
         actionIcon: <ResetIcon size={11} />,
         actionLabel: 'Restart dev server',
@@ -507,12 +516,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               />
               <SidebarSection
                 id="commands"
-                label="Commands"
+                label="Dev server"
                 total={commandItems.length}
                 collapsed={collapsed.commands}
                 onToggle={() => toggleSection('commands')}
                 items={filteredCommands}
-                emptyHint={filter ? 'No matches' : 'No commands'}
+                emptyHint={filter ? 'No matches' : 'Not running'}
               />
             </div>
           ) : (
@@ -698,7 +707,6 @@ function InactiveProjectSections({
           key: 'dev-server',
           label: 'Dev server',
           dotState: 'active',
-          meta: 'running',
         },
       ]
     : [];
@@ -725,12 +733,12 @@ function InactiveProjectSections({
       />
       <SidebarSection
         id="commands"
-        label="Commands"
+        label="Dev server"
         total={commands.length}
         collapsed={false}
         onToggle={() => {}}
         items={commands}
-        emptyHint={filterLower ? 'No matches' : 'No commands'}
+        emptyHint={filterLower ? 'No matches' : 'Not running'}
       />
     </>
   );

@@ -1,0 +1,458 @@
+/* HealthTabPanel — fills the body of the Inspect "Health" tab. */
+
+.health-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.health-tab--empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.health-tab-empty {
+  max-width: 360px;
+  text-align: center;
+  padding: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  align-items: center;
+}
+
+.health-tab-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.health-tab-empty-body {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ─── Header ─── */
+
+.health-tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.health-tab-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.health-tab-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+}
+
+.health-tab-pill-count {
+  font-weight: 600;
+}
+
+.health-tab-pill-label {
+  color: var(--text-secondary);
+}
+
+.health-tab-pill.pass .health-tab-pill-count {
+  color: var(--success);
+}
+
+.health-tab-pill.fail .health-tab-pill-count {
+  color: var(--error);
+}
+
+.health-tab-pill.idle .health-tab-pill-count {
+  color: var(--text-muted);
+}
+
+.health-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.health-tab-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+
+.health-tab-icon-btn svg {
+  display: block;
+}
+
+.health-tab-icon-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.health-tab-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Check rows ─── */
+
+.health-tab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.health-tab-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  transition: background var(--transition);
+}
+
+.health-tab-row:last-child {
+  border-bottom: none;
+}
+
+.health-tab-row:hover {
+  background: var(--bg-secondary);
+}
+
+.health-tab-row.is-selected {
+  background: var(--bg-tertiary);
+}
+
+/* The clickable region — fills the row, contains glyph + label + status text.
+   Looks like a row, semantically is a button. */
+.health-tab-row-main {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.health-tab-row-main:focus {
+  outline: none;
+}
+
+.health-tab-row-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+.health-tab-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 56px;
+}
+
+.health-tab-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  color: var(--text-muted);
+  cursor: help;
+  transition: color var(--transition);
+}
+
+.health-tab-help:hover {
+  color: var(--text-secondary);
+}
+
+/* Instant custom tooltip — no opacity transition, no enter delay. Sits above
+   the badge; if it would clip the top of the panel, the row layout still has
+   enough headroom for ~3 lines of text. */
+.health-tab-help-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 280px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+  text-align: left;
+  pointer-events: none;
+  z-index: var(--z-tooltip);
+  opacity: 0;
+  visibility: hidden;
+}
+
+.health-tab-help:hover .health-tab-help-tooltip,
+.health-tab-help:focus-visible .health-tab-help-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.health-tab-row-status {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.health-tab-row--pass .health-tab-row-status {
+  color: var(--success);
+}
+
+.health-tab-row--fail .health-tab-row-status {
+  color: var(--error);
+}
+
+.health-tab-row--running .health-tab-row-status {
+  color: var(--warning);
+}
+
+.health-tab-row-meta,
+.health-tab-row-time {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Push the timestamp to the far right of the clickable region. */
+.health-tab-row-time {
+  margin-left: auto;
+}
+
+.health-tab-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding-right: var(--spacing-md);
+  flex-shrink: 0;
+}
+
+/* Status glyph (dot or spinner) */
+
+.health-tab-glyph {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+.health-tab-glyph.dot {
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+}
+
+.health-tab-glyph.dot.pass {
+  background: var(--success);
+}
+
+.health-tab-glyph.dot.fail {
+  background: var(--error);
+}
+
+.health-tab-glyph.dot.idle {
+  background: transparent;
+  border: 1.5px solid var(--text-muted);
+  width: 9px;
+  height: 9px;
+}
+
+.health-tab-glyph.dot.missing {
+  background: transparent;
+  border: 1.5px dashed var(--text-muted);
+  width: 9px;
+  height: 9px;
+}
+
+.health-tab-glyph.running {
+  color: var(--warning);
+}
+
+/* ─── Output pane ─── */
+
+.health-tab-output {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.health-tab-output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.health-tab-output-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-weight: 500;
+}
+
+.health-tab-output-meta {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-tab-output-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.health-tab-output-body {
+  flex: 1;
+  margin: 0;
+  padding: var(--spacing-md);
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  white-space: pre;
+}
+
+.health-tab-output-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  color: var(--text-muted);
+}
+
+/* ─── Suggestions card ─── */
+
+.health-tab-suggestions {
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  padding: var(--spacing-sm) var(--spacing-md);
+  flex-shrink: 0;
+}
+
+.health-tab-suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-sm);
+}
+
+.health-tab-suggestions-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.health-tab-suggestions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.health-tab-suggestion {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 11px;
+}
+
+.health-tab-suggestion-code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  background: var(--bg-tertiary);
+  padding: 2px var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.health-tab-suggestion-reason {
+  color: var(--text-muted);
+}
+
+/* ─── Package.json modal body ─── */
+
+.health-tab-pkg-json {
+  margin: 0;
+  padding: var(--spacing-md);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre;
+}
+
+.health-tab-pkg-json-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+}

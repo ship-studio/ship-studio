@@ -23,14 +23,14 @@ import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import type { PreviewHandle } from '../components/Preview';
-import type { CodeHealthPanelRef } from '../components/CodeHealthPanel';
+import type { HealthTabPanelRef } from '../components/HealthTabPanel';
 import { usePolling } from './usePolling';
 import type { Project } from '../lib/project';
 
 export interface UseBranchManagementParams {
   currentProject: Project | null;
   previewRef: RefObject<PreviewHandle | null>;
-  healthPanelRef: RefObject<CodeHealthPanelRef | null>;
+  healthPanelRef: RefObject<HealthTabPanelRef | null>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   fetchBranchInfoExternal?: (projectPath: string) => Promise<void>;
 }
