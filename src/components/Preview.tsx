@@ -168,6 +168,24 @@ export interface PreviewHandle {
   isServerReady: () => boolean;
 }
 
+/** Smallest the Inspect panel can be dragged to. Below this the tab bar
+ *  dominates the panel and the user is better off closing it. */
+const INSPECT_PANEL_MIN_HEIGHT_PX = 120;
+
+/** Vertical space reserved above the Inspect panel when computing its
+ *  max height — covers the preview toolbar (~40px) plus a usable
+ *  viewport floor (~160px) so the iframe never collapses to nothing. */
+const INSPECT_VIEWPORT_RESERVE_PX = 200;
+
+/** Floor for the computed max height; ensures the panel stays resizable
+ *  in containers small enough that `clientHeight - reserve` would be
+ *  negative or absurdly small. */
+const INSPECT_PANEL_MAX_FALLBACK_PX = 160;
+
+/** Keyboard arrow-key step. Shift+arrow uses the larger step. */
+const INSPECT_PANEL_KEY_STEP_PX = 12;
+const INSPECT_PANEL_KEY_STEP_LARGE_PX = 60;
+
 export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   {
     port = 3000,
@@ -221,6 +239,101 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const resize = usePreviewResize({
     iframeWrapperRef: capture.iframeWrapperRef,
   });
+
+  // Inspect-panel vertical resize. Null = use the default 1fr split from CSS;
+  // a number = explicit panel height in px (overrides via inline grid-template-rows).
+  const [inspectPanelHeight, setInspectPanelHeight] = useState<number | null>(null);
+  const [isInspectResizing, setIsInspectResizing] = useState(false);
+  const inspectPanelRef = useRef<HTMLDivElement | null>(null);
+
+  const computeMaxPanelHeight = useCallback((containerHeight: number) => {
+    return Math.max(INSPECT_PANEL_MAX_FALLBACK_PX, containerHeight - INSPECT_VIEWPORT_RESERVE_PX);
+  }, []);
+
+  const handleInspectResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const panel = inspectPanelRef.current;
+      const container = panel?.parentElement;
+      if (!panel || !container) return;
+
+      setIsInspectResizing(true);
+      document.body.style.cursor = 'ns-resize';
+      document.body.style.userSelect = 'none';
+
+      const startY = e.clientY;
+      const startHeight = panel.offsetHeight;
+      const maxPanelHeight = computeMaxPanelHeight(container.clientHeight);
+
+      let rafId: number | null = null;
+      const onMove = (ev: MouseEvent) => {
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const deltaY = startY - ev.clientY; // up = grow panel
+          const next = startHeight + deltaY;
+          setInspectPanelHeight(
+            Math.max(INSPECT_PANEL_MIN_HEIGHT_PX, Math.min(next, maxPanelHeight))
+          );
+        });
+      };
+      const onUp = () => {
+        if (rafId !== null) cancelAnimationFrame(rafId);
+        setIsInspectResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [computeMaxPanelHeight]
+  );
+
+  // Keyboard support for the resize separator: arrow keys nudge, Home/End
+  // jump to the bounds. Required for users who can't drag with a pointer.
+  const handleInspectResizeKey = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Home' && e.key !== 'End') {
+        return;
+      }
+      const panel = inspectPanelRef.current;
+      const container = panel?.parentElement;
+      if (!panel || !container) return;
+      e.preventDefault();
+
+      const max = computeMaxPanelHeight(container.clientHeight);
+      const current = inspectPanelHeight ?? panel.offsetHeight;
+      const step = e.shiftKey ? INSPECT_PANEL_KEY_STEP_LARGE_PX : INSPECT_PANEL_KEY_STEP_PX;
+
+      if (e.key === 'ArrowUp') {
+        setInspectPanelHeight(Math.min(current + step, max));
+      } else if (e.key === 'ArrowDown') {
+        setInspectPanelHeight(Math.max(current - step, INSPECT_PANEL_MIN_HEIGHT_PX));
+      } else if (e.key === 'Home') {
+        setInspectPanelHeight(INSPECT_PANEL_MIN_HEIGHT_PX);
+      } else if (e.key === 'End') {
+        setInspectPanelHeight(max);
+      }
+    },
+    [inspectPanelHeight, computeMaxPanelHeight]
+  );
+
+  // Reclamp the panel height when the container resizes — without this, a
+  // user-set absolute pixel height can outgrow a shrunken window and push
+  // the viewport row to zero.
+  useEffect(() => {
+    if (!showLogs) return;
+    const container = inspectPanelRef.current?.parentElement;
+    if (!container) return;
+    const ro = new ResizeObserver(() => {
+      const max = computeMaxPanelHeight(container.clientHeight);
+      setInspectPanelHeight((prev) => (prev === null || prev <= max ? prev : max));
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [showLogs, computeMaxPanelHeight]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeSize, setIframeSize] = useState<{ w: number; h: number } | null>(null);
@@ -325,7 +438,17 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   }
 
   return (
-    <div className="preview-container" data-logs={showLogs ? 'open' : 'closed'}>
+    <div
+      className="preview-container"
+      data-logs={showLogs ? 'open' : 'closed'}
+      style={
+        showLogs && inspectPanelHeight !== null
+          ? {
+              gridTemplateRows: `auto minmax(0, 1fr) var(--handle-size) ${inspectPanelHeight}px`,
+            }
+          : undefined
+      }
+    >
       <div className="preview-toolbar">
         {onToggleLogs && (
           <button
@@ -492,8 +615,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 ? 'calc(100% - 4px)'
                 : `${resize.customWidth + RESIZE_HANDLE_PX}px`,
             maxWidth: 'calc(100% - 4px)',
+            // While Inspect is open the bottom resize handle is hidden, so
+            // we ignore (but preserve) the user's customHeight to avoid an
+            // unreachable floating-iframe state. The value comes back when
+            // Inspect closes and the handle returns.
             height:
-              resize.customHeight === null ? '100%' : `${resize.customHeight + RESIZE_HANDLE_PX}px`,
+              resize.customHeight === null || showLogs
+                ? '100%'
+                : `${resize.customHeight + RESIZE_HANDLE_PX}px`,
             maxHeight: '100%',
           }}
         >
@@ -569,7 +698,22 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           </div>
         </div>
       </div>
+      {showLogs && (
+        <div
+          className="inspect-resize-handle"
+          onMouseDown={handleInspectResizeStart}
+          onKeyDown={handleInspectResizeKey}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize inspect panel"
+          tabIndex={0}
+        >
+          <div className="inspect-resize-handle-bar" />
+        </div>
+      )}
+      {isInspectResizing && <div className="inspect-resize-overlay" />}
       <InspectPanel
+        ref={inspectPanelRef}
         hidden={!showLogs}
         devServerOutput={devServerOutput}
         devServerOutputVersion={devServerOutputVersion}
@@ -595,21 +739,24 @@ interface InspectPanelProps {
   onActiveTabChange?: (tab: InspectTab) => void;
 }
 
-function InspectPanel({
-  hidden,
-  devServerOutput,
-  devServerOutputVersion,
-  onClose,
-  onSendToAgent,
-  activeTab: activeTabProp,
-  onActiveTabChange,
-}: InspectPanelProps) {
+const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function InspectPanel(
+  {
+    hidden,
+    devServerOutput,
+    devServerOutputVersion,
+    onClose,
+    onSendToAgent,
+    activeTab: activeTabProp,
+    onActiveTabChange,
+  },
+  ref
+) {
   const [activeTabLocal, setActiveTabLocal] = useState<InspectTab>('logs');
   const activeTab = activeTabProp ?? activeTabLocal;
   const setActiveTab = onActiveTabChange ?? setActiveTabLocal;
 
   return (
-    <div className="preview-logs-panel" aria-hidden={hidden}>
+    <div ref={ref} className="preview-logs-panel" aria-hidden={hidden}>
       <div className="preview-logs-header">
         <div className="preview-logs-tabs" role="tablist">
           <button
@@ -676,4 +823,4 @@ function InspectPanel({
       </div>
     </div>
   );
-}
+});

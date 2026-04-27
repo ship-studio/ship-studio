@@ -11,15 +11,82 @@
    style state inside doesn't get torn down on toggle. JS sets
    `data-logs="open"` on the container when showLogs is true. */
 .preview-container {
+  /* Resize-handle thickness for both the inspect-panel handle (defined
+     here) and the inner `.preview-frame-grid` handles. MUST match
+     `RESIZE_HANDLE_PX` in `src/hooks/usePreviewResize.ts` — the
+     component reads RESIZE_HANDLE_PX when it writes an inline
+     `grid-template-rows` override on this element. */
+  --handle-size: 8px;
   flex: 1;
   display: grid;
   grid-template-rows: auto 1fr 0;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
+/* When inspect is open, insert a handle-sized row for the resize handle
+   between the viewport (row 2) and the panel (row 4). The default 1fr
+   split keeps the previous 50/50 layout; an inline `gridTemplateRows`
+   override from the component supplies an explicit panel height once
+   the user drags. */
 .preview-container[data-logs='open'] {
-  grid-template-rows: auto 1fr 1fr;
+  grid-template-rows: auto minmax(0, 1fr) var(--handle-size) minmax(0, 1fr);
+}
+
+/* When the inspect panel is open, the preview's own bottom-edge vertical
+   handle would sit directly above our new inspect handle and look like a
+   doubled bar. Hide it and collapse its grid row so the iframe area
+   reaches the inspect handle cleanly. */
+.preview-container[data-logs='open'] .preview-resize-handle--vertical {
+  display: none;
+}
+
+.preview-container[data-logs='open'] .preview-frame-grid {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'iframe right';
+}
+
+/* Inspect-panel resize handle. Mirrors the visual language of the
+   preview's vertical resize handle, but lives in the outer
+   .preview-container grid (not the .preview-frame-grid). */
+.inspect-resize-handle {
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+
+.inspect-resize-handle:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.inspect-resize-handle-bar {
+  width: 40px;
+  height: 2px;
+  background: var(--text-muted);
+  border-radius: 1px;
+  transition: background var(--transition);
+}
+
+.inspect-resize-handle:hover .inspect-resize-handle-bar {
+  background: var(--accent);
+}
+
+/* Full-container overlay during drag — prevents iframes inside the
+   viewport or the inspect panel from swallowing mouse events. */
+.inspect-resize-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-dropdown);
+  cursor: ns-resize;
 }
 
 .preview-toolbar {
