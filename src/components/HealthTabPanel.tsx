@@ -24,6 +24,12 @@ import {
   type CheckStatus,
   type CheckState,
 } from '../hooks/useCodeHealth';
+import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
+import { useOptionalToast } from '../contexts/ToastContext';
+import { stripAnsi } from '../lib/ansi';
+import { Button } from './primitives/Button';
+import { ModalFrame } from './primitives/ModalFrame';
+import { SpinnerIcon, FileIcon, CopyIcon, ResetIcon } from './icons';
 
 const CATEGORY_HINTS: Record<ScriptCategory, string> = {
   test: "Runs your project's test suite (vitest, jest, etc.) and reports pass/fail.",
@@ -33,12 +39,6 @@ const CATEGORY_HINTS: Record<ScriptCategory, string> = {
   format:
     "Verifies every file matches your formatter's style (prettier, biome). Read-only — no files are modified.",
 };
-import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
-import { useOptionalToast } from '../contexts/ToastContext';
-import { stripAnsi } from '../lib/ansi';
-import { Button } from './primitives/Button';
-import { ModalFrame } from './primitives/ModalFrame';
-import { SpinnerIcon, FileIcon, CopyIcon, ResetIcon } from './icons';
 
 interface HealthTabPanelProps {
   projectPath: string;
