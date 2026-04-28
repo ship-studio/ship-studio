@@ -162,6 +162,10 @@ pub fn run() {
                     .accelerator("CmdOrCtrl+Shift+C")
                     .build(app)?;
 
+                let new_window = MenuItemBuilder::with_id("new_window", "New Window")
+                    .accelerator("CmdOrCtrl+N")
+                    .build(app)?;
+
                 let app_menu = SubmenuBuilder::new(app, "Ship Studio")
                     .about(None)
                     .separator()
@@ -194,6 +198,8 @@ pub fn run() {
                 let view_menu = SubmenuBuilder::new(app, "View").fullscreen().build()?;
 
                 let window_menu = SubmenuBuilder::new(app, "Window")
+                    .item(&new_window)
+                    .separator()
                     .minimize()
                     .maximize()
                     .build()?;
@@ -211,6 +217,15 @@ pub fn run() {
                 // Handle custom menu items
                 let app_handle = app.handle().clone();
                 app.on_menu_event(move |_app, event| {
+                    // "New Window" spawns a fresh window directly — handled
+                    // before the per-window event-emit branch since it does
+                    // not require a focused webview to exist.
+                    if event.id() == "new_window" {
+                        if let Err(e) = commands::projects::spawn_blank_window(&app_handle) {
+                            tracing::error!("Failed to spawn new window: {}", e);
+                        }
+                        return;
+                    }
                     if let Some(window) = app_handle.get_webview_window("main") {
                         if event.id() == "close_tab" {
                             let _ = window.emit("close-tab", ());

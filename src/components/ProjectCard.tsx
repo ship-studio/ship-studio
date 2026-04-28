@@ -10,7 +10,7 @@
 
 import { memo } from 'react';
 import { DashboardProject } from '../lib/project';
-import { BranchIcon, NewWindowIcon } from './icons';
+import { BranchIcon } from './icons';
 import { ProjectCardMenu } from './ProjectCardMenu';
 
 /** Props for the ProjectCard component */
@@ -29,8 +29,6 @@ interface ProjectCardProps {
   onMoveToFolder?: () => void;
   /** Callback to export project as a template zip */
   onExportAsTemplate?: () => void;
-  /** Callback to open project in a new window */
-  onOpenInNewWindow?: () => void;
   /** Whether this is an external project */
   isExternal?: boolean;
   /** Callback when remove from list is clicked (for external projects) */
@@ -49,7 +47,6 @@ export const ProjectCard = memo(function ProjectCard({
   onToggleMainBranchWarning,
   onMoveToFolder,
   onExportAsTemplate,
-  onOpenInNewWindow,
   isExternal,
   onRemove,
   isPinned,
@@ -80,28 +77,9 @@ export const ProjectCard = memo(function ProjectCard({
             <span>No preview</span>
           </div>
         )}
-        {/* Hover actions overlay */}
-        <div className="project-card-overlay">
-          <div className="project-card-quick-actions">
-            {onOpenInNewWindow && (
-              <button
-                className="quick-action-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenInNewWindow();
-                }}
-                title="Open in new window"
-                aria-label="Open in new window"
-              >
-                <NewWindowIcon size={16} />
-              </button>
-            )}
-            {/* "Open in IDE" removed — now a palette command (⌘K → Open in Cursor / VS Code). */}
-          </div>
-        </div>
       </div>
       <div className="project-card-info">
-        <div className="project-card-details" onClick={onSelect} style={{ cursor: 'pointer' }}>
+        <div className="project-card-details" onClick={onSelect}>
           <div className="project-card-name-row">
             <span className="project-card-name">{project.name}</span>
           </div>

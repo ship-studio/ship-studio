@@ -156,3 +156,39 @@ pub async fn focus_window_by_label(
         Err((format!("Window {window_label} not found")).into())
     }
 }
+
+/// Spawn a new blank Ship Studio window pointed at the dashboard
+/// (no `?project=` query param). Used by the "Window → New Window" menu
+/// item; not a Tauri command, since it's invoked from a menu handler that
+/// already has an `AppHandle`. Returns the new window's label.
+#[tracing::instrument(skip(app))]
+pub fn spawn_blank_window(app: &AppHandle) -> Result<String, String> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let window_label = format!("window-{timestamp}");
+
+    let mut builder =
+        WebviewWindowBuilder::new(app, &window_label, WebviewUrl::App("index.html".into()))
+            .title("Ship Studio")
+            .inner_size(1400.0, 900.0)
+            .min_inner_size(400.0, 300.0)
+            .resizable(true)
+            .transparent(true)
+            .initialization_script_for_all_frames(crate::webview_scripts::INSPECTOR_SHIM);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    builder
+        .build()
+        .map_err(|e| format!("Failed to create window: {e}"))?;
+
+    tracing::info!("Spawned blank window {}", window_label);
+    Ok(window_label)
+}

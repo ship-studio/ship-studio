@@ -22,7 +22,6 @@ import {
   getProjectThumbnail,
   deleteProject,
   exportProjectAsTemplate,
-  openProjectInNewWindow,
 } from '../lib/project';
 import { unregisterExternalProject } from '../lib/external-projects';
 import { logger } from '../lib/logger';
@@ -352,20 +351,6 @@ export function ProjectList({
     }
   };
 
-  const handleOpenInNewWindow = async (project: DashboardProject) => {
-    try {
-      await openProjectInNewWindow(project.path, project.name);
-      void trackEvent('project_opened_in_new_window', { $screen_name: 'Dashboard' });
-    } catch (error) {
-      logger.error('[ProjectList] Failed to open in new window', {
-        error,
-        projectName: project.name,
-        projectPath: project.path,
-      });
-      alert('Failed to open in new window: ' + String(error));
-    }
-  };
-
   const handleCreateFolder = async (name: string) => {
     await createFolder(name);
     void trackEvent('folder_created', { $screen_name: 'Dashboard' });
@@ -548,7 +533,6 @@ export function ProjectList({
           }
           onOpenMoveModal={(project) => void handleOpenMoveModal(project)}
           onExportAsTemplate={(path) => void handleExportAsTemplate(path)}
-          onOpenInNewWindow={(project) => void handleOpenInNewWindow(project)}
           onRemoveExternal={(project) => void handleRemoveExternal(project)}
           onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
           onRenameFolder={(folder) => setRenamingFolder(folder)}

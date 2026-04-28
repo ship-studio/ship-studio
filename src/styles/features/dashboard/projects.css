@@ -109,52 +109,6 @@
   color: var(--success);
 }
 
-/* Enhanced Project Card */
-.project-card-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity var(--transition);
-}
-
-.project-card-thumbnail:hover .project-card-overlay {
-  opacity: 1;
-}
-
-.project-card-quick-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.quick-action-btn {
-  padding: 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.quick-action-btn:hover {
-  background: var(--accent);
-  color: #1e1e1e;
-  border-color: var(--accent);
-}
-
 /* Project Card Metadata */
 .project-card-meta {
   display: flex;
