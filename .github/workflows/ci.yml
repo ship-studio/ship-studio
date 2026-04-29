@@ -6,16 +6,37 @@ on:
   pull_request:
     branches: [main]
 
+# Default token scope for every job: read-only on repo contents. If a
+# malicious config-time payload ever does execute, the token it sees
+# can't push, can't open PRs, can't comment, can't touch issues.
+# Individual jobs can override per-step if they need more.
+permissions:
+  contents: read
+
 # Cancel in-progress runs for the same branch
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Config integrity — runs FIRST, fast, fails the whole CI before
+  # anything else loads suspicious files. Catches the "obfuscated payload
+  # hidden behind whitespace on a config-file line" attack class
+  # (see incident 2026-04-29). Cheap, deterministic, no deps.
+  config-integrity:
+    name: Config Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Anomalous-line-length scan
+        run: bash scripts/check-config-integrity.sh
+
   # Frontend checks (fast)
   frontend:
     name: Frontend Checks
     runs-on: ubuntu-latest
+    needs: [config-integrity]
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +92,7 @@ jobs:
   backend:
     name: Backend Checks
     runs-on: ubuntu-latest
+    needs: [config-integrity]
     steps:
       - uses: actions/checkout@v4
 
