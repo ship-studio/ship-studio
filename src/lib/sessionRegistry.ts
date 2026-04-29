@@ -51,6 +51,10 @@ export interface SessionTerminalTab {
   readonly sessionId: string;
   /** Last-seen PTY title (for sidebar display when the xterm is unmounted). */
   title?: string;
+  /** User-supplied title from the sidebar's rename UI. Takes precedence
+   *  over `title` when present so a manual rename is not clobbered by
+   *  the next PTY title-change event. */
+  customTitle?: string;
   /** Whether this tab has an attention indicator on the sidebar. */
   attention?: boolean;
   /** Authoritative lifecycle status. Undefined = we haven't heard from
@@ -319,6 +323,11 @@ class SessionRegistry {
       return {
         ...t,
         title: t.title ?? (agentChanged ? undefined : prev.title),
+        // `customTitle` is the user's manual rename — preserve it across
+        // every other tab mutation (switch, close-sibling, etc.). Drop it
+        // when the agent itself changes, since "Backend" probably meant
+        // something specific to the previous agent.
+        customTitle: t.customTitle ?? (agentChanged ? undefined : prev.customTitle),
         attention: t.attention ?? (agentChanged ? undefined : prev.attention),
         status: t.status ?? (agentChanged ? 'starting' : prev.status),
         pid: t.pid ?? (agentChanged ? null : prev.pid),
@@ -339,6 +348,36 @@ class SessionRegistry {
       if (tab.id === tabId && tab.title !== title) {
         changed = true;
         return { ...tab, title };
+      }
+      return tab;
+    });
+    if (changed) this.notify(projectPath);
+  }
+
+  /** Snapshot of `tabId → customTitle` for a project. Empty when the
+   *  project has no registry entry yet or no manual renames. Used by the
+   *  set_terminal_state save call sites to forward custom titles to disk. */
+  getCustomTitles(projectPath: string): Map<number, string> {
+    const session = this.sessions.get(projectPath);
+    const map = new Map<number, string>();
+    if (!session) return map;
+    for (const t of session.terminalTabs) {
+      if (t.customTitle) map.set(t.id, t.customTitle);
+    }
+    return map;
+  }
+
+  /** Set or clear a user-supplied custom title. Pass an empty string or
+   *  null to clear (revert to PTY-emitted title). */
+  setTerminalTabCustomTitle(projectPath: string, tabId: number, customTitle: string | null): void {
+    const session = this.sessions.get(projectPath);
+    if (!session) return;
+    const next = customTitle && customTitle.trim().length > 0 ? customTitle.trim() : undefined;
+    let changed = false;
+    session.terminalTabs = session.terminalTabs.map((tab) => {
+      if (tab.id === tabId && tab.customTitle !== next) {
+        changed = true;
+        return { ...tab, customTitle: next };
       }
       return tab;
     });

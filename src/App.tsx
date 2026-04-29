@@ -533,6 +533,7 @@ function AppContents({ initialProjectPath }: AppProps) {
                 tabs: snap.terminalTabs.map((t) => ({
                   agent_id: t.agentId,
                   session_id: t.sessionId,
+                  custom_title: t.customTitle,
                 })),
                 active_tab_index: idx,
               },

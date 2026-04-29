@@ -594,6 +594,28 @@ export async function setCustomDevCommand(
 }
 
 /**
+ * Persist the saved terminal-tab list for a project. Wraps the
+ * `set_terminal_state` Tauri command. Components import this rather than
+ * `invoke` directly per the project's no-restricted-imports policy.
+ * @param projectPath - Absolute path to the project directory
+ * @param state - Serialized tab list and active-tab index. `customTitle`
+ *                is optional per tab and falls back to the PTY-emitted
+ *                title at runtime when absent.
+ */
+export interface SavedTerminalTabPayload {
+  agent_id: string;
+  session_id: string;
+  custom_title?: string;
+}
+
+export async function setTerminalState(
+  projectPath: string,
+  state: { tabs: SavedTerminalTabPayload[]; active_tab_index: number }
+): Promise<void> {
+  return invoke<void>('set_terminal_state', { projectPath, state });
+}
+
+/**
  * Get the auto-accept mode preference for a project.
  * When enabled, Claude will run with --dangerously-skip-permissions flag.
  * @param projectPath - Absolute path to the project directory

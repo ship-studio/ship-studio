@@ -663,6 +663,28 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Suppress the browser-default text selection on double-click — the
+     selection flashes for one frame before the rename input mounts. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Inline rename input that replaces the label while editing. Sized to fill
+   the same flex slot so the row layout doesn't jump. */
+.sidebar-row-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  margin: 0;
+  font-size: 12px;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .sidebar-row-meta {

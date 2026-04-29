@@ -245,12 +245,14 @@ export function useProjectLifecycle({
         0,
         outgoingTabs.findIndex((t) => t.id === activeTerminalTab)
       );
+      const outgoingCustomTitles = sessionRegistry.getCustomTitles(outgoingPath);
       invoke('set_terminal_state', {
         projectPath: outgoingPath,
         state: {
           tabs: outgoingTabs.map((t) => ({
             agent_id: t.agentId,
             session_id: t.sessionId,
+            custom_title: outgoingCustomTitles.get(t.id),
           })),
           active_tab_index: outgoingActiveIdx,
         },
@@ -280,7 +282,7 @@ export function useProjectLifecycle({
     // tasking session), restoreTerminalTabs is a no-op and we just
     // reveal the existing tabs. Fresh opens seed a default tab list.
     invoke<{
-      tabs: Array<{ agent_id: string; session_id: string }>;
+      tabs: Array<{ agent_id: string; session_id: string; custom_title?: string | null }>;
       active_tab_index: number;
     } | null>('get_terminal_state', { projectPath: project.path })
       .then((savedState) => {
@@ -300,6 +302,23 @@ export function useProjectLifecycle({
             savedState.tabs.map((t) => ({
               agentId: currentDefault,
               sessionId: t.session_id,
+            })),
+            savedState.active_tab_index
+          );
+          // Pre-seed the registry with the saved custom titles. We call
+          // `setTerminalTabs` directly (rather than the per-tab title
+          // setter, which is a no-op against an empty session) so that
+          // when App.tsx's `allSessions` effect fires next render and
+          // calls `setTerminalTabs` again with a customTitle-less payload,
+          // its merge logic preserves customTitle from this prev snapshot.
+          // Hook ids are `i + 1` per `restoreTerminalTabs` semantics.
+          sessionRegistry.setTerminalTabs(
+            project.path,
+            savedState.tabs.map((t, i) => ({
+              id: i + 1,
+              agentId: currentDefault,
+              sessionId: t.session_id,
+              customTitle: t.custom_title || undefined,
             })),
             savedState.active_tab_index
           );
@@ -630,12 +649,14 @@ export function useProjectLifecycle({
     // Save terminal state in background (non-blocking)
     if (currentProject && terminalTabs.length > 0) {
       const activeIdx = terminalTabs.findIndex((t) => t.id === activeTerminalTab);
+      const customTitles = sessionRegistry.getCustomTitles(currentProject.path);
       invoke('set_terminal_state', {
         projectPath: currentProject.path,
         state: {
           tabs: terminalTabs.map((t) => ({
             agent_id: t.agentId,
             session_id: t.sessionId,
+            custom_title: customTitles.get(t.id),
           })),
           active_tab_index: Math.max(0, activeIdx),
         },

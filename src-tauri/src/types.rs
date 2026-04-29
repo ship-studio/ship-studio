@@ -136,6 +136,11 @@ pub struct SavedTerminalTab {
     pub agent_id: String,
     /// Unique session ID (UUID) for resuming agent conversations
     pub session_id: String,
+    /// User-supplied tab title from the sidebar's rename UI. Persisted so
+    /// manual renames survive across app launches. `None` (the default)
+    /// falls back to the PTY-emitted title at runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_title: Option<String>,
 }
 
 /// Saved terminal state for restoring tabs when reopening a project.
