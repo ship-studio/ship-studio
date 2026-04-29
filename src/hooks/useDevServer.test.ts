@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useDevServer } from './useDevServer';
+import { useDevServer, filterProbeChunk, isProbeLine } from './useDevServer';
 
 // Mock external dependencies
 vi.mock('../lib/project', () => ({
@@ -275,8 +275,6 @@ describe('useDevServer', () => {
     });
   });
 });
-
-import { filterProbeChunk, isProbeLine } from './useDevServer';
 
 describe('isProbeLine', () => {
   it('matches a Next.js style GET / line', () => {
