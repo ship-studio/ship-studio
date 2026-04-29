@@ -26,6 +26,7 @@ import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getWindowLabel } from '../lib/window';
 import type { HealthTabPanelRef } from '../components/HealthTabPanel';
+import { stripAnsi } from '../lib/ansi';
 
 /** All the per-project server state we track in the map. */
 interface ProjectServerState {
@@ -75,28 +76,35 @@ function makeState(): ProjectServerState {
    own liveness probe (a `fetch('/')` every 10s from `usePreviewConnection`).
    Filtering them keeps the visible log focused on real traffic.
 
-   Two shapes covered:
-     - `GET /` or `HEAD /` followed by whitespace or end-of-line — Next.js,
-       Express morgan-style, etc.
+   Three shapes covered after ANSI stripping:
+     - `GET /` or `HEAD /` followed by whitespace, end-of-line, or `HTTP`
+       — Next.js, Vite, Express, etc. Anchored to the start of the line
+       (allowing only timestamp / IP / bracket / quote prefix chars) so a
+       narrative log line like "Last request was GET / 200" is NOT filtered.
      - `[200] /` or `[304] /` — bracketed-status format used by some custom
-       dev-server loggers (seen in Webflow/Astro tooling).
+       dev-server loggers (seen in Webflow / Astro tooling).
+     - `"GET / HTTP/1.1"` — Apache / morgan combined log format. Not anchored
+       since the quoted request signature is distinctive enough on its own.
 
-   ANSI escapes are stripped before matching so colorized loggers still match.
-   The pattern is anchored on the `/` path with no further segments to avoid
-   accidentally swallowing real `/foo` requests. */
-const PROBE_LINE_PATTERN = /(?:GET|HEAD)\s+\/(?:\s|$)|\[(?:200|304)\]\s+\/(?:\s|$)/i;
+   The path is anchored on `/` followed by whitespace, EOL, `"`, or `HTTP`,
+   so real requests like `/api/foo` or `/static/img.png` still pass through. */
+export const PROBE_LINE_PATTERN =
+  /^[^A-Za-z]*(?:(?:GET|HEAD)\s+\/(?:[\s"]|$|HTTP)|\[(?:200|304)\]\s+\/(?:\s|$))|"(?:GET|HEAD)\s+\/\s+HTTP/i;
 
-function isProbeLine(line: string): boolean {
-  // eslint-disable-next-line no-control-regex
-  const stripped = line.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').trim();
+export function isProbeLine(line: string): boolean {
+  const stripped = stripAnsi(line).trim();
   if (!stripped) return false;
   return PROBE_LINE_PATTERN.test(stripped);
 }
 
 /** Split incoming PTY data into complete lines + a trailing partial.
  *  Filters out probe lines and returns the surviving content (with their
- *  newline terminators preserved) plus the new pending fragment. */
-function filterProbeChunk(pendingLine: string, chunk: string): { kept: string; pending: string } {
+ *  newline terminators preserved) plus the new pending fragment. Exported
+ *  for unit testing — not consumed elsewhere. */
+export function filterProbeChunk(
+  pendingLine: string,
+  chunk: string
+): { kept: string; pending: string } {
   const combined = pendingLine + chunk;
   const lastNewline = combined.lastIndexOf('\n');
   if (lastNewline === -1) {

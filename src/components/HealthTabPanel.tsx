@@ -243,25 +243,23 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
                   aria-current={isSelected ? 'true' : undefined}
                 >
                   <StatusGlyph status={state.status} />
-                  <span className="health-tab-row-label">
-                    {CATEGORY_LABELS[cat]}
-                    <HelpHint label={CATEGORY_HINTS[cat]} />
-                  </span>
-                  <span className="health-tab-row-status">{statusText(state)}</span>
-                  {state.result?.durationMs !== undefined && (
-                    <span className="health-tab-row-meta">
-                      {formatDuration(state.result.durationMs)}
-                    </span>
-                  )}
-                  {lastRun && (
-                    <span
-                      className="health-tab-row-time"
-                      title={new Date(lastRun).toLocaleString()}
-                    >
-                      {formatRelativeTime(lastRun)}
-                    </span>
-                  )}
+                  <span className="health-tab-row-label">{CATEGORY_LABELS[cat]}</span>
                 </button>
+                {/* `?` lives outside the row-main button so it can be its own
+                    focusable widget. Nesting interactive elements inside a
+                    <button> is an a11y anti-pattern and breaks Tab focus. */}
+                <HelpHint label={CATEGORY_HINTS[cat]} />
+                <span className="health-tab-row-status">{statusText(state)}</span>
+                {state.result?.durationMs !== undefined && (
+                  <span className="health-tab-row-meta">
+                    {formatDuration(state.result.durationMs)}
+                  </span>
+                )}
+                {lastRun && (
+                  <span className="health-tab-row-time" title={new Date(lastRun).toLocaleString()}>
+                    {formatRelativeTime(lastRun)}
+                  </span>
+                )}
                 <div className="health-tab-row-actions">
                   {state.status === 'fail' && onAskClaude && (
                     <Button

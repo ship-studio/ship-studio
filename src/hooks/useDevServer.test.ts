@@ -275,3 +275,122 @@ describe('useDevServer', () => {
     });
   });
 });
+
+import { filterProbeChunk, isProbeLine } from './useDevServer';
+
+describe('isProbeLine', () => {
+  it('matches a Next.js style GET / line', () => {
+    expect(isProbeLine('GET / 200 in 2ms')).toBe(true);
+  });
+
+  it('matches a HEAD / probe', () => {
+    expect(isProbeLine('HEAD / 304')).toBe(true);
+  });
+
+  it('matches a bracket-status timestamp format', () => {
+    expect(isProbeLine('17:49:56 [200] / 4ms')).toBe(true);
+  });
+
+  it('matches a 304 bracket-status', () => {
+    expect(isProbeLine('17:49:56 [304] / 1ms')).toBe(true);
+  });
+
+  it('matches an Apache / morgan combined log', () => {
+    expect(isProbeLine('127.0.0.1 - - [29/Apr/2026:10:00:00] "GET / HTTP/1.1" 200 -')).toBe(true);
+  });
+
+  it('strips ANSI escape sequences before matching', () => {
+    expect(isProbeLine('\x1b[32mGET / 200\x1b[0m in 2ms')).toBe(true);
+  });
+
+  it('does not match a request to a different path', () => {
+    expect(isProbeLine('GET /api/foo 200 in 2ms')).toBe(false);
+    expect(isProbeLine('GET /favicon.ico 304')).toBe(false);
+  });
+
+  it('does not match narrative log lines that contain "GET /"', () => {
+    expect(isProbeLine('Last request was GET / 200')).toBe(false);
+    expect(isProbeLine('Cannot GET / on this server')).toBe(false);
+  });
+
+  it('does not match a different method', () => {
+    expect(isProbeLine('POST / 200')).toBe(false);
+  });
+
+  it('does not match an empty or whitespace-only line', () => {
+    expect(isProbeLine('')).toBe(false);
+    expect(isProbeLine('   ')).toBe(false);
+  });
+});
+
+describe('filterProbeChunk', () => {
+  it('drops a single complete probe line', () => {
+    const result = filterProbeChunk('', 'GET / 200 in 2ms\n');
+    expect(result.kept).toBe('');
+    expect(result.pending).toBe('');
+  });
+
+  it('keeps a non-probe line', () => {
+    const result = filterProbeChunk('', 'GET /api/foo 200 in 2ms\n');
+    expect(result.kept).toBe('GET /api/foo 200 in 2ms\n');
+    expect(result.pending).toBe('');
+  });
+
+  it('keeps a real line and drops a probe line in the same chunk', () => {
+    const chunk = 'GET /api/foo 200\nGET / 200\nGET /bar 200\n';
+    const result = filterProbeChunk('', chunk);
+    expect(result.kept).toBe('GET /api/foo 200\nGET /bar 200\n');
+    expect(result.pending).toBe('');
+  });
+
+  it('buffers an incomplete trailing line as pending', () => {
+    const result = filterProbeChunk('', 'GET /api/foo');
+    expect(result.kept).toBe('');
+    expect(result.pending).toBe('GET /api/foo');
+  });
+
+  it('joins a probe line split across two chunks and drops it', () => {
+    const first = filterProbeChunk('', 'GET /');
+    expect(first.kept).toBe('');
+    expect(first.pending).toBe('GET /');
+
+    const second = filterProbeChunk(first.pending, ' 200 in 2ms\n');
+    expect(second.kept).toBe('');
+    expect(second.pending).toBe('');
+  });
+
+  it('joins a real line split across two chunks and keeps it', () => {
+    const first = filterProbeChunk('', 'GET /api');
+    expect(first.kept).toBe('');
+    expect(first.pending).toBe('GET /api');
+
+    const second = filterProbeChunk(first.pending, '/foo 200\n');
+    expect(second.kept).toBe('GET /api/foo 200\n');
+    expect(second.pending).toBe('');
+  });
+
+  it('preserves the trailing newline when only probe lines are present', () => {
+    const result = filterProbeChunk('', 'GET / 200\nGET / 304\n');
+    expect(result.kept).toBe('');
+    expect(result.pending).toBe('');
+  });
+
+  it('does not filter narrative log lines that mention GET /', () => {
+    const result = filterProbeChunk('', 'Last request was GET / 200\n');
+    expect(result.kept).toBe('Last request was GET / 200\n');
+    expect(result.pending).toBe('');
+  });
+
+  it('handles an empty chunk', () => {
+    const result = filterProbeChunk('', '');
+    expect(result.kept).toBe('');
+    expect(result.pending).toBe('');
+  });
+
+  it('strips probe lines wrapped in ANSI color codes', () => {
+    const chunk = '\x1b[32mGET / 200\x1b[0m in 2ms\n';
+    const result = filterProbeChunk('', chunk);
+    expect(result.kept).toBe('');
+    expect(result.pending).toBe('');
+  });
+});
