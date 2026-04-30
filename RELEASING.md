@@ -93,11 +93,9 @@ After the workflow completes:
 - [ ] Publish the main repo draft release
 - [ ] Test auto-updater shows update available in-app
 
----
-
 ## Windows Releases
 
-Windows builds run on a separate workflow (`.github/workflows/release-windows.yml`) triggered by tags ending in `-win`. The macOS workflow explicitly excludes these tags, so the two pipelines are fully independent.
+Windows builds run on a separate workflow (`.github/workflows/release-windows.yml`) triggered by tags ending in `-win`. The macOS workflow explicitly excludes these tags, so the two build pipelines are independent, but both workflows publish to the shared `ship-studio/releases` public repo.
 
 ### How to publish a Windows build
 
@@ -107,10 +105,24 @@ git tag v0.5.0-win
 git push origin v0.5.0-win
 ```
 
-GitHub Actions will:
-1. Build the Tauri app on a `windows-latest` runner
-2. Produce a Windows installer (NSIS/MSI)
-3. Create a **draft release** in the main repo with the artifacts
+
+### Verification
+
+After a Windows workflow run completes:
+
+- [ ] Draft release exists in the main repo
+- [ ] Draft release exists in `ship-studio/releases` with 2 Windows artifacts and 2 manifests (json)
+
+After manually publishing the public draft:
+
+- [ ] `latest-windows.json` exists, is valid and has a `windows-x86_64` platform entry:
+  ```bash
+  curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest-windows.json | jq
+  ```
+- [ ] `latest.json` still exists at the public latest URL and still points at the most recent macOS bundle (it should have the same content as the latest.json in the latest macOS release):
+  ```bash
+  curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest.json | jq '.version'
+  ```
 
 ## Troubleshooting
 

@@ -40,6 +40,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
+        "https://github.com/ship-studio/releases/releases/latest/download/latest-{{target}}.json",
         "https://github.com/ship-studio/releases/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDkwOERENTAzOURDNjlFNkYKUldSdm5zYWRBOVdOa0VQQ09QckxabTA3ejVOSHBlSUs3d1I2NG02TmkzOVBmVUZ5OUp3L3QwbUkK"

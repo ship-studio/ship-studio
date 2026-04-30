@@ -53,3 +53,150 @@ jobs:
           releaseBody: 'Windows release. See the main repository for full release notes.'
           releaseDraft: true
           prerelease: false
+
+      - name: Find and stage updater artifacts
+        shell: bash
+        run: |
+          BUNDLE_DIR="src-tauri/target/release/bundle/nsis"
+          echo "Looking in $BUNDLE_DIR"
+          ls -la "$BUNDLE_DIR" || true
+
+          EXE_FILE=$(find "$BUNDLE_DIR" -name "*-setup.exe" -type f | head -1)
+          SIG_FILE=$(find "$BUNDLE_DIR" -name "*-setup.exe.sig" -type f | head -1)
+
+          if [ -z "$EXE_FILE" ] || [ -z "$SIG_FILE" ]; then
+            echo "Error: missing expected artifacts"
+            echo "  exe: $EXE_FILE"
+            echo "  sig: $SIG_FILE"
+            exit 1
+          fi
+
+          echo "Found exe: $EXE_FILE"
+          echo "Found sig: $SIG_FILE"
+
+          # Stable asset names for predictable download URLs
+          mkdir -p artifacts
+          cp "$EXE_FILE" "artifacts/ShipStudio_windows-x86_64-setup.exe"
+          cp "$SIG_FILE" "artifacts/ShipStudio_windows-x86_64-setup.exe.sig"
+          cat "$SIG_FILE" > "artifacts/signature.txt"
+
+          ls -la artifacts/
+
+      - name: Upload updater artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-windows-x86_64
+          path: artifacts/
+          if-no-files-found: error
+
+  create-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo for release notes
+        uses: actions/checkout@v4
+
+      - name: Download updater artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: updater-windows-x86_64
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f
+
+      - name: Get version from tag
+        id: version
+        run: |
+          # v0.5.0-win -> 0.5.0
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION%-win}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Read release notes
+        id: release_notes
+        run: |
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          awk '/^## What/{if(found)exit; found=1; next} found{print}' RELEASE_NOTES.md | sed 's/^- /• /' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create latest-windows.json
+        env:
+          NOTES: ${{ steps.release_notes.outputs.notes }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ github.ref_name }}"
+          RELEASES_REPO="ship-studio/releases"
+
+          SIG=$(cat artifacts/signature.txt)
+          echo "windows-x86_64 signature: $SIG"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg sig "$SIG" \
+            --arg url "https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_windows-x86_64-setup.exe" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "windows-x86_64": {
+                  signature: $sig,
+                  url: $url
+                }
+              }
+            }' > latest-windows.json
+
+          echo "Generated latest-windows.json:"
+          cat latest-windows.json
+
+          python3 -c "import json; json.load(open('latest-windows.json'))" && echo "JSON is valid"
+
+      # Carry forward macOS manifest so macOS auto-update keeps working
+      # when this Windows release flips the "latest" alias
+      - name: Carry forward macOS manifest file
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          mkdir -p carry-forward
+          gh release download \
+            --repo ship-studio/releases \
+            --pattern "latest.json" \
+            --dir carry-forward
+          ls -la carry-forward/
+
+      - name: Upload artifacts to main repo draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            artifacts/ShipStudio_windows-x86_64-setup.exe
+            artifacts/ShipStudio_windows-x86_64-setup.exe.sig
+            latest-windows.json
+          draft: true
+
+      # Draft release in public repo - manual publish gate for Windows.
+      # Includes carry-forward macOS manifest so "latest" alias flip
+      # doesn't drop macOS auto-update.
+      - name: Create draft release in public ship-studio/releases repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          gh release create "$TAG" \
+            --repo ship-studio/releases \
+            --title "Ship Studio v${VERSION} (Windows)" \
+            --notes "Auto-updater release for Ship Studio v${VERSION} Windows. See the main repository for full release notes." \
+            --draft \
+            artifacts/ShipStudio_windows-x86_64-setup.exe \
+            artifacts/ShipStudio_windows-x86_64-setup.exe.sig \
+            latest-windows.json \
+            carry-forward/latest.json

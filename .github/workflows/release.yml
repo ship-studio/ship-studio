@@ -198,6 +198,8 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create latest.json
+        env:
+          NOTES: ${{ steps.release_notes.outputs.notes }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ github.ref_name }}"
@@ -211,37 +213,48 @@ jobs:
           echo "aarch64 signature: $AARCH64_SIG"
           echo "x86_64 signature: $X86_64_SIG"
 
-          # Read release notes (escape for JSON)
-          NOTES=$(cat << 'NOTES_EOF'
-          ${{ steps.release_notes.outputs.notes }}
-          NOTES_EOF
-          )
-          # Escape newlines and quotes for JSON
-          NOTES_JSON=$(echo "$NOTES" | sed 's/"/\\"/g' | tr '\n' ' ' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
-
-          # Create the manifest using printf to avoid YAML parsing issues
-          # URLs point to the PUBLIC releases repo so auto-updater can download
-          printf '%s\n' '{' \
-            "  \"version\": \"${VERSION}\"," \
-            "  \"notes\": \"${NOTES_JSON}\"," \
-            "  \"pub_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," \
-            '  "platforms": {' \
-            '    "darwin-aarch64": {' \
-            "      \"signature\": \"${AARCH64_SIG}\"," \
-            "      \"url\": \"https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-aarch64.app.tar.gz\"" \
-            '    },' \
-            '    "darwin-x86_64": {' \
-            "      \"signature\": \"${X86_64_SIG}\"," \
-            "      \"url\": \"https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-x86_64.app.tar.gz\"" \
-            '    }' \
-            '  }' \
-            '}' > latest.json
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg aarch64_sig "$AARCH64_SIG" \
+            --arg aarch64_url "https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-aarch64.app.tar.gz" \
+            --arg x86_64_sig "$X86_64_SIG" \
+            --arg x86_64_url "https://github.com/${RELEASES_REPO}/releases/download/${TAG}/ShipStudio_darwin-x86_64.app.tar.gz" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": {
+                  signature: $aarch64_sig,
+                  url: $aarch64_url
+                },
+                "darwin-x86_64": {
+                  signature: $x86_64_sig,
+                  url: $x86_64_url
+                }
+              }
+            }' > latest.json
 
           echo "Generated latest.json:"
           cat latest.json
 
           # Validate JSON
           python3 -c "import json; json.load(open('latest.json'))" && echo "JSON is valid"
+
+      # Carry forward Windows manifest so Windows auto-update keeps working
+      # when this macOS release flips the "latest" alias
+      - name: Carry forward Windows manifest file
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_PAT }}
+        run: |
+          mkdir -p carry-forward
+          gh release download \
+            --repo ship-studio/releases \
+            --pattern "latest-windows.json" \
+            --dir carry-forward
+          ls -la carry-forward/
 
       # Upload to the PRIVATE main repo (for reference/backup)
       - name: Upload updater tarballs to main repo release
@@ -254,7 +267,8 @@ jobs:
             latest.json
           draft: true
 
-      # Upload to the PUBLIC releases repo (for auto-updater)
+      # Upload to public repo for auto-updater. Includes carry-forward
+      # Windows manifest so "latest" alias flip doesn't drop Windows.
       - name: Create release in public releases repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_PAT }}
@@ -271,4 +285,5 @@ jobs:
             artifacts/updater-darwin-x86_64/ShipStudio_darwin-x86_64.app.tar.gz \
             artifacts/updater-darwin-aarch64/ShipStudio_darwin-aarch64.dmg \
             artifacts/updater-darwin-x86_64/ShipStudio_darwin-x86_64.dmg \
-            latest.json
+            latest.json \
+            carry-forward/latest-windows.json
