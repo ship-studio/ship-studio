@@ -33,6 +33,7 @@ import { useOptionalToast } from '../contexts/ToastContext';
 import { DevServerLogs } from './DevServerLogs';
 import { BrowserTools } from './BrowserTools';
 import { HealthTabPanel, type HealthTabPanelRef } from './HealthTabPanel';
+import { BrowserDropdown } from './BrowserDropdown';
 
 // SVG icons for breakpoints
 const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
@@ -604,6 +605,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             );
           })}
         </div>
+
+        {conn.serverReady && conn.currentUrl && <BrowserDropdown url={conn.currentUrl} />}
       </div>
       <div
         className="preview-viewport"
