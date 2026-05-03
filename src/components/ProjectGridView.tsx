@@ -27,6 +27,7 @@ export interface ProjectGridViewProps {
   onToggleMainBranchWarning: (projectPath: string, hidden: boolean) => void;
   onOpenMoveModal: (project: DashboardProject) => void;
   onExportAsTemplate: (projectPath: string) => void;
+  onUploadThumbnail: (project: DashboardProject) => void;
   onRemoveExternal: (project: DashboardProject) => void;
 
   onOpenFolder: (folderId: string) => void;
@@ -50,6 +51,7 @@ export function ProjectGridView({
   onToggleMainBranchWarning,
   onOpenMoveModal,
   onExportAsTemplate,
+  onUploadThumbnail,
   onRemoveExternal,
   onOpenFolder,
   onRenameFolder,
@@ -101,6 +103,7 @@ export function ProjectGridView({
           onToggleMainBranchWarning={(hidden) => onToggleMainBranchWarning(project.path, hidden)}
           onMoveToFolder={() => onOpenMoveModal(project)}
           onExportAsTemplate={() => onExportAsTemplate(project.path)}
+          onUploadThumbnail={() => onUploadThumbnail(project)}
           isExternal={project.is_external}
           onRemove={project.is_external ? () => onRemoveExternal(project) : undefined}
           isPinned={pinnedSet?.has(project.path) ?? false}

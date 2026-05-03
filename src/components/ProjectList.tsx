@@ -12,7 +12,7 @@
  * @module components/ProjectList
  */
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
@@ -20,6 +20,7 @@ import {
   getDashboardProjects,
   setHideMainBranchWarning,
   getProjectThumbnail,
+  uploadProjectThumbnail,
   deleteProject,
   exportProjectAsTemplate,
 } from '../lib/project';
@@ -116,6 +117,11 @@ export function ProjectList({
   onTogglePin,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<ProjectWithThumbnail[]>([]);
+  /** Hidden <input type="file"> reused across cards. The current upload
+   *  target lives in a ref (not state) so the change handler reads the
+   *  freshest path even if the user clicks fast through several cards. */
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailTargetPathRef = useRef<string | null>(null);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [filedPaths, setFiledPaths] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -320,6 +326,40 @@ export function ProjectList({
         error: error instanceof Error ? error.message : String(error),
       });
       alert('Failed to update main branch warning: ' + String(error));
+    }
+  };
+
+  const handleUploadThumbnail = (project: DashboardProject) => {
+    thumbnailTargetPathRef.current = project.path;
+    // Reset value so selecting the same file twice still triggers `change`.
+    if (thumbnailInputRef.current) {
+      thumbnailInputRef.current.value = '';
+      thumbnailInputRef.current.click();
+    }
+  };
+
+  const handleThumbnailFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const projectPath = thumbnailTargetPathRef.current;
+    thumbnailTargetPathRef.current = null;
+    if (!file || !projectPath) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const bytes = Array.from(new Uint8Array(buf));
+      const dataUrl = await uploadProjectThumbnail(projectPath, bytes);
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.path === projectPath
+            ? { ...p, thumbnail: '.shipstudio/thumbnail.png', thumbnailData: dataUrl }
+            : p
+        )
+      );
+      void trackEvent('project_thumbnail_uploaded', { $screen_name: 'Dashboard' });
+    } catch (error) {
+      logger.error('Failed to upload thumbnail', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      alert('Failed to upload thumbnail: ' + String(error));
     }
   };
 
@@ -533,6 +573,7 @@ export function ProjectList({
           }
           onOpenMoveModal={(project) => void handleOpenMoveModal(project)}
           onExportAsTemplate={(path) => void handleExportAsTemplate(path)}
+          onUploadThumbnail={(project) => handleUploadThumbnail(project)}
           onRemoveExternal={(project) => void handleRemoveExternal(project)}
           onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
           onRenameFolder={(folder) => setRenamingFolder(folder)}
@@ -601,6 +642,17 @@ export function ProjectList({
             butts up against the scroll edge, regardless of how the outer
             flex/overflow containers resolve padding. */}
         <div className="dashboard-bottom-spacer" aria-hidden />
+
+        {/* Hidden file picker reused across project cards for "Upload new
+            thumbnail". A single input is enough — handleUploadThumbnail
+            stashes the target path in a ref, then triggers .click() here. */}
+        <input
+          ref={thumbnailInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          style={{ display: 'none' }}
+          onChange={(e) => void handleThumbnailFileSelected(e)}
+        />
 
         {/* New Folder Modal */}
         <NewFolderModal

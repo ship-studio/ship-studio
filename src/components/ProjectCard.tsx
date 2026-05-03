@@ -29,6 +29,8 @@ interface ProjectCardProps {
   onMoveToFolder?: () => void;
   /** Callback to export project as a template zip */
   onExportAsTemplate?: () => void;
+  /** Callback to upload a custom thumbnail. Parent owns the file picker. */
+  onUploadThumbnail?: () => void;
   /** Whether this is an external project */
   isExternal?: boolean;
   /** Callback when remove from list is clicked (for external projects) */
@@ -47,6 +49,7 @@ export const ProjectCard = memo(function ProjectCard({
   onToggleMainBranchWarning,
   onMoveToFolder,
   onExportAsTemplate,
+  onUploadThumbnail,
   isExternal,
   onRemove,
   isPinned,
@@ -100,6 +103,7 @@ export const ProjectCard = memo(function ProjectCard({
           onToggleMainBranchWarning={onToggleMainBranchWarning}
           onMoveToFolder={onMoveToFolder}
           onExportAsTemplate={onExportAsTemplate}
+          onUploadThumbnail={onUploadThumbnail}
           onDelete={onDelete}
           isExternal={isExternal}
           onRemove={onRemove}

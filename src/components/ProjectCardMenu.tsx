@@ -10,7 +10,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { TrashIcon, FolderIcon, WarningIcon, DownloadIcon, CloseIcon } from './icons';
+import { TrashIcon, FolderIcon, WarningIcon, DownloadIcon, CloseIcon, ImageIcon } from './icons';
 import { useClickOutside } from '../hooks/useClickOutside';
 
 interface ProjectCardMenuProps {
@@ -22,6 +22,9 @@ interface ProjectCardMenuProps {
   onMoveToFolder?: () => void;
   /** Callback to export project as a template zip */
   onExportAsTemplate?: () => void;
+  /** Callback to upload a custom thumbnail image. When set, shows the
+   *  "Upload new thumbnail" item; the parent owns the file picker. */
+  onUploadThumbnail?: () => void;
   /** Callback when delete is clicked */
   onDelete: () => void;
   /** Whether this is an external project (shows "Remove from list" instead of delete) */
@@ -40,6 +43,7 @@ export function ProjectCardMenu({
   onToggleMainBranchWarning,
   onMoveToFolder,
   onExportAsTemplate,
+  onUploadThumbnail,
   onDelete,
   isExternal,
   onRemove,
@@ -82,6 +86,12 @@ export function ProjectCardMenu({
     onExportAsTemplate?.();
   };
 
+  const handleUploadThumbnailClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsOpen(false);
+    onUploadThumbnail?.();
+  };
+
   const handleMenuButtonClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsOpen(!isOpen);
@@ -115,6 +125,12 @@ export function ProjectCardMenu({
             <button className="project-card-dropdown-item" onClick={handleExportAsTemplateClick}>
               <DownloadIcon size={14} />
               <span>Export as template</span>
+            </button>
+          )}
+          {onUploadThumbnail && (
+            <button className="project-card-dropdown-item" onClick={handleUploadThumbnailClick}>
+              <ImageIcon size={14} />
+              <span>Upload new thumbnail</span>
             </button>
           )}
           {onTogglePin && (

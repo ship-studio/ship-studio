@@ -189,6 +189,11 @@ pub struct ProjectMetadata {
     /// Saved terminal tab state for session restoration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_state: Option<TerminalState>,
+    /// True when the user has uploaded a custom thumbnail. Auto-capture
+    /// (capture_project_thumbnail) no-ops while this is set, so the upload
+    /// isn't silently overwritten the next time the dev server boots.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_thumbnail: Option<bool>,
 }
 
 fn default_schema_version() -> u32 {
@@ -210,6 +215,7 @@ impl Default for ProjectMetadata {
             custom_dev_command: None,
             dev_server_port: None,
             terminal_state: None,
+            custom_thumbnail: None,
         }
     }
 }

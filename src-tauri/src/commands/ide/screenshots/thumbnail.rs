@@ -1,11 +1,27 @@
 //! Project thumbnail capture and retrieval.
 
 use crate::errors::CommandError;
+use crate::types::{ProjectMetadata, PROJECT_METADATA_SCHEMA_VERSION};
 use crate::utils::{create_command, validate_project_path};
 use std::net::TcpStream;
+use std::path::Path;
 use std::time::Duration;
 
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
+
+/// Returns true when the project's metadata marks the thumbnail as
+/// user-supplied — auto-capture must skip these so it doesn't clobber
+/// the upload on the next dev-server boot.
+fn is_thumbnail_locked(project: &Path) -> bool {
+    let metadata_path = project.join(".shipstudio").join("project.json");
+    let Ok(contents) = std::fs::read_to_string(&metadata_path) else {
+        return false;
+    };
+    let Ok(metadata) = serde_json::from_str::<ProjectMetadata>(&contents) else {
+        return false;
+    };
+    metadata.custom_thumbnail.unwrap_or(false)
+}
 
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
@@ -13,6 +29,17 @@ pub async fn capture_project_thumbnail(
     project_path: String,
     url: String,
 ) -> Result<String, CommandError> {
+    let project = validate_project_path(&project_path)?;
+
+    // Skip capture entirely when the user has uploaded a custom thumbnail.
+    // Returns the existing thumbnail path so the caller still treats the
+    // call as success (the user's image stays put).
+    if is_thumbnail_locked(&project) {
+        let thumbnail_path = project.join(".shipstudio").join("thumbnail.png");
+        tracing::info!("Skipping auto-capture; custom thumbnail in place");
+        return Ok(thumbnail_path.to_string_lossy().to_string());
+    }
+
     // Quick health check: verify the dev server is still responding before launching Playwright.
     // This reduces (but doesn't eliminate) race conditions where the server dies mid-capture.
     // Extract port from URL (e.g., "http://localhost:3000" -> 3000)
@@ -45,7 +72,6 @@ pub async fn capture_project_thumbnail(
         port
     );
 
-    let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
 
     // Ensure .shipstudio directory exists
@@ -158,4 +184,66 @@ pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String
     } else {
         Ok(None)
     }
+}
+
+/// Save a user-supplied image as the project's thumbnail and lock
+/// auto-capture so subsequent dev-server-driven captures don't overwrite
+/// it. Returns the new thumbnail as a base64 data URL so the dashboard
+/// can refresh without a second round-trip.
+#[tauri::command]
+#[tracing::instrument(skip(image_data), fields(project = %project_path, bytes = image_data.len()))]
+pub async fn upload_project_thumbnail(
+    project_path: String,
+    image_data: Vec<u8>,
+) -> Result<String, CommandError> {
+    use base64::Engine;
+
+    if image_data.is_empty() {
+        return Err("Empty image upload".to_string().into());
+    }
+
+    let project = validate_project_path(&project_path)?;
+    let shipstudio_dir = project.join(".shipstudio");
+    if !shipstudio_dir.exists() {
+        std::fs::create_dir_all(&shipstudio_dir)
+            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
+    }
+
+    // Decode through the `image` crate — gives us format detection + a
+    // hard reject for non-image input. Then re-encode as PNG at the same
+    // 640px width as the auto-capture path so the dashboard renders
+    // consistently regardless of source.
+    let img = image::load_from_memory(&image_data)
+        .map_err(|e| format!("Could not read uploaded image: {e}"))?;
+    let resized = img.resize(640, 400, image::imageops::FilterType::Lanczos3);
+
+    let thumbnail_path = shipstudio_dir.join("thumbnail.png");
+    resized
+        .save(&thumbnail_path)
+        .map_err(|e| format!("Failed to save thumbnail: {e}"))?;
+
+    // Mark the metadata so capture_project_thumbnail no-ops next time.
+    // Reads-then-writes the whole file rather than calling the
+    // sibling tauri command directly so we stay synchronous on disk.
+    let metadata_path = shipstudio_dir.join("project.json");
+    let mut metadata: ProjectMetadata = if metadata_path.exists() {
+        let contents = std::fs::read_to_string(&metadata_path)
+            .map_err(|e| format!("Failed to read project metadata: {e}"))?;
+        let mut existing: ProjectMetadata = serde_json::from_str(&contents)
+            .map_err(|e| format!("Failed to parse project metadata: {e}"))?;
+        existing.migrate();
+        existing
+    } else {
+        ProjectMetadata::default()
+    };
+    metadata.custom_thumbnail = Some(true);
+    metadata.schema_version = PROJECT_METADATA_SCHEMA_VERSION;
+    let serialized = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
+    std::fs::write(&metadata_path, serialized)
+        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
+
+    let bytes = std::fs::read(&thumbnail_path).map_err(|e| e.to_string())?;
+    let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/png;base64,{base64_data}"))
 }

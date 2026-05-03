@@ -112,6 +112,22 @@ export async function getProjectThumbnail(projectPath: string): Promise<string |
 }
 
 /**
+ * Save a user-uploaded image as the project's thumbnail and lock auto-capture
+ * (the backend's capture_project_thumbnail will skip subsequent invocations
+ * for this project, so the upload isn't overwritten on next dev-server boot).
+ *
+ * @param projectPath - Absolute path to the project directory
+ * @param fileData - Image bytes (PNG, JPEG, WebP, etc. — anything the `image` crate decodes)
+ * @returns The new thumbnail as a base64 data URL, ready for direct use in <img src>
+ */
+export async function uploadProjectThumbnail(
+  projectPath: string,
+  fileData: number[]
+): Promise<string> {
+  return invoke<string>('upload_project_thumbnail', { projectPath, imageData: fileData });
+}
+
+/**
  * Delete a project from disk.
  * @param path - Absolute path to the project directory to delete
  */
