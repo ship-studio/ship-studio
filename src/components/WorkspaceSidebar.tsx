@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { SearchIcon, ChevronIcon, ResetIcon, PlusIcon } from './icons';
+import { SearchIcon, ChevronIcon, ResetIcon } from './icons';
 import { BrowserDropdown } from './BrowserDropdown';
 import { useOpenPalette } from './CommandPalette/paletteContext';
 import { ALL_AGENTS, TERMINAL, getAgentById, type AgentConfig } from '../lib/agent';
@@ -889,66 +889,57 @@ function SidebarSection({
   addFooterLabel,
 }: SectionProps) {
   const headerId = `sidebar-section-${id}`;
-  const [pickerAnchor, setPickerAnchor] = useState<'header' | 'footer' | null>(null);
+  const [footerPickerOpen, setFooterPickerOpen] = useState(false);
   const [footerPickerPos, setFooterPickerPos] = useState<{
     top: number;
     left: number;
     width: number;
   } | null>(null);
-  const pickerOpen = pickerAnchor !== null;
-  const pickerRef = useRef<HTMLDivElement>(null);
-  const footerBtnRef = useRef<HTMLButtonElement>(null);
-  const closeTimerRef = useRef<number | null>(null);
+  const footerWrapRef = useRef<HTMLDivElement>(null);
+  const footerPickerRef = useRef<HTMLDivElement>(null);
 
   /* Show the agent picker only when the user has multiple options.
      With a single agent configured, `+` is an unambiguous "add the
      default agent" button — a one-item dropdown would just be noise. */
   const hasMultipleOptions = (addOptions?.length ?? 0) > 1;
 
-  const cancelClose = () => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  };
-
-  /* Grace period so the user can move their mouse from the `+` button
-     into the picker (there's a tiny gap between them) without the
-     picker snapping shut. */
-  const scheduleClose = () => {
-    cancelClose();
-    closeTimerRef.current = window.setTimeout(() => {
-      setPickerAnchor(null);
-      closeTimerRef.current = null;
-    }, 120);
-  };
-
-  const openPicker = (anchor: 'header' | 'footer') => {
+  const toggleFooterPicker = () => {
     if (!hasMultipleOptions) return;
-    cancelClose();
-    if (anchor === 'footer' && footerBtnRef.current) {
-      /* Portal-anchor the footer picker relative to the viewport so the
-         sidebar's `overflow: hidden` and scroll-container clipping can't
-         chop it off. We mirror the button's x-position and width so the
-         dropdown visually aligns with the trigger. */
-      const rect = footerBtnRef.current.getBoundingClientRect();
-      setFooterPickerPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    }
-    setPickerAnchor(anchor);
+    setFooterPickerOpen((prev) => {
+      if (prev) return false;
+      if (footerWrapRef.current) {
+        /* Portal-anchor the picker relative to the viewport so the
+           sidebar's `overflow: hidden` and scroll-container clipping
+           can't chop it off. We mirror the wrapper's x/width so the
+           dropdown visually aligns with the split-button pill. */
+        const rect = footerWrapRef.current.getBoundingClientRect();
+        setFooterPickerPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+      }
+      return true;
+    });
   };
 
   useEffect(() => {
-    if (!pickerOpen) return;
+    if (!footerPickerOpen) return;
     const handleKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') setPickerAnchor(null);
+      if (e.key === 'Escape') setFooterPickerOpen(false);
+    };
+    /* Click-outside dismissal. The picker is portaled to the body, so a
+       wrapper-only check would treat clicks inside the picker as outside
+       and close it before the item's onClick fires. */
+    const handlePointerDown = (e: globalThis.MouseEvent) => {
+      const target = e.target as Node;
+      if (footerWrapRef.current?.contains(target)) return;
+      if (footerPickerRef.current?.contains(target)) return;
+      setFooterPickerOpen(false);
     };
     window.addEventListener('keydown', handleKey);
+    window.addEventListener('mousedown', handlePointerDown);
     return () => {
       window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('mousedown', handlePointerDown);
     };
-  }, [pickerOpen]);
-
-  useEffect(() => () => cancelClose(), []);
+  }, [footerPickerOpen]);
 
   /* Click always opens the default agent immediately — the picker is
      strictly for the power user who wants a non-default. `onAdd()` with
@@ -956,8 +947,7 @@ function SidebarSection({
   const handleAddClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!onAdd) return;
-    cancelClose();
-    setPickerAnchor(null);
+    setFooterPickerOpen(false);
     onAdd();
   };
 
@@ -974,44 +964,18 @@ function SidebarSection({
           <ChevronIcon size={10} className={collapsed ? 'chevron-collapsed' : 'chevron-expanded'} />
           <span className="sidebar-section-label">{label}</span>
         </button>
-        <div className="sidebar-section-meta" ref={pickerRef}>
+        <div className="sidebar-section-meta">
           <span className="sidebar-section-count">{total}</span>
           {onAdd && (
-            <>
-              <button
-                type="button"
-                className="sidebar-section-add"
-                onClick={handleAddClick}
-                onMouseEnter={() => openPicker('header')}
-                onMouseLeave={scheduleClose}
-                title={addLabel}
-                aria-label={addLabel}
-              >
-                +
-              </button>
-            </>
-          )}
-          {pickerAnchor === 'header' && addOptions && hasMultipleOptions && (
-            <div
-              className="sidebar-section-picker"
-              role="menu"
-              onMouseEnter={cancelClose}
-              onMouseLeave={scheduleClose}
+            <button
+              type="button"
+              className="sidebar-section-add"
+              onClick={handleAddClick}
+              title={addLabel}
+              aria-label={addLabel}
             >
-              {addOptions.map((agent) => (
-                <button
-                  key={agent.id}
-                  type="button"
-                  className="sidebar-section-picker-item"
-                  onClick={() => {
-                    setPickerAnchor(null);
-                    onAdd?.(agent.id);
-                  }}
-                >
-                  {agent.displayName}
-                </button>
-              ))}
-            </div>
+              +
+            </button>
           )}
         </div>
       </header>
@@ -1024,30 +988,46 @@ function SidebarSection({
           )}
           {addFooterLabel && onAdd && items.length > 0 && (
             <li className="sidebar-section-add-footer-row">
-              <button
-                ref={footerBtnRef}
-                type="button"
-                className="toolbar-icon-btn sidebar-section-add-footer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  cancelClose();
-                  setPickerAnchor(null);
-                  onAdd();
-                }}
-                onMouseEnter={() => openPicker('footer')}
-                onMouseLeave={scheduleClose}
-                aria-label={addFooterLabel}
+              <div
+                className={`sidebar-section-add-footer-group ${hasMultipleOptions ? 'has-caret' : ''}`}
+                ref={footerWrapRef}
               >
-                <PlusIcon size={14} />
-                <span>{addFooterLabel}</span>
-                {addShortcut && <span className="capture-shortcut">{addShortcut}</span>}
-              </button>
-              {pickerAnchor === 'footer' &&
+                {hasMultipleOptions && (
+                  <button
+                    type="button"
+                    className={`toolbar-icon-btn sidebar-section-add-footer-caret ${footerPickerOpen ? 'is-open' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFooterPicker();
+                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={footerPickerOpen}
+                    aria-label="Choose agent type"
+                  >
+                    <ChevronIcon size={12} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="toolbar-icon-btn sidebar-section-add-footer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFooterPickerOpen(false);
+                    onAdd();
+                  }}
+                  aria-label={addFooterLabel}
+                >
+                  <span>{addFooterLabel}</span>
+                  {addShortcut && <span className="capture-shortcut">{addShortcut}</span>}
+                </button>
+              </div>
+              {footerPickerOpen &&
                 addOptions &&
                 hasMultipleOptions &&
                 footerPickerPos &&
                 createPortal(
                   <div
+                    ref={footerPickerRef}
                     className="sidebar-section-picker is-footer"
                     role="menu"
                     style={{
@@ -1055,8 +1035,6 @@ function SidebarSection({
                       left: footerPickerPos.left,
                       width: footerPickerPos.width,
                     }}
-                    onMouseEnter={cancelClose}
-                    onMouseLeave={scheduleClose}
                   >
                     {addOptions.map((agent) => (
                       <button
@@ -1064,7 +1042,7 @@ function SidebarSection({
                         type="button"
                         className="sidebar-section-picker-item"
                         onClick={() => {
-                          setPickerAnchor(null);
+                          setFooterPickerOpen(false);
                           onAdd(agent.id);
                         }}
                       >

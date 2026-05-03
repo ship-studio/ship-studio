@@ -562,12 +562,63 @@
   padding: 4px 10px 6px 32px;
 }
 
+/* Wrapper that turns the footer "+" button + chevron caret into a single
+   visual pill (split button). The picker is portaled to <body> and
+   positioned against this group's bounding rect.
+   When `has-caret` is absent the inner button still renders full-width
+   and rounded, matching the pre-split-button look. */
+.sidebar-section-add-footer-group {
+  display: flex;
+  width: 100%;
+  align-items: stretch;
+}
+
 /* Make the toolbar-icon-btn span the full row width in the sidebar footer.
    The base class is sized to its content; in this context we want a full
    stripe under the agent list. */
 .workspace-sidebar button.sidebar-section-add-footer {
   width: 100%;
   border-radius: var(--radius);
+}
+
+/* When the group includes the caret (rendered to the *left* of the main
+   button), the main button gives up its left border + corners so the
+   two segments read as one pill. The right corners pick up the base
+   --radius from .toolbar-icon-btn. */
+.sidebar-section-add-footer-group.has-caret button.sidebar-section-add-footer {
+  flex: 1;
+  width: auto;
+  border-top-right-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+}
+
+/* Corners are set explicitly because the sidebar-wide
+   `.workspace-sidebar button { border-radius: 0 }` reset (above) zeros
+   the base radius from .toolbar-icon-btn. */
+.workspace-sidebar button.sidebar-section-add-footer-caret {
+  width: 28px;
+  padding: 0;
+  flex: 0 0 auto;
+  border-top-left-radius: var(--radius);
+  border-bottom-left-radius: var(--radius);
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* The visible seam between the two segments is the caret's right border
+   (the main button's left border was removed so the pill reads as one).
+   Brighten that seam whenever either half is hovered, otherwise hovering
+   "Add new agent" leaves a stale dim line on its left edge. */
+.sidebar-section-add-footer-group.has-caret:hover button.sidebar-section-add-footer-caret {
+  border-right-color: var(--text-muted);
+}
+
+.workspace-sidebar button.sidebar-section-add-footer-caret.is-open svg {
+  transform: rotate(180deg);
+  transition: transform var(--transition-fast);
 }
 
 /* Footer picker is rendered via a React portal to document.body and
