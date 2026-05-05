@@ -283,17 +283,22 @@ button:hover {
     border-color 0.15s;
 }
 
-.toolbar-icon-btn:hover {
+.toolbar-icon-btn:hover:not(:disabled) {
   background: var(--border);
   color: var(--text-primary);
   border-color: var(--text-muted);
+}
+
+.toolbar-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .toolbar-icon-btn svg {
   color: var(--text-muted);
 }
 
-.toolbar-icon-btn:hover svg {
+.toolbar-icon-btn:hover:not(:disabled) svg {
   color: var(--text-secondary);
 }
 

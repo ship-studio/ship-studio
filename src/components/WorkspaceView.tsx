@@ -49,7 +49,10 @@ import {
   PullRequestIcon,
   EyeIcon,
   EyeOffIcon,
+  UndoIcon,
+  RedoIcon,
 } from './icons';
+import { useSnapshots } from '../hooks/useSnapshots';
 import { ToolbarDropdown } from './ToolbarDropdown';
 import { PluginsDropdown } from './PluginsDropdown';
 import { getAgentById } from '../lib/agent';
@@ -634,6 +637,39 @@ export const WorkspaceView = memo(function WorkspaceView({
     handleResolveConflicts: () => void handleResolveConflicts(),
   });
 
+  // Per-turn working-tree snapshots so users can undo/redo agent edits.
+  const {
+    canUndo,
+    canRedo,
+    undo: undoSnapshot,
+    redo: redoSnapshot,
+  } = useSnapshots(currentProject.path, showToast);
+
+  // Cmd+Z / Cmd+Shift+Z. We let native text-undo handle inputs and
+  // contentEditable so a user editing a PR title still gets character-level
+  // undo. Anywhere else (terminal, preview, empty space), the snapshot
+  // history takes over.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key !== 'z' && e.key !== 'Z') return;
+      const target = (e.target as HTMLElement | null) ?? null;
+      const tag = target?.tagName;
+      const isTextField =
+        tag === 'INPUT' || tag === 'TEXTAREA' || (target?.isContentEditable ?? false);
+      if (isTextField) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) {
+        void redoSnapshot();
+      } else {
+        void undoSnapshot();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [undoSnapshot, redoSnapshot]);
+
   const registryVersion = useSyncExternalStore(
     sessionRegistry.subscribeSimple,
     () => sessionRegistry.getVersion(),
@@ -975,6 +1011,27 @@ export const WorkspaceView = memo(function WorkspaceView({
                           {/* Restart-dev-server moved to the sidebar row
                             (Commands → Dev server). "Edit dev command" and
                             "Project settings" moved to the ⌘K palette. */}
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              className="toolbar-icon-btn"
+                              onClick={() => void undoSnapshot()}
+                              disabled={!canUndo}
+                              title="Undo last change (⌘Z)"
+                              aria-label="Undo"
+                            >
+                              <UndoIcon size={12} />
+                            </button>
+                            <button
+                              className="toolbar-icon-btn"
+                              onClick={() => void redoSnapshot()}
+                              disabled={!canRedo}
+                              title="Redo (⌘⇧Z)"
+                              aria-label="Redo"
+                            >
+                              <RedoIcon size={12} />
+                            </button>
+                          </div>
+                          <div style={{ flex: 1 }} />
                           <ToolbarDropdown
                             agent={getActiveTabAgent()}
                             autoAcceptMode={autoAcceptMode}
