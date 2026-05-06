@@ -992,6 +992,19 @@ function SidebarSection({
                 className={`sidebar-section-add-footer-group ${hasMultipleOptions ? 'has-caret' : ''}`}
                 ref={footerWrapRef}
               >
+                <button
+                  type="button"
+                  className="toolbar-icon-btn sidebar-section-add-footer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFooterPickerOpen(false);
+                    onAdd();
+                  }}
+                  aria-label={addFooterLabel}
+                >
+                  <span>{addFooterLabel}</span>
+                  {addShortcut && <span className="capture-shortcut">{addShortcut}</span>}
+                </button>
                 {hasMultipleOptions && (
                   <button
                     type="button"
@@ -1007,19 +1020,6 @@ function SidebarSection({
                     <ChevronIcon size={12} />
                   </button>
                 )}
-                <button
-                  type="button"
-                  className="toolbar-icon-btn sidebar-section-add-footer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFooterPickerOpen(false);
-                    onAdd();
-                  }}
-                  aria-label={addFooterLabel}
-                >
-                  <span>{addFooterLabel}</span>
-                  {addShortcut && <span className="capture-shortcut">{addShortcut}</span>}
-                </button>
               </div>
               {footerPickerOpen &&
                 addOptions &&
