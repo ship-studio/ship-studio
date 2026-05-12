@@ -48,7 +48,7 @@
 .skills-tabs {
   display: flex;
   gap: 6px;
-  padding: 0 24px 12px;
+  padding: 16px 24px 12px;
 }
 
 .skills-tab {

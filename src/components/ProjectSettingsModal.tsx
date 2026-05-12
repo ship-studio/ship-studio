@@ -57,7 +57,7 @@ export function ProjectSettingsModal({
       <>
         <p
           style={{
-            padding: '0 var(--spacing-xl) var(--spacing-md)',
+            padding: 'var(--spacing-lg) var(--spacing-xl) var(--spacing-md)',
             color: 'var(--text-secondary)',
             fontSize: 13,
           }}
