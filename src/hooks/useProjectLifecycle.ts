@@ -264,6 +264,18 @@ export function useProjectLifecycle({
       });
     }
 
+    // Fetch auto-accept BEFORE the workspace renders. The Terminal
+    // reads `autoAcceptMode` at spawn time to decide whether to pass
+    // `--dangerously-skip-permissions`; if we let the workspace render
+    // first and fetch after, the resumed PTY launches with the previous
+    // state (typically `false`) and never gets the flag, even though
+    // the toolbar toggle shows it as on. ~3ms disk read.
+    try {
+      setAutoAcceptMode(await getAutoAcceptMode(project.path));
+    } catch {
+      setAutoAcceptMode(false);
+    }
+
     // ─── IMMEDIATE: Show workspace right away ───
     // We always land in the workspace view so WorkspaceView stays mounted
     // continuously — unmounting it would take every Terminal child (and
@@ -503,17 +515,9 @@ export function useProjectLifecycle({
     );
     setDevServerPort(port, project.path);
 
-    // Fetch auto-accept mode preference for this project
-    stepStart = performance.now();
-    try {
-      const autoAccept = await getAutoAcceptMode(project.path);
-      setAutoAcceptMode(autoAccept);
-    } catch {
-      setAutoAcceptMode(false);
-    }
-    logger.info(
-      `[OpenProject] Step 5: Fetch auto-accept mode - ${Math.round(performance.now() - stepStart)}ms`
-    );
+    // Step 5 (fetch auto-accept) used to live here, but the value was
+    // already applied synchronously from `project.auto_accept_mode`
+    // before the workspace rendered — see the seed above.
 
     // Check if navigation was superseded
     if (navigationVersionRef.current !== navVersion) {
