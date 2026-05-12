@@ -66,6 +66,11 @@ export function usePreviewConnection({
   const devServerUrl = `http://localhost:${port}`;
   const baseUrl = proxyPort ? `http://localhost:${proxyPort}` : devServerUrl;
   const currentUrl = `${baseUrl}${iframePath === '/' ? '' : iframePath}?_cb=${cacheBuster}&shipstudio=1`;
+  // URL safe to hand to the user's default browser: real dev server,
+  // current iframe path, no proxy and no Ship Studio query params. The
+  // iframe needs the proxy URL (for navigation tracking + cache busting)
+  // but external browsers should land on the dev server directly.
+  const externalUrl = `${devServerUrl}${iframePath === '/' ? '' : iframePath}`;
 
   const wasRestartingRef = useRef(false);
   const healthCheckFailuresRef = useRef(0);
@@ -417,6 +422,7 @@ export function usePreviewConnection({
     // URL state
     baseUrl,
     currentUrl,
+    externalUrl,
 
     // Page navigation
     currentPage,

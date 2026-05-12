@@ -606,7 +606,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           })}
         </div>
 
-        {conn.serverReady && conn.currentUrl && <BrowserDropdown url={conn.currentUrl} />}
+        {conn.serverReady && conn.externalUrl && <BrowserDropdown url={conn.externalUrl} />}
       </div>
       <div
         className="preview-viewport"
