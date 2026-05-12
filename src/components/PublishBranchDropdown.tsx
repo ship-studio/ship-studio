@@ -120,6 +120,20 @@ export function PublishBranchDropdown({
   }, [onModalClose]);
   useClickOutside(dropdownRef, closeDropdown, isOpen, excludeClickOutsideSelector);
 
+  // Drop a stale `success` state when the dropdown closes by any path —
+  // click-outside, toggle, controlled-mode close, etc. Without this, the
+  // user dismissing the "Changes synced — Done" view without clicking
+  // Done would see the same stale view next time they opened the
+  // dropdown, even after making new changes. Resetting only `success`
+  // (not `error` or `publishing`) keeps useful state around: errors
+  // remain visible on reopen so the user can retry, and an in-flight
+  // publish keeps reporting its progress.
+  useEffect(() => {
+    if (!isOpen && publishState.status === 'success') {
+      setPublishState({ status: 'idle' });
+    }
+  }, [isOpen, publishState.status]);
+
   const handlePublish = async () => {
     logger.info('Starting publish', { branch: currentBranch, isMainBranch, projectPath });
     setIsPublishing(true);
