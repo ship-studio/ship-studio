@@ -56,7 +56,7 @@ export function ToolbarDropdown({
   pluginTheme,
 }: ToolbarDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -78,7 +78,11 @@ export function ToolbarDropdown({
       const btn = buttonRef.current;
       if (!btn) return;
       const rect = btn.getBoundingClientRect();
-      setMenuPosition({ top: rect.bottom + 6, left: rect.left });
+      // Anchor by the button's RIGHT edge so the menu expands leftward.
+      // The Agent Settings button sits at the right end of the terminal
+      // toolbar — in focus mode (and on narrow windows) anchoring by the
+      // left edge pushed the menu off-screen.
+      setMenuPosition({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
     };
     anchor();
     window.addEventListener('scroll', anchor, true);
@@ -111,7 +115,7 @@ export function ToolbarDropdown({
           <div
             ref={menuRef}
             className="toolbar-dropdown-menu toolbar-dropdown-menu-floating"
-            style={{ top: menuPosition.top, left: menuPosition.left }}
+            style={{ top: menuPosition.top, right: menuPosition.right }}
           >
             <button
               className="toolbar-dropdown-item"
