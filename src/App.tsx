@@ -164,6 +164,14 @@ function AppContents({ initialProjectPath }: AppProps) {
     getActiveTabAgent,
     restoreTerminalTabs,
     ensureProjectSeeded,
+    splitPaneTabIds,
+    splitPaneSizes,
+    enableSplitView,
+    disableSplitView,
+    setSplitPaneTab,
+    addSplitPane,
+    removeSplitPane,
+    setSplitPaneSizes,
   } = useTerminalManagement(currentProject?.path ?? null);
 
   // Mirror EVERY active session's tabs into the session registry so the
@@ -640,6 +648,14 @@ function AppContents({ initialProjectPath }: AppProps) {
       focusActiveTerminal,
       switchTabAgent,
       getActiveTabAgent,
+      splitPaneTabIds,
+      splitPaneSizes,
+      enableSplitView,
+      disableSplitView,
+      setSplitPaneTab,
+      addSplitPane,
+      removeSplitPane,
+      setSplitPaneSizes,
     }),
     [
       terminalTabs,
@@ -654,6 +670,14 @@ function AppContents({ initialProjectPath }: AppProps) {
       focusActiveTerminal,
       switchTabAgent,
       getActiveTabAgent,
+      splitPaneTabIds,
+      splitPaneSizes,
+      enableSplitView,
+      disableSplitView,
+      setSplitPaneTab,
+      addSplitPane,
+      removeSplitPane,
+      setSplitPaneSizes,
     ]
   );
 

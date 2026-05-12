@@ -54,6 +54,8 @@ import {
 } from './icons';
 import { useSnapshots } from '../hooks/useSnapshots';
 import { ToolbarDropdown } from './ToolbarDropdown';
+import { TerminalSplitHeaders } from './TerminalSplitHeaders';
+import { TerminalSplitDividers } from './TerminalSplitDividers';
 import { PluginsDropdown } from './PluginsDropdown';
 import { getAgentById } from '../lib/agent';
 import type { AgentConfig } from '../lib/agent';
@@ -100,6 +102,16 @@ interface TerminalProps {
   focusActiveTerminal: () => void;
   switchTabAgent: (tabId: number, agentId: string) => void;
   getActiveTabAgent: () => AgentConfig;
+  /** Side-by-side view: tab ids visible in panes, or null when off. */
+  splitPaneTabIds: number[] | null;
+  /** Width of each pane as a percentage (sums to 100). Null when split off. */
+  splitPaneSizes: number[] | null;
+  enableSplitView: () => void;
+  disableSplitView: () => void;
+  setSplitPaneTab: (paneIndex: number, tabId: number) => void;
+  addSplitPane: (tabId?: number) => void;
+  removeSplitPane: (paneIndex: number) => void;
+  setSplitPaneSizes: (sizes: number[]) => void;
 }
 
 interface DevServerProps {
@@ -360,6 +372,14 @@ export const WorkspaceView = memo(function WorkspaceView({
     closeTerminalTab,
     focusActiveTerminal,
     getActiveTabAgent,
+    splitPaneTabIds,
+    splitPaneSizes,
+    enableSplitView,
+    disableSplitView,
+    setSplitPaneTab,
+    addSplitPane,
+    removeSplitPane,
+    setSplitPaneSizes,
   } = terminal;
 
   // Modal context (Block 6 migration). Modals self-read open state via useModal('id');
@@ -446,6 +466,20 @@ export const WorkspaceView = memo(function WorkspaceView({
     workspaceTab,
     setWorkspaceTab,
   } = layout;
+
+  // Split view is only meaningful when focus mode is on AND the current
+  // project has ≥2 tabs AND the user has opted in (splitPaneTabIds set).
+  const canSplit = isPreviewHidden && terminalTabs.length >= 2;
+  const isSplitActive = canSplit && !!splitPaneTabIds && splitPaneTabIds.length >= 2;
+
+  // Auto-disable split when preconditions break (focus exited, tab count
+  // dropped, project changed). User opted into "disable entirely" — they
+  // re-enable manually next time. `disableSplitView` no-ops if already off.
+  useEffect(() => {
+    if (splitPaneTabIds && !canSplit) {
+      disableSplitView();
+    }
+  }, [canSplit, splitPaneTabIds, disableSplitView]);
 
   const {
     pluginTerminal,
@@ -1032,27 +1066,123 @@ export const WorkspaceView = memo(function WorkspaceView({
                             </button>
                           </div>
                           <div style={{ flex: 1 }} />
-                          <ToolbarDropdown
-                            agent={getActiveTabAgent()}
-                            autoAcceptMode={autoAcceptMode}
-                            onNotificationSettings={() => setShowNotificationSettings(true)}
-                            onSkills={skillsModal.open}
-                            onMcp={mcpModal.open}
-                            onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
-                            onHelp={helpModal.open}
-                            terminalPlugins={getSlotPlugins('terminal')}
-                            pluginProject={pluginProject}
-                            pluginActions={pluginActions}
-                            pluginTheme={pluginTheme}
-                          />
+                          <div className="terminal-tabs-bar-right">
+                            {canSplit && (
+                              <button
+                                type="button"
+                                className="toggle-pill-btn"
+                                onClick={() =>
+                                  isSplitActive ? disableSplitView() : enableSplitView()
+                                }
+                                title={
+                                  isSplitActive
+                                    ? 'Exit side-by-side view'
+                                    : 'View agents side by side'
+                                }
+                                aria-label="Toggle side-by-side view"
+                                aria-pressed={isSplitActive}
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 16 16"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.6"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <rect x="2" y="3" width="12" height="10" rx="1.2" />
+                                  <line x1="8" y1="3" x2="8" y2="13" />
+                                </svg>
+                                <span>Split</span>
+                                <span
+                                  className={`toggle-pill-switch ${isSplitActive ? 'is-on' : ''}`}
+                                  aria-hidden
+                                />
+                              </button>
+                            )}
+                            <ToolbarDropdown
+                              agent={getActiveTabAgent()}
+                              autoAcceptMode={autoAcceptMode}
+                              onNotificationSettings={() => setShowNotificationSettings(true)}
+                              onSkills={skillsModal.open}
+                              onMcp={mcpModal.open}
+                              onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
+                              onHelp={helpModal.open}
+                              terminalPlugins={getSlotPlugins('terminal')}
+                              pluginProject={pluginProject}
+                              pluginActions={pluginActions}
+                              pluginTheme={pluginTheme}
+                            />
+                          </div>
                         </div>
-                        <div className="terminal-content" data-education-id="claude-terminal">
+                        <div
+                          className={`terminal-content${isSplitActive ? ' split' : ''}`}
+                          data-education-id="claude-terminal"
+                        >
+                          {isSplitActive && currentProject && splitPaneTabIds && splitPaneSizes && (
+                            <>
+                              <TerminalSplitHeaders
+                                panes={splitPaneTabIds}
+                                sizes={splitPaneSizes}
+                                tabs={terminalTabs}
+                                tabTitles={tabTitles}
+                                onSelectTab={setSplitPaneTab}
+                                onRemovePane={removeSplitPane}
+                                onAddPane={() => addSplitPane()}
+                                canAddPane={splitPaneTabIds.length < terminalTabs.length}
+                              />
+                              <TerminalSplitDividers
+                                sizes={splitPaneSizes}
+                                onResize={setSplitPaneSizes}
+                              />
+                            </>
+                          )}
                           {allSessions.flatMap((session) =>
                             session.tabs.map((tab) => {
                               const isCurrentProject = session.projectPath === currentProject.path;
+                              const paneIdx =
+                                isSplitActive && isCurrentProject && splitPaneTabIds
+                                  ? splitPaneTabIds.indexOf(tab.id)
+                                  : -1;
+                              const inSplitPane = paneIdx >= 0;
                               const isVisible =
-                                isCurrentProject && !showHealthLogs && activeTerminalTab === tab.id;
+                                isCurrentProject &&
+                                !showHealthLogs &&
+                                (isSplitActive ? inSplitPane : activeTerminalTab === tab.id);
                               const refKey = `${session.projectPath}::${tab.id}`;
+                              // Anchor both edges to percentages computed from
+                              // splitPaneSizes — guarantees the last pane's
+                              // right edge hits exactly 100% (no rounding
+                              // drift). Reserve 4px next to each drag handle
+                              // so the 8px handle sits in clean space. Then
+                              // add a 12px content gutter on every edge so
+                              // xterm has the same breathing room from the
+                              // pane chrome that single-pane mode gives it
+                              // from the sidebar. Opencode is full-bleed by
+                              // design (its TUI fills the viewport) — skip
+                              // the content gutter for it.
+                              let paneStyle: React.CSSProperties | undefined;
+                              if (inSplitPane && splitPaneSizes) {
+                                const leftPct = splitPaneSizes
+                                  .slice(0, paneIdx)
+                                  .reduce((a, b) => a + b, 0);
+                                const rightPct = splitPaneSizes
+                                  .slice(paneIdx + 1)
+                                  .reduce((a, b) => a + b, 0);
+                                const leftAbutsHandle = paneIdx > 0;
+                                const rightAbutsHandle = paneIdx < splitPaneSizes.length - 1;
+                                const gutter = tab.agentId === 'opencode' ? 0 : 12;
+                                const leftOffset = (leftAbutsHandle ? 4 : 0) + gutter;
+                                const rightOffset = (rightAbutsHandle ? 4 : 0) + gutter;
+                                paneStyle = {
+                                  left: `calc(${leftPct}% + ${leftOffset}px)`,
+                                  right: `calc(${rightPct}% + ${rightOffset}px)`,
+                                  top: 'var(--split-pane-header-height)',
+                                };
+                              }
                               // Background projects use the same `.terminal-tab-content`
                               // visibility-based hide (position: absolute + visibility: hidden).
                               // `display: none` would zero out xterm's container dims and leave
@@ -1060,8 +1190,17 @@ export const WorkspaceView = memo(function WorkspaceView({
                               return (
                                 <div
                                   key={`session-${session.sessionEpoch}-${refKey}`}
-                                  className={`terminal-tab-content ${isVisible ? 'active' : ''}`}
+                                  className={`terminal-tab-content ${isVisible ? 'active' : ''}${
+                                    inSplitPane ? ' in-pane' : ''
+                                  }`}
                                   data-agent-id={tab.agentId}
+                                  data-pane-idx={inSplitPane ? paneIdx : undefined}
+                                  style={paneStyle}
+                                  onMouseDownCapture={
+                                    inSplitPane && tab.id !== activeTerminalTab
+                                      ? () => setActiveTerminalTab(tab.id)
+                                      : undefined
+                                  }
                                 >
                                   <Terminal
                                     ref={(ref) => {

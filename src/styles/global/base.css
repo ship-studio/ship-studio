@@ -316,6 +316,70 @@ button:hover {
   color: var(--text-secondary);
 }
 
+/* Toggle pill button — label + iOS-style switch pill on the right.
+   Use for boolean feature toggles (Inspect, Split, etc.). Pair the
+   button with a child `.toggle-pill-switch` span that gets `.is-on`
+   when the feature is active. */
+.toggle-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--transition),
+    color var(--transition),
+    border-color var(--transition);
+}
+
+.toggle-pill-btn:hover {
+  color: var(--text-primary);
+}
+
+.toggle-pill-switch {
+  position: relative;
+  display: inline-block;
+  width: 22px;
+  height: 12px;
+  margin-left: 2px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+
+.toggle-pill-switch::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition:
+    transform var(--transition),
+    background var(--transition);
+}
+
+.toggle-pill-switch.is-on {
+  background: var(--success-light);
+  border-color: var(--success-light);
+}
+
+.toggle-pill-switch.is-on::after {
+  transform: translateX(10px);
+  background: #ffffff;
+}
+
 /* Rotate the chevron 180° when its parent dropdown is open. */
 .toolbar-icon-btn .chevron-flipped {
   transform: rotate(180deg);

@@ -11,6 +11,15 @@
   flex-shrink: 0;
 }
 
+/* Right-side cluster — groups feature toggles + the Agent Settings
+   dropdown so they sit together with a consistent gap. Mirrors the
+   left-side undo/redo cluster's `gap: 6` rhythm. */
+.terminal-tabs-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .terminal-tabs {
   display: flex;
   align-items: center;
@@ -258,6 +267,111 @@
 
 .terminal-tab-content.active {
   visibility: visible;
+}
+
+/* ===== Side-by-side split view ===== */
+/* When `.terminal-content.split` is on, each pane gets its column via
+   inline `left/width` on `.terminal-tab-content.in-pane`. Reserve vertical
+   space at the top for the pane header strip. */
+.terminal-content.split {
+  /* Match `.terminal-tabs-bar`'s `min-height: 48px` so the pane header
+     visually reads as a continuation of the terminal toolbar above. */
+  --split-pane-header-height: 48px;
+}
+
+.terminal-split-headers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--split-pane-header-height);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.terminal-split-pane-header {
+  position: absolute;
+  top: 0;
+  height: var(--split-pane-header-height);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  /* Match `.terminal-tabs-bar`'s 10px horizontal padding so the pane
+     label trigger sits flush with the Undo/Redo and Branch indicator
+     above. */
+  padding: 0 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  pointer-events: auto;
+}
+
+/* Pane label trigger reuses .toolbar-icon-btn for consistency with the
+   Agent Settings dropdown. Natural size — the action cluster's
+   `margin-left: auto` handles right-alignment; no max-width math needed.
+   `min-width: 0` lets the label ellipsize if a pane gets very narrow. */
+.terminal-split-pane-trigger {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.terminal-split-pane-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-split-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* The per-pane add/remove buttons reuse `.toolbar-icon-btn` directly —
+   same height (28px) and padding as the dropdown trigger next to them,
+   so the row reads as one consistent control cluster. No size override
+   needed beyond the base class. */
+
+/* Drag handle between adjacent split panes. Mirrors the visual language
+   of `.split-pane-handle` used by the workspace's preview SplitPane — 8px
+   wide track with a centered vertical bar, accent-on-hover. The pane
+   columns leave a matching 4px gutter on each side of the boundary so
+   the handle sits between panes rather than overlapping their content. */
+.terminal-split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  cursor: col-resize;
+  z-index: 4;
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+
+.terminal-split-handle:hover,
+.terminal-split-handle:active {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.terminal-split-handle-bar {
+  width: 2px;
+  height: 40px;
+  background: var(--text-muted);
+  border-radius: 1px;
+  transition: background var(--transition);
+}
+
+.terminal-split-handle:hover .terminal-split-handle-bar,
+.terminal-split-handle:active .terminal-split-handle-bar {
+  background: var(--accent);
 }
 
 .terminal-logs-tabs {

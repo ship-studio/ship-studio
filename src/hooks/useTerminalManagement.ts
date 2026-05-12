@@ -40,6 +40,24 @@ interface ProjectTerminalState {
   counter: number;
   /** Bumps on resetTerminalsForProject — used to force xterm remount */
   sessionEpoch: number;
+  /** Tab ids visible side-by-side in split view, one per pane.
+   *  `null` = split view disabled (single-pane, default). Only meaningful
+   *  in focus mode with >=2 tabs; UI enforces those preconditions. */
+  splitPaneTabIds: number[] | null;
+  /** Width of each split pane as a percentage of the container, one per
+   *  pane. Sums to 100. `null` when split is off. */
+  splitPaneSizes: number[] | null;
+}
+
+/** Minimum pane width as a percentage of the container. Below this the
+ *  agent name + chevron starts truncating uncomfortably. */
+const MIN_SPLIT_PANE_PERCENT = 12;
+
+/** Dispatch a window resize event so xterm's FitAddon refits to the new
+ *  pane width. Matches the 50ms delay `SplitPane` uses on collapse, so
+ *  the DOM has committed the new layout before refit runs. */
+function dispatchTerminalResize(): void {
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
 }
 
 /** A session (project) that should have its terminal components rendered. */
@@ -48,6 +66,8 @@ export interface TerminalSessionView {
   tabs: TerminalTab[];
   activeTabId: number;
   sessionEpoch: number;
+  splitPaneTabIds: number[] | null;
+  splitPaneSizes: number[] | null;
 }
 
 export interface UseTerminalManagementReturn {
@@ -88,6 +108,24 @@ export interface UseTerminalManagementReturn {
   /** Ensure there's a default tab list for a freshly-opened project
    *  that has no persisted state. */
   ensureProjectSeeded: (projectPath: string) => void;
+  /** Current project's split-pane assignment, or null when split is off. */
+  splitPaneTabIds: number[] | null;
+  /** Width of each split pane as percentage of container, sums to 100. */
+  splitPaneSizes: number[] | null;
+  /** Turn on side-by-side view; initializes with the current active tab
+   *  plus the next available tab. No-op if fewer than 2 tabs exist. */
+  enableSplitView: () => void;
+  /** Turn off side-by-side view and return to single-pane. */
+  disableSplitView: () => void;
+  /** Replace the tab assigned to a given pane index. */
+  setSplitPaneTab: (paneIndex: number, tabId: number) => void;
+  /** Append a new pane showing `tabId` (or the first unused tab). */
+  addSplitPane: (tabId?: number) => void;
+  /** Remove the pane at `paneIndex`. If only one pane remains, disable split. */
+  removeSplitPane: (paneIndex: number) => void;
+  /** Replace the pane width percentages. Caller must ensure they sum to
+   *  100 and each is >= MIN_SPLIT_PANE_PERCENT. */
+  setSplitPaneSizes: (sizes: number[]) => void;
 }
 
 function makeDefaultState(): ProjectTerminalState {
@@ -96,6 +134,8 @@ function makeDefaultState(): ProjectTerminalState {
     activeTabId: 1,
     counter: 1,
     sessionEpoch: 1,
+    splitPaneTabIds: null,
+    splitPaneSizes: null,
   };
 }
 
@@ -146,6 +186,8 @@ export function useTerminalManagement(
   const terminalTabs = currentState?.tabs ?? [];
   const activeTerminalTab = currentState?.activeTabId ?? 1;
   const terminalSessionId = currentState?.sessionEpoch ?? 1;
+  const splitPaneTabIds = currentState?.splitPaneTabIds ?? null;
+  const splitPaneSizes = currentState?.splitPaneSizes ?? null;
 
   const allSessions = useMemo<TerminalSessionView[]>(() => {
     void epoch;
@@ -156,6 +198,8 @@ export function useTerminalManagement(
         tabs: s.tabs,
         activeTabId: s.activeTabId,
         sessionEpoch: s.sessionEpoch,
+        splitPaneTabIds: s.splitPaneTabIds,
+        splitPaneSizes: s.splitPaneSizes,
       });
     }
     return out;
@@ -176,6 +220,7 @@ export function useTerminalManagement(
     (tabId: number) => {
       const s = getCurrent();
       if (!s) return;
+      if (s.activeTabId === tabId) return; // no-op when already active
       s.activeTabId = tabId;
       bump();
     },
@@ -223,6 +268,25 @@ export function useTerminalManagement(
       if (tabId === s.activeTabId) {
         const newActiveIdx = Math.max(0, closedIdx - 1);
         s.activeTabId = s.tabs[newActiveIdx].id;
+      }
+      // Drop the closed tab from split panes; disable split if the
+      // remaining pane count would fall below 2 (or no tabs left to show).
+      // Sizes shrink with the panes — redistribute the closed pane's
+      // share equally across survivors so widths still sum to 100.
+      if (s.splitPaneTabIds && s.splitPaneSizes) {
+        const removedIdx = s.splitPaneTabIds.indexOf(tabId);
+        const remainingIds = s.splitPaneTabIds.filter((id) => id !== tabId);
+        if (remainingIds.length >= 2 && removedIdx >= 0) {
+          const removedShare = s.splitPaneSizes[removedIdx] ?? 0;
+          const remainingSizes = s.splitPaneSizes.filter((_, i) => i !== removedIdx);
+          const bonus = removedShare / remainingSizes.length;
+          s.splitPaneTabIds = remainingIds;
+          s.splitPaneSizes = remainingSizes.map((sz) => sz + bonus);
+        } else {
+          s.splitPaneTabIds = null;
+          s.splitPaneSizes = null;
+        }
+        dispatchTerminalResize();
       }
       bump();
       void trackEvent('terminal_tab_closed', { $screen_name: 'Workspace' });
@@ -324,6 +388,8 @@ export function useTerminalManagement(
         activeTabId: activeId,
         counter: restoredTabs.length,
         sessionEpoch: 1,
+        splitPaneTabIds: null,
+        splitPaneSizes: null,
       });
       bump();
       logger.info('[TerminalMgmt] Restored tabs from saved state', {
@@ -342,6 +408,130 @@ export function useTerminalManagement(
       bump();
     },
     [bump]
+  );
+
+  const enableSplitView = useCallback(() => {
+    const s = getCurrent();
+    if (!s || s.tabs.length < 2) return;
+    const active = s.tabs.find((t) => t.id === s.activeTabId) ?? s.tabs[0];
+    const other = s.tabs.find((t) => t.id !== active.id);
+    if (!other) return;
+    s.splitPaneTabIds = [active.id, other.id];
+    s.splitPaneSizes = [50, 50];
+    bump();
+    dispatchTerminalResize();
+    void trackEvent('split_view_enabled', {
+      pane_count: 2,
+      $screen_name: 'Workspace',
+    });
+  }, [bump, getCurrent]);
+
+  const disableSplitView = useCallback(() => {
+    const s = getCurrent();
+    if (!s || s.splitPaneTabIds === null) return;
+    s.splitPaneTabIds = null;
+    s.splitPaneSizes = null;
+    bump();
+    dispatchTerminalResize();
+    void trackEvent('split_view_disabled', { $screen_name: 'Workspace' });
+  }, [bump, getCurrent]);
+
+  const setSplitPaneTab = useCallback(
+    (paneIndex: number, tabId: number) => {
+      const s = getCurrent();
+      if (!s || !s.splitPaneTabIds) return;
+      if (paneIndex < 0 || paneIndex >= s.splitPaneTabIds.length) return;
+      if (!s.tabs.some((t) => t.id === tabId)) return;
+      // No-op when the pane already shows this tab — saves a render and
+      // makes the menu-click case ergonomic.
+      if (s.splitPaneTabIds[paneIndex] === tabId) return;
+      // Avoid duplicate panes — if this tab is already in another pane,
+      // swap them so each agent appears at most once.
+      const existingIdx = s.splitPaneTabIds.indexOf(tabId);
+      const next = [...s.splitPaneTabIds];
+      if (existingIdx >= 0) {
+        next[existingIdx] = next[paneIndex];
+      }
+      next[paneIndex] = tabId;
+      s.splitPaneTabIds = next;
+      bump();
+    },
+    [bump, getCurrent]
+  );
+
+  const addSplitPane = useCallback(
+    (tabId?: number) => {
+      const s = getCurrent();
+      if (!s) return;
+      const currentIds = s.splitPaneTabIds ?? [];
+      if (currentIds.length >= s.tabs.length) return; // no more agents to show
+      let target = tabId;
+      if (target === undefined || currentIds.includes(target)) {
+        const unused = s.tabs.find((t) => !currentIds.includes(t.id));
+        target = unused?.id;
+      }
+      if (target === undefined) return;
+      const nextIds = [...currentIds, target];
+      // Carve the new pane's share off the existing panes proportionally.
+      // `each = 100/nextLen` keeps panes equal-width after a manual add;
+      // this matches user intuition ("I added a pane, they're all equal
+      // again") and avoids drift from many adds/removes.
+      const equalShare = 100 / nextIds.length;
+      s.splitPaneTabIds = nextIds;
+      s.splitPaneSizes = nextIds.map(() => equalShare);
+      bump();
+      dispatchTerminalResize();
+    },
+    [bump, getCurrent]
+  );
+
+  const removeSplitPane = useCallback(
+    (paneIndex: number) => {
+      const s = getCurrent();
+      if (!s || !s.splitPaneTabIds || !s.splitPaneSizes) return;
+      if (paneIndex < 0 || paneIndex >= s.splitPaneTabIds.length) return;
+      const removedTabId = s.splitPaneTabIds[paneIndex];
+      const removedShare = s.splitPaneSizes[paneIndex];
+      const nextIds = s.splitPaneTabIds.filter((_, i) => i !== paneIndex);
+      const nextSizes = s.splitPaneSizes.filter((_, i) => i !== paneIndex);
+      if (nextIds.length >= 2) {
+        // Redistribute the removed share equally so widths still sum to 100.
+        const bonus = removedShare / nextSizes.length;
+        s.splitPaneTabIds = nextIds;
+        s.splitPaneSizes = nextSizes.map((sz) => sz + bonus);
+      } else {
+        s.splitPaneTabIds = null;
+        s.splitPaneSizes = null;
+      }
+      // If the removed pane held the active tab, hand focus to a surviving
+      // pane's tab. Without this, the single-pane fallback re-renders
+      // showing the agent the user just dismissed.
+      if (removedTabId === s.activeTabId) {
+        const survivor = nextIds[0] ?? s.tabs[0]?.id;
+        if (survivor !== undefined) s.activeTabId = survivor;
+      }
+      bump();
+      dispatchTerminalResize();
+    },
+    [bump, getCurrent]
+  );
+
+  const setSplitPaneSizes = useCallback(
+    (sizes: number[]) => {
+      const s = getCurrent();
+      if (!s || !s.splitPaneTabIds) return;
+      if (sizes.length !== s.splitPaneTabIds.length) return;
+      // Caller is responsible for clamping; defend anyway so a buggy
+      // caller can't push a pane to 0% (would freeze its xterm).
+      const clamped = sizes.map((sz) => Math.max(MIN_SPLIT_PANE_PERCENT, sz));
+      const total = clamped.reduce((a, b) => a + b, 0);
+      // Renormalize to 100 in case clamping changed the sum.
+      s.splitPaneSizes = clamped.map((sz) => (sz * 100) / total);
+      bump();
+      // Frequent drag updates — skip the resize dispatch here; the
+      // caller (drag handler) emits it on mouseup.
+    },
+    [bump, getCurrent]
   );
 
   return {
@@ -364,5 +554,13 @@ export function useTerminalManagement(
     getActiveTabAgent,
     restoreTerminalTabs,
     ensureProjectSeeded,
+    splitPaneTabIds,
+    splitPaneSizes,
+    enableSplitView,
+    disableSplitView,
+    setSplitPaneTab,
+    addSplitPane,
+    removeSplitPane,
+    setSplitPaneSizes,
   };
 }
