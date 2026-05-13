@@ -1111,7 +1111,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             selectedSubpath={pendingMonorepoPick.selectedSubpath}
             onSelect={handleSelectMonorepoPick}
             onConfirm={() => void handleConfirmMonorepoPick()}
-            onCancel={handleCancelMonorepoPick}
+            onCancel={() => void handleCancelMonorepoPick()}
           />
         )}
         {toasts.length > 0 && (

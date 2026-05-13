@@ -22,7 +22,11 @@ import {
 import { ROOT_PICK } from '../components/MonorepoPickerModal';
 import { getProjectGitHubStatus } from '../lib/github';
 import { GITHUB_STATUS_FALLBACK } from './useIntegrationStatus';
-import { registerExternalProject } from '../lib/external-projects';
+import {
+  registerExternalProject,
+  unregisterExternalProject,
+  isProjectExternal,
+} from '../lib/external-projects';
 import { registerProjectSession } from '../lib/projectSessions';
 import { sessionRegistry } from '../lib/sessionRegistry';
 import { getDefaultAgentId } from '../lib/agent';
@@ -667,8 +671,27 @@ export function useProjectLifecycle({
     void handleSelectProject(project);
   };
 
-  const handleCancelMonorepoPick = () => {
+  const handleCancelMonorepoPick = async () => {
+    const pending = pendingMonorepoPick;
     setPendingMonorepoPick(null);
+    if (!pending) return;
+
+    // The picker only fires for projects that don't yet have a workspace
+    // subpath saved, so cancelling here means the project has never been
+    // configured. For external projects, roll back the registration so the
+    // user can re-import cleanly — otherwise re-running "Import Local Folder"
+    // hits "already registered" and they're stuck.
+    try {
+      const external = await isProjectExternal(pending.project.path);
+      if (external) {
+        await unregisterExternalProject(pending.project.path);
+        showToast('Import cancelled', 'success');
+      }
+    } catch (err) {
+      logger.warn('[OpenProject] Cancel rollback failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   };
 
   const handleCreateProject = () => {
@@ -718,7 +741,10 @@ export function useProjectLifecycle({
       trackError('local_folder_import', error, 'Dashboard');
       const message = formatCommandError(asCommandError(error));
       logger.error('[ImportLocalFolder] failed', { error: message });
-      showToast(message, 'error');
+      const friendly = message.includes('already registered')
+        ? 'This project is already in Ship Studio. Find it on your dashboard and click to open.'
+        : message;
+      showToast(friendly, 'error');
     }
   };
 

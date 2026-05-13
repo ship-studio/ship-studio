@@ -24,3 +24,12 @@ export async function registerExternalProject(): Promise<string | null> {
 export async function unregisterExternalProject(path: string): Promise<void> {
   return invoke<void>('unregister_external_project', { path });
 }
+
+/**
+ * Returns true when the given path is tracked as an external project
+ * (registered via `register_external_project`) rather than living inside
+ * ~/ShipStudio.
+ */
+export async function isProjectExternal(path: string): Promise<boolean> {
+  return invoke<boolean>('is_project_external', { path });
+}
