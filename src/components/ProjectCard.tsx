@@ -85,6 +85,11 @@ export const ProjectCard = memo(function ProjectCard({
         <div className="project-card-details" onClick={onSelect}>
           <div className="project-card-name-row">
             <span className="project-card-name">{project.name}</span>
+            {project.workspace_subpath && (
+              <span className="project-card-workspace" title={project.workspace_subpath}>
+                · {project.workspace_subpath}
+              </span>
+            )}
           </div>
           <div className="project-card-meta">
             {project.git_branch && (

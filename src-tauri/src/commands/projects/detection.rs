@@ -6,7 +6,7 @@
 use crate::cache::TtlCache;
 use crate::errors::CommandError;
 use crate::types::{PageInfo, ProjectType};
-use crate::utils::validate_project_path;
+use crate::utils::{resolve_workspace_path, validate_project_path};
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
@@ -231,7 +231,8 @@ pub async fn detect_project_type_command(
     project_path: String,
 ) -> Result<ProjectType, CommandError> {
     let project = validate_project_path(&project_path)?;
-    Ok(detect_project_type(&project))
+    let workspace = resolve_workspace_path(&project);
+    Ok(detect_project_type(&workspace))
 }
 
 /// Scan Next.js pages (app/ directory with page.tsx/js/jsx files)

@@ -51,6 +51,8 @@ export interface DashboardProject {
   hide_main_branch_warning: boolean | null;
   /** Whether this project is an external (non-~/ShipStudio) project */
   is_external: boolean;
+  /** Active monorepo workspace subpath (e.g. `apps/admin`), or null. */
+  workspace_subpath: string | null;
 }
 
 /**
@@ -607,6 +609,60 @@ export async function setCustomDevCommand(
   command: string | null
 ): Promise<void> {
   return invoke<void>('set_custom_dev_command', { projectPath, command });
+}
+
+/** A runnable app discovered inside a monorepo at import time. */
+export interface WorkspaceInfo {
+  /** Package name from the workspace's `package.json`. */
+  name: string;
+  /** POSIX-separated path relative to the repo root (e.g. `apps/admin`). */
+  relativePath: string;
+  /** Whichever of `dev`/`start` is present. */
+  devScript: string | null;
+  /** Port parsed from the dev script (`-p 3001`, `--port 3001`, etc.). */
+  portHint: number | null;
+  /** True for next/vite/astro/etc. — used to pre-select a default in the picker. */
+  isWeb: boolean;
+}
+
+/** Detect monorepo workspaces in a freshly-cloned repo. Returns [] for single-package projects. */
+export async function detectWorkspaces(projectPath: string): Promise<WorkspaceInfo[]> {
+  const raw = await invoke<
+    Array<{
+      name: string;
+      relative_path: string;
+      dev_script: string | null;
+      port_hint: number | null;
+      is_web: boolean;
+    }>
+  >('detect_workspaces', { projectPath });
+  return raw.map((w) => ({
+    name: w.name,
+    relativePath: w.relative_path,
+    devScript: w.dev_script,
+    portHint: w.port_hint,
+    isWeb: w.is_web,
+  }));
+}
+
+/** Get the active workspace subpath for a monorepo project (e.g. `apps/admin`), or null. */
+export async function getWorkspaceSubpath(projectPath: string): Promise<string | null> {
+  return invoke<string | null>('get_workspace_subpath', { projectPath });
+}
+
+/** Lock the active workspace subpath. Pass null to clear (treat as single-package). */
+export async function setWorkspaceSubpath(
+  projectPath: string,
+  subpath: string | null
+): Promise<void> {
+  return invoke<void>('set_workspace_subpath', { projectPath, subpath });
+}
+
+/** Resolve the effective working directory for dev-server / preview / asset ops. */
+export function resolveWorkspacePath(projectPath: string, subpath: string | null): string {
+  if (!subpath) return projectPath;
+  const trimmed = subpath.replace(/^\/+|\/+$/g, '');
+  return trimmed ? `${projectPath}/${trimmed}` : projectPath;
 }
 
 /**

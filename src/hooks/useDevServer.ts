@@ -14,6 +14,8 @@ import {
   DevServerHandle,
   getCustomDevCommand,
   setCustomDevCommand as setCustomDevCommandApi,
+  getWorkspaceSubpath,
+  resolveWorkspacePath,
 } from '../lib/project';
 import {
   detectProjectType,
@@ -380,6 +382,18 @@ export function useDevServer(currentProjectPath: string | null) {
       s.suppressed = false;
       s.port = port;
 
+      // For monorepo projects, dev server / project-type detection should run
+      // against the picked workspace subdir. Git/PR ops still use the repo root.
+      const subpath = await getWorkspaceSubpath(projectPath).catch(() => null);
+      const cwd = resolveWorkspacePath(projectPath, subpath);
+      if (subpath) {
+        logger.info('[OpenProject] Using workspace subpath as dev server cwd', {
+          projectPath,
+          subpath,
+          cwd,
+        });
+      }
+
       let detectedType: ProjectType = 'unknown';
       try {
         detectedType = await detectProjectType(projectPath);
@@ -420,7 +434,7 @@ export function useDevServer(currentProjectPath: string | null) {
               $screen_name: 'Workspace',
             });
             s.handle = await startDevServer(
-              projectPath,
+              cwd,
               port,
               windowLabel,
               createOutputHandler(projectPath),
@@ -438,7 +452,7 @@ export function useDevServer(currentProjectPath: string | null) {
         }
       } else if (detectedType === 'statichtml') {
         try {
-          const staticPort = await startStaticServer(windowLabel, projectPath);
+          const staticPort = await startStaticServer(windowLabel, cwd);
           s.port = staticPort;
           bump();
           void trackEvent('dev_server_started', {
@@ -464,12 +478,7 @@ export function useDevServer(currentProjectPath: string | null) {
             project_name: projectName,
             $screen_name: 'Workspace',
           });
-          s.handle = await startDevServer(
-            projectPath,
-            port,
-            windowLabel,
-            createOutputHandler(projectPath)
-          );
+          s.handle = await startDevServer(cwd, port, windowLabel, createOutputHandler(projectPath));
           wireExitWatcher(projectPath, s);
         } catch (error) {
           logger.error('Failed to start dev server', { error });
@@ -572,6 +581,9 @@ export function useDevServer(currentProjectPath: string | null) {
       const s = getOrCreateState(projectPath);
       const effectivePort = portOverride ?? s.port ?? DEFAULT_PORT;
 
+      const subpath = await getWorkspaceSubpath(projectPath).catch(() => null);
+      const cwd = resolveWorkspacePath(projectPath, subpath);
+
       const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
         return Promise.race([
           promise,
@@ -597,7 +609,7 @@ export function useDevServer(currentProjectPath: string | null) {
         await delay(500);
         s.handle = await withTimeout(
           startDevServer(
-            projectPath,
+            cwd,
             effectivePort,
             getWindowLabel(),
             createOutputHandler(projectPath),
@@ -625,7 +637,7 @@ export function useDevServer(currentProjectPath: string | null) {
             /* Ignore */
           }
           await delay(300);
-          const newPort = await startStaticServer(windowLabel, projectPath);
+          const newPort = await startStaticServer(windowLabel, cwd);
           s.port = newPort;
           bump();
         } else {
@@ -685,8 +697,10 @@ export function useDevServer(currentProjectPath: string | null) {
           s.outputVersion = 0;
           s.healthVersion = 0;
           bump();
+          const subpath = await getWorkspaceSubpath(projectPath).catch(() => null);
+          const cwd = resolveWorkspacePath(projectPath, subpath);
           s.handle = await startDevServer(
-            projectPath,
+            cwd,
             s.port,
             getWindowLabel(),
             createOutputHandler(projectPath),

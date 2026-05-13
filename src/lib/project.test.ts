@@ -70,6 +70,7 @@ describe('lib/project', () => {
           auto_accept_mode: false,
           hide_main_branch_warning: false,
           is_external: false,
+          workspace_subpath: null,
         },
       ];
       vi.mocked(core.invoke).mockResolvedValue(projects);
@@ -93,6 +94,7 @@ describe('lib/project', () => {
           auto_accept_mode: null,
           hide_main_branch_warning: null,
           is_external: true,
+          workspace_subpath: null,
         },
       ];
       vi.mocked(core.invoke).mockResolvedValue(projects);

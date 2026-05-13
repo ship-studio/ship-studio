@@ -366,6 +366,36 @@ pub fn validate_project_path(project_path: &str) -> Result<std::path::PathBuf, S
     ))
 }
 
+/// Resolve a project path to its "active workspace" directory.
+///
+/// For single-package projects this is the project root unchanged. For monorepo
+/// projects where the user picked an app at import time, it returns
+/// `project_root.join(workspace_subpath)` — so dev server, asset, and project-
+/// type detection commands operate inside the chosen app rather than the repo
+/// root. Falls back to the project root if metadata is missing, malformed, or
+/// the subpath has been deleted from disk.
+pub fn resolve_workspace_path(project_root: &std::path::Path) -> std::path::PathBuf {
+    use crate::types::ProjectMetadata;
+    let metadata_path = project_root.join(".shipstudio").join("project.json");
+    let Ok(contents) = std::fs::read_to_string(&metadata_path) else {
+        return project_root.to_path_buf();
+    };
+    let Ok(metadata) = serde_json::from_str::<ProjectMetadata>(&contents) else {
+        return project_root.to_path_buf();
+    };
+    match metadata.workspace_subpath {
+        Some(sub) if !sub.is_empty() => {
+            let candidate = project_root.join(&sub);
+            if candidate.exists() {
+                candidate
+            } else {
+                project_root.to_path_buf()
+            }
+        }
+        _ => project_root.to_path_buf(),
+    }
+}
+
 /// Check if Homebrew is installed
 pub fn check_homebrew() -> (bool, Option<String>) {
     let paths = [

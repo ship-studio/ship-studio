@@ -241,6 +241,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
             let auto_accept_mode = metadata.as_ref().and_then(|m| m.auto_accept_mode);
             let hide_main_branch_warning =
                 metadata.as_ref().and_then(|m| m.hide_main_branch_warning);
+            let workspace_subpath = metadata.as_ref().and_then(|m| m.workspace_subpath.clone());
 
             // Ensure .shipstudio/ is gitignored
             let _ = ensure_gitignore_has_shipstudio_sync(&path);
@@ -259,6 +260,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                 auto_accept_mode,
                 hide_main_branch_warning,
                 is_external: false,
+                workspace_subpath,
             });
         }
     }
@@ -294,6 +296,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                 let auto_accept_mode = metadata.as_ref().and_then(|m| m.auto_accept_mode);
                 let hide_main_branch_warning =
                     metadata.as_ref().and_then(|m| m.hide_main_branch_warning);
+                let workspace_subpath = metadata.as_ref().and_then(|m| m.workspace_subpath.clone());
 
                 // Ensure .shipstudio/ is gitignored
                 let _ = ensure_gitignore_has_shipstudio_sync(&path);
@@ -311,6 +314,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                     auto_accept_mode,
                     hide_main_branch_warning,
                     is_external: true,
+                    workspace_subpath,
                 });
             }
         }

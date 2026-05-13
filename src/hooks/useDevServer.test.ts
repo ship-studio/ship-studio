@@ -8,6 +8,11 @@ vi.mock('../lib/project', () => ({
     pty: { kill: vi.fn() },
     stop: vi.fn().mockResolvedValue(undefined),
   }),
+  getCustomDevCommand: vi.fn().mockResolvedValue(null),
+  setCustomDevCommand: vi.fn().mockResolvedValue(undefined),
+  getWorkspaceSubpath: vi.fn().mockResolvedValue(null),
+  resolveWorkspacePath: (path: string, subpath: string | null) =>
+    subpath ? `${path}/${subpath}` : path,
 }));
 
 vi.mock('../lib/static-server', () => ({
@@ -38,8 +43,17 @@ vi.mock('../lib/logger', () => ({
 }));
 
 describe('useDevServer', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // clearAllMocks wipes the mockResolvedValue defaults from the factory, so
+    // re-apply the ones that the production code awaits unconditionally.
+    const project = await import('../lib/project');
+    vi.mocked(project.startDevServer).mockResolvedValue({
+      pty: { kill: vi.fn() } as never,
+      stop: vi.fn().mockResolvedValue(undefined),
+    } as never);
+    vi.mocked(project.getCustomDevCommand).mockResolvedValue(null);
+    vi.mocked(project.getWorkspaceSubpath).mockResolvedValue(null);
   });
 
   it('initializes with default state', () => {

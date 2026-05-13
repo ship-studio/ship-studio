@@ -332,6 +332,8 @@ pub fn run() {
             commands::projects::set_custom_dev_command,
             commands::projects::get_dev_server_port,
             commands::projects::set_dev_server_port,
+            commands::projects::get_workspace_subpath,
+            commands::projects::set_workspace_subpath,
             commands::projects::get_terminal_state,
             commands::projects::set_terminal_state,
             commands::projects::extract_template_zip,
@@ -534,6 +536,8 @@ pub fn run() {
             commands::external_projects::unregister_external_project,
             commands::external_projects::is_project_external,
             commands::external_projects::ensure_external_project_registered,
+            // Monorepo
+            commands::monorepo::detect_workspaces,
             // Folders
             commands::folders::list_folders,
             commands::folders::create_folder,

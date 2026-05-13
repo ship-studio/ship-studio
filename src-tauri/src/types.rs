@@ -63,6 +63,10 @@ pub struct DashboardProject {
     pub hide_main_branch_warning: Option<bool>,
     /// Whether this project is an external (non-~/ShipStudio) project
     pub is_external: bool,
+    /// Active monorepo workspace subpath (e.g. `apps/admin`), or None for
+    /// single-package projects. Surfaced on the dashboard card so the user
+    /// can tell two imports of the same repo apart.
+    pub workspace_subpath: Option<String>,
 }
 
 /// Next.js page route information
@@ -194,6 +198,13 @@ pub struct ProjectMetadata {
     /// isn't silently overwritten the next time the dev server boots.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_thumbnail: Option<bool>,
+    /// Relative path under the project root that is the "active" workspace
+    /// (set when the project is a monorepo and the user picked an app to focus
+    /// on at import). `None` for single-package projects. The dev server,
+    /// preview, and `/public` asset management run against this subdir; git
+    /// operations stay at the repo root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_subpath: Option<String>,
 }
 
 fn default_schema_version() -> u32 {
@@ -216,6 +227,7 @@ impl Default for ProjectMetadata {
             dev_server_port: None,
             terminal_state: None,
             custom_thumbnail: None,
+            workspace_subpath: None,
         }
     }
 }

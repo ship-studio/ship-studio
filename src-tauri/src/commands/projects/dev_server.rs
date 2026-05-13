@@ -117,6 +117,62 @@ pub async fn set_dev_server_port(project_path: String, port: u16) -> Result<(), 
     Ok(())
 }
 
+/// Gets the active workspace subpath for a monorepo project, or None if the
+/// project is single-package. Returned path uses POSIX separators relative to
+/// the project root (e.g. `apps/admin`).
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_workspace_subpath(project_path: String) -> Result<Option<String>, CommandError> {
+    let project = validate_project_path(&project_path)?;
+    let metadata_path = project.join(".shipstudio").join("project.json");
+
+    if !metadata_path.exists() {
+        return Ok(None);
+    }
+
+    let metadata = std::fs::read_to_string(&metadata_path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<ProjectMetadata>(&contents).ok())
+        .unwrap_or_default();
+
+    Ok(metadata.workspace_subpath)
+}
+
+/// Sets the active workspace subpath. Set to None to unlock (treat as single-package).
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn set_workspace_subpath(
+    project_path: String,
+    subpath: Option<String>,
+) -> Result<(), CommandError> {
+    let project = validate_project_path(&project_path)?;
+    let shipstudio_dir = project.join(".shipstudio");
+    let metadata_path = shipstudio_dir.join("project.json");
+
+    let mut metadata = if metadata_path.exists() {
+        std::fs::read_to_string(&metadata_path)
+            .ok()
+            .and_then(|contents| serde_json::from_str::<ProjectMetadata>(&contents).ok())
+            .unwrap_or_default()
+    } else {
+        ProjectMetadata::default()
+    };
+
+    metadata.workspace_subpath = subpath;
+
+    if !shipstudio_dir.exists() {
+        std::fs::create_dir_all(&shipstudio_dir)
+            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
+    }
+
+    let contents = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
+    std::fs::write(&metadata_path, contents)
+        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
+
+    Ok(())
+}
+
 /// Clears project cache directories (.next, node_modules/.cache, etc.)
 /// Used when restarting the dev server to ensure a fresh build.
 #[tauri::command]

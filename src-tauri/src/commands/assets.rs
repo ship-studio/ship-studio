@@ -4,7 +4,7 @@
 
 use crate::errors::CommandError;
 use crate::types::Asset;
-use crate::utils::validate_project_path;
+use crate::utils::{resolve_workspace_path, validate_project_path};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -124,7 +124,8 @@ fn list_files_recursive(
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_assets(project_path: String) -> Result<Vec<Asset>, CommandError> {
-    let project = validate_project_path(&project_path)?;
+    let repo_root = validate_project_path(&project_path)?;
+    let project = resolve_workspace_path(&repo_root);
     let public_dir = project.join("public");
 
     if !public_dir.exists() {
@@ -149,7 +150,8 @@ pub async fn upload_asset(
     file_name: String,
     file_data: Vec<u8>,
 ) -> Result<Asset, CommandError> {
-    let project = validate_project_path(&project_path)?;
+    let repo_root = validate_project_path(&project_path)?;
+    let project = resolve_workspace_path(&repo_root);
     let public_dir = project.join("public");
 
     // Create public directory if it doesn't exist
@@ -201,7 +203,8 @@ pub async fn upload_asset(
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn delete_asset(project_path: String, asset_path: String) -> Result<(), CommandError> {
-    let project = validate_project_path(&project_path)?;
+    let repo_root = validate_project_path(&project_path)?;
+    let project = resolve_workspace_path(&repo_root);
     let public_dir = project.join("public");
     let full_path = validate_asset_path(&project, &asset_path)?;
 
@@ -231,7 +234,8 @@ pub async fn rename_asset(
     asset_path: String,
     new_name: String,
 ) -> Result<Asset, CommandError> {
-    let project = validate_project_path(&project_path)?;
+    let repo_root = validate_project_path(&project_path)?;
+    let project = resolve_workspace_path(&repo_root);
     let public_dir = project.join("public");
     let old_path = validate_asset_path(&project, &asset_path)?;
 
@@ -276,7 +280,8 @@ pub async fn create_asset_folder(
     project_path: String,
     folder_path: String,
 ) -> Result<(), CommandError> {
-    let project = validate_project_path(&project_path)?;
+    let repo_root = validate_project_path(&project_path)?;
+    let project = resolve_workspace_path(&repo_root);
     let public_dir = project.join("public");
 
     // Create public directory if it doesn't exist
