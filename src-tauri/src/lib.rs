@@ -334,6 +334,7 @@ pub fn run() {
             commands::projects::set_dev_server_port,
             commands::projects::get_workspace_subpath,
             commands::projects::set_workspace_subpath,
+            commands::projects::check_dependencies_installed,
             commands::projects::get_terminal_state,
             commands::projects::set_terminal_state,
             commands::projects::extract_template_zip,

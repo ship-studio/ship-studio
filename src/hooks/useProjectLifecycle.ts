@@ -64,6 +64,9 @@ export interface UseProjectLifecycleParams {
   ) => Promise<ProjectType>;
   isServerRunning: (projectPath: string) => boolean;
   restartDevServer: (projectPath: string, portOverride?: number) => Promise<void>;
+  /** Drop the dependency-install gate on a project's dev server. Called after
+   *  a successful pnpm/npm install so a follow-up startServer actually spawns. */
+  clearNeedsInstall: (projectPath: string) => void;
   // Terminal
   pasteToActiveTerminal: (text: string) => void;
   terminalTabs: Array<{ id: number; agentId: string; sessionId: string }>;
@@ -106,6 +109,7 @@ export function useProjectLifecycle({
   startServerForProject,
   isServerRunning,
   restartDevServer,
+  clearNeedsInstall,
   pasteToActiveTerminal,
   terminalTabs,
   activeTerminalTab,
@@ -140,6 +144,17 @@ export function useProjectLifecycle({
     workspaces: WorkspaceInfo[];
     selectedPick: WorkspacePick | null;
   } | null>(null);
+
+  // Active dependency install — when set, the overlay terminal is visible and
+  // running `pnpm install` (or the detected pm) so the user can watch it
+  // stream. Cleared on user-cancel or on exit-0 (which also restarts the dev
+  // server). Exit-non-zero leaves the overlay up showing the error.
+  const [installTerminalConfig, setInstallTerminalConfig] = useState<{
+    projectPath: string;
+    packageManager: string;
+    cwd: string;
+  } | null>(null);
+  const [installTerminalExited, setInstallTerminalExited] = useState(false);
 
   // Current preview page (tracked for potential future use)
   const [, setCurrentPreviewPage] = useState('/');
@@ -699,6 +714,57 @@ export function useProjectLifecycle({
     void handleSelectProject(project, { skipWorkspaceGate: true });
   };
 
+  const handleRunInstall = (projectPath: string, packageManager: string) => {
+    setInstallTerminalConfig({ projectPath, packageManager, cwd: projectPath });
+    setInstallTerminalExited(false);
+    void trackEvent('install_dependencies_started', {
+      package_manager: packageManager,
+      $screen_name: 'Workspace',
+    });
+  };
+
+  const handleCloseInstallTerminal = () => {
+    setInstallTerminalConfig(null);
+    setInstallTerminalExited(false);
+  };
+
+  const handleInstallTerminalExit = async (exitCode: number | null) => {
+    const cfg = installTerminalConfig;
+    if (!cfg) return;
+    setInstallTerminalExited(true);
+    // null = killed mid-run; treat as failure (don't auto-restart).
+    if (exitCode !== 0) {
+      void trackEvent('install_dependencies_failed', {
+        package_manager: cfg.packageManager,
+        exit_code: exitCode ?? -1,
+        $screen_name: 'Workspace',
+      });
+      showToast(
+        `Install exited with code ${exitCode ?? 'null'}. Check the terminal for details.`,
+        'error'
+      );
+      return; // keep overlay open so user can read stderr + close manually
+    }
+    void trackEvent('install_dependencies_succeeded', {
+      package_manager: cfg.packageManager,
+      $screen_name: 'Workspace',
+    });
+    clearNeedsInstall(cfg.projectPath);
+    setInstallTerminalConfig(null);
+    setInstallTerminalExited(false);
+    showToast('Dependencies installed — starting dev server', 'success');
+    // restartDevServer is a no-op when nothing is currently running, but it
+    // kicks the full project-type-detect → spawn cycle which is exactly what
+    // we want here.
+    try {
+      await restartDevServer(cfg.projectPath);
+    } catch (err) {
+      logger.error('[Install] Post-install dev server restart failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
   const handleCancelMonorepoPick = async () => {
     const pending = pendingMonorepoPick;
     setPendingMonorepoPick(null);
@@ -886,6 +952,11 @@ export function useProjectLifecycle({
     handleSelectMonorepoPick,
     handleConfirmMonorepoPick,
     handleCancelMonorepoPick,
+    installTerminalConfig,
+    installTerminalExited,
+    handleRunInstall,
+    handleCloseInstallTerminal,
+    handleInstallTerminalExit,
     setCurrentPreviewPage,
     isPublishing,
     setIsPublishing,

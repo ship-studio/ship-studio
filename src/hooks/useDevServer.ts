@@ -16,7 +16,9 @@ import {
   setCustomDevCommand as setCustomDevCommandApi,
   getWorkspaceSubpath,
   resolveWorkspacePath,
+  checkDependenciesInstalled,
 } from '../lib/project';
+import { detectPackageManager } from '../lib/github';
 
 /** Resolve the effective dev-server cwd for a project, logging any backend
  *  failure instead of silently swallowing it. A stale Tauri build (missing
@@ -62,6 +64,10 @@ interface ProjectServerState {
   healthThrottleTimer: ReturnType<typeof setTimeout> | null;
   healthPending: boolean;
   suppressed: boolean;
+  /** Set when the dep check found `node_modules` missing — the dev server is
+   *  intentionally not started; the Preview pane renders an install CTA
+   *  instead. Null means deps are fine (or there's nothing to install). */
+  needsInstall: { packageManager: string } | null;
   /** Carry-over of an incomplete trailing line between PTY chunks so the
    *  probe-line filter can match patterns split across chunk boundaries
    *  (the PTY emits chunks of arbitrary size — they are not line-aligned). */
@@ -87,6 +93,7 @@ function makeState(): ProjectServerState {
     healthThrottleTimer: null,
     healthPending: false,
     suppressed: false,
+    needsInstall: null,
     pendingOutputLine: '',
   };
 }
@@ -188,6 +195,7 @@ export function useDevServer(currentProjectPath: string | null) {
   const devServerPort = activeState?.port ?? DEFAULT_PORT;
   const projectType = activeState?.type ?? 'unknown';
   const customDevCommand = activeState?.customCommand ?? null;
+  const needsInstall = activeState?.needsInstall ?? null;
   const devServerOutputVersion = activeState?.outputVersion ?? 0;
   const healthOutputVersion = activeState?.healthVersion ?? 0;
 
@@ -390,6 +398,18 @@ export function useDevServer(currentProjectPath: string | null) {
     bump();
   }, [bump, getOrCreateState]);
 
+  /** After an install completes, drop the gate so a follow-up startServer
+   *  call actually spawns the dev server. */
+  const clearNeedsInstall = useCallback(
+    (projectPath: string) => {
+      const s = statesRef.current.get(projectPath);
+      if (!s) return;
+      s.needsInstall = null;
+      bump();
+    },
+    [bump]
+  );
+
   // ───────────── Lifecycle ─────────────
 
   const startServerForProject = useCallback(
@@ -408,6 +428,29 @@ export function useDevServer(currentProjectPath: string | null) {
           cwd,
         });
       }
+
+      // Before spawning, verify `node_modules` exists. If not, the dev server
+      // will fail with "Cannot find module 'next'" / "command not found" — we
+      // surface a Preview-pane install CTA instead. Cleared by `clearNeedsInstall`
+      // after the user runs install successfully.
+      try {
+        const depStatus = await checkDependenciesInstalled(projectPath);
+        if (!depStatus.installed && depStatus.hasPackageJson) {
+          const packageManager = await detectPackageManager(projectPath).catch(() => 'npm');
+          s.needsInstall = { packageManager };
+          bump();
+          logger.info('[OpenProject] Dependencies missing; deferring dev server', {
+            projectPath,
+            packageManager,
+          });
+          return 'unknown' as ProjectType;
+        }
+      } catch (err) {
+        logger.warn('[OpenProject] Dependency check failed; attempting dev server anyway', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      s.needsInstall = null;
 
       let detectedType: ProjectType = 'unknown';
       try {
@@ -745,6 +788,7 @@ export function useDevServer(currentProjectPath: string | null) {
     setCustomDevCommand,
     devServerOutputVersion,
     healthOutputVersion,
+    needsInstall,
 
     // Handlers
     handleHealthOutput,
@@ -756,5 +800,6 @@ export function useDevServer(currentProjectPath: string | null) {
     getProjectType,
     clearOutputBuffers,
     saveCustomDevCommand,
+    clearNeedsInstall,
   };
 }

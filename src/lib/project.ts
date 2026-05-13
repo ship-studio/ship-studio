@@ -665,6 +665,23 @@ export function resolveWorkspacePath(projectPath: string, subpath: string | null
   return trimmed ? `${projectPath}/${trimmed}` : projectPath;
 }
 
+/** Status of a project's npm/pnpm/yarn dependencies. */
+export interface DependencyStatus {
+  /** True when `node_modules` is present (or the project has no package.json). */
+  installed: boolean;
+  /** True when the project has a `package.json` at all. */
+  hasPackageJson: boolean;
+}
+
+/** Check whether dependencies are installed for a project. */
+export async function checkDependenciesInstalled(projectPath: string): Promise<DependencyStatus> {
+  const raw = await invoke<{ installed: boolean; has_package_json: boolean }>(
+    'check_dependencies_installed',
+    { projectPath }
+  );
+  return { installed: raw.installed, hasPackageJson: raw.has_package_json };
+}
+
 /**
  * Persist the saved terminal-tab list for a project. Wraps the
  * `set_terminal_state` Tauri command. Components import this rather than

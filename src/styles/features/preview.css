@@ -867,3 +867,41 @@
   color: var(--text-muted);
   font-size: 14px;
 }
+
+.preview-install-prompt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl);
+  background: var(--bg-secondary);
+  text-align: center;
+}
+
+.preview-install-prompt h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: var(--spacing-xs) 0 0;
+}
+
+.preview-install-prompt .hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 var(--spacing-md);
+}
+
+.preview-install-prompt code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.preview-install-icon {
+  color: var(--text-muted);
+}

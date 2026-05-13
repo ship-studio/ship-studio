@@ -126,6 +126,8 @@ interface DevServerProps {
   healthOutput: string;
   healthOutputVersion: number;
   handleHealthOutput: (data: string) => void;
+  needsInstall: { packageManager: string } | null;
+  onRunInstall: () => void;
 }
 
 interface NotificationProps {
@@ -147,6 +149,14 @@ interface IntegrationProps {
   authTerminalConfig: AuthTerminalConfig | null;
   closeAuthTerminal: () => void;
   handleAuthTerminalExit: (exitCode: number | null, projectPath?: string) => void;
+  installTerminalConfig: {
+    projectPath: string;
+    packageManager: string;
+    cwd: string;
+  } | null;
+  installTerminalExited: boolean;
+  onCloseInstallTerminal: () => void;
+  onInstallTerminalExit: (exitCode: number | null) => void;
 }
 
 interface ScreenshotProps {
@@ -423,6 +433,8 @@ export const WorkspaceView = memo(function WorkspaceView({
     healthOutput,
     healthOutputVersion,
     handleHealthOutput,
+    needsInstall,
+    onRunInstall,
   } = devServer;
 
   const {
@@ -441,6 +453,10 @@ export const WorkspaceView = memo(function WorkspaceView({
     authTerminalConfig,
     closeAuthTerminal,
     handleAuthTerminalExit,
+    installTerminalConfig,
+    installTerminalExited,
+    onCloseInstallTerminal,
+    onInstallTerminalExit,
   } = integrationStatus;
 
   const {
@@ -1343,6 +1359,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                             onInspectTabChange={setInspectTab}
                             healthPanelRef={healthPanelRef}
                             onHealthOutput={handleHealthOutput}
+                            needsInstall={needsInstall}
+                            onRunInstall={onRunInstall}
                             previewPlugins={
                               <PluginSlot
                                 name="preview"
@@ -1463,6 +1481,10 @@ export const WorkspaceView = memo(function WorkspaceView({
           onAuthTerminalExit={(exitCode) =>
             void handleAuthTerminalExit(exitCode, currentProject.path)
           }
+          installTerminalConfig={installTerminalConfig}
+          installTerminalExited={installTerminalExited}
+          onCloseInstallTerminal={onCloseInstallTerminal}
+          onInstallTerminalExit={onInstallTerminalExit}
           customDevCommand={customDevCommand}
           onSaveDevCommand={handleSaveDevCommand}
           devServerPort={devServerPort}

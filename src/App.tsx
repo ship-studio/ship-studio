@@ -224,6 +224,8 @@ function AppContents({ initialProjectPath }: AppProps) {
     stopAllServers,
     isServerRunning,
     saveCustomDevCommand,
+    needsInstall,
+    clearNeedsInstall,
   } = useDevServer(currentProject?.path ?? null);
 
   // Cleanup every live dev server when the window is closed (prevents
@@ -377,6 +379,11 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleSelectMonorepoPick,
     handleConfirmMonorepoPick,
     handleCancelMonorepoPick,
+    installTerminalConfig,
+    installTerminalExited,
+    handleRunInstall,
+    handleCloseInstallTerminal,
+    handleInstallTerminalExit,
     setCurrentPreviewPage,
     isPublishing,
     setIsPublishing,
@@ -407,6 +414,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     startServerForProject,
     isServerRunning,
     restartDevServer,
+    clearNeedsInstall,
     pasteToActiveTerminal,
     terminalTabs,
     activeTerminalTab,
@@ -686,6 +694,11 @@ function AppContents({ initialProjectPath }: AppProps) {
     ]
   );
 
+  const handleRunInstallCurrent = useCallback(() => {
+    if (!currentProject || !needsInstall) return;
+    handleRunInstall(currentProject.path, needsInstall.packageManager);
+  }, [currentProject, needsInstall, handleRunInstall]);
+
   const devServerProps = useMemo(
     () => ({
       hasDevServer: !!devServerRef.current,
@@ -699,6 +712,8 @@ function AppContents({ initialProjectPath }: AppProps) {
       healthOutput: healthOutputRef.current,
       healthOutputVersion,
       handleHealthOutput,
+      needsInstall,
+      onRunInstall: handleRunInstallCurrent,
     }),
     [
       devServerRef,
@@ -712,6 +727,8 @@ function AppContents({ initialProjectPath }: AppProps) {
       healthOutputVersion,
       handleHealthOutput,
       healthPanelRef,
+      needsInstall,
+      handleRunInstallCurrent,
     ]
   );
 
@@ -749,6 +766,10 @@ function AppContents({ initialProjectPath }: AppProps) {
       authTerminalConfig,
       closeAuthTerminal,
       handleAuthTerminalExit: memoizedHandleAuthTerminalExit,
+      installTerminalConfig,
+      installTerminalExited,
+      onCloseInstallTerminal: handleCloseInstallTerminal,
+      onInstallTerminalExit: handleInstallTerminalExit,
     }),
     [
       integrations,
@@ -756,6 +777,10 @@ function AppContents({ initialProjectPath }: AppProps) {
       authTerminalConfig,
       closeAuthTerminal,
       memoizedHandleAuthTerminalExit,
+      installTerminalConfig,
+      installTerminalExited,
+      handleCloseInstallTerminal,
+      handleInstallTerminalExit,
     ]
   );
 

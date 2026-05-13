@@ -163,6 +163,12 @@ interface PreviewProps {
   healthPanelRef?: RefObject<HealthTabPanelRef | null>;
   /** Receives stdout/stderr from health checks; piped into the dev-server health buffer. */
   onHealthOutput?: (data: string) => void;
+  /** When set, the dev server hasn't been started because dependencies aren't
+   *  installed. Render an install CTA in the preview pane instead of the
+   *  "Starting dev server..." spinner. */
+  needsInstall?: { packageManager: string } | null;
+  /** Action wired to the install CTA — kicks off the install flow + restart. */
+  onRunInstall?: () => void;
 }
 
 /**
@@ -223,6 +229,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onInspectTabChange,
     healthPanelRef,
     onHealthOutput,
+    needsInstall,
+    onRunInstall,
   },
   ref
 ) {
@@ -425,6 +433,36 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       conn.serverReady,
     ]
   );
+
+  if (needsInstall) {
+    return (
+      <div className="preview-install-prompt">
+        <div className="preview-install-icon" aria-hidden>
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+            <line x1="12" y1="22.08" x2="12" y2="12" />
+          </svg>
+        </div>
+        <h3>Dependencies not installed</h3>
+        <p className="hint">
+          This project hasn't run <code>{needsInstall.packageManager} install</code> yet.
+        </p>
+        <button className="btn-primary" onClick={onRunInstall} disabled={!onRunInstall}>
+          Install with {needsInstall.packageManager}
+        </button>
+      </div>
+    );
+  }
 
   if (conn.isLoading) {
     return (
