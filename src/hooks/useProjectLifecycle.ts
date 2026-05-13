@@ -9,10 +9,17 @@
  */
 
 import { useState, useRef, useCallback, type RefObject } from 'react';
-import type { Project } from '../lib/project';
+import type { Project, WorkspaceInfo } from '../lib/project';
 import type { ProjectType } from '../lib/static-server';
 import type { ProjectGitHubStatus } from '../lib/github';
-import { getAutoAcceptMode, setAutoAcceptMode as setAutoAcceptModeApi } from '../lib/project';
+import {
+  getAutoAcceptMode,
+  setAutoAcceptMode as setAutoAcceptModeApi,
+  detectWorkspaces,
+  getWorkspaceSubpath,
+  setWorkspaceSubpath,
+} from '../lib/project';
+import { ROOT_PICK } from '../components/MonorepoPickerModal';
 import { getProjectGitHubStatus } from '../lib/github';
 import { GITHUB_STATUS_FALLBACK } from './useIntegrationStatus';
 import { registerExternalProject } from '../lib/external-projects';
@@ -121,6 +128,14 @@ export function useProjectLifecycle({
   // Import project view: 'none' | 'picker' | 'github'
   const [importView, setImportView] = useState<'none' | 'picker' | 'github'>('none');
 
+  // Pending monorepo picker — set when an unconfigured monorepo is being
+  // opened. The actual project open is deferred until the user commits.
+  const [pendingMonorepoPick, setPendingMonorepoPick] = useState<{
+    project: Project;
+    workspaces: WorkspaceInfo[];
+    selectedSubpath: string | null;
+  } | null>(null);
+
   // Current preview page (tracked for potential future use)
   const [, setCurrentPreviewPage] = useState('/');
 
@@ -201,6 +216,36 @@ export function useProjectLifecycle({
       return;
     }
     openingProjectPathRef.current = project.path;
+
+    // Monorepo gate: the first time we touch an unconfigured monorepo,
+    // pause and ask the user which app to focus on. `subpath === null`
+    // means the project has never been classified; an empty string is
+    // how we record "asked, picked the root" so we never re-prompt.
+    try {
+      const existingSubpath = await getWorkspaceSubpath(project.path);
+      if (existingSubpath === null) {
+        const workspaces = await detectWorkspaces(project.path).catch((err) => {
+          logger.warn('[OpenProject] detectWorkspaces failed; treating as single-package', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return [] as WorkspaceInfo[];
+        });
+        if (workspaces.length > 0) {
+          const firstWeb = workspaces.find((w) => w.isWeb) ?? workspaces[0];
+          openingProjectPathRef.current = null;
+          setPendingMonorepoPick({
+            project,
+            workspaces,
+            selectedSubpath: firstWeb.relativePath,
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      logger.warn('[OpenProject] Workspace gate check failed; opening as-is', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     // Set the active project so every subsequent event in this session
     // auto-tags project context. The hash is sync (FNV-1a) so this never
@@ -598,6 +643,33 @@ export function useProjectLifecycle({
     openingProjectPathRef.current = null;
   };
 
+  const handleSelectMonorepoPick = (subpath: string) => {
+    setPendingMonorepoPick((prev) => (prev ? { ...prev, selectedSubpath: subpath } : prev));
+  };
+
+  const handleConfirmMonorepoPick = async () => {
+    if (!pendingMonorepoPick) return;
+    const { project, selectedSubpath } = pendingMonorepoPick;
+    if (!selectedSubpath) return;
+    // ROOT_PICK is recorded as an empty string so we never re-prompt.
+    const subpathToSave = selectedSubpath === ROOT_PICK ? '' : selectedSubpath;
+    try {
+      await setWorkspaceSubpath(project.path, subpathToSave);
+    } catch (err) {
+      trackError('monorepo_pick_save', err, 'Dashboard');
+      logger.error('[OpenProject] Failed to save workspace subpath', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    setPendingMonorepoPick(null);
+    void handleSelectProject(project);
+  };
+
+  const handleCancelMonorepoPick = () => {
+    setPendingMonorepoPick(null);
+  };
+
   const handleCreateProject = () => {
     setShowCreateModal(true);
   };
@@ -753,6 +825,10 @@ export function useProjectLifecycle({
     setShowCreateModal,
     importView,
     setImportView,
+    pendingMonorepoPick,
+    handleSelectMonorepoPick,
+    handleConfirmMonorepoPick,
+    handleCancelMonorepoPick,
     setCurrentPreviewPage,
     isPublishing,
     setIsPublishing,

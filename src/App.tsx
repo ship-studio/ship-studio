@@ -51,6 +51,7 @@ import { initDefaultAgent } from './lib/agent';
 import { sessionRegistry } from './lib/sessionRegistry';
 import { unregisterProjectSession } from './lib/projectSessions';
 import { UpdateBanner } from './components/UpdateBanner';
+import { MonorepoPickerModal } from './components/MonorepoPickerModal';
 import { ModalFrame } from './components/primitives/ModalFrame';
 import { Button } from './components/primitives/Button';
 import { ToastContext } from './contexts/ToastContext';
@@ -372,6 +373,10 @@ function AppContents({ initialProjectPath }: AppProps) {
     setShowCreateModal,
     importView,
     setImportView,
+    pendingMonorepoPick,
+    handleSelectMonorepoPick,
+    handleConfirmMonorepoPick,
+    handleCancelMonorepoPick,
     setCurrentPreviewPage,
     isPublishing,
     setIsPublishing,
@@ -1099,6 +1104,16 @@ function AppContents({ initialProjectPath }: AppProps) {
           />
         </div>
         {/* .projects-with-rail */}
+        {pendingMonorepoPick && (
+          <MonorepoPickerModal
+            projectName={pendingMonorepoPick.project.name}
+            workspaces={pendingMonorepoPick.workspaces}
+            selectedSubpath={pendingMonorepoPick.selectedSubpath}
+            onSelect={handleSelectMonorepoPick}
+            onConfirm={() => void handleConfirmMonorepoPick()}
+            onCancel={handleCancelMonorepoPick}
+          />
+        )}
         {toasts.length > 0 && (
           <div className="toast-container">
             {toasts.map((t) => (
