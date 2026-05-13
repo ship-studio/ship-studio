@@ -37,7 +37,10 @@ import { checkNpmCachePermissions } from '../lib/setup';
 import { Step1AccountSelection } from './import-project/steps/Step1AccountSelection';
 import { Step2RepoSelection } from './import-project/steps/Step2RepoSelection';
 import { Step3ImportProgress, type Step } from './import-project/steps/Step3ImportProgress';
-import { Step3WorkspacePicker, ROOT_PICK } from './import-project/steps/Step3WorkspacePicker';
+import {
+  Step3WorkspacePicker,
+  type WorkspacePick,
+} from './import-project/steps/Step3WorkspacePicker';
 import { logger } from '../lib/logger';
 
 /** Props for the ImportProject component */
@@ -67,7 +70,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
   const [importedProjectPath, setImportedProjectPath] = useState<string | null>(null);
   const [importedPackageManager, setImportedPackageManager] = useState<string>('npm');
   const [discoveredWorkspaces, setDiscoveredWorkspaces] = useState<WorkspaceInfo[]>([]);
-  const [selectedWorkspaceSubpath, setSelectedWorkspaceSubpath] = useState<string | null>(null);
+  const [selectedWorkspacePick, setSelectedWorkspacePick] = useState<WorkspacePick | null>(null);
   const [awaitingWorkspacePick, setAwaitingWorkspacePick] = useState(false);
 
   // Load user and orgs on mount
@@ -263,7 +266,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     setError(null);
     setCurrentStep('clone');
     setDiscoveredWorkspaces([]);
-    setSelectedWorkspaceSubpath(null);
+    setSelectedWorkspacePick(null);
     setAwaitingWorkspacePick(false);
 
     try {
@@ -309,7 +312,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       if (workspaces.length > 0) {
         const firstWeb = workspaces.find((w) => w.isWeb) ?? workspaces[0];
         setDiscoveredWorkspaces(workspaces);
-        setSelectedWorkspaceSubpath(firstWeb.relativePath);
+        setSelectedWorkspacePick({ kind: 'app', relativePath: firstWeb.relativePath });
         setAwaitingWorkspacePick(true);
         return;
       }
@@ -343,16 +346,16 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
   };
 
   const handleConfirmWorkspacePick = async () => {
-    if (!importedProjectPath || !selectedWorkspaceSubpath) return;
-    // ROOT_PICK means "use the repo root as-is" — no subpath written.
-    if (selectedWorkspaceSubpath !== ROOT_PICK) {
-      try {
-        await setWorkspaceSubpath(importedProjectPath, selectedWorkspaceSubpath);
-      } catch (err) {
-        trackError('project_import_workspace_save', err, 'Dashboard');
-        setError(getFriendlyError(err));
-        return;
-      }
+    if (!importedProjectPath || !selectedWorkspacePick) return;
+    // Root pick → record an empty string so the open-time gate doesn't
+    // re-prompt; app pick → its relative subpath.
+    const subpath = selectedWorkspacePick.kind === 'root' ? '' : selectedWorkspacePick.relativePath;
+    try {
+      await setWorkspaceSubpath(importedProjectPath, subpath);
+    } catch (err) {
+      trackError('project_import_workspace_save', err, 'Dashboard');
+      setError(getFriendlyError(err));
+      return;
     }
     setAwaitingWorkspacePick(false);
     await finishImport(importedProjectPath);
@@ -393,8 +396,8 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
         <Step3WorkspacePicker
           repoName={selectedRepo?.name ?? ''}
           workspaces={discoveredWorkspaces}
-          selectedSubpath={selectedWorkspaceSubpath}
-          onSelect={setSelectedWorkspaceSubpath}
+          selectedPick={selectedWorkspacePick}
+          onSelect={setSelectedWorkspacePick}
           onConfirm={() => void handleConfirmWorkspacePick()}
           onCancel={onCancel}
         />

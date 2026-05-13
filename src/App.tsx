@@ -1108,7 +1108,7 @@ function AppContents({ initialProjectPath }: AppProps) {
           <MonorepoPickerModal
             projectName={pendingMonorepoPick.project.name}
             workspaces={pendingMonorepoPick.workspaces}
-            selectedSubpath={pendingMonorepoPick.selectedSubpath}
+            selectedPick={pendingMonorepoPick.selectedPick}
             onSelect={handleSelectMonorepoPick}
             onConfirm={() => void handleConfirmMonorepoPick()}
             onCancel={() => void handleCancelMonorepoPick()}

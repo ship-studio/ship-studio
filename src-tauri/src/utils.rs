@@ -372,28 +372,64 @@ pub fn validate_project_path(project_path: &str) -> Result<std::path::PathBuf, S
 /// projects where the user picked an app at import time, it returns
 /// `project_root.join(workspace_subpath)` — so dev server, asset, and project-
 /// type detection commands operate inside the chosen app rather than the repo
-/// root. Falls back to the project root if metadata is missing, malformed, or
-/// the subpath has been deleted from disk.
+/// root.
+///
+/// Results are cached for 5 seconds keyed by (path, mtime of project.json) so
+/// asset-heavy operations don't re-parse the metadata file on every call. The
+/// cache invalidates as soon as anything writes to .shipstudio/project.json
+/// (mtime changes), so set_workspace_subpath takes effect immediately.
+///
+/// Falls back to the project root when metadata is missing/malformed; logs a
+/// warn (but still falls back) when the subpath points at a directory that no
+/// longer exists on disk.
 pub fn resolve_workspace_path(project_root: &std::path::Path) -> std::path::PathBuf {
+    use crate::cache::TtlCache;
     use crate::types::ProjectMetadata;
+    use std::sync::LazyLock;
+    use std::time::{Duration, SystemTime};
+
+    static CACHE: LazyLock<TtlCache<(String, u128), std::path::PathBuf>> =
+        LazyLock::new(|| TtlCache::new(Duration::from_secs(5)));
+
     let metadata_path = project_root.join(".shipstudio").join("project.json");
-    let Ok(contents) = std::fs::read_to_string(&metadata_path) else {
-        return project_root.to_path_buf();
-    };
-    let Ok(metadata) = serde_json::from_str::<ProjectMetadata>(&contents) else {
-        return project_root.to_path_buf();
-    };
-    match metadata.workspace_subpath {
-        Some(sub) if !sub.is_empty() => {
-            let candidate = project_root.join(&sub);
-            if candidate.exists() {
-                candidate
-            } else {
-                project_root.to_path_buf()
-            }
-        }
-        _ => project_root.to_path_buf(),
+    let mtime = std::fs::metadata(&metadata_path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let key = (project_root.to_string_lossy().into_owned(), mtime);
+    if let Some(cached) = CACHE.get(&key) {
+        return cached;
     }
+
+    let resolved = (|| -> std::path::PathBuf {
+        let Ok(contents) = std::fs::read_to_string(&metadata_path) else {
+            return project_root.to_path_buf();
+        };
+        let Ok(metadata) = serde_json::from_str::<ProjectMetadata>(&contents) else {
+            return project_root.to_path_buf();
+        };
+        match metadata.workspace_subpath {
+            Some(sub) if !sub.is_empty() => {
+                let candidate = project_root.join(&sub);
+                if candidate.exists() {
+                    candidate
+                } else {
+                    tracing::warn!(
+                        project = %project_root.display(),
+                        subpath = %sub,
+                        "workspace_subpath points at a missing directory; falling back to repo root"
+                    );
+                    project_root.to_path_buf()
+                }
+            }
+            _ => project_root.to_path_buf(),
+        }
+    })();
+
+    CACHE.insert(key, resolved.clone());
+    resolved
 }
 
 /// Check if Homebrew is installed

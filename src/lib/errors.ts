@@ -13,6 +13,7 @@ export type CommandError =
   | { type: 'Validation'; field: string; reason: string }
   | { type: 'NotAuthenticated'; service: string }
   | { type: 'Io'; message: string }
+  | { type: 'MergeConflict'; pr_number: number; stderr: string }
   | { type: 'Other'; message: string };
 
 /**
@@ -47,7 +48,14 @@ export function formatCommandError(err: CommandError): string {
       return `Not authenticated with ${err.service}`;
     case 'Io':
       return `I/O error: ${err.message}`;
+    case 'MergeConflict':
+      return `Pull request #${err.pr_number} can't be merged cleanly: ${err.stderr}`;
     case 'Other':
       return err.message;
   }
+}
+
+/** True when a caught error is the tagged MergeConflict variant. */
+export function isMergeConflictError(value: unknown): boolean {
+  return asCommandError(value).type === 'MergeConflict';
 }

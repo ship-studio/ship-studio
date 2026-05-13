@@ -19,7 +19,7 @@ import {
   getWorkspaceSubpath,
   setWorkspaceSubpath,
 } from '../lib/project';
-import { ROOT_PICK } from '../components/MonorepoPickerModal';
+import type { WorkspacePick } from '../components/MonorepoPickerModal';
 import { getProjectGitHubStatus } from '../lib/github';
 import { GITHUB_STATUS_FALLBACK } from './useIntegrationStatus';
 import {
@@ -138,7 +138,7 @@ export function useProjectLifecycle({
   const [pendingMonorepoPick, setPendingMonorepoPick] = useState<{
     project: Project;
     workspaces: WorkspaceInfo[];
-    selectedSubpath: string | null;
+    selectedPick: WorkspacePick | null;
   } | null>(null);
 
   // Current preview page (tracked for potential future use)
@@ -202,10 +202,61 @@ export function useProjectLifecycle({
     }
   }, [currentProject, onPreviewReady]);
 
-  const handleSelectProject = async (project: Project) => {
+  /** Returns true when the gate paused the open (workspace picker shown). */
+  const runMonorepoGate = async (project: Project): Promise<boolean> => {
+    let existingSubpath: string | null;
+    try {
+      existingSubpath = await getWorkspaceSubpath(project.path);
+    } catch (err) {
+      // A real backend failure here (command missing, validation, etc.) — fall
+      // through to open as-is rather than blocking the user, but emit telemetry
+      // and a log so we notice. Don't toast: this is internal.
+      trackError('workspace_gate_subpath_check', err, 'Dashboard');
+      logger.error('[OpenProject] getWorkspaceSubpath failed; opening as-is', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+    if (existingSubpath !== null) return false; // already configured
+
+    let workspaces: WorkspaceInfo[];
+    try {
+      workspaces = await detectWorkspaces(project.path);
+    } catch (err) {
+      trackError('workspace_gate_detect', err, 'Dashboard');
+      logger.error('[OpenProject] detectWorkspaces failed; opening as-is', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+    if (workspaces.length === 0) return false; // single-package project
+
+    const firstWeb = workspaces.find((w) => w.isWeb) ?? workspaces[0];
+    setPendingMonorepoPick({
+      project,
+      workspaces,
+      selectedPick: { kind: 'app', relativePath: firstWeb.relativePath },
+    });
+    return true;
+  };
+
+  const handleSelectProject = async (
+    project: Project,
+    opts: { skipWorkspaceGate?: boolean } = {}
+  ) => {
     const windowLabel = getWindowLabel();
     const totalStart = performance.now();
     let stepStart = performance.now();
+
+    // Pre-flight monorepo gate: runs BEFORE we claim a navigation slot so
+    // pausing for the picker doesn't bump the version counter or set the
+    // "opening" ref — both would make a concurrent open look superseded
+    // when nothing actually opened. `skipWorkspaceGate` lets re-entry from
+    // the picker confirm skip the gate without recursion.
+    if (!opts.skipWorkspaceGate) {
+      const paused = await runMonorepoGate(project);
+      if (paused) return;
+    }
 
     // Claim a new navigation version — any prior handleSelectProject or handleBackToProjects
     // that captured an older version will know it's been superseded.
@@ -221,36 +272,6 @@ export function useProjectLifecycle({
       return;
     }
     openingProjectPathRef.current = project.path;
-
-    // Monorepo gate: the first time we touch an unconfigured monorepo,
-    // pause and ask the user which app to focus on. `subpath === null`
-    // means the project has never been classified; an empty string is
-    // how we record "asked, picked the root" so we never re-prompt.
-    try {
-      const existingSubpath = await getWorkspaceSubpath(project.path);
-      if (existingSubpath === null) {
-        const workspaces = await detectWorkspaces(project.path).catch((err) => {
-          logger.warn('[OpenProject] detectWorkspaces failed; treating as single-package', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-          return [] as WorkspaceInfo[];
-        });
-        if (workspaces.length > 0) {
-          const firstWeb = workspaces.find((w) => w.isWeb) ?? workspaces[0];
-          openingProjectPathRef.current = null;
-          setPendingMonorepoPick({
-            project,
-            workspaces,
-            selectedSubpath: firstWeb.relativePath,
-          });
-          return;
-        }
-      }
-    } catch (err) {
-      logger.warn('[OpenProject] Workspace gate check failed; opening as-is', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
 
     // Set the active project so every subsequent event in this session
     // auto-tags project context. The hash is sync (FNV-1a) so this never
@@ -648,16 +669,16 @@ export function useProjectLifecycle({
     openingProjectPathRef.current = null;
   };
 
-  const handleSelectMonorepoPick = (subpath: string) => {
-    setPendingMonorepoPick((prev) => (prev ? { ...prev, selectedSubpath: subpath } : prev));
+  const handleSelectMonorepoPick = (pick: WorkspacePick) => {
+    setPendingMonorepoPick((prev) => (prev ? { ...prev, selectedPick: pick } : prev));
   };
 
   const handleConfirmMonorepoPick = async () => {
     if (!pendingMonorepoPick) return;
-    const { project, selectedSubpath } = pendingMonorepoPick;
-    if (!selectedSubpath) return;
-    // ROOT_PICK is recorded as an empty string so we never re-prompt.
-    const subpathToSave = selectedSubpath === ROOT_PICK ? '' : selectedSubpath;
+    const { project, selectedPick } = pendingMonorepoPick;
+    if (!selectedPick) return;
+    // Root pick → empty string so we never re-prompt; app pick → its subpath.
+    const subpathToSave = selectedPick.kind === 'root' ? '' : selectedPick.relativePath;
     try {
       await setWorkspaceSubpath(project.path, subpathToSave);
     } catch (err) {
@@ -665,10 +686,17 @@ export function useProjectLifecycle({
       logger.error('[OpenProject] Failed to save workspace subpath', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return;
+      showToast(
+        `Couldn't save workspace pick: ${formatCommandError(asCommandError(err))}`,
+        'error'
+      );
+      return; // leave modal open so user can retry / cancel explicitly
     }
     setPendingMonorepoPick(null);
-    void handleSelectProject(project);
+    // Skip the gate on re-entry — subpath is now persisted, but avoiding the
+    // extra read also rules out any pathological recursion if the get/set
+    // round-trip ever lags.
+    void handleSelectProject(project, { skipWorkspaceGate: true });
   };
 
   const handleCancelMonorepoPick = async () => {
@@ -742,7 +770,7 @@ export function useProjectLifecycle({
       const message = formatCommandError(asCommandError(error));
       logger.error('[ImportLocalFolder] failed', { error: message });
       const friendly = message.includes('already registered')
-        ? 'This project is already in Ship Studio. Find it on your dashboard and click to open.'
+        ? "This folder is already in Ship Studio. To work on a different workspace from the same folder, clone the repo again via 'Import from GitHub' (each clone is independent), or duplicate the folder on disk first."
         : message;
       showToast(friendly, 'error');
     }

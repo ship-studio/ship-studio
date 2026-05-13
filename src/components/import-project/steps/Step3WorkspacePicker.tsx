@@ -15,15 +15,25 @@ import { Button } from '../../primitives/Button';
 import { BranchIcon } from '../../icons';
 import type { WorkspaceInfo } from '../../../lib/project';
 
-/** Sentinel selection value meaning "use the repo root, no workspace subpath". */
-export const ROOT_PICK = '__root__';
+/** What the picker can return. Avoids the old `__root__` magic-string sentinel. */
+export type WorkspacePick = { kind: 'root' } | { kind: 'app'; relativePath: string };
+
+export const ROOT_PICK: WorkspacePick = { kind: 'root' };
+
+/** True when the two picks point at the same option. */
+export function picksEqual(a: WorkspacePick | null, b: WorkspacePick | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'app' && b.kind === 'app') return a.relativePath === b.relativePath;
+  return true;
+}
 
 export interface Step3WorkspacePickerProps {
   repoName: string;
   workspaces: WorkspaceInfo[];
-  /** Currently focused option. `ROOT_PICK` for the root card, else a relative path. */
-  selectedSubpath: string | null;
-  onSelect: (subpath: string) => void;
+  /** Currently focused option, or null if nothing is selected yet. */
+  selectedPick: WorkspacePick | null;
+  onSelect: (pick: WorkspacePick) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -31,12 +41,12 @@ export interface Step3WorkspacePickerProps {
 export function Step3WorkspacePicker({
   repoName,
   workspaces,
-  selectedSubpath,
+  selectedPick,
   onSelect,
   onConfirm,
   onCancel,
 }: Step3WorkspacePickerProps) {
-  const rootSelected = selectedSubpath === ROOT_PICK;
+  const rootSelected = selectedPick?.kind === 'root';
 
   return (
     <div className="workspace-picker">
@@ -66,13 +76,14 @@ export function Step3WorkspacePicker({
         </button>
 
         {workspaces.map((ws) => {
-          const isSelected = ws.relativePath === selectedSubpath;
+          const isSelected =
+            selectedPick?.kind === 'app' && selectedPick.relativePath === ws.relativePath;
           return (
             <button
               key={ws.relativePath}
               type="button"
               className={`workspace-picker-item${isSelected ? ' selected' : ''}`}
-              onClick={() => onSelect(ws.relativePath)}
+              onClick={() => onSelect({ kind: 'app', relativePath: ws.relativePath })}
             >
               <div className="workspace-picker-item-icon">
                 <BranchIcon size={14} />
@@ -102,7 +113,7 @@ export function Step3WorkspacePicker({
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={onConfirm} disabled={!selectedSubpath}>
+        <Button variant="primary" onClick={onConfirm} disabled={!selectedPick}>
           Continue
         </Button>
       </div>

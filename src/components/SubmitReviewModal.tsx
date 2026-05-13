@@ -13,7 +13,8 @@ import { createPullRequest, mergePullRequest, switchBranch, deleteBranch } from 
 import { generatePRDescription } from '../lib/ai';
 import { commitChanges } from '../lib/git';
 import { trackEvent, trackError } from '../lib/analytics';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import { asCommandError, formatCommandError, isMergeConflictError } from '../lib/errors';
+import { logger } from '../lib/logger';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
 import { GitHubIcon, WarningIcon } from './icons';
@@ -47,20 +48,20 @@ function parsePrNumberFromUrl(url: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-function isMergeConflictError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower.includes('not mergeable') ||
-    lower.includes('merge conflict') ||
-    lower.includes('cannot be cleanly')
-  );
+/** Git branch names are constrained to a safe charset, but be defensive — the
+ *  branch is interpolated into a prompt sent to an LLM agent so we don't want
+ *  shell-style chars sneaking through and confusing the model. */
+function sanitizeBranchName(name: string): string {
+  return name.replace(/[`"'\\\n\r]/g, '');
 }
 
 function buildConflictPrompt(headBranch: string, baseBranch: string): string {
-  return `My pull request from "${headBranch}" into "${baseBranch}" has merge conflicts. Please help me:
-1. Check out "${headBranch}" and pull the latest "${baseBranch}"
+  const head = sanitizeBranchName(headBranch);
+  const base = sanitizeBranchName(baseBranch);
+  return `My pull request from "${head}" into "${base}" has merge conflicts. Please help me:
+1. Check out "${head}" and pull the latest "${base}"
 2. Identify which files have conflicts
-3. Resolve the conflicts, prioritising the changes from "${headBranch}" unless context suggests otherwise
+3. Resolve the conflicts, prioritising the changes from "${head}" unless context suggests otherwise
 4. Commit the resolution and push so the PR can be merged`;
 }
 
@@ -184,6 +185,13 @@ export function SubmitReviewModal({
         setCreatedPr({ url: prUrl, number: prNumber });
         setPhase('created');
       } else {
+        logger.warn(
+          '[SubmitReview] Created PR URL did not match /pull/<n>; skipping merge prompt',
+          {
+            url: prUrl,
+          }
+        );
+        onToast?.('Pull request created (could not parse number for merge prompt)', 'success');
         onClose();
       }
     } catch (e) {
@@ -211,12 +219,12 @@ export function SubmitReviewModal({
       onToast?.('Pull request merged', 'success');
       setPhase('merged');
     } catch (e) {
-      const message = formatCommandError(asCommandError(e));
       trackError('pr_merge', e, 'Submit Review');
-      if (isMergeConflictError(message)) {
+      if (isMergeConflictError(e)) {
         setPhase('conflict');
         setError(null);
       } else {
+        const message = formatCommandError(asCommandError(e));
         setError(message);
         onToast?.(`Failed to merge: ${message}`, 'error');
       }
@@ -327,7 +335,7 @@ export function SubmitReviewModal({
         onClose={onClose}
         dismissable={!isBusy}
         title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', flex: 1 }}>
+          <div className="submit-review-title-row">
             <WarningIcon size={16} />
             <span>Merge conflicts</span>
           </div>
@@ -339,7 +347,7 @@ export function SubmitReviewModal({
             <strong>{branchName}</strong> can't be cleanly merged into <strong>{baseBranch}</strong>{' '}
             — the base branch has changes that conflict with yours.
           </p>
-          <p style={{ marginTop: 'var(--spacing-md)' }}>
+          <p className="submit-review-conflict-question">
             {canAskAgent
               ? 'Want the agent to fix it, or would you rather resolve it yourself?'
               : 'You can resolve the conflicts in the visual editor.'}
@@ -400,15 +408,7 @@ export function SubmitReviewModal({
       dismissable={!isBusy}
       className="submit-review-content"
       title={
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 'var(--spacing-md)',
-            flex: 1,
-          }}
-        >
+        <div className="submit-review-title-row submit-review-title-row-spread">
           <span>Submit for Review</span>
           {aiAvailable && (
             <button

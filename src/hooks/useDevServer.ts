@@ -17,6 +17,23 @@ import {
   getWorkspaceSubpath,
   resolveWorkspacePath,
 } from '../lib/project';
+
+/** Resolve the effective dev-server cwd for a project, logging any backend
+ *  failure instead of silently swallowing it. A stale Tauri build (missing
+ *  `get_workspace_subpath` command) would otherwise spawn dev servers from
+ *  the wrong directory with no signal. Returns the repo root on failure. */
+async function resolveDevServerCwd(projectPath: string): Promise<string> {
+  try {
+    const subpath = await getWorkspaceSubpath(projectPath);
+    return resolveWorkspacePath(projectPath, subpath);
+  } catch (err) {
+    logger.error('[DevServer] getWorkspaceSubpath failed; using repo root as cwd', {
+      projectPath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return projectPath;
+  }
+}
 import {
   detectProjectType,
   startStaticServer,
@@ -384,12 +401,10 @@ export function useDevServer(currentProjectPath: string | null) {
 
       // For monorepo projects, dev server / project-type detection should run
       // against the picked workspace subdir. Git/PR ops still use the repo root.
-      const subpath = await getWorkspaceSubpath(projectPath).catch(() => null);
-      const cwd = resolveWorkspacePath(projectPath, subpath);
-      if (subpath) {
+      const cwd = await resolveDevServerCwd(projectPath);
+      if (cwd !== projectPath) {
         logger.info('[OpenProject] Using workspace subpath as dev server cwd', {
           projectPath,
-          subpath,
           cwd,
         });
       }
@@ -581,8 +596,7 @@ export function useDevServer(currentProjectPath: string | null) {
       const s = getOrCreateState(projectPath);
       const effectivePort = portOverride ?? s.port ?? DEFAULT_PORT;
 
-      const subpath = await getWorkspaceSubpath(projectPath).catch(() => null);
-      const cwd = resolveWorkspacePath(projectPath, subpath);
+      const cwd = await resolveDevServerCwd(projectPath);
 
       const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
         return Promise.race([
@@ -697,8 +711,7 @@ export function useDevServer(currentProjectPath: string | null) {
           s.outputVersion = 0;
           s.healthVersion = 0;
           bump();
-          const subpath = await getWorkspaceSubpath(projectPath).catch(() => null);
-          const cwd = resolveWorkspacePath(projectPath, subpath);
+          const cwd = await resolveDevServerCwd(projectPath);
           s.handle = await startDevServer(
             cwd,
             s.port,

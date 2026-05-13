@@ -111,7 +111,9 @@ pub async fn create_pull_request(
     Ok(url)
 }
 
-/// Merge a pull request
+/// Merge a pull request. Returns `CommandError::MergeConflict` when `gh`
+/// reports the PR isn't mergeable so the frontend can render a conflict-
+/// resolution flow without grepping the stderr for known phrases.
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
@@ -124,11 +126,23 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err((stderr.to_string()).into());
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        if is_conflict_stderr(&stderr) {
+            return Err(CommandError::MergeConflict { pr_number, stderr });
+        }
+        return Err(stderr.into());
     }
 
     Ok(())
+}
+
+/// Match the stderr fragments `gh pr merge` emits when a PR can't be merged
+/// cleanly. Kept narrow so unrelated failures still surface as Process/Other.
+fn is_conflict_stderr(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("is not mergeable")
+        || lower.contains("merge commit cannot be cleanly created")
+        || lower.contains("merge conflicts")
 }
 
 /// Checkout a pull request branch locally for review

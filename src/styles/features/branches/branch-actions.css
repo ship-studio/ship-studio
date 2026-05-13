@@ -590,6 +590,22 @@
   z-index: var(--z-app-modal);
 }
 
+.submit-review-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+}
+
+.submit-review-title-row-spread {
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.submit-review-conflict-question {
+  margin-top: var(--spacing-md);
+}
+
 .submit-review-content {
   width: 440px;
   background: var(--bg-secondary);

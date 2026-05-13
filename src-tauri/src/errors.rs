@@ -31,6 +31,9 @@ pub enum CommandError {
     #[error("I/O error: {message}")]
     Io { message: String },
 
+    #[error("Pull request {pr_number} cannot be merged cleanly: {stderr}")]
+    MergeConflict { pr_number: i32, stderr: String },
+
     #[error("{message}")]
     Other { message: String },
 }
