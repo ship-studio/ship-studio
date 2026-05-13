@@ -1,7 +1,9 @@
 /**
  * Step3WorkspacePicker — shown between clone and install when the imported
  * repo is a monorepo. Lets the user pick which app the project will focus on,
- * or opt to use the repo root as-is.
+ * or opt to use the repo root as-is. Reused inside `MonorepoPickerModal` so
+ * the same UI appears on the dashboard when an unconfigured monorepo is
+ * opened.
  *
  * The choice is locked for the project's lifetime — to work on another app
  * from the same repo, the user re-imports it.
@@ -10,6 +12,7 @@
  */
 
 import { Button } from '../../primitives/Button';
+import { BranchIcon } from '../../icons';
 import type { WorkspaceInfo } from '../../../lib/project';
 
 /** Sentinel selection value meaning "use the repo root, no workspace subpath". */
@@ -36,28 +39,28 @@ export function Step3WorkspacePicker({
   const rootSelected = selectedSubpath === ROOT_PICK;
 
   return (
-    <div className="create-modal-content import-repo-step">
-      <div className="create-modal-header">
-        <div>
-          <h2>Pick a workspace</h2>
-          <p className="template-context">
-            <strong>{repoName}</strong> is a monorepo. Choose the app you want to focus on, or use
-            the whole repo. This choice is locked once you import — to work on a different app
-            later, import the repo again.
-          </p>
-        </div>
+    <div className="workspace-picker">
+      <div className="workspace-picker-header">
+        <h2 className="workspace-picker-title">Pick a workspace</h2>
+        <p className="workspace-picker-subtitle">
+          <strong>{repoName}</strong> is a monorepo. Pick which app to focus on — the choice is
+          locked once you confirm. To work on a different app, re-import the repo.
+        </p>
       </div>
 
       <div className="workspace-picker-list">
         <button
           type="button"
-          className={`workspace-picker-item${rootSelected ? ' selected' : ''}`}
+          className={`workspace-picker-item is-root${rootSelected ? ' selected' : ''}`}
           onClick={() => onSelect(ROOT_PICK)}
         >
-          <div className="workspace-picker-item-main">
+          <div className="workspace-picker-item-icon">
+            <FolderStackIcon />
+          </div>
+          <div className="workspace-picker-item-text">
             <div className="workspace-picker-item-name">Use the whole repo</div>
-            <div className="workspace-picker-item-path">
-              Run scripts from the repo root (no preview unless a root dev script serves one app)
+            <div className="workspace-picker-item-sub">
+              Best for libraries or when a root dev script orchestrates everything
             </div>
           </div>
         </button>
@@ -71,13 +74,20 @@ export function Step3WorkspacePicker({
               className={`workspace-picker-item${isSelected ? ' selected' : ''}`}
               onClick={() => onSelect(ws.relativePath)}
             >
-              <div className="workspace-picker-item-main">
+              <div className="workspace-picker-item-icon">
+                <BranchIcon size={14} />
+              </div>
+              <div className="workspace-picker-item-text">
                 <div className="workspace-picker-item-name">{ws.name}</div>
-                <div className="workspace-picker-item-path">{ws.relativePath}</div>
+                <div className="workspace-picker-item-sub workspace-picker-item-sub-mono">
+                  {ws.relativePath}
+                </div>
               </div>
               <div className="workspace-picker-item-meta">
                 {ws.devScript && (
-                  <code className="workspace-picker-item-script">{ws.devScript}</code>
+                  <code className="workspace-picker-item-script" title={ws.devScript}>
+                    {ws.devScript}
+                  </code>
                 )}
                 {ws.portHint !== null && (
                   <span className="workspace-picker-item-port">:{ws.portHint}</span>
@@ -88,7 +98,7 @@ export function Step3WorkspacePicker({
         })}
       </div>
 
-      <div className="create-modal-footer">
+      <div className="workspace-picker-footer">
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
@@ -97,5 +107,23 @@ export function Step3WorkspacePicker({
         </Button>
       </div>
     </div>
+  );
+}
+
+function FolderStackIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 16V6a2 2 0 0 0-2-2h-7l-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" />
+      <path d="M21 11H8a2 2 0 0 0-2 2v9" />
+    </svg>
   );
 }

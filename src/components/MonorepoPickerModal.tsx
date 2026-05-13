@@ -41,9 +41,9 @@ export function MonorepoPickerModal({
     <ModalFrame
       isOpen
       onClose={onCancel}
-      title={null}
-      className="import-modal monorepo-picker-modal"
+      className="monorepo-picker-modal"
       showCloseButton={false}
+      ariaLabel={`Pick a workspace for ${projectName}`}
     >
       <Step3WorkspacePicker
         repoName={projectName}
