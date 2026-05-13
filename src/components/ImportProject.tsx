@@ -37,7 +37,8 @@ import { checkNpmCachePermissions } from '../lib/setup';
 import { Step1AccountSelection } from './import-project/steps/Step1AccountSelection';
 import { Step2RepoSelection } from './import-project/steps/Step2RepoSelection';
 import { Step3ImportProgress, type Step } from './import-project/steps/Step3ImportProgress';
-import { Step3WorkspacePicker } from './import-project/steps/Step3WorkspacePicker';
+import { Step3WorkspacePicker, ROOT_PICK } from './import-project/steps/Step3WorkspacePicker';
+import { logger } from '../lib/logger';
 
 /** Props for the ImportProject component */
 interface ImportProjectProps {
@@ -293,8 +294,18 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
       // If this is a monorepo with runnable apps, pause for the user to pick
       // which one this project will focus on. Empty result → single-package
-      // repo, fall through to the normal install flow.
-      const workspaces = await detectWorkspaces(projectPath).catch(() => [] as WorkspaceInfo[]);
+      // repo, fall through to the normal install flow. Errors are logged so
+      // a backend failure shows up in the dev console instead of being eaten.
+      let workspaces: WorkspaceInfo[] = [];
+      try {
+        workspaces = await detectWorkspaces(projectPath);
+      } catch (err) {
+        logger.warn('[ImportProject] detectWorkspaces failed; falling back to root', {
+          error: err instanceof Error ? err.message : String(err),
+          projectPath,
+        });
+      }
+
       if (workspaces.length > 0) {
         const firstWeb = workspaces.find((w) => w.isWeb) ?? workspaces[0];
         setDiscoveredWorkspaces(workspaces);
@@ -333,12 +344,15 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
   const handleConfirmWorkspacePick = async () => {
     if (!importedProjectPath || !selectedWorkspaceSubpath) return;
-    try {
-      await setWorkspaceSubpath(importedProjectPath, selectedWorkspaceSubpath);
-    } catch (err) {
-      trackError('project_import_workspace_save', err, 'Dashboard');
-      setError(getFriendlyError(err));
-      return;
+    // ROOT_PICK means "use the repo root as-is" — no subpath written.
+    if (selectedWorkspaceSubpath !== ROOT_PICK) {
+      try {
+        await setWorkspaceSubpath(importedProjectPath, selectedWorkspaceSubpath);
+      } catch (err) {
+        trackError('project_import_workspace_save', err, 'Dashboard');
+        setError(getFriendlyError(err));
+        return;
+      }
     }
     setAwaitingWorkspacePick(false);
     await finishImport(importedProjectPath);
