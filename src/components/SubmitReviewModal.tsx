@@ -8,12 +8,15 @@
  */
 
 import { useState, useEffect } from 'react';
-import { createPullRequest } from '../lib/branches';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { createPullRequest, mergePullRequest, switchBranch, deleteBranch } from '../lib/branches';
 import { generatePRDescription } from '../lib/ai';
 import { commitChanges } from '../lib/git';
 import { trackEvent, trackError } from '../lib/analytics';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { GitHubIcon, WarningIcon } from './icons';
 import { useOptionalToast } from '../contexts/ToastContext';
 
 interface SubmitReviewModalProps {
@@ -27,8 +30,38 @@ interface SubmitReviewModalProps {
   aiAvailable: boolean;
   /** Callback when PR is created */
   onSuccess: (prUrl: string) => void;
+  /** Callback when the local branch was switched (e.g. after merge cleanup) */
+  onBranchSwitch?: (branchName: string) => void;
+  /** Paste a prompt into the active agent terminal (e.g. to ask Claude to fix conflicts) */
+  onSendToAgent?: (prompt: string) => void;
+  /** Open the in-app conflict resolution UI for a head/base branch pair */
+  onResolveConflicts?: (headBranch: string, baseBranch: string) => void;
   /** Callback to close modal */
   onClose: () => void;
+}
+
+type Phase = 'edit' | 'created' | 'conflict' | 'merged';
+
+function parsePrNumberFromUrl(url: string): number | null {
+  const match = url.match(/\/pull\/(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function isMergeConflictError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('not mergeable') ||
+    lower.includes('merge conflict') ||
+    lower.includes('cannot be cleanly')
+  );
+}
+
+function buildConflictPrompt(headBranch: string, baseBranch: string): string {
+  return `My pull request from "${headBranch}" into "${baseBranch}" has merge conflicts. Please help me:
+1. Check out "${headBranch}" and pull the latest "${baseBranch}"
+2. Identify which files have conflicts
+3. Resolve the conflicts, prioritising the changes from "${headBranch}" unless context suggests otherwise
+4. Commit the resolution and push so the PR can be merged`;
 }
 
 export function SubmitReviewModal({
@@ -37,6 +70,9 @@ export function SubmitReviewModal({
   baseBranches,
   aiAvailable,
   onSuccess,
+  onBranchSwitch,
+  onSendToAgent,
+  onResolveConflicts,
   onClose,
 }: SubmitReviewModalProps) {
   const { showToast } = useOptionalToast();
@@ -49,6 +85,10 @@ export function SubmitReviewModal({
   const [needsCommit, setNeedsCommit] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usedAiGeneration, setUsedAiGeneration] = useState(false);
+  const [phase, setPhase] = useState<Phase>('edit');
+  const [createdPr, setCreatedPr] = useState<{ url: string; number: number } | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
 
   // Track modal open
   useEffect(() => {
@@ -139,7 +179,13 @@ export function SubmitReviewModal({
         $screen_name: 'Workspace',
       });
       onSuccess(prUrl);
-      onClose();
+      const prNumber = parsePrNumberFromUrl(prUrl);
+      if (prNumber !== null) {
+        setCreatedPr({ url: prUrl, number: prNumber });
+        setPhase('created');
+      } else {
+        onClose();
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       trackError('pr_create', e, 'Submit Review');
@@ -150,7 +196,202 @@ export function SubmitReviewModal({
     }
   };
 
-  const isBusy = isSubmitting || isGenerating;
+  const handleMerge = async () => {
+    if (!createdPr) return;
+    setIsMerging(true);
+    setError(null);
+    try {
+      await mergePullRequest(projectPath, createdPr.number);
+      void trackEvent('pr_merged', {
+        head_ref: branchName,
+        base_ref: baseBranch,
+        from_submit_modal: true,
+        $screen_name: 'Submit Review',
+      });
+      onToast?.('Pull request merged', 'success');
+      setPhase('merged');
+    } catch (e) {
+      const message = formatCommandError(asCommandError(e));
+      trackError('pr_merge', e, 'Submit Review');
+      if (isMergeConflictError(message)) {
+        setPhase('conflict');
+        setError(null);
+      } else {
+        setError(message);
+        onToast?.(`Failed to merge: ${message}`, 'error');
+      }
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
+  const handleAskAgentToResolve = () => {
+    if (!onSendToAgent) return;
+    onSendToAgent(buildConflictPrompt(branchName, baseBranch));
+    void trackEvent('pr_conflict_sent_to_agent', {
+      head_ref: branchName,
+      base_ref: baseBranch,
+      $screen_name: 'Submit Review',
+    });
+    onToast?.('Asked the agent to resolve conflicts', 'success');
+    onClose();
+  };
+
+  const handleResolveMyself = () => {
+    if (!onResolveConflicts) return;
+    onResolveConflicts(branchName, baseBranch);
+    void trackEvent('pr_conflict_resolve_in_app', {
+      head_ref: branchName,
+      base_ref: baseBranch,
+      $screen_name: 'Submit Review',
+    });
+    onClose();
+  };
+
+  const handlePostMergeCleanup = async () => {
+    setIsCleaningUp(true);
+    setError(null);
+    try {
+      const result = await switchBranch(projectPath, baseBranch, true);
+      if (!result.success) {
+        const msg = result.error || 'Failed to switch branch';
+        setError(msg);
+        onToast?.(msg, 'error');
+        return;
+      }
+      onBranchSwitch?.(baseBranch);
+      await deleteBranch(projectPath, branchName, true);
+      void trackEvent('post_merge_cleanup', {
+        deleted_branch: branchName,
+        $screen_name: 'Submit Review',
+      });
+      onToast?.(`Switched to ${baseBranch} and deleted ${branchName}`, 'success');
+      onClose();
+    } catch (e) {
+      const message = formatCommandError(asCommandError(e));
+      trackError('pr_post_merge_cleanup', e, 'Submit Review');
+      setError(message);
+      onToast?.(`Cleanup failed: ${message}`, 'error');
+    } finally {
+      setIsCleaningUp(false);
+    }
+  };
+
+  const isBusy = isSubmitting || isGenerating || isMerging || isCleaningUp;
+
+  if (phase === 'created' && createdPr) {
+    return (
+      <ModalFrame
+        isOpen
+        onClose={onClose}
+        dismissable={!isBusy}
+        title="Pull request created"
+        className="post-merge-content"
+      >
+        <div className="post-merge-body">
+          <p>
+            Your pull request was created. Want to merge <strong>{branchName}</strong> into{' '}
+            <strong>{baseBranch}</strong> now?
+          </p>
+          <a
+            className="post-merge-link"
+            href={createdPr.url}
+            onClick={(e) => {
+              e.preventDefault();
+              void openUrl(createdPr.url);
+            }}
+          >
+            <GitHubIcon size={14} />
+            View on GitHub
+          </a>
+          {error && <div className="submit-review-error">{error}</div>}
+        </div>
+        <div className="post-merge-footer">
+          <Button variant="secondary" onClick={onClose} disabled={isBusy}>
+            Done
+          </Button>
+          <Button variant="primary" onClick={() => void handleMerge()} disabled={isBusy}>
+            {isMerging ? 'Merging...' : `Merge into ${baseBranch}`}
+          </Button>
+        </div>
+      </ModalFrame>
+    );
+  }
+
+  if (phase === 'conflict') {
+    const canAskAgent = !!onSendToAgent && aiAvailable;
+    const canResolveInApp = !!onResolveConflicts;
+    return (
+      <ModalFrame
+        isOpen
+        onClose={onClose}
+        dismissable={!isBusy}
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', flex: 1 }}>
+            <WarningIcon size={16} />
+            <span>Merge conflicts</span>
+          </div>
+        }
+        className="post-merge-content"
+      >
+        <div className="post-merge-body">
+          <p>
+            <strong>{branchName}</strong> can't be cleanly merged into <strong>{baseBranch}</strong>{' '}
+            — the base branch has changes that conflict with yours.
+          </p>
+          <p style={{ marginTop: 'var(--spacing-md)' }}>
+            {canAskAgent
+              ? 'Want the agent to fix it, or would you rather resolve it yourself?'
+              : 'You can resolve the conflicts in the visual editor.'}
+          </p>
+        </div>
+        <div className="post-merge-footer">
+          {canResolveInApp && (
+            <Button variant="secondary" onClick={handleResolveMyself} disabled={isBusy}>
+              Resolve myself
+            </Button>
+          )}
+          {canAskAgent ? (
+            <Button variant="primary" onClick={handleAskAgentToResolve} disabled={isBusy}>
+              Ask agent to fix
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={onClose} disabled={isBusy}>
+              Done
+            </Button>
+          )}
+        </div>
+      </ModalFrame>
+    );
+  }
+
+  if (phase === 'merged') {
+    return (
+      <ModalFrame
+        isOpen
+        onClose={onClose}
+        dismissable={!isBusy}
+        title="Branch merged!"
+        className="post-merge-content"
+      >
+        <div className="post-merge-body">
+          <p>
+            Would you like to switch to <strong>{baseBranch}</strong> and delete the{' '}
+            <strong>{branchName}</strong> branch?
+          </p>
+          {error && <div className="submit-review-error">{error}</div>}
+        </div>
+        <div className="post-merge-footer">
+          <Button variant="secondary" onClick={onClose} disabled={isBusy}>
+            No, thanks
+          </Button>
+          <Button variant="primary" onClick={() => void handlePostMergeCleanup()} disabled={isBusy}>
+            {isCleaningUp ? 'Cleaning up...' : 'Yes, clean up'}
+          </Button>
+        </div>
+      </ModalFrame>
+    );
+  }
 
   return (
     <ModalFrame

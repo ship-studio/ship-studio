@@ -1435,6 +1435,14 @@ export const WorkspaceView = memo(function WorkspaceView({
             showToast('Pull request created', 'success');
             void fetchBranchInfo(currentProject.path);
           }}
+          onSubmitReviewBranchSwitch={(branch) => {
+            void handleBranchSwitch(branch);
+            setTimeout(() => void handleRestartDevServer(), 1500);
+          }}
+          onSubmitReviewSendToAgent={sendToClaude}
+          onSubmitReviewResolveConflicts={(headBranch, baseBranch) =>
+            void handleResolveConflicts(headBranch, baseBranch)
+          }
           onCloseSubmitReview={() => {
             setShowSubmitReview(null);
             focusActiveTerminal();

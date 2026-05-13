@@ -92,6 +92,9 @@ export interface WorkspaceModalsProps {
   branches: BranchInfo[];
   integrations: IntegrationState;
   onSubmitReviewSuccess: () => void;
+  onSubmitReviewBranchSwitch?: (branchName: string) => void;
+  onSubmitReviewSendToAgent?: (prompt: string) => void;
+  onSubmitReviewResolveConflicts?: (headBranch: string, baseBranch: string) => void;
   onCloseSubmitReview: () => void;
 
   // Git error handler
@@ -165,6 +168,9 @@ export function WorkspaceModals({
   branches,
   integrations,
   onSubmitReviewSuccess,
+  onSubmitReviewBranchSwitch,
+  onSubmitReviewSendToAgent,
+  onSubmitReviewResolveConflicts,
   onCloseSubmitReview,
   gitError,
   onCloseGitError,
@@ -349,6 +355,9 @@ export function WorkspaceModals({
             .map((b) => b.name)}
           aiAvailable={integrations.claude.cliStatus.installed}
           onSuccess={onSubmitReviewSuccess}
+          onBranchSwitch={onSubmitReviewBranchSwitch}
+          onSendToAgent={onSubmitReviewSendToAgent}
+          onResolveConflicts={onSubmitReviewResolveConflicts}
           onClose={onCloseSubmitReview}
         />
       )}
