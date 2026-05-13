@@ -153,6 +153,7 @@ interface IntegrationProps {
     projectPath: string;
     packageManager: string;
     cwd: string;
+    args: string[];
   } | null;
   installTerminalExited: boolean;
   onCloseInstallTerminal: () => void;

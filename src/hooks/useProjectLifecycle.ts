@@ -149,10 +149,16 @@ export function useProjectLifecycle({
   // running `pnpm install` (or the detected pm) so the user can watch it
   // stream. Cleared on user-cancel or on exit-0 (which also restarts the dev
   // server). Exit-non-zero leaves the overlay up showing the error.
+  //
+  // `args` lives in state (not a literal in JSX) so its reference is stable
+  // across renders — OnboardingTerminal's effect deps include `args`, and a
+  // fresh array literal each render would tear down + respawn the PTY in a
+  // loop. (Auth flow does the same with `authTerminalConfig.args`.)
   const [installTerminalConfig, setInstallTerminalConfig] = useState<{
     projectPath: string;
     packageManager: string;
     cwd: string;
+    args: string[];
   } | null>(null);
   const [installTerminalExited, setInstallTerminalExited] = useState(false);
 
@@ -715,7 +721,12 @@ export function useProjectLifecycle({
   };
 
   const handleRunInstall = (projectPath: string, packageManager: string) => {
-    setInstallTerminalConfig({ projectPath, packageManager, cwd: projectPath });
+    setInstallTerminalConfig({
+      projectPath,
+      packageManager,
+      cwd: projectPath,
+      args: ['install'],
+    });
     setInstallTerminalExited(false);
     void trackEvent('install_dependencies_started', {
       package_manager: packageManager,

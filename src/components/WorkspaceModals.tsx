@@ -124,6 +124,7 @@ export interface WorkspaceModalsProps {
     projectPath: string;
     packageManager: string;
     cwd: string;
+    args: string[];
   } | null;
   installTerminalExited: boolean;
   onCloseInstallTerminal: () => void;
@@ -432,7 +433,7 @@ export function WorkspaceModals({
             </div>
             <OnboardingTerminal
               command={installTerminalConfig.packageManager}
-              args={['install']}
+              args={installTerminalConfig.args}
               cwd={installTerminalConfig.cwd}
               onExit={onInstallTerminalExit}
             />
