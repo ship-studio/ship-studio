@@ -429,29 +429,9 @@ export function useDevServer(currentProjectPath: string | null) {
         });
       }
 
-      // Before spawning, verify `node_modules` exists. If not, the dev server
-      // will fail with "Cannot find module 'next'" / "command not found" — we
-      // surface a Preview-pane install CTA instead. Cleared by `clearNeedsInstall`
-      // after the user runs install successfully.
-      try {
-        const depStatus = await checkDependenciesInstalled(projectPath);
-        if (!depStatus.installed && depStatus.hasPackageJson) {
-          const packageManager = await detectPackageManager(projectPath).catch(() => 'npm');
-          s.needsInstall = { packageManager };
-          bump();
-          logger.info('[OpenProject] Dependencies missing; deferring dev server', {
-            projectPath,
-            packageManager,
-          });
-          return 'unknown' as ProjectType;
-        }
-      } catch (err) {
-        logger.warn('[OpenProject] Dependency check failed; attempting dev server anyway', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-      s.needsInstall = null;
-
+      // Detect project type FIRST so `isWebProject` is correct even when we
+      // defer the dev server (the Preview pane gates on projectType ∉ {generic,
+      // unknown} and the install CTA renders inside the Preview pane).
       let detectedType: ProjectType = 'unknown';
       try {
         detectedType = await detectProjectType(projectPath);
@@ -460,6 +440,35 @@ export function useDevServer(currentProjectPath: string | null) {
       }
       s.type = detectedType;
       bump();
+
+      // Now verify `node_modules` exists. If not, the dev server would fail
+      // with "Cannot find module 'next'" — surface a Preview-pane install CTA
+      // instead. Cleared by `clearNeedsInstall` after install succeeds.
+      try {
+        const depStatus = await checkDependenciesInstalled(projectPath);
+        if (!depStatus.installed && depStatus.hasPackageJson) {
+          const packageManager = await detectPackageManager(projectPath).catch((err) => {
+            logger.warn(
+              '[OpenProject] detectPackageManager failed; falling back to npm. This will be wrong for pnpm/yarn projects.',
+              { error: err instanceof Error ? err.message : String(err) }
+            );
+            return 'npm';
+          });
+          s.needsInstall = { packageManager };
+          bump();
+          logger.info('[OpenProject] Dependencies missing; deferring dev server', {
+            projectPath,
+            packageManager,
+            projectType: detectedType,
+          });
+          return detectedType;
+        }
+      } catch (err) {
+        logger.warn('[OpenProject] Dependency check failed; attempting dev server anyway', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      s.needsInstall = null;
 
       void trackEvent('project_type_detected', {
         project_type: detectedType,

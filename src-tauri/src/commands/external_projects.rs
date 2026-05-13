@@ -185,6 +185,13 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
 }
 
 /// Removes an external project from the registry (does not delete files).
+///
+/// Also clears the in-folder `workspace_subpath` so that re-registering the
+/// same path triggers the monorepo picker again — otherwise the gate reads
+/// the saved subpath and silently skips the picker after a remove/re-add.
+/// Other metadata (terminal state, last_opened, custom thumbnail, etc.) is
+/// preserved so a user who remove+re-adds for organisation reasons doesn't
+/// lose everything.
 #[tauri::command]
 #[tracing::instrument]
 pub async fn unregister_external_project(path: String) -> Result<(), CommandError> {
@@ -204,6 +211,40 @@ pub async fn unregister_external_project(path: String) -> Result<(), CommandErro
     }
 
     save_config(&config)?;
+
+    // Reset workspace_subpath so re-add re-prompts the picker. Best-effort —
+    // a failure here just means the user sees no picker on re-import, which
+    // is the current bug we're fixing, so we log instead of erroring out.
+    if let Err(err) = clear_workspace_subpath_in_metadata(&canonical) {
+        tracing::warn!(
+            project = %canonical.display(),
+            error = %err,
+            "Failed to clear workspace_subpath on unregister; re-import may skip the picker"
+        );
+    }
+
+    Ok(())
+}
+
+/// Clear the `workspace_subpath` field in a project's `.shipstudio/project.json`
+/// without touching any other metadata. No-op when the file is absent.
+fn clear_workspace_subpath_in_metadata(project_root: &Path) -> Result<(), String> {
+    use crate::types::ProjectMetadata;
+    let metadata_path = project_root.join(".shipstudio").join("project.json");
+    if !metadata_path.exists() {
+        return Ok(());
+    }
+    let contents =
+        std::fs::read_to_string(&metadata_path).map_err(|e| format!("read metadata: {e}"))?;
+    let mut metadata: ProjectMetadata =
+        serde_json::from_str(&contents).map_err(|e| format!("parse metadata: {e}"))?;
+    if metadata.workspace_subpath.is_none() {
+        return Ok(());
+    }
+    metadata.workspace_subpath = None;
+    let updated =
+        serde_json::to_string_pretty(&metadata).map_err(|e| format!("serialise metadata: {e}"))?;
+    std::fs::write(&metadata_path, updated).map_err(|e| format!("write metadata: {e}"))?;
     Ok(())
 }
 
