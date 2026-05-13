@@ -36,6 +36,7 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError, setActiveProject } from '../lib/analytics';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { getProjectId } from '../lib/projectIdentity';
 import { startProjectSession, endProjectSession } from '../lib/session';
 
@@ -715,7 +716,9 @@ export function useProjectLifecycle({
       }
     } catch (error) {
       trackError('local_folder_import', error, 'Dashboard');
-      showToast(String(error), 'error');
+      const message = formatCommandError(asCommandError(error));
+      logger.error('[ImportLocalFolder] failed', { error: message });
+      showToast(message, 'error');
     }
   };
 
