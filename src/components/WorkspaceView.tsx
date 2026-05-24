@@ -645,11 +645,6 @@ export const WorkspaceView = memo(function WorkspaceView({
     },
     [currentProject.path, terminalTabs, activeTerminalTab]
   );
-  // Subscribe to registry so the current project's sidebar / tab selector
-  // re-render when a title changes.
-  // Sidebar visibility is workspace-local (not persisted). The home /
-  // projects view renders its own sidebar instance unconditionally, so
-  // this state does not affect it.
   // Sidebar visibility is workspace-local (not persisted). The home / projects
   // view renders its own sidebar instance unconditionally, so this state does
   // not affect it. Compact mode never renders the full sidebar — the narrow
