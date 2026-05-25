@@ -2,13 +2,21 @@
 
 Thanks for your interest in contributing to Ship Studio! This guide will help you get started.
 
+> **Before you start**
+>
+> - Read the [Code of Conduct](CODE_OF_CONDUCT.md) — it sets the bar for how we collaborate.
+> - For deeper context on the *patterns* the codebase has standardised on, read [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) and the **"How to Do Things in Ship Studio"** section of [CLAUDE.md](CLAUDE.md). New code that bypasses those primitives will get flagged in review.
+> - If you found a security issue, **do not file a public issue** — see [SECURITY.md](SECURITY.md) for private reporting.
+> - Want to fork and ship your own build? See [docs/FORKING.md](docs/FORKING.md).
+
 ## Development Setup
 
 ### Prerequisites
 
-- **Node.js** (v18+) and **pnpm**
-- **Rust** (latest stable) - install via [rustup.rs](https://rustup.rs/)
-- **Xcode Command Line Tools** (macOS): `xcode-select --install`
+- **Node.js** — version pinned in [`.nvmrc`](.nvmrc) (currently 22). With `nvm`: `nvm use`.
+- **pnpm** — `npm install -g pnpm` (or use [Corepack](https://nodejs.org/api/corepack.html)).
+- **Rust** (latest stable) — install via [rustup.rs](https://rustup.rs/).
+- **Xcode Command Line Tools** (macOS only): `xcode-select --install`.
 
 ### Getting Started
 
@@ -98,20 +106,29 @@ export async function myFunction(projectPath: string): Promise<Result> {
 - Validate all paths using `validate_project_path()` for security
 
 ```rust
+use crate::errors::CommandError;
+
 /// Brief description of what this command does.
 ///
 /// # Arguments
 /// * `project_path` - Absolute path to the project directory
 #[tauri::command]
-async fn my_command(project_path: String) -> Result<String, String> {
+#[tracing::instrument]
+async fn my_command(project_path: String) -> Result<String, CommandError> {
     let path = validate_project_path(&project_path)?;
     // Implementation
+    Ok("done".into())
 }
 ```
 
+Always return `Result<T, CommandError>` (not `Result<T, String>`) — the frontend
+needs a tagged error so it can branch on auth / timeout / validation / generic.
+See [src-tauri/src/errors.rs](src-tauri/src/errors.rs) for the enum and
+[src/lib/errors.ts](src/lib/errors.ts) for the TypeScript mirror.
+
 ### CSS
 
-- Use CSS variables defined in `src/styles/base.css`
+- Use CSS variables defined in `src/styles/global/base.css`
 - Follow BEM-like naming: `.component-name`, `.component-name-element`
 - Keep styles scoped to components
 
@@ -150,9 +167,13 @@ Add screenshot capture for project thumbnails
 
 1. Add the command function in the appropriate module under `src-tauri/src/commands/`. For example, to add a git-related command, edit `src-tauri/src/commands/git/mod.rs` (or create a new submodule). For a new domain, create a new file in `src-tauri/src/commands/`:
 ```rust
+use crate::errors::CommandError;
+
 #[tauri::command]
-pub async fn my_new_command(arg: String) -> Result<String, String> {
+#[tracing::instrument]
+pub async fn my_new_command(arg: String) -> Result<String, CommandError> {
     // Implementation
+    Ok("done".into())
 }
 ```
 
@@ -178,38 +199,23 @@ export async function myNewCommand(arg: string): Promise<string> {
 3. Export from the file
 4. Add styles to `src/styles/` (component-specific or in existing files)
 
-### Adding New Styles
-
-CSS variables are defined in `src/styles/base.css`:
-
-```css
-:root {
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --text-primary: #cccccc;
-  --accent: #ffffff;
-  /* ... */
-}
-```
-
-Use these variables in your styles for consistency.
-
 ## Testing
 
 ### Automated Tests
 
 **Frontend Tests (Vitest + React Testing Library):**
 ```bash
-npm test              # Run all tests
-npm run test:ui       # Run with interactive UI
-npm run test:coverage # Run with coverage report
+pnpm test:run         # Run all tests once
+pnpm test             # Watch mode
+pnpm test:ui          # Run with interactive UI
+pnpm test:coverage    # Run with coverage report
 ```
 
 Tests are in `src/**/*.test.{ts,tsx}`. We use the official `@tauri-apps/api/mocks` module for mocking Tauri IPC calls.
 
 **Backend Tests (Rust):**
 ```bash
-cd src-tauri && cargo test
+pnpm rust:test        # or: cd src-tauri && cargo test
 ```
 
 Unit tests are colocated in source files using `#[cfg(test)]` modules.
@@ -218,7 +224,7 @@ Unit tests are colocated in source files using `#[cfg(test)]` modules.
 
 Before submitting a PR, verify:
 
-- [ ] All automated tests pass (`npm test && cd src-tauri && cargo test`)
+- [ ] All automated tests pass (`pnpm test:run && pnpm rust:test`)
 - [ ] App launches without errors
 - [ ] Can create a new project
 - [ ] Terminal works and responds to input
@@ -278,15 +284,23 @@ logger.debug('Polling tick', { interval });
 
 ### Rust Backend: Result Types
 
-All Tauri commands return `Result<T, String>` with descriptive error messages. Use the `?` operator to propagate errors and include context about what operation failed.
+All Tauri commands return `Result<T, CommandError>` so the frontend can
+discriminate between auth / timeout / validation / generic failures rather
+than parsing strings. Use the `?` operator to propagate errors.
 
 ```rust
+use crate::errors::CommandError;
+
 #[tauri::command]
-async fn my_command(path: String) -> Result<String, String> {
+#[tracing::instrument]
+async fn my_command(path: String) -> Result<String, CommandError> {
     let validated = validate_project_path(&path)?;
-    do_work(&validated).map_err(|e| format!("Failed to process {}: {}", path, e))
+    do_work(&validated).map_err(CommandError::from)
 }
 ```
+
+`CommandError` lives in [src-tauri/src/errors.rs](src-tauri/src/errors.rs);
+its TypeScript mirror is [src/lib/errors.ts](src/lib/errors.ts).
 
 ### ErrorBoundary
 
@@ -315,10 +329,19 @@ For anything that affects user-visible state or data integrity, propagate the er
 Ship Studio writes structured logs (via the `tracing` crate) to:
 
 ```
-~/Library/Logs/ShipStudio/
+macOS:    ~/Library/Logs/ShipStudio/
+Windows:  %LOCALAPPDATA%\ShipStudio\logs\
 ```
 
-Rotated daily. Tail the latest with `tail -f ~/Library/Logs/ShipStudio/ship-studio.log`.
+Rotated daily. Tail the latest with:
+
+```bash
+# macOS / Linux
+tail -f ~/Library/Logs/ShipStudio/ship-studio.log
+
+# Windows (PowerShell)
+Get-Content -Wait $env:LOCALAPPDATA\ShipStudio\logs\ship-studio.log
+```
 
 ### Rust backtraces
 
@@ -341,10 +364,28 @@ See `CLAUDE.md` → **Onboarding / Setup Wizard Testing** for `SHIPSTUDIO_FORCE_
 
 ## Getting Help
 
-- Check existing issues for similar problems
-- Read the code comments and documentation
-- Ask questions in your PR or issue
+- Check existing [issues](https://github.com/ship-studio/ship-studio/issues) for similar problems.
+- Open a [discussion](https://github.com/ship-studio/ship-studio/discussions) for "how do I…" questions.
+- Drop into the [community Slack](https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ).
+- Read the code comments and the docs in [docs/](docs/).
+
+## FAQ
+
+### Why does `package.json` say `"private": true`?
+
+That field blocks accidental `npm publish` — it's unrelated to the
+repository's visibility. Ship Studio is distributed as `.dmg` and `.exe`
+installers, not as an npm package. The repo itself is open source under
+MIT (see [LICENSE](LICENSE)).
+
+### Why is `CLAUDE.md` checked in?
+
+It's a long-form contributor reference used by both humans and AI coding
+assistants. The "How to Do Things in Ship Studio" section documents the
+canonical primitives the codebase has standardised on; anything you write
+should follow those patterns.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the
+[MIT License](LICENSE).

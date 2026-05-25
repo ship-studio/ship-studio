@@ -1,14 +1,17 @@
 [package]
 name = "ship-studio"
 version = "0.6.3"
-description = "Ship Studio - Launch Claude Code for marketing sites"
-authors = ["Julian Galluzzo"]
+description = "Ship Studio — a desktop app for shipping web projects with AI coding agents."
+authors = ["Julian Galluzzo", "Ship Studio contributors"]
+license = "MIT"
+repository = "https://github.com/ship-studio/ship-studio"
+homepage = "https://github.com/ship-studio/ship-studio"
 edition = "2021"
 
 # Pattern enforcement lints — see also src-tauri/clippy.toml for disallowed-methods.
-# unwrap/expect are WARN (not deny) because the existing codebase has ~148 sites
-# that would block CI immediately; per-module migration will raise these to
-# deny once sites drop under ~20. See Block 15.5 of DX_REFACTOR_PLAN.md.
+# unwrap/expect are WARN (not deny) because the existing codebase has many sites
+# that would block CI immediately. Per-module migration raises these to deny as
+# sites are paid down.
 [lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"

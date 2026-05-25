@@ -2,7 +2,16 @@
   "name": "ship-studio",
   "private": true,
   "version": "0.6.3",
-  "description": "Ship Studio - Launch Claude Code for marketing sites",
+  "description": "Ship Studio — a desktop app for shipping web projects with AI coding agents.",
+  "license": "MIT",
+  "homepage": "https://github.com/ship-studio/ship-studio#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ship-studio/ship-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ship-studio/ship-studio/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

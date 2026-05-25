@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# Environment files — only .env.example is tracked
+.env
+.env.*
+!.env.example
+
+# Code-signing artifacts (never commit these)
+*.p12
+*.pfx
+*.cer
+*.key
+*.pem
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -33,6 +45,10 @@ src-tauri/.cargo/
 
 # GSD planning
 .planning/
+
+# Per-project Ship Studio metadata (the app writes these into imported projects;
+# any forensics dir that lands at the repo root should never get tracked).
+.shipstudio/
 
 # Test coverage output
 coverage/

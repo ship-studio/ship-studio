@@ -1,9 +1,9 @@
 # Release Notes
 
 <!--
-IMPORTANT FOR CLAUDE: This file MUST be updated before EVERY release.
-These notes appear in the update dialog that users see when a new version is available.
-Write clear, user-friendly notes about what changed in this version.
+Maintainers: update this file before every release.
+The latest entry is rendered inside the in-app update dialog, so write user-
+facing language — what changed, in plain English — not commit subjects.
 -->
 
 ## What's New in v0.6.3
@@ -407,7 +407,7 @@ Write clear, user-friendly notes about what changed in this version.
 ## What's New in v0.3.29
 
 - **Template zip import** - Create projects from downloaded template zip files via drag-and-drop or file picker
-- **Dev server timeout handling** - Prevents UI hangs when restarting dev server (thanks Tyler!)
+- **Dev server timeout handling** - Prevents UI hangs when restarting dev server
 - **Dashboard UI consistency** - Header buttons now match editor styling
 
 
@@ -526,11 +526,11 @@ Write clear, user-friendly notes about what changed in this version.
 
 ## What's New in v0.3.3
 
-- **Fixed bug X** - Tyler is testing the auto update
+- **Internal release** — auto-update pipeline testing.
 
 ## What's New in v0.3.2
 
-- **Test update** - Testing the auto-update flow
+- **Internal release** — auto-update pipeline testing.
 
 ## What's New in v0.3.1
 

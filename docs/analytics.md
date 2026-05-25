@@ -189,9 +189,9 @@ Create these in the PostHog UI and link them here when set up:
 
 ## Privacy
 
-- Project paths are never sent — only the 8-char `project_id` hash.
-- Branch names are never sent (they routinely contain customer/codename data); the `is_main` boolean carries the meaningful signal.
+- **Project paths are never sent** — only the 8-char `project_id` hash.
+- **Branch names ARE sent** as event properties (`from_branch`, `to_branch`, `head_ref`, `base_ref`, `deleted_branch`, `branch`) on the branch- and PR-related events listed in the table above. If your branch names routinely contain customer names or codenames, consider disabling analytics (see below).
 - `error_message` is capped at 500 chars.
 - Search queries are capped at 100 chars by `trackSearch`; the original length lands in `query_length`.
 - Person properties on `$set_once` (first_seen, first_version) never overwrite — even on re-identify.
-- Users can disable analytics via Settings; the Rust backend short-circuits all sends when disabled.
+- **Users can disable analytics via Settings → Usage analytics.** The Rust backend short-circuits all sends when the toggle is off; the setting persists across launches.

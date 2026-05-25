@@ -57,7 +57,7 @@ fn find_agent_binary(agent: &crate::agent::AgentConfig) -> Result<std::path::Pat
 /// ```text
 /// Checking MCP server health...
 ///
-/// memberstack: npx mcp-remote https://mcp.memberstack.com/mcp - ✓ Connected
+/// example: npx mcp-remote https://mcp.example.com/mcp - ✓ Connected
 /// Sanity: https://mcp.sanity.io (HTTP) - ! Needs authentication
 /// ```
 ///
@@ -457,14 +457,14 @@ mod tests {
 
     #[test]
     fn test_parse_mcp_list_real_output() {
-        let output = "Checking MCP server health...\n\nmemberstack: npx mcp-remote https://mcp.memberstack.com/mcp - \u{2713} Connected\nSanity: https://mcp.sanity.io (HTTP) - ! Needs authentication\n";
+        let output = "Checking MCP server health...\n\nexample: npx mcp-remote https://mcp.example.com/mcp - \u{2713} Connected\nSanity: https://mcp.sanity.io (HTTP) - ! Needs authentication\n";
         let servers = parse_mcp_list_output(output);
         assert_eq!(servers.len(), 2);
 
-        assert_eq!(servers[0].name, "memberstack");
+        assert_eq!(servers[0].name, "example");
         assert_eq!(
             servers[0].command_or_url,
-            "npx mcp-remote https://mcp.memberstack.com/mcp"
+            "npx mcp-remote https://mcp.example.com/mcp"
         );
         assert_eq!(servers[0].status, "connected");
 
@@ -512,7 +512,7 @@ mod tests {
 
     #[test]
     fn test_parse_scope_from_mcp_get_user() {
-        let output = "memberstack:\n  Scope: User config (available in all your projects)\n  Status: \u{2713} Connected\n";
+        let output = "example:\n  Scope: User config (available in all your projects)\n  Status: \u{2713} Connected\n";
         assert_eq!(parse_scope_from_mcp_get(output), "user");
     }
 

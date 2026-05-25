@@ -5,8 +5,7 @@ The TL;DR of the **why** behind the conventions.
 
 ## What changed and why
 
-Ship Studio went through a DX refactor (see [DX_REFACTOR_PLAN.md](../DX_REFACTOR_PLAN.md)
-and [DX_AUDIT_REPORT.md](../DX_AUDIT_REPORT.md)) to address:
+Ship Studio went through a DX refactor that addressed:
 
 - **52+ duplicated modal implementations** — every modal hand-rolled its own
   overlay, ESC handler, close button, and backdrop styling.
@@ -64,7 +63,7 @@ do, and follow that pattern.
 | UI primitives | [src/components/primitives/](../src/components/primitives/) | `ModalFrame`, `Button`, `EmptyState`, `Skeleton` |
 | Hooks | [src/hooks/](../src/hooks/) | `useModalState`, `useAsyncState`, `useInvoke`, `useCopyToClipboard`, `usePolling` |
 | Contexts | [src/contexts/](../src/contexts/) | `ToastContext` (`useToast` / `useOptionalToast`), `ModalContext` (`useModal`) |
-| Design tokens | [src/styles/base.css](../src/styles/base.css) | All `--*` variables, plugin-stable |
+| Design tokens | [src/styles/global/base.css](../src/styles/global/base.css) | All `--*` variables, plugin-stable |
 | Rust errors | [src-tauri/src/errors.rs](../src-tauri/src/errors.rs) | `CommandError` enum |
 | Rust externals | [src-tauri/src/external_command.rs](../src-tauri/src/external_command.rs) | `run_with_timeout`, `run_to_stdout` |
 | TS error mirror | [src/lib/errors.ts](../src/lib/errors.ts) | Tagged union mirroring `CommandError` |
@@ -73,5 +72,4 @@ do, and follow that pattern.
 
 - **[CLAUDE.md → How to Do Things in Ship Studio](../CLAUDE.md#how-to-do-things-in-ship-studio)** — the canonical don't/do snippets.
 - **[CONTRIBUTING.md](../CONTRIBUTING.md)** — getting set up, debugging, log files.
-- **[DX_REFACTOR_PLAN.md](../DX_REFACTOR_PLAN.md)** — the in-flight refactor with per-block status. Every "Not started / Partial" entry is a candidate for your first PR.
 - **[.github/pull_request_template.md](../.github/pull_request_template.md)** — pattern checklist applied to every PR.

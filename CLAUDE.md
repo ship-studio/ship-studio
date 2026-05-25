@@ -196,7 +196,7 @@ Key files:
 
 ## Shared CSS Classes (Plugin-Stable)
 
-These classes are defined in `src/styles/base.css` and are part of Ship Studio's public API for plugins. Plugins can use them directly without injecting their own styles. **Do not rename or remove these classes without updating the plugin starter repo.**
+These classes are defined in `src/styles/global/base.css` and are part of Ship Studio's public API for plugins. Plugins can use them directly without injecting their own styles. **Do not rename or remove these classes without updating the plugin starter repo.**
 
 | Class | Defined In | Description |
 |-------|-----------|-------------|
@@ -235,7 +235,7 @@ CSS variables (`--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--text-primar
 
 ## How to Do Things in Ship Studio
 
-These are the canonical patterns. Follow them — a DX refactor (see [DX_REFACTOR_PLAN.md](DX_REFACTOR_PLAN.md)) established primitives so the same logic isn't re-invented in every component. New code that bypasses these patterns will get flagged in review.
+These are the canonical patterns. Follow them — a DX refactor established primitives so the same logic isn't re-invented in every component. New code that bypasses these patterns will get flagged in review.
 
 ### New modal → use `<ModalFrame>` from `src/components/primitives/ModalFrame.tsx`
 
@@ -324,7 +324,7 @@ usePolling(async () => refreshStatus(path), { intervalMs: 3000, enabled: isFocus
 
 ### CSS values → always use design tokens
 
-The tokens live at the top of [src/styles/base.css](src/styles/base.css) under a documented block. Never use raw hex colors, raw spacing px, raw z-index numbers, or raw durations.
+The tokens live at the top of [src/styles/global/base.css](src/styles/global/base.css) under a documented block. Never use raw hex colors, raw spacing px, raw z-index numbers, or raw durations.
 
 ```css
 /* ❌ Don't */
@@ -348,11 +348,11 @@ The tokens live at the top of [src/styles/base.css](src/styles/base.css) under a
 }
 ```
 
-Need a value that doesn't exist yet? Add the token to `:root` in [base.css](src/styles/base.css) first, then use it.
+Need a value that doesn't exist yet? Add the token to `:root` in [base.css](src/styles/global/base.css) first, then use it.
 
 ### New CSS file → mind the folder structure
 
-Targets (post–Block 13 of the refactor):
+CSS lives under this folder structure:
 
 ```
 src/styles/
@@ -366,14 +366,14 @@ Don't dump new files into `src/styles/` root unless they're genuinely cross-cutt
 
 ### New Rust Tauri command → follow the four rules
 
-1. **Return `Result<T, CommandError>`** (see [src-tauri/src/errors.rs](src-tauri/src/errors.rs) once Block 8 lands). Don't return `Result<T, String>` — the frontend can't discriminate error variants.
+1. **Return `Result<T, CommandError>`** — see [src-tauri/src/errors.rs](src-tauri/src/errors.rs). Don't return `Result<T, String>`; the frontend can't discriminate error variants.
 2. **Validate paths** with `validate_project_path()` from `utils.rs` on any user-supplied filesystem path. Path traversal is a real threat model.
-3. **Shell out via `ExternalCommand`** trait (once Block 9 lands) — gives you timeouts, structured stderr capture, and extended-PATH spawning for free.
+3. **Shell out via `run_with_timeout`** from [src-tauri/src/external_command.rs](src-tauri/src/external_command.rs) — gives you timeouts, structured stderr capture, and extended-PATH spawning for free.
 4. **Add `#[tracing::instrument]`** to every command function — even trivial ones. Observability is cheaper than forensics.
 
-### Modal state → use `ModalContext` (once Block 6 lands)
+### Modal state → use `ModalContext`
 
-Don't add new `show*`/`open*`/`close*` triples to `App.tsx` or `useWorkspaceModals`. Use `useModal('myModalId')` from the `ModalContext` (forthcoming); modals read their own open state rather than being passed `isOpen` props.
+Don't add new `show*`/`open*`/`close*` triples to `App.tsx` or `useWorkspaceModals`. Use `useModal('myModalId')` from the `ModalContext` (see [src/contexts/ModalContext.tsx](src/contexts/ModalContext.tsx)); modals read their own open state rather than being passed `isOpen` props.
 
 ### New feature → contribute commands via `useCommands`
 
@@ -450,7 +450,7 @@ CI (`pnpm check:patterns`, `pnpm check:loc`) and/or a reviewer.
 - **Raw `setInterval` polling** — use `usePolling`. Handles backoff on error and teardown.
 - **`Result<T, String>` on `#[tauri::command]` entry points** — use `Result<T, CommandError>` from `src-tauri/src/errors.rs`. String errors can't be discriminated by the frontend.
 - **Bare `.output().await` on network CLI calls** — use `run_with_timeout` from `src-tauri/src/external_command.rs`. Unbounded CLI calls can hang the UI forever.
-- **Raw hex colors, raw px spacing, raw z-index numbers in CSS** — use tokens from `src/styles/base.css`. Adding a new value? Add the token first.
+- **Raw hex colors, raw px spacing, raw z-index numbers in CSS** — use tokens from `src/styles/global/base.css`. Adding a new value? Add the token first.
 
 ## Known Gotchas
 

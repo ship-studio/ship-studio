@@ -543,7 +543,7 @@ export function SubmitReviewModal({
 
 /**
  * Convert a branch name to a human-readable title.
- * e.g., "julian/update-pricing-page" -> "Update pricing page"
+ * e.g., "user/update-pricing-page" -> "Update pricing page"
  */
 function formatBranchAsTitle(branchName: string): string {
   // Remove username prefix if present

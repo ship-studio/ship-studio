@@ -1,21 +1,45 @@
 # Ship Studio
 
-Build AI-native marketing sites easily with SOTA technology.
+[![CI](https://github.com/ship-studio/ship-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/ship-studio/ship-studio/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Ship Studio is a desktop application that combines Claude Code's AI capabilities with a streamlined development environment for creating Next.js marketing websites. It provides an integrated terminal, live preview, and seamless GitHub integration—all in one native app.
+> A desktop app for shipping web projects with AI coding agents.
+
+Ship Studio gives you an integrated AI terminal (Claude Code or Codex), a live
+preview, branch + PR management, and Vercel deploys — all wrapped around the
+Git workflow you already know. It's a native Tauri app written in Rust and
+React, built for developers who want to move fast without leaving their
+editor mindset behind.
 
 ## Features
 
-- **AI-Powered Development** - Built-in Claude Code terminal for AI-assisted coding
-- **Live Preview** - Real-time preview with responsive breakpoints (Desktop, Tablet, Mobile)
-- **Preview Zoom** - Zoom out (50-150%) to see larger layouts on smaller screens
-- **Project Management** - Visual project cards with automatic screenshot thumbnails
-- **GitHub Integration** - One-click repo creation and publishing with smart change detection
-- **Vercel Integration** - Deploy to production with one click, auto-deploys on push
-- **Page Navigation** - Quick switcher for all your Next.js routes
-- **Sanity CMS Integration** - Native webview for Sanity Studio with full OAuth support
-- **Environment Variables** - Built-in `.env` file editor with syntax validation
-- **IDE Launcher** - Open projects directly in VS Code or Cursor
+- **AI-Powered Development** — Built-in terminal for Claude Code or Codex, with multi-tab and side-by-side agent panes.
+- **Live Preview** — Real-time preview with responsive breakpoints (Desktop, Tablet, Mobile) and 50–150% zoom.
+- **Project Management** — Visual project cards with automatic screenshot thumbnails.
+- **GitHub Integration** — One-click repo creation, publishing, PR submission with AI-generated titles/descriptions, and merge-conflict resolution UI.
+- **Vercel Integration** — Deploy to staging or production with one click; auto-deploys on push.
+- **Branch & PR Management** — Branch picker, PR list, post-merge cleanup flow.
+- **Monorepo Support** — Workspace picker for `pnpm`/`yarn`/`npm` workspaces.
+- **Environment Variables** — Built-in `.env` editor with syntax validation.
+- **IDE Launcher** — Open projects directly in VS Code or Cursor.
+- **Plugins** — Extend the app with first-party and community plugins.
+- **Auto-Updates** — In-app update banner with one-click apply + restart.
+
+## Install
+
+Pre-built binaries for the latest stable release live at
+[ship-studio/releases](https://github.com/ship-studio/releases/releases/latest):
+
+| Platform | Download |
+|----------|----------|
+| macOS (Apple Silicon) | `Ship.Studio_<version>_aarch64.dmg` |
+| macOS (Intel)         | `Ship.Studio_<version>_x64.dmg` |
+| Windows (x64)         | `Ship.Studio_<version>_x64-setup.exe` |
+
+After installing, launch the app — Ship Studio's onboarding wizard walks you
+through installing the system prerequisites (Node, Git, GitHub CLI, an AI
+agent CLI) automatically. See [docs/INSTALLATION.md](docs/INSTALLATION.md)
+for the full guide and screenshots.
 
 ## Prerequisites
 
@@ -57,54 +81,16 @@ pnpm tauri build
 # The built app will be in src-tauri/target/release/bundle/
 ```
 
-## Releases and Auto-Updates
+## Auto-updates
 
-Ship Studio includes built-in auto-update functionality. When a new version is available, users see a banner at the top of the app with the option to update and restart.
+The official builds check for updates on launch and every hour. When a new
+version is available, a banner appears with an in-app update + restart flow.
+The most recent changes are in [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
-### Setting Up GitHub Secrets
-
-Before creating releases, add these secrets to your GitHub repository (Settings → Secrets → Actions):
-
-1. **`TAURI_SIGNING_PRIVATE_KEY`** - The private key for signing update artifacts. Located at `~/.tauri/ship-studio.key`
-2. **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`** - Password for the key (can be empty if none was set)
-
-### Creating a Release
-
-1. Update the version in `src-tauri/tauri.conf.json`:
-   ```json
-   {
-     "version": "1.0.0"
-   }
-   ```
-
-2. Commit and push the version bump:
-   ```bash
-   git add src-tauri/tauri.conf.json
-   git commit -m "Bump version to 1.0.0"
-   git push
-   ```
-
-3. Create and push a version tag:
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-
-4. GitHub Actions will automatically:
-   - Build the app for macOS (Intel + Apple Silicon)
-   - Sign the update artifacts
-   - Create a draft release with all assets
-   - Generate `latest.json` for the updater
-
-5. Review and publish the draft release on GitHub.
-
-### How Auto-Updates Work
-
-- On app launch (after 5 seconds), and every hour, the app checks for updates
-- It fetches `latest.json` from the GitHub releases
-- If a newer version exists, a banner appears with "Update" button
-- Clicking "Update" downloads the update with a progress bar
-- Once complete, "Restart Now" restarts the app with the new version
+**Publishing your own builds?** See [docs/FORKING.md](docs/FORKING.md) for the
+full release pipeline — signing certificates, Tauri updater keypair, GitHub
+Actions secrets, telemetry replacement, and how to repoint the updater
+endpoint at your own releases repo.
 
 ## Development Setup
 
@@ -156,8 +142,7 @@ ship-studio/
 │   │   └── ...                  # ~30 modules total
 │   ├── hooks/                    # Custom React hooks
 │   ├── styles/                   # CSS files (base.css, etc.)
-│   ├── App.tsx                   # Main application & state management
-│   └── App.css                   # Global styles (CSS variables, dark theme)
+│   └── App.tsx                   # Main application & state management
 ├── src-tauri/                    # Rust backend
 │   ├── src/
 │   │   ├── lib.rs               # App setup & command registration
@@ -222,14 +207,6 @@ Deploy your projects to production with one click:
 
 Auto-deploys are enabled when connected to GitHub—every push triggers a new deployment.
 
-### Sanity CMS Integration
-
-Projects using Sanity CMS get a dedicated "Open Sanity" button in the preview toolbar:
-
-1. **Auto-Detection** → Ship Studio detects `sanity.config.ts` or Sanity dependencies
-2. **Native Webview** → Opens Sanity Studio in a native webview (not iframe) for full OAuth support
-3. **Full Features** → Google OAuth, image uploads, and all Sanity features work correctly
-
 ### Environment Variables
 
 Manage your `.env` files directly in the app:
@@ -267,86 +244,20 @@ When you open a project, Ship Studio automatically captures a screenshot of your
 - **Styling**: CSS Variables (dark theme)
 - **Fonts**: JetBrains Mono Nerd Font
 
-## Backend API (Tauri Commands)
+## Backend commands
 
-The Rust backend (`src-tauri/src/commands/`) exposes these commands to the frontend. Commands are organized into domain-specific modules and registered in `src-tauri/src/lib.rs`:
+The Rust backend exposes its functionality through Tauri commands organised
+by domain under [`src-tauri/src/commands/`](src-tauri/src/commands/) and
+registered in [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs). Read those
+files for the authoritative list.
 
-### Project Management
-| Command | Description |
-|---------|-------------|
-| `get_shipstudio_dir` | Returns `~/ShipStudio` path |
-| `list_projects` | Lists all projects in Ship Studio directory |
-| `create_project` | Clones template and installs dependencies |
-| `delete_project` | Removes a project directory |
-| `list_pages` | Scans Next.js app directory for routes |
+## Project templates
 
-### Dev Server & Terminal
-| Command | Description |
-|---------|-------------|
-| `spawn_pty` | Creates a PTY for terminal emulation |
-| `write_pty` | Sends input to a PTY |
-| `resize_pty` | Resizes PTY dimensions |
-| `kill_pty` | Terminates a PTY process |
-| `start_dev_server` | Runs `npm run dev` in background |
-| `stop_dev_server` | Kills the dev server process |
-
-### GitHub Integration
-| Command | Description |
-|---------|-------------|
-| `check_gh_cli_status` | Checks if `gh` is installed and authenticated |
-| `get_project_github_status` | Returns repo info, remote URL, pending changes |
-| `create_github_repo` | Creates a new GitHub repository |
-| `commit_and_push` | Stages all changes, commits, and pushes |
-
-### Vercel Integration
-| Command | Description |
-|---------|-------------|
-| `check_vercel_cli_status` | Checks if `vercel` is installed and authenticated |
-| `get_project_vercel_status` | Returns linked status and production URL |
-| `deploy_to_vercel` | Links project and deploys to production |
-
-### Environment Variables
-| Command | Description |
-|---------|-------------|
-| `list_env_files` | Lists all `.env*` files in project |
-| `read_env_file` | Parses env file into key-value pairs |
-| `write_env_file` | Saves env variables with validation |
-| `create_env_file` | Creates a new env file |
-| `delete_env_file` | Removes an env file |
-
-### Native Webview (for Sanity CMS)
-| Command | Description |
-|---------|-------------|
-| `create_preview_webview` | Creates a child webview at specified position |
-| `resize_preview_webview` | Updates webview position and size |
-| `destroy_preview_webview` | Removes the child webview |
-| `check_sanity_installed` | Detects Sanity in project |
-
-### Utilities
-| Command | Description |
-|---------|-------------|
-| `check_prerequisites` | Verifies Node, Git, Claude Code are installed |
-| `capture_screenshot` | Takes a screenshot using headless Chrome |
-| `check_ide_availability` | Checks if VS Code/Cursor are installed |
-| `open_in_ide` | Opens project in VS Code or Cursor |
-
-## Configuration
-
-### Tauri Config
-
-Edit `src-tauri/tauri.conf.json` to modify:
-- Window size and title
-- App identifier
-- Build settings
-
-### Template Repository
-
-The Next.js template is cloned from:
-```
-https://github.com/ship-studio/static-marketing-site-starter
-```
-
-To use a different template, update `TEMPLATE_REPO` in `src/components/CreateProject.tsx`.
+When you create a new project, Ship Studio clones one of the starter
+templates declared in [`src/hooks/useProjectCreation.ts`](src/hooks/useProjectCreation.ts)
+(Next.js, SvelteKit, Astro, Nuxt — all under the
+[`ship-studio`](https://github.com/orgs/ship-studio/repositories?q=starter)
+GitHub org). To add a new template, append to that constant.
 
 ## Known Limitations
 
@@ -381,21 +292,53 @@ Ensure Xcode Command Line Tools are installed:
 xcode-select --install
 ```
 
+## Privacy & telemetry
+
+The official Ship Studio builds send anonymous usage events to a
+Memberstack-hosted [PostHog](https://posthog.com/) project and crash reports
+to [Sentry](https://sentry.io/). What's collected is documented in
+[docs/analytics.md](docs/analytics.md).
+
+You can disable analytics at any time from inside the app
+(**Settings → Usage analytics** toggle). The setting persists across launches
+and the Rust backend short-circuits all sends when disabled. Crash reports
+follow the same toggle.
+
+If you're building your own distribution and don't want events flowing to
+Memberstack's analytics — or want them flowing to your own project — see
+[docs/FORKING.md → Telemetry](docs/FORKING.md#telemetry) for how to swap the
+keys or strip telemetry entirely.
+
+## Security
+
+Found a vulnerability? **Do not file a public issue.** See
+[SECURITY.md](SECURITY.md) for the private-reporting process.
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development setup, code style guidelines, and the pull request process.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and
+the pull-request process.
 
-**Before writing code**, read [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) — it captures the design-system primitives (`<ModalFrame>`, `<Button>`, `useInvoke`, `useAsyncState`, `useCopyToClipboard`, `usePolling`, `ModalContext`, `ToastContext`, design tokens, `CommandError`) that keep the codebase consistent. New contributors and AI assistants should skim it first.
+**Before writing code**, read
+[docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) — it captures
+the design-system primitives (`<ModalFrame>`, `<Button>`, `useInvoke`,
+`useAsyncState`, `useCopyToClipboard`, `usePolling`, `ModalContext`,
+`ToastContext`, design tokens, `CommandError`) that keep the codebase
+consistent. New contributors and AI assistants should skim it first.
+
+Then:
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
+3. Make your changes (see [Code of Conduct](CODE_OF_CONDUCT.md))
 4. Submit a pull request
+
+## Community
+
+- [GitHub Discussions](https://github.com/ship-studio/ship-studio/discussions) — questions, ideas, show-and-tell.
+- [Community Slack](https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ) — real-time chat with maintainers and users.
+- [Issues](https://github.com/ship-studio/ship-studio/issues) — bug reports and feature requests.
 
 ## License
 
-MIT
-
----
-
-Built with Claude Code
+[MIT](LICENSE) © Memberstack and Ship Studio contributors.
