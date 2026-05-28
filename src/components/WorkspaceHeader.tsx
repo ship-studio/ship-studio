@@ -29,6 +29,9 @@ import type { PluginThemeData } from '../contexts/PluginContext';
 
 export const HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare', 'netlify'];
 
+// Client editor entry point hidden for now. Flip to true to re-enable.
+const SHOW_CLIENT_EDITOR = false;
+
 export interface WorkspaceHeaderProps {
   // Project
   projectPath: string;
@@ -205,7 +208,7 @@ export function WorkspaceHeader({
 
       {/* Right side — client editor, GitHub, Publish slot, hosting plugin, Publish */}
       <div className="workspace-header-right">
-        <ClientEditorButton projectPath={projectPath} />
+        {SHOW_CLIENT_EDITOR && <ClientEditorButton projectPath={projectPath} />}
         <span data-education-id="github-button">
           <GitHubButton
             githubState={integrations.github}
