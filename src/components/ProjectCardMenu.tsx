@@ -10,7 +10,15 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { TrashIcon, FolderIcon, WarningIcon, DownloadIcon, CloseIcon, ImageIcon } from './icons';
+import {
+  TrashIcon,
+  FolderIcon,
+  WarningIcon,
+  DownloadIcon,
+  CloseIcon,
+  ImageIcon,
+  EditIcon,
+} from './icons';
 import { useClickOutside } from '../hooks/useClickOutside';
 
 interface ProjectCardMenuProps {
@@ -18,6 +26,9 @@ interface ProjectCardMenuProps {
   hideMainBranchWarning: boolean;
   /** Callback when main branch warning toggle is clicked */
   onToggleMainBranchWarning: (hidden: boolean) => void;
+  /** Callback to rename the project (non-external projects only). When omitted,
+   *  the "Rename project" item is hidden. */
+  onRename?: () => void;
   /** Callback to move project to a folder */
   onMoveToFolder?: () => void;
   /** Callback to export project as a template zip */
@@ -41,6 +52,7 @@ interface ProjectCardMenuProps {
 export function ProjectCardMenu({
   hideMainBranchWarning,
   onToggleMainBranchWarning,
+  onRename,
   onMoveToFolder,
   onExportAsTemplate,
   onUploadThumbnail,
@@ -66,6 +78,12 @@ export function ProjectCardMenu({
     e.stopPropagation();
     setIsOpen(false);
     onRemove?.();
+  };
+
+  const handleRenameClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsOpen(false);
+    onRename?.();
   };
 
   const handleMoveToFolderClick = (e: React.MouseEvent) => {
@@ -115,6 +133,12 @@ export function ProjectCardMenu({
               {!hideMainBranchWarning ? 'ON' : 'OFF'}
             </span>
           </button>
+          {onRename && !isExternal && (
+            <button className="project-card-dropdown-item" onClick={handleRenameClick}>
+              <EditIcon size={14} />
+              <span>Rename project</span>
+            </button>
+          )}
           {onMoveToFolder && (
             <button className="project-card-dropdown-item" onClick={handleMoveToFolderClick}>
               <FolderIcon size={14} />

@@ -158,6 +158,24 @@ pub async fn unpin_project(project_path: String) -> Result<Vec<String>, CommandE
     })
 }
 
+/// Rekey a pinned project from `old_path` to `new_path` after a folder rename.
+///
+/// Preserves pin order and any `last_sessions` metadata (Claude/Codex resume
+/// IDs, tab layout). No-op if `old_path` isn't pinned. Not a Tauri command —
+/// called internally by `rename_project`.
+pub fn rename_pinned_path(old_path: &str, new_path: &str) -> Result<(), CommandError> {
+    with_pins_locked(|pins| {
+        for p in &mut pins.pinned_paths {
+            if p == old_path {
+                *p = new_path.to_string();
+            }
+        }
+        if let Some(session) = pins.last_sessions.remove(old_path) {
+            pins.last_sessions.insert(new_path.to_string(), session);
+        }
+    })
+}
+
 /// Return the current ordered list of pinned project paths.
 #[tauri::command]
 #[tracing::instrument]
@@ -410,6 +428,47 @@ mod tests {
         assert_eq!(session.active_tab_index, 1);
         assert_eq!(session.last_agent.as_deref(), Some("codex"));
         assert_eq!(session.suspended_at, Some(999));
+    }
+
+    #[tokio::test]
+    async fn rename_pinned_path_rekeys_and_preserves_session() {
+        let _g = TEST_LOCK.lock().unwrap();
+        let _snap = PinsSnapshot::capture();
+
+        let old = "/tmp/test-project-old".to_string();
+        let new = "/tmp/test-project-new".to_string();
+        pin_project(old.clone()).await.unwrap();
+        save_pin_session(
+            old.clone(),
+            LastSession {
+                tab_session_ids: vec!["s1".into()],
+                active_tab_index: 0,
+                last_agent: Some("claude-code".into()),
+                suspended_at: Some(7),
+            },
+        )
+        .await
+        .unwrap();
+
+        rename_pinned_path(&old, &new).unwrap();
+
+        // Pin order entry moved to the new path...
+        assert_eq!(list_pinned_projects().await.unwrap(), vec![new.clone()]);
+        // ...old session key is gone, new key carries the same metadata.
+        assert!(get_pin_session(old).await.unwrap().is_none());
+        let session = get_pin_session(new).await.unwrap().unwrap();
+        assert_eq!(session.tab_session_ids, vec!["s1"]);
+        assert_eq!(session.last_agent.as_deref(), Some("claude-code"));
+    }
+
+    #[tokio::test]
+    async fn rename_pinned_path_is_noop_for_unpinned() {
+        let _g = TEST_LOCK.lock().unwrap();
+        let _snap = PinsSnapshot::capture();
+
+        // Renaming a path that was never pinned must not create an entry.
+        rename_pinned_path("/tmp/never-pinned", "/tmp/whatever").unwrap();
+        assert!(list_pinned_projects().await.unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -138,6 +138,18 @@ export async function deleteProject(path: string): Promise<void> {
 }
 
 /**
+ * Rename a project's folder on disk and rekey path-keyed stores (pins, folders,
+ * sessions). Only works for ~/ShipStudio projects, and is rejected by the
+ * backend if the project is currently open or has an active session.
+ * @param oldPath - Current absolute path to the project directory
+ * @param newName - New folder name (single path component, no slashes)
+ * @returns The new absolute path
+ */
+export async function renameProject(oldPath: string, newName: string): Promise<string> {
+  return invoke<string>('rename_project', { oldPath, newName });
+}
+
+/**
  * Export a project as a reusable template.
  * Opens a save dialog and exports the project structure.
  * @param projectPath - Absolute path to the project directory

@@ -55,6 +55,28 @@ fn save_folder_config(config: &FolderConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Rekey a project's path from `old_path` to `new_path` across all folders
+/// after a folder rename, preserving folder membership. No-op (and no write)
+/// if the project isn't filed in any folder. Not a Tauri command — called
+/// internally by `rename_project`.
+pub fn rename_project_path(old_path: &str, new_path: &str) -> Result<(), CommandError> {
+    let mut config = load_folder_config()?;
+    let mut changed = false;
+    for folder in &mut config.folders {
+        for p in &mut folder.project_paths {
+            if p == old_path {
+                *p = new_path.to_string();
+                folder.updated_at = now_ms();
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        save_folder_config(&config)?;
+    }
+    Ok(())
+}
+
 /// Get current timestamp in milliseconds
 fn now_ms() -> u64 {
     std::time::SystemTime::now()

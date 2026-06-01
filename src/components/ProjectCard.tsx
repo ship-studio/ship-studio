@@ -25,6 +25,8 @@ interface ProjectCardProps {
   onDelete: () => void;
   /** Callback when main branch warning is toggled */
   onToggleMainBranchWarning: (hidden: boolean) => void;
+  /** Callback to rename the project (non-external projects only) */
+  onRename?: () => void;
   /** Callback to move project to a folder */
   onMoveToFolder?: () => void;
   /** Callback to export project as a template zip */
@@ -47,6 +49,7 @@ export const ProjectCard = memo(function ProjectCard({
   onSelect,
   onDelete,
   onToggleMainBranchWarning,
+  onRename,
   onMoveToFolder,
   onExportAsTemplate,
   onUploadThumbnail,
@@ -106,6 +109,7 @@ export const ProjectCard = memo(function ProjectCard({
         <ProjectCardMenu
           hideMainBranchWarning={hideMainBranchWarning}
           onToggleMainBranchWarning={onToggleMainBranchWarning}
+          onRename={onRename}
           onMoveToFolder={onMoveToFolder}
           onExportAsTemplate={onExportAsTemplate}
           onUploadThumbnail={onUploadThumbnail}

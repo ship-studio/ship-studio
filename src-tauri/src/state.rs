@@ -365,6 +365,23 @@ pub fn unregister_session(project_path: &str) {
     }
 }
 
+/// Rekey an in-memory session from `old_path` to `new_path` after a folder
+/// rename. Idempotent and safe when no session exists for `old_path`. Active
+/// sessions are blocked from renaming upstream, so in practice this migrates
+/// suspended entries that still display on the rail.
+pub fn rename_session_path(old_path: &str, new_path: &str) {
+    if let Ok(mut sessions) = PROJECT_SESSIONS.lock() {
+        if let Some(session) = sessions.remove(old_path) {
+            sessions.insert(new_path.to_string(), session);
+            tracing::info!(
+                "Rekeyed session: {} -> {} (project rename)",
+                old_path,
+                new_path
+            );
+        }
+    }
+}
+
 /// Snapshot of all current sessions. Used by the rail UI and debugging.
 pub fn list_sessions() -> Vec<(String, ProjectSessionBackend)> {
     PROJECT_SESSIONS

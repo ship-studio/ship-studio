@@ -540,3 +540,150 @@ pub async fn delete_project(path: String) -> Result<(), CommandError> {
     std::fs::remove_dir_all(project_path).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// Validate a proposed new project folder name, returning the trimmed value.
+///
+/// A project name becomes a directory name, so it must be a single path
+/// component: no separators, no `.`/`..`, no leading dot (hidden dirs), not
+/// empty, not absurdly long.
+fn validate_project_name(name: &str) -> Result<String, CommandError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err(CommandError::Validation {
+            field: "new_name".into(),
+            reason: "Project name cannot be empty".into(),
+        });
+    }
+    if trimmed.len() > 255 {
+        return Err(CommandError::Validation {
+            field: "new_name".into(),
+            reason: "Project name is too long".into(),
+        });
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(CommandError::Validation {
+            field: "new_name".into(),
+            reason: "Project name cannot contain slashes".into(),
+        });
+    }
+    if trimmed == "." || trimmed == ".." {
+        return Err(CommandError::Validation {
+            field: "new_name".into(),
+            reason: "Invalid project name".into(),
+        });
+    }
+    if trimmed.starts_with('.') {
+        return Err(CommandError::Validation {
+            field: "new_name".into(),
+            reason: "Project name cannot start with a dot".into(),
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Renames a project's directory on disk and rekeys all path-keyed stores.
+///
+/// Only ~/ShipStudio projects can be renamed (external projects are rejected,
+/// matching `delete_project`). Refuses to rename while the project is open in a
+/// window or has an active background session, to avoid racing live PTYs and
+/// reserved ports. Everything inside the directory — git remotes, `.vercel`,
+/// `.shipstudio` metadata — travels with the move untouched. Returns the new
+/// absolute path.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn rename_project(old_path: String, new_name: String) -> Result<String, CommandError> {
+    let project_path = std::path::Path::new(&old_path);
+
+    // Reject external projects (their folders live outside ~/ShipStudio).
+    if let Ok(canonical) = dunce::canonicalize(project_path) {
+        if crate::commands::external_projects::is_registered_external_path(&canonical)? {
+            return Err(
+                "Renaming external projects isn't supported yet. Remove it from the list and re-add it under a new folder name."
+                    .to_string()
+                    .into(),
+            );
+        }
+    }
+
+    // Must live inside ~/ShipStudio and exist.
+    let home = dirs::home_dir().ok_or("Could not find home directory")?;
+    let shipstudio_dir = home.join("ShipStudio");
+    if !project_path.starts_with(&shipstudio_dir) {
+        return Err(("Can only rename projects in the ShipStudio directory".to_string()).into());
+    }
+    if !project_path.exists() {
+        return Err(("Project not found".to_string()).into());
+    }
+
+    // Validate + normalize the requested name.
+    let new_name = validate_project_name(&new_name)?;
+
+    // Refuse to rename a project that's currently open or actively running —
+    // moving the directory out from under live PTYs / reserved ports is a
+    // recipe for corruption. Suspended pinned sessions are fine (rekeyed below).
+    if crate::state::get_window_for_project(&old_path).is_some() {
+        return Err(("Close this project before renaming it.".to_string()).into());
+    }
+    if let Some(session) = crate::state::get_session(&old_path) {
+        if session.status == crate::state::SessionStatus::Active {
+            return Err(("Close this project before renaming it.".to_string()).into());
+        }
+    }
+
+    // Destination is a sibling directory with the new name.
+    let parent = project_path
+        .parent()
+        .ok_or("Invalid project path (no parent)")?;
+    let new_path = parent.join(&new_name);
+
+    // No-op if the name didn't actually change.
+    if new_path.as_path() == project_path {
+        return Ok(old_path);
+    }
+    if new_path.exists() {
+        return Err((format!("A project named \"{new_name}\" already exists.")).into());
+    }
+
+    std::fs::rename(project_path, &new_path)
+        .map_err(|e| format!("Failed to rename project: {e}"))?;
+
+    let new_path_str = new_path.to_string_lossy().to_string();
+
+    // Rekey path-keyed stores. Best-effort: the rename already succeeded, so a
+    // store hiccup must not surface as a hard failure — log and continue.
+    if let Err(e) = pins::rename_pinned_path(&old_path, &new_path_str) {
+        tracing::warn!(error = %e, "Failed to rekey pins after project rename");
+    }
+    if let Err(e) = crate::commands::folders::rename_project_path(&old_path, &new_path_str) {
+        tracing::warn!(error = %e, "Failed to rekey folder membership after project rename");
+    }
+    crate::state::rename_session_path(&old_path, &new_path_str);
+
+    tracing::info!("Renamed project: {} -> {}", old_path, new_path_str);
+    Ok(new_path_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_project_name_accepts_normal_names() {
+        assert_eq!(validate_project_name("my-app").unwrap(), "my-app");
+        assert_eq!(validate_project_name("My App 2").unwrap(), "My App 2");
+        // Surrounding whitespace is trimmed.
+        assert_eq!(validate_project_name("  spaced  ").unwrap(), "spaced");
+    }
+
+    #[test]
+    fn validate_project_name_rejects_invalid_names() {
+        assert!(validate_project_name("").is_err());
+        assert!(validate_project_name("   ").is_err());
+        assert!(validate_project_name("a/b").is_err());
+        assert!(validate_project_name("a\\b").is_err());
+        assert!(validate_project_name(".").is_err());
+        assert!(validate_project_name("..").is_err());
+        assert!(validate_project_name(".hidden").is_err());
+        assert!(validate_project_name(&"x".repeat(256)).is_err());
+    }
+}
