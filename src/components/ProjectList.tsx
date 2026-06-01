@@ -45,8 +45,7 @@ import { AgentsPanel } from './AgentsPanel';
 import { IntegrationBar } from './IntegrationBar';
 import { NewFolderModal } from './NewFolderModal';
 import { ProjectGridView } from './ProjectGridView';
-import { ModalFrame } from './primitives/ModalFrame';
-import { Button } from './primitives/Button';
+import { RenameProjectModal } from './RenameProjectModal';
 import { SearchAndSort } from './SearchAndSort';
 import { FolderBreadcrumb } from './FolderBreadcrumb';
 import { MoveFolderModal } from './MoveFolderModal';
@@ -131,8 +130,6 @@ export function ProjectList({
   const [deleteConfirm, setDeleteConfirm] = useState<DashboardProject | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [renameTarget, setRenameTarget] = useState<DashboardProject | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [renaming, setRenaming] = useState(false);
 
   // Folder navigation state
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -320,29 +317,21 @@ export function ProjectList({
     }
   };
 
-  const openRenameModal = (project: DashboardProject) => {
-    setRenameTarget(project);
-    setRenameValue(project.name);
-  };
-
-  const handleRename = async () => {
+  // Performs the rename and refreshes the dashboard. Throws on failure so the
+  // modal can render the backend's reason inline (e.g. "Close this project
+  // before renaming it.").
+  const handleRename = async (newName: string) => {
     if (!renameTarget) return;
-    const trimmed = renameValue.trim();
-    if (!trimmed || trimmed === renameTarget.name) return;
-    setRenaming(true);
     try {
-      await renameProject(renameTarget.path, trimmed);
+      await renameProject(renameTarget.path, newName);
       void trackEvent('project_renamed', { $screen_name: 'Dashboard' });
-      setRenameTarget(null);
       await loadAll();
     } catch (error) {
       trackError('project_rename', error, 'Dashboard');
       logger.error('Failed to rename project', {
         error: error instanceof Error ? error.message : String(error),
       });
-      alert('Failed to rename project: ' + String(error));
-    } finally {
-      setRenaming(false);
+      throw error;
     }
   };
 
@@ -600,7 +589,7 @@ export function ProjectList({
           filteredProjects={filteredProjects}
           onSelectProject={(project) => onSelectProject(project)}
           onDeleteProject={(project) => setDeleteConfirm(project)}
-          onRenameProject={(project) => openRenameModal(project)}
+          onRenameProject={(project) => setRenameTarget(project)}
           onToggleMainBranchWarning={(path, hidden) =>
             void handleToggleMainBranchWarning(path, hidden)
           }
@@ -717,60 +706,12 @@ export function ProjectList({
         />
 
         {/* Rename Project Modal */}
-        <ModalFrame
+        <RenameProjectModal
           isOpen={renameTarget !== null}
           onClose={() => setRenameTarget(null)}
-          title="Rename project"
-          dismissable={!renaming}
-        >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleRename();
-            }}
-            style={{ padding: 'var(--spacing-xl)' }}
-          >
-            <div className="form-group">
-              <label htmlFor="rename-project-name">Project name</label>
-              <input
-                id="rename-project-name"
-                type="text"
-                value={renameValue}
-                autoFocus
-                disabled={renaming}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onFocus={(e) => e.currentTarget.select()}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-              />
-            </div>
-            <p className="hint">
-              This renames the folder on disk. Git history, deployments, and project settings are
-              preserved.
-            </p>
-            <div className="modal-actions">
-              <Button
-                variant="secondary"
-                type="button"
-                onClick={() => setRenameTarget(null)}
-                disabled={renaming}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                type="submit"
-                disabled={
-                  renaming || renameValue.trim() === '' || renameValue.trim() === renameTarget?.name
-                }
-              >
-                {renaming ? 'Renaming…' : 'Rename'}
-              </Button>
-            </div>
-          </form>
-        </ModalFrame>
+          currentName={renameTarget?.name ?? ''}
+          onRename={handleRename}
+        />
 
         {/* Delete Project Confirmation Modal */}
         {deleteConfirm && (
