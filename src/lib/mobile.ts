@@ -63,6 +63,21 @@ export async function stopSimulatorMirror(udid: string): Promise<void> {
 export type TouchPhase = 'down' | 'move' | 'up';
 
 /**
+ * serve-sim's control channel is a BINARY protocol: each message is a 1-byte
+ * opcode followed by a UTF-8 JSON payload. Touch events use opcode 3 with a
+ * `{ type, x, y }` body, where `type` is "begin" | "move" | "end" (NOT
+ * "down"/"up" — those are HID keyboard phases on a different opcode). This was
+ * reverse-engineered from serve-sim's client and verified end-to-end against a
+ * booted simulator. See docs/mobile-app-preview-plan.md.
+ */
+const TOUCH_OPCODE = 3;
+const PHASE_TO_SERVE_SIM: Record<TouchPhase, string> = {
+  down: 'begin',
+  move: 'move',
+  up: 'end',
+};
+
+/**
  * Open the serve-sim control WebSocket and return a small input API. The caller
  * sends normalized 0..1 coordinates (origin top-left); serve-sim maps them to
  * the device surface. Touches sent before the socket finishes opening are
@@ -75,10 +90,18 @@ export function connectInputChannel(wsUrl: string): {
   close: () => void;
 } {
   const socket = new WebSocket(wsUrl);
+  socket.binaryType = 'arraybuffer';
+  const encoder = new TextEncoder();
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
   const sendTouch = (phase: TouchPhase, x: number, y: number) => {
     if (socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type: phase, x: clamp(x), y: clamp(y) }));
+    const json = encoder.encode(
+      JSON.stringify({ type: PHASE_TO_SERVE_SIM[phase], x: clamp(x), y: clamp(y) })
+    );
+    const frame = new Uint8Array(1 + json.length);
+    frame[0] = TOUCH_OPCODE;
+    frame.set(json, 1);
+    socket.send(frame);
   };
   return {
     socket,
