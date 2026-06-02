@@ -319,6 +319,48 @@ not exercised in this spike — still the largest unknown.
    capture decision: a `list_mobile_devices` command (booted sims via `simctl`,
    Android devices via `adb` when present) + the device-picker UI shell.
 
+## 10c. serve-sim evaluation (2026-06-02) — DECISIVE
+
+Evaluated `serve-sim` (Evan Bacon / Expo core, Apache-2.0, v0.1.39) against the
+booted iPhone 17 sim. **It validates as a drop-in iOS transport and very likely lets
+us skip building a ScreenCaptureKit + Indigo HID Swift sidecar entirely.**
+
+What it gives us, all confirmed working on this machine:
+- **Embeddable MJPEG stream** at `http://127.0.0.1:3100/stream.mjpeg` — drops straight
+  into an `<img>`/canvas in our existing webview preview pane. CORS open, no proxy.
+- **WebSocket control channel** at `ws://127.0.0.1:3100/ws`, plus a CLI mirror:
+  `tap <x> <y>` (**normalized 0..1 coords — exactly our planned input contract**),
+  `gesture`, `button`, `type`, `rotate`, permissions, camera injection.
+- **Input verified end-to-end**: a normalized `tap 0.84 0.49` opened the Settings
+  app on the sim. Not just capture — real input injection works.
+- **Framerate is adaptive**: ~3 fps idle (static screen), **~18 fps under motion**.
+  18fps interactive is usable (VS Code's ScreenCaptureKit ext ships ~12). JPEG frames
+  ~350 KB.
+- **Requirements**: macOS + Xcode CLI (`xcrun simctl`) + Node 18+ — all already
+  present and already checked by Ship Studio onboarding.
+- Daemon mode (`--detach`) + `--list`/`--kill` lifecycle — maps cleanly onto how we
+  already manage the static file server (`static_server.rs`).
+
+**Trade-offs / risks to accept:**
+- Young dependency (v0.1.39, days old) — API may churn; pin the version, vendor if
+  needed. Apache-2.0 means we *can* fork/vendor.
+- Adds a Node-CLI runtime dep we spawn (acceptable: our users are web devs with Node;
+  onboarding already verifies it).
+- Binds to 127.0.0.1; it has a token-gated shell-exec route if exposed on LAN — we
+  never pass `--host 0.0.0.0`.
+- iOS **Simulator** only (not physical devices) — unchanged constraint.
+
+**Decision:** for iOS, integrate `serve-sim` rather than build a custom sidecar. This
+removes the single biggest risk in the whole plan (private-API fragility). The Swift
+sidecar in §4.2 becomes a *fallback*, not the primary path.
+
+### Revised iOS pipeline (supersedes §4.2 as the primary approach)
+1. Rust: spawn/manage `serve-sim --detach` per booted sim (lifecycle like
+   `static_server.rs`; reuse `RESERVED_PORTS` for :3100/:3200).
+2. Frontend: mobile preview pane renders `<img src=".../stream.mjpeg">` (or canvas),
+   maps pointer/keyboard events → `tap`/`gesture`/`type` over the WS/CLI.
+3. Detection + device list (§5, §10b) feed which sim to target.
+
 ## 11. References
 
 - vscode-ios-simulator-embed — ScreenCaptureKit + Indigo HID reference impl (Apache-2.0):
