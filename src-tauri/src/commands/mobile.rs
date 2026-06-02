@@ -173,6 +173,11 @@ fn choose_default_simulator(json: &str) -> Option<MobileSimulator> {
     type RankKey = (bool, bool, (i64, i64));
     let mut best: Option<(RankKey, MobileSimulator)> = None;
     for (runtime_key, list) in devices {
+        // serve-sim only mirrors iOS simulators; never auto-boot a watchOS/
+        // tvOS/visionOS device just because it's the "newest" available.
+        if !runtime_key.contains("iOS") {
+            continue;
+        }
         let Some(arr) = list.as_array() else { continue };
         for dev in arr {
             // `--available` already filters, but guard defensively.

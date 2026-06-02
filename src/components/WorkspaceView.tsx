@@ -557,9 +557,15 @@ export const WorkspaceView = memo(function WorkspaceView({
   } = lifecycle;
 
   // Cmd+Shift+S — capture viewport screenshot, Cmd+Shift+C — toggle crop mode
-  // Only active when preview is visible (not hidden, and on preview tab for web projects)
+  // Screenshot accelerators only make sense over the web iframe preview, not
+  // the device mirror (which captures a simulator, not localhost) or generic/
+  // unknown projects with no preview at all.
   const previewVisible =
-    projectType !== 'generic' && workspaceTab === 'preview' && !isPreviewHidden;
+    projectType !== 'generic' &&
+    projectType !== 'unknown' &&
+    !isMobileProjectType(projectType) &&
+    workspaceTab === 'preview' &&
+    !isPreviewHidden;
 
   // Listen for native menu accelerators (Cmd+Shift+S / Cmd+Shift+C).
   // Native accelerators work even when the cross-origin preview iframe has focus,
@@ -969,10 +975,10 @@ export const WorkspaceView = memo(function WorkspaceView({
                     changedFiles={changedFiles}
                     projectPath={currentProject.path}
                     isOnBranchesTab={workspaceTab === 'branches' || workspaceTab === 'prs'}
-                    isWebProject={isWebProject}
+                    hasPreview={hasPreview}
                     onClick={() => {
                       if (workspaceTab === 'branches' || workspaceTab === 'prs') {
-                        setWorkspaceTab(isWebProject ? 'preview' : 'code');
+                        setWorkspaceTab(hasPreview ? 'preview' : 'code');
                       } else {
                         setWorkspaceTab('branches');
                       }

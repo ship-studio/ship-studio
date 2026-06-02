@@ -16,7 +16,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useOptionalToast } from '../contexts/ToastContext';
 import {
   listBootedSimulators,
   bootDefaultSimulator,
@@ -38,53 +37,69 @@ type InputChannel = ReturnType<typeof connectInputChannel>;
 type Status = 'starting' | 'booting' | 'connecting' | 'connected' | 'idle' | 'error';
 
 export function DeviceMirror({ projectName }: DeviceMirrorProps) {
-  const { showToast } = useOptionalToast();
-
   const [status, setStatus] = useState<Status>('starting');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
   const [device, setDevice] = useState<MobileSimulator | null>(null);
 
   const inputRef = useRef<InputChannel | null>(null);
-  const mirrorRef = useRef<MirrorInfo | null>(null);
+  // UDID of the mirror we started (or are starting). Set *before* the async
+  // start so an unmount mid-flight can still tear the daemon down. We key
+  // teardown off the device we asked for, not serve-sim's echoed value (which
+  // can be empty), so the daemon is never orphaned.
+  const activeUdidRef = useRef<string | null>(null);
+  const disposedRef = useRef(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const isPointerDown = useRef(false);
 
-  // Keep a ref in sync so the unmount cleanup can stop the right daemon without
-  // depending on `mirror` (which would re-run cleanup on every change).
-  useEffect(() => {
-    mirrorRef.current = mirror;
-  }, [mirror]);
+  const teardown = useCallback(() => {
+    inputRef.current?.close();
+    inputRef.current = null;
+    isPointerDown.current = false;
+    const udid = activeUdidRef.current;
+    activeUdidRef.current = null;
+    if (udid) void stopSimulatorMirror(udid);
+  }, []);
 
   useEffect(() => {
     return () => {
-      inputRef.current?.close();
-      inputRef.current = null;
-      const active = mirrorRef.current;
-      if (active?.udid) void stopSimulatorMirror(active.udid);
+      disposedRef.current = true;
+      teardown();
     };
-  }, []);
+  }, [teardown]);
 
   // Full connect flow: list → (boot default if none) → start mirror → stream.
+  // Bails out and tears down if the component unmounted during any await, so a
+  // tab/project switch mid-boot never leaks the serve-sim daemon.
   const begin = useCallback(async () => {
     setErrorMsg(null);
     try {
       setStatus('starting');
       let sims = await listBootedSimulators();
+      if (disposedRef.current) return;
       if (sims.length === 0) {
         setStatus('booting');
         sims = [await bootDefaultSimulator()];
+        if (disposedRef.current) return;
       }
       const target = sims[0];
       setDevice(target);
 
       setStatus('connecting');
+      activeUdidRef.current = target.udid; // mark before await so unmount can reap
       const info = await startSimulatorMirror(target.udid);
+      if (disposedRef.current) {
+        // Unmounted while starting — stop the daemon we just started.
+        void stopSimulatorMirror(target.udid);
+        activeUdidRef.current = null;
+        return;
+      }
       inputRef.current?.close();
       inputRef.current = connectInputChannel(info.ws_url);
       setMirror(info);
       setStatus('connected');
     } catch (err) {
+      if (disposedRef.current) return;
       setErrorMsg(err instanceof Error ? err.message : String(err));
       setStatus('error');
     }
@@ -101,18 +116,10 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
   }, [begin]);
 
   const disconnect = useCallback(() => {
-    inputRef.current?.close();
-    inputRef.current = null;
-    isPointerDown.current = false;
-    const active = mirror;
+    teardown();
     setMirror(null);
     setStatus('idle');
-    if (active?.udid) {
-      stopSimulatorMirror(active.udid).catch(() =>
-        showToast('Mirror stopped, but the simulator is still running.', 'info')
-      );
-    }
-  }, [mirror, showToast]);
+  }, [teardown]);
 
   // Map a pointer event to normalized 0..1 coords over the streamed image.
   const toNorm = (e: React.PointerEvent): { x: number; y: number } | null => {

@@ -372,6 +372,9 @@ pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandEr
             Ok(pages)
         }
         ProjectType::Vite => Ok(Vec::new()),
+        // Native mobile apps have no web page routes; the `app/` dir of an Expo
+        // Router project is NOT a Next.js app router and must not be scanned.
+        ProjectType::Reactnative | ProjectType::Flutter => Ok(Vec::new()),
         _ => {
             // Default to Next.js app router
             let app_dir = project.join("app");

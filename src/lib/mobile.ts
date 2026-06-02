@@ -65,7 +65,9 @@ export type TouchPhase = 'down' | 'move' | 'up';
 /**
  * Open the serve-sim control WebSocket and return a small input API. The caller
  * sends normalized 0..1 coordinates (origin top-left); serve-sim maps them to
- * the device surface. Returns null synchronously if the socket can't be built.
+ * the device surface. Touches sent before the socket finishes opening are
+ * dropped (serve-sim has no input backlog); callers should expect a brief
+ * post-connect window where taps are ignored.
  */
 export function connectInputChannel(wsUrl: string): {
   socket: WebSocket;
