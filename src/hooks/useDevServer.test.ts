@@ -19,6 +19,7 @@ vi.mock('../lib/static-server', () => ({
   detectProjectType: vi.fn().mockResolvedValue('unknown'),
   startStaticServer: vi.fn().mockResolvedValue(8080),
   stopStaticServer: vi.fn().mockResolvedValue(undefined),
+  isMobileProjectType: (type: string) => type === 'reactnative' || type === 'flutter',
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -191,6 +192,21 @@ describe('useDevServer', () => {
         'main',
         expect.any(Function)
       );
+    });
+
+    it('does not start a web dev server for native mobile projects', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      const { startDevServer } = await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('reactnative');
+
+      const { result } = renderHook(() => useDevServer('/path/to/mobile'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/mobile', 'mobile', 3000, 'main');
+      });
+
+      expect(result.current.projectType).toBe('reactnative');
+      expect(startDevServer).not.toHaveBeenCalled();
     });
 
     it('defaults to unknown on detection failure', async () => {

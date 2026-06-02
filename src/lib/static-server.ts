@@ -16,8 +16,18 @@ export type ProjectType =
   | 'nuxt'
   | 'vite'
   | 'statichtml'
+  | 'reactnative'
+  | 'flutter'
   | 'generic'
   | 'unknown';
+
+/** Native mobile project types (previewed via a device mirror, not a web iframe). */
+export const MOBILE_PROJECT_TYPES: readonly ProjectType[] = ['reactnative', 'flutter'];
+
+/** Whether a detected project type is a native mobile app. */
+export function isMobileProjectType(type: ProjectType): boolean {
+  return MOBILE_PROJECT_TYPES.includes(type);
+}
 
 /** Detect the project type for a given project path */
 export async function detectProjectType(projectPath: string): Promise<ProjectType> {

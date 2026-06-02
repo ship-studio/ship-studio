@@ -60,7 +60,7 @@ import { PluginsDropdown } from './PluginsDropdown';
 import { getAgentById } from '../lib/agent';
 import type { AgentConfig } from '../lib/agent';
 import type { Project } from '../lib/project';
-import type { ProjectType } from '../lib/static-server';
+import { isMobileProjectType, type ProjectType } from '../lib/static-server';
 import type { TerminalTab } from '../hooks/useTerminalManagement';
 import type { TerminalHandle } from './Terminal';
 import type { Toast, ToastType } from '../hooks/useToasts';
@@ -588,8 +588,10 @@ export const WorkspaceView = memo(function WorkspaceView({
     setIsCropMode,
   ]);
 
-  // Generic/unknown projects (Tauri apps, CLI tools, blank projects, etc.) don't have a web preview
-  const isWebProject = projectType !== 'generic' && projectType !== 'unknown';
+  // Generic/unknown (Tauri, CLI) and native mobile (RN/Expo, Flutter) projects have
+  // no web iframe preview; mobile gets a device mirror later (see plan doc).
+  const isWebProject =
+    projectType !== 'generic' && projectType !== 'unknown' && !isMobileProjectType(projectType);
 
   // Reset the preview-side tab to its default whenever the user switches
   // projects. Web projects land on Preview; generic/unknown projects land

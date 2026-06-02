@@ -40,6 +40,7 @@ import {
   detectProjectType,
   startStaticServer,
   stopStaticServer,
+  isMobileProjectType,
   ProjectType,
 } from '../lib/static-server';
 import { invoke } from '@tauri-apps/api/core';
@@ -532,6 +533,16 @@ export function useDevServer(currentProjectPath: string | null) {
         } catch (error) {
           logger.error('Failed to start static server', { error });
         }
+      } else if (isMobileProjectType(detectedType)) {
+        // Native mobile apps (React Native / Expo, Flutter) aren't served over
+        // a local web port, so there's no web dev server to start. The user
+        // runs `expo start` / `flutter run` in the terminal; the (forthcoming)
+        // device-mirror preview attaches to the booted simulator/emulator.
+        // See docs/mobile-app-preview-plan.md.
+        logger.info('[OpenProject] Native mobile project detected; skipping web dev server', {
+          projectPath,
+          projectType: detectedType,
+        });
       } else {
         try {
           s.outputBuffer = '';

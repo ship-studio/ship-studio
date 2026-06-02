@@ -18,6 +18,11 @@ pub enum ProjectType {
     Vite,
     /// Plain HTML/CSS/JS project (no framework, no package.json required)
     Statichtml,
+    /// React Native or Expo app (native mobile, previewed via a device mirror,
+    /// not a web iframe). See docs/mobile-app-preview-plan.md.
+    Reactnative,
+    /// Flutter app (native mobile). See docs/mobile-app-preview-plan.md.
+    Flutter,
     /// Has package.json but isn't a recognized web framework (Tauri, CLI tools, etc.)
     Generic,
     Unknown,

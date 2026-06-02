@@ -36,6 +36,13 @@ fn detection_signature(project_path: &std::path::Path) -> u128 {
         "next.config.ts",
         "vite.config.js",
         "vite.config.ts",
+        // Native mobile signals
+        "app.json",
+        "app.config.js",
+        "app.config.ts",
+        "metro.config.js",
+        "metro.config.ts",
+        "pubspec.yaml",
     ];
     let mut max_nanos: u128 = 0;
     for name in SENTINELS {
@@ -139,6 +146,50 @@ pub(crate) fn is_vite_project(project_path: &std::path::Path) -> bool {
     false
 }
 
+/// Detect if this is a React Native or Expo project.
+///
+/// Metro bundler config and Expo's `app.config.*` are RN/Expo-specific, so
+/// their presence alone is conclusive. Otherwise we fall back to the dependency
+/// list: bare React Native ships `"react-native"`, Expo ships `"expo"`. We
+/// deliberately do *not* treat a lone `app.json` as conclusive — other tools
+/// use that filename too — but an Expo `app.json` is always paired with the
+/// `expo` dependency, so it's still caught via package.json.
+pub(crate) fn is_react_native_project(project_path: &std::path::Path) -> bool {
+    if project_path.join("metro.config.js").exists()
+        || project_path.join("metro.config.ts").exists()
+        || project_path.join("app.config.js").exists()
+        || project_path.join("app.config.ts").exists()
+    {
+        return true;
+    }
+
+    let pkg_path = project_path.join("package.json");
+    if pkg_path.exists() {
+        if let Ok(contents) = std::fs::read_to_string(&pkg_path) {
+            if contents.contains("\"react-native\"") || contents.contains("\"expo\"") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Detect if this is a Flutter project.
+///
+/// A Flutter app's `pubspec.yaml` declares the Flutter SDK (`flutter:` section
+/// and `sdk: flutter` dependency). A pure-Dart package omits these, so we don't
+/// misclassify non-Flutter Dart packages.
+pub(crate) fn is_flutter_project(project_path: &std::path::Path) -> bool {
+    let pubspec = project_path.join("pubspec.yaml");
+    if let Ok(contents) = std::fs::read_to_string(&pubspec) {
+        if contents.contains("flutter:") || contents.contains("sdk: flutter") {
+            return true;
+        }
+    }
+    false
+}
+
 /// Check if a directory contains HTML files in its root
 pub fn has_html_files(project_path: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(project_path) {
@@ -192,6 +243,16 @@ pub fn detect_project_type(project_path: &std::path::Path) -> ProjectType {
 }
 
 fn detect_project_type_uncached(project_path: &std::path::Path) -> ProjectType {
+    // Native mobile frameworks first — they're specific and must not be
+    // mistaken for web projects that happen to share a package.json (Expo
+    // apps have one). These never carry next/svelte/astro/nuxt/vite configs.
+    if is_flutter_project(project_path) {
+        return ProjectType::Flutter;
+    }
+    if is_react_native_project(project_path) {
+        return ProjectType::Reactnative;
+    }
+
     // Check framework-specific configs first
     if is_astro_project(project_path) {
         return ProjectType::Astro;
@@ -656,6 +717,74 @@ mod tests {
     #[test]
     fn detects_unknown_for_empty_dir() {
         let tmp = TempDir::new().unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Unknown
+        );
+    }
+
+    #[test]
+    fn detects_react_native_via_dependency() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"dependencies":{"react-native":"0.74"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Reactnative
+        );
+    }
+
+    #[test]
+    fn detects_expo_via_dependency() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"dependencies":{"expo":"51"}}"#,
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("app.json"), r#"{"expo":{"name":"x"}}"#).unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Reactnative
+        );
+    }
+
+    #[test]
+    fn detects_react_native_via_metro_config() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("metro.config.js"), "module.exports = {}").unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Reactnative
+        );
+    }
+
+    #[test]
+    fn detects_flutter_via_pubspec() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("pubspec.yaml"),
+            "name: myapp\ndependencies:\n  flutter:\n    sdk: flutter\n",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Flutter
+        );
+    }
+
+    #[test]
+    fn dart_only_package_is_not_flutter() {
+        let tmp = TempDir::new().unwrap();
+        // A pure-Dart package: no flutter SDK reference.
+        std::fs::write(
+            tmp.path().join("pubspec.yaml"),
+            "name: dart_cli\ndependencies:\n  args: ^2.0.0\n",
+        )
+        .unwrap();
         assert_eq!(
             detect_project_type_uncached(tmp.path()),
             ProjectType::Unknown
