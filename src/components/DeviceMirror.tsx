@@ -22,26 +22,37 @@ import {
   bootDefaultSimulator,
   startSimulatorMirror,
   stopSimulatorMirror,
+  getSimulatorLaunchCommand,
   connectInputChannel,
   type MirrorInfo,
   type MobileSimulator,
 } from '../lib/mobile';
+import { startDevServer, type DevServerHandle } from '../lib/project';
+import { getWindowLabel } from '../lib/window';
 import { SpinnerIcon, ResetIcon, CloseIcon } from './icons';
 import { Button } from './primitives/Button';
 
 interface DeviceMirrorProps {
   /** Project name, for guidance copy. */
   projectName: string;
+  /** Absolute project path — used to boot/register the sim and launch the app. */
+  projectPath: string;
 }
 
 type InputChannel = ReturnType<typeof connectInputChannel>;
 type Status = 'starting' | 'booting' | 'connecting' | 'connected' | 'idle' | 'error';
+type LaunchStatus = 'none' | 'launching' | 'unsupported';
 
-export function DeviceMirror({ projectName }: DeviceMirrorProps) {
+/** Keep the build log bounded so a chatty bundler can't grow it unboundedly. */
+const MAX_LAUNCH_LOG = 12000;
+
+export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
   const [status, setStatus] = useState<Status>('starting');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
   const [device, setDevice] = useState<MobileSimulator | null>(null);
+  const [launchStatus, setLaunchStatus] = useState<LaunchStatus>('none');
+  const [launchLog, setLaunchLog] = useState('');
 
   const inputRef = useRef<InputChannel | null>(null);
   // UDID of the live mirror, so `disconnect` can stop the right daemon.
@@ -60,6 +71,38 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
     let cancelled = false;
     let startedUdid: string | null = null;
     let channel: InputChannel | null = null;
+    let launchHandle: DevServerHandle | null = null;
+
+    // Build + launch the project's app onto the booted sim, streaming output to
+    // the build log. Non-fatal: a launch failure leaves the mirror working.
+    const launchApp = async (udid: string) => {
+      try {
+        const cmd = await getSimulatorLaunchCommand(projectPath, udid);
+        if (cancelled) return;
+        setLaunchStatus('launching');
+        setLaunchLog(`$ ${cmd}\n`);
+        logger.info('[DeviceMirror] launching app', { cmd });
+        launchHandle = await startDevServer(
+          projectPath,
+          0,
+          getWindowLabel(),
+          (data) => {
+            if (!cancelled) {
+              setLaunchLog((prev) => (prev + data).slice(-MAX_LAUNCH_LOG));
+            }
+          },
+          cmd
+        );
+      } catch (err) {
+        if (cancelled) return;
+        // Unsupported project type or spawn failure — surface, don't crash.
+        setLaunchStatus('unsupported');
+        setLaunchLog((prev) => prev + `\n${err instanceof Error ? err.message : String(err)}\n`);
+        logger.warn('[DeviceMirror] app launch skipped', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    };
 
     const run = async () => {
       if (cancelled) return;
@@ -67,17 +110,20 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
       setStatus('starting');
       try {
         logger.info('[DeviceMirror] listing booted simulators');
-        let sims = await listBootedSimulators();
+        let target: MobileSimulator;
+        const sims = await listBootedSimulators();
         if (cancelled) return;
         logger.info('[DeviceMirror] booted simulators', { count: sims.length });
-        if (sims.length === 0) {
+        if (sims.length > 0) {
+          target = sims[0]; // attach to a user-booted sim (we won't shut it down)
+        } else {
           setStatus('booting');
           logger.info('[DeviceMirror] no booted sim; booting default');
-          sims = [await bootDefaultSimulator()];
+          const result = await bootDefaultSimulator(projectPath);
           if (cancelled) return;
-          logger.info('[DeviceMirror] booted default', { udid: sims[0]?.udid });
+          target = result.simulator;
+          logger.info('[DeviceMirror] booted default', { udid: target.udid });
         }
-        const target = sims[0];
         setDevice(target);
 
         setStatus('connecting');
@@ -91,6 +137,9 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
         activeUdidRef.current = target.udid;
         setMirror(info);
         setStatus('connected');
+
+        // Fire-and-watch the app launch (its own try/catch; never blocks the mirror).
+        void launchApp(target.udid);
       } catch (err) {
         if (cancelled) return;
         logger.error('[DeviceMirror] failed', {
@@ -108,12 +157,13 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
       isPointerDown.current = false;
       channel?.close();
       if (inputRef.current === channel) inputRef.current = null;
+      void launchHandle?.stop();
       if (startedUdid) {
         void stopSimulatorMirror(startedUdid);
         if (activeUdidRef.current === startedUdid) activeUdidRef.current = null;
       }
     };
-  }, [attempt]);
+  }, [attempt, projectPath]);
 
   // Stop the mirror but stay mounted (manual disconnect → idle). The effect's
   // cleanup also stops the daemon on unmount/retry; double-stop is a no-op.
@@ -125,6 +175,8 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
     activeUdidRef.current = null;
     setMirror(null);
     setStatus('idle');
+    setLaunchStatus('none');
+    setLaunchLog('');
     if (udid) void stopSimulatorMirror(udid);
   }, []);
 
@@ -185,6 +237,16 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
             onPointerCancel={onPointerUp}
           />
         </div>
+        {launchStatus !== 'none' && (
+          <details className="device-mirror-buildlog">
+            <summary>
+              {launchStatus === 'launching'
+                ? 'Building & launching your app on the simulator…'
+                : 'Auto-launch unavailable for this project'}
+            </summary>
+            <pre className="device-mirror-buildlog-output">{launchLog || '(no output yet)'}</pre>
+          </details>
+        )}
       </div>
     );
   }

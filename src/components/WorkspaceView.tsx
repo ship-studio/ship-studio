@@ -1385,6 +1385,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                           <DeviceMirror
                             key={currentProject.path}
                             projectName={currentProject.name}
+                            projectPath={currentProject.path}
                           />
                         </div>
                       )}

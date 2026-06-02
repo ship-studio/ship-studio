@@ -175,6 +175,29 @@ pub(crate) fn is_react_native_project(project_path: &std::path::Path) -> bool {
     false
 }
 
+/// Detect if a React Native project is specifically an Expo app (vs. bare RN).
+/// Expo apps launch with `expo run:ios`; bare RN with the React Native CLI.
+pub(crate) fn is_expo_project(project_path: &std::path::Path) -> bool {
+    if project_path.join("app.config.js").exists() || project_path.join("app.config.ts").exists() {
+        return true;
+    }
+    let pkg_path = project_path.join("package.json");
+    if pkg_path.exists() {
+        if let Ok(contents) = std::fs::read_to_string(&pkg_path) {
+            if contents.contains("\"expo\"") {
+                return true;
+            }
+        }
+    }
+    // app.json with an "expo" key is the canonical Expo marker.
+    if let Ok(contents) = std::fs::read_to_string(project_path.join("app.json")) {
+        if contents.contains("\"expo\"") {
+            return true;
+        }
+    }
+    false
+}
+
 /// Detect if this is a Flutter project.
 ///
 /// A Flutter app's `pubspec.yaml` declares the Flutter SDK (`flutter:` section

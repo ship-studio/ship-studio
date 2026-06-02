@@ -128,6 +128,9 @@ pub async fn suspend_project_session(project_path: String) -> Result<u32, Comman
 #[tracing::instrument]
 pub async fn unregister_project_session(project_path: String) -> Result<(), CommandError> {
     state_unregister_session(&project_path);
+    // Closing the project tears down its mobile preview: stop the serve-sim
+    // mirror and shut down the simulator (only if we booted it). Best-effort.
+    let _ = crate::commands::mobile::shutdown_simulator_for_project(project_path.clone()).await;
     tracing::info!("Unregistered session: project={}", project_path,);
     Ok(())
 }

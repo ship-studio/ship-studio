@@ -279,6 +279,8 @@ pub fn run() {
                     commands::setup::cleanup_auth_processes_sync();
                     proxy::stop_all_proxies();
                     static_server::stop_all_static_servers();
+                    // Shut down any iOS simulators we booted for mobile previews.
+                    commands::mobile::shutdown_all_booted_sims_sync();
                 }
             }
         })
@@ -471,6 +473,8 @@ pub fn run() {
             commands::mobile::boot_default_simulator,
             commands::mobile::start_simulator_mirror,
             commands::mobile::stop_simulator_mirror,
+            commands::mobile::get_simulator_launch_command,
+            commands::mobile::shutdown_simulator_for_project,
             // PTY & Terminal
             commands::pty::spawn_pty,
             commands::pty::kill_pty,

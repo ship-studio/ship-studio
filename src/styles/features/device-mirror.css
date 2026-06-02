@@ -54,3 +54,33 @@
   gap: var(--spacing-sm);
   margin: var(--spacing-sm) 0;
 }
+
+/* Collapsible build/launch log shown under the mirror while the app builds. */
+.device-mirror-buildlog {
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+  max-height: 40%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.device-mirror-buildlog > summary {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.device-mirror-buildlog-output {
+  margin: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

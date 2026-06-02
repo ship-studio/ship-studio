@@ -35,6 +35,15 @@ pub struct MobileSimulator {
     pub runtime: Option<String>,
 }
 
+/// Result of ensuring a simulator is booted.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BootResult {
+    pub simulator: MobileSimulator,
+    /// True only if WE booted it (vs. attaching to one the user already had
+    /// running). Drives whether it's shut down when the project closes.
+    pub booted_by_us: bool,
+}
+
 /// Connection details for an active serve-sim mirror.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct MirrorInfo {
@@ -257,17 +266,23 @@ pub async fn list_booted_simulators() -> Result<Vec<MobileSimulator>, CommandErr
 #[tauri::command]
 #[tracing::instrument]
 pub async fn boot_default_simulator(
+    project_path: String,
     preferred: Option<String>,
-) -> Result<MobileSimulator, CommandError> {
-    // 1. If something is already booted, use it (respect the user's machine).
+) -> Result<BootResult, CommandError> {
+    // 1. If something is already booted, attach to it (respect the user's
+    //    machine — we did NOT boot it, so we must not shut it down on close).
     let booted = list_booted_simulators().await?;
-    if let Some(p) = preferred.as_deref().filter(|p| !p.is_empty()) {
-        if let Some(found) = booted.iter().find(|s| s.udid == p) {
-            return Ok(found.clone());
-        }
-    }
-    if let Some(first) = booted.into_iter().next() {
-        return Ok(first);
+    let reuse = preferred
+        .as_deref()
+        .filter(|p| !p.is_empty())
+        .and_then(|p| booted.iter().find(|s| s.udid == p).cloned())
+        .or_else(|| booted.into_iter().next());
+    if let Some(sim) = reuse {
+        crate::state::register_booted_sim(project_path, sim.udid.clone(), false);
+        return Ok(BootResult {
+            simulator: sim,
+            booted_by_us: false,
+        });
     }
 
     // 2. Pick a device to boot.
@@ -318,11 +333,94 @@ pub async fn boot_default_simulator(
     .await?;
 
     // 5. Re-read so we return accurate, now-booted device info.
-    let booted = list_booted_simulators().await?;
-    booted
+    let sim = list_booted_simulators()
+        .await?
         .into_iter()
         .find(|s| s.udid == target_udid)
-        .ok_or_else(|| "Simulator was booted but isn't reporting as booted yet.".into())
+        .ok_or("Simulator was booted but isn't reporting as booted yet.")?;
+    crate::state::register_booted_sim(project_path, sim.udid.clone(), true);
+    Ok(BootResult {
+        simulator: sim,
+        booted_by_us: true,
+    })
+}
+
+/// Determine the command that launches the project's app onto a booted
+/// simulator, based on the project type. Pure (well, reads project files) and
+/// unit-tested; the frontend runs the returned command via the dev-server PTY
+/// so it's window-scoped and streamed.
+fn build_launch_command(project_path: &std::path::Path, udid: &str) -> Option<String> {
+    use crate::commands::projects::{detect_project_type, is_expo_project};
+    match detect_project_type(project_path) {
+        crate::types::ProjectType::Flutter => Some(format!("flutter run -d {udid}")),
+        crate::types::ProjectType::Reactnative => {
+            // Expo apps build/launch via `expo run:ios`; bare RN via the RN CLI.
+            // Both target the specific booted device by udid.
+            if is_expo_project(project_path) {
+                Some(format!("npx expo run:ios --device {udid}"))
+            } else {
+                Some(format!("npx react-native run-ios --udid {udid}"))
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Get the launch command for a project's app on a given simulator, or an error
+/// if the project type isn't a supported native mobile app.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn get_simulator_launch_command(
+    project_path: String,
+    udid: String,
+) -> Result<String, CommandError> {
+    let project = crate::utils::validate_project_path(&project_path)?;
+    let workspace = crate::utils::resolve_workspace_path(&project);
+    build_launch_command(&workspace, &udid)
+        .ok_or_else(|| "This project type can't be launched on a simulator yet.".into())
+}
+
+/// Shut down the simulator backing a project's mobile preview — but only if WE
+/// booted it — and stop its serve-sim mirror. Called when the project closes.
+/// Best-effort: a missing registration or already-shut-down device is fine.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn shutdown_simulator_for_project(project_path: String) -> Result<(), CommandError> {
+    let Some(sim) = crate::state::take_booted_sim(&project_path) else {
+        return Ok(());
+    };
+    // Stop the mirror daemon for this device regardless of who booted it.
+    let mut kill = npx_command();
+    kill.args(["-y", "serve-sim", "--kill", &sim.udid]);
+    let _ = run_to_stdout(
+        tokio::process::Command::from(kill),
+        "serve-sim --kill",
+        SIMCTL_TIMEOUT_SECS,
+    )
+    .await;
+    if sim.booted_by_us {
+        tracing::info!(udid = %sim.udid, "shutting down simulator we booted");
+        let _ = simctl_stdout(
+            &["shutdown", &sim.udid],
+            "xcrun simctl shutdown",
+            SIMCTL_TIMEOUT_SECS,
+        )
+        .await;
+    }
+    Ok(())
+}
+
+/// Best-effort synchronous shutdown of every simulator we booted, for the
+/// window-Destroyed handler (which can't await). Spawns detached and returns.
+pub fn shutdown_all_booted_sims_sync() {
+    for sim in crate::state::take_all_booted_sims() {
+        if sim.booted_by_us {
+            let _ = std::process::Command::new("xcrun")
+                .args(["simctl", "shutdown", &sim.udid])
+                .env("PATH", get_extended_path())
+                .spawn();
+        }
+    }
 }
 
 /// Start (or attach to) a serve-sim mirror for the given booted simulator.
@@ -478,6 +576,54 @@ mod tests {
         }"#;
         // Booted beats newer-but-shutdown.
         assert_eq!(choose_default_simulator(json).unwrap().udid, "RUNNING");
+    }
+
+    #[test]
+    fn build_launch_command_for_expo_flutter_and_unsupported() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        // Expo
+        let expo = TempDir::new().unwrap();
+        fs::write(
+            expo.path().join("package.json"),
+            r#"{"dependencies":{"expo":"51"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            build_launch_command(expo.path(), "UDID").as_deref(),
+            Some("npx expo run:ios --device UDID")
+        );
+
+        // Bare React Native (metro, no expo)
+        let rn = TempDir::new().unwrap();
+        fs::write(rn.path().join("metro.config.js"), "module.exports={}").unwrap();
+        fs::write(
+            rn.path().join("package.json"),
+            r#"{"dependencies":{"react-native":"0.75"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            build_launch_command(rn.path(), "UDID").as_deref(),
+            Some("npx react-native run-ios --udid UDID")
+        );
+
+        // Flutter
+        let flutter = TempDir::new().unwrap();
+        fs::write(
+            flutter.path().join("pubspec.yaml"),
+            "dependencies:\n  flutter:\n    sdk: flutter\n",
+        )
+        .unwrap();
+        assert_eq!(
+            build_launch_command(flutter.path(), "X").as_deref(),
+            Some("flutter run -d X")
+        );
+
+        // Unsupported (plain web)
+        let web = TempDir::new().unwrap();
+        fs::write(web.path().join("next.config.js"), "module.exports={}").unwrap();
+        assert_eq!(build_launch_command(web.path(), "X"), None);
     }
 
     #[test]
