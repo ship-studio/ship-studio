@@ -276,6 +276,49 @@ Modified:
 
 ---
 
+## 10b. Spike findings (2026-06-02)
+
+Empirical results from the first de-risking spike, run on Julian's machine.
+
+### Tooling reality on this machine
+- **iOS: ready.** Xcode 26 installed, iOS 26.1 runtimes, iPhone 15/16e/17/17 Pro/
+  Air simulators all available. `xcrun simctl` works out of the box.
+- **Android: absent.** No `scrcpy`, no `adb`, no `emulator`, no connected device.
+  Homebrew is present (could `brew install scrcpy android-platform-tools`), but
+  there's also no emulator/AVD — standing up Android testing means installing the
+  SDK + a system image + creating an AVD. Heavy.
+- **Consequence:** the plan's "Android first" sequencing (§8) assumed a typical
+  Android setup. On *this* machine **iOS Simulator is the faster path to a testable
+  prototype**. Revised recommendation below.
+
+### Capture half — proven, with a hard limit
+Booted an iPhone 17 sim and measured the **no-private-API** capture path
+(`xcrun simctl io <udid> screenshot`):
+- ✅ Captures the live simulator screen correctly (verified the frame — real home
+  screen, not black).
+- **Cadence: ~404 ms/frame ≈ 2.5 fps.** Each call pays ~330–400 ms of process-spawn
+  overhead. **Not interactive** (interactive feel needs ~30–60 fps; even the VS Code
+  extension's ScreenCaptureKit path is ~12 fps and feels borderline).
+- Frame size: PNG ≈ 3.0 MB/frame (too big to ship per-frame), **JPEG ≈ 387 KB**
+  (the right wire format).
+
+**Conclusion:** `simctl screenshot` polling is fine for a one-off thumbnail but is
+*not* a viable interactive transport. This empirically confirms the plan's claim
+that interactive iOS mirroring requires **ScreenCaptureKit continuous capture** in a
+Swift sidecar (§4.2), not screenshot polling. Input injection (Indigo HID / idb) was
+not exercised in this spike — still the largest unknown.
+
+### Revised near-term recommendation
+1. **iOS-Simulator-first** on this machine (Xcode already here), reversing the
+   Android-first order in §8 — *unless* we want Android, in which case step 0 is
+   installing scrcpy + platform-tools + an AVD.
+2. The next real build step is the **ScreenCaptureKit + input Swift sidecar** — this
+   is the fragile, private-API-dependent crux. It's a genuine commitment (macOS-only,
+   maintenance tax) and should be an explicit decision, not drift.
+3. Hardware-independent foundation that's safe to build in parallel regardless of the
+   capture decision: a `list_mobile_devices` command (booted sims via `simctl`,
+   Android devices via `adb` when present) + the device-picker UI shell.
+
 ## 11. References
 
 - vscode-ios-simulator-embed — ScreenCaptureKit + Indigo HID reference impl (Apache-2.0):
