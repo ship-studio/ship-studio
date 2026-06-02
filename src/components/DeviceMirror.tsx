@@ -27,7 +27,7 @@ import {
   type MirrorInfo,
   type MobileSimulator,
 } from '../lib/mobile';
-import { startDevServer, type DevServerHandle } from '../lib/project';
+import { startDevServer, checkDependenciesInstalled, type DevServerHandle } from '../lib/project';
 import { getWindowLabel } from '../lib/window';
 import { SpinnerIcon, ResetIcon, CloseIcon } from './icons';
 import { Button } from './primitives/Button';
@@ -41,7 +41,8 @@ interface DeviceMirrorProps {
 
 type InputChannel = ReturnType<typeof connectInputChannel>;
 type Status = 'starting' | 'booting' | 'connecting' | 'connected' | 'idle' | 'error';
-type LaunchStatus = 'none' | 'launching' | 'unsupported';
+/** App-launch progress, shown in the build-log panel under the mirror. */
+type LaunchStatus = 'none' | 'needs-install' | 'building' | 'finished' | 'failed' | 'unsupported';
 
 /** Keep the build log bounded so a chatty bundler can't grow it unboundedly. */
 const MAX_LAUNCH_LOG = 12000;
@@ -76,31 +77,52 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
     // Build + launch the project's app onto the booted sim, streaming output to
     // the build log. Non-fatal: a launch failure leaves the mirror working.
     const launchApp = async (udid: string) => {
+      let cmd: string;
       try {
-        const cmd = await getSimulatorLaunchCommand(projectPath, udid);
+        cmd = await getSimulatorLaunchCommand(projectPath, udid);
+      } catch {
+        // Project type we don't know how to launch — leave the mirror as-is.
+        if (!cancelled) setLaunchStatus('unsupported');
+        return;
+      }
+      if (cancelled) return;
+
+      // Don't run a doomed build: a JS project with no node_modules will make
+      // the bundler stall on an interactive "install packages?" prompt that the
+      // read-only log can't answer. Tell the user to install first instead.
+      try {
+        const dep = await checkDependenciesInstalled(projectPath);
         if (cancelled) return;
-        setLaunchStatus('launching');
-        setLaunchLog(`$ ${cmd}\n`);
-        logger.info('[DeviceMirror] launching app', { cmd });
+        if (dep.hasPackageJson && !dep.installed) {
+          setLaunchStatus('needs-install');
+          setLaunchLog('Install dependencies first, then Reconnect:\n\n  npm install\n');
+          return;
+        }
+      } catch {
+        /* dep check is best-effort; fall through and try the launch */
+      }
+
+      setLaunchStatus('building');
+      setLaunchLog(`$ ${cmd}\n`);
+      logger.info('[DeviceMirror] launching app', { cmd });
+      try {
         launchHandle = await startDevServer(
           projectPath,
           0,
           getWindowLabel(),
           (data) => {
-            if (!cancelled) {
-              setLaunchLog((prev) => (prev + data).slice(-MAX_LAUNCH_LOG));
-            }
+            if (!cancelled) setLaunchLog((prev) => (prev + data).slice(-MAX_LAUNCH_LOG));
           },
           cmd
         );
+        // Reflect the real outcome so it never "looks done" while building.
+        launchHandle.pty.onExit(({ exitCode }) => {
+          if (!cancelled) setLaunchStatus(exitCode === 0 ? 'finished' : 'failed');
+        });
       } catch (err) {
         if (cancelled) return;
-        // Unsupported project type or spawn failure — surface, don't crash.
-        setLaunchStatus('unsupported');
+        setLaunchStatus('failed');
         setLaunchLog((prev) => prev + `\n${err instanceof Error ? err.message : String(err)}\n`);
-        logger.warn('[DeviceMirror] app launch skipped', {
-          error: err instanceof Error ? err.message : String(err),
-        });
       }
     };
 
@@ -237,12 +259,18 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
             onPointerCancel={onPointerUp}
           />
         </div>
-        {launchStatus !== 'none' && (
-          <details className="device-mirror-buildlog">
-            <summary>
-              {launchStatus === 'launching'
-                ? 'Building & launching your app on the simulator…'
-                : 'Auto-launch unavailable for this project'}
+        {launchStatus !== 'none' && launchStatus !== 'unsupported' && (
+          <details className="device-mirror-buildlog" open={launchStatus !== 'finished'}>
+            <summary data-state={launchStatus}>
+              {launchStatus === 'building' && <SpinnerIcon size={12} />}
+              <span>
+                {launchStatus === 'building' &&
+                  'Building & launching your app… (can take several minutes)'}
+                {launchStatus === 'needs-install' &&
+                  'Dependencies not installed — run npm install, then Reconnect'}
+                {launchStatus === 'finished' && 'App launched · build finished'}
+                {launchStatus === 'failed' && 'Build failed — see log below'}
+              </span>
             </summary>
             <pre className="device-mirror-buildlog-output">{launchLog || '(no output yet)'}</pre>
           </details>

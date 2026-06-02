@@ -66,11 +66,26 @@
 }
 
 .device-mirror-buildlog > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
+}
+
+.device-mirror-buildlog > summary[data-state='failed'] {
+  color: var(--danger, #e5484d);
+}
+
+.device-mirror-buildlog > summary[data-state='finished'] {
+  color: var(--success, #46a758);
+}
+
+.device-mirror-buildlog > summary[data-state='needs-install'] {
+  color: var(--warning, #f59e0b);
 }
 
 .device-mirror-buildlog-output {

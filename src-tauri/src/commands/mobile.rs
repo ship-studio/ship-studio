@@ -355,11 +355,13 @@ fn build_launch_command(project_path: &std::path::Path, udid: &str) -> Option<St
         crate::types::ProjectType::Flutter => Some(format!("flutter run -d {udid}")),
         crate::types::ProjectType::Reactnative => {
             // Expo apps build/launch via `expo run:ios`; bare RN via the RN CLI.
-            // Both target the specific booted device by udid.
+            // Both target the specific booted device by udid. `--yes` stops npx
+            // from prompting "Ok to proceed?" (which would hang the read-only
+            // build log) when a package isn't present locally.
             if is_expo_project(project_path) {
-                Some(format!("npx expo run:ios --device {udid}"))
+                Some(format!("npx --yes expo run:ios --device {udid}"))
             } else {
-                Some(format!("npx react-native run-ios --udid {udid}"))
+                Some(format!("npx --yes react-native run-ios --udid {udid}"))
             }
         }
         _ => None,
@@ -592,7 +594,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             build_launch_command(expo.path(), "UDID").as_deref(),
-            Some("npx expo run:ios --device UDID")
+            Some("npx --yes expo run:ios --device UDID")
         );
 
         // Bare React Native (metro, no expo)
@@ -605,7 +607,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             build_launch_command(rn.path(), "UDID").as_deref(),
-            Some("npx react-native run-ios --udid UDID")
+            Some("npx --yes react-native run-ios --udid UDID")
         );
 
         // Flutter
