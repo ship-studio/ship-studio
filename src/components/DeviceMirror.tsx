@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { logger } from '../lib/logger';
 import {
   listBootedSimulators,
   bootDefaultSimulator,
@@ -43,83 +44,91 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
   const [device, setDevice] = useState<MobileSimulator | null>(null);
 
   const inputRef = useRef<InputChannel | null>(null);
-  // UDID of the mirror we started (or are starting). Set *before* the async
-  // start so an unmount mid-flight can still tear the daemon down. We key
-  // teardown off the device we asked for, not serve-sim's echoed value (which
-  // can be empty), so the daemon is never orphaned.
+  // UDID of the live mirror, so `disconnect` can stop the right daemon.
   const activeUdidRef = useRef<string | null>(null);
-  const disposedRef = useRef(false);
   const imgRef = useRef<HTMLImageElement>(null);
   const isPointerDown = useRef(false);
 
-  const teardown = useCallback(() => {
+  // Bump to (re)run the connect flow — used by Retry / Reconnect.
+  const [attempt, setAttempt] = useState(0);
+
+  // Connect flow: list → (boot default if none) → start mirror → stream.
+  // Each run owns a local `cancelled` flag and tears down whatever IT started,
+  // so React StrictMode's dev double-mount (and any real unmount or retry)
+  // cancels cleanly without leaking the serve-sim daemon or stranding status.
+  useEffect(() => {
+    let cancelled = false;
+    let startedUdid: string | null = null;
+    let channel: InputChannel | null = null;
+
+    const run = async () => {
+      if (cancelled) return;
+      setErrorMsg(null);
+      setStatus('starting');
+      try {
+        logger.info('[DeviceMirror] listing booted simulators');
+        let sims = await listBootedSimulators();
+        if (cancelled) return;
+        logger.info('[DeviceMirror] booted simulators', { count: sims.length });
+        if (sims.length === 0) {
+          setStatus('booting');
+          logger.info('[DeviceMirror] no booted sim; booting default');
+          sims = [await bootDefaultSimulator()];
+          if (cancelled) return;
+          logger.info('[DeviceMirror] booted default', { udid: sims[0]?.udid });
+        }
+        const target = sims[0];
+        setDevice(target);
+
+        setStatus('connecting');
+        logger.info('[DeviceMirror] starting mirror', { udid: target.udid });
+        startedUdid = target.udid;
+        const info = await startSimulatorMirror(target.udid);
+        logger.info('[DeviceMirror] mirror started', { stream: info.stream_url });
+        if (cancelled) return; // cleanup stops `startedUdid`
+        channel = connectInputChannel(info.ws_url);
+        inputRef.current = channel;
+        activeUdidRef.current = target.udid;
+        setMirror(info);
+        setStatus('connected');
+      } catch (err) {
+        if (cancelled) return;
+        logger.error('[DeviceMirror] failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        setErrorMsg(err instanceof Error ? err.message : String(err));
+        setStatus('error');
+      }
+    };
+    // Deferred so the first setState lands outside the effect's sync body.
+    void Promise.resolve().then(run);
+
+    return () => {
+      cancelled = true;
+      isPointerDown.current = false;
+      channel?.close();
+      if (inputRef.current === channel) inputRef.current = null;
+      if (startedUdid) {
+        void stopSimulatorMirror(startedUdid);
+        if (activeUdidRef.current === startedUdid) activeUdidRef.current = null;
+      }
+    };
+  }, [attempt]);
+
+  // Stop the mirror but stay mounted (manual disconnect → idle). The effect's
+  // cleanup also stops the daemon on unmount/retry; double-stop is a no-op.
+  const disconnect = useCallback(() => {
     inputRef.current?.close();
     inputRef.current = null;
     isPointerDown.current = false;
     const udid = activeUdidRef.current;
     activeUdidRef.current = null;
+    setMirror(null);
+    setStatus('idle');
     if (udid) void stopSimulatorMirror(udid);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      disposedRef.current = true;
-      teardown();
-    };
-  }, [teardown]);
-
-  // Full connect flow: list → (boot default if none) → start mirror → stream.
-  // Bails out and tears down if the component unmounted during any await, so a
-  // tab/project switch mid-boot never leaks the serve-sim daemon.
-  const begin = useCallback(async () => {
-    setErrorMsg(null);
-    try {
-      setStatus('starting');
-      let sims = await listBootedSimulators();
-      if (disposedRef.current) return;
-      if (sims.length === 0) {
-        setStatus('booting');
-        sims = [await bootDefaultSimulator()];
-        if (disposedRef.current) return;
-      }
-      const target = sims[0];
-      setDevice(target);
-
-      setStatus('connecting');
-      activeUdidRef.current = target.udid; // mark before await so unmount can reap
-      const info = await startSimulatorMirror(target.udid);
-      if (disposedRef.current) {
-        // Unmounted while starting — stop the daemon we just started.
-        void stopSimulatorMirror(target.udid);
-        activeUdidRef.current = null;
-        return;
-      }
-      inputRef.current?.close();
-      inputRef.current = connectInputChannel(info.ws_url);
-      setMirror(info);
-      setStatus('connected');
-    } catch (err) {
-      if (disposedRef.current) return;
-      setErrorMsg(err instanceof Error ? err.message : String(err));
-      setStatus('error');
-    }
-  }, []);
-
-  // Auto-start once on mount. Deferred to a microtask so the first state
-  // update happens outside the effect's synchronous body (avoids cascading
-  // renders) and so a same-tick unmount can cancel cleanly.
-  const started = useRef(false);
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void Promise.resolve().then(begin);
-  }, [begin]);
-
-  const disconnect = useCallback(() => {
-    teardown();
-    setMirror(null);
-    setStatus('idle');
-  }, [teardown]);
+  const retry = useCallback(() => setAttempt((a) => a + 1), []);
 
   // Map a pointer event to normalized 0..1 coords over the streamed image.
   const toNorm = (e: React.PointerEvent): { x: number; y: number } | null => {
@@ -192,7 +201,7 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
             : `Ship Studio couldn't mirror a simulator for ${projectName}.`}
         </p>
         {errorMsg && <p className="hint">{errorMsg}</p>}
-        <Button variant="secondary" size="sm" onClick={() => void begin()}>
+        <Button variant="secondary" size="sm" onClick={retry}>
           <ResetIcon size={14} /> Try again
         </Button>
       </div>
@@ -205,7 +214,7 @@ export function DeviceMirror({ projectName }: DeviceMirrorProps) {
       <div className="preview-install-prompt">
         <h3>Disconnected</h3>
         <p className="hint">The simulator is still running. Reconnect to preview {projectName}.</p>
-        <Button variant="primary" size="sm" onClick={() => void begin()}>
+        <Button variant="primary" size="sm" onClick={retry}>
           Reconnect
         </Button>
       </div>

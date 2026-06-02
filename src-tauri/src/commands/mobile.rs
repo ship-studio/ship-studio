@@ -238,13 +238,16 @@ async fn simctl_stdout(
 #[tauri::command]
 #[tracing::instrument]
 pub async fn list_booted_simulators() -> Result<Vec<MobileSimulator>, CommandError> {
+    tracing::info!("list_booted_simulators: invoked");
     let stdout = simctl_stdout(
         &["list", "devices", "booted", "--json"],
         "xcrun simctl list booted",
         SIMCTL_TIMEOUT_SECS,
     )
     .await?;
-    parse_booted_simulators(&stdout)
+    let sims = parse_booted_simulators(&stdout)?;
+    tracing::info!("list_booted_simulators: {} booted", sims.len());
+    Ok(sims)
 }
 
 /// Ensure a simulator is booted and return it, booting a sensible default when
@@ -330,6 +333,7 @@ pub async fn start_simulator_mirror(udid: String) -> Result<MirrorInfo, CommandE
     if udid.trim().is_empty() {
         return Err("A simulator UDID is required".into());
     }
+    tracing::info!(%udid, "start_simulator_mirror: spawning serve-sim");
     let mut cmd = npx_command();
     cmd.args(["-y", "serve-sim", "--detach", "--quiet", &udid]);
     let stdout = run_to_stdout(
@@ -338,6 +342,7 @@ pub async fn start_simulator_mirror(udid: String) -> Result<MirrorInfo, CommandE
         SERVE_SIM_TIMEOUT_SECS,
     )
     .await?;
+    tracing::info!("start_simulator_mirror: serve-sim returned");
     parse_mirror_info(&stdout)
 }
 
