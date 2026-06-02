@@ -1,0 +1,56 @@
+/* Native mobile preview (iOS Simulator mirror). See components/DeviceMirror.tsx. */
+
+.device-mirror {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-secondary);
+}
+
+.device-mirror-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.device-mirror-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.device-mirror-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--spacing-md);
+  overflow: hidden;
+}
+
+/* The streamed simulator framebuffer. Constrain to the stage, preserve aspect,
+   and disable native drag/selection so pointer events map cleanly to touches. */
+.device-mirror-screen {
+  max-width: 100%;
+  max-height: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  background: #000;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.device-mirror-sim-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin: var(--spacing-sm) 0;
+}

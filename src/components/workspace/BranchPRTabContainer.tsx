@@ -15,7 +15,10 @@ import type { IntegrationState } from '../../hooks/useIntegrationStatus';
 export interface BranchPRTabContainerProps {
   workspaceTab: 'preview' | 'code' | 'branches' | 'prs';
   setWorkspaceTab: (tab: 'preview' | 'code' | 'branches' | 'prs') => void;
-  isWebProject: boolean;
+  /** Whether the project has its own preview surface (web iframe or mobile
+   *  device mirror). Projects without one show the branches pane in the
+   *  "preview" tab slot; projects with one must not. */
+  hasPreview: boolean;
   integrations: IntegrationState;
   branches: BranchInfo[];
   openPRs: PullRequestInfo[];
@@ -32,7 +35,7 @@ export interface BranchPRTabContainerProps {
 export function BranchPRTabContainer({
   workspaceTab,
   setWorkspaceTab,
-  isWebProject,
+  hasPreview,
   integrations,
   branches,
   openPRs,
@@ -46,7 +49,7 @@ export function BranchPRTabContainer({
   handleGitHubConnect,
 }: BranchPRTabContainerProps) {
   const showBranchesPane =
-    workspaceTab === 'branches' || (!isWebProject && workspaceTab === 'preview');
+    workspaceTab === 'branches' || (!hasPreview && workspaceTab === 'preview');
   const showPRsPane = workspaceTab === 'prs';
   const githubConnected =
     integrations.github.cliStatus.authenticated &&

@@ -26,6 +26,7 @@ import { Terminal } from './Terminal';
 import { DevServerLogs } from './DevServerLogs';
 import { Preview } from './Preview';
 import type { PreviewHandle, InspectTab } from './Preview';
+import { DeviceMirror } from './DeviceMirror';
 import { SplitPane } from './SplitPane';
 import { BranchIndicator } from './BranchIndicator';
 import { CodeTab } from './CodeTab';
@@ -588,10 +589,12 @@ export const WorkspaceView = memo(function WorkspaceView({
     setIsCropMode,
   ]);
 
-  // Generic/unknown (Tauri, CLI) and native mobile (RN/Expo, Flutter) projects have
-  // no web iframe preview; mobile gets a device mirror later (see plan doc).
-  const isWebProject =
-    projectType !== 'generic' && projectType !== 'unknown' && !isMobileProjectType(projectType);
+  // Generic/unknown (Tauri, CLI) projects have no preview pane at all. Web
+  // projects get the iframe Preview; native mobile (RN/Expo, Flutter) gets the
+  // device mirror. `hasPreview` = either kind of previewable project.
+  const isMobileProject = isMobileProjectType(projectType);
+  const isWebProject = projectType !== 'generic' && projectType !== 'unknown' && !isMobileProject;
+  const hasPreview = isWebProject || isMobileProject;
 
   // Reset the preview-side tab to its default whenever the user switches
   // projects. Web projects land on Preview; generic/unknown projects land
@@ -599,11 +602,11 @@ export const WorkspaceView = memo(function WorkspaceView({
   // project while on Branches/PRs would land you on Branches/PRs in the
   // next project too, which reads as "sticky state from the wrong place".
   useEffect(() => {
-    setWorkspaceTab(isWebProject ? 'preview' : 'code');
+    setWorkspaceTab(hasPreview ? 'preview' : 'code');
     // Only re-fire on project path change. We deliberately *don't* depend
     // on `workspaceTab` here — that would force-revert every user click.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProject.path, isWebProject]);
+  }, [currentProject.path, hasPreview]);
 
   // Track terminal tab titles from PTY title changes. Titles live in the
   // session registry so (a) they're scoped per-project (tab ids are
@@ -982,7 +985,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                 )}
                 <div style={{ flex: 1 }} />
                 <div className="workspace-tabs">
-                  {isWebProject && (
+                  {hasPreview && (
                     <button
                       className={`workspace-tab ${workspaceTab === 'preview' && !isPreviewHidden ? 'active' : ''}`}
                       onClick={() => {
@@ -1371,6 +1374,14 @@ export const WorkspaceView = memo(function WorkspaceView({
                           />
                         </div>
                       )}
+                      {workspaceTab === 'preview' && isMobileProject && (
+                        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+                          <DeviceMirror
+                            key={currentProject.path}
+                            projectName={currentProject.name}
+                          />
+                        </div>
+                      )}
                       {workspaceTab === 'code' && (
                         <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
                           <CodeTab projectPath={currentProject.path} onSendToAgent={sendToClaude} />
@@ -1379,7 +1390,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                       <BranchPRTabContainer
                         workspaceTab={workspaceTab}
                         setWorkspaceTab={setWorkspaceTab}
-                        isWebProject={isWebProject}
+                        hasPreview={hasPreview}
                         integrations={integrations}
                         branches={branches}
                         openPRs={openPRs}

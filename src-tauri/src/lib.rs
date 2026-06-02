@@ -466,6 +466,11 @@ pub fn run() {
             commands::static_server::stop_static_server,
             // Project Type Detection
             commands::projects::detect_project_type_command,
+            // Native Mobile Preview (iOS Simulator via serve-sim)
+            commands::mobile::list_booted_simulators,
+            commands::mobile::boot_default_simulator,
+            commands::mobile::start_simulator_mirror,
+            commands::mobile::stop_simulator_mirror,
             // PTY & Terminal
             commands::pty::spawn_pty,
             commands::pty::kill_pty,

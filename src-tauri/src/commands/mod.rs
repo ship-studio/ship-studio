@@ -17,6 +17,7 @@ pub mod github;
 pub mod health;
 pub mod ide;
 pub mod mcp;
+pub mod mobile;
 pub mod monorepo;
 pub mod plugins;
 pub mod projects;

@@ -32,10 +32,11 @@ echo "Components (.tsx limit 1200):"
 # WorkspaceView + App.tsx got denser with the multi-project multitasking
 # work (per-project tab state, per-project dev servers, attach-based PTY
 # sessions) and again with the side-by-side agents feature (per-pane
-# state, split rendering, drag handles). Raised deliberately — extracting
-# a TerminalPanes sub-component from WorkspaceView is on the roadmap but
-# doesn't belong in the same PR as the feature itself.
-check_file src/components/WorkspaceView.tsx 1500
+# state, split rendering, drag handles), then again with the native mobile
+# preview (web/mobile preview branch + DeviceMirror render). Raised
+# deliberately — extracting a TerminalPanes sub-component from WorkspaceView
+# is on the roadmap but doesn't belong in the same PR as the feature itself.
+check_file src/components/WorkspaceView.tsx 1525
 check_file src/components/ProjectList.tsx 800
 check_file src/components/PluginManager.tsx 700
 check_file src/components/ImportProject.tsx 500
