@@ -104,6 +104,10 @@ pub async fn register_project_session(
 #[tracing::instrument]
 pub async fn suspend_project_session(project_path: String) -> Result<u32, CommandError> {
     let killed = kill_project_pty_internal(&project_path);
+    // Suspending frees the project's resources — the mobile preview (serve-sim
+    // daemon + app-build pty_session) lives in registries the PTY sweep above
+    // doesn't reach, so tear it down explicitly here too.
+    crate::commands::mobile::teardown_mobile_preview(project_path.clone()).await;
     mark_session_suspended(&project_path);
     tracing::info!(
         "Suspended session: project={}, killed_ptys={}",
@@ -128,8 +132,10 @@ pub async fn suspend_project_session(project_path: String) -> Result<u32, Comman
 #[tracing::instrument]
 pub async fn unregister_project_session(project_path: String) -> Result<(), CommandError> {
     state_unregister_session(&project_path);
-    // Closing the project tears down its mobile preview: stop the serve-sim
-    // mirror and shut down the simulator (only if we booted it). Best-effort.
+    // Closing the project tears down its mobile preview (backend-owned session).
+    // Best-effort. The legacy `shutdown_simulator_for_project` is also called for
+    // the pre-refactor path until the frontend fully switches over (Phase 6).
+    crate::commands::mobile::teardown_mobile_preview(project_path.clone()).await;
     let _ = crate::commands::mobile::shutdown_simulator_for_project(project_path.clone()).await;
     tracing::info!("Unregistered session: project={}", project_path,);
     Ok(())

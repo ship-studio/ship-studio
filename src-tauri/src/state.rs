@@ -106,8 +106,9 @@ pub fn take_mobile_session(project_path: &str) -> Option<MobileSession> {
 }
 
 /// Remove and return every mobile session owned by a window (window-close
-/// teardown). Mirrors `release_port_for_window`'s filter-by-label pattern.
-pub fn take_mobile_sessions_for_window(window_label: &str) -> Vec<MobileSession> {
+/// teardown), paired with its project path. Mirrors `release_port_for_window`'s
+/// filter-by-label pattern.
+pub fn take_mobile_sessions_for_window(window_label: &str) -> Vec<(String, MobileSession)> {
     let Ok(mut map) = MOBILE_SESSIONS.lock() else {
         return Vec::new();
     };
@@ -116,7 +117,9 @@ pub fn take_mobile_sessions_for_window(window_label: &str) -> Vec<MobileSession>
         .filter(|(_, s)| s.window_label == window_label)
         .map(|(path, _)| path.clone())
         .collect();
-    keys.into_iter().filter_map(|k| map.remove(&k)).collect()
+    keys.into_iter()
+        .filter_map(|k| map.remove(&k).map(|s| (k, s)))
+        .collect()
 }
 
 /// Per-project async locks serializing the slow `simctl boot` so two concurrent
@@ -597,6 +600,7 @@ mod mobile_session_tests {
 
         let drained = take_mobile_sessions_for_window("win-X");
         assert_eq!(drained.len(), 2, "only win-X sessions drained");
+        assert!(drained.iter().all(|(_, s)| s.window_label == "win-X"));
         assert!(get_mobile_session("/tmp/ms-w-a").is_none());
         assert!(get_mobile_session("/tmp/ms-w-b").is_none());
         // win-Y untouched.

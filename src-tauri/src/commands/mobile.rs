@@ -446,25 +446,86 @@ pub async fn start_simulator_mirror(udid: String) -> Result<MirrorInfo, CommandE
     parse_mirror_info(&stdout)
 }
 
-/// Stop the serve-sim mirror for a simulator (best-effort). Killing an
-/// already-stopped mirror is not an error.
+/// Stop the serve-sim mirror for a specific simulator (best-effort). Killing an
+/// already-stopped mirror is not an error. An empty udid is rejected — a bare
+/// `serve-sim --kill` would tear down *every* mirror on the machine, including
+/// other windows' (the kill-all footgun).
 #[tauri::command]
 #[tracing::instrument]
 pub async fn stop_simulator_mirror(udid: String) -> Result<(), CommandError> {
-    let mut cmd = npx_command();
     if udid.trim().is_empty() {
-        cmd.args(["-y", "serve-sim", "--kill"]);
-    } else {
-        cmd.args(["-y", "serve-sim", "--kill", &udid]);
+        return Err("A simulator UDID is required to stop a mirror".into());
     }
-    // Best-effort: ignore non-zero exit (nothing to kill is fine).
+    kill_serve_sim(&udid).await;
+    Ok(())
+}
+
+/// Kill the serve-sim daemon for one device (best-effort; ignores non-zero exit).
+async fn kill_serve_sim(udid: &str) {
+    let mut cmd = npx_command();
+    cmd.args(["-y", "serve-sim", "--kill", udid]);
     let _ = run_to_stdout(
         tokio::process::Command::from(cmd),
         "serve-sim --kill",
         SIMCTL_TIMEOUT_SECS,
     )
     .await;
-    Ok(())
+}
+
+/// Tear down a project's mobile preview — the single authority. Kills the app
+/// build's `pty_session` (which the `PTY_REGISTRY`/`kill_window_pty_sync` sweeps
+/// do NOT reach, since it lives in a separate registry), stops the serve-sim
+/// mirror, shuts the simulator down **only if we booted it**, releases the
+/// reserved port if we reserved one, and prunes the boot lock. Best-effort and
+/// idempotent: no registered session → nothing to do.
+pub async fn teardown_mobile_preview(project_path: String) {
+    let Some(session) = crate::state::take_mobile_session(&project_path) else {
+        crate::state::drop_boot_lock(&project_path);
+        return;
+    };
+    if let Some(build_id) = session.build_session_id {
+        let _ = crate::commands::pty_session::pty_session_kill(build_id);
+    }
+    kill_serve_sim(&session.udid).await;
+    if session.booted_by_us {
+        tracing::info!(udid = %session.udid, "tearing down mobile preview: shutting down sim we booted");
+        let _ = simctl_stdout(
+            &["shutdown", &session.udid],
+            "xcrun simctl shutdown",
+            SIMCTL_TIMEOUT_SECS,
+        )
+        .await;
+    }
+    if session.port_was_reserved {
+        crate::state::release_port_for_project(&session.window_label, &project_path);
+    }
+    crate::state::drop_boot_lock(&project_path);
+}
+
+/// Synchronous teardown of every mobile preview owned by a window, for the
+/// window-Destroyed handler (which can't await). Runs for *every* closing window
+/// (not gated on main), so a non-main project window's sim doesn't leak. Uses
+/// blocking `.output()` — like the other sync close handlers — so the simulator
+/// actually shuts down before the process can exit (vs. a detached `.spawn()`
+/// that races teardown against exit). Reserved ports are released wholesale by
+/// the window-Destroyed handler's `release_port_for_window`.
+pub fn teardown_mobile_previews_for_window_sync(window_label: &str) {
+    for (project_path, session) in crate::state::take_mobile_sessions_for_window(window_label) {
+        if let Some(build_id) = session.build_session_id {
+            let _ = crate::commands::pty_session::pty_session_kill(build_id);
+        }
+        let _ = std::process::Command::new("npx")
+            .args(["-y", "serve-sim", "--kill", &session.udid])
+            .env("PATH", get_extended_path())
+            .output();
+        if session.booted_by_us {
+            let _ = std::process::Command::new("xcrun")
+                .args(["simctl", "shutdown", &session.udid])
+                .env("PATH", get_extended_path())
+                .output();
+        }
+        crate::state::drop_boot_lock(&project_path);
+    }
 }
 
 // serve-sim's stream server defaults to 3100; we reserve from there so the

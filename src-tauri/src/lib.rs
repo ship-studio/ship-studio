@@ -257,6 +257,11 @@ pub fn run() {
                     tracing::info!("Killed {} PTY processes for window {}", killed, label);
                 }
 
+                // Tear down this window's mobile previews (serve-sim daemon, app
+                // build, and any sim we booted). Runs for EVERY closing window,
+                // not just main — a non-main project window must not leak its sim.
+                commands::mobile::teardown_mobile_previews_for_window_sync(&label);
+
                 // Clean up project window registry
                 state::unregister_window_by_label(&label);
 
