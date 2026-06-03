@@ -532,6 +532,14 @@ pub fn teardown_mobile_previews_for_window_sync(window_label: &str) {
 // mirror never collides with a dev server (3000-range) or another window.
 const SERVE_SIM_BASE_PORT: u16 = 3100;
 
+/// Stable `pty_session` id for a project's app build. Deterministic so the
+/// frontend `BuildTerminal` and backend teardown agree on the id without having
+/// to round-trip it, and so re-open across tab switches is idempotent. The
+/// frontend mirrors this format in `src/lib/mobile.ts` (`buildSessionId`).
+pub fn build_session_id_for(project_path: &str) -> String {
+    format!("mobile-build:{project_path}")
+}
+
 /// Ensure a simulator is available with **correct preference**, without touching
 /// any registry (the caller records the session). Unlike the legacy
 /// `boot_default_simulator`, when `preferred` is set but not currently booted
@@ -699,6 +707,10 @@ pub async fn start_mobile_preview(
     }
 
     // 5. Register the session — the backend now owns this preview's lifecycle.
+    //    The build session id is the deterministic one the frontend will use, so
+    //    teardown can kill the build pty_session even though it's spawned
+    //    separately (killing an id that never spawned is a no-op).
+    let build_session_id = build_session_id_for(&project_path);
     crate::state::register_mobile_session(
         project_path,
         crate::state::MobileSession {
@@ -706,7 +718,7 @@ pub async fn start_mobile_preview(
             booted_by_us: boot.booted_by_us,
             serve_sim_port: info.port,
             port_was_reserved,
-            build_session_id: None,
+            build_session_id: Some(build_session_id),
             window_label,
         },
     );

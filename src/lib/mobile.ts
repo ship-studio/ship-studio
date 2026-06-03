@@ -81,6 +81,35 @@ export async function startSimulatorMirror(udid: string): Promise<MirrorInfo> {
   return invoke<MirrorInfo>('start_simulator_mirror', { udid });
 }
 
+/**
+ * Start (or reuse) a complete native mobile preview for a project: ensures a
+ * simulator is booted, reserves a port, and starts a serve-sim mirror — all
+ * backend-owned, so the lifecycle survives this component unmounting. Idempotent
+ * and serialized per project. The returned {@link MirrorInfo} is what the mirror
+ * embeds; the app build is launched separately as a pty_session (see
+ * {@link buildSessionId}).
+ */
+export async function startMobilePreview(
+  projectPath: string,
+  windowLabel: string,
+  preferred?: string
+): Promise<MirrorInfo> {
+  return invoke<MirrorInfo>('start_mobile_preview', {
+    projectPath,
+    windowLabel,
+    preferred: preferred ?? null,
+  });
+}
+
+/**
+ * The stable `pty_session` id for a project's app build. MUST match the backend
+ * format in `mobile.rs` (`build_session_id_for`) so teardown kills the right
+ * session and re-open across tab switches is idempotent.
+ */
+export function buildSessionId(projectPath: string): string {
+  return `mobile-build:${projectPath}`;
+}
+
 /** Stop the serve-sim mirror for a simulator (or all if udid is empty). */
 export async function stopSimulatorMirror(udid: string): Promise<void> {
   return invoke('stop_simulator_mirror', { udid });
@@ -104,12 +133,17 @@ const PHASE_TO_SERVE_SIM: Record<TouchPhase, string> = {
   up: 'end',
 };
 
+/** Cap on touch frames buffered while the socket is still connecting, so a
+ *  socket that never opens can't grow this unboundedly. A tap is 2 frames; this
+ *  is a few gestures' worth — enough to cover the brief connect window. */
+const MAX_PENDING_TOUCHES = 64;
+
 /**
  * Open the serve-sim control WebSocket and return a small input API. The caller
  * sends normalized 0..1 coordinates (origin top-left); serve-sim maps them to
- * the device surface. Touches sent before the socket finishes opening are
- * dropped (serve-sim has no input backlog); callers should expect a brief
- * post-connect window where taps are ignored.
+ * the device surface. Touches sent during the brief CONNECTING window are
+ * buffered and flushed once the socket opens (so the user's first tap isn't
+ * silently dropped); touches after the socket closes are discarded.
  */
 export function connectInputChannel(wsUrl: string): {
   socket: WebSocket;
@@ -120,20 +154,33 @@ export function connectInputChannel(wsUrl: string): {
   socket.binaryType = 'arraybuffer';
   const encoder = new TextEncoder();
   const clamp = (n: number) => Math.min(1, Math.max(0, n));
+  // Frames sent before the socket finishes opening — flushed on 'open'.
+  const pending: Uint8Array[] = [];
+
+  socket.addEventListener('open', () => {
+    for (const frame of pending) socket.send(frame);
+    pending.length = 0;
+  });
+
   const sendTouch = (phase: TouchPhase, x: number, y: number) => {
-    if (socket.readyState !== WebSocket.OPEN) return;
     const json = encoder.encode(
       JSON.stringify({ type: PHASE_TO_SERVE_SIM[phase], x: clamp(x), y: clamp(y) })
     );
     const frame = new Uint8Array(1 + json.length);
     frame[0] = TOUCH_OPCODE;
     frame.set(json, 1);
-    socket.send(frame);
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(frame);
+    } else if (socket.readyState === WebSocket.CONNECTING) {
+      if (pending.length < MAX_PENDING_TOUCHES) pending.push(frame);
+    }
+    // CLOSING / CLOSED → drop.
   };
   return {
     socket,
     sendTouch,
     close: () => {
+      pending.length = 0;
       try {
         socket.close();
       } catch {
