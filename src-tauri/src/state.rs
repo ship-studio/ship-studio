@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Maps project_path -> window_label for all open project windows.
@@ -55,6 +55,90 @@ pub fn take_all_booted_sims() -> Vec<BootedSim> {
     match MOBILE_SIMS.lock() {
         Ok(mut map) => map.drain().map(|(_, sim)| sim).collect(),
         Err(_) => Vec::new(),
+    }
+}
+
+// ============ Mobile Preview Sessions ============
+
+/// A live native mobile preview: the booted simulator, its `serve-sim` mirror,
+/// and the optional app-build PTY session. Owned by the backend (not the React
+/// component) so it survives tab switches and is torn down deterministically on
+/// suspend / project-close / window-close.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MobileSession {
+    /// The booted simulator's UDID — also what `serve-sim --kill <udid>` takes.
+    pub udid: String,
+    /// True only if WE booted the sim — drives whether it's shut down on close.
+    pub booted_by_us: bool,
+    /// The live `serve-sim` mirror port (parsed back from serve-sim's output).
+    pub serve_sim_port: u16,
+    /// True only if we reserved `serve_sim_port` via `find_and_reserve_port`;
+    /// teardown releases the port iff this is true.
+    pub port_was_reserved: bool,
+    /// The `pty_session` id running the app build (e.g. `mobile-build:<path>`),
+    /// if a build was launched. Killed on teardown (it lives in pty_session's
+    /// registry, which the PTY_REGISTRY sweeps do NOT reach).
+    pub build_session_id: Option<String>,
+    /// Owning window label — lets window-close teardown find sessions by window.
+    pub window_label: String,
+}
+
+/// Maps `project_path -> MobileSession` for active mobile previews.
+pub static MOBILE_SESSIONS: LazyLock<Mutex<HashMap<String, MobileSession>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Record (or replace) the mobile preview session for a project.
+pub fn register_mobile_session(project_path: String, session: MobileSession) {
+    if let Ok(mut map) = MOBILE_SESSIONS.lock() {
+        map.insert(project_path, session);
+    }
+}
+
+/// Clone the mobile session for a project without removing it (for idempotent
+/// reuse in `start_mobile_preview`).
+pub fn get_mobile_session(project_path: &str) -> Option<MobileSession> {
+    MOBILE_SESSIONS.lock().ok()?.get(project_path).cloned()
+}
+
+/// Remove and return the mobile session for a project (the teardown entry point).
+pub fn take_mobile_session(project_path: &str) -> Option<MobileSession> {
+    MOBILE_SESSIONS.lock().ok()?.remove(project_path)
+}
+
+/// Remove and return every mobile session owned by a window (window-close
+/// teardown). Mirrors `release_port_for_window`'s filter-by-label pattern.
+pub fn take_mobile_sessions_for_window(window_label: &str) -> Vec<MobileSession> {
+    let Ok(mut map) = MOBILE_SESSIONS.lock() else {
+        return Vec::new();
+    };
+    let keys: Vec<String> = map
+        .iter()
+        .filter(|(_, s)| s.window_label == window_label)
+        .map(|(path, _)| path.clone())
+        .collect();
+    keys.into_iter().filter_map(|k| map.remove(&k)).collect()
+}
+
+/// Per-project async locks serializing the slow `simctl boot` so two concurrent
+/// `start_mobile_preview` calls for the same project can't both boot. The std
+/// `Mutex` here guards only instant map ops; the inner `tokio::sync::Mutex` is
+/// what callers hold across the boot `.await`.
+static MOBILE_BOOT_LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Get (or create) the boot lock for a project.
+pub fn boot_lock_for(project_path: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let mut map = MOBILE_BOOT_LOCKS
+        .lock()
+        .expect("MOBILE_BOOT_LOCKS poisoned");
+    map.entry(project_path.to_string()).or_default().clone()
+}
+
+/// Drop a project's boot lock so the map can't grow unbounded. Called from
+/// teardown once the preview is gone.
+pub fn drop_boot_lock(project_path: &str) {
+    if let Ok(mut map) = MOBILE_BOOT_LOCKS.lock() {
+        map.remove(project_path);
     }
 }
 
@@ -475,4 +559,62 @@ pub fn get_reserved_port(window_label: &str, project_path: &str) -> Option<u16> 
         result
     );
     result
+}
+
+#[cfg(test)]
+mod mobile_session_tests {
+    use super::*;
+
+    fn sample(window_label: &str) -> MobileSession {
+        MobileSession {
+            udid: "UDID-1".into(),
+            booted_by_us: true,
+            serve_sim_port: 3100,
+            port_was_reserved: false,
+            build_session_id: Some("mobile-build:/p".into()),
+            window_label: window_label.into(),
+        }
+    }
+
+    #[test]
+    fn register_then_take_round_trips() {
+        // Unique key so parallel tests don't collide on global state.
+        let path = "/tmp/ms-roundtrip";
+        register_mobile_session(path.into(), sample("main"));
+        assert_eq!(get_mobile_session(path).unwrap().udid, "UDID-1");
+        let taken = take_mobile_session(path).expect("session present");
+        assert!(taken.booted_by_us);
+        // Taking removes it.
+        assert!(get_mobile_session(path).is_none());
+        assert!(take_mobile_session(path).is_none());
+    }
+
+    #[test]
+    fn take_for_window_drains_only_matching_label() {
+        register_mobile_session("/tmp/ms-w-a".into(), sample("win-X"));
+        register_mobile_session("/tmp/ms-w-b".into(), sample("win-X"));
+        register_mobile_session("/tmp/ms-w-c".into(), sample("win-Y"));
+
+        let drained = take_mobile_sessions_for_window("win-X");
+        assert_eq!(drained.len(), 2, "only win-X sessions drained");
+        assert!(get_mobile_session("/tmp/ms-w-a").is_none());
+        assert!(get_mobile_session("/tmp/ms-w-b").is_none());
+        // win-Y untouched.
+        assert!(get_mobile_session("/tmp/ms-w-c").is_some());
+        take_mobile_session("/tmp/ms-w-c"); // cleanup
+    }
+
+    #[test]
+    fn boot_lock_is_stable_per_project_and_droppable() {
+        let path = "/tmp/ms-bootlock";
+        let a = boot_lock_for(path);
+        let b = boot_lock_for(path);
+        // Same project → same underlying lock instance.
+        assert!(Arc::ptr_eq(&a, &b));
+        drop_boot_lock(path);
+        let c = boot_lock_for(path);
+        // After drop, a fresh lock is minted.
+        assert!(!Arc::ptr_eq(&a, &c));
+        drop_boot_lock(path); // cleanup
+    }
 }
