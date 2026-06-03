@@ -32,7 +32,7 @@ import {
 import { checkDependenciesInstalled } from '../lib/project';
 import { attachPtySession } from '../lib/ptySession';
 import { getWindowLabel } from '../lib/window';
-import { SpinnerIcon, ResetIcon, ClaudeIcon } from './icons';
+import { SpinnerIcon, ResetIcon } from './icons';
 import { Button } from './primitives/Button';
 import { BuildTerminal } from './BuildTerminal';
 
@@ -153,10 +153,10 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
     if (exitCode === 0) setBuildOpen(false); // collapse once it's up
   }, []);
 
-  // Hand the failing build's output to the embedded Claude agent so it can
-  // diagnose and fix it — the whole point of Ship Studio is the agent does the
-  // heavy lifting, so the user shouldn't have to read xcodebuild stack traces.
-  const askAgentToFix = useCallback(async () => {
+  // Hand the failing build's output to the embedded agent so it can diagnose and
+  // fix it — the whole point of Ship Studio is the agent does the heavy lifting,
+  // so the user shouldn't have to read xcodebuild stack traces.
+  const sendBuildToAgent = useCallback(async () => {
     let log = '';
     try {
       const attach = await attachPtySession(buildSessionId(projectPath));
@@ -259,8 +259,8 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
             )}
             {launchStatus === 'failed' && onSendToAgent && (
               <div className="device-mirror-build-actions">
-                <Button variant="primary" size="sm" onClick={() => void askAgentToFix()}>
-                  <ClaudeIcon size={14} /> Fix with AI
+                <Button variant="primary" size="sm" onClick={() => void sendBuildToAgent()}>
+                  Send to agent
                 </Button>
               </div>
             )}
