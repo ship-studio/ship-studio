@@ -48,54 +48,68 @@
   -webkit-user-drag: none;
 }
 
-.device-mirror-sim-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  margin: var(--spacing-sm) 0;
-}
-
-/* Collapsible build/launch log shown under the mirror while the app builds. */
-.device-mirror-buildlog {
+/* Collapsible, interactive build panel under the mirror. Hosts BuildTerminal
+   (a real pty_session terminal) so the app build is live and its prompts are
+   answerable. Kept mounted while collapsed so the build keeps running. */
+.device-mirror-build {
+  flex-shrink: 0;
   border-top: 1px solid var(--border);
   background: var(--bg-primary);
-  max-height: 40%;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.device-mirror-buildlog > summary {
+.device-mirror-build-summary {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
+  width: 100%;
   padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  background: transparent;
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
+  text-align: left;
 }
 
-.device-mirror-buildlog > summary[data-state='failed'] {
+.device-mirror-build-summary[data-state='failed'] {
   color: var(--danger, #e5484d);
 }
 
-.device-mirror-buildlog > summary[data-state='finished'] {
+.device-mirror-build-summary[data-state='finished'] {
   color: var(--success, #46a758);
 }
 
-.device-mirror-buildlog > summary[data-state='needs-install'] {
+.device-mirror-build-title {
+  flex: 1;
+}
+
+.device-mirror-build-caret {
+  color: var(--text-muted);
+}
+
+.device-mirror-build-hint {
+  margin: 0;
+  padding: 0 var(--spacing-sm) var(--spacing-xs);
+  font-size: 11px;
   color: var(--warning, #f59e0b);
 }
 
-.device-mirror-buildlog-output {
-  margin: 0;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  overflow: auto;
+.device-mirror-build-hint code {
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  word-break: break-word;
+}
+
+/* Fixed height so xterm has a sized container to fit into. */
+.device-mirror-build-body {
+  height: 240px;
+  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
+  overflow: hidden;
+}
+
+.build-terminal {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }

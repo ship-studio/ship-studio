@@ -1,16 +1,19 @@
 /**
  * DeviceMirror — live, interactive iOS Simulator preview.
  *
- * On mount it auto-connects: lists booted simulators, boots a sensible default
- * (newest available iPhone) if none is running, starts a serve-sim mirror, and
- * embeds the MJPEG stream. Mouse input is forwarded as normalized touch events
- * over serve-sim's WebSocket control channel.
+ * A **thin view** over a backend-owned mobile preview session. On mount it asks
+ * the backend to {@link startMobilePreview} (which boots a sim if needed, starts
+ * a serve-sim mirror, and reserves a port), embeds the MJPEG stream, and forwards
+ * pointer events as normalized touches over serve-sim's WebSocket. The app build
+ * runs in an embedded interactive {@link BuildTerminal}.
  *
- * The simulator we boot is left running on disconnect (shutting down a device
- * the user may be using would be hostile); only our serve-sim daemon is torn
- * down. This is the mobile counterpart to {@link Preview}.
+ * Crucially, **unmounting tears down nothing native** — the simulator, the
+ * serve-sim daemon, and the build all outlive this component. The backend owns
+ * their lifecycle and tears them down on project suspend / close / window close.
+ * That's what lets a multi-minute build survive a tab switch. This is the mobile
+ * counterpart to {@link Preview}.
  *
- * See docs/mobile-app-preview-plan.md (§10c).
+ * See docs/mobile-app-preview-plan.md (§10c) and docs/mobile-app-preview-status.md.
  *
  * @module components/DeviceMirror
  */
@@ -18,34 +21,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { logger } from '../lib/logger';
 import {
+  startMobilePreview,
   listBootedSimulators,
-  bootDefaultSimulator,
-  startSimulatorMirror,
-  stopSimulatorMirror,
   getSimulatorLaunchCommand,
   connectInputChannel,
+  buildSessionId,
   type MirrorInfo,
   type MobileSimulator,
 } from '../lib/mobile';
-import { startDevServer, checkDependenciesInstalled, type DevServerHandle } from '../lib/project';
+import { checkDependenciesInstalled } from '../lib/project';
 import { getWindowLabel } from '../lib/window';
-import { SpinnerIcon, ResetIcon, CloseIcon } from './icons';
+import { SpinnerIcon, ResetIcon } from './icons';
 import { Button } from './primitives/Button';
+import { BuildTerminal } from './BuildTerminal';
 
 interface DeviceMirrorProps {
   /** Project name, for guidance copy. */
   projectName: string;
-  /** Absolute project path — used to boot/register the sim and launch the app. */
+  /** Absolute project path — used to start/key the backend preview session. */
   projectPath: string;
 }
 
 type InputChannel = ReturnType<typeof connectInputChannel>;
-type Status = 'starting' | 'booting' | 'connecting' | 'connected' | 'idle' | 'error';
-/** App-launch progress, shown in the build-log panel under the mirror. */
-type LaunchStatus = 'none' | 'needs-install' | 'building' | 'finished' | 'failed' | 'unsupported';
-
-/** Keep the build log bounded so a chatty bundler can't grow it unboundedly. */
-const MAX_LAUNCH_LOG = 12000;
+type Status = 'starting' | 'connected' | 'error';
+/** App-build progress, shown on the build panel's summary under the mirror. */
+type LaunchStatus = 'none' | 'building' | 'finished' | 'failed' | 'unsupported';
 
 export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
   const [status, setStatus] = useState<Status>('starting');
@@ -53,115 +53,75 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
   const [device, setDevice] = useState<MobileSimulator | null>(null);
   const [launchStatus, setLaunchStatus] = useState<LaunchStatus>('none');
-  const [launchLog, setLaunchLog] = useState('');
+  const [buildCommand, setBuildCommand] = useState<string | null>(null);
+  const [buildOpen, setBuildOpen] = useState(true);
+  const [needsInstall, setNeedsInstall] = useState(false);
 
   const inputRef = useRef<InputChannel | null>(null);
-  // UDID of the live mirror, so `disconnect` can stop the right daemon.
-  const activeUdidRef = useRef<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const isPointerDown = useRef(false);
 
-  // Bump to (re)run the connect flow — used by Retry / Reconnect.
+  // Bump to re-run the connect flow (Restart / Try again).
   const [attempt, setAttempt] = useState(0);
 
-  // Connect flow: list → (boot default if none) → start mirror → stream.
-  // Each run owns a local `cancelled` flag and tears down whatever IT started,
-  // so React StrictMode's dev double-mount (and any real unmount or retry)
-  // cancels cleanly without leaking the serve-sim daemon or stranding status.
+  // Connect flow: start the backend session → embed stream → wire input →
+  // auto-launch the build. Each run owns a local `cancelled` flag so React
+  // StrictMode's dev double-mount (and any real unmount/retry) only closes THIS
+  // run's WebSocket — it never tears down the backend session (the backend owns
+  // that lifecycle), so the mirror + build survive tab switches.
   useEffect(() => {
     let cancelled = false;
-    let startedUdid: string | null = null;
     let channel: InputChannel | null = null;
-    let launchHandle: DevServerHandle | null = null;
 
-    // Build + launch the project's app onto the booted sim, streaming output to
-    // the build log. Non-fatal: a launch failure leaves the mirror working.
-    const launchApp = async (udid: string) => {
+    const resolveBuild = async (udid: string) => {
       let cmd: string;
       try {
         cmd = await getSimulatorLaunchCommand(projectPath, udid);
       } catch {
-        // Project type we don't know how to launch — leave the mirror as-is.
         if (!cancelled) setLaunchStatus('unsupported');
         return;
       }
       if (cancelled) return;
-
-      // Don't run a doomed build: a JS project with no node_modules will make
-      // the bundler stall on an interactive "install packages?" prompt that the
-      // read-only log can't answer. Tell the user to install first instead.
+      // Soft signal only — an interactive terminal can surface/answer a missing
+      // install, so we hint rather than block the launch (unlike the old gate).
       try {
         const dep = await checkDependenciesInstalled(projectPath);
-        if (cancelled) return;
-        if (dep.hasPackageJson && !dep.installed) {
-          setLaunchStatus('needs-install');
-          setLaunchLog('Install dependencies first, then Reconnect:\n\n  npm install\n');
-          return;
-        }
+        if (!cancelled && dep.hasPackageJson && !dep.installed) setNeedsInstall(true);
       } catch {
-        /* dep check is best-effort; fall through and try the launch */
+        /* dep check is best-effort */
       }
-
+      if (cancelled) return;
+      setBuildCommand(cmd);
+      setBuildOpen(true);
       setLaunchStatus('building');
-      setLaunchLog(`$ ${cmd}\n`);
-      logger.info('[DeviceMirror] launching app', { cmd });
-      try {
-        launchHandle = await startDevServer(
-          projectPath,
-          0,
-          getWindowLabel(),
-          (data) => {
-            if (!cancelled) setLaunchLog((prev) => (prev + data).slice(-MAX_LAUNCH_LOG));
-          },
-          cmd
-        );
-        // Reflect the real outcome so it never "looks done" while building.
-        launchHandle.pty.onExit(({ exitCode }) => {
-          if (!cancelled) setLaunchStatus(exitCode === 0 ? 'finished' : 'failed');
-        });
-      } catch (err) {
-        if (cancelled) return;
-        setLaunchStatus('failed');
-        setLaunchLog((prev) => prev + `\n${err instanceof Error ? err.message : String(err)}\n`);
-      }
     };
 
     const run = async () => {
       if (cancelled) return;
       setErrorMsg(null);
       setStatus('starting');
+      setLaunchStatus('none');
+      setBuildCommand(null);
+      setNeedsInstall(false);
       try {
-        logger.info('[DeviceMirror] listing booted simulators');
-        let target: MobileSimulator;
-        const sims = await listBootedSimulators();
+        logger.info('[DeviceMirror] starting backend mobile preview');
+        const info = await startMobilePreview(projectPath, getWindowLabel());
         if (cancelled) return;
-        logger.info('[DeviceMirror] booted simulators', { count: sims.length });
-        if (sims.length > 0) {
-          target = sims[0]; // attach to a user-booted sim (we won't shut it down)
-        } else {
-          setStatus('booting');
-          logger.info('[DeviceMirror] no booted sim; booting default');
-          const result = await bootDefaultSimulator(projectPath);
-          if (cancelled) return;
-          target = result.simulator;
-          logger.info('[DeviceMirror] booted default', { udid: target.udid });
-        }
-        setDevice(target);
-
-        setStatus('connecting');
-        logger.info('[DeviceMirror] starting mirror', { udid: target.udid });
-        startedUdid = target.udid;
-        const info = await startSimulatorMirror(target.udid);
-        logger.info('[DeviceMirror] mirror started', { stream: info.stream_url });
-        if (cancelled) return; // cleanup stops `startedUdid`
+        logger.info('[DeviceMirror] preview started', { stream: info.stream_url });
         channel = connectInputChannel(info.ws_url);
         inputRef.current = channel;
-        activeUdidRef.current = target.udid;
         setMirror(info);
         setStatus('connected');
 
-        // Fire-and-watch the app launch (its own try/catch; never blocks the mirror).
-        void launchApp(target.udid);
+        // Resolve the device's friendly name for the toolbar (best-effort).
+        void listBootedSimulators()
+          .then((sims) => {
+            if (!cancelled) setDevice(sims.find((s) => s.udid === info.udid) ?? null);
+          })
+          .catch(() => {});
+
+        // Auto-launch the app build into the embedded terminal.
+        void resolveBuild(info.udid);
       } catch (err) {
         if (cancelled) return;
         logger.error('[DeviceMirror] failed', {
@@ -179,30 +139,16 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
       isPointerDown.current = false;
       channel?.close();
       if (inputRef.current === channel) inputRef.current = null;
-      void launchHandle?.stop();
-      if (startedUdid) {
-        void stopSimulatorMirror(startedUdid);
-        if (activeUdidRef.current === startedUdid) activeUdidRef.current = null;
-      }
+      // No native teardown here — the backend owns the session lifecycle.
     };
   }, [attempt, projectPath]);
 
-  // Stop the mirror but stay mounted (manual disconnect → idle). The effect's
-  // cleanup also stops the daemon on unmount/retry; double-stop is a no-op.
-  const disconnect = useCallback(() => {
-    inputRef.current?.close();
-    inputRef.current = null;
-    isPointerDown.current = false;
-    const udid = activeUdidRef.current;
-    activeUdidRef.current = null;
-    setMirror(null);
-    setStatus('idle');
-    setLaunchStatus('none');
-    setLaunchLog('');
-    if (udid) void stopSimulatorMirror(udid);
-  }, []);
+  const restart = useCallback(() => setAttempt((a) => a + 1), []);
 
-  const retry = useCallback(() => setAttempt((a) => a + 1), []);
+  const onBuildExit = useCallback((exitCode: number) => {
+    setLaunchStatus(exitCode === 0 ? 'finished' : 'failed');
+    if (exitCode === 0) setBuildOpen(false); // collapse once it's up
+  }, []);
 
   // Map a pointer event to normalized 0..1 coords over the streamed image.
   const toNorm = (e: React.PointerEvent): { x: number; y: number } | null => {
@@ -234,6 +180,14 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
 
   // ---- Connected: the live mirror ----
   if (status === 'connected' && mirror) {
+    const summary =
+      launchStatus === 'building'
+        ? 'Building & launching your app… (can take several minutes)'
+        : launchStatus === 'finished'
+          ? 'App launched · build finished'
+          : launchStatus === 'failed'
+            ? 'Build exited — see log'
+            : '';
     return (
       <div className="device-mirror">
         <div className="device-mirror-toolbar">
@@ -242,8 +196,8 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
               ? `${device.name}${device.runtime ? ` · ${device.runtime}` : ''} · live`
               : 'iOS Simulator · live'}
           </span>
-          <Button variant="ghost" size="sm" onClick={disconnect}>
-            <CloseIcon size={14} /> Disconnect
+          <Button variant="ghost" size="sm" onClick={restart}>
+            <ResetIcon size={14} /> Restart
           </Button>
         </div>
         <div className="device-mirror-stage">
@@ -259,21 +213,37 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
             onPointerCancel={onPointerUp}
           />
         </div>
-        {launchStatus !== 'none' && launchStatus !== 'unsupported' && (
-          <details className="device-mirror-buildlog" open={launchStatus !== 'finished'}>
-            <summary data-state={launchStatus}>
+        {buildCommand && launchStatus !== 'unsupported' && (
+          <div className={`device-mirror-build${buildOpen ? ' open' : ''}`}>
+            <button
+              type="button"
+              className="device-mirror-build-summary"
+              data-state={launchStatus}
+              onClick={() => setBuildOpen((o) => !o)}
+            >
               {launchStatus === 'building' && <SpinnerIcon size={12} />}
-              <span>
-                {launchStatus === 'building' &&
-                  'Building & launching your app… (can take several minutes)'}
-                {launchStatus === 'needs-install' &&
-                  'Dependencies not installed — run npm install, then Reconnect'}
-                {launchStatus === 'finished' && 'App launched · build finished'}
-                {launchStatus === 'failed' && 'Build failed — see log below'}
-              </span>
-            </summary>
-            <pre className="device-mirror-buildlog-output">{launchLog || '(no output yet)'}</pre>
-          </details>
+              <span className="device-mirror-build-title">{summary}</span>
+              <span className="device-mirror-build-caret">{buildOpen ? '▾' : '▸'}</span>
+            </button>
+            {needsInstall && (
+              <p className="device-mirror-build-hint">
+                Dependencies may not be installed — if the build fails, run <code>npm install</code>{' '}
+                and Restart.
+              </p>
+            )}
+            <div
+              className="device-mirror-build-body"
+              style={{ display: buildOpen ? 'flex' : 'none' }}
+            >
+              <BuildTerminal
+                sessionId={buildSessionId(projectPath)}
+                command={buildCommand}
+                cwd={projectPath}
+                isActive={buildOpen}
+                onExit={onBuildExit}
+              />
+            </div>
+          </div>
         )}
       </div>
     );
@@ -284,44 +254,25 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
     const needsXcode = /xcrun|xcode|command line tools/i.test(errorMsg ?? '');
     return (
       <div className="preview-install-prompt">
-        <h3>{needsXcode ? 'iOS tooling unavailable' : "Couldn't start the mirror"}</h3>
+        <h3>{needsXcode ? 'iOS tooling unavailable' : "Couldn't start the preview"}</h3>
         <p className="hint">
           {needsXcode
             ? 'Previewing a mobile app needs Xcode command line tools. Install Xcode, then run xcode-select --install.'
-            : `Ship Studio couldn't mirror a simulator for ${projectName}.`}
+            : `Ship Studio couldn't start a simulator preview for ${projectName}.`}
         </p>
         {errorMsg && <p className="hint">{errorMsg}</p>}
-        <Button variant="secondary" size="sm" onClick={retry}>
+        <Button variant="secondary" size="sm" onClick={restart}>
           <ResetIcon size={14} /> Try again
         </Button>
       </div>
     );
   }
 
-  // ---- Idle (after manual disconnect) ----
-  if (status === 'idle') {
-    return (
-      <div className="preview-install-prompt">
-        <h3>Disconnected</h3>
-        <p className="hint">The simulator is still running. Reconnect to preview {projectName}.</p>
-        <Button variant="primary" size="sm" onClick={retry}>
-          Reconnect
-        </Button>
-      </div>
-    );
-  }
-
-  // ---- Progress (starting / booting / connecting) ----
-  const message =
-    status === 'booting'
-      ? 'Booting iOS Simulator… (first boot can take ~30s)'
-      : status === 'connecting'
-        ? 'Starting the live mirror…'
-        : 'Looking for a simulator…';
+  // ---- Progress (starting) ----
   return (
     <div className="preview-loading">
       <SpinnerIcon size={24} />
-      <span className="hint">{message}</span>
+      <span className="hint">Starting the iOS preview… (first boot can take ~30s)</span>
     </div>
   );
 }
