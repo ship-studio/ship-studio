@@ -59,53 +59,96 @@
   flex-direction: column;
 }
 
-.device-mirror-build-summary {
+/* Header row — mirrors the dev-server-logs toolbar pattern: status on the
+   left, subtle actions on the right. */
+.device-mirror-build-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.device-mirror-build-toggle {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  width: 100%;
-  padding: var(--spacing-xs) var(--spacing-sm);
+  padding: 0;
   border: none;
-  /* Override the global button radius — this is a full-width bar, not a pill. */
   border-radius: 0;
   background: transparent;
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
-  user-select: none;
   text-align: left;
 }
 
-.device-mirror-build-summary:hover {
-  background: var(--bg-tertiary);
-}
-
-/* "Fix with AI" and other build actions, shown on failure. */
-.device-mirror-build-actions {
-  display: flex;
-  gap: var(--spacing-xs);
-  padding: 0 var(--spacing-sm) var(--spacing-xs);
-}
-
-.device-mirror-build-summary[data-state='failed'] {
+.device-mirror-build-toggle[data-state='failed'] {
   color: var(--danger, #e5484d);
 }
 
-.device-mirror-build-summary[data-state='finished'] {
+.device-mirror-build-toggle[data-state='finished'] {
   color: var(--success, #46a758);
 }
 
 .device-mirror-build-title {
-  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.device-mirror-build-caret {
+/* Subtle bordered action button — identical treatment to .dev-server-logs-send. */
+.device-mirror-build-send {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color var(--transition),
+    border-color var(--transition);
+}
+
+.device-mirror-build-send:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.device-mirror-build-chevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.device-mirror-build-chevron:hover {
+  color: var(--text-primary);
+}
+
+.device-mirror-build-chevron svg {
+  transition: transform var(--transition);
+}
+
+.device-mirror-build-chevron.open svg {
+  transform: rotate(180deg);
 }
 
 .device-mirror-build-hint {
   margin: 0;
-  padding: 0 var(--spacing-sm) var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-md);
   font-size: 11px;
   color: var(--warning, #f59e0b);
 }
@@ -117,7 +160,7 @@
 /* Fixed height so xterm has a sized container to fit into. */
 .device-mirror-build-body {
   height: 240px;
-  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-sm);
   overflow: hidden;
 }
 

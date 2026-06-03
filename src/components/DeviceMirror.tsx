@@ -32,7 +32,7 @@ import {
 import { checkDependenciesInstalled } from '../lib/project';
 import { attachPtySession } from '../lib/ptySession';
 import { getWindowLabel } from '../lib/window';
-import { SpinnerIcon, ResetIcon } from './icons';
+import { SpinnerIcon, ResetIcon, ChevronIcon } from './icons';
 import { Button } from './primitives/Button';
 import { BuildTerminal } from './BuildTerminal';
 
@@ -241,28 +241,41 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
         </div>
         {buildCommand && launchStatus !== 'unsupported' && (
           <div className={`device-mirror-build${buildOpen ? ' open' : ''}`}>
-            <button
-              type="button"
-              className="device-mirror-build-summary"
-              data-state={launchStatus}
-              onClick={() => setBuildOpen((o) => !o)}
-            >
-              {launchStatus === 'building' && <SpinnerIcon size={12} />}
-              <span className="device-mirror-build-title">{summary}</span>
-              <span className="device-mirror-build-caret">{buildOpen ? '▾' : '▸'}</span>
-            </button>
+            <div className="device-mirror-build-header">
+              <button
+                type="button"
+                className="device-mirror-build-toggle"
+                data-state={launchStatus}
+                onClick={() => setBuildOpen((o) => !o)}
+                aria-expanded={buildOpen}
+              >
+                {launchStatus === 'building' && <SpinnerIcon size={12} />}
+                <span className="device-mirror-build-title">{summary}</span>
+              </button>
+              {launchStatus === 'failed' && onSendToAgent && (
+                <button
+                  type="button"
+                  className="device-mirror-build-send"
+                  onClick={() => void sendBuildToAgent()}
+                  title="Send the build error to the active agent"
+                >
+                  Send to agent
+                </button>
+              )}
+              <button
+                type="button"
+                className={`device-mirror-build-chevron${buildOpen ? ' open' : ''}`}
+                onClick={() => setBuildOpen((o) => !o)}
+                aria-label={buildOpen ? 'Collapse build log' : 'Expand build log'}
+              >
+                <ChevronIcon size={14} />
+              </button>
+            </div>
             {needsInstall && (
               <p className="device-mirror-build-hint">
                 Dependencies may not be installed — if the build fails, run <code>npm install</code>{' '}
                 and Restart.
               </p>
-            )}
-            {launchStatus === 'failed' && onSendToAgent && (
-              <div className="device-mirror-build-actions">
-                <Button variant="primary" size="sm" onClick={() => void sendBuildToAgent()}>
-                  Send to agent
-                </Button>
-              </div>
             )}
             <div
               className="device-mirror-build-body"
