@@ -473,6 +473,7 @@ pub fn run() {
             commands::mobile::boot_default_simulator,
             commands::mobile::start_simulator_mirror,
             commands::mobile::stop_simulator_mirror,
+            commands::mobile::start_mobile_preview,
             commands::mobile::get_simulator_launch_command,
             commands::mobile::shutdown_simulator_for_project,
             // PTY & Terminal

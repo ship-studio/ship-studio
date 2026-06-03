@@ -467,6 +467,192 @@ pub async fn stop_simulator_mirror(udid: String) -> Result<(), CommandError> {
     Ok(())
 }
 
+// serve-sim's stream server defaults to 3100; we reserve from there so the
+// mirror never collides with a dev server (3000-range) or another window.
+const SERVE_SIM_BASE_PORT: u16 = 3100;
+
+/// Ensure a simulator is available with **correct preference**, without touching
+/// any registry (the caller records the session). Unlike the legacy
+/// `boot_default_simulator`, when `preferred` is set but not currently booted
+/// this boots *that* device rather than silently attaching to another.
+async fn ensure_simulator(preferred: Option<String>) -> Result<BootResult, CommandError> {
+    let booted = list_booted_simulators().await?;
+
+    if let Some(pref) = preferred.as_deref().filter(|p| !p.is_empty()) {
+        // Reuse the requested device if it's already booted; else boot exactly it.
+        if let Some(sim) = booted.iter().find(|s| s.udid == pref).cloned() {
+            return Ok(BootResult {
+                simulator: sim,
+                booted_by_us: false,
+            });
+        }
+        return boot_specific_simulator(pref).await;
+    }
+
+    // No preference: attach to any booted sim (respect the user's machine), else
+    // boot the newest available iPhone.
+    if let Some(sim) = booted.into_iter().next() {
+        return Ok(BootResult {
+            simulator: sim,
+            booted_by_us: false,
+        });
+    }
+    let available = simctl_stdout(
+        &["list", "devices", "available", "--json"],
+        "xcrun simctl list available",
+        SIMCTL_TIMEOUT_SECS,
+    )
+    .await?;
+    let target = choose_default_simulator(&available)
+        .ok_or("No available iOS simulator to boot. Add one in Xcode › Settings › Components.")?;
+    boot_specific_simulator(&target.udid).await
+}
+
+/// Boot a specific simulator by udid and wait until it's fully ready. Returns it
+/// with `booted_by_us = true`. Treats "already booted" as success.
+async fn boot_specific_simulator(udid: &str) -> Result<BootResult, CommandError> {
+    let mut boot_cmd = xcrun_command();
+    boot_cmd.args(["simctl", "boot", udid]);
+    let out = crate::external_command::run_with_timeout(
+        tokio::process::Command::from(boot_cmd),
+        "xcrun simctl boot",
+        SIMCTL_TIMEOUT_SECS,
+    )
+    .await?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if !stderr.contains("current state: Booted") {
+            return Err(CommandError::Process {
+                cmd: "xcrun simctl boot".to_string(),
+                exit_code: out.status.code().unwrap_or(-1),
+                stderr: stderr.to_string(),
+            });
+        }
+    }
+    // Block until fully booted (deterministic, no sleeps).
+    let _ = simctl_stdout(
+        &["bootstatus", udid, "-b"],
+        "xcrun simctl bootstatus",
+        BOOT_WAIT_TIMEOUT_SECS,
+    )
+    .await?;
+    let sim = list_booted_simulators()
+        .await?
+        .into_iter()
+        .find(|s| s.udid == udid)
+        .ok_or("Simulator was booted but isn't reporting as booted yet.")?;
+    Ok(BootResult {
+        simulator: sim,
+        booted_by_us: true,
+    })
+}
+
+/// Spawn a `serve-sim` mirror for a booted sim on the given starting port and
+/// parse back the connection details (serve-sim may pick a higher port).
+async fn spawn_serve_sim(udid: &str, start_port: u16) -> Result<MirrorInfo, CommandError> {
+    let mut cmd = npx_command();
+    cmd.args([
+        "-y",
+        "serve-sim",
+        "--detach",
+        "--quiet",
+        "--port",
+        &start_port.to_string(),
+        udid,
+    ]);
+    let stdout = run_to_stdout(
+        tokio::process::Command::from(cmd),
+        "serve-sim --detach",
+        SERVE_SIM_TIMEOUT_SECS,
+    )
+    .await?;
+    parse_mirror_info(&stdout)
+}
+
+/// Start (or reuse) a complete native mobile preview for a project: ensure a
+/// simulator is booted, reserve a port, start a `serve-sim` mirror, and register
+/// the session so the backend — not the React component — owns its lifecycle.
+///
+/// Idempotent and serialized per project: concurrent calls for the same project
+/// share one boot. `preferred` pins a specific device (frontend passes `null` in
+/// v1). The returned [`MirrorInfo`] is what the frontend embeds; the app build is
+/// launched separately as a `pty_session`.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn start_mobile_preview(
+    project_path: String,
+    window_label: String,
+    preferred: Option<String>,
+) -> Result<MirrorInfo, CommandError> {
+    // Serialize per project so two concurrent starts can't both boot a sim.
+    let lock = crate::state::boot_lock_for(&project_path);
+    let _guard = lock.lock().await;
+
+    // Idempotent: a live mirror already exists → hand back its connection info.
+    if let Some(existing) = crate::state::get_mobile_session(&project_path) {
+        tracing::info!(udid = %existing.udid, "start_mobile_preview: reusing live session");
+        return Ok(MirrorInfo {
+            udid: existing.udid,
+            stream_url: format!("http://127.0.0.1:{}/stream.mjpeg", existing.serve_sim_port),
+            ws_url: format!("ws://127.0.0.1:{}/ws", existing.serve_sim_port),
+            port: existing.serve_sim_port,
+        });
+    }
+
+    // 1. Ensure a simulator (correct preference, no registry side effects).
+    let boot = ensure_simulator(preferred).await?;
+    let udid = boot.simulator.udid.clone();
+
+    // 2. Reserve a known-free port for the mirror.
+    let reserved = crate::commands::pty::find_and_reserve_port(
+        window_label.clone(),
+        project_path.clone(),
+        SERVE_SIM_BASE_PORT,
+    )?;
+
+    // 3. Start the mirror; on failure, release the port and don't strand a sim
+    //    we just booted.
+    let info = match spawn_serve_sim(&udid, reserved).await {
+        Ok(info) => info,
+        Err(e) => {
+            crate::state::release_port_for_project(&window_label, &project_path);
+            if boot.booted_by_us {
+                let _ = simctl_stdout(
+                    &["shutdown", &udid],
+                    "xcrun simctl shutdown",
+                    SIMCTL_TIMEOUT_SECS,
+                )
+                .await;
+            }
+            return Err(e);
+        }
+    };
+
+    // 4. serve-sim may have stepped past our reserved port — re-key the
+    //    reservation to the port it actually bound so dev servers avoid it.
+    let mut port_was_reserved = true;
+    if info.port != reserved && !crate::state::reserve_port(&window_label, &project_path, info.port)
+    {
+        crate::state::release_port_for_project(&window_label, &project_path);
+        port_was_reserved = false;
+    }
+
+    // 5. Register the session — the backend now owns this preview's lifecycle.
+    crate::state::register_mobile_session(
+        project_path,
+        crate::state::MobileSession {
+            udid,
+            booted_by_us: boot.booted_by_us,
+            serve_sim_port: info.port,
+            port_was_reserved,
+            build_session_id: None,
+            window_label,
+        },
+    );
+
+    Ok(info)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
