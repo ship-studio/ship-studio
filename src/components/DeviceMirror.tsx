@@ -180,13 +180,16 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
 
   // ---- Connected: the live mirror ----
   if (status === 'connected' && mirror) {
+    // Note: a successful `expo run:ios` / `flutter run` stays attached (the dev
+    // server keeps running), so 'building' is the steady state once the app is
+    // up — the copy points at the mirror rather than promising the log will end.
     const summary =
       launchStatus === 'building'
-        ? 'Building & launching your app… (can take several minutes)'
+        ? 'Building & launching… your app appears in the preview above (first build can take a few minutes)'
         : launchStatus === 'finished'
-          ? 'App launched · build finished'
+          ? 'Build process exited'
           : launchStatus === 'failed'
-            ? 'Build exited — see log'
+            ? 'Build exited with errors — see log'
             : '';
     return (
       <div className="device-mirror">
