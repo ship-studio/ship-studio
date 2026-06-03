@@ -1386,6 +1386,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             key={currentProject.path}
                             projectName={currentProject.name}
                             projectPath={currentProject.path}
+                            onSendToAgent={sendToClaude}
                           />
                         </div>
                       )}

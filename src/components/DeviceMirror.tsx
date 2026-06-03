@@ -30,8 +30,9 @@ import {
   type MobileSimulator,
 } from '../lib/mobile';
 import { checkDependenciesInstalled } from '../lib/project';
+import { attachPtySession } from '../lib/ptySession';
 import { getWindowLabel } from '../lib/window';
-import { SpinnerIcon, ResetIcon } from './icons';
+import { SpinnerIcon, ResetIcon, ClaudeIcon } from './icons';
 import { Button } from './primitives/Button';
 import { BuildTerminal } from './BuildTerminal';
 
@@ -40,6 +41,8 @@ interface DeviceMirrorProps {
   projectName: string;
   /** Absolute project path — used to start/key the backend preview session. */
   projectPath: string;
+  /** Hand a prompt to the embedded Claude agent (powers "Fix with AI"). */
+  onSendToAgent?: (text: string) => void;
 }
 
 type InputChannel = ReturnType<typeof connectInputChannel>;
@@ -47,7 +50,7 @@ type Status = 'starting' | 'connected' | 'error';
 /** App-build progress, shown on the build panel's summary under the mirror. */
 type LaunchStatus = 'none' | 'building' | 'finished' | 'failed' | 'unsupported';
 
-export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
+export function DeviceMirror({ projectName, projectPath, onSendToAgent }: DeviceMirrorProps) {
   const [status, setStatus] = useState<Status>('starting');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
@@ -150,6 +153,26 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
     if (exitCode === 0) setBuildOpen(false); // collapse once it's up
   }, []);
 
+  // Hand the failing build's output to the embedded Claude agent so it can
+  // diagnose and fix it — the whole point of Ship Studio is the agent does the
+  // heavy lifting, so the user shouldn't have to read xcodebuild stack traces.
+  const askAgentToFix = useCallback(async () => {
+    let log = '';
+    try {
+      const attach = await attachPtySession(buildSessionId(projectPath));
+      log = new TextDecoder().decode(attach.buffer).slice(-6000);
+    } catch {
+      /* best-effort — send the prompt even if we couldn't grab the log */
+    }
+    const prompt =
+      `The iOS preview build for "${projectName}" failed. Diagnose the error in the build output below and fix it so the app builds and launches on the simulator, then tell me what you changed.\n\n` +
+      (buildCommand ? `Build command: ${buildCommand}\n\n` : '') +
+      'Build output:\n```\n' +
+      (log || '(no build output captured)') +
+      '\n```';
+    onSendToAgent?.(prompt);
+  }, [projectPath, projectName, buildCommand, onSendToAgent]);
+
   // Map a pointer event to normalized 0..1 coords over the streamed image.
   const toNorm = (e: React.PointerEvent): { x: number; y: number } | null => {
     const el = imgRef.current;
@@ -233,6 +256,13 @@ export function DeviceMirror({ projectName, projectPath }: DeviceMirrorProps) {
                 Dependencies may not be installed — if the build fails, run <code>npm install</code>{' '}
                 and Restart.
               </p>
+            )}
+            {launchStatus === 'failed' && onSendToAgent && (
+              <div className="device-mirror-build-actions">
+                <Button variant="primary" size="sm" onClick={() => void askAgentToFix()}>
+                  <ClaudeIcon size={14} /> Fix with AI
+                </Button>
+              </div>
             )}
             <div
               className="device-mirror-build-body"
