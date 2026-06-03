@@ -284,8 +284,9 @@ pub fn run() {
                     commands::setup::cleanup_auth_processes_sync();
                     proxy::stop_all_proxies();
                     static_server::stop_all_static_servers();
-                    // Shut down any iOS simulators we booted for mobile previews.
-                    commands::mobile::shutdown_all_booted_sims_sync();
+                    // Mobile previews are torn down per-window above
+                    // (teardown_mobile_previews_for_window_sync), so there's no
+                    // global sim shutdown to do here.
                 }
             }
         })
@@ -475,12 +476,8 @@ pub fn run() {
             commands::projects::detect_project_type_command,
             // Native Mobile Preview (iOS Simulator via serve-sim)
             commands::mobile::list_booted_simulators,
-            commands::mobile::boot_default_simulator,
-            commands::mobile::start_simulator_mirror,
-            commands::mobile::stop_simulator_mirror,
             commands::mobile::start_mobile_preview,
             commands::mobile::get_simulator_launch_command,
-            commands::mobile::shutdown_simulator_for_project,
             // PTY & Terminal
             commands::pty::spawn_pty,
             commands::pty::kill_pty,

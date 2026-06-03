@@ -24,40 +24,6 @@ pub static RESERVED_PORTS: LazyLock<Mutex<HashMap<(String, String), u16>>> =
 pub static RESERVED_PORT_SET: LazyLock<Mutex<HashSet<u16>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
-/// A simulator Ship Studio booted (or attached to) for a mobile preview.
-#[derive(Clone, Debug, PartialEq)]
-pub struct BootedSim {
-    pub udid: String,
-    /// True only if WE booted it — drives whether it's shut down on close. We
-    /// never shut down a simulator the user already had running.
-    pub booted_by_us: bool,
-}
-
-/// Maps `project_path -> BootedSim` for active mobile-preview simulators, so
-/// we can shut down (only) the ones we booted when the project/app closes.
-pub static MOBILE_SIMS: LazyLock<Mutex<HashMap<String, BootedSim>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// Record the simulator backing a project's mobile preview.
-pub fn register_booted_sim(project_path: String, udid: String, booted_by_us: bool) {
-    if let Ok(mut map) = MOBILE_SIMS.lock() {
-        map.insert(project_path, BootedSim { udid, booted_by_us });
-    }
-}
-
-/// Remove and return the simulator registered for a project (if any).
-pub fn take_booted_sim(project_path: &str) -> Option<BootedSim> {
-    MOBILE_SIMS.lock().ok()?.remove(project_path)
-}
-
-/// Remove and return every registered simulator (for global teardown).
-pub fn take_all_booted_sims() -> Vec<BootedSim> {
-    match MOBILE_SIMS.lock() {
-        Ok(mut map) => map.drain().map(|(_, sim)| sim).collect(),
-        Err(_) => Vec::new(),
-    }
-}
-
 // ============ Mobile Preview Sessions ============
 
 /// A live native mobile preview: the booted simulator, its `serve-sim` mirror,

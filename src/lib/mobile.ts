@@ -40,45 +40,12 @@ export async function listBootedSimulators(): Promise<MobileSimulator[]> {
   return invoke<MobileSimulator[]>('list_booted_simulators');
 }
 
-/** Result of ensuring a simulator is booted. */
-export interface BootResult {
-  simulator: MobileSimulator;
-  /** True only if Ship Studio booted it (vs attaching to a user-booted sim). */
-  booted_by_us: boolean;
-}
-
-/**
- * Ensure a simulator is booted for a project and return it, booting a sensible
- * default (newest available iPhone) when none is running. Registers the device
- * so it can be shut down when the project closes (only if we booted it).
- * Rejects if Xcode is missing or no simulator is available to boot.
- */
-export async function bootDefaultSimulator(
-  projectPath: string,
-  preferred?: string
-): Promise<BootResult> {
-  return invoke<BootResult>('boot_default_simulator', {
-    projectPath,
-    preferred: preferred ?? null,
-  });
-}
-
 /** The command that launches the project's app onto a booted simulator. */
 export async function getSimulatorLaunchCommand(
   projectPath: string,
   udid: string
 ): Promise<string> {
   return invoke<string>('get_simulator_launch_command', { projectPath, udid });
-}
-
-/** Shut down a project's simulator (if we booted it) and stop its mirror. */
-export async function shutdownSimulatorForProject(projectPath: string): Promise<void> {
-  return invoke('shutdown_simulator_for_project', { projectPath });
-}
-
-/** Start (or attach to) a serve-sim mirror for a booted simulator. */
-export async function startSimulatorMirror(udid: string): Promise<MirrorInfo> {
-  return invoke<MirrorInfo>('start_simulator_mirror', { udid });
 }
 
 /**
@@ -108,11 +75,6 @@ export async function startMobilePreview(
  */
 export function buildSessionId(projectPath: string): string {
   return `mobile-build:${projectPath}`;
-}
-
-/** Stop the serve-sim mirror for a simulator (or all if udid is empty). */
-export async function stopSimulatorMirror(udid: string): Promise<void> {
-  return invoke('stop_simulator_mirror', { udid });
 }
 
 /** A normalized (0..1) touch event sent over the serve-sim WebSocket. */

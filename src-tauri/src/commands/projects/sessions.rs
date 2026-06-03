@@ -133,10 +133,7 @@ pub async fn suspend_project_session(project_path: String) -> Result<u32, Comman
 pub async fn unregister_project_session(project_path: String) -> Result<(), CommandError> {
     state_unregister_session(&project_path);
     // Closing the project tears down its mobile preview (backend-owned session).
-    // Best-effort. The legacy `shutdown_simulator_for_project` is also called for
-    // the pre-refactor path until the frontend fully switches over (Phase 6).
     crate::commands::mobile::teardown_mobile_preview(project_path.clone()).await;
-    let _ = crate::commands::mobile::shutdown_simulator_for_project(project_path.clone()).await;
     tracing::info!("Unregistered session: project={}", project_path,);
     Ok(())
 }
