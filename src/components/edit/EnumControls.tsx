@@ -19,22 +19,14 @@ function Icon({ children }: { children: ReactNode }) {
   );
 }
 
-/** A bordered container frame + filled bars — conveys "items inside a flex box".
- *  `vertical` draws the cross-axis (align-items) framing instead of main-axis. */
-function FramedBars({ bars }: { bars: [number, number, number, number][] }) {
+/** Filled bars representing flex children. justify-* varies their horizontal
+ *  cluster (bars same height, x shifts); items-* varies their vertical position
+ *  (bars same x spread, y/height shifts). No frame — it just added clutter at 16px. */
+function Bars({ bars }: { bars: [number, number, number, number][] }) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect
-        x="2.5"
-        y="2.5"
-        width="19"
-        height="19"
-        rx="2.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
       {bars.map(([x, y, w, h], i) => (
-        <rect key={i} x={x} y={y} width={w} height={h} rx="1" fill="currentColor" />
+        <rect key={i} x={x} y={y} width={w} height={h} rx="1.2" fill="currentColor" />
       ))}
     </svg>
   );
@@ -63,77 +55,77 @@ const ICONS: Record<string, ReactNode> = {
       <line x1="7" y1="18" x2="21" y2="18" {...lineProps} />
     </Icon>
   ),
-  // justify-content: 3 bars distributed along the main (horizontal) axis inside a frame.
+  // justify-content (main/horizontal axis): 3 equal bars, cluster shifts left → right.
   'justify-start': (
-    <FramedBars
+    <Bars
       bars={[
-        [5, 8, 2.5, 8],
-        [8.5, 8, 2.5, 8],
-        [12, 8, 2.5, 8],
+        [3, 6, 3.5, 12],
+        [8, 6, 3.5, 12],
+        [13, 6, 3.5, 12],
       ]}
     />
   ),
   'justify-center': (
-    <FramedBars
+    <Bars
       bars={[
-        [7.5, 8, 2.5, 8],
-        [11, 8, 2.5, 8],
-        [14.5, 8, 2.5, 8],
+        [5.75, 6, 3.5, 12],
+        [10.25, 6, 3.5, 12],
+        [14.75, 6, 3.5, 12],
       ]}
     />
   ),
   'justify-end': (
-    <FramedBars
+    <Bars
       bars={[
-        [10, 8, 2.5, 8],
-        [13.5, 8, 2.5, 8],
-        [17, 8, 2.5, 8],
+        [7.5, 6, 3.5, 12],
+        [12.5, 6, 3.5, 12],
+        [17.5, 6, 3.5, 12],
       ]}
     />
   ),
   'justify-between': (
-    <FramedBars
+    <Bars
       bars={[
-        [5, 8, 2.5, 8],
-        [10.75, 8, 2.5, 8],
-        [16.5, 8, 2.5, 8],
+        [3, 6, 3.5, 12],
+        [10.25, 6, 3.5, 12],
+        [17.5, 6, 3.5, 12],
       ]}
     />
   ),
-  // align-items: 3 bars aligned along the cross (vertical) axis inside a frame.
+  // align-items (cross/vertical axis): 3 evenly-spread bars, block shifts top → bottom.
   'items-start': (
-    <FramedBars
+    <Bars
       bars={[
-        [6, 5, 3, 7],
-        [10.5, 5, 3, 7],
-        [15, 5, 3, 7],
+        [4.5, 3, 4, 9],
+        [10, 3, 4, 9],
+        [15.5, 3, 4, 9],
       ]}
     />
   ),
   'items-center': (
-    <FramedBars
+    <Bars
       bars={[
-        [6, 8.5, 3, 7],
-        [10.5, 8.5, 3, 7],
-        [15, 8.5, 3, 7],
+        [4.5, 7.5, 4, 9],
+        [10, 7.5, 4, 9],
+        [15.5, 7.5, 4, 9],
       ]}
     />
   ),
   'items-end': (
-    <FramedBars
+    <Bars
       bars={[
-        [6, 12, 3, 7],
-        [10.5, 12, 3, 7],
-        [15, 12, 3, 7],
+        [4.5, 12, 4, 9],
+        [10, 12, 4, 9],
+        [15.5, 12, 4, 9],
       ]}
     />
   ),
   'items-stretch': (
-    <FramedBars
+    <Bars
       bars={[
-        [6, 5, 3, 14],
-        [10.5, 5, 3, 14],
-        [15, 5, 3, 14],
+        [4.5, 3, 4, 18],
+        [10, 3, 4, 18],
+        [15.5, 3, 4, 18],
       ]}
     />
   ),

@@ -12,8 +12,45 @@ import { Button } from '../primitives/Button';
 import { SpacingBox } from './SpacingBox';
 import { EnumControls } from './EnumControls';
 import { ColorControls } from './ColorControls';
-import { scaleValue, type BoxType, type Side } from '../../lib/edit';
+import { scaleValue, SPACING_REM, type BoxType, type Side } from '../../lib/edit';
 import type { Selection } from '../../hooks/useVisualEditor';
+
+/** Editable numeric field for the gap value: click to type, Enter/blur to apply,
+ *  stays in sync when the +/- steppers change the value externally (synced during
+ *  render via the prev-value pattern — no effect). */
+function GapField({ value, onSet }: { value: number | null; onSet: (n: number) => void }) {
+  const display = value?.toString() ?? '';
+  const [text, setText] = useState(display);
+  const [lastDisplay, setLastDisplay] = useState(display);
+  if (display !== lastDisplay) {
+    setLastDisplay(display);
+    setText(display);
+  }
+
+  const commit = () => {
+    const n = parseInt(text, 10);
+    if (!Number.isNaN(n) && n >= 0) onSet(n);
+    else setText(value?.toString() ?? '');
+  };
+
+  return (
+    <input
+      className="ss-edit-panel__num"
+      inputMode="numeric"
+      aria-label="Gap"
+      value={text}
+      onChange={(e) => setText(e.target.value.replace(/[^0-9]/g, ''))}
+      onFocus={(e) => e.target.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          commit();
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
 
 interface Props {
   selection: Selection | null;
@@ -163,9 +200,10 @@ export function VisualEditorPanel({
                 >
                   −
                 </Button>
-                <span className="ss-edit-panel__value">
-                  {scaleValue(currentClass, 'gap') ?? '—'}
-                </span>
+                <GapField
+                  value={scaleValue(currentClass, 'gap')}
+                  onSet={(n) => onApplyEnum(`gap-${n}`, { gap: `${n * SPACING_REM}rem` })}
+                />
                 <Button
                   size="sm"
                   variant="secondary"

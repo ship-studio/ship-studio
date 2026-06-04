@@ -36,13 +36,20 @@
   position: fixed;
   width: 240px;
   /* Scroll the whole panel (the BODY is left unconstrained — putting overflow on
-     the flex-column body collapses it). */
+     the flex-column body collapses it) with no visible scrollbar. max-height is
+     set inline by the component. */
   overflow: hidden auto;
+  scrollbar-width: none;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   font-size: 13px;
+}
+.ss-edit-panel::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .ss-edit-panel__header {
@@ -385,6 +392,23 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+}
+
+/* Editable numeric field (gap) — click to type a value. */
+.ss-edit-panel__num {
+  width: 40px;
+  height: 24px;
+  padding: 0;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.ss-edit-panel__num:focus {
+  outline: 1px solid var(--action);
 }
 
 .ss-edit-panel__value {
