@@ -72,6 +72,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+  /* The control list can get tall — scroll within the panel rather than
+     overflow the preview. A plain block scroll container (not a flex item), so
+     it doesn't hit the height-collapse that broke earlier attempts. */
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
 .ss-edit-panel__segmented {
@@ -122,6 +127,39 @@
 }
 .ss-edit-panel__select:focus {
   outline: 1px solid var(--action);
+}
+
+.ss-edit-panel__slider {
+  width: 120px;
+  accent-color: var(--action);
+  cursor: pointer;
+}
+
+.ss-edit-panel__color {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+.ss-edit-panel__color-input {
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+.ss-edit-panel__color-input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.ss-edit-panel__color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+.ss-edit-panel__color-hex {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .ss-edit-panel__hint,

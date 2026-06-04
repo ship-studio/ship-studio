@@ -43,7 +43,11 @@ describe('VisualEditorPanel', () => {
     expect(screen.getByText('Gap')).toBeInTheDocument();
     expect(screen.getByText('Align')).toBeInTheDocument();
     expect(screen.getByText('Weight')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Center' })).toBeInTheDocument();
+    // Align renders icon buttons ("Left" is unique to Align)
+    expect(screen.getByRole('button', { name: 'Left' })).toBeInTheDocument();
+    // New properties
+    expect(screen.getByText('Opacity')).toBeInTheDocument();
+    expect(screen.getByLabelText('Text')).toBeInTheDocument();
     // Save button
     expect(screen.getByText('Saved')).toBeInTheDocument();
   });

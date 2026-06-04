@@ -192,7 +192,82 @@ export const ENUM_CONTROLS: EnumControl[] = [
       { label: 'Full', token: 'rounded-full', style: { 'border-radius': '9999px' } },
     ],
   },
+  {
+    label: 'Display',
+    variant: 'dropdown',
+    options: [
+      { label: 'Block', token: 'block', style: { display: 'block' } },
+      { label: 'Flex', token: 'flex', style: { display: 'flex' } },
+      { label: 'Grid', token: 'grid', style: { display: 'grid' } },
+      { label: 'Inline block', token: 'inline-block', style: { display: 'inline-block' } },
+      { label: 'Inline', token: 'inline', style: { display: 'inline' } },
+      { label: 'Hidden', token: 'hidden', style: { display: 'none' } },
+    ],
+  },
+  {
+    label: 'Justify',
+    variant: 'icons',
+    options: [
+      { label: 'Start', token: 'justify-start', style: { 'justify-content': 'flex-start' } },
+      { label: 'Center', token: 'justify-center', style: { 'justify-content': 'center' } },
+      { label: 'End', token: 'justify-end', style: { 'justify-content': 'flex-end' } },
+      { label: 'Between', token: 'justify-between', style: { 'justify-content': 'space-between' } },
+    ],
+  },
+  {
+    label: 'Align items',
+    variant: 'icons',
+    options: [
+      { label: 'Start', token: 'items-start', style: { 'align-items': 'flex-start' } },
+      { label: 'Center', token: 'items-center', style: { 'align-items': 'center' } },
+      { label: 'End', token: 'items-end', style: { 'align-items': 'flex-end' } },
+      { label: 'Stretch', token: 'items-stretch', style: { 'align-items': 'stretch' } },
+    ],
+  },
+  {
+    label: 'Border',
+    variant: 'dropdown',
+    options: [
+      { label: 'None', token: 'border-0', style: { 'border-width': '0' } },
+      { label: '1px', token: 'border', style: { 'border-width': '1px', 'border-style': 'solid' } },
+      {
+        label: '2px',
+        token: 'border-2',
+        style: { 'border-width': '2px', 'border-style': 'solid' },
+      },
+      {
+        label: '4px',
+        token: 'border-4',
+        style: { 'border-width': '4px', 'border-style': 'solid' },
+      },
+      {
+        label: '8px',
+        token: 'border-8',
+        style: { 'border-width': '8px', 'border-style': 'solid' },
+      },
+    ],
+  },
 ];
+
+/** Text / background color controls — arbitrary hex via a native color picker. */
+export const COLOR_CONTROLS = [
+  { label: 'Text', prefix: 'text', css: 'color' },
+  { label: 'Background', prefix: 'bg', css: 'background-color' },
+] as const;
+
+export type ColorPrefix = (typeof COLOR_CONTROLS)[number]['prefix'];
+
+/** Current arbitrary hex for a color utility (`text-[#fff]`), or null if absent
+ *  / a named Tailwind color (which we can't map back to hex here). */
+export function arbitraryColor(className: string, prefix: ColorPrefix): string | null {
+  const m = new RegExp(`(?:^|\\s)${prefix}-\\[(#[0-9a-fA-F]{3,8})\\]`).exec(className);
+  return m ? m[1] : null;
+}
+
+/** Class token for an arbitrary color, e.g. `text-[#1a1a1a]`. */
+export function colorToken(prefix: ColorPrefix, hex: string): string {
+  return `${prefix}-[${hex}]`;
+}
 
 /** The token of the option currently active in `className` for a control, or null. */
 export function activeEnumToken(className: string, control: EnumControl): string | null {

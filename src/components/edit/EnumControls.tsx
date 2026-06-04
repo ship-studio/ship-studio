@@ -23,6 +23,17 @@ function Icon({ children }: { children: ReactNode }) {
   );
 }
 
+/** Filled bars, for flex justify/align icons. Each rect is [x, y, w, h]. */
+function Bars({ rects }: { rects: [number, number, number, number][] }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+      {rects.map(([x, y, w, h], i) => (
+        <rect key={i} x={x} y={y} width={w} height={h} rx="1" fill="currentColor" />
+      ))}
+    </svg>
+  );
+}
+
 /** Icon per option token (only icon-variant controls need these). */
 const ICONS: Record<string, ReactNode> = {
   'text-left': (
@@ -45,6 +56,80 @@ const ICONS: Record<string, ReactNode> = {
       <line x1="9" y1="12" x2="21" y2="12" {...lineProps} />
       <line x1="7" y1="18" x2="21" y2="18" {...lineProps} />
     </Icon>
+  ),
+  // justify-content: 3 bars distributed horizontally
+  'justify-start': (
+    <Bars
+      rects={[
+        [3, 5, 2.5, 14],
+        [6.5, 5, 2.5, 14],
+        [10, 5, 2.5, 14],
+      ]}
+    />
+  ),
+  'justify-center': (
+    <Bars
+      rects={[
+        [7, 5, 2.5, 14],
+        [10.5, 5, 2.5, 14],
+        [14, 5, 2.5, 14],
+      ]}
+    />
+  ),
+  'justify-end': (
+    <Bars
+      rects={[
+        [11, 5, 2.5, 14],
+        [14.5, 5, 2.5, 14],
+        [18, 5, 2.5, 14],
+      ]}
+    />
+  ),
+  'justify-between': (
+    <Bars
+      rects={[
+        [3, 5, 2.5, 14],
+        [10.5, 5, 2.5, 14],
+        [18, 5, 2.5, 14],
+      ]}
+    />
+  ),
+  // align-items: 3 bars aligned along the cross (vertical) axis
+  'items-start': (
+    <Bars
+      rects={[
+        [5, 4, 2.5, 9],
+        [11, 4, 2.5, 9],
+        [17, 4, 2.5, 9],
+      ]}
+    />
+  ),
+  'items-center': (
+    <Bars
+      rects={[
+        [5, 8, 2.5, 9],
+        [11, 8, 2.5, 9],
+        [17, 8, 2.5, 9],
+      ]}
+    />
+  ),
+  'items-end': (
+    <Bars
+      rects={[
+        [5, 11, 2.5, 9],
+        [11, 11, 2.5, 9],
+        [17, 11, 2.5, 9],
+      ]}
+    />
+  ),
+  'items-stretch': (
+    <Bars
+      rects={[
+        [5, 4, 2.5, 16],
+        [11, 4, 2.5, 16],
+        [17, 4, 2.5, 16],
+      ]}
+    />
   ),
 };
 

@@ -10,6 +10,7 @@
 import { Button } from '../primitives/Button';
 import { SpacingBox } from './SpacingBox';
 import { EnumControls } from './EnumControls';
+import { ColorControls } from './ColorControls';
 import { scaleValue, type BoxType, type Side } from '../../lib/edit';
 import type { Selection } from '../../hooks/useVisualEditor';
 
@@ -121,6 +122,25 @@ export function VisualEditorPanel({
             </div>
 
             <EnumControls currentClass={currentClass} onApplyEnum={onApplyEnum} />
+
+            <div className="ss-edit-panel__control">
+              <label className="ss-edit-panel__label">Opacity</label>
+              <input
+                type="range"
+                className="ss-edit-panel__slider"
+                aria-label="Opacity"
+                min={0}
+                max={100}
+                step={5}
+                value={scaleValue(currentClass, 'opacity') ?? 100}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  onApplyEnum(`opacity-${n}`, { opacity: String(n / 100) });
+                }}
+              />
+            </div>
+
+            <ColorControls currentClass={currentClass} onApplyEnum={onApplyEnum} />
 
             <div className="ss-edit-panel__classes" title={currentClass}>
               {currentClass}

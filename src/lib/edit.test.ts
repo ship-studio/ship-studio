@@ -8,7 +8,23 @@ import {
   boxSideValue,
   boxSideToken,
   boxInlineStyle,
+  arbitraryColor,
+  colorToken,
 } from './edit';
+
+describe('color helpers', () => {
+  it('reads an arbitrary hex for a color utility', () => {
+    expect(arbitraryColor('flex text-[#1a2b3c] p-4', 'text')).toBe('#1a2b3c');
+    expect(arbitraryColor('bg-[#fff] rounded', 'bg')).toBe('#fff');
+    // named colors / absent → null (can't map back to a swatch)
+    expect(arbitraryColor('text-red-500', 'text')).toBeNull();
+    expect(arbitraryColor('p-4', 'bg')).toBeNull();
+  });
+  it('builds a color token', () => {
+    expect(colorToken('text', '#000000')).toBe('text-[#000000]');
+    expect(colorToken('bg', '#ff0000')).toBe('bg-[#ff0000]');
+  });
+});
 
 describe('scaleValue', () => {
   it('reads <prefix>-N for the requested utility', () => {
