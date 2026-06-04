@@ -289,35 +289,11 @@
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
 
-.ss-color-picker__formats {
+.ss-color-picker__row {
   display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
 }
-.ss-color-picker__format {
-  flex: 1;
-  height: 22px;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  border-radius: calc(var(--radius-sm) - 1px);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-.ss-color-picker__format:hover {
-  color: var(--text-primary);
-}
-.ss-color-picker__format.active {
-  background: var(--action);
-  color: var(--action-text);
+.ss-color-picker__row .ss-dropdown__trigger {
+  width: 100%;
 }
 
 .ss-color-picker__input {
@@ -540,11 +516,10 @@
 
 .ss-edit-panel__classes {
   font-size: 11px;
+  line-height: 1.5;
   color: var(--text-muted);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   padding: var(--spacing-sm);
-  max-height: 60px;
-  overflow: hidden;
   word-break: break-word;
 }

@@ -541,7 +541,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             >
               <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
             </svg>
-            Edit
+            Edit (Beta)
           </button>
         )}
 

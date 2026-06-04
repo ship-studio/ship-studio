@@ -235,7 +235,14 @@ export function VisualEditorPanel({
               />
             </div>
 
-            <ColorControls currentClass={currentClass} onApplyEnum={onApplyEnum} />
+            <ColorControls
+              currentClass={currentClass}
+              onApplyEnum={onApplyEnum}
+              computed={{
+                color: selection?.signature.computedColor,
+                'background-color': selection?.signature.computedBackgroundColor,
+              }}
+            />
 
             <div className="ss-edit-panel__classes" title={currentClass}>
               {currentClass}

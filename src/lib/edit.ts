@@ -16,6 +16,11 @@ export interface ElementSignature {
   text?: string;
   ancestorClasses: string[];
   rect?: { top: number; left: number; width: number; height: number };
+  /** Rendered color/background from getComputedStyle — lets the color picker seed
+   *  from the actual color even when it comes from a named class, var, or
+   *  inheritance (not an arbitrary `text-[#…]`). */
+  computedColor?: string;
+  computedBackgroundColor?: string;
 }
 
 /** Outcome of resolving an element to a source location (mirrors the Rust enum). */

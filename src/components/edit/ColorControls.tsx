@@ -15,12 +15,16 @@ import {
   colorFormatOf,
   type ColorPrefix,
 } from '../../lib/edit';
-import { toFormat, toHex } from '../../lib/color';
+import { toFormat, toHex, visibleHex } from '../../lib/color';
 import { ColorPicker } from './ColorPicker';
 
 interface Props {
   currentClass: string;
   onApplyEnum: (token: string, style: Record<string, string>) => void;
+  /** Rendered colors from getComputedStyle, keyed by CSS property ('color',
+   *  'background-color'), used to seed the picker when there's no explicit
+   *  arbitrary value in the class. */
+  computed?: Record<string, string | undefined>;
 }
 
 function ColorField({
@@ -29,13 +33,20 @@ function ColorField({
   prefix,
   currentClass,
   onApplyEnum,
+  computed,
 }: {
   label: string;
   css: string;
   prefix: ColorPrefix;
 } & Props) {
-  const raw = arbitraryColorRaw(currentClass, prefix);
-  const swatch = (raw && toHex(raw)) || null;
+  // Explicit arbitrary value in the class (drives match-existing format on save);
+  // otherwise fall back to the element's rendered color just for display/seeding.
+  const explicit = arbitraryColorRaw(currentClass, prefix);
+  const computedRaw = computed?.[css];
+  const computedHex = computedRaw ? visibleHex(computedRaw) : null;
+  const raw = explicit;
+  const seed = explicit ?? computedRaw ?? '#000000';
+  const swatch = (explicit && toHex(explicit)) || computedHex;
 
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState<{ top: number; left: number } | null>(null);
@@ -117,7 +128,7 @@ function ColorField({
         rect &&
         createPortal(
           <div ref={popRef} className="ss-color-popover" style={{ top: rect.top, left: rect.left }}>
-            <ColorPicker value={raw ?? '#000000'} onChange={handlePick} />
+            <ColorPicker value={seed} onChange={handlePick} />
           </div>,
           document.body
         )}
@@ -125,7 +136,7 @@ function ColorField({
   );
 }
 
-export function ColorControls({ currentClass, onApplyEnum }: Props) {
+export function ColorControls({ currentClass, onApplyEnum, computed }: Props) {
   return (
     <>
       {COLOR_CONTROLS.map((c) => (
@@ -136,6 +147,7 @@ export function ColorControls({ currentClass, onApplyEnum }: Props) {
           prefix={c.prefix}
           currentClass={currentClass}
           onApplyEnum={onApplyEnum}
+          computed={computed}
         />
       ))}
     </>

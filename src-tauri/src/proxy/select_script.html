@@ -15,7 +15,7 @@ function placeSet(){ensureSel(selectedSet.length);for(var i=0;i<selBoxes.length;
 /* All elements whose class attribute is identical to the clicked element's — these
    render from the same source literal (e.g. a .map), so a source edit changes all. */
 function matching(el){var c=el.getAttribute('class'),out=[],all=document.querySelectorAll('[class]');for(var i=0;i<all.length;i++){if(all[i].getAttribute('class')===c)out.push(all[i]);}return out;}
-function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.textContent||'').trim().slice(0,40),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height}};}
+function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.textContent||'').trim().slice(0,40),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor};}
 /* Restore the current selection's pre-edit class + clear the inline styles we set,
    discarding an unsaved preview so the next resolve sees the real source class. */
 function restoreSel(){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(origClasses[i]!=null)el.setAttribute('class',origClasses[i]);for(var k in mutKeys)el.style.removeProperty(k);}mutKeys={};}

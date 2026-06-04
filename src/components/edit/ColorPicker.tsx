@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { HexColorPicker } from 'react-colorful';
 import { COLOR_FORMATS, toFormat, toHex, type ColorFormat } from '../../lib/color';
+import { EnumDropdown } from './EnumDropdown';
 
 interface Props {
   /** Any CSS color string (hex/rgb/hsl/oklch/var). */
@@ -39,18 +40,13 @@ export function ColorPicker({ value, onChange }: Props) {
   return (
     <div className="ss-color-picker">
       <HexColorPicker color={hex} onChange={onChange} />
-      <div className="ss-color-picker__formats" role="group" aria-label="Color format">
-        {COLOR_FORMATS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            className={`ss-color-picker__format${format === f.id ? ' active' : ''}`}
-            aria-pressed={format === f.id}
-            onClick={() => setFormat(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="ss-color-picker__row">
+        <EnumDropdown
+          label="Color format"
+          value={format}
+          options={COLOR_FORMATS.map((f) => ({ label: f.label, token: f.id }))}
+          onChange={(token) => setFormat(token as ColorFormat)}
+        />
       </div>
       <input
         className="ss-color-picker__input"

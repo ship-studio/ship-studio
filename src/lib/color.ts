@@ -29,6 +29,14 @@ export function toHex(color: string): string | null {
   return c ? formatHex(c) : null;
 }
 
+/** Hex for a color, or null if unparseable OR fully transparent (so an unset/
+ *  transparent computed background doesn't seed a misleading black swatch). */
+export function visibleHex(color: string): string | null {
+  const c = parse(color);
+  if (!c || c.alpha === 0) return null;
+  return formatHex(c);
+}
+
 /** Format any CSS color into the given format. Returns the input unchanged if it
  *  can't be parsed, so a partial value while typing never wipes the picker. */
 export function toFormat(color: string, fmt: ColorFormat): string {
