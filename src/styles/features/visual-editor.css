@@ -428,11 +428,13 @@
   right: 40px;
   height: 15px;
 }
+/* Centered within the 26px band ((26 - 15) / 2) so the field has equal space
+   above and below — not pushed toward its edge. */
 .ss-box__edge--t {
-  top: 3px;
+  top: 5.5px;
 }
 .ss-box__edge--b {
-  bottom: 3px;
+  bottom: 5.5px;
 }
 .ss-box__edge--l,
 .ss-box__edge--r {
@@ -446,12 +448,19 @@
 .ss-box__edge--r {
   right: 3px;
 }
-/* The inner padding band is smaller — tighten its bars to fit. */
+/* The inner padding band is smaller — tighten its bars to fit and re-center
+   within the 24px band ((24 - 14) / 2). */
 .ss-box__inner .ss-box__edge--t,
 .ss-box__inner .ss-box__edge--b {
   left: 34px;
   right: 34px;
   height: 14px;
+}
+.ss-box__inner .ss-box__edge--t {
+  top: 5px;
+}
+.ss-box__inner .ss-box__edge--b {
+  bottom: 5px;
 }
 .ss-box__inner .ss-box__edge--l,
 .ss-box__inner .ss-box__edge--r {
