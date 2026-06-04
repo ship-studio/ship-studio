@@ -15,7 +15,7 @@ import {
   colorFormatOf,
   type ColorPrefix,
 } from '../../lib/edit';
-import { toFormat, toHex, visibleHex } from '../../lib/color';
+import { rgbaToCss, toFormat, toHex, toRgba, visibleHex } from '../../lib/color';
 import { ColorPicker } from './ColorPicker';
 
 interface Props {
@@ -43,10 +43,14 @@ function ColorField({
   // otherwise fall back to the element's rendered color just for display/seeding.
   const explicit = arbitraryColorRaw(currentClass, prefix);
   const computedRaw = computed?.[css];
-  const computedHex = computedRaw ? visibleHex(computedRaw) : null;
   const raw = explicit;
   const seed = explicit ?? computedRaw ?? '#000000';
-  const swatch = (explicit && toHex(explicit)) || computedHex;
+  // A parent-renderable color for the chip (alpha-aware): the explicit value if
+  // parseable (a `var()` isn't), else the element's visible computed color.
+  const renderable =
+    (explicit && toHex(explicit) ? explicit : null) ??
+    (computedRaw && visibleHex(computedRaw) ? computedRaw : null);
+  const swatch = renderable ? rgbaToCss(toRgba(renderable)) : null;
 
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState<{ top: number; left: number } | null>(null);
