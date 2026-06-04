@@ -25,6 +25,13 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.6.5', // v0.6.5
+    items: [
+      'Visual editor (Beta) — toggle "Edit (Beta)" in the preview toolbar, then click any element to fine-tune its Tailwind classes visually: padding and margin (a Webflow-style box model you can drag to scrub or click to type), gap, text alignment, font size and weight, radius, display, flex justify/align, border, and opacity. Changes preview instantly and write back to your real source className when you hit "Save to source"',
+      "Color editing with a real picker — set text and background colors with a HEX / RGB / HSL / OKLCH picker and an opacity slider; edits keep the element's existing color format (OKLCH stays OKLCH). The picker reads the element's current color even when it comes from a theme variable, and the properties panel can be dragged anywhere",
+    ],
+  },
+  {
     version: '0.6.4', // v0.6.4
     items: [
       'Monorepo support — Ship Studio detects pnpm/npm workspaces when you import a repo (or first open an existing project) and asks which app to work on; the dev server, preview, and /public tools run inside that workspace while git and PRs stay at the repo root. "Use the whole repo" skips the picker',
