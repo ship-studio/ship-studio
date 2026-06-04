@@ -37,8 +37,13 @@
   position: fixed;
   z-index: var(--z-modal-overlay);
   width: 240px;
+  /* Default corner — guarantees the panel is visible even before/without a canvas
+     measurement; Preview.tsx overrides top/left to pin it to the canvas. */
+  top: var(--spacing-lg);
+  right: var(--spacing-md);
+  max-height: calc(100vh - var(--spacing-lg) * 2 - 48px);
   /* Scroll the whole panel (the BODY is left unconstrained — putting overflow on
-     the flex-column body collapses it). max-height is supplied inline. */
+     the flex-column body collapses it). max-height may be overridden inline. */
   overflow: hidden auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border);

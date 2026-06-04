@@ -883,7 +883,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         onHealthOutput={onHealthOutput}
       />
       {editor.editMode &&
-        editPanelPos &&
         createPortal(
           <VisualEditorPanel
             selection={editor.selection}
@@ -893,11 +892,18 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             onApplyEnum={editor.applyEnum}
             onCommit={() => void editor.commit()}
             onClose={editor.toggleEditMode}
-            style={{
-              top: editPanelPos.top,
-              left: editPanelPos.left,
-              maxHeight: editPanelPos.maxHeight,
-            }}
+            // Pin to the canvas once measured; until then the CSS default corner
+            // keeps it visible (right/maxHeight from CSS, so unset them here).
+            style={
+              editPanelPos
+                ? {
+                    top: editPanelPos.top,
+                    left: editPanelPos.left,
+                    right: 'auto',
+                    maxHeight: editPanelPos.maxHeight,
+                  }
+                : undefined
+            }
           />,
           document.body
         )}
