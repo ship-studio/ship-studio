@@ -442,11 +442,13 @@
   bottom: 28px;
   width: 34px;
 }
+/* Centered in their band too ((44 - 34) / 2; the inner 30px field in its 40px
+   band also lands at 5px), matching the top/bottom fields. */
 .ss-box__edge--l {
-  left: 3px;
+  left: 5px;
 }
 .ss-box__edge--r {
-  right: 3px;
+  right: 5px;
 }
 /* The inner padding band is smaller — tighten its bars to fit and re-center
    within the 24px band ((24 - 14) / 2). */
