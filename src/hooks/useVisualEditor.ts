@@ -170,5 +170,15 @@ export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Pa
     });
   }, [setLiveClass]);
 
-  return { editMode, toggleEditMode, selection, currentClass, stepSpacing, commit };
+  return {
+    editMode,
+    toggleEditMode,
+    selection,
+    currentClass,
+    stepSpacing,
+    // Enum controls apply an absolute token (twMerge swaps the prior one) plus an
+    // inline-style preview — same path as spacing, just not relative to a scale.
+    applyEnum: applyToken,
+    commit,
+  };
 }

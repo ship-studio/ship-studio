@@ -87,6 +87,50 @@ export const SPACING_CONTROLS: {
   { kind: 'gap', label: 'Gap', prefix: 'gap', css: 'gap' },
 ];
 
+/** One choice in an enum (segmented) control. `style` is a kebab-case inline
+ *  patch for JIT-independent live preview, mirroring what the class resolves to. */
+export interface EnumOption {
+  label: string;
+  token: string;
+  style: Record<string, string>;
+}
+
+export interface EnumControl {
+  label: string;
+  options: EnumOption[];
+}
+
+/** Enum controls the panel renders as segmented buttons. twMerge handles
+ *  swapping the previously-applied option (same Tailwind group). */
+export const ENUM_CONTROLS: EnumControl[] = [
+  {
+    label: 'Align',
+    options: [
+      { label: 'Left', token: 'text-left', style: { 'text-align': 'left' } },
+      { label: 'Center', token: 'text-center', style: { 'text-align': 'center' } },
+      { label: 'Right', token: 'text-right', style: { 'text-align': 'right' } },
+    ],
+  },
+  {
+    label: 'Weight',
+    options: [
+      { label: 'Normal', token: 'font-normal', style: { 'font-weight': '400' } },
+      { label: 'Medium', token: 'font-medium', style: { 'font-weight': '500' } },
+      { label: 'Semibold', token: 'font-semibold', style: { 'font-weight': '600' } },
+      { label: 'Bold', token: 'font-bold', style: { 'font-weight': '700' } },
+    ],
+  },
+];
+
+/** The token of the option currently active in `className` for a control, or null. */
+export function activeEnumToken(className: string, control: EnumControl): string | null {
+  const tokens = new Set(className.split(/\s+/));
+  for (const option of control.options) {
+    if (tokens.has(option.token)) return option.token;
+  }
+  return null;
+}
+
 /**
  * Surgically replace one className literal's value in source. `oldClass` is the
  * drift baseline — the backend rejects the edit if the file no longer matches.

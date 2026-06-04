@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scaleValue, steppedScale, SPACING_CONTROLS } from './edit';
+import { scaleValue, steppedScale, SPACING_CONTROLS, ENUM_CONTROLS, activeEnumToken } from './edit';
 
 describe('scaleValue', () => {
   it('reads <prefix>-N for the requested utility', () => {
@@ -33,6 +33,22 @@ describe('steppedScale', () => {
     expect(steppedScale('p-0', 'p', -1)).toBe('p-0');
     expect(steppedScale('flex', 'm', -1)).toBe('m-0');
     expect(steppedScale('flex', 'gap', 1)).toBe('gap-1');
+  });
+});
+
+describe('activeEnumToken', () => {
+  const align = ENUM_CONTROLS.find((c) => c.label === 'Align')!;
+  const weight = ENUM_CONTROLS.find((c) => c.label === 'Weight')!;
+
+  it('detects the active option token in a class string', () => {
+    expect(activeEnumToken('flex text-center gap-2', align)).toBe('text-center');
+    expect(activeEnumToken('font-bold text-xl', weight)).toBe('font-bold');
+  });
+
+  it('returns null when no option is present', () => {
+    expect(activeEnumToken('flex gap-2', align)).toBeNull();
+    // text-xl is a size, not an alignment — must not false-match.
+    expect(activeEnumToken('text-xl', align)).toBeNull();
   });
 });
 

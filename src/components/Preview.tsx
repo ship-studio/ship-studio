@@ -691,6 +691,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             selection={editor.selection}
             currentClass={editor.currentClass}
             onStepSpacing={editor.stepSpacing}
+            onApplyEnum={editor.applyEnum}
             onCommit={() => void editor.commit()}
             onClose={editor.toggleEditMode}
           />

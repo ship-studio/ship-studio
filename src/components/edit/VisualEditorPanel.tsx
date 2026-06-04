@@ -8,7 +8,13 @@
  */
 
 import { Button } from '../primitives/Button';
-import { scaleValue, SPACING_CONTROLS, type SpacingKind } from '../../lib/edit';
+import {
+  scaleValue,
+  activeEnumToken,
+  SPACING_CONTROLS,
+  ENUM_CONTROLS,
+  type SpacingKind,
+} from '../../lib/edit';
 import type { Selection } from '../../hooks/useVisualEditor';
 
 interface Props {
@@ -17,6 +23,8 @@ interface Props {
   currentClass: string;
   /** Step a spacing utility one notch up (1) or down (-1). */
   onStepSpacing: (kind: SpacingKind, dir: 1 | -1) => void;
+  /** Apply an enum option's token + inline-style preview. */
+  onApplyEnum: (token: string, style: Record<string, string>) => void;
   onCommit: () => void;
   onClose: () => void;
 }
@@ -25,6 +33,7 @@ export function VisualEditorPanel({
   selection,
   currentClass,
   onStepSpacing,
+  onApplyEnum,
   onCommit,
   onClose,
 }: Props) {
@@ -98,6 +107,27 @@ export function VisualEditorPanel({
                 </div>
               </div>
             ))}
+
+            {ENUM_CONTROLS.map((control) => {
+              const active = activeEnumToken(currentClass, control);
+              return (
+                <div className="ss-edit-panel__control" key={control.label}>
+                  <label className="ss-edit-panel__label">{control.label}</label>
+                  <div className="ss-edit-panel__segmented">
+                    {control.options.map((opt) => (
+                      <button
+                        key={opt.token}
+                        type="button"
+                        className={`ss-edit-panel__seg${active === opt.token ? ' active' : ''}`}
+                        onClick={() => onApplyEnum(opt.token, opt.style)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
 
             <div className="ss-edit-panel__classes" title={currentClass}>
               {currentClass}
