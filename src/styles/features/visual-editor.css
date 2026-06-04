@@ -400,6 +400,26 @@
   gap: var(--spacing-sm);
 }
 
+/* Non-interactive "Saved" confirmation (replaces a disabled button so there's
+   no misleading hover affordance when there's nothing to save). */
+.ss-edit-panel__saved {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: default;
+  user-select: none;
+}
+.ss-edit-panel__saved svg {
+  color: var(--action);
+}
+
 /* Editable numeric field (gap) — click to type a value. */
 .ss-edit-panel__num {
   width: 40px;

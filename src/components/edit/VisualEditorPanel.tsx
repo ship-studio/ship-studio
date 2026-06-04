@@ -240,9 +240,28 @@ export function VisualEditorPanel({
               {currentClass}
             </div>
 
-            <Button size="sm" variant="primary" block disabled={!dirty} onClick={onCommit}>
-              {dirty ? 'Save to source' : 'Saved'}
-            </Button>
+            {dirty ? (
+              <Button size="sm" variant="primary" block onClick={onCommit}>
+                Save to source
+              </Button>
+            ) : (
+              <div className="ss-edit-panel__saved" aria-live="polite">
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Saved
+              </div>
+            )}
           </>
         )}
       </div>
