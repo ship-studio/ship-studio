@@ -25,6 +25,7 @@ import {
   getSimulatorLaunchCommand,
   connectInputChannel,
   buildSessionId,
+  classifyBuildOutput,
   type MirrorInfo,
 } from '../lib/mobile';
 import { checkDependenciesInstalled } from '../lib/project';
@@ -45,8 +46,19 @@ interface DeviceMirrorProps {
 
 type InputChannel = ReturnType<typeof connectInputChannel>;
 type Status = 'starting' | 'connected' | 'error';
-/** App-build progress, shown on the build panel's summary under the mirror. */
-type LaunchStatus = 'none' | 'building' | 'finished' | 'failed' | 'unsupported';
+/**
+ * App-build progress, shown on the build panel's summary under the mirror.
+ * - `building` — running, no verdict yet (the default while compiling)
+ * - `launched` — compiled and the app is up on the simulator (success steady state)
+ * - `failed`   — a hard build failure (marker matched, or non-zero exit)
+ * - `exited`   — the build process ended cleanly without launching (unusual)
+ */
+type LaunchStatus = 'none' | 'building' | 'launched' | 'failed' | 'exited' | 'unsupported';
+
+/** Cap on the build log we keep in memory for outcome classification. Markers
+ *  (BUILD SUCCEEDED / FAILED) land near the end of a build, so keeping the tail
+ *  is sufficient and bounds memory on a long, chatty build. */
+const BUILD_LOG_SCAN_CAP = 262144;
 
 export function DeviceMirror({ projectName, projectPath, onSendToAgent }: DeviceMirrorProps) {
   const [status, setStatus] = useState<Status>('starting');
@@ -60,6 +72,15 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
   const inputRef = useRef<InputChannel | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const isPointerDown = useRef(false);
+
+  // Accumulated build-log tail + a mirror of launchStatus, both read inside the
+  // output handler (which must stay identity-stable so BuildTerminal's setup
+  // effect doesn't re-run). The ref avoids stale-closure reads of launchStatus.
+  const buildTextRef = useRef('');
+  const launchStatusRef = useRef<LaunchStatus>('none');
+  useEffect(() => {
+    launchStatusRef.current = launchStatus;
+  }, [launchStatus]);
 
   // Bump to re-run the connect flow (Restart / Try again).
   const [attempt, setAttempt] = useState(0);
@@ -91,6 +112,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
         /* dep check is best-effort */
       }
       if (cancelled) return;
+      buildTextRef.current = '';
       setBuildCommand(cmd);
       setBuildOpen(true);
       setLaunchStatus('building');
@@ -138,10 +160,45 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
 
   const restart = useCallback(() => setAttempt((a) => a + 1), []);
 
-  const onBuildExit = useCallback((exitCode: number) => {
-    setLaunchStatus(exitCode === 0 ? 'finished' : 'failed');
-    if (exitCode === 0) setBuildOpen(false); // collapse once it's up
+  // Move from 'building' to a terminal status exactly once. Later transitions are
+  // ignored so a torn-down Metro (which exits non-zero) can't flip a launched app
+  // to 'failed', and a late marker can't override an exit verdict.
+  const settleLaunchStatus = useCallback((next: 'launched' | 'failed' | 'exited') => {
+    if (launchStatusRef.current !== 'building') return;
+    launchStatusRef.current = next;
+    setLaunchStatus(next);
+    if (next === 'launched') setBuildOpen(false); // app is up — collapse the log
   }, []);
+
+  // Classify build progress from the embedded terminal's output. A successful
+  // `expo run:ios` / `flutter run` never exits (it stays attached to Metro), so
+  // log markers — not the process exit — are how we know the app actually came
+  // up. See classifyBuildOutput.
+  //
+  // Known limitation: the verdict lives only in this component. On a tab-return
+  // the log is replayed from the pty's bounded ring buffer; for a long-lived
+  // launched app whose success banner has scrolled out of the ring, the marker
+  // is gone and the status can fall back to 'building'. The fix is a
+  // backend-owned build status (persisted in MobileSession, returned from
+  // start_mobile_preview) — the same signal the agent-assist loop will need.
+  const handleBuildOutput = useCallback(
+    (chunk: string) => {
+      if (launchStatusRef.current !== 'building') return;
+      buildTextRef.current = (buildTextRef.current + chunk).slice(-BUILD_LOG_SCAN_CAP);
+      const outcome = classifyBuildOutput(buildTextRef.current);
+      if (outcome) settleLaunchStatus(outcome);
+    },
+    [settleLaunchStatus]
+  );
+
+  // Process exit is the authoritative failure backstop: a build that died before
+  // emitting a marker we recognize (e.g. a failed `pod install`) still resolves.
+  const onBuildExit = useCallback(
+    (exitCode: number) => {
+      settleLaunchStatus(exitCode === 0 ? 'exited' : 'failed');
+    },
+    [settleLaunchStatus]
+  );
 
   // Hand the failing build's output to the embedded agent so it can diagnose and
   // fix it — the whole point of Ship Studio is the agent does the heavy lifting,
@@ -193,17 +250,19 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
 
   // ---- Connected: the live mirror ----
   if (status === 'connected' && mirror) {
-    // Note: a successful `expo run:ios` / `flutter run` stays attached (the dev
-    // server keeps running), so 'building' is the steady state once the app is
-    // up — the copy points at the mirror rather than promising the log will end.
+    // A successful `expo run:ios` / `flutter run` stays attached to Metro and
+    // never exits, so the verdict comes from log markers (classifyBuildOutput),
+    // not the process exit. 'launched' is the success steady state.
     const summary =
       launchStatus === 'building'
         ? 'Building & launching… your app appears in the preview above (first build can take a few minutes)'
-        : launchStatus === 'finished'
-          ? 'Build process exited'
-          : launchStatus === 'failed'
-            ? 'Build exited with errors — see log'
-            : '';
+        : launchStatus === 'launched'
+          ? 'App running on the simulator'
+          : launchStatus === 'exited'
+            ? 'Build process exited'
+            : launchStatus === 'failed'
+              ? 'Build failed — see log'
+              : '';
     return (
       <div className="device-mirror">
         <div className="device-mirror-toolbar">
@@ -277,6 +336,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
                 cwd={projectPath}
                 isActive={buildOpen}
                 onExit={onBuildExit}
+                onOutput={handleBuildOutput}
               />
             </div>
           </div>

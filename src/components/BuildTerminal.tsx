@@ -47,6 +47,11 @@ interface BuildTerminalProps {
   isActive?: boolean;
   /** Called when the build process exits (clean = 0, error > 0, -1 = unknown). */
   onExit?: (exitCode: number) => void;
+  /** Called with decoded terminal output as it arrives — both the replayed
+   *  scrollback on attach and the live stream — so the parent can classify build
+   *  progress. Kept generic: this component knows nothing about what the text
+   *  means. */
+  onOutput?: (text: string) => void;
 }
 
 // iOS previews are macOS-only; a login+interactive shell sources the user's
@@ -54,17 +59,28 @@ interface BuildTerminalProps {
 // terminal (PATH parity with how the dev server used to launch the build).
 const BUILD_SHELL = '/bin/zsh';
 
-export function BuildTerminal({ sessionId, command, cwd, isActive, onExit }: BuildTerminalProps) {
+export function BuildTerminal({
+  sessionId,
+  command,
+  cwd,
+  isActive,
+  onExit,
+  onOutput,
+}: BuildTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
 
-  // Keep the exit callback in a ref so its identity churn doesn't re-run the
-  // heavy setup effect (which would re-open the session).
+  // Keep the callbacks in refs so their identity churn doesn't re-run the heavy
+  // setup effect (which would re-open the session).
   const onExitRef = useRef(onExit);
   useEffect(() => {
     onExitRef.current = onExit;
   }, [onExit]);
+  const onOutputRef = useRef(onOutput);
+  useEffect(() => {
+    onOutputRef.current = onOutput;
+  }, [onOutput]);
 
   // Setup: keyed only on the session identity, not on isActive/onExit.
   useEffect(() => {
@@ -128,6 +144,14 @@ export function BuildTerminal({ sessionId, command, cwd, isActive, onExit }: Bui
       if (!cancelled) safeFit();
     }, 0);
 
+    // Stream-decode PTY bytes to text for onOutput, preserving multi-byte chars
+    // split across chunk/replay boundaries.
+    const decoder = new TextDecoder();
+    const emitOutput = (bytes: Uint8Array) => {
+      const cb = onOutputRef.current;
+      if (cb) cb(decoder.decode(bytes, { stream: true }));
+    };
+
     // User keystrokes → PTY (this is what makes prompts answerable).
     const inputDisposable = term.onData((data) => {
       void writePtySession(sessionId, data);
@@ -151,12 +175,17 @@ export function BuildTerminal({ sessionId, command, cwd, isActive, onExit }: Bui
 
         const attach = await attachPtySession(sessionId);
         if (cancelled) return;
-        if (attach.buffer.length > 0) term.write(attach.buffer);
+        if (attach.buffer.length > 0) {
+          term.write(attach.buffer);
+          emitOutput(attach.buffer);
+        }
         // If it already exited before we attached, surface that immediately.
         if (!attach.alive && attach.exitCode !== null) onExitRef.current?.(attach.exitCode);
 
         const unlistenData = await onPtySessionData(sessionId, (bytes) => {
-          if (!cancelled) term.write(bytes);
+          if (cancelled) return;
+          term.write(bytes);
+          emitOutput(bytes);
         });
         disposers.push(() => void unlistenData());
 

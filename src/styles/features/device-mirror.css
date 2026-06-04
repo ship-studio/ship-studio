@@ -90,7 +90,7 @@
   color: var(--danger, #e5484d);
 }
 
-.device-mirror-build-toggle[data-state='finished'] {
+.device-mirror-build-toggle[data-state='launched'] {
   color: var(--success, #46a758);
 }
 

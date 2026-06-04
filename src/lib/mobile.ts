@@ -82,6 +82,59 @@ export function buildSessionId(projectPath: string): string {
   return `mobile-build:${projectPath}`;
 }
 
+/**
+ * Terminal outcome of an app build, inferred from its log output. `launched`
+ * means the native build compiled and the app is up on the simulator; `failed`
+ * means a hard build failure. `null` means "still building" — no verdict yet.
+ */
+export type BuildOutcome = 'launched' | 'failed';
+
+/**
+ * Strong, structural failure markers only. We deliberately do NOT match a bare
+ * `error:` — it appears in benign output (warnings, log lines that contain the
+ * word) and would false-positive a healthy build. The authoritative failure
+ * backstop is the build process exiting non-zero (handled in the component);
+ * these markers just give an earlier, specific signal for the common toolchains.
+ */
+const BUILD_FAILURE_MARKERS = [
+  '** BUILD FAILED **', // xcodebuild (expo / react-native)
+  'The following build commands failed',
+  'xcodebuild: error',
+  'Could not build the application for the simulator', // flutter
+  'Encountered error while building', // flutter
+  'Error launching application on', // flutter
+] as const;
+
+/**
+ * Success markers meaning the native build compiled and the app is launching.
+ * We match xcodebuild's exact final banner `** BUILD SUCCEEDED **` (Expo / bare
+ * RN), NOT the bare `BUILD SUCCEEDED` substring — the bare form can appear for an
+ * intermediate target/pre-build that finishes before the app's own build, which
+ * would report success early. Flutter suppresses the banner but prints its
+ * interactive command menu once the app is actually up.
+ */
+const BUILD_SUCCESS_MARKERS = [
+  '** BUILD SUCCEEDED **', // xcodebuild (expo / react-native), final scheme banner
+  'Flutter run key commands.', // flutter: app running, interactive menu shown
+] as const;
+
+/**
+ * Classify accumulated build-log text into a terminal {@link BuildOutcome}, or
+ * `null` if the build hasn't reached a verdict yet. Pure and order-stable:
+ * failure markers win over success markers (within a single build run the two
+ * don't co-occur). Callers pass the full accumulated log — markers can land
+ * anywhere — and stop classifying once a non-null verdict is returned.
+ */
+export function classifyBuildOutput(text: string): BuildOutcome | null {
+  for (const marker of BUILD_FAILURE_MARKERS) {
+    if (text.includes(marker)) return 'failed';
+  }
+  for (const marker of BUILD_SUCCESS_MARKERS) {
+    if (text.includes(marker)) return 'launched';
+  }
+  return null;
+}
+
 /** A normalized (0..1) touch event sent over the serve-sim WebSocket. */
 export type TouchPhase = 'down' | 'move' | 'up';
 
