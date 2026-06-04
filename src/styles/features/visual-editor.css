@@ -32,21 +32,12 @@
   right: var(--spacing-md);
   z-index: var(--z-modal-overlay);
   width: 240px;
-  /* Never exceed the preview viewport (its overflow:hidden would otherwise clip
-     the lower controls). Header stays fixed; the body scrolls inside. */
-  max-height: calc(100% - var(--spacing-md) * 2);
-  display: flex;
-  flex-direction: column;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   font-size: 13px;
   overflow: hidden;
-}
-
-.ss-edit-panel__header {
-  flex-shrink: 0;
 }
 
 .ss-edit-panel__header {
@@ -81,10 +72,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  /* Scrolls inside the height-capped panel instead of overflowing the viewport. */
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .ss-edit-panel__segmented {
