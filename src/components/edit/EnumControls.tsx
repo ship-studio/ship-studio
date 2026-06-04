@@ -1,33 +1,39 @@
 /**
  * Renders the visual editor's enum controls, each in its configured variant:
- *  - icons     → segmented buttons with an icon per option (e.g. text align)
- *  - dropdown  → a native select (e.g. font weight, size, radius)
+ *  - icons     → segmented buttons with an icon per option (align / justify / items)
+ *  - dropdown  → a custom themed dropdown (weight, size, radius, …)
  *  - segmented → text buttons
  * All variants apply the option's token + inline-style preview via onApplyEnum.
  */
 
 import type { ReactNode } from 'react';
 import { activeEnumToken, ENUM_CONTROLS, type EnumControl } from '../../lib/edit';
-
-interface Props {
-  currentClass: string;
-  onApplyEnum: (token: string, style: Record<string, string>) => void;
-}
+import { EnumDropdown } from './EnumDropdown';
 
 const lineProps = { strokeWidth: 2, strokeLinecap: 'round' as const };
 function Icon({ children }: { children: ReactNode }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
       {children}
     </svg>
   );
 }
 
-/** Filled bars, for flex justify/align icons. Each rect is [x, y, w, h]. */
-function Bars({ rects }: { rects: [number, number, number, number][] }) {
+/** A bordered container frame + filled bars — conveys "items inside a flex box".
+ *  `vertical` draws the cross-axis (align-items) framing instead of main-axis. */
+function FramedBars({ bars }: { bars: [number, number, number, number][] }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
-      {rects.map(([x, y, w, h], i) => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect
+        x="2.5"
+        y="2.5"
+        width="19"
+        height="19"
+        rx="2.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      {bars.map(([x, y, w, h], i) => (
         <rect key={i} x={x} y={y} width={w} height={h} rx="1" fill="currentColor" />
       ))}
     </svg>
@@ -57,81 +63,86 @@ const ICONS: Record<string, ReactNode> = {
       <line x1="7" y1="18" x2="21" y2="18" {...lineProps} />
     </Icon>
   ),
-  // justify-content: 3 bars distributed horizontally
+  // justify-content: 3 bars distributed along the main (horizontal) axis inside a frame.
   'justify-start': (
-    <Bars
-      rects={[
-        [3, 5, 2.5, 14],
-        [6.5, 5, 2.5, 14],
-        [10, 5, 2.5, 14],
+    <FramedBars
+      bars={[
+        [5, 8, 2.5, 8],
+        [8.5, 8, 2.5, 8],
+        [12, 8, 2.5, 8],
       ]}
     />
   ),
   'justify-center': (
-    <Bars
-      rects={[
-        [7, 5, 2.5, 14],
-        [10.5, 5, 2.5, 14],
-        [14, 5, 2.5, 14],
+    <FramedBars
+      bars={[
+        [7.5, 8, 2.5, 8],
+        [11, 8, 2.5, 8],
+        [14.5, 8, 2.5, 8],
       ]}
     />
   ),
   'justify-end': (
-    <Bars
-      rects={[
-        [11, 5, 2.5, 14],
-        [14.5, 5, 2.5, 14],
-        [18, 5, 2.5, 14],
+    <FramedBars
+      bars={[
+        [10, 8, 2.5, 8],
+        [13.5, 8, 2.5, 8],
+        [17, 8, 2.5, 8],
       ]}
     />
   ),
   'justify-between': (
-    <Bars
-      rects={[
-        [3, 5, 2.5, 14],
-        [10.5, 5, 2.5, 14],
-        [18, 5, 2.5, 14],
+    <FramedBars
+      bars={[
+        [5, 8, 2.5, 8],
+        [10.75, 8, 2.5, 8],
+        [16.5, 8, 2.5, 8],
       ]}
     />
   ),
-  // align-items: 3 bars aligned along the cross (vertical) axis
+  // align-items: 3 bars aligned along the cross (vertical) axis inside a frame.
   'items-start': (
-    <Bars
-      rects={[
-        [5, 4, 2.5, 9],
-        [11, 4, 2.5, 9],
-        [17, 4, 2.5, 9],
+    <FramedBars
+      bars={[
+        [6, 5, 3, 7],
+        [10.5, 5, 3, 7],
+        [15, 5, 3, 7],
       ]}
     />
   ),
   'items-center': (
-    <Bars
-      rects={[
-        [5, 8, 2.5, 9],
-        [11, 8, 2.5, 9],
-        [17, 8, 2.5, 9],
+    <FramedBars
+      bars={[
+        [6, 8.5, 3, 7],
+        [10.5, 8.5, 3, 7],
+        [15, 8.5, 3, 7],
       ]}
     />
   ),
   'items-end': (
-    <Bars
-      rects={[
-        [5, 11, 2.5, 9],
-        [11, 11, 2.5, 9],
-        [17, 11, 2.5, 9],
+    <FramedBars
+      bars={[
+        [6, 12, 3, 7],
+        [10.5, 12, 3, 7],
+        [15, 12, 3, 7],
       ]}
     />
   ),
   'items-stretch': (
-    <Bars
-      rects={[
-        [5, 4, 2.5, 16],
-        [11, 4, 2.5, 16],
-        [17, 4, 2.5, 16],
+    <FramedBars
+      bars={[
+        [6, 5, 3, 14],
+        [10.5, 5, 3, 14],
+        [15, 5, 3, 14],
       ]}
     />
   ),
 };
+
+interface Props {
+  currentClass: string;
+  onApplyEnum: (token: string, style: Record<string, string>) => void;
+}
 
 function Control({ control, currentClass, onApplyEnum }: { control: EnumControl } & Props) {
   const active = activeEnumToken(currentClass, control);
@@ -139,27 +150,20 @@ function Control({ control, currentClass, onApplyEnum }: { control: EnumControl 
   let body: ReactNode;
   if (control.variant === 'dropdown') {
     body = (
-      <select
-        className="ss-edit-panel__select"
-        aria-label={control.label}
-        value={active ?? ''}
-        onChange={(e) => {
-          const opt = control.options.find((o) => o.token === e.target.value);
+      <EnumDropdown
+        label={control.label}
+        value={active}
+        options={control.options}
+        onChange={(token) => {
+          const opt = control.options.find((o) => o.token === token);
           if (opt) onApplyEnum(opt.token, opt.style);
         }}
-      >
-        {active === null && <option value="">—</option>}
-        {control.options.map((o) => (
-          <option key={o.token} value={o.token}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      />
     );
   } else {
     const isIcons = control.variant === 'icons';
     body = (
-      <div className="ss-edit-panel__segmented">
+      <div className="ss-edit-panel__segmented" role="group" aria-label={control.label}>
         {control.options.map((o) => (
           <button
             key={o.token}
@@ -168,6 +172,7 @@ function Control({ control, currentClass, onApplyEnum }: { control: EnumControl 
               active === o.token ? ' active' : ''
             }`}
             aria-label={o.label}
+            aria-pressed={active === o.token}
             title={o.label}
             onClick={() => onApplyEnum(o.token, o.style)}
           >

@@ -7,7 +7,7 @@
  * shown read-only with the reason, matching the resolver's safe fallback.
  */
 
-import type { CSSProperties } from 'react';
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Button } from '../primitives/Button';
 import { SpacingBox } from './SpacingBox';
 import { EnumControls } from './EnumControls';
@@ -27,9 +27,15 @@ interface Props {
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   onCommit: () => void;
   onClose: () => void;
-  /** Inline position/size (the panel is portaled to <body> and positioned by the
-   *  host from the measured canvas rect). */
-  style?: CSSProperties;
+}
+
+const PANEL_WIDTH = 240;
+
+/** Initial top-right resting spot (clears the toolbar). Lazy so it reads the
+ *  window once on mount; drag takes over from there. */
+function initialPos() {
+  const w = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  return { top: 96, left: Math.max(16, w - PANEL_WIDTH - 16) };
 }
 
 export function VisualEditorPanel({
@@ -40,14 +46,59 @@ export function VisualEditorPanel({
   onApplyEnum,
   onCommit,
   onClose,
-  style,
 }: Props) {
   const resolution = selection?.resolution ?? null;
   const dirty = resolution?.status === 'resolved' && currentClass !== resolution.class_name;
 
+  // Self-owned fixed position so the panel is draggable by its header. Fully
+  // inline (no CSS-var/measurement dependency) so it can't drift out of view.
+  const [pos, setPos] = useState(initialPos);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ dx: number; dy: number } | null>(null);
+
+  const onHeaderPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    // Don't start a drag from the close button.
+    if ((e.target as HTMLElement).closest('.ss-edit-panel__close')) return;
+    const r = rootRef.current?.getBoundingClientRect();
+    if (!r) return;
+    dragRef.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, []);
+
+  const onHeaderPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const w = rootRef.current?.offsetWidth ?? PANEL_WIDTH;
+    const left = Math.max(8, Math.min(e.clientX - d.dx, window.innerWidth - w - 8));
+    const top = Math.max(8, Math.min(e.clientY - d.dy, window.innerHeight - 40));
+    setPos({ top, left });
+  }, []);
+
+  const onHeaderPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  }, []);
+
   return (
-    <div className="ss-edit-panel" data-testid="visual-editor-panel" style={style}>
-      <div className="ss-edit-panel__header">
+    <div
+      ref={rootRef}
+      className="ss-edit-panel"
+      data-testid="visual-editor-panel"
+      style={{
+        position: 'fixed',
+        top: pos.top,
+        left: pos.left,
+        right: 'auto',
+        zIndex: 1000,
+        maxHeight: `calc(100vh - ${pos.top + 16}px)`,
+      }}
+    >
+      <div
+        className="ss-edit-panel__header"
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={onHeaderPointerUp}
+      >
         <span className="ss-edit-panel__title">Edit</span>
         <button className="ss-edit-panel__close" onClick={onClose} aria-label="Exit edit mode">
           ×

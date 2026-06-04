@@ -212,13 +212,6 @@ const INSPECT_PANEL_MAX_FALLBACK_PX = 160;
 const INSPECT_PANEL_KEY_STEP_PX = 12;
 const INSPECT_PANEL_KEY_STEP_LARGE_PX = 60;
 
-/** Visual-editor panel position. Portaled to <body> as a position:fixed layer
- *  (the only reliable way to sit above the preview iframe in WebKit) and pinned
- *  to the window's top-right, which is the preview pane's top-right. All inline
- *  so it can't be defeated by CSS-var/HMR drift. */
-const EDIT_PANEL_TOP_PX = 96;
-const EDIT_PANEL_RIGHT_PX = 16;
-
 export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   {
     port = 3000,
@@ -839,17 +832,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             onApplyEnum={editor.applyEnum}
             onCommit={() => void editor.commit()}
             onClose={editor.toggleEditMode}
-            // Full positioning inline (not via the CSS class) so it can't be
-            // defeated by token/HMR drift. Fixed to the window top-right ≈ the
-            // preview pane's top-right.
-            style={{
-              position: 'fixed',
-              top: EDIT_PANEL_TOP_PX,
-              right: EDIT_PANEL_RIGHT_PX,
-              left: 'auto',
-              zIndex: 1000,
-              maxHeight: `calc(100vh - ${EDIT_PANEL_TOP_PX + 16}px)`,
-            }}
           />,
           document.body
         )}

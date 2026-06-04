@@ -1,6 +1,11 @@
 <script>(function(){
 if(window.__ssSelectInit)return;window.__ssSelectInit=true;
 var active=false,hoverBox=null,selBoxes=[],selectedSet=[];
+/* The class each currently-selected element had BEFORE any live mutation, plus the
+   inline-style keys we set — so we can revert an unsaved preview when the user
+   deselects. Without this, re-selecting reads the mutated class (which isn't a
+   source literal) and the element wrongly reports as "not editable". */
+var origClasses=[],mutKeys={};
 function mk(c){var d=document.createElement('div');d.style.cssText='position:fixed;pointer-events:none;z-index:2147483646;border:2px solid '+c+';box-sizing:border-box;border-radius:2px';d.setAttribute('data-ss-overlay','1');document.body.appendChild(d);return d;}
 function ensureHover(){if(!hoverBox)hoverBox=mk('rgba(96,165,250,.8)');}
 function ensureSel(n){while(selBoxes.length<n)selBoxes.push(mk('rgba(217,119,87,.95)'));}
@@ -11,13 +16,17 @@ function placeSet(){ensureSel(selectedSet.length);for(var i=0;i<selBoxes.length;
    render from the same source literal (e.g. a .map), so a source edit changes all. */
 function matching(el){var c=el.getAttribute('class'),out=[],all=document.querySelectorAll('[class]');for(var i=0;i<all.length;i++){if(all[i].getAttribute('class')===c)out.push(all[i]);}return out;}
 function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.textContent||'').trim().slice(0,40),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height}};}
+/* Restore the current selection's pre-edit class + clear the inline styles we set,
+   discarding an unsaved preview so the next resolve sees the real source class. */
+function restoreSel(){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(origClasses[i]!=null)el.setAttribute('class',origClasses[i]);for(var k in mutKeys)el.style.removeProperty(k);}mutKeys={};}
+function snapshotOrig(){origClasses=[];for(var i=0;i<selectedSet.length;i++)origClasses.push(selectedSet[i]?selectedSet[i].getAttribute('class'):null);mutKeys={};}
 function onMove(e){if(!active)return;ensureHover();place(hoverBox,editable(e.target));}
-function onClick(e){if(!active)return;var el=editable(e.target);if(!el)return;e.preventDefault();e.stopPropagation();selectedSet=matching(el);placeSet();place(hoverBox,null);window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length},'*');}
+function onClick(e){if(!active)return;var el=editable(e.target);if(!el)return;e.preventDefault();e.stopPropagation();restoreSel();selectedSet=matching(el);snapshotOrig();placeSet();place(hoverBox,null);window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length},'*');}
 function reposition(){if(active)placeSet();}
 window.addEventListener('message',function(e){var d=e.data||{};
 if(d.type==='ss:activate'){active=true;ensureHover();document.documentElement.style.cursor='crosshair';}
-else if(d.type==='ss:deactivate'){active=false;selectedSet=[];place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);document.documentElement.style.cursor='';}
-else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(typeof d.className==='string')el.setAttribute('class',d.className);if(d.style){for(var k in d.style)el.style.setProperty(k,d.style[k]);}}placeSet();}});
+else if(d.type==='ss:deactivate'){active=false;restoreSel();selectedSet=[];origClasses=[];place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);document.documentElement.style.cursor='';}
+else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(typeof d.className==='string')el.setAttribute('class',d.className);if(d.style){for(var k in d.style){mutKeys[k]=1;el.style.setProperty(k,d.style[k]);}}}placeSet();}});
 document.addEventListener('mousemove',onMove,true);
 document.addEventListener('click',onClick,true);
 window.addEventListener('scroll',reposition,true);
