@@ -32,12 +32,15 @@
   right: var(--spacing-md);
   z-index: var(--z-modal-overlay);
   width: 240px;
+  /* Cap to the preview viewport and scroll the whole panel (the BODY is left
+     unconstrained — putting overflow on the flex-column body collapses it). */
+  max-height: calc(100% - var(--spacing-md) * 2);
+  overflow: hidden auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   font-size: 13px;
-  overflow: hidden;
 }
 
 .ss-edit-panel__header {
@@ -72,11 +75,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  /* The control list can get tall — scroll within the panel rather than
-     overflow the preview. A plain block scroll container (not a flex item), so
-     it doesn't hit the height-collapse that broke earlier attempts. */
-  max-height: 70vh;
-  overflow-y: auto;
 }
 
 .ss-edit-panel__segmented {
