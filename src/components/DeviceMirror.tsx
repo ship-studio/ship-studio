@@ -22,12 +22,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { logger } from '../lib/logger';
 import {
   startMobilePreview,
-  listBootedSimulators,
   getSimulatorLaunchCommand,
   connectInputChannel,
   buildSessionId,
   type MirrorInfo,
-  type MobileSimulator,
 } from '../lib/mobile';
 import { checkDependenciesInstalled } from '../lib/project';
 import { attachPtySession } from '../lib/ptySession';
@@ -54,7 +52,6 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
   const [status, setStatus] = useState<Status>('starting');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [mirror, setMirror] = useState<MirrorInfo | null>(null);
-  const [device, setDevice] = useState<MobileSimulator | null>(null);
   const [launchStatus, setLaunchStatus] = useState<LaunchStatus>('none');
   const [buildCommand, setBuildCommand] = useState<string | null>(null);
   const [buildOpen, setBuildOpen] = useState(true);
@@ -115,13 +112,6 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
         inputRef.current = channel;
         setMirror(info);
         setStatus('connected');
-
-        // Resolve the device's friendly name for the toolbar (best-effort).
-        void listBootedSimulators()
-          .then((sims) => {
-            if (!cancelled) setDevice(sims.find((s) => s.udid === info.udid) ?? null);
-          })
-          .catch(() => {});
 
         // Auto-launch the app build into the embedded terminal.
         void resolveBuild(info.udid);
@@ -218,8 +208,8 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
       <div className="device-mirror">
         <div className="device-mirror-toolbar">
           <span className="device-mirror-label">
-            {device
-              ? `${device.name}${device.runtime ? ` · ${device.runtime}` : ''} · live`
+            {mirror.device_name
+              ? `${mirror.device_name}${mirror.device_runtime ? ` · ${mirror.device_runtime}` : ''} · live`
               : 'iOS Simulator · live'}
           </span>
           <Button variant="ghost" size="sm" onClick={restart}>

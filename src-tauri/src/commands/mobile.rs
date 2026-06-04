@@ -53,6 +53,12 @@ pub struct MirrorInfo {
     /// WebSocket control channel, e.g. `ws://127.0.0.1:3100/ws`.
     pub ws_url: String,
     pub port: u16,
+    /// Friendly device name (e.g. "iPhone 17") for the preview toolbar, so the
+    /// frontend doesn't have to make a second `list_booted_simulators` call.
+    /// Empty on the raw serve-sim parse; filled in once the session is built.
+    pub device_name: String,
+    /// Friendly runtime label (e.g. "iOS 26.1"), best-effort.
+    pub device_runtime: Option<String>,
 }
 
 /// Build an `xcrun` command with the extended PATH (Finder-launched apps don't
@@ -156,6 +162,10 @@ fn parse_mirror_info(json: &str) -> Result<MirrorInfo, CommandError> {
         stream_url,
         ws_url,
         port,
+        // Filled in by `establish_mirror` once we know the device; serve-sim's
+        // JSON only carries the udid.
+        device_name: String::new(),
+        device_runtime: None,
     })
 }
 
@@ -308,6 +318,61 @@ async fn kill_serve_sim(udid: &str) {
     .await;
 }
 
+/// Cheap liveness probe: is something still listening on the mirror's port? A
+/// serve-sim daemon that crashed (or was killed out from under us) leaves a
+/// registered session pointing at a dead port; this lets `start_mobile_preview`
+/// detect that and rebuild instead of handing back a dead mirror. A plain TCP
+/// connect is enough — far cheaper than an `npx serve-sim --list` cold start —
+/// and the reserved-port system makes a foreign listener on our port unlikely.
+async fn serve_sim_alive(port: u16) -> bool {
+    use tokio::time::{timeout, Duration};
+    matches!(
+        timeout(
+            Duration::from_millis(500),
+            tokio::net::TcpStream::connect(("127.0.0.1", port)),
+        )
+        .await,
+        Ok(Ok(_))
+    )
+}
+
+/// Synchronously kill whatever process is listening on a TCP port (macOS `lsof`).
+/// Used by the window-close handler instead of `npx serve-sim --kill`, which pays
+/// a node/npx cold start (hundreds of ms) that would jank window close. Mirrors
+/// the `kill_port` command's `lsof -nPti` approach.
+///
+/// `lsof` runs on a worker thread bounded by a timeout: it can wedge on a stuck
+/// socket/filesystem, and this is the window-close path — a hang here freezes the
+/// app's exit. If `lsof` doesn't answer in time we abandon it (the OS reaps the
+/// thread) rather than block. Same reason `kill_port` wraps `lsof` in a timeout.
+fn kill_process_on_port_sync(port: u16) {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let out = create_command("lsof")
+            .args(["-nPti", &format!("tcp:{port}")])
+            .env("PATH", get_extended_path())
+            .output();
+        let _ = tx.send(out);
+    });
+
+    let Ok(Ok(out)) = rx.recv_timeout(Duration::from_secs(2)) else {
+        // lsof hung or failed — don't block window close on it.
+        return;
+    };
+    for pid in String::from_utf8_lossy(&out.stdout).split_whitespace() {
+        // lsof -ti emits bare PIDs; validate before handing to `kill`.
+        if pid.parse::<i32>().is_ok() {
+            let _ = create_command("kill")
+                .args(["-9", pid])
+                .env("PATH", get_extended_path())
+                .output();
+        }
+    }
+}
+
 /// Tear down a project's mobile preview — the single authority. Kills the app
 /// build's `pty_session` (which the `PTY_REGISTRY`/`kill_window_pty_sync` sweeps
 /// do NOT reach, since it lives in a separate registry), stops the serve-sim
@@ -350,10 +415,9 @@ pub fn teardown_mobile_previews_for_window_sync(window_label: &str) {
         if let Some(build_id) = session.build_session_id {
             let _ = crate::commands::pty_session::pty_session_kill(build_id);
         }
-        let _ = std::process::Command::new("npx")
-            .args(["-y", "serve-sim", "--kill", &session.udid])
-            .env("PATH", get_extended_path())
-            .output();
+        // Kill the mirror by its port, not via `npx serve-sim --kill` — the npx
+        // cold start would block window close for hundreds of ms.
+        kill_process_on_port_sync(session.serve_sim_port);
         if session.booted_by_us {
             let _ = std::process::Command::new("xcrun")
                 .args(["simctl", "shutdown", &session.udid])
@@ -474,14 +538,91 @@ async fn spawn_serve_sim(udid: &str, start_port: u16) -> Result<MirrorInfo, Comm
     parse_mirror_info(&stdout)
 }
 
+/// Connection info reconstructed from a live registered session, for the
+/// idempotent-reuse path (no serve-sim round-trip needed).
+fn reuse_mirror_info(s: &crate::state::MobileSession) -> MirrorInfo {
+    MirrorInfo {
+        udid: s.udid.clone(),
+        stream_url: format!("http://127.0.0.1:{}/stream.mjpeg", s.serve_sim_port),
+        ws_url: format!("ws://127.0.0.1:{}/ws", s.serve_sim_port),
+        port: s.serve_sim_port,
+        device_name: s.device_name.clone(),
+        device_runtime: s.device_runtime.clone(),
+    }
+}
+
+/// Reserve a port, spawn a `serve-sim` mirror against an already-booted sim,
+/// reconcile the port serve-sim actually bound, and register the session. Shared
+/// by the fresh-start and dead-mirror-heal paths so the reserve/spawn/reconcile
+/// logic lives in one place. **Does not** boot or shut down the simulator — the
+/// caller owns that (so a heal can respawn the mirror without re-booting). On
+/// spawn failure it releases the port and returns the error, leaving the sim
+/// untouched.
+async fn establish_mirror(
+    project_path: &str,
+    window_label: &str,
+    udid: &str,
+    booted_by_us: bool,
+    device_name: String,
+    device_runtime: Option<String>,
+) -> Result<MirrorInfo, CommandError> {
+    let reserved = crate::commands::pty::find_and_reserve_port(
+        window_label.to_string(),
+        project_path.to_string(),
+        SERVE_SIM_BASE_PORT,
+    )?;
+
+    let mut info = match spawn_serve_sim(udid, reserved).await {
+        Ok(info) => info,
+        Err(e) => {
+            crate::state::release_port_for_project(window_label, project_path);
+            return Err(e);
+        }
+    };
+
+    // serve-sim may have stepped past our reserved port — re-key the reservation
+    // to the port it actually bound so dev servers avoid it.
+    let mut port_was_reserved = true;
+    if info.port != reserved && !crate::state::reserve_port(window_label, project_path, info.port) {
+        crate::state::release_port_for_project(window_label, project_path);
+        port_was_reserved = false;
+    }
+
+    info.device_name = device_name.clone();
+    info.device_runtime = device_runtime.clone();
+
+    // The build session id is the deterministic one the frontend uses, so
+    // teardown can kill the build pty_session even though it's spawned separately
+    // (killing an id that never spawned is a no-op).
+    crate::state::register_mobile_session(
+        project_path.to_string(),
+        crate::state::MobileSession {
+            udid: udid.to_string(),
+            booted_by_us,
+            serve_sim_port: info.port,
+            port_was_reserved,
+            build_session_id: Some(build_session_id_for(project_path)),
+            window_label: window_label.to_string(),
+            device_name,
+            device_runtime,
+        },
+    );
+
+    Ok(info)
+}
+
 /// Start (or reuse) a complete native mobile preview for a project: ensure a
 /// simulator is booted, reserve a port, start a `serve-sim` mirror, and register
 /// the session so the backend — not the React component — owns its lifecycle.
 ///
 /// Idempotent and serialized per project: concurrent calls for the same project
-/// share one boot. `preferred` pins a specific device (frontend passes `null` in
-/// v1). The returned [`MirrorInfo`] is what the frontend embeds; the app build is
-/// launched separately as a `pty_session`.
+/// share one boot. A reused session is **liveness-checked** — if its serve-sim
+/// mirror has died, we heal it (respawn the mirror against the same sim, keeping
+/// the build running) rather than hand back a dead port; if the sim itself is
+/// gone we tear down and start fresh. This is what makes the "Restart" button
+/// actually recover a broken preview. `preferred` pins a specific device
+/// (frontend passes `null` in v1). The returned [`MirrorInfo`] is what the
+/// frontend embeds; the app build is launched separately as a `pty_session`.
 #[tauri::command]
 #[tracing::instrument]
 pub async fn start_mobile_preview(
@@ -493,73 +634,90 @@ pub async fn start_mobile_preview(
     let lock = crate::state::boot_lock_for(&project_path);
     let _guard = lock.lock().await;
 
-    // Idempotent: a live mirror already exists → hand back its connection info.
+    // A session already exists. Reuse it if the mirror is still alive; otherwise
+    // heal or rebuild rather than returning a dead port.
     if let Some(existing) = crate::state::get_mobile_session(&project_path) {
-        tracing::info!(udid = %existing.udid, "start_mobile_preview: reusing live session");
-        return Ok(MirrorInfo {
-            udid: existing.udid,
-            stream_url: format!("http://127.0.0.1:{}/stream.mjpeg", existing.serve_sim_port),
-            ws_url: format!("ws://127.0.0.1:{}/ws", existing.serve_sim_port),
-            port: existing.serve_sim_port,
-        });
+        if serve_sim_alive(existing.serve_sim_port).await {
+            tracing::info!(udid = %existing.udid, "start_mobile_preview: reusing live session");
+            return Ok(reuse_mirror_info(&existing));
+        }
+
+        tracing::warn!(
+            udid = %existing.udid,
+            port = existing.serve_sim_port,
+            "start_mobile_preview: mirror is dead — attempting heal"
+        );
+        // Clear the dead mirror's port and any serve-sim zombie before respawning.
+        kill_serve_sim(&existing.udid).await;
+        if existing.port_was_reserved {
+            crate::state::release_port_for_project(&existing.window_label, &project_path);
+        }
+
+        // Narrow heal: if the sim is still booted, just respawn the mirror —
+        // don't re-boot, and leave the build pty_session running. This preserves
+        // boot ownership and the in-flight build.
+        let sim_still_booted = list_booted_simulators()
+            .await
+            .map(|sims| sims.iter().any(|s| s.udid == existing.udid))
+            .unwrap_or(false);
+        if sim_still_booted {
+            if let Ok(info) = establish_mirror(
+                &project_path,
+                &window_label,
+                &existing.udid,
+                existing.booted_by_us,
+                existing.device_name.clone(),
+                existing.device_runtime.clone(),
+            )
+            .await
+            {
+                tracing::info!(udid = %existing.udid, "start_mobile_preview: healed dead mirror");
+                return Ok(info);
+            }
+        }
+
+        // Sim is gone (or the respawn failed) — fully tear down the stale session
+        // and fall through to a fresh boot. The build can't survive a dead sim.
+        crate::state::take_mobile_session(&project_path);
+        if let Some(build_id) = &existing.build_session_id {
+            let _ = crate::commands::pty_session::pty_session_kill(build_id.clone());
+        }
+        if existing.booted_by_us {
+            let _ = simctl_stdout(
+                &["shutdown", &existing.udid],
+                "xcrun simctl shutdown",
+                SIMCTL_TIMEOUT_SECS,
+            )
+            .await;
+        }
     }
 
-    // 1. Ensure a simulator (correct preference, no registry side effects).
+    // Fresh start: ensure a simulator (correct preference), then establish the
+    // mirror. On mirror failure, don't strand a sim we just booted.
     let boot = ensure_simulator(preferred).await?;
-    let udid = boot.simulator.udid.clone();
-
-    // 2. Reserve a known-free port for the mirror.
-    let reserved = crate::commands::pty::find_and_reserve_port(
-        window_label.clone(),
-        project_path.clone(),
-        SERVE_SIM_BASE_PORT,
-    )?;
-
-    // 3. Start the mirror; on failure, release the port and don't strand a sim
-    //    we just booted.
-    let info = match spawn_serve_sim(&udid, reserved).await {
-        Ok(info) => info,
+    match establish_mirror(
+        &project_path,
+        &window_label,
+        &boot.simulator.udid,
+        boot.booted_by_us,
+        boot.simulator.name.clone(),
+        boot.simulator.runtime.clone(),
+    )
+    .await
+    {
+        Ok(info) => Ok(info),
         Err(e) => {
-            crate::state::release_port_for_project(&window_label, &project_path);
             if boot.booted_by_us {
                 let _ = simctl_stdout(
-                    &["shutdown", &udid],
+                    &["shutdown", &boot.simulator.udid],
                     "xcrun simctl shutdown",
                     SIMCTL_TIMEOUT_SECS,
                 )
                 .await;
             }
-            return Err(e);
+            Err(e)
         }
-    };
-
-    // 4. serve-sim may have stepped past our reserved port — re-key the
-    //    reservation to the port it actually bound so dev servers avoid it.
-    let mut port_was_reserved = true;
-    if info.port != reserved && !crate::state::reserve_port(&window_label, &project_path, info.port)
-    {
-        crate::state::release_port_for_project(&window_label, &project_path);
-        port_was_reserved = false;
     }
-
-    // 5. Register the session — the backend now owns this preview's lifecycle.
-    //    The build session id is the deterministic one the frontend will use, so
-    //    teardown can kill the build pty_session even though it's spawned
-    //    separately (killing an id that never spawned is a no-op).
-    let build_session_id = build_session_id_for(&project_path);
-    crate::state::register_mobile_session(
-        project_path,
-        crate::state::MobileSession {
-            udid,
-            booted_by_us: boot.booted_by_us,
-            serve_sim_port: info.port,
-            port_was_reserved,
-            build_session_id: Some(build_session_id),
-            window_label,
-        },
-    );
-
-    Ok(info)
 }
 
 #[cfg(test)]

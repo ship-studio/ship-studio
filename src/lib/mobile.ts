@@ -30,6 +30,11 @@ export interface MirrorInfo {
   /** WebSocket control channel, e.g. ws://127.0.0.1:3100/ws */
   ws_url: string;
   port: number;
+  /** Friendly device name (e.g. "iPhone 17") for the toolbar — saves a second
+   *  `listBootedSimulators` round-trip. May be empty if unknown. */
+  device_name: string;
+  /** Friendly runtime label (e.g. "iOS 26.1"), best-effort. */
+  device_runtime: string | null;
 }
 
 /**

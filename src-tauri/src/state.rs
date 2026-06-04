@@ -47,6 +47,11 @@ pub struct MobileSession {
     pub build_session_id: Option<String>,
     /// Owning window label — lets window-close teardown find sessions by window.
     pub window_label: String,
+    /// Friendly device name (e.g. "iPhone 17") for the preview toolbar. Stored so
+    /// reuse/heal can return it without a second `simctl list` round-trip.
+    pub device_name: String,
+    /// Friendly runtime label (e.g. "iOS 26.1"), best-effort.
+    pub device_runtime: Option<String>,
 }
 
 /// Maps `project_path -> MobileSession` for active mobile previews.
@@ -542,6 +547,8 @@ mod mobile_session_tests {
             port_was_reserved: false,
             build_session_id: Some("mobile-build:/p".into()),
             window_label: window_label.into(),
+            device_name: "iPhone 17".into(),
+            device_runtime: Some("iOS 26.1".into()),
         }
     }
 
