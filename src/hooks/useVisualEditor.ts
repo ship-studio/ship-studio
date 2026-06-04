@@ -17,8 +17,11 @@ import { twMerge } from 'tailwind-merge';
 import {
   resolveClassnameSource,
   applyClassnameEdit,
-  steppedPadding,
-  paddingValue,
+  steppedScale,
+  scaleValue,
+  SPACING_CONTROLS,
+  SPACING_REM,
+  type SpacingKind,
   type ElementSignature,
   type Resolution,
 } from '../lib/edit';
@@ -122,14 +125,17 @@ export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Pa
     [post, setLiveClass]
   );
 
-  /** Step padding by one integer, computed from the freshest live class (the ref,
-   *  not a render-time snapshot) so rapid clicks don't drift. Drives the live
-   *  preview with an inline pixel value (Tailwind spacing = N × 0.25rem). */
-  const stepPadding = useCallback(
-    (dir: 1 | -1) => {
-      const token = steppedPadding(currentClassRef.current, dir);
-      const n = paddingValue(token) ?? 0;
-      applyToken(token, { padding: `${n * 0.25}rem` });
+  /** Step a spacing utility (padding/margin/gap) by one integer, computed from
+   *  the freshest live class (the ref, not a render-time snapshot) so rapid
+   *  clicks don't drift. Drives the live preview with an inline value (Tailwind
+   *  spacing = N × 0.25rem) so it shows even when Tailwind hasn't compiled the class. */
+  const stepSpacing = useCallback(
+    (kind: SpacingKind, dir: 1 | -1) => {
+      const ctrl = SPACING_CONTROLS.find((c) => c.kind === kind);
+      if (!ctrl) return;
+      const token = steppedScale(currentClassRef.current, ctrl.prefix, dir);
+      const n = scaleValue(token, ctrl.prefix) ?? 0;
+      applyToken(token, { [ctrl.css]: `${n * SPACING_REM}rem` });
     },
     [applyToken]
   );
@@ -164,5 +170,5 @@ export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Pa
     });
   }, [setLiveClass]);
 
-  return { editMode, toggleEditMode, selection, currentClass, stepPadding, commit };
+  return { editMode, toggleEditMode, selection, currentClass, stepSpacing, commit };
 }

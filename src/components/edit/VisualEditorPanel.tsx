@@ -1,27 +1,33 @@
 /**
- * Visual editor properties panel (v1 slice).
+ * Visual editor properties panel.
  *
- * Renders for the element selected in the preview and exposes ONE control — a
- * Tailwind padding stepper — to prove the full loop: live DOM mutation on step,
- * surgical source write-back on "Save". Ambiguous/dynamic elements are shown
- * read-only with the reason, matching the resolver's safe fallback.
+ * Renders for the element selected in the preview and exposes the spacing
+ * controls (padding / margin / gap) as live steppers: each step mutates the DOM
+ * instantly and persists to source on "Save". Ambiguous/dynamic elements are
+ * shown read-only with the reason, matching the resolver's safe fallback.
  */
 
 import { Button } from '../primitives/Button';
-import { paddingValue } from '../../lib/edit';
+import { scaleValue, SPACING_CONTROLS, type SpacingKind } from '../../lib/edit';
 import type { Selection } from '../../hooks/useVisualEditor';
 
 interface Props {
   selection: Selection | null;
   /** The class string currently applied live (what "Save" will persist). */
   currentClass: string;
-  /** Step the padding one notch up (1) or down (-1) the Tailwind scale. */
-  onStep: (dir: 1 | -1) => void;
+  /** Step a spacing utility one notch up (1) or down (-1). */
+  onStepSpacing: (kind: SpacingKind, dir: 1 | -1) => void;
   onCommit: () => void;
   onClose: () => void;
 }
 
-export function VisualEditorPanel({ selection, currentClass, onStep, onCommit, onClose }: Props) {
+export function VisualEditorPanel({
+  selection,
+  currentClass,
+  onStepSpacing,
+  onCommit,
+  onClose,
+}: Props) {
   const resolution = selection?.resolution ?? null;
   const dirty = resolution?.status === 'resolved' && currentClass !== resolution.class_name;
 
@@ -66,18 +72,32 @@ export function VisualEditorPanel({ selection, currentClass, onStep, onCommit, o
               <span className="ss-edit-panel__badge">{resolution.confidence}</span>
             </div>
 
-            <div className="ss-edit-panel__control">
-              <label className="ss-edit-panel__label">Padding</label>
-              <div className="ss-edit-panel__stepper">
-                <Button size="sm" variant="secondary" onClick={() => onStep(-1)}>
-                  −
-                </Button>
-                <span className="ss-edit-panel__value">{paddingValue(currentClass) ?? '—'}</span>
-                <Button size="sm" variant="secondary" onClick={() => onStep(1)}>
-                  ＋
-                </Button>
+            {SPACING_CONTROLS.map((ctrl) => (
+              <div className="ss-edit-panel__control" key={ctrl.kind}>
+                <label className="ss-edit-panel__label">{ctrl.label}</label>
+                <div className="ss-edit-panel__stepper">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    aria-label={`Decrease ${ctrl.label.toLowerCase()}`}
+                    onClick={() => onStepSpacing(ctrl.kind, -1)}
+                  >
+                    −
+                  </Button>
+                  <span className="ss-edit-panel__value">
+                    {scaleValue(currentClass, ctrl.prefix) ?? '—'}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    aria-label={`Increase ${ctrl.label.toLowerCase()}`}
+                    onClick={() => onStepSpacing(ctrl.kind, 1)}
+                  >
+                    ＋
+                  </Button>
+                </div>
               </div>
-            </div>
+            ))}
 
             <div className="ss-edit-panel__classes" title={currentClass}>
               {currentClass}

@@ -690,7 +690,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           <VisualEditorPanel
             selection={editor.selection}
             currentClass={editor.currentClass}
-            onStep={editor.stepPadding}
+            onStepSpacing={editor.stepSpacing}
             onCommit={() => void editor.commit()}
             onClose={editor.toggleEditMode}
           />
