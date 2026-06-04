@@ -19,16 +19,17 @@ function Icon({ children }: { children: ReactNode }) {
   );
 }
 
-/** Filled bars representing flex children. justify-* varies their horizontal
- *  cluster (bars same height, x shifts); items-* varies their vertical position
- *  (bars same x spread, y/height shifts). No frame — it just added clutter at 16px. */
-function Bars({ bars }: { bars: [number, number, number, number][] }) {
+/** Three thin vertical strokes representing flex children — same stroke language
+ *  as the text-align icons. justify-* keeps them full-height and shifts the
+ *  cluster horizontally; items-* spreads them at fixed x and shifts their
+ *  (shorter) vertical extent, so the two rows read as one consistent set. */
+function VLines({ lines }: { lines: [number, number, number][] }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      {bars.map(([x, y, w, h], i) => (
-        <rect key={i} x={x} y={y} width={w} height={h} rx="1.2" fill="currentColor" />
+    <Icon>
+      {lines.map(([x, y1, y2], i) => (
+        <line key={i} x1={x} y1={y1} x2={x} y2={y2} {...lineProps} />
       ))}
-    </svg>
+    </Icon>
   );
 }
 
@@ -55,77 +56,77 @@ const ICONS: Record<string, ReactNode> = {
       <line x1="7" y1="18" x2="21" y2="18" {...lineProps} />
     </Icon>
   ),
-  // justify-content (main/horizontal axis): 3 equal bars, cluster shifts left → right.
+  // justify-content (main/horizontal axis): 3 full-height strokes, cluster shifts left → right.
   'justify-start': (
-    <Bars
-      bars={[
-        [3, 6, 3.5, 12],
-        [8, 6, 3.5, 12],
-        [13, 6, 3.5, 12],
+    <VLines
+      lines={[
+        [4, 6, 18],
+        [8, 6, 18],
+        [12, 6, 18],
       ]}
     />
   ),
   'justify-center': (
-    <Bars
-      bars={[
-        [5.75, 6, 3.5, 12],
-        [10.25, 6, 3.5, 12],
-        [14.75, 6, 3.5, 12],
+    <VLines
+      lines={[
+        [8, 6, 18],
+        [12, 6, 18],
+        [16, 6, 18],
       ]}
     />
   ),
   'justify-end': (
-    <Bars
-      bars={[
-        [7.5, 6, 3.5, 12],
-        [12.5, 6, 3.5, 12],
-        [17.5, 6, 3.5, 12],
+    <VLines
+      lines={[
+        [12, 6, 18],
+        [16, 6, 18],
+        [20, 6, 18],
       ]}
     />
   ),
   'justify-between': (
-    <Bars
-      bars={[
-        [3, 6, 3.5, 12],
-        [10.25, 6, 3.5, 12],
-        [17.5, 6, 3.5, 12],
+    <VLines
+      lines={[
+        [4, 6, 18],
+        [12, 6, 18],
+        [20, 6, 18],
       ]}
     />
   ),
-  // align-items (cross/vertical axis): 3 evenly-spread bars, block shifts top → bottom.
+  // align-items (cross/vertical axis): 3 evenly-spread strokes, extent shifts top → bottom.
   'items-start': (
-    <Bars
-      bars={[
-        [4.5, 3, 4, 9],
-        [10, 3, 4, 9],
-        [15.5, 3, 4, 9],
+    <VLines
+      lines={[
+        [6, 4, 11],
+        [12, 4, 11],
+        [18, 4, 11],
       ]}
     />
   ),
   'items-center': (
-    <Bars
-      bars={[
-        [4.5, 7.5, 4, 9],
-        [10, 7.5, 4, 9],
-        [15.5, 7.5, 4, 9],
+    <VLines
+      lines={[
+        [6, 8.5, 15.5],
+        [12, 8.5, 15.5],
+        [18, 8.5, 15.5],
       ]}
     />
   ),
   'items-end': (
-    <Bars
-      bars={[
-        [4.5, 12, 4, 9],
-        [10, 12, 4, 9],
-        [15.5, 12, 4, 9],
+    <VLines
+      lines={[
+        [6, 13, 20],
+        [12, 13, 20],
+        [18, 13, 20],
       ]}
     />
   ),
   'items-stretch': (
-    <Bars
-      bars={[
-        [4.5, 3, 4, 18],
-        [10, 3, 4, 18],
-        [15.5, 3, 4, 18],
+    <VLines
+      lines={[
+        [6, 4, 20],
+        [12, 4, 20],
+        [18, 4, 20],
       ]}
     />
   ),

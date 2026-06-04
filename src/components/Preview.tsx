@@ -520,6 +520,31 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       }
     >
       <div className="preview-toolbar">
+        {conn.serverReady && projectType === 'nextjs' && (
+          <button
+            type="button"
+            className={`preview-edit-toggle${editor.editMode ? ' active' : ''}`}
+            onClick={editor.toggleEditMode}
+            title="Toggle visual editor"
+            aria-pressed={editor.editMode}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
+            </svg>
+            Edit
+          </button>
+        )}
+
         {onToggleLogs && (
           <button
             type="button"
@@ -614,31 +639,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         >
           ↻
         </button>
-
-        {conn.serverReady && projectType === 'nextjs' && (
-          <button
-            type="button"
-            className={`preview-edit-toggle${editor.editMode ? ' active' : ''}`}
-            onClick={editor.toggleEditMode}
-            title="Toggle visual editor"
-            aria-pressed={editor.editMode}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
-            </svg>
-            Edit
-          </button>
-        )}
 
         {previewPlugins}
 

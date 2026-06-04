@@ -172,11 +172,17 @@
   gap: 1px;
   max-height: 240px;
   overflow-y: auto;
+  scrollbar-width: none;
   padding: var(--spacing-xs);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
+}
+.ss-dropdown__menu::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 .ss-dropdown__item {
   display: flex;
