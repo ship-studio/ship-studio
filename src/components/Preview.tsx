@@ -34,6 +34,9 @@ import { DevServerLogs } from './DevServerLogs';
 import { BrowserTools } from './BrowserTools';
 import { HealthTabPanel, type HealthTabPanelRef } from './HealthTabPanel';
 import { BrowserDropdown } from './BrowserDropdown';
+import { useVisualEditor } from '../hooks/useVisualEditor';
+import { VisualEditorPanel } from './edit/VisualEditorPanel';
+import type { ProjectType } from '../lib/static-server';
 
 // SVG icons for breakpoints
 const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
@@ -143,6 +146,8 @@ interface PreviewProps {
   isDevServerRestarting?: boolean;
   /** Whether this is a static HTML project (changes loading/error messaging) */
   isStaticProject?: boolean;
+  /** Detected project type; gates the visual editor to Next.js for v1. */
+  projectType?: ProjectType;
   /** Callback to send prompt to Claude terminal */
   onSendToClaude?: (prompt: string) => void;
   /** Plugin components rendered in the preview toolbar */
@@ -219,6 +224,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     isBranchSwitching = false,
     isDevServerRestarting = false,
     isStaticProject = false,
+    projectType,
     onSendToClaude,
     previewPlugins,
     showLogs = false,
@@ -360,6 +366,15 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   }, [showLogs, computeMaxPanelHeight]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Visual editor (v1: Next.js only). Inert until the user toggles edit mode.
+  const editor = useVisualEditor({
+    iframeRef,
+    projectPath,
+    enabled: conn.serverReady && projectType === 'nextjs',
+    onToast,
+  });
+
   const [iframeSize, setIframeSize] = useState<{ w: number; h: number } | null>(null);
   const iframeSizeObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -599,6 +614,18 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           ↻
         </button>
 
+        {conn.serverReady && projectType === 'nextjs' && (
+          <button
+            type="button"
+            className={`preview-edit-toggle${editor.editMode ? ' active' : ''}`}
+            onClick={editor.toggleEditMode}
+            title="Toggle visual editor"
+            aria-pressed={editor.editMode}
+          >
+            ✎ Edit
+          </button>
+        )}
+
         {previewPlugins}
 
         {iframeSize && iframeSize.w > 0 && iframeSize.h > 0 && (
@@ -657,6 +684,15 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             className={`preview-resize-overlay${
               resize.isVerticalResizing ? ' preview-resize-overlay--vertical' : ''
             }`}
+          />
+        )}
+        {editor.editMode && (
+          <VisualEditorPanel
+            selection={editor.selection}
+            currentClass={editor.currentClass}
+            onStep={editor.stepPadding}
+            onCommit={() => void editor.commit()}
+            onClose={editor.toggleEditMode}
           />
         )}
         <div

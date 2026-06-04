@@ -3,11 +3,12 @@
 //! Functions for injecting scripts and error overlays into HTML responses.
 //! Used by the preview proxy to add navigation tracking and error display.
 
-use super::NAV_SCRIPT;
+use super::{NAV_SCRIPT, SELECT_SCRIPT};
 
-/// Inject the navigation tracking script into an HTML response body.
+/// Inject the navigation tracking script + the (inert until activated) visual-
+/// editor selection layer into an HTML response body.
 pub fn inject_nav_script(html: &[u8]) -> Vec<u8> {
-    inject_into_html(html, NAV_SCRIPT)
+    inject_into_html(html, &format!("{NAV_SCRIPT}{SELECT_SCRIPT}"))
 }
 
 /// Inject an arbitrary HTML/CSS/JS snippet into an HTML document.
@@ -207,7 +208,8 @@ mod tests {
         let html = b"<html><head><title>Test</title></head><body>Hello</body></html>";
         let result = inject_nav_script(html);
         let result_str = String::from_utf8(result).unwrap();
-        assert!(result_str.contains(&format!("{NAV_SCRIPT}</head>")));
+        // Both scripts land before </head>, nav first.
+        assert!(result_str.contains(&format!("{NAV_SCRIPT}{SELECT_SCRIPT}</head>")));
     }
 
     #[test]
@@ -215,7 +217,7 @@ mod tests {
         let html = b"<html><body>Hello</body></html>";
         let result = inject_nav_script(html);
         let result_str = String::from_utf8(result).unwrap();
-        assert!(result_str.contains(&format!("{NAV_SCRIPT}</body>")));
+        assert!(result_str.contains(&format!("{NAV_SCRIPT}{SELECT_SCRIPT}</body>")));
     }
 
     #[test]
@@ -223,7 +225,18 @@ mod tests {
         let html = b"<html>Hello";
         let result = inject_nav_script(html);
         let result_str = String::from_utf8(result).unwrap();
-        assert!(result_str.ends_with(NAV_SCRIPT));
+        assert!(result_str.ends_with(SELECT_SCRIPT));
+        assert!(result_str.contains("ss:select"));
+    }
+
+    #[test]
+    fn select_script_supports_live_style_patch() {
+        // The selection script must apply an inline-style patch on ss:mutate so
+        // the preview is independent of Tailwind's JIT (a freshly-typed class has
+        // no compiled CSS). Guards the include_str! script content.
+        assert!(SELECT_SCRIPT.contains("d.style"));
+        assert!(SELECT_SCRIPT.contains("setProperty"));
+        assert!(SELECT_SCRIPT.contains("ss:mutate"));
     }
 
     #[test]

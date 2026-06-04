@@ -33,6 +33,17 @@ const MAX_BODY_SIZE: usize = 50 * 1024 * 1024;
 /// client-side navigation in frameworks like Next.js, React Router, etc.
 const NAV_SCRIPT: &str = r#"<script>(function(){var n=function(){window.parent.postMessage({type:'shipstudio:navigate',pathname:location.pathname},'*')};var p=history.pushState;var r=history.replaceState;history.pushState=function(){p.apply(this,arguments);n()};history.replaceState=function(){r.apply(this,arguments);n()};window.addEventListener('popstate',n);n()})()</script>"#;
 
+/// Visual-editor selection layer, injected into every preview HTML response but
+/// **inert until** the parent posts `ss:activate`. When active it outlines the
+/// hovered/selected element (overlay drawn inside the iframe so it tracks scroll
+/// automatically), reports a `ss:select` signature {className, tagName, text,
+/// ancestorClasses, rect} on click, and live-applies a new class on `ss:mutate`
+/// for instant (Webflow-style) feedback before the source write-back commits.
+///
+/// The script body lives in `select_script.html` so the same source is shared
+/// with the jsdom behavior test (`src/components/edit/selectScript.test.ts`).
+const SELECT_SCRIPT: &str = include_str!("select_script.html");
+
 /// Boxed body type that can be either a full buffered body or a streamed body.
 type ProxyBody = BoxBody<Bytes, hyper::Error>;
 

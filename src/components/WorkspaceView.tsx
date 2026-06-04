@@ -1349,6 +1349,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             port={devServerPort}
                             projectPath={currentProject.path}
                             isStaticProject={projectType === 'statichtml'}
+                            projectType={projectType}
                             onServerReady={handlePreviewReady}
                             onPageChange={setCurrentPreviewPage}
                             isCropMode={isCropMode}
