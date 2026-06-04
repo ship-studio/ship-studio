@@ -8,12 +8,13 @@
  */
 
 import { Button } from '../primitives/Button';
+import { SpacingBox } from './SpacingBox';
 import {
   scaleValue,
   activeEnumToken,
-  SPACING_CONTROLS,
   ENUM_CONTROLS,
-  type SpacingKind,
+  type BoxType,
+  type Side,
 } from '../../lib/edit';
 import type { Selection } from '../../hooks/useVisualEditor';
 
@@ -21,8 +22,10 @@ interface Props {
   selection: Selection | null;
   /** The class string currently applied live (what "Save" will persist). */
   currentClass: string;
-  /** Step a spacing utility one notch up (1) or down (-1). */
-  onStepSpacing: (kind: SpacingKind, dir: 1 | -1) => void;
+  /** Step the gap utility one notch up (1) or down (-1). */
+  onStepGap: (dir: 1 | -1) => void;
+  /** Set one side of padding/margin to an absolute value (box-model editor). */
+  onSetSide: (type: BoxType, side: Side, n: number) => void;
   /** Apply an enum option's token + inline-style preview. */
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   onCommit: () => void;
@@ -32,7 +35,8 @@ interface Props {
 export function VisualEditorPanel({
   selection,
   currentClass,
-  onStepSpacing,
+  onStepGap,
+  onSetSide,
   onApplyEnum,
   onCommit,
   onClose,
@@ -94,32 +98,32 @@ export function VisualEditorPanel({
               </p>
             )}
 
-            {SPACING_CONTROLS.map((ctrl) => (
-              <div className="ss-edit-panel__control" key={ctrl.kind}>
-                <label className="ss-edit-panel__label">{ctrl.label}</label>
-                <div className="ss-edit-panel__stepper">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    aria-label={`Decrease ${ctrl.label.toLowerCase()}`}
-                    onClick={() => onStepSpacing(ctrl.kind, -1)}
-                  >
-                    −
-                  </Button>
-                  <span className="ss-edit-panel__value">
-                    {scaleValue(currentClass, ctrl.prefix) ?? '—'}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    aria-label={`Increase ${ctrl.label.toLowerCase()}`}
-                    onClick={() => onStepSpacing(ctrl.kind, 1)}
-                  >
-                    ＋
-                  </Button>
-                </div>
+            <SpacingBox currentClass={currentClass} onSetSide={onSetSide} />
+
+            <div className="ss-edit-panel__control">
+              <label className="ss-edit-panel__label">Gap</label>
+              <div className="ss-edit-panel__stepper">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-label="Decrease gap"
+                  onClick={() => onStepGap(-1)}
+                >
+                  −
+                </Button>
+                <span className="ss-edit-panel__value">
+                  {scaleValue(currentClass, 'gap') ?? '—'}
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  aria-label="Increase gap"
+                  onClick={() => onStepGap(1)}
+                >
+                  ＋
+                </Button>
               </div>
-            ))}
+            </div>
 
             {ENUM_CONTROLS.map((control) => {
               const active = activeEnumToken(currentClass, control);

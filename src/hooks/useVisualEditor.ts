@@ -19,9 +19,13 @@ import {
   applyClassnameEdit,
   steppedScale,
   scaleValue,
+  boxSideToken,
+  boxInlineStyle,
   SPACING_CONTROLS,
   SPACING_REM,
   type SpacingKind,
+  type BoxType,
+  type Side,
   type ElementSignature,
   type Resolution,
 } from '../lib/edit';
@@ -130,6 +134,17 @@ export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Pa
     [post, setLiveClass]
   );
 
+  /** Set one side of a box (padding/margin) to an absolute value. Previews all
+   *  four longhands inline (JIT-independent) and merges the side token into the class. */
+  const setBoxSide = useCallback(
+    (type: BoxType, side: Side, n: number) => {
+      const merged = twMerge(currentClassRef.current, boxSideToken(type, side, n));
+      setLiveClass(merged);
+      post({ type: 'ss:mutate', className: merged, style: boxInlineStyle(merged, type) });
+    },
+    [post, setLiveClass]
+  );
+
   /** Step a spacing utility (padding/margin/gap) by one integer, computed from
    *  the freshest live class (the ref, not a render-time snapshot) so rapid
    *  clicks don't drift. Drives the live preview with an inline value (Tailwind
@@ -181,6 +196,7 @@ export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Pa
     selection,
     currentClass,
     stepSpacing,
+    setBoxSide,
     // Enum controls apply an absolute token (twMerge swaps the prior one) plus an
     // inline-style preview — same path as spacing, just not relative to a scale.
     applyEnum: applyToken,

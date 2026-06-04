@@ -21,7 +21,8 @@ function renderPanel(selection: Selection | null, currentClass = 'p-3') {
     <VisualEditorPanel
       selection={selection}
       currentClass={currentClass}
-      onStepSpacing={vi.fn()}
+      onStepGap={vi.fn()}
+      onSetSide={vi.fn()}
       onApplyEnum={vi.fn()}
       onCommit={vi.fn()}
       onClose={vi.fn()}
@@ -34,11 +35,12 @@ describe('VisualEditorPanel', () => {
     renderPanel(resolvedSelection);
     // Source line
     expect(screen.getByText('components/Hero.tsx:11')).toBeInTheDocument();
-    // Spacing steppers
-    expect(screen.getByText('Padding')).toBeInTheDocument();
-    expect(screen.getByText('Margin')).toBeInTheDocument();
+    // Box-model spacing editor with per-side fields
+    expect(screen.getByTestId('spacing-box')).toBeInTheDocument();
+    expect(screen.getByLabelText('Padding top')).toBeInTheDocument();
+    expect(screen.getByLabelText('Margin left')).toBeInTheDocument();
+    // Gap stepper + enum controls
     expect(screen.getByText('Gap')).toBeInTheDocument();
-    // Enum controls
     expect(screen.getByText('Align')).toBeInTheDocument();
     expect(screen.getByText('Weight')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Center' })).toBeInTheDocument();
@@ -53,7 +55,7 @@ describe('VisualEditorPanel', () => {
       instanceCount: 1,
     });
     expect(screen.getByText('Dynamic classes.')).toBeInTheDocument();
-    expect(screen.queryByText('Padding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('spacing-box')).not.toBeInTheDocument();
   });
 
   it('warns when multiple elements share the source', () => {

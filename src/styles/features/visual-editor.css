@@ -159,6 +159,78 @@
   justify-content: space-between;
 }
 
+/* Box-model spacing editor (margin outer, padding inner) */
+.ss-box {
+  position: relative;
+  padding: 22px 34px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--text-muted) 7%, transparent);
+}
+.ss-box__inner {
+  position: relative;
+  padding: 20px 30px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--text-muted) 9%, transparent);
+}
+.ss-box__core {
+  height: 12px;
+  border-radius: 2px;
+  background: var(--text-muted);
+  opacity: 0.35;
+}
+.ss-box__tag {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.ss-box__field {
+  position: absolute;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  text-align: center;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: ns-resize;
+}
+.ss-box__field:hover {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+.ss-box__field:focus {
+  outline: 1px solid var(--action);
+  border-radius: 3px;
+}
+.ss-box__edge--t {
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.ss-box__edge--b {
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.ss-box__edge--l {
+  left: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.ss-box__edge--r {
+  right: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .ss-edit-panel__label {
   color: var(--text-secondary);
 }

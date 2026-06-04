@@ -703,7 +703,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           <VisualEditorPanel
             selection={editor.selection}
             currentClass={editor.currentClass}
-            onStepSpacing={editor.stepSpacing}
+            onStepGap={(dir) => editor.stepSpacing('gap', dir)}
+            onSetSide={editor.setBoxSide}
             onApplyEnum={editor.applyEnum}
             onCommit={() => void editor.commit()}
             onClose={editor.toggleEditMode}
