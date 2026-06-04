@@ -214,31 +214,113 @@
   cursor: pointer;
 }
 
-.ss-edit-panel__color {
-  display: flex;
+/* Color swatch trigger + popover picker */
+.ss-color-swatch {
+  display: inline-flex;
   align-items: center;
-  gap: var(--spacing-sm);
-}
-.ss-edit-panel__color-input {
-  width: 28px;
-  height: 20px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: none;
-  cursor: pointer;
-}
-.ss-edit-panel__color-input::-webkit-color-swatch-wrapper {
+  justify-content: center;
+  width: 40px;
+  height: 24px;
   padding: 2px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--transition);
 }
-.ss-edit-panel__color-input::-webkit-color-swatch {
-  border: none;
+.ss-color-swatch:hover {
+  border-color: var(--text-muted);
+}
+.ss-color-swatch[aria-expanded='true'] {
+  border-color: var(--action);
+}
+.ss-color-swatch__chip {
+  width: 100%;
+  height: 100%;
   border-radius: 2px;
+  /* checkerboard shows through if a color ever has alpha */
+  background-image:
+    linear-gradient(45deg, var(--border) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--border) 25%, transparent 25%);
+  background-size: 8px 8px;
 }
-.ss-edit-panel__color-hex {
+.ss-color-swatch__empty {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.ss-color-popover {
+  position: fixed;
+  z-index: calc(var(--z-modal-overlay) + 1);
+  width: 216px;
+  padding: var(--spacing-sm);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.ss-color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+/* Size react-colorful's surface to the popover. */
+.ss-color-picker .react-colorful {
+  width: 100%;
+  height: 150px;
+}
+.ss-color-picker .react-colorful__saturation {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+.ss-color-picker .react-colorful__last-control {
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.ss-color-picker__formats {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.ss-color-picker__format {
+  flex: 1;
+  height: 22px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 1px);
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+.ss-color-picker__format:hover {
+  color: var(--text-primary);
+}
+.ss-color-picker__format.active {
+  background: var(--action);
+  color: var(--action-text);
+}
+
+.ss-color-picker__input {
+  width: 100%;
+  height: 26px;
+  padding: 0 var(--spacing-sm);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.ss-color-picker__input:focus {
+  outline: 1px solid var(--action);
 }
 
 .ss-edit-panel__hint,

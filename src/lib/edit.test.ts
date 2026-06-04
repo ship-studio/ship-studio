@@ -10,7 +10,34 @@ import {
   boxInlineStyle,
   arbitraryColor,
   colorToken,
+  arbitraryColorRaw,
+  colorClassToken,
+  colorFormatOf,
 } from './edit';
+
+describe('arbitrary color (any format)', () => {
+  it('reads hex / rgb / oklch and un-escapes underscores', () => {
+    expect(arbitraryColorRaw('text-[#1a2b3c] p-4', 'text')).toBe('#1a2b3c');
+    expect(arbitraryColorRaw('bg-[oklch(0.62_0.18_39)] flex', 'bg')).toBe('oklch(0.62 0.18 39)');
+    expect(arbitraryColorRaw('text-[rgb(194,65,12)]', 'text')).toBe('rgb(194,65,12)');
+    expect(arbitraryColorRaw('text-[var(--foreground)]', 'text')).toBe('var(--foreground)');
+  });
+  it('ignores non-color bracket values and absence', () => {
+    expect(arbitraryColorRaw('text-[14px] leading-5', 'text')).toBeNull();
+    expect(arbitraryColorRaw('p-4', 'bg')).toBeNull();
+  });
+  it('builds a class token, escaping spaces to underscores', () => {
+    expect(colorClassToken('text', 'oklch(0.62 0.18 39)')).toBe('text-[oklch(0.62_0.18_39)]');
+    expect(colorClassToken('bg', '#ffffff')).toBe('bg-[#ffffff]');
+  });
+  it('detects the format for match-existing', () => {
+    expect(colorFormatOf('oklch(0.6 0.1 30)')).toBe('oklch');
+    expect(colorFormatOf('rgb(0,0,0)')).toBe('rgb');
+    expect(colorFormatOf('hsl(0,0%,0%)')).toBe('hsl');
+    expect(colorFormatOf('#abcdef')).toBe('hex');
+    expect(colorFormatOf('var(--x)')).toBe('hex');
+  });
+});
 
 describe('color helpers', () => {
   it('reads an arbitrary hex for a color utility', () => {

@@ -47,7 +47,8 @@ describe('VisualEditorPanel', () => {
     expect(screen.getByRole('button', { name: 'Left' })).toBeInTheDocument();
     // New properties
     expect(screen.getByText('Opacity')).toBeInTheDocument();
-    expect(screen.getByLabelText('Text')).toBeInTheDocument();
+    // Color controls render as swatch buttons that open the picker popover
+    expect(screen.getByRole('button', { name: 'Text color' })).toBeInTheDocument();
     // Save button
     expect(screen.getByText('Saved')).toBeInTheDocument();
   });

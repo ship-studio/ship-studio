@@ -269,6 +269,36 @@ export function colorToken(prefix: ColorPrefix, hex: string): string {
   return `${prefix}-[${hex}]`;
 }
 
+/** Anything Tailwind would treat as an arbitrary color value (vs a length/var). */
+const COLOR_VALUE = /^(#|rgb|hsl|hwb|oklch|oklab|lab|lch|color\(|var\()/i;
+
+/**
+ * The raw arbitrary color inside `<prefix>-[…]` (any format — hex, rgb(), hsl(),
+ * oklch(), or a var()), with Tailwind's `_` un-escaped back to spaces. Returns
+ * null when the bracket value isn't color-like (e.g. `text-[14px]`) or absent.
+ */
+export function arbitraryColorRaw(className: string, prefix: ColorPrefix): string | null {
+  const m = new RegExp(`(?:^|\\s)${prefix}-\\[([^\\]]+)\\]`).exec(className);
+  if (!m) return null;
+  const raw = m[1].replace(/_/g, ' ');
+  return COLOR_VALUE.test(raw) ? raw : null;
+}
+
+/** Build an arbitrary-color class from a CSS color, escaping spaces to `_` as
+ *  Tailwind requires, e.g. `oklch(0.62 0.18 39)` → `text-[oklch(0.62_0.18_39)]`. */
+export function colorClassToken(prefix: ColorPrefix, cssColor: string): string {
+  return `${prefix}-[${cssColor.trim().replace(/\s+/g, '_')}]`;
+}
+
+/** Detect a CSS color string's format so edits can preserve it (match-existing). */
+export function colorFormatOf(cssColor: string): 'hex' | 'rgb' | 'hsl' | 'oklch' {
+  const s = cssColor.trim().toLowerCase();
+  if (s.startsWith('oklch')) return 'oklch';
+  if (s.startsWith('hsl')) return 'hsl';
+  if (s.startsWith('rgb')) return 'rgb';
+  return 'hex';
+}
+
 /** The token of the option currently active in `className` for a control, or null. */
 export function activeEnumToken(className: string, control: EnumControl): string | null {
   const tokens = new Set(className.split(/\s+/));
