@@ -171,12 +171,16 @@ export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Pa
       await applyClassnameEdit(projectPath, file, line, class_name, next);
       // Advance the drift baseline so consecutive edits keep working.
       setSelection({ ...sel, resolution: { ...sel.resolution, class_name: next } });
+      // Tell the in-iframe script this live state is now the saved baseline, so
+      // deactivating (closing the panel) doesn't revert the just-saved edit
+      // before HMR re-renders it from source.
+      post({ type: 'ss:commit' });
       onToast?.('Saved to source', 'success');
     } catch (err) {
       logger.error('[VisualEditor] write-back failed', { error: String(err) });
       onToast?.(String(err), 'error');
     }
-  }, [selection, projectPath, onToast]);
+  }, [selection, projectPath, onToast, post]);
 
   const toggleEditMode = useCallback(() => {
     setEditModeOn((prev) => {

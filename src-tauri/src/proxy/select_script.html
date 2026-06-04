@@ -26,7 +26,10 @@ function reposition(){if(active)placeSet();}
 window.addEventListener('message',function(e){var d=e.data||{};
 if(d.type==='ss:activate'){active=true;ensureHover();document.documentElement.style.cursor='crosshair';}
 else if(d.type==='ss:deactivate'){active=false;restoreSel();selectedSet=[];origClasses=[];place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);document.documentElement.style.cursor='';}
-else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(typeof d.className==='string')el.setAttribute('class',d.className);if(d.style){for(var k in d.style){mutKeys[k]=1;el.style.setProperty(k,d.style[k]);}}}placeSet();}});
+else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(typeof d.className==='string')el.setAttribute('class',d.className);if(d.style){for(var k in d.style){mutKeys[k]=1;el.style.setProperty(k,d.style[k]);}}}placeSet();}
+/* Edit was saved to source: adopt the current live state as the baseline so a
+   later deselect/deactivate won't revert it (HMR will re-render it from source). */
+else if(d.type==='ss:commit'){snapshotOrig();}});
 document.addEventListener('mousemove',onMove,true);
 document.addEventListener('click',onClick,true);
 window.addEventListener('scroll',reposition,true);
