@@ -219,7 +219,7 @@
 .ss-box__edge--b {
   left: 40px;
   right: 40px;
-  height: 20px;
+  height: 15px;
 }
 .ss-box__edge--t {
   top: 3px;
@@ -244,7 +244,7 @@
 .ss-box__inner .ss-box__edge--b {
   left: 34px;
   right: 34px;
-  height: 18px;
+  height: 14px;
 }
 .ss-box__inner .ss-box__edge--l,
 .ss-box__inner .ss-box__edge--r {

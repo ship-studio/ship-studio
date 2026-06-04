@@ -42,6 +42,9 @@ function SideField({ value, onSet, label, className, dir }: FieldProps) {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLInputElement>) => {
     if (e.button !== 0) return;
+    // Prevent the default focus/caret on press so a drag scrubs cleanly (no
+    // selection fighting the drag); we focus explicitly on a click in pointerup.
+    e.preventDefault();
     drag.current = { x: e.clientX, y: e.clientY, start: v };
     dragged.current = false;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -54,15 +57,16 @@ function SideField({ value, onSet, label, className, dir }: FieldProps) {
     const along = dir.axis === 'x' ? e.clientX - d.x : e.clientY - d.y;
     if (!dragged.current && Math.abs(along) < 3) return;
     dragged.current = true;
-    e.preventDefault();
     const next = Math.max(0, d.start + dir.sign * Math.round(along / DRAG_SENSITIVITY));
     if (next !== v) onSet(next);
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLInputElement>) => {
+    const wasClick = drag.current && !dragged.current;
     drag.current = null;
-    // After a scrub, drop focus so we don't leave a blinking caret/selection.
-    if (dragged.current) e.currentTarget.blur();
+    // A click (no drag) focuses + selects so you can type a replacement; because
+    // we suppressed focus on press, nothing clears the selection on release.
+    if (wasClick) e.currentTarget.focus();
   };
 
   return (
@@ -78,11 +82,6 @@ function SideField({ value, onSet, label, className, dir }: FieldProps) {
       }}
       onWheel={(e) => onSet(Math.max(0, v + (e.deltaY < 0 ? 1 : -1)))}
       onFocus={(e) => e.target.select()}
-      // The click's default caret placement clears the onFocus selection, so
-      // re-select on click — unless this click is the tail of a drag.
-      onClick={(e) => {
-        if (!dragged.current) e.currentTarget.select();
-      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
