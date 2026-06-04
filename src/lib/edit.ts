@@ -133,16 +133,21 @@ export interface EnumOption {
   style: Record<string, string>;
 }
 
+/** How an enum control is rendered. */
+export type EnumVariant = 'segmented' | 'icons' | 'dropdown';
+
 export interface EnumControl {
   label: string;
+  variant: EnumVariant;
   options: EnumOption[];
 }
 
-/** Enum controls the panel renders as segmented buttons. twMerge handles
- *  swapping the previously-applied option (same Tailwind group). */
+/** Enum controls the panel renders. twMerge handles swapping the previously
+ *  applied option (same Tailwind group); `style` drives JIT-independent preview. */
 export const ENUM_CONTROLS: EnumControl[] = [
   {
     label: 'Align',
+    variant: 'icons',
     options: [
       { label: 'Left', token: 'text-left', style: { 'text-align': 'left' } },
       { label: 'Center', token: 'text-center', style: { 'text-align': 'center' } },
@@ -151,11 +156,40 @@ export const ENUM_CONTROLS: EnumControl[] = [
   },
   {
     label: 'Weight',
+    variant: 'dropdown',
     options: [
       { label: 'Normal', token: 'font-normal', style: { 'font-weight': '400' } },
       { label: 'Medium', token: 'font-medium', style: { 'font-weight': '500' } },
       { label: 'Semibold', token: 'font-semibold', style: { 'font-weight': '600' } },
       { label: 'Bold', token: 'font-bold', style: { 'font-weight': '700' } },
+    ],
+  },
+  {
+    label: 'Size',
+    variant: 'dropdown',
+    options: [
+      { label: 'XS', token: 'text-xs', style: { 'font-size': '0.75rem' } },
+      { label: 'SM', token: 'text-sm', style: { 'font-size': '0.875rem' } },
+      { label: 'Base', token: 'text-base', style: { 'font-size': '1rem' } },
+      { label: 'LG', token: 'text-lg', style: { 'font-size': '1.125rem' } },
+      { label: 'XL', token: 'text-xl', style: { 'font-size': '1.25rem' } },
+      { label: '2XL', token: 'text-2xl', style: { 'font-size': '1.5rem' } },
+      { label: '3XL', token: 'text-3xl', style: { 'font-size': '1.875rem' } },
+      { label: '4XL', token: 'text-4xl', style: { 'font-size': '2.25rem' } },
+      { label: '5XL', token: 'text-5xl', style: { 'font-size': '3rem' } },
+    ],
+  },
+  {
+    label: 'Radius',
+    variant: 'dropdown',
+    options: [
+      { label: 'None', token: 'rounded-none', style: { 'border-radius': '0' } },
+      { label: 'SM', token: 'rounded-sm', style: { 'border-radius': '0.125rem' } },
+      { label: 'MD', token: 'rounded-md', style: { 'border-radius': '0.375rem' } },
+      { label: 'LG', token: 'rounded-lg', style: { 'border-radius': '0.5rem' } },
+      { label: 'XL', token: 'rounded-xl', style: { 'border-radius': '0.75rem' } },
+      { label: '2XL', token: 'rounded-2xl', style: { 'border-radius': '1rem' } },
+      { label: 'Full', token: 'rounded-full', style: { 'border-radius': '9999px' } },
     ],
   },
 ];

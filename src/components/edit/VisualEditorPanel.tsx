@@ -9,13 +9,8 @@
 
 import { Button } from '../primitives/Button';
 import { SpacingBox } from './SpacingBox';
-import {
-  scaleValue,
-  activeEnumToken,
-  ENUM_CONTROLS,
-  type BoxType,
-  type Side,
-} from '../../lib/edit';
+import { EnumControls } from './EnumControls';
+import { scaleValue, type BoxType, type Side } from '../../lib/edit';
 import type { Selection } from '../../hooks/useVisualEditor';
 
 interface Props {
@@ -125,26 +120,7 @@ export function VisualEditorPanel({
               </div>
             </div>
 
-            {ENUM_CONTROLS.map((control) => {
-              const active = activeEnumToken(currentClass, control);
-              return (
-                <div className="ss-edit-panel__control" key={control.label}>
-                  <label className="ss-edit-panel__label">{control.label}</label>
-                  <div className="ss-edit-panel__segmented">
-                    {control.options.map((opt) => (
-                      <button
-                        key={opt.token}
-                        type="button"
-                        className={`ss-edit-panel__seg${active === opt.token ? ' active' : ''}`}
-                        onClick={() => onApplyEnum(opt.token, opt.style)}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+            <EnumControls currentClass={currentClass} onApplyEnum={onApplyEnum} />
 
             <div className="ss-edit-panel__classes" title={currentClass}>
               {currentClass}

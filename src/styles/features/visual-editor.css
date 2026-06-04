@@ -103,6 +103,26 @@
   background: var(--action);
   color: var(--action-text);
 }
+.ss-edit-panel__seg--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+}
+
+.ss-edit-panel__select {
+  min-width: 96px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.ss-edit-panel__select:focus {
+  outline: 1px solid var(--action);
+}
 
 .ss-edit-panel__hint,
 .ss-edit-panel__readonly {
