@@ -159,23 +159,24 @@
   justify-content: space-between;
 }
 
-/* Box-model spacing editor (margin outer, padding inner) */
+/* Box-model spacing editor (margin outer, padding inner). Each side is a wide
+   "bar" filling its band, draggable anywhere along it. */
 .ss-box {
   position: relative;
-  padding: 22px 34px;
+  padding: 26px 44px;
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--text-muted) 7%, transparent);
 }
 .ss-box__inner {
   position: relative;
-  padding: 20px 30px;
+  padding: 24px 40px;
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--text-muted) 9%, transparent);
 }
 .ss-box__core {
-  height: 12px;
+  height: 14px;
   border-radius: 2px;
   background: var(--text-muted);
   opacity: 0.35;
@@ -184,6 +185,7 @@
   position: absolute;
   top: 3px;
   left: 5px;
+  z-index: 1;
   font-size: 8px;
   letter-spacing: 0.04em;
   color: var(--text-muted);
@@ -191,44 +193,64 @@
 }
 .ss-box__field {
   position: absolute;
-  width: 28px;
-  height: 16px;
+  margin: 0;
   padding: 0;
   text-align: center;
   font-size: 10px;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
+  /* Transparent by default (just the number) — the wide hit area is still there
+     for dragging; it only lights up on hover/focus. */
   background: transparent;
   border: none;
-  cursor: ns-resize;
+  border-radius: 3px;
+  cursor: grab;
 }
 .ss-box__field:hover {
   background: var(--bg-tertiary);
-  border-radius: 3px;
 }
 .ss-box__field:focus {
   outline: 1px solid var(--action);
-  border-radius: 3px;
+  background: var(--bg-tertiary);
+}
+/* Horizontal bars (top / bottom) span the band width; vertical bars span its height. */
+.ss-box__edge--t,
+.ss-box__edge--b {
+  left: 40px;
+  right: 40px;
+  height: 20px;
 }
 .ss-box__edge--t {
-  top: 2px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 3px;
 }
 .ss-box__edge--b {
-  bottom: 2px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 3px;
+}
+.ss-box__edge--l,
+.ss-box__edge--r {
+  top: 28px;
+  bottom: 28px;
+  width: 34px;
 }
 .ss-box__edge--l {
-  left: 1px;
-  top: 50%;
-  transform: translateY(-50%);
+  left: 3px;
 }
 .ss-box__edge--r {
-  right: 1px;
-  top: 50%;
-  transform: translateY(-50%);
+  right: 3px;
+}
+/* The inner padding band is smaller — tighten its bars to fit. */
+.ss-box__inner .ss-box__edge--t,
+.ss-box__inner .ss-box__edge--b {
+  left: 34px;
+  right: 34px;
+  height: 18px;
+}
+.ss-box__inner .ss-box__edge--l,
+.ss-box__inner .ss-box__edge--r {
+  top: 24px;
+  bottom: 24px;
+  width: 30px;
 }
 
 .ss-edit-panel__label {
