@@ -212,12 +212,12 @@ const INSPECT_PANEL_MAX_FALLBACK_PX = 160;
 const INSPECT_PANEL_KEY_STEP_PX = 12;
 const INSPECT_PANEL_KEY_STEP_LARGE_PX = 60;
 
-/** Visual-editor panel geometry. The panel is portaled to <body> as a fixed
- *  layer (so WebKit can't composite the preview iframe over it) and positioned
- *  from the measured canvas rect, so these must match `.ss-edit-panel` width and
- *  the inset we want from the canvas's top-right corner. */
-const EDIT_PANEL_WIDTH_PX = 240;
-const EDIT_PANEL_INSET_PX = 12;
+/** Visual-editor panel position. Portaled to <body> as a position:fixed layer
+ *  (the only reliable way to sit above the preview iframe in WebKit) and pinned
+ *  to the window's top-right, which is the preview pane's top-right. All inline
+ *  so it can't be defeated by CSS-var/HMR drift. */
+const EDIT_PANEL_TOP_PX = 96;
+const EDIT_PANEL_RIGHT_PX = 16;
 
 export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   {
@@ -420,59 +420,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       iframeSizeObserverRef.current?.disconnect();
     };
   }, []);
-
-  // Window-coordinate position for the floating visual-editor panel, pinned to
-  // the canvas's top-right corner. The panel is portaled to <body> with
-  // position:fixed (the only reliable way to sit above the iframe in WebKit), so
-  // we measure the canvas in window coordinates and keep it in sync as the canvas
-  // resizes (breakpoint) or re-centers (viewport width change, inspect open).
-  const [editPanelPos, setEditPanelPos] = useState<{
-    top: number;
-    left: number;
-    maxHeight: number;
-  } | null>(null);
-
-  const measureEditPanelPos = useCallback(() => {
-    const el = capture.iframeWrapperRef.current;
-    if (!el) {
-      setEditPanelPos(null);
-      return;
-    }
-    const r = el.getBoundingClientRect();
-    setEditPanelPos({
-      top: r.top + EDIT_PANEL_INSET_PX,
-      left: r.right - EDIT_PANEL_WIDTH_PX - EDIT_PANEL_INSET_PX,
-      maxHeight: r.height - EDIT_PANEL_INSET_PX * 2,
-    });
-  }, [capture.iframeWrapperRef]);
-
-  useEffect(() => {
-    if (!editor.editMode) {
-      setEditPanelPos(null);
-      return;
-    }
-    measureEditPanelPos();
-    const raf = requestAnimationFrame(measureEditPanelPos);
-    const el = capture.iframeWrapperRef.current;
-    const ro = el ? new ResizeObserver(() => measureEditPanelPos()) : null;
-    ro?.observe(el!);
-    window.addEventListener('resize', measureEditPanelPos);
-    return () => {
-      cancelAnimationFrame(raf);
-      ro?.disconnect();
-      window.removeEventListener('resize', measureEditPanelPos);
-    };
-    // iframeSize (breakpoint/size), viewportWidth (re-center), and the inspect
-    // panel height all shift the canvas rect — re-measure when any change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    editor.editMode,
-    measureEditPanelPos,
-    iframeSize,
-    resize.viewportWidth,
-    showLogs,
-    inspectPanelHeight,
-  ]);
 
   // Force refresh the preview iframe with cache busting
   // Uses currentPage (tracked via proxy) so it refreshes the actual visible page,
@@ -892,18 +839,17 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             onApplyEnum={editor.applyEnum}
             onCommit={() => void editor.commit()}
             onClose={editor.toggleEditMode}
-            // Pin to the canvas once measured; until then the CSS default corner
-            // keeps it visible (right/maxHeight from CSS, so unset them here).
-            style={
-              editPanelPos
-                ? {
-                    top: editPanelPos.top,
-                    left: editPanelPos.left,
-                    right: 'auto',
-                    maxHeight: editPanelPos.maxHeight,
-                  }
-                : undefined
-            }
+            // Full positioning inline (not via the CSS class) so it can't be
+            // defeated by token/HMR drift. Fixed to the window top-right ≈ the
+            // preview pane's top-right.
+            style={{
+              position: 'fixed',
+              top: EDIT_PANEL_TOP_PX,
+              right: EDIT_PANEL_RIGHT_PX,
+              left: 'auto',
+              zIndex: 1000,
+              maxHeight: `calc(100vh - ${EDIT_PANEL_TOP_PX + 16}px)`,
+            }}
           />,
           document.body
         )}
