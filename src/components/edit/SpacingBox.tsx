@@ -6,6 +6,7 @@
  * the hook's `setBoxSide`.
  */
 
+import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { boxSideValue, type BoxType, type Side } from '../../lib/edit';
 
 interface FieldProps {
@@ -15,14 +16,50 @@ interface FieldProps {
   className: string;
 }
 
-/** One side value: type a number or scroll to scrub. Empty/“—” means 0. */
+/** Pixels of drag per 1-unit change. */
+const DRAG_SENSITIVITY = 5;
+
+/**
+ * One side value. Three ways to change it:
+ *  - drag (right/up increases, left/down decreases) — like a design tool,
+ *  - scroll to scrub,
+ *  - click (selects all) then type to replace.
+ */
 function SideField({ value, onSet, label, className }: FieldProps) {
   const v = value ?? 0;
+  const drag = useRef<{ x: number; y: number; start: number; moved: boolean } | null>(null);
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLInputElement>) => {
+    if (e.button !== 0) return;
+    drag.current = { x: e.clientX, y: e.clientY, start: v, moved: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: ReactPointerEvent<HTMLInputElement>) => {
+    const d = drag.current;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    d.moved = true;
+    e.preventDefault();
+    // Right and up both increase; the input no longer takes a caret mid-drag.
+    const next = Math.max(0, d.start + Math.round((dx - dy) / DRAG_SENSITIVITY));
+    if (next !== v) onSet(next);
+  };
+
+  const onPointerUp = (e: ReactPointerEvent<HTMLInputElement>) => {
+    const wasDrag = drag.current?.moved;
+    drag.current = null;
+    // After a scrub, drop focus so we don't leave a blinking caret/selection.
+    if (wasDrag) e.currentTarget.blur();
+  };
+
   return (
     <input
       className={`ss-box__field ${className}`}
       aria-label={label}
-      title={`${label} (scroll to adjust)`}
+      title={`${label} (drag or scroll to adjust)`}
       inputMode="numeric"
       value={String(v)}
       onChange={(e) => {
@@ -30,6 +67,10 @@ function SideField({ value, onSet, label, className }: FieldProps) {
         if (!Number.isNaN(n) && n >= 0) onSet(n);
       }}
       onWheel={(e) => onSet(Math.max(0, v + (e.deltaY < 0 ? 1 : -1)))}
+      onFocus={(e) => e.target.select()}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
     />
   );
 }
