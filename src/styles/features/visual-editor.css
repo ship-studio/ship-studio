@@ -1,7 +1,7 @@
 /* Visual editor properties panel (v1 slice).
-   Floats over the iframe wrapper (the canvas) — NOT the viewport — so at narrow
-   breakpoints it stays pinned to the rendered page instead of detaching into the
-   center-gutter the viewport's `justify-content: center` leaves around the canvas. */
+   Portaled to <body> as a position:fixed layer and positioned from the measured
+   canvas rect (Preview.tsx). This is the only reliable way to float over the
+   preview iframe in WebKit — any in-tree overlay gets composited under it. */
 
 .preview-edit-toggle {
   display: inline-flex;
@@ -29,26 +29,22 @@
 }
 
 .ss-edit-panel {
-  position: absolute;
-  top: var(--spacing-md);
-  right: var(--spacing-md);
+  /* Portaled to <body> and positioned with inline top/left/max-height from the
+     measured canvas rect (see Preview.tsx). position:fixed at the document root
+     is the only reliable way to sit ABOVE the preview iframe in WebKit — an
+     in-tree absolute/relative element (even with z-index or a promoted layer)
+     gets composited under the iframe and vanishes. */
+  position: fixed;
   z-index: var(--z-modal-overlay);
   width: 240px;
-  /* Cap to the canvas height and scroll the whole panel (the BODY is left
-     unconstrained — putting overflow on the flex-column body collapses it). */
-  max-height: calc(100% - var(--spacing-md) * 2);
+  /* Scroll the whole panel (the BODY is left unconstrained — putting overflow on
+     the flex-column body collapses it). max-height is supplied inline. */
   overflow: hidden auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   font-size: 13px;
-  /* Promote to its own compositing layer. WebKit (Tauri's renderer) paints an
-     <iframe>'s content ABOVE plain positioned siblings even when they have a
-     higher z-index — so without this the panel renders for one frame and then
-     the iframe composites over it (a flash, then nothing). translateZ forces a
-     GPU layer that wins over the iframe. */
-  transform: translateZ(0);
 }
 
 .ss-edit-panel__header {

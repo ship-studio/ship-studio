@@ -7,6 +7,7 @@
  * shown read-only with the reason, matching the resolver's safe fallback.
  */
 
+import type { CSSProperties } from 'react';
 import { Button } from '../primitives/Button';
 import { SpacingBox } from './SpacingBox';
 import { EnumControls } from './EnumControls';
@@ -26,6 +27,9 @@ interface Props {
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   onCommit: () => void;
   onClose: () => void;
+  /** Inline position/size (the panel is portaled to <body> and positioned by the
+   *  host from the measured canvas rect). */
+  style?: CSSProperties;
 }
 
 export function VisualEditorPanel({
@@ -36,12 +40,13 @@ export function VisualEditorPanel({
   onApplyEnum,
   onCommit,
   onClose,
+  style,
 }: Props) {
   const resolution = selection?.resolution ?? null;
   const dirty = resolution?.status === 'resolved' && currentClass !== resolution.class_name;
 
   return (
-    <div className="ss-edit-panel" data-testid="visual-editor-panel">
+    <div className="ss-edit-panel" data-testid="visual-editor-panel" style={style}>
       <div className="ss-edit-panel__header">
         <span className="ss-edit-panel__title">Edit</span>
         <button className="ss-edit-panel__close" onClick={onClose} aria-label="Exit edit mode">
