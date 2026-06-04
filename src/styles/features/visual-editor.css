@@ -34,22 +34,17 @@
      reliable way to sit ABOVE the preview iframe in WebKit — an in-tree overlay
      (even with z-index or a promoted layer) gets composited under it. */
   position: fixed;
+  display: flex;
+  flex-direction: column;
   width: 240px;
-  /* Scroll the whole panel (the BODY is left unconstrained — putting overflow on
-     the flex-column body collapses it) with no visible scrollbar. max-height is
+  /* Header + footer are fixed; only the body scrolls. Panel clips; max-height is
      set inline by the component. */
-  overflow: hidden auto;
-  scrollbar-width: none;
+  overflow: hidden;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   font-size: 13px;
-}
-.ss-edit-panel::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
 }
 
 .ss-edit-panel__header {
@@ -87,10 +82,27 @@
 }
 
 .ss-edit-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
   padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+}
+.ss-edit-panel__body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Pinned footer — Save / Saved is always visible regardless of scroll. */
+.ss-edit-panel__footer {
+  flex: 0 0 auto;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
 }
 
 /* Segmented control — a tray with inset, individually-rounded segments so the

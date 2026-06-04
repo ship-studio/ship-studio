@@ -46,8 +46,16 @@ function ColorField({
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    // Open to the LEFT of the swatch (the panel sits at the screen's right edge).
-    setRect({ top: r.top, left: r.left - 224 });
+    const W = 216;
+    const H = 250;
+    const M = 8;
+    // Prefer opening to the LEFT of the swatch (panel hugs the right edge); fall
+    // back to the right, then clamp fully inside the viewport on both axes.
+    let left = r.left - W - M;
+    if (left < M) left = r.right + M;
+    left = Math.min(Math.max(M, left), window.innerWidth - W - M);
+    const top = Math.min(Math.max(M, r.top), window.innerHeight - H - M);
+    setRect({ top, left });
   }, []);
 
   useLayoutEffect(() => {

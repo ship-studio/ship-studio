@@ -127,7 +127,8 @@ export function VisualEditorPanel({
         left: pos.left,
         right: 'auto',
         zIndex: 1000,
-        maxHeight: `calc(100vh - ${pos.top + 16}px)`,
+        // Cap shorter than the viewport; the body scrolls, the footer stays put.
+        maxHeight: `min(520px, calc(100vh - ${pos.top + 16}px))`,
       }}
     >
       <div
@@ -239,32 +240,36 @@ export function VisualEditorPanel({
             <div className="ss-edit-panel__classes" title={currentClass}>
               {currentClass}
             </div>
-
-            {dirty ? (
-              <Button size="sm" variant="primary" block onClick={onCommit}>
-                Save to source
-              </Button>
-            ) : (
-              <div className="ss-edit-panel__saved" aria-live="polite">
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                Saved
-              </div>
-            )}
           </>
         )}
       </div>
+
+      {resolution?.status === 'resolved' && (
+        <div className="ss-edit-panel__footer">
+          {dirty ? (
+            <Button size="sm" variant="primary" block onClick={onCommit}>
+              Save to source
+            </Button>
+          ) : (
+            <div className="ss-edit-panel__saved" aria-live="polite">
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Saved
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
