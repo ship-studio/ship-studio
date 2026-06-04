@@ -1,5 +1,7 @@
 /* Visual editor properties panel (v1 slice).
-   Floats over the preview viewport; the element overlays live inside the iframe. */
+   Floats over the iframe wrapper (the canvas) — NOT the viewport — so at narrow
+   breakpoints it stays pinned to the rendered page instead of detaching into the
+   center-gutter the viewport's `justify-content: center` leaves around the canvas. */
 
 .preview-edit-toggle {
   display: inline-flex;
@@ -32,7 +34,7 @@
   right: var(--spacing-md);
   z-index: var(--z-modal-overlay);
   width: 240px;
-  /* Cap to the preview viewport and scroll the whole panel (the BODY is left
+  /* Cap to the canvas height and scroll the whole panel (the BODY is left
      unconstrained — putting overflow on the flex-column body collapses it). */
   max-height: calc(100% - var(--spacing-md) * 2);
   overflow: hidden auto;

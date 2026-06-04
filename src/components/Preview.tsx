@@ -699,17 +699,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             }`}
           />
         )}
-        {editor.editMode && (
-          <VisualEditorPanel
-            selection={editor.selection}
-            currentClass={editor.currentClass}
-            onStepGap={(dir) => editor.stepSpacing('gap', dir)}
-            onSetSide={editor.setBoxSide}
-            onApplyEnum={editor.applyEnum}
-            onCommit={() => void editor.commit()}
-            onClose={editor.toggleEditMode}
-          />
-        )}
         <div
           className={`preview-frame-grid${
             resize.customWidth !== null && resize.customHeight !== null
@@ -741,6 +730,20 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               className="preview-iframe"
               title="Preview"
             />
+            {/* Floats over the canvas (this wrapper is the positioned ancestor),
+                so it stays pinned to the rendered page's top-right at every
+                breakpoint instead of detaching into the viewport's center-gutter. */}
+            {editor.editMode && (
+              <VisualEditorPanel
+                selection={editor.selection}
+                currentClass={editor.currentClass}
+                onStepGap={(dir) => editor.stepSpacing('gap', dir)}
+                onSetSide={editor.setBoxSide}
+                onApplyEnum={editor.applyEnum}
+                onCommit={() => void editor.commit()}
+                onClose={editor.toggleEditMode}
+              />
+            )}
             {/* Branch switching overlay */}
             {isBranchSwitching && (
               <div className="preview-branch-switching-overlay">
