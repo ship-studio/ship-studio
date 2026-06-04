@@ -43,6 +43,12 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   font-size: 13px;
+  /* Promote to its own compositing layer. WebKit (Tauri's renderer) paints an
+     <iframe>'s content ABOVE plain positioned siblings even when they have a
+     higher z-index — so without this the panel renders for one frame and then
+     the iframe composites over it (a flash, then nothing). translateZ forces a
+     GPU layer that wins over the iframe. */
+  transform: translateZ(0);
 }
 
 .ss-edit-panel__header {
