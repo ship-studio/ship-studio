@@ -1,18 +1,23 @@
 <script>(function(){
 if(window.__ssSelectInit)return;window.__ssSelectInit=true;
-var active=false,hoverBox=null,selBox=null,selected=null;
+var active=false,hoverBox=null,selBoxes=[],selectedSet=[];
 function mk(c){var d=document.createElement('div');d.style.cssText='position:fixed;pointer-events:none;z-index:2147483646;border:2px solid '+c+';box-sizing:border-box;border-radius:2px';d.setAttribute('data-ss-overlay','1');document.body.appendChild(d);return d;}
-function ensure(){if(!hoverBox)hoverBox=mk('rgba(96,165,250,.8)');if(!selBox)selBox=mk('rgba(217,119,87,.95)');}
+function ensureHover(){if(!hoverBox)hoverBox=mk('rgba(96,165,250,.8)');}
+function ensureSel(n){while(selBoxes.length<n)selBoxes.push(mk('rgba(217,119,87,.95)'));}
 function editable(el){while(el&&el!==document.body){if(el.nodeType===1){var c=el.getAttribute&&el.getAttribute('class');if(c&&c.trim())return el;}el=el.parentElement;}return null;}
 function place(box,el){if(!box)return;if(!el){box.style.display='none';return;}var r=el.getBoundingClientRect();box.style.display='block';box.style.top=r.top+'px';box.style.left=r.left+'px';box.style.width=r.width+'px';box.style.height=r.height+'px';}
+function placeSet(){ensureSel(selectedSet.length);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],selectedSet[i]||null);}
+/* All elements whose class attribute is identical to the clicked element's — these
+   render from the same source literal (e.g. a .map), so a source edit changes all. */
+function matching(el){var c=el.getAttribute('class'),out=[],all=document.querySelectorAll('[class]');for(var i=0;i<all.length;i++){if(all[i].getAttribute('class')===c)out.push(all[i]);}return out;}
 function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.textContent||'').trim().slice(0,40),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height}};}
-function onMove(e){if(!active)return;ensure();place(hoverBox,editable(e.target));}
-function onClick(e){if(!active)return;var el=editable(e.target);if(!el)return;e.preventDefault();e.stopPropagation();selected=el;ensure();place(selBox,el);place(hoverBox,null);window.parent.postMessage({type:'ss:select',signature:sig(el)},'*');}
-function reposition(){if(active&&selected)place(selBox,selected);}
+function onMove(e){if(!active)return;ensureHover();place(hoverBox,editable(e.target));}
+function onClick(e){if(!active)return;var el=editable(e.target);if(!el)return;e.preventDefault();e.stopPropagation();selectedSet=matching(el);placeSet();place(hoverBox,null);window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length},'*');}
+function reposition(){if(active)placeSet();}
 window.addEventListener('message',function(e){var d=e.data||{};
-if(d.type==='ss:activate'){active=true;ensure();document.documentElement.style.cursor='crosshair';}
-else if(d.type==='ss:deactivate'){active=false;selected=null;place(hoverBox,null);place(selBox,null);document.documentElement.style.cursor='';}
-else if(d.type==='ss:mutate'){if(selected){if(typeof d.className==='string')selected.setAttribute('class',d.className);if(d.style){for(var k in d.style)selected.style.setProperty(k,d.style[k]);}place(selBox,selected);}}});
+if(d.type==='ss:activate'){active=true;ensureHover();document.documentElement.style.cursor='crosshair';}
+else if(d.type==='ss:deactivate'){active=false;selectedSet=[];place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);document.documentElement.style.cursor='';}
+else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(typeof d.className==='string')el.setAttribute('class',d.className);if(d.style){for(var k in d.style)el.style.setProperty(k,d.style[k]);}}placeSet();}});
 document.addEventListener('mousemove',onMove,true);
 document.addEventListener('click',onClick,true);
 window.addEventListener('scroll',reposition,true);

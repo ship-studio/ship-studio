@@ -622,7 +622,20 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             title="Toggle visual editor"
             aria-pressed={editor.editMode}
           >
-            ✎ Edit
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
+            </svg>
+            Edit
           </button>
         )}
 

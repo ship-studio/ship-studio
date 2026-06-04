@@ -21,9 +21,9 @@
   color: var(--text-primary);
 }
 .preview-edit-toggle.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--action-text);
 }
 
 .ss-edit-panel {
@@ -100,8 +100,8 @@
   color: var(--text-primary);
 }
 .ss-edit-panel__seg.active {
-  background: var(--accent);
-  color: #fff;
+  background: var(--action);
+  color: var(--action-text);
 }
 
 .ss-edit-panel__hint,
@@ -113,6 +113,16 @@
 
 .ss-edit-panel__muted {
   color: var(--text-muted);
+}
+
+.ss-edit-panel__multi {
+  margin: 0;
+  padding: 6px var(--spacing-sm);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--warning, #e0a458);
+  background: color-mix(in srgb, var(--warning, #e0a458) 12%, transparent);
+  border-radius: var(--radius-sm);
 }
 
 .ss-edit-panel__source {
@@ -136,6 +146,11 @@
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-muted);
+  cursor: default;
+}
+.ss-edit-panel__badge--approx {
+  color: var(--warning, #e0a458);
+  background: color-mix(in srgb, var(--warning, #e0a458) 14%, transparent);
 }
 
 .ss-edit-panel__control {

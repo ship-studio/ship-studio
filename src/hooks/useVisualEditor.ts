@@ -39,6 +39,9 @@ export interface Selection {
   signature: ElementSignature;
   /** null while the backend resolve is in flight. */
   resolution: Resolution | null;
+  /** How many elements on the page share these exact classes (same source ⇒ a
+   *  save updates all of them). 1 for a unique element. */
+  instanceCount: number;
 }
 
 export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Params) {
@@ -80,15 +83,16 @@ export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Pa
   useEffect(() => {
     if (!editMode) return;
     const handler = (e: MessageEvent) => {
-      const d = e.data as { type?: string; signature?: ElementSignature } | null;
+      const d = e.data as { type?: string; signature?: ElementSignature; count?: number } | null;
       if (!d || d.type !== 'ss:select' || !d.signature) return;
       const sig = d.signature;
-      setSelection({ signature: sig, resolution: null });
+      const instanceCount = d.count ?? 1;
+      setSelection({ signature: sig, resolution: null, instanceCount });
       setLiveClass(sig.className);
       void (async () => {
         try {
           const resolution = await resolveClassnameSource(projectPath, sig);
-          setSelection({ signature: sig, resolution });
+          setSelection({ signature: sig, resolution, instanceCount });
         } catch (err) {
           logger.error('[VisualEditor] resolve failed', { error: String(err) });
           onToast?.(String(err), 'error');
@@ -98,6 +102,7 @@ export function useVisualEditor({ iframeRef, projectPath, enabled, onToast }: Pa
               status: 'read_only',
               reason: 'Could not resolve this element to source.',
             },
+            instanceCount,
           });
         }
       })();

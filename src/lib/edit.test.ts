@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { scaleValue, steppedScale, SPACING_CONTROLS, ENUM_CONTROLS, activeEnumToken } from './edit';
+import {
+  scaleValue,
+  steppedScale,
+  SPACING_CONTROLS,
+  ENUM_CONTROLS,
+  activeEnumToken,
+  boxSideValue,
+  boxSideToken,
+  boxInlineStyle,
+} from './edit';
 
 describe('scaleValue', () => {
   it('reads <prefix>-N for the requested utility', () => {
@@ -49,6 +58,37 @@ describe('activeEnumToken', () => {
     expect(activeEnumToken('flex gap-2', align)).toBeNull();
     // text-xl is a size, not an alignment — must not false-match.
     expect(activeEnumToken('text-xl', align)).toBeNull();
+  });
+});
+
+describe('per-side box helpers', () => {
+  it('resolves the cascade: side > axis > all', () => {
+    // p-4 sets all sides; px-2 overrides left/right; pt-8 overrides top.
+    const cls = 'p-4 px-2 pt-8';
+    expect(boxSideValue(cls, 'padding', 'top')).toBe(8); // pt wins
+    expect(boxSideValue(cls, 'padding', 'left')).toBe(2); // px wins
+    expect(boxSideValue(cls, 'padding', 'right')).toBe(2); // px wins
+    expect(boxSideValue(cls, 'padding', 'bottom')).toBe(4); // falls back to p
+  });
+
+  it('returns null for a side with no relevant utility', () => {
+    expect(boxSideValue('flex gap-2', 'margin', 'top')).toBeNull();
+  });
+
+  it('builds side tokens', () => {
+    expect(boxSideToken('padding', 'top', 6)).toBe('pt-6');
+    expect(boxSideToken('margin', 'left', 0)).toBe('ml-0');
+  });
+
+  it('emits all four longhand inline values (N × 0.25rem)', () => {
+    expect(boxInlineStyle('p-4 pt-8', 'padding')).toEqual({
+      'padding-top': '2rem', // 8 × 0.25
+      'padding-right': '1rem', // 4 × 0.25
+      'padding-bottom': '1rem',
+      'padding-left': '1rem',
+    });
+    // Absent utilities resolve to 0.
+    expect(boxInlineStyle('flex', 'margin')['margin-top']).toBe('0rem');
   });
 });
 

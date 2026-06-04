@@ -78,8 +78,21 @@ export function VisualEditorPanel({
               <code>
                 {resolution.file}:{resolution.line}
               </code>
-              <span className="ss-edit-panel__badge">{resolution.confidence}</span>
+              {resolution.confidence !== 'unique' && (
+                <span
+                  className="ss-edit-panel__badge ss-edit-panel__badge--approx"
+                  title="These classes appear more than once in your code, so the source was located by surrounding context — double-check before saving."
+                >
+                  approx.
+                </span>
+              )}
             </div>
+
+            {selection && selection.instanceCount > 1 && (
+              <p className="ss-edit-panel__multi">
+                Editing {selection.instanceCount} elements that share this source
+              </p>
+            )}
 
             {SPACING_CONTROLS.map((ctrl) => (
               <div className="ss-edit-panel__control" key={ctrl.kind}>

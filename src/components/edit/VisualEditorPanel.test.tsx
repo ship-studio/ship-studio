@@ -13,6 +13,7 @@ const resolvedSelection: Selection = {
     class_name: 'p-3',
     confidence: 'unique',
   },
+  instanceCount: 1,
 };
 
 function renderPanel(selection: Selection | null, currentClass = 'p-3') {
@@ -49,8 +50,14 @@ describe('VisualEditorPanel', () => {
     renderPanel({
       signature: { className: 'x', tagName: 'div', ancestorClasses: [] },
       resolution: { status: 'read_only', reason: 'Dynamic classes.' },
+      instanceCount: 1,
     });
     expect(screen.getByText('Dynamic classes.')).toBeInTheDocument();
     expect(screen.queryByText('Padding')).not.toBeInTheDocument();
+  });
+
+  it('warns when multiple elements share the source', () => {
+    renderPanel({ ...resolvedSelection, instanceCount: 4 });
+    expect(screen.getByText(/Editing 4 elements/)).toBeInTheDocument();
   });
 });

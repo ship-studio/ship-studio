@@ -20,12 +20,12 @@ function send(data: unknown) {
 }
 
 /** Resolve with the next `ss:select` the script posts to the parent. */
-function nextSelect(): Promise<{ signature: Record<string, unknown> }> {
+function nextSelect(): Promise<{ signature: Record<string, unknown>; count: number }> {
   return new Promise((res) => {
     const handler = (e: MessageEvent) => {
       if ((e.data as { type?: string })?.type === 'ss:select') {
         window.removeEventListener('message', handler);
-        res(e.data as { signature: Record<string, unknown> });
+        res(e.data as { signature: Record<string, unknown>; count: number });
       }
     };
     window.addEventListener('message', handler);
@@ -60,6 +60,7 @@ it('reports a signature on click after activate', async () => {
   expect(msg.signature.text).toBe('Buy now');
   // Nearest-first ancestor class chain anchors disambiguation.
   expect(msg.signature.ancestorClasses).toEqual(['card', 'hero']);
+  expect(msg.count).toBe(1);
 });
 
 it('live-applies a class to the selected element on ss:mutate', () => {
@@ -85,4 +86,22 @@ it('walks up to the nearest classed ancestor when a bare child is clicked', asyn
   const msg = await selected;
   expect(msg.signature.className).toBe('link');
   expect(msg.signature.tagName).toBe('a');
+});
+
+it('reports the count of, and live-mutates, ALL elements sharing the class', async () => {
+  // Three testimonials rendered from one .map() → identical class attribute.
+  document.body.innerHTML =
+    '<div class="name">A</div><div class="name">B</div><div class="name">C</div>';
+  send({ type: 'ss:activate' });
+  const selected = nextSelect();
+  document.querySelectorAll('.name')[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const msg = await selected;
+  expect(msg.count).toBe(3);
+
+  // A mutation applies to every matching element, not just the clicked one.
+  send({ type: 'ss:mutate', className: 'name font-bold' });
+  const updated = [...document.querySelectorAll('[class]')].filter(
+    (e) => e.getAttribute('class') === 'name font-bold'
+  );
+  expect(updated).toHaveLength(3);
 });

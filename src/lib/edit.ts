@@ -87,6 +87,44 @@ export const SPACING_CONTROLS: {
   { kind: 'gap', label: 'Gap', prefix: 'gap', css: 'gap' },
 ];
 
+export type Side = 'top' | 'right' | 'bottom' | 'left';
+export type BoxType = 'padding' | 'margin';
+
+const BOX_PREFIX: Record<BoxType, string> = { padding: 'p', margin: 'm' };
+const SIDE_LETTER: Record<Side, string> = { top: 't', right: 'r', bottom: 'b', left: 'l' };
+
+/**
+ * Effective scale value of one side of a box (padding/margin), honoring the
+ * Tailwind cascade: a side-specific utility (`pt-`) beats an axis utility
+ * (`py-`/`px-`) which beats the all-sides utility (`p-`). Returns null when no
+ * relevant utility is present (i.e. the side is at its default of 0).
+ */
+export function boxSideValue(className: string, type: BoxType, side: Side): number | null {
+  const p = BOX_PREFIX[type];
+  const axis = side === 'top' || side === 'bottom' ? `${p}y` : `${p}x`;
+  const specific = scaleValue(className, `${p}${SIDE_LETTER[side]}`);
+  return specific ?? scaleValue(className, axis) ?? scaleValue(className, p);
+}
+
+/** The Tailwind class token that sets one side, e.g. `pt-6`, `ml-2`. */
+export function boxSideToken(type: BoxType, side: Side, n: number): string {
+  return `${BOX_PREFIX[type]}${SIDE_LETTER[side]}-${n}`;
+}
+
+/**
+ * Inline longhand style patch for ALL four sides of a box, computed from a class
+ * string. Used for JIT-independent live preview — we always set the four
+ * longhands (padding-top, …) so the preview is correct even when Tailwind hasn't
+ * compiled the utility, and longhands avoid shorthand/longhand clobbering.
+ */
+export function boxInlineStyle(className: string, type: BoxType): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const side of ['top', 'right', 'bottom', 'left'] as Side[]) {
+    out[`${type}-${side}`] = `${(boxSideValue(className, type, side) ?? 0) * SPACING_REM}rem`;
+  }
+  return out;
+}
+
 /** One choice in an enum (segmented) control. `style` is a kebab-case inline
  *  patch for JIT-independent live preview, mirroring what the class resolves to. */
 export interface EnumOption {
