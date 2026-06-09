@@ -131,6 +131,68 @@ jobs:
           CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+  # Windows smoke test — the codebase has substantial Windows-specific logic
+  # (PATH building, cmd.exe wrapping, .exe resolution in src-tauri/src/utils.rs
+  # and the pty/setup/ide commands) that until now only compiled in CI on
+  # Linux/macOS and was never actually RUN on Windows. This job exercises it:
+  # the Rust tests cover the platform-cfg branches, and a no-bundle Tauri build
+  # proves the app links against MSVC + WebView2. This is the gate before we
+  # cut a -win release tag.
+  windows-check:
+    name: Windows Checks
+    runs-on: windows-latest
+    needs: [config-integrity]
+    timeout-minutes: 40
+    steps:
+      # Match the release-windows.yml pipeline: keep LF so bash scripts and
+      # snapshot-style tests don't trip over CRLF on checkout.
+      - name: Force LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # package.json scripts use bash constructs (check:patterns etc.); point
+      # npm's script-shell at Git bash so they run the same as on Unix.
+      - name: Use bash for package scripts
+        run: npm config set script-shell "C:\Program Files\Git\bin\bash.exe"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Frontend tests
+        run: pnpm test:run
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Backend tests
+        env:
+          CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Check Tauri build (no bundle)
+        env:
+          CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
+        run: pnpm tauri build --no-bundle
+
   # Build verification (PRs and main)
   build-check:
     name: Build Verification
