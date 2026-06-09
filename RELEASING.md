@@ -113,7 +113,7 @@ The version a `-win` build ships comes from the source files (`package.json` etc
 
 After the workflow completes (~15–25 min for the Windows build):
 
-- [ ] A **published** (not draft) release exists in `ship-studio/releases` with 2 Windows artifacts (`-setup.exe`, `-setup.exe.sig`) and 2 manifests (`latest-windows.json`, carried-forward `latest.json`)
+- [ ] A **published** (not draft) release exists in `ship-studio/releases` with 2 Windows artifacts (`-setup.exe`, `-setup.exe.sig`), 2 manifests (`latest-windows.json`, carried-forward `latest.json`), and 2 carried-forward macOS DMGs (`ShipStudio_darwin-aarch64.dmg`, `ShipStudio_darwin-x86_64.dmg`)
 - [ ] `latest-windows.json` is valid and has a `windows-x86_64` platform entry:
   ```bash
   curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest-windows.json | jq
@@ -121,6 +121,13 @@ After the workflow completes (~15–25 min for the Windows build):
 - [ ] `latest.json` still resolves at the public latest URL and still points at the most recent macOS bundle (the carry-forward keeps macOS auto-update alive when this release flips the "latest" alias):
   ```bash
   curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest.json | jq '.version'
+  ```
+- [ ] The site's static download links all still resolve (every release must carry the other platform's installers forward, or flipping the "latest" alias 404s them — this bit us when v0.6.8-win shipped without the DMGs):
+  ```bash
+  for f in ShipStudio_darwin-aarch64.dmg ShipStudio_darwin-x86_64.dmg ShipStudio_windows-x86_64-setup.exe; do
+    curl -s -o /dev/null -w "$f -> %{http_code}\n" -L -r 0-0 \
+      "https://github.com/ship-studio/releases/releases/latest/download/$f"
+  done   # all three should print 206
   ```
 - [ ] A draft release also lands in the main repo (the build-artifact dump); publishing it is optional — the public repo is what users and the updater read.
 

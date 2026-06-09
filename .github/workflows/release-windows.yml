@@ -158,16 +158,31 @@ jobs:
 
           python3 -c "import json; json.load(open('latest-windows.json'))" && echo "JSON is valid"
 
-      # Carry forward macOS manifest so macOS auto-update keeps working
-      # when this Windows release flips the "latest" alias
-      - name: Carry forward macOS manifest file
+      # Carry forward macOS manifest AND installers so neither macOS
+      # auto-update nor the site's download links break when this Windows
+      # release flips the "latest" alias. The marketing site links to
+      # releases/latest/download/ShipStudio_darwin-*.dmg — publishing
+      # v0.6.8-win without the DMGs 404'd the Mac download buttons.
+      # Resolve the newest macOS (non -win) release explicitly: it is
+      # guaranteed to have both the manifest and the DMGs. Strict (no
+      # continue-on-error): publishing without these assets breaks macOS
+      # users, so failing the Windows release is the lesser evil.
+      - name: Carry forward macOS manifest and installers
         env:
           GH_TOKEN: ${{ secrets.RELEASES_PAT }}
         run: |
           mkdir -p carry-forward
-          gh release download \
+          MAC_TAG=$(gh release list --repo ship-studio/releases --limit 50 \
+            --json tagName --jq '[.[] | select(.tagName | endswith("-win") | not)][0].tagName // empty')
+          if [ -z "$MAC_TAG" ]; then
+            echo "No macOS release found to carry forward" >&2
+            exit 1
+          fi
+          echo "Carrying forward macOS assets from $MAC_TAG"
+          gh release download "$MAC_TAG" \
             --repo ship-studio/releases \
             --pattern "latest.json" \
+            --pattern "ShipStudio_darwin-*.dmg" \
             --dir carry-forward
           ls -la carry-forward/
 
@@ -186,8 +201,9 @@ jobs:
       # has no --draft). The old --draft "manual publish gate" meant every
       # Windows build silently stopped at a draft and no download ever went
       # live — the CI windows-check job now provides the verification that
-      # gate stood in for. Includes the carry-forward macOS manifest so this
-      # release flipping the "latest" alias doesn't drop macOS auto-update.
+      # gate stood in for. Includes the carry-forward macOS manifest and DMG
+      # installers so this release flipping the "latest" alias doesn't drop
+      # macOS auto-update or the site's Mac download links.
       - name: Create release in public ship-studio/releases repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_PAT }}
@@ -203,4 +219,6 @@ jobs:
             artifacts/ShipStudio_windows-x86_64-setup.exe \
             artifacts/ShipStudio_windows-x86_64-setup.exe.sig \
             latest-windows.json \
-            carry-forward/latest.json
+            carry-forward/latest.json \
+            carry-forward/ShipStudio_darwin-aarch64.dmg \
+            carry-forward/ShipStudio_darwin-x86_64.dmg
