@@ -181,21 +181,25 @@ jobs:
             latest-windows.json
           draft: true
 
-      # Draft release in public repo - manual publish gate for Windows.
-      # Includes carry-forward macOS manifest so "latest" alias flip
-      # doesn't drop macOS auto-update.
-      - name: Create draft release in public ship-studio/releases repo
+      # Auto-publish in the public repo, matching the macOS pipeline
+      # (release.yml's "Create release in public releases repo" step, which
+      # has no --draft). The old --draft "manual publish gate" meant every
+      # Windows build silently stopped at a draft and no download ever went
+      # live — the CI windows-check job now provides the verification that
+      # gate stood in for. Includes the carry-forward macOS manifest so this
+      # release flipping the "latest" alias doesn't drop macOS auto-update.
+      - name: Create release in public ship-studio/releases repo
         env:
           GH_TOKEN: ${{ secrets.RELEASES_PAT }}
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${{ steps.version.outputs.version }}"
 
+          # Auto-published (no --draft) so the download is live immediately.
           gh release create "$TAG" \
             --repo ship-studio/releases \
             --title "Ship Studio v${VERSION} (Windows)" \
             --notes "Auto-updater release for Ship Studio v${VERSION} Windows. See the main repository for full release notes." \
-            --draft \
             artifacts/ShipStudio_windows-x86_64-setup.exe \
             artifacts/ShipStudio_windows-x86_64-setup.exe.sig \
             latest-windows.json \
