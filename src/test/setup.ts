@@ -11,6 +11,19 @@ import '@testing-library/jest-dom/vitest';
 import { vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import { mockIPC, mockWindows, clearMocks } from '@tauri-apps/api/mocks';
 
+// Pin the platform so the suite is independent of the host OS. jsdom's default
+// navigator.userAgent embeds the runner's process.platform — "win32" on Windows
+// CI — which makes getPlatform() in src/lib/setup.ts resolve to 'windows' there
+// and flips platform-branched UI (e.g. Homebrew vs Winget install paths) out
+// from under tests that assume macOS. Without this, the same green suite fails
+// only on the Windows runner. Force a stable macOS UA at module load, before any
+// cached platform() read happens in the test files that import this setup.
+Object.defineProperty(globalThis.navigator, 'userAgent', {
+  value:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) jsdom',
+  configurable: true,
+});
+
 // Store for mock invoke responses
 type InvokeResponse = unknown;
 const invokeResponses = new Map<string, InvokeResponse>();
