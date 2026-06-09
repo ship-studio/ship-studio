@@ -95,34 +95,38 @@ After the workflow completes:
 
 ## Windows Releases
 
-Windows builds run on a separate workflow (`.github/workflows/release-windows.yml`) triggered by tags ending in `-win`. The macOS workflow explicitly excludes these tags, so the two build pipelines are independent, but both workflows publish to the shared `ship-studio/releases` public repo.
+Windows builds run on a separate workflow (`.github/workflows/release-windows.yml`) triggered by tags ending in `-win`. The macOS workflow explicitly excludes these tags (`'!*-win'`), so the two build pipelines are independent, but both publish to the shared `ship-studio/releases` public repo. As of v0.6.8 the Windows public release **auto-publishes**, exactly like macOS — there is no longer a manual publish step (see History below).
 
 ### How to publish a Windows build
 
-```bash
-# Tag with a -win suffix and push
-git tag v0.5.0-win
-git push origin v0.5.0-win
-```
+The version a `-win` build ships comes from the source files (`package.json` etc.) **at the tagged commit**, and the workflow that runs is also the one at that commit. Two consequences:
 
+1. **Tag at the same version as the current macOS release** so the two platforms don't drift. There is no script for this — `scripts/release.sh` only cuts macOS `vX.Y.Z` tags. Point the `-win` tag at the commit whose version matches the latest published macOS release:
+   ```bash
+   # ship Windows for the version currently on macOS (e.g. 0.6.8)
+   git tag v0.6.8-win <commit-with-that-version>
+   git push origin v0.6.8-win
+   ```
+2. **Any fix to `release-windows.yml` must be merged before you tag**, and the tag must point at a commit that contains it. Tagging an older commit runs the *old* workflow — this is how the pre-v0.6.8 `--draft` gate kept silently producing drafts.
 
 ### Verification
 
-After a Windows workflow run completes:
+After the workflow completes (~15–25 min for the Windows build):
 
-- [ ] Draft release exists in the main repo
-- [ ] Draft release exists in `ship-studio/releases` with 2 Windows artifacts and 2 manifests (json)
-
-After manually publishing the public draft:
-
-- [ ] `latest-windows.json` exists, is valid and has a `windows-x86_64` platform entry:
+- [ ] A **published** (not draft) release exists in `ship-studio/releases` with 2 Windows artifacts (`-setup.exe`, `-setup.exe.sig`) and 2 manifests (`latest-windows.json`, carried-forward `latest.json`)
+- [ ] `latest-windows.json` is valid and has a `windows-x86_64` platform entry:
   ```bash
   curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest-windows.json | jq
   ```
-- [ ] `latest.json` still exists at the public latest URL and still points at the most recent macOS bundle (it should have the same content as the latest.json in the latest macOS release):
+- [ ] `latest.json` still resolves at the public latest URL and still points at the most recent macOS bundle (the carry-forward keeps macOS auto-update alive when this release flips the "latest" alias):
   ```bash
   curl -sL https://github.com/ship-studio/releases/releases/latest/download/latest.json | jq '.version'
   ```
+- [ ] A draft release also lands in the main repo (the build-artifact dump); publishing it is optional — the public repo is what users and the updater read.
+
+### History: the silent-draft gap
+
+Before v0.6.8, `release-windows.yml` created the public release with `--draft` as a "manual publish gate." The manual publish was never performed, so every Windows build from v0.5.1 onward stopped at a draft and **no Windows download was ever live**, while the manifest still advertised a stale 0.6.0. The gate was removed once the `windows-check` job in `ci.yml` began verifying that the Windows build actually compiles and its tests pass — that automated check is what the manual gate was a stand-in for.
 
 ## Troubleshooting
 
