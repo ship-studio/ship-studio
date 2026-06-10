@@ -77,6 +77,7 @@ export function SearchAndSort({
         <Button
           variant="secondary"
           size="sm"
+          className="new-folder-btn"
           data-education-id="new-folder-button"
           onClick={() => {
             void trackEvent('new_folder_clicked', { $screen_name: 'Dashboard' });

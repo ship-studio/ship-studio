@@ -18,6 +18,11 @@
   gap: 8px;
 }
 
+/* Match the new-folder button's height to the sort dropdown beside it. */
+.dashboard-section-controls .new-folder-btn {
+  align-self: stretch;
+}
+
 .dashboard-section-controls .btn-icon {
   padding: 6px 7px;
   background: transparent;
