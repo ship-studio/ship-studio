@@ -335,8 +335,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     });
   }, []);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-
   // Inspect-panel vertical resize. Null = use the default 1fr split from CSS;
   // a number = explicit panel height in px (overrides via inline grid-template-rows).
   const [inspectPanelHeight, setInspectPanelHeight] = useState<number | null>(null);
@@ -510,29 +508,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onToast,
   });
 
-  // The pinned sidebar matches the preview container's vertical bounds — in
-  // normal mode the container sits below the workspace tab bar, in fullscreen
-  // it starts right under the header, and the inspect panel changes its
-  // height. Measured so the sidebar never overlaps surrounding chrome.
-  const [pinnedRect, setPinnedRect] = useState({ top: 0, height: 0 });
-  useEffect(() => {
-    if (!(editor.editMode && editorPinned)) return;
-    const el = containerRef.current;
-    if (!el) return;
-    const measure = () => {
-      const r = el.getBoundingClientRect();
-      setPinnedRect({ top: Math.round(r.top), height: Math.round(r.height) });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    window.addEventListener('resize', measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-    };
-  }, [editor.editMode, editorPinned, isFullscreen]);
-
   const [iframeSize, setIframeSize] = useState<{ w: number; h: number } | null>(null);
   const iframeSizeObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -675,7 +650,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   return (
     <div
-      ref={containerRef}
       className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}${
         editor.editMode && editorPinned ? ' preview-container--editor-pinned' : ''
       }`}
@@ -1015,40 +989,44 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         onHealthOutput={onHealthOutput}
       />
       {editor.editMode &&
-        createPortal(
-          <VisualEditorPanel
-            selection={editor.selection}
-            currentClass={editor.currentClass}
-            textResolution={editor.textResolution}
-            textBlockedNonce={editor.textBlockedNonce}
-            breakpoints={breakpoints}
-            activeBreakpoint={activeBreakpoint}
-            breakpointTooWide={breakpointTooWide}
-            onSelectBreakpoint={(bp) => {
-              setPinnedBreakpoint(bp);
-              // Jump the canvas to a breakpoint's width so you can see it; Base
-              // applies at all widths, so leave the canvas where it is.
-              if (bp.minPx > 0) resize.previewAtWidth(bp.minPx);
-            }}
-            autoSave={editor.autoSave}
-            onToggleAutoSave={editor.toggleAutoSave}
-            onStepGap={(dir) => editor.stepSpacing('gap', dir)}
-            onSetSide={editor.setBoxSide}
-            onApplyEnum={editor.applyEnum}
-            onReset={editor.reset}
-            multiTarget={editor.multiTarget}
-            onMultiTargetChange={editor.setMultiTarget}
-            usage={editor.usage}
-            onOpenInCode={onOpenInCode}
-            onCommit={() => void editor.commit()}
-            onClose={editor.toggleEditMode}
-            pinned={editorPinned}
-            onTogglePin={toggleEditorPinned}
-            pinnedTop={pinnedRect.top}
-            pinnedHeight={pinnedRect.height}
-          />,
-          document.body
-        )}
+        (() => {
+          // Floating mode portals to <body> (position:fixed is the only way to
+          // composite above the iframe in WebKit). Pinned mode renders in-tree
+          // as the container's second grid column — it never overlaps the
+          // iframe, and the grid guarantees it can't cover surrounding chrome.
+          const panel = (
+            <VisualEditorPanel
+              selection={editor.selection}
+              currentClass={editor.currentClass}
+              textResolution={editor.textResolution}
+              textBlockedNonce={editor.textBlockedNonce}
+              breakpoints={breakpoints}
+              activeBreakpoint={activeBreakpoint}
+              breakpointTooWide={breakpointTooWide}
+              onSelectBreakpoint={(bp) => {
+                setPinnedBreakpoint(bp);
+                // Jump the canvas to a breakpoint's width so you can see it; Base
+                // applies at all widths, so leave the canvas where it is.
+                if (bp.minPx > 0) resize.previewAtWidth(bp.minPx);
+              }}
+              autoSave={editor.autoSave}
+              onToggleAutoSave={editor.toggleAutoSave}
+              onStepGap={(dir) => editor.stepSpacing('gap', dir)}
+              onSetSide={editor.setBoxSide}
+              onApplyEnum={editor.applyEnum}
+              onReset={editor.reset}
+              multiTarget={editor.multiTarget}
+              onMultiTargetChange={editor.setMultiTarget}
+              usage={editor.usage}
+              onOpenInCode={onOpenInCode}
+              onCommit={() => void editor.commit()}
+              onClose={editor.toggleEditMode}
+              pinned={editorPinned}
+              onTogglePin={toggleEditorPinned}
+            />
+          );
+          return editorPinned ? panel : createPortal(panel, document.body);
+        })()}
     </div>
   );
 });

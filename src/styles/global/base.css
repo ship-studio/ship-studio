@@ -83,6 +83,13 @@
   --z-dropdown: 100;
   /* Fullscreen preview overlay — above workspace chrome, below modals. */
   --z-preview-fullscreen: 900;
+  /* Visual editor panel width — shared by the panel itself (visual-editor.css)
+     and the preview grid column that hosts it when pinned (preview.css).
+     MUST match PANEL_WIDTH in VisualEditorPanel.tsx. */
+  --editor-panel-w: 264px;
+  /* Preview toolbar height — also sizes the pinned editor panel's header so
+     the two bars line up. */
+  --preview-toolbar-h: 47px;
   --z-modal-overlay: 1000;
   --z-modal: 1001;
   --z-tooltip: 1100;

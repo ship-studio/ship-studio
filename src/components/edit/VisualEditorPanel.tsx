@@ -273,12 +273,10 @@ interface Props {
   onOpenInCode?: (file: string, line: number) => void;
   onCommit: () => void;
   onClose: () => void;
-  /** Docked as a right sidebar instead of floating over the canvas. */
+  /** Docked as a sidebar column inside the preview container instead of
+   *  floating over the canvas. Positioning comes from the container's grid. */
   pinned?: boolean;
   onTogglePin?: () => void;
-  /** Vertical bounds when pinned — matches the preview container. */
-  pinnedTop?: number;
-  pinnedHeight?: number;
 }
 
 const PANEL_WIDTH = 264;
@@ -313,8 +311,6 @@ export function VisualEditorPanel({
   onClose,
   pinned = false,
   onTogglePin,
-  pinnedTop = 0,
-  pinnedHeight = 0,
 }: Props) {
   const resolution = selection?.resolution ?? null;
   // Both 'resolved' (one spot) and 'multi' (several identical spots) are editable.
@@ -391,19 +387,9 @@ export function VisualEditorPanel({
       className={`ss-edit-panel${pinned ? ' ss-edit-panel--pinned' : ''}`}
       data-testid="visual-editor-panel"
       style={
+        // Pinned positioning is entirely CSS (the container's grid column).
         pinned
-          ? {
-              // Docked: sidebar at the window's right edge spanning exactly
-              // the preview container's height. The preview reserves matching
-              // space via .preview-container--editor-pinned.
-              position: 'fixed',
-              top: pinnedTop,
-              right: 0,
-              left: 'auto',
-              ...(pinnedHeight > 0 ? { height: pinnedHeight } : { bottom: 0 }),
-              zIndex: 1000,
-              maxHeight: 'none',
-            }
+          ? undefined
           : {
               position: 'fixed',
               top: pos.top,
