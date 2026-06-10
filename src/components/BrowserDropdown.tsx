@@ -144,7 +144,7 @@ export function BrowserDropdown({
     return (
       <button className={buttonClassName} onClick={handleDefaultOpen} title="Open in Browser">
         <ExternalLinkIcon size={iconSize} />
-        {!iconOnly && <span>Open in Browser</span>}
+        {!iconOnly && <span>Open</span>}
       </button>
     );
   }
@@ -164,7 +164,7 @@ export function BrowserDropdown({
         <ExternalLinkIcon size={iconSize} />
         {!iconOnly && (
           <>
-            <span>Open in Browser</span>
+            <span>Open</span>
             <ChevronIcon size={10} className="browser-dropdown-chevron" />
           </>
         )}
