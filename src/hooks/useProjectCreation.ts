@@ -29,6 +29,8 @@ export interface Template {
   description: string;
   /** GitHub repository URL to clone */
   repo: string;
+  /** Skip the npm install step (templates with no package.json, e.g. HTML/Flutter) */
+  skipInstall?: boolean;
 }
 
 const DEFAULT_TEMPLATE_KEY = 'defaultTemplateId';
@@ -73,6 +75,26 @@ export const TEMPLATES: Template[] = [
     name: 'HTML/CSS/JS',
     description: 'A plain HTML starter — no framework, no build step',
     repo: 'https://github.com/ship-studio/html-starter',
+    skipInstall: true,
+  },
+  {
+    id: 'expo-mobile',
+    name: 'Expo',
+    description: 'An iOS & Android app powered by Expo — the easiest mobile path',
+    repo: 'https://github.com/ship-studio/expo-starter',
+  },
+  {
+    id: 'react-native-mobile',
+    name: 'React Native',
+    description: 'An iOS & Android app with bare React Native — full native control',
+    repo: 'https://github.com/ship-studio/react-native-starter',
+  },
+  {
+    id: 'flutter-mobile',
+    name: 'Flutter',
+    description: 'An iOS & Android app built with Flutter and Material 3',
+    repo: 'https://github.com/ship-studio/flutter-starter',
+    skipInstall: true,
   },
   {
     id: 'blank',
@@ -368,9 +390,9 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
         // Pre-install Vercel plugin (fire-and-forget, don't block creation)
         installPlugin(projectPath, VERCEL_PLUGIN_REPO).catch(() => {});
 
-        // Install dependencies (skip for HTML-only templates with no package.json)
+        // Install dependencies (skip for templates with no package.json)
         setCreatedProjectPath(projectPath);
-        if (selectedTemplate.id === 'html-basic') {
+        if (selectedTemplate.skipInstall) {
           setCurrentStep('done');
         } else {
           setCurrentStep('install');
