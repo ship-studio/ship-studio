@@ -16,6 +16,7 @@ import { trackEvent } from '../lib/analytics';
  */
 export type ModalId =
   | 'envEditor'
+  | 'i18n'
   | 'backups'
   | 'assetsPanel'
   | 'help'

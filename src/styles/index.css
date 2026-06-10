@@ -51,6 +51,7 @@
 @import './features/diff-modal.css';
 @import './features/help-modal.css';
 @import './features/backups-modal.css';
+@import './features/languages-modal.css';
 @import './features/skills-modal.css';
 @import './features/mcp-modal.css';
 @import './features/plugins.css';

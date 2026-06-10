@@ -6,7 +6,14 @@ import { sessionRegistry } from '../lib/sessionRegistry';
 import { checkForUpdate } from '../lib/updater';
 import { checkIdeAvailability, openInIde, openInFinder } from '../lib/ide';
 import { logger } from '../lib/logger';
-import { CodeIcon, CursorIcon, FolderIcon, PlusIcon, SettingsIcon } from '../components/icons';
+import {
+  CodeIcon,
+  CursorIcon,
+  FolderIcon,
+  GlobeIcon,
+  PlusIcon,
+  SettingsIcon,
+} from '../components/icons';
 
 /** Inline restart/refresh glyph — no equivalent in the icons/ lib yet. */
 const RestartGlyph = () => (
@@ -363,6 +370,15 @@ export function useAppCommands({
         when: 'project',
         keywords: ['.env', 'dotenv'],
         run: () => openModal('envEditor'),
+      },
+      {
+        id: 'modal.i18n',
+        title: 'Languages (multilingual site)',
+        icon: <GlobeIcon size={14} />,
+        category: 'settings',
+        when: 'project',
+        keywords: ['i18n', 'translate', 'locale', 'language', 'international', 'multilingual'],
+        run: () => openModal('i18n'),
       },
       {
         id: 'modal.backups',

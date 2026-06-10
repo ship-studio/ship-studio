@@ -400,6 +400,9 @@ pub fn run() {
             commands::projects::get_project_session_info,
             commands::projects::get_active_session_count,
             commands::projects::get_session_memory,
+            // Internationalization (i18n)
+            commands::i18n::get_i18n_status,
+            commands::i18n::set_i18n_config,
             // Environment variables
             commands::env::list_env_files,
             commands::env::read_env_file,
