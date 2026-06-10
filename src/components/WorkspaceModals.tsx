@@ -214,11 +214,7 @@ export function WorkspaceModals({
     <>
       <EnvEditor projectPath={projectPath} />
 
-      <LanguagesModal
-        projectPath={projectPath}
-        onSendToClaude={onSendToClaude}
-        agentDisplayName={agentDisplayName}
-      />
+      <LanguagesModal projectPath={projectPath} onSendToClaude={onSendToClaude} />
 
       <BackupsModal
         projectPath={projectPath}

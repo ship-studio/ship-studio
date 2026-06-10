@@ -4,10 +4,14 @@
  * Three states:
  * - Managed (Next.js Pages Router, Astro, or App Router with next-intl):
  *   pick languages, Ship Studio writes the config directly.
- * - Guided setup (App Router without next-intl): pick languages, the
- *   embedded agent runs a pinned one-time setup, after which the project
- *   becomes managed.
+ * - Guided setup (App Router without next-intl): pick languages, review the
+ *   one-time setup prompt, run it with the AI agent — after which the
+ *   project becomes managed.
  * - Unsupported: clear explanation.
+ *
+ * Anything that involves the AI agent goes through an explicit prompt-review
+ * step: the user sees the exact prompt and chooses to copy it or paste it
+ * into the terminal. Nothing runs until they press Enter there.
  *
  * @module components/LanguagesModal
  */
@@ -17,6 +21,7 @@ import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
 import { useModal } from '../contexts/ModalContext';
 import { useAsyncState } from '../hooks/useAsyncState';
+import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { GlobeIcon, SpinnerIcon, CloseIcon } from './icons';
 import { asCommandError, formatCommandError } from '../lib/errors';
@@ -34,9 +39,14 @@ import {
 
 interface LanguagesModalProps {
   projectPath: string;
-  /** Hands a prompt to the embedded agent terminal (setup / translate). */
+  /** Pastes text into the active agent terminal (user still presses Enter). */
   onSendToClaude?: (prompt: string) => void;
-  agentDisplayName?: string;
+}
+
+/** A prompt staged for the user to review before handing to the agent. */
+interface PromptReview {
+  description: string;
+  prompt: string;
 }
 
 /** Selected languages as rows: name, code, default badge / actions. */
@@ -107,13 +117,10 @@ function AddLanguagePills({
   );
 }
 
-export function LanguagesModal({
-  projectPath,
-  onSendToClaude,
-  agentDisplayName = 'Claude',
-}: LanguagesModalProps) {
+export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalProps) {
   const { isOpen, close: onClose } = useModal('i18n');
   const { showToast } = useOptionalToast();
+  const { copy, isCopied } = useCopyToClipboard();
 
   const {
     data: status,
@@ -129,6 +136,8 @@ export function LanguagesModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   /** True when the save failed because the config can't be edited safely. */
   const [needsAiFallback, setNeedsAiFallback] = useState(false);
+  /** When set, the modal shows the prompt-review step instead of the editor. */
+  const [promptReview, setPromptReview] = useState<PromptReview | null>(null);
 
   const resetDraft = useCallback((s: I18nStatus | null) => {
     const locales = s && s.locales.length > 0 ? s.locales : ['en'];
@@ -142,6 +151,7 @@ export function LanguagesModal({
     if (!isOpen || !projectPath) return;
     setSaveError(null);
     setNeedsAiFallback(false);
+    setPromptReview(null);
     void loadStatus().then((s) => resetDraft(s));
   }, [isOpen, projectPath, loadStatus, resetDraft]);
 
@@ -164,13 +174,6 @@ export function LanguagesModal({
   const removeLocale = (code: string) => {
     if (code === draftDefault) return;
     setDraftLocales(draftLocales.filter((l) => l !== code));
-  };
-
-  const sendPrompt = (prompt: string, toast: string) => {
-    if (!onSendToClaude) return;
-    onSendToClaude(prompt);
-    showToast(toast, 'success');
-    onClose();
   };
 
   /** Write the config; returns the fresh status on success, null on failure. */
@@ -199,29 +202,23 @@ export function LanguagesModal({
 
   const handleSaveOnly = () => void saveConfig(true);
 
-  /** The happy path: save the new languages, then hand translation to the agent. */
+  /** The happy path: save the new languages, then review the translate prompt. */
   const handleSaveAndTranslate = async () => {
-    const updated = await saveConfig(false);
+    const updated = await saveConfig(true);
     if (!updated) return;
     const targets = updated.locales.filter((l) => l !== updated.defaultLocale);
-    if (targets.length === 0 || !onSendToClaude) return;
+    if (targets.length === 0) return;
     void trackEvent('i18n_translate_requested', {
       locale_count: updated.locales.length,
       framework: updated.framework,
       via: 'save_and_translate',
     });
-    sendPrompt(
-      buildTranslatePrompt(updated),
-      `Languages saved — ${agentDisplayName} is translating`
-    );
-  };
-
-  const handleAgentSetup = () => {
-    void trackEvent('i18n_app_router_setup_started', { locale_count: draftLocales.length });
-    sendPrompt(
-      buildAppRouterSetupPrompt(draftLocales, draftDefault),
-      `Setup started — watch ${agentDisplayName} in the terminal`
-    );
+    setPromptReview({
+      description: `Languages saved. The next step is content: this prompt asks your AI agent to translate your site into ${targets
+        .map(localeDisplayName)
+        .join(', ')}.`,
+      prompt: buildTranslatePrompt(updated),
+    });
   };
 
   const handleTranslate = () => {
@@ -230,13 +227,40 @@ export function LanguagesModal({
       locale_count: status.locales.length,
       framework: status.framework,
     });
-    sendPrompt(buildTranslatePrompt(status), `Translation request sent to ${agentDisplayName}`);
+    const targets = status.locales.filter((l) => l !== status.defaultLocale);
+    setPromptReview({
+      description: `This prompt asks your AI agent to translate your site into ${targets
+        .map(localeDisplayName)
+        .join(', ')}.`,
+      prompt: buildTranslatePrompt(status),
+    });
+  };
+
+  const handleAgentSetup = () => {
+    void trackEvent('i18n_app_router_setup_started', { locale_count: draftLocales.length });
+    setPromptReview({
+      description:
+        'This one-time setup prompt restructures your project for multiple languages with next-intl. It takes a few minutes to run — reopen Languages afterwards to manage and translate.',
+      prompt: buildAppRouterSetupPrompt(draftLocales, draftDefault),
+    });
   };
 
   const handleAiFallback = () => {
     if (!status) return;
     void trackEvent('i18n_ai_fallback_used', { framework: status.framework });
-    sendPrompt(buildAiSetupPrompt(status), `Setup request sent to ${agentDisplayName}`);
+    setPromptReview({
+      description:
+        "Ship Studio couldn't edit this config automatically. This prompt asks your AI agent to make the change instead.",
+      prompt: buildAiSetupPrompt(status),
+    });
+  };
+
+  const handlePasteToTerminal = () => {
+    if (!promptReview || !onSendToClaude) return;
+    onSendToClaude(promptReview.prompt);
+    showToast('Prompt pasted — press Enter in the terminal to run it', 'success');
+    setPromptReview(null);
+    onClose();
   };
 
   if (!isOpen) return null;
@@ -265,19 +289,42 @@ export function LanguagesModal({
 
   return (
     <ModalFrame isOpen onClose={onClose} title="Languages" className="languages-modal">
-      {isLoading && (
+      {/* Prompt review: the user sees exactly what the agent will be asked */}
+      {promptReview && (
+        <div className="languages-editor">
+          <p className="languages-intro">{promptReview.description}</p>
+          <div className="languages-prompt-box">{promptReview.prompt}</div>
+          <div className="languages-footer">
+            <Button variant="ghost" onClick={() => setPromptReview(null)}>
+              Back
+            </Button>
+            <div className="languages-footer-buttons">
+              <Button variant="secondary" onClick={() => void copy(promptReview.prompt)}>
+                {isCopied ? 'Copied!' : 'Copy prompt'}
+              </Button>
+              {onSendToClaude && (
+                <Button variant="primary" onClick={handlePasteToTerminal}>
+                  Paste into terminal
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!promptReview && isLoading && (
         <div className="languages-loading">
           <SpinnerIcon size={16} />
           <span>Checking project…</span>
         </div>
       )}
 
-      {!isLoading && loadError && (
+      {!promptReview && !isLoading && loadError && (
         <div className="languages-error">Couldn't check this project's language setup.</div>
       )}
 
       {/* Unsupported, no path forward */}
-      {!isLoading && status && !status.supported && !showSetupFlow && (
+      {!promptReview && !isLoading && status && !status.supported && !showSetupFlow && (
         <div className="languages-unsupported">
           <div className="languages-unsupported-icon">
             <GlobeIcon size={28} />
@@ -287,12 +334,12 @@ export function LanguagesModal({
       )}
 
       {/* App Router: guided one-time setup */}
-      {!isLoading && showSetupFlow && (
+      {!promptReview && !isLoading && showSetupFlow && (
         <div className="languages-editor">
           <p className="languages-intro">
             Your project uses the Next.js App Router. Ship Studio adds multilingual support with{' '}
-            <strong>next-intl</strong> — pick your languages and {agentDisplayName} does the
-            one-time setup:
+            <strong>next-intl</strong> — pick your languages, then run a one-time setup with your AI
+            agent:
           </p>
           <ol className="languages-steps">
             <li>Install next-intl</li>
@@ -305,17 +352,17 @@ export function LanguagesModal({
 
           <div className="languages-footer">
             <span className="languages-footer-note">
-              Runs in your terminal — takes a few minutes. Reopen Languages when it's done.
+              Next: review the setup prompt before anything runs.
             </span>
-            <Button variant="primary" onClick={handleAgentSetup} disabled={!onSendToClaude}>
-              Set up with {agentDisplayName}
+            <Button variant="primary" onClick={handleAgentSetup}>
+              Continue
             </Button>
           </div>
         </div>
       )}
 
       {/* Managed: edit locales directly */}
-      {!isLoading && status && status.supported && (
+      {!promptReview && !isLoading && status && status.supported && (
         <div className="languages-editor">
           {!status.configured && (
             <p className="languages-intro">
@@ -331,9 +378,9 @@ export function LanguagesModal({
           {saveError && (
             <div className="languages-error">
               {saveError}
-              {needsAiFallback && onSendToClaude && (
+              {needsAiFallback && (
                 <Button variant="secondary" size="sm" onClick={handleAiFallback}>
-                  Ask {agentDisplayName} to fix it
+                  Fix with AI
                 </Button>
               )}
             </div>
@@ -341,9 +388,9 @@ export function LanguagesModal({
 
           {/* Footer adapts to where the user is in the flow:
               unsaved new languages → "Save & translate" is the happy path;
-              saved with translations pending possible → translate;
+              saved with target languages → translate;
               nothing actionable → no footer. */}
-          {isDirty && draftTargets.length > 0 && onSendToClaude && (
+          {isDirty && draftTargets.length > 0 && (
             <div className="languages-footer">
               <span className="languages-footer-note">
                 New languages start as a copy of {localeDisplayName(draftDefault)} until translated.
@@ -362,7 +409,7 @@ export function LanguagesModal({
               </div>
             </div>
           )}
-          {isDirty && !(draftTargets.length > 0 && onSendToClaude) && (
+          {isDirty && draftTargets.length === 0 && (
             <div className="languages-footer">
               <span />
               <Button variant="primary" onClick={handleSaveOnly} disabled={isSaving}>
@@ -370,7 +417,7 @@ export function LanguagesModal({
               </Button>
             </div>
           )}
-          {!isDirty && translateTargets.length > 0 && onSendToClaude && (
+          {!isDirty && translateTargets.length > 0 && (
             <div className="languages-footer">
               <span className="languages-footer-note">
                 Languages are set up — run translation whenever you add or change content.

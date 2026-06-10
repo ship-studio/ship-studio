@@ -221,6 +221,23 @@
   color: var(--text-muted);
 }
 
+/* Prompt review box — the exact text handed to the agent */
+.languages-prompt-box {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  max-height: 240px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
 .languages-note {
   font-size: 12px;
   color: var(--warning);
