@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
+import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { spawn, IPty } from 'tauri-pty';
@@ -122,6 +123,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
     const unicode11Addon = new Unicode11Addon();
     term.loadAddon(fitAddon);
     term.loadAddon(unicode11Addon);
+    term.loadAddon(createWebLinksAddon());
     term.unicode.activeVersion = '11';
 
     // Open terminal in container

@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
+import { createWebLinksAddon } from '../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -338,6 +339,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     const unicode11Addon = new Unicode11Addon();
     term.loadAddon(fitAddon);
     term.loadAddon(unicode11Addon);
+    term.loadAddon(createWebLinksAddon());
     term.unicode.activeVersion = '11';
 
     // Open terminal in container

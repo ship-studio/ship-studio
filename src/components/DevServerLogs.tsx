@@ -16,6 +16,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { createWebLinksAddon } from '../lib/terminalLinks';
 import { loadNerdFonts } from '../lib/fonts';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useOptionalToast } from '../contexts/ToastContext';
@@ -130,6 +131,7 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    term.loadAddon(createWebLinksAddon());
 
     term.open(container);
 

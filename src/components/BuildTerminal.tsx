@@ -22,6 +22,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { createWebLinksAddon } from '../lib/terminalLinks';
 import {
   openPtySession,
   attachPtySession,
@@ -108,6 +109,7 @@ export function BuildTerminal({
     const unicode11 = new Unicode11Addon();
     term.loadAddon(fit);
     term.loadAddon(unicode11);
+    term.loadAddon(createWebLinksAddon());
     term.unicode.activeVersion = '11';
     term.open(container);
     termRef.current = term;
