@@ -271,18 +271,23 @@
 }
 
 /* ===== Visual editor pin-as-sidebar =====
-   The container grows a second grid column that hosts the panel in-tree (it
-   spans every row, so it can never overlap surrounding chrome). The default
-   children auto-place into column 1. Works unchanged in fullscreen mode. */
+   The container grows a second grid column that hosts the panel in-tree. The
+   toolbar keeps the full width (row 1 spans both columns); the panel sits
+   below it, spanning the canvas + inspect rows, so it matches the preview's
+   height and can never overlap any bar. Works unchanged in fullscreen mode. */
 .preview-container--editor-pinned {
   grid-template-columns: minmax(0, 1fr) var(--editor-panel-w);
+}
+
+.preview-container--editor-pinned .preview-toolbar {
+  grid-column: 1 / -1;
 }
 
 /* Compound selector: this file loads before visual-editor.css, so the pinned
    overrides need higher specificity than the base .ss-edit-panel rules. */
 .ss-edit-panel.ss-edit-panel--pinned {
   position: static;
-  grid-area: 1 / 2 / -1 / 3;
+  grid-area: 2 / 2 / -1 / 3;
   width: auto;
   min-width: 0;
   max-height: none;
@@ -293,7 +298,8 @@
   box-shadow: none;
 }
 
-/* Line the pinned header up with the preview toolbar beside it; no drag. */
+/* The pinned header is its own bar below the toolbar — keep the same bar
+   height as the toolbar for consistency; no drag affordance while docked. */
 .ss-edit-panel.ss-edit-panel--pinned .ss-edit-panel__header {
   height: var(--preview-toolbar-h);
   flex-shrink: 0;
