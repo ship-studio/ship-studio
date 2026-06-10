@@ -421,6 +421,18 @@ fn replace_locales_in(
     let loc_end = match_delim(src, loc_idx)
         .ok_or("Couldn't parse the `locales` array (unbalanced brackets).")?;
 
+    // Rewriting the array would drop anything that isn't a plain string —
+    // e.g. Astro's `{ path, codes }` locale objects. Refuse rather than
+    // silently destroy user configuration.
+    let (_, has_non_string) = extract_string_items(&src[loc_idx + 1..loc_end]);
+    if has_non_string {
+        return Err(
+            "Some locales use advanced configuration (custom paths or codes) that Ship Studio \
+             can't rewrite safely — edit the locales array in the config file directly."
+                .to_string(),
+        );
+    }
+
     let def_idx = find_key_value(src, "defaultLocale")
         .ok_or("The existing config has no `defaultLocale` Ship Studio can update.")?;
     let def_quote = *src
@@ -1070,6 +1082,22 @@ module.exports = nextConfig;
         // The domains entry's own defaultLocale must be untouched: only the
         // first (block-level) defaultLocale is replaced, and it keeps 'en'.
         assert!(out.contains("defaultLocale: 'fr'"));
+    }
+
+    #[test]
+    fn refuses_to_rewrite_object_locales() {
+        // Astro `{ path, codes }` entries would be silently destroyed by an
+        // array rewrite — the update must fail instead.
+        let src = r#"export default defineConfig({
+  i18n: {
+    locales: ['es', 'en', { path: 'french', codes: ['fr', 'fr-CA'] }],
+    defaultLocale: 'en',
+  },
+});
+"#;
+        let locales = vec!["es".to_string(), "en".to_string(), "de".to_string()];
+        let err = apply_i18n_to_content(src, &locales, "en").unwrap_err();
+        assert!(err.contains("advanced configuration"), "got: {err}");
     }
 
     #[test]

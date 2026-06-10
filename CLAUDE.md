@@ -41,7 +41,7 @@ Ship Studio is a desktop app for web developers that provides:
 - Structured logging via `tracing` crate, logs stored at `~/Library/Logs/ShipStudio/`
 
 #### Command Modules
-All 14 command modules in `src-tauri/src/commands/`:
+Key command modules in `src-tauri/src/commands/`:
 - `ai.rs` - AI-powered PR title/description generation via Claude CLI
 - `assets.rs` - File management for `/public` folder (list, upload, delete)
 - `claude.rs` - Claude Code binary detection and version checking
@@ -49,6 +49,7 @@ All 14 command modules in `src-tauri/src/commands/`:
 - `env.rs` - Environment variable management
 - `git.rs` - Git operations (status, branches, commits, diffs, stash)
 - `github.rs` - GitHub CLI integration (auth status, push, remote management)
+- `i18n.rs` - Multilingual config management (Next.js Pages i18n, Astro i18n, next-intl routing.ts) via conservative string surgery — fails with Validation errors instead of guessing
 - `ide.rs` - VS Code/Cursor detection and project opening
 - `projects.rs` - Project CRUD operations and metadata management
 - `pty.rs` - Pseudo-terminal spawning for embedded Claude Code terminal
@@ -82,6 +83,7 @@ Key modules in `src/lib/`:
 - `fonts.ts` - Font loading utilities for the terminal
 - `git.ts` - Git operations wrapper (status, commits, branches)
 - `github.ts` - GitHub operations (auth, push, clone)
+- `i18n.ts` - Multilingual support: status/config wrappers, full-ISO language search, locale path helpers for the preview switcher, and agent prompt builders (translate, App Router next-intl setup, removal cleanup)
 - `logger.ts` - Structured frontend logging
 - `polling.ts` - Exponential backoff utilities for async operations
 - `project.ts` - Project metadata and file operations
@@ -220,6 +222,14 @@ CSS variables (`--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--text-primar
 3. User can click "Generate with AI" to auto-generate title/description
 4. Backend gathers git context (diff, commits, branch name) and calls Claude CLI
 5. PR is created via `gh pr create` with the title and description
+
+### Languages (Multilingual / i18n) Flow
+1. Cmd+K → "Languages" opens `LanguagesModal` (`useModal('i18n')`)
+2. `get_i18n_status` detects the framework path: Next.js Pages Router (built-in `i18n` in next.config), Astro (`i18n` in astro.config), or App Router via next-intl (`src/i18n/routing.ts`); App Router without next-intl gets a guided one-time agent setup
+3. `set_i18n_config` surgically rewrites only the `locales` array and `defaultLocale` string (sibling keys preserved); unparseable/wrapped configs and non-string locale entries fail with a `Validation` error and the UI offers an AI fallback — config is never guessed at or destroyed
+4. Every agent interaction (translate, setup, removal cleanup) goes through a prompt-review step: the user sees the exact prompt, then copies it or pastes it into the terminal (nothing runs until they press Enter)
+5. The preview toolbar shows a locale switcher (`PreviewLocaleSwitcher`) when 2+ locales are configured; page selection preserves the active language
+6. Removal only edits config — translated files stay on disk (and Astro keeps serving locale folders), so the UI warns and offers an AI cleanup prompt
 
 ### Conflict Resolution
 - Conflicts detected via `git diff --name-only --diff-filter=U`
