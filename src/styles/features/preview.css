@@ -265,13 +265,26 @@
   color: var(--text-primary);
 }
 
-/* Fullscreen: the container covers the window so only the preview and its
-   toolbar are visible. position:fixed (not a remount) keeps the iframe alive. */
+/* Fullscreen: the container covers the window below the workspace header
+   (the component sets `top` inline from the measured header height — the
+   header stays visible so the project name + macOS traffic lights keep their
+   room). position:fixed (not a remount) keeps the iframe alive. */
 .preview-container--fullscreen {
   position: fixed;
   inset: 0;
   z-index: var(--z-preview-fullscreen);
   background: var(--bg-primary);
+}
+
+/* Edit panel pinned as a sidebar: the preview reserves its width.
+   Must match --editor-panel-w in visual-editor.css (264px). */
+.preview-container--editor-pinned {
+  margin-right: 264px;
+}
+
+.preview-container--fullscreen.preview-container--editor-pinned {
+  margin-right: 0;
+  right: 264px;
 }
 
 .capture-spinner {

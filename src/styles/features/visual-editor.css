@@ -65,11 +65,14 @@
   /* Portaled to <body>; position/top/left/max-height are set inline by the
      component (it owns drag). position:fixed at the document root is the only
      reliable way to sit ABOVE the preview iframe in WebKit — an in-tree overlay
-     (even with z-index or a promoted layer) gets composited under it. */
+     (even with z-index or a promoted layer) gets composited under it.
+     Width MUST match PANEL_WIDTH in VisualEditorPanel.tsx and the reserved
+     space in .preview-container--editor-pinned (preview.css). */
+  --editor-panel-w: 264px;
   position: fixed;
   display: flex;
   flex-direction: column;
-  width: 264px;
+  width: var(--editor-panel-w);
   /* Header + footer are fixed; only the body scrolls. Panel clips; max-height is
      set inline by the component. */
   overflow: hidden;
@@ -78,6 +81,16 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   font-size: 13px;
+}
+
+/* Pinned: a full-height sidebar docked at the window's right edge. The
+   preview reserves matching space via .preview-container--editor-pinned. */
+.ss-edit-panel--pinned {
+  border-radius: 0;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  box-shadow: none;
 }
 
 .ss-edit-panel__header {
@@ -94,6 +107,38 @@
 }
 .ss-edit-panel__header:active {
   cursor: grabbing;
+}
+.ss-edit-panel--pinned .ss-edit-panel__header,
+.ss-edit-panel--pinned .ss-edit-panel__header:active {
+  cursor: default;
+}
+
+.ss-edit-panel__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.ss-edit-panel__pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+.ss-edit-panel__pin:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.ss-edit-panel__pin.is-pinned {
+  color: var(--accent);
 }
 
 .ss-edit-panel__title {

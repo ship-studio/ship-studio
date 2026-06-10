@@ -290,10 +290,23 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onUserResize: () => setPinnedBreakpoint(null),
   });
 
-  // Fullscreen: the container goes position:fixed over the whole window, so
-  // only the preview + its toolbar are visible. The iframe never remounts,
-  // so the page state survives entering/leaving. ESC exits.
+  // Fullscreen: the container goes position:fixed over the window below the
+  // workspace header (kept visible — it carries the project name and makes
+  // room for the macOS traffic lights). The iframe never remounts, so the
+  // page state survives entering/leaving. ESC exits.
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Bottom edge of the workspace header — the top of the fullscreen overlay
+  // and of the pinned editor sidebar. Measured (the header has no fixed height).
+  const [chromeTop, setChromeTop] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      const header = document.querySelector('.workspace-header');
+      setChromeTop(header ? Math.round(header.getBoundingClientRect().bottom) : 0);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
   useEffect(() => {
     if (!isFullscreen) return;
     const handler = (e: KeyboardEvent) => {
@@ -302,6 +315,19 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [isFullscreen]);
+
+  // Pin the visual editor as a full-height sidebar (instead of a floating
+  // panel over the canvas) — persisted across sessions. The preview makes
+  // room via a class on the container, in both normal and fullscreen modes.
+  const [editorPinned, setEditorPinned] = useState(
+    () => localStorage.getItem('visualEditorPinned') === '1'
+  );
+  const toggleEditorPinned = useCallback(() => {
+    setEditorPinned((p) => {
+      localStorage.setItem('visualEditorPinned', p ? '0' : '1');
+      return !p;
+    });
+  }, []);
 
   // Inspect-panel vertical resize. Null = use the default 1fr split from CSS;
   // a number = explicit panel height in px (overrides via inline grid-template-rows).
@@ -618,15 +644,18 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   return (
     <div
-      className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}`}
+      className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}${
+        editor.editMode && editorPinned ? ' preview-container--editor-pinned' : ''
+      }`}
       data-logs={showLogs ? 'open' : 'closed'}
-      style={
-        showLogs && inspectPanelHeight !== null
+      style={{
+        ...(showLogs && inspectPanelHeight !== null
           ? {
               gridTemplateRows: `auto minmax(0, 1fr) var(--handle-size) ${inspectPanelHeight}px`,
             }
-          : undefined
-      }
+          : undefined),
+        ...(isFullscreen ? { top: chromeTop } : undefined),
+      }}
     >
       <div className="preview-toolbar">
         {editorEnabled && (
@@ -1007,6 +1036,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             onOpenInCode={onOpenInCode}
             onCommit={() => void editor.commit()}
             onClose={editor.toggleEditMode}
+            pinned={editorPinned}
+            onTogglePin={toggleEditorPinned}
+            pinnedTop={chromeTop}
           />,
           document.body
         )}

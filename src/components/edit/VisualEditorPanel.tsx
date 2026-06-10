@@ -272,6 +272,11 @@ interface Props {
   onOpenInCode?: (file: string, line: number) => void;
   onCommit: () => void;
   onClose: () => void;
+  /** Docked as a full-height right sidebar instead of floating over the canvas. */
+  pinned?: boolean;
+  onTogglePin?: () => void;
+  /** Top edge when pinned (bottom of the workspace header). */
+  pinnedTop?: number;
 }
 
 const PANEL_WIDTH = 264;
@@ -304,6 +309,9 @@ export function VisualEditorPanel({
   onOpenInCode,
   onCommit,
   onClose,
+  pinned = false,
+  onTogglePin,
+  pinnedTop = 0,
 }: Props) {
   const resolution = selection?.resolution ?? null;
   // Both 'resolved' (one spot) and 'multi' (several identical spots) are editable.
@@ -376,28 +384,68 @@ export function VisualEditorPanel({
   return (
     <div
       ref={rootRef}
-      className="ss-edit-panel"
+      className={`ss-edit-panel${pinned ? ' ss-edit-panel--pinned' : ''}`}
       data-testid="visual-editor-panel"
-      style={{
-        position: 'fixed',
-        top: pos.top,
-        left: pos.left,
-        right: 'auto',
-        zIndex: 1000,
-        // Cap shorter than the viewport; the body scrolls, the footer stays put.
-        maxHeight: `min(520px, calc(100vh - ${pos.top + 16}px))`,
-      }}
+      style={
+        pinned
+          ? {
+              // Docked: full-height sidebar at the window's right edge, below
+              // the workspace header. The preview reserves matching space via
+              // .preview-container--editor-pinned.
+              position: 'fixed',
+              top: pinnedTop,
+              right: 0,
+              bottom: 0,
+              left: 'auto',
+              zIndex: 1000,
+              maxHeight: 'none',
+            }
+          : {
+              position: 'fixed',
+              top: pos.top,
+              left: pos.left,
+              right: 'auto',
+              zIndex: 1000,
+              // Cap shorter than the viewport; the body scrolls, the footer stays put.
+              maxHeight: `min(520px, calc(100vh - ${pos.top + 16}px))`,
+            }
+      }
     >
       <div
         className="ss-edit-panel__header"
-        onPointerDown={onHeaderPointerDown}
-        onPointerMove={onHeaderPointerMove}
-        onPointerUp={onHeaderPointerUp}
+        onPointerDown={pinned ? undefined : onHeaderPointerDown}
+        onPointerMove={pinned ? undefined : onHeaderPointerMove}
+        onPointerUp={pinned ? undefined : onHeaderPointerUp}
       >
         <span className="ss-edit-panel__title">Edit</span>
-        <button className="ss-edit-panel__close" onClick={onClose} aria-label="Exit edit mode">
-          ×
-        </button>
+        <span className="ss-edit-panel__header-actions">
+          {onTogglePin && (
+            <button
+              className={`ss-edit-panel__pin${pinned ? ' is-pinned' : ''}`}
+              onClick={onTogglePin}
+              title={pinned ? 'Unpin — float over the preview' : 'Pin as sidebar'}
+              aria-pressed={pinned}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 17v5" />
+                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z" />
+              </svg>
+            </button>
+          )}
+          <button className="ss-edit-panel__close" onClick={onClose} aria-label="Exit edit mode">
+            ×
+          </button>
+        </span>
       </div>
 
       <div className="ss-edit-panel__body">
