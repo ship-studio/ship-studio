@@ -290,6 +290,19 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onUserResize: () => setPinnedBreakpoint(null),
   });
 
+  // Fullscreen: the container goes position:fixed over the whole window, so
+  // only the preview + its toolbar are visible. The iframe never remounts,
+  // so the page state survives entering/leaving. ESC exits.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsFullscreen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isFullscreen]);
+
   // Inspect-panel vertical resize. Null = use the default 1fr split from CSS;
   // a number = explicit panel height in px (overrides via inline grid-template-rows).
   const [inspectPanelHeight, setInspectPanelHeight] = useState<number | null>(null);
@@ -605,7 +618,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   return (
     <div
-      className="preview-container"
+      className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}`}
       data-logs={showLogs ? 'open' : 'closed'}
       style={
         showLogs && inspectPanelHeight !== null
@@ -637,7 +650,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             >
               <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
             </svg>
-            <span>Edit (Beta)</span>
+            <span>Edit</span>
             <span
               className={`preview-edit-toggle-switch ${editor.editMode ? 'is-on' : ''}`}
               aria-hidden
@@ -746,6 +759,42 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           data-education-id="preview-refresh"
         >
           ↻
+        </button>
+
+        <button
+          type="button"
+          className="preview-fullscreen-btn"
+          onClick={() => setIsFullscreen((f) => !f)}
+          title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen preview'}
+          aria-pressed={isFullscreen}
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {isFullscreen ? (
+              <>
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </>
+            ) : (
+              <>
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </>
+            )}
+          </svg>
         </button>
 
         {previewPlugins}

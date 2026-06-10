@@ -244,6 +244,36 @@
   background: var(--bg-tertiary);
 }
 
+/* Fullscreen toggle — sits right of the refresh button */
+.preview-fullscreen-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.preview-fullscreen-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* Fullscreen: the container covers the window so only the preview and its
+   toolbar are visible. position:fixed (not a remount) keeps the iframe alive. */
+.preview-container--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-preview-fullscreen);
+  background: var(--bg-primary);
+}
+
 .capture-spinner {
   width: 14px;
   height: 14px;
