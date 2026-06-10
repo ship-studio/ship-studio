@@ -43,6 +43,8 @@ import { useVisualEditor } from '../hooks/useVisualEditor';
 import { useBreakpoints } from '../hooks/useBreakpoints';
 import { BASE_BREAKPOINT, isTailwindActive, type Breakpoint as TwBreakpoint } from '../lib/edit';
 import { VisualEditorPanel } from './edit/VisualEditorPanel';
+import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocaleSwitcher';
+import { pathLocale, switchPathLocale } from '../lib/i18n';
 import type { ProjectType } from '../lib/static-server';
 
 // SVG icons for breakpoints
@@ -407,6 +409,23 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // and Astro templates. Both resolve the same way in the Rust backend.
   const editorEnabled = conn.serverReady && editorFramework && tailwindActive;
 
+  // Locale config reported by the locale switcher (null when the project has
+  // fewer than 2 configured languages). Used to keep page selection inside
+  // the language currently being previewed.
+  const [localeConfig, setLocaleConfig] = useState<PreviewLocaleConfig | null>(null);
+  const selectPageKeepingLocale = (route: string) => {
+    if (localeConfig) {
+      const active = pathLocale(conn.currentPage, localeConfig.locales, localeConfig.defaultLocale);
+      if (active && active !== localeConfig.defaultLocale) {
+        conn.handlePageSelect(
+          switchPathLocale(route, active, localeConfig.locales, localeConfig.defaultLocale)
+        );
+        return;
+      }
+    }
+    conn.handlePageSelect(route);
+  };
+
   // The project's Tailwind breakpoints (Base + detected), and the layer edits
   // currently target — DERIVED from the live canvas width (never set on its own,
   // so picking a breakpoint resizes the canvas and resizing updates the layer,
@@ -651,6 +670,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           </button>
         )}
 
+        {/* Locale Switcher — only for projects with 2+ configured languages */}
+        <PreviewLocaleSwitcher
+          projectPath={projectPath}
+          currentPage={conn.currentPage}
+          onNavigate={conn.handlePageSelect}
+          onConfigChange={setLocaleConfig}
+        />
+
         {/* Page Switcher */}
         <div className="page-switcher" ref={conn.dropdownRef} data-education-id="page-switcher">
           <button
@@ -680,7 +707,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                 onChange={(e) => conn.setPageSearch(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && conn.filteredPages.length > 0) {
-                    conn.handlePageSelect(conn.filteredPages[0].route);
+                    selectPageKeepingLocale(conn.filteredPages[0].route);
                   }
                   if (e.key === 'Escape') {
                     conn.setShowPageDropdown(false);
@@ -700,7 +727,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                     <button
                       key={page.route}
                       className={`page-item ${page.route === conn.currentPage ? 'active' : ''}`}
-                      onClick={() => conn.handlePageSelect(page.route)}
+                      onClick={() => selectPageKeepingLocale(page.route)}
                     >
                       <span className="page-item-route">{page.route}</span>
                       {page.route === '/' && <span className="page-item-hint">Home</span>}

@@ -7,6 +7,9 @@ import { describe, it, expect } from 'vitest';
 import {
   LOCALE_CATALOG,
   localeDisplayName,
+  searchLocales,
+  pathLocale,
+  switchPathLocale,
   buildTranslatePrompt,
   buildAiSetupPrompt,
   buildAppRouterSetupPrompt,
@@ -47,6 +50,82 @@ describe('localeDisplayName', () => {
   it('catalog has no duplicate codes', () => {
     const codes = LOCALE_CATALOG.map((l) => l.code);
     expect(new Set(codes).size).toBe(codes.length);
+  });
+});
+
+// ============ searchLocales ============
+
+describe('searchLocales', () => {
+  it('returns the popular catalog for an empty query', () => {
+    const results = searchLocales('', []);
+    expect(results[0]).toEqual(LOCALE_CATALOG[0]);
+  });
+
+  it('excludes already-selected languages', () => {
+    const results = searchLocales('', ['en']);
+    expect(results.some((r) => r.code === 'en')).toBe(false);
+  });
+
+  it('finds languages beyond the popular catalog', () => {
+    expect(searchLocales('catalan', []).some((r) => r.code === 'ca')).toBe(true);
+    expect(searchLocales('zulu', []).some((r) => r.code === 'zu')).toBe(true);
+    expect(searchLocales('icelandic', []).some((r) => r.code === 'is')).toBe(true);
+  });
+
+  it('matches by code too', () => {
+    // "sw" matches both Swedish (name) and Swahili (code) — both surface.
+    const results = searchLocales('sw', []);
+    expect(results.some((r) => r.code === 'sw')).toBe(true);
+    expect(results.some((r) => r.code === 'sv')).toBe(true);
+  });
+
+  it('offers exact regional codes, canonicalized', () => {
+    const results = searchLocales('fr-ca', []);
+    expect(results[0].code).toBe('fr-CA');
+    expect(results[0].name.toLowerCase()).toContain('french');
+  });
+
+  it('returns nothing for gibberish', () => {
+    expect(searchLocales('xyzzyplugh', [])).toEqual([]);
+  });
+});
+
+// ============ pathLocale / switchPathLocale ============
+
+describe('pathLocale', () => {
+  const locales = ['en', 'fr', 'de'];
+
+  it('reads the locale prefix from the path', () => {
+    expect(pathLocale('/fr/about', locales, 'en')).toBe('fr');
+    expect(pathLocale('/de', locales, 'en')).toBe('de');
+  });
+
+  it('falls back to the default for unprefixed paths', () => {
+    expect(pathLocale('/about', locales, 'en')).toBe('en');
+    expect(pathLocale('/', locales, 'en')).toBe('en');
+  });
+});
+
+describe('switchPathLocale', () => {
+  const locales = ['en', 'fr', 'de'];
+
+  it('prefixes a non-default locale', () => {
+    expect(switchPathLocale('/about', 'fr', locales, 'en')).toBe('/fr/about');
+    expect(switchPathLocale('/', 'fr', locales, 'en')).toBe('/fr');
+  });
+
+  it('replaces an existing locale prefix', () => {
+    expect(switchPathLocale('/fr/about', 'de', locales, 'en')).toBe('/de/about');
+    expect(switchPathLocale('/fr', 'de', locales, 'en')).toBe('/de');
+  });
+
+  it('strips the prefix when switching to the default', () => {
+    expect(switchPathLocale('/fr/about', 'en', locales, 'en')).toBe('/about');
+    expect(switchPathLocale('/fr', 'en', locales, 'en')).toBe('/');
+  });
+
+  it('leaves unprefixed default paths alone', () => {
+    expect(switchPathLocale('/about', 'en', locales, 'en')).toBe('/about');
   });
 });
 

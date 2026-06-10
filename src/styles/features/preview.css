@@ -990,3 +990,75 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Locale Switcher — view the preview in another configured language */
+.locale-switcher {
+  position: relative;
+}
+
+.locale-switcher-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.locale-switcher-btn:hover {
+  border-color: var(--accent);
+}
+
+.locale-switcher-btn svg {
+  color: var(--text-muted);
+}
+
+.locale-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-dropdown);
+  overflow: hidden;
+}
+
+.locale-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.locale-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.locale-item.active {
+  color: var(--action);
+}
+
+.locale-item-code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}

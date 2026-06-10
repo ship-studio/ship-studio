@@ -33,7 +33,7 @@ import {
   buildAiSetupPrompt,
   buildAppRouterSetupPrompt,
   localeDisplayName,
-  LOCALE_CATALOG,
+  searchLocales,
   type I18nStatus,
 } from '../lib/i18n';
 
@@ -96,24 +96,59 @@ function LanguageRows({
   );
 }
 
-/** Remaining catalog languages as one-click "+ Language" pills. */
-function AddLanguagePills({
+/**
+ * Search-any-language picker: popular languages as one-click pills, with a
+ * search box over the full ISO 639-1 set (plus regional codes like `fr-CA`).
+ */
+function AddLanguagePicker({
   selected,
   onAdd,
 }: {
   selected: string[];
   onAdd: (code: string) => void;
 }) {
-  const available = LOCALE_CATALOG.filter((l) => !selected.includes(l.code));
-  if (available.length === 0) return null;
+  const [query, setQuery] = useState('');
+  const results = useMemo(() => searchLocales(query, selected), [query, selected]);
+
+  const add = (code: string) => {
+    onAdd(code);
+    setQuery('');
+  };
+
   return (
-    <div className="languages-pills">
-      {available.map((l) => (
-        <button key={l.code} type="button" className="languages-pill" onClick={() => onAdd(l.code)}>
-          <span className="languages-pill-plus">+</span> {l.name}
-        </button>
-      ))}
-    </div>
+    <>
+      <input
+        type="text"
+        className="languages-search"
+        placeholder="Search any language…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && results.length > 0) add(results[0].code);
+        }}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+      />
+      {results.length === 0 ? (
+        <div className="languages-pills-empty">No language matches "{query}"</div>
+      ) : (
+        <div className="languages-pills">
+          {results.map((l) => (
+            <button
+              key={l.code}
+              type="button"
+              className="languages-pill"
+              onClick={() => add(l.code)}
+            >
+              <span className="languages-pill-plus">+</span> {l.name}
+              {query && <span className="languages-pill-code">{l.code}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -282,7 +317,7 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
       </div>
       <div className="languages-section">
         <div className="languages-section-label">Add a language</div>
-        <AddLanguagePills selected={draftLocales} onAdd={addLocale} />
+        <AddLanguagePicker selected={draftLocales} onAdd={addLocale} />
       </div>
     </>
   );

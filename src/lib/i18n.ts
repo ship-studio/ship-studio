@@ -115,6 +115,305 @@ export const LOCALE_CATALOG: ReadonlyArray<{ code: string; name: string }> = [
   { code: 'vi', name: 'Vietnamese' },
 ];
 
+/** Every ISO 639-1 language code; display names resolved via Intl. */
+const ISO_639_1_CODES = [
+  'aa',
+  'ab',
+  'ae',
+  'af',
+  'ak',
+  'am',
+  'an',
+  'ar',
+  'as',
+  'av',
+  'ay',
+  'az',
+  'ba',
+  'be',
+  'bg',
+  'bi',
+  'bm',
+  'bn',
+  'bo',
+  'br',
+  'bs',
+  'ca',
+  'ce',
+  'ch',
+  'co',
+  'cr',
+  'cs',
+  'cu',
+  'cv',
+  'cy',
+  'da',
+  'de',
+  'dv',
+  'dz',
+  'ee',
+  'el',
+  'en',
+  'eo',
+  'es',
+  'et',
+  'eu',
+  'fa',
+  'ff',
+  'fi',
+  'fj',
+  'fo',
+  'fr',
+  'fy',
+  'ga',
+  'gd',
+  'gl',
+  'gn',
+  'gu',
+  'gv',
+  'ha',
+  'he',
+  'hi',
+  'ho',
+  'hr',
+  'ht',
+  'hu',
+  'hy',
+  'hz',
+  'ia',
+  'id',
+  'ie',
+  'ig',
+  'ii',
+  'ik',
+  'io',
+  'is',
+  'it',
+  'iu',
+  'ja',
+  'jv',
+  'ka',
+  'kg',
+  'ki',
+  'kj',
+  'kk',
+  'kl',
+  'km',
+  'kn',
+  'ko',
+  'kr',
+  'ks',
+  'ku',
+  'kv',
+  'kw',
+  'ky',
+  'la',
+  'lb',
+  'lg',
+  'li',
+  'ln',
+  'lo',
+  'lt',
+  'lu',
+  'lv',
+  'mg',
+  'mh',
+  'mi',
+  'mk',
+  'ml',
+  'mn',
+  'mr',
+  'ms',
+  'mt',
+  'my',
+  'na',
+  'nb',
+  'nd',
+  'ne',
+  'ng',
+  'nl',
+  'nn',
+  'no',
+  'nr',
+  'nv',
+  'ny',
+  'oc',
+  'oj',
+  'om',
+  'or',
+  'os',
+  'pa',
+  'pi',
+  'pl',
+  'ps',
+  'pt',
+  'qu',
+  'rm',
+  'rn',
+  'ro',
+  'ru',
+  'rw',
+  'sa',
+  'sc',
+  'sd',
+  'se',
+  'sg',
+  'si',
+  'sk',
+  'sl',
+  'sm',
+  'sn',
+  'so',
+  'sq',
+  'sr',
+  'ss',
+  'st',
+  'su',
+  'sv',
+  'sw',
+  'ta',
+  'te',
+  'tg',
+  'th',
+  'ti',
+  'tk',
+  'tl',
+  'tn',
+  'to',
+  'tr',
+  'ts',
+  'tt',
+  'tw',
+  'ty',
+  'ug',
+  'uk',
+  'ur',
+  'uz',
+  've',
+  'vi',
+  'vo',
+  'wa',
+  'wo',
+  'xh',
+  'yi',
+  'yo',
+  'za',
+  'zh',
+  'zu',
+];
+
+export interface LocaleOption {
+  code: string;
+  name: string;
+}
+
+let allOptionsCache: LocaleOption[] | null = null;
+
+/** Popular catalog first, then the rest of ISO 639-1 alphabetized by name. */
+function allLocaleOptions(): LocaleOption[] {
+  if (allOptionsCache) return allOptionsCache;
+  const seen = new Set<string>(LOCALE_CATALOG.map((l) => l.code));
+  let display: Intl.DisplayNames | null = null;
+  try {
+    display = new Intl.DisplayNames(['en'], { type: 'language' });
+  } catch {
+    display = null;
+  }
+  const rest: LocaleOption[] = [];
+  for (const code of ISO_639_1_CODES) {
+    if (seen.has(code)) continue;
+    let name: string | undefined;
+    try {
+      name = display?.of(code) ?? undefined;
+    } catch {
+      continue;
+    }
+    if (!name || name === code) continue;
+    rest.push({ code, name });
+  }
+  rest.sort((a, b) => a.name.localeCompare(b.name));
+  allOptionsCache = [...LOCALE_CATALOG, ...rest];
+  return allOptionsCache;
+}
+
+/**
+ * Search every known language — the full ISO 639-1 set plus popular regional
+ * variants — by name or code. An empty query returns the popular catalog.
+ * A query that is itself a valid locale code (e.g. `fr-CA`) is offered
+ * directly, so any regional variant can be added.
+ */
+export function searchLocales(query: string, exclude: string[] = [], limit = 24): LocaleOption[] {
+  const excludeSet = new Set(exclude);
+  const trimmed = query.trim();
+  const q = trimmed.toLowerCase();
+  if (!q) return LOCALE_CATALOG.filter((l) => !excludeSet.has(l.code)).slice(0, limit);
+
+  const starts: LocaleOption[] = [];
+  const contains: LocaleOption[] = [];
+  for (const opt of allLocaleOptions()) {
+    if (excludeSet.has(opt.code)) continue;
+    const name = opt.name.toLowerCase();
+    const code = opt.code.toLowerCase();
+    if (name.startsWith(q) || code === q || code.startsWith(q)) {
+      starts.push(opt);
+    } else if (name.includes(q)) {
+      contains.push(opt);
+    }
+  }
+  const results = [...starts, ...contains];
+
+  // Exact-code queries (regional variants like `fr-CA`) become addable even
+  // when uncataloged, canonicalized to standard casing.
+  if (/^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i.test(trimmed)) {
+    try {
+      const [canonical] = Intl.getCanonicalLocales(trimmed);
+      const name = localeDisplayName(canonical);
+      if (
+        canonical &&
+        name !== canonical &&
+        !excludeSet.has(canonical) &&
+        !results.some((r) => r.code === canonical)
+      ) {
+        results.unshift({ code: canonical, name });
+      }
+    } catch {
+      // Not a valid locale — name/code matches above are all we have.
+    }
+  }
+  return results.slice(0, limit);
+}
+
+/**
+ * The locale a preview path is showing: its first segment when that's a
+ * configured locale, otherwise the default locale.
+ */
+export function pathLocale(
+  path: string,
+  locales: string[],
+  defaultLocale: string | null
+): string | null {
+  const first = path.replace(/^\/+/, '').split('/')[0];
+  return locales.includes(first) ? first : defaultLocale;
+}
+
+/**
+ * Rewrite a preview path to another locale: strips any existing locale
+ * prefix, then prefixes the target unless it's the default (unprefixed
+ * paths are the canonical form; i18n middleware redirects as needed).
+ */
+export function switchPathLocale(
+  path: string,
+  target: string,
+  locales: string[],
+  defaultLocale: string | null
+): string {
+  const segments = path.replace(/^\/+/, '').split('/').filter(Boolean);
+  const rest = segments.length > 0 && locales.includes(segments[0]) ? segments.slice(1) : segments;
+  const base = rest.length > 0 ? `/${rest.join('/')}` : '/';
+  if (defaultLocale !== null && target === defaultLocale) return base;
+  return base === '/' ? `/${target}` : `/${target}${base}`;
+}
+
 /**
  * Human-readable name for a locale code. Falls back to `Intl.DisplayNames`
  * for codes outside the catalog, and to the raw code when even that fails.
