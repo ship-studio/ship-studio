@@ -667,9 +667,15 @@ fn scan_html_pages_recursive(
     Ok(())
 }
 
-/// Sort pages with root first, then alphabetically
+/// Sort pages with root first, then alphabetically.
+/// The equality short-circuit keeps the comparator a total order even with
+/// duplicate "/" routes (possible after `[locale]` stripping) — `sort_by`
+/// may panic on non-total comparators.
 pub(crate) fn sort_pages(pages: &mut [PageInfo]) {
     pages.sort_by(|a, b| {
+        if a.route == b.route {
+            return std::cmp::Ordering::Equal;
+        }
         if a.route == "/" {
             return std::cmp::Ordering::Less;
         }
@@ -875,6 +881,31 @@ mod tests {
         sort_pages(&mut pages);
         let routes: Vec<_> = pages.iter().map(|p| p.route.as_str()).collect();
         assert_eq!(routes, vec!["/", "/about"]);
+    }
+
+    #[test]
+    fn sort_pages_total_order_with_duplicate_roots() {
+        // Two "/" entries can exist after [locale] stripping (alias case);
+        // the comparator must stay a total order and keep them adjacent so
+        // the caller's dedup works.
+        let mut pages = vec![
+            PageInfo {
+                route: "/".to_string(),
+                file_path: "app/page.tsx".to_string(),
+            },
+            PageInfo {
+                route: "/about".to_string(),
+                file_path: "app/[locale]/about/page.tsx".to_string(),
+            },
+            PageInfo {
+                route: "/".to_string(),
+                file_path: "app/[locale]/page.tsx".to_string(),
+            },
+        ];
+        sort_pages(&mut pages);
+        assert_eq!(pages[0].route, "/");
+        assert_eq!(pages[1].route, "/");
+        assert_eq!(pages[2].route, "/about");
     }
 
     #[test]

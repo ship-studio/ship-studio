@@ -120,20 +120,133 @@ fn validate_locale_set(locales: &[String], default_locale: &str) -> Result<(), S
 
 // ============ Config parsing (pure string helpers) ============
 
+/// Byte classification produced by [`scan_source`].
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum ByteKind {
+    Code,
+    /// Inside a string literal; payload = index of the opening quote.
+    Str(usize),
+    Comment,
+}
+
+/// One comment/string-aware pass over JS source. Classifies every byte and
+/// tracks `{}` brace depth (counting only braces in real code), so every
+/// parsing helper agrees on what is live code vs. comment vs. string.
+struct SourceScan {
+    kind: Vec<ByteKind>,
+    /// Brace depth of each byte: a key directly inside the top-level config
+    /// object is at depth 1; keys of nested objects (e.g. `domains` entries)
+    /// are at depth 2+.
+    depth: Vec<u32>,
+}
+
+fn scan_source(src: &str) -> SourceScan {
+    let bytes = src.as_bytes();
+    let mut kind = vec![ByteKind::Code; bytes.len()];
+    let mut depth = vec![0u32; bytes.len()];
+    let mut d: u32 = 0;
+    let mut in_str: Option<(u8, usize)> = None;
+    let mut in_line = false;
+    let mut in_block = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        depth[i] = d;
+        if let Some((q, s)) = in_str {
+            kind[i] = ByteKind::Str(s);
+            if c == b'\\' {
+                if i + 1 < bytes.len() {
+                    kind[i + 1] = ByteKind::Str(s);
+                    depth[i + 1] = d;
+                }
+                i += 2;
+                continue;
+            }
+            // Plain strings can't span lines — recover at the newline so an
+            // unterminated quote doesn't swallow the rest of the file.
+            if c == q || (c == b'\n' && q != b'`') {
+                in_str = None;
+            }
+        } else if in_line {
+            kind[i] = ByteKind::Comment;
+            if c == b'\n' {
+                in_line = false;
+            }
+        } else if in_block {
+            kind[i] = ByteKind::Comment;
+            if c == b'*' && bytes.get(i + 1) == Some(&b'/') {
+                kind[i + 1] = ByteKind::Comment;
+                depth[i + 1] = d;
+                in_block = false;
+                i += 2;
+                continue;
+            }
+        } else {
+            match c {
+                b'"' | b'\'' | b'`' => {
+                    in_str = Some((c, i));
+                    kind[i] = ByteKind::Str(i);
+                }
+                b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                    in_line = true;
+                    kind[i] = ByteKind::Comment;
+                }
+                b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                    in_block = true;
+                    kind[i] = ByteKind::Comment;
+                }
+                b'{' => d += 1,
+                b'}' => {
+                    d = d.saturating_sub(1);
+                    depth[i] = d;
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    SourceScan { kind, depth }
+}
+
+fn skip_ws_and_comments(bytes: &[u8], scan: &SourceScan, mut i: usize) -> usize {
+    while i < bytes.len() && (bytes[i].is_ascii_whitespace() || scan.kind[i] == ByteKind::Comment) {
+        i += 1;
+    }
+    i
+}
+
+/// First occurrence of `pat` that is live code (not a comment or string).
+fn find_in_code(src: &str, scan: &SourceScan, pat: &str) -> Option<usize> {
+    let mut from = 0;
+    while let Some(rel) = src[from..].find(pat) {
+        let idx = from + rel;
+        from = idx + 1;
+        if scan.kind[idx] == ByteKind::Code {
+            return Some(idx);
+        }
+    }
+    None
+}
+
 /// Find the byte index of the first character of the value for `key:` in JS
-/// source. Handles optional quoted keys (`"i18n":`) and skips matches on
-/// line-commented lines or where `key` is part of a longer identifier.
-fn find_key_value(src: &str, key: &str) -> Option<usize> {
+/// source. Comment- and string-aware (quoted keys like `"i18n":` are
+/// recognized); `required_depth` restricts matches to keys of the object at
+/// that brace depth — pass `Some(1)` to skip identical keys nested deeper
+/// (e.g. `defaultLocale` inside Next.js `domains` entries).
+fn find_key_value(src: &str, key: &str, required_depth: Option<u32>) -> Option<usize> {
+    let scan = scan_source(src);
     let bytes = src.as_bytes();
     let mut from = 0;
     while let Some(rel) = src[from..].find(key) {
         let start = from + rel;
         from = start + 1;
 
-        // Skip occurrences on line-commented lines.
-        let line_start = src[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        if src[line_start..start].contains("//") {
-            continue;
+        // Comments never count; a string occurrence only counts when the
+        // string IS the key (quoted-key style, opening quote right before).
+        match scan.kind[start] {
+            ByteKind::Comment => continue,
+            ByteKind::Str(s) if start == 0 || s != start - 1 => continue,
+            _ => {}
         }
 
         // Word boundary before the key (or a quote for `"key":` style).
@@ -161,16 +274,18 @@ fn find_key_value(src: &str, key: &str) -> Option<usize> {
             continue; // part of a longer identifier
         }
 
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
+        if let Some(d) = required_depth {
+            if scan.depth[start] != d {
+                continue;
+            }
         }
+
+        i = skip_ws_and_comments(bytes, &scan, i);
         if bytes.get(i) != Some(&b':') {
             continue;
         }
         i += 1;
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
+        i = skip_ws_and_comments(bytes, &scan, i);
         if i < bytes.len() {
             return Some(i);
         }
@@ -234,8 +349,9 @@ fn match_delim(src: &str, open_idx: usize) -> Option<usize> {
 }
 
 /// Extract top-level string literals from the inside of a JS array literal.
-/// Returns the strings plus a flag for whether non-string entries (objects,
-/// identifiers — e.g. Astro's `{ path, codes }` locales) were present.
+/// ANY other token at the array's top level — objects, identifiers, spreads,
+/// numbers — flags `has_non_string`, so callers refuse to rewrite an array
+/// they can't faithfully reproduce. Comments are ignored entirely.
 fn extract_string_items(inner: &str) -> (Vec<String>, bool) {
     let bytes = inner.as_bytes();
     let mut items = Vec::new();
@@ -245,13 +361,19 @@ fn extract_string_items(inner: &str) -> (Vec<String>, bool) {
     while i < bytes.len() {
         let c = bytes[i];
         match c {
-            b'{' | b'[' => {
-                if depth == 0 {
-                    has_non_string = true;
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
                 }
-                depth += 1;
             }
-            b'}' | b']' => depth -= 1,
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2;
+                continue;
+            }
             b'"' | b'\'' | b'`' => {
                 let q = c;
                 let start = i + 1;
@@ -262,16 +384,24 @@ fn extract_string_items(inner: &str) -> (Vec<String>, bool) {
                     }
                     i += 1;
                 }
-                if depth == 0 && i <= bytes.len() {
-                    items.push(inner[start..i].to_string());
+                if depth == 0 {
+                    items.push(inner[start..i.min(bytes.len())].to_string());
                 }
             }
-            b'/' if bytes.get(i + 1) == Some(&b'/') => {
-                while i < bytes.len() && bytes[i] != b'\n' {
-                    i += 1;
+            b'{' | b'[' | b'(' => {
+                if depth == 0 {
+                    has_non_string = true;
+                }
+                depth += 1;
+            }
+            b'}' | b']' | b')' => depth -= 1,
+            b',' => {}
+            _ if c.is_ascii_whitespace() => {}
+            _ => {
+                if depth == 0 {
+                    has_non_string = true;
                 }
             }
-            _ => {}
         }
         i += 1;
     }
@@ -281,7 +411,7 @@ fn extract_string_items(inner: &str) -> (Vec<String>, bool) {
 /// Top-level string locales from a `locales: [...]` array in `src`, plus a
 /// flag for non-string entries (objects, identifiers).
 fn parse_locales_array(src: &str) -> (Vec<String>, bool) {
-    match find_key_value(src, "locales") {
+    match find_key_value(src, "locales", Some(1)) {
         Some(arr_idx) if src.as_bytes().get(arr_idx) == Some(&b'[') => {
             match match_delim(src, arr_idx) {
                 Some(arr_end) => extract_string_items(&src[arr_idx + 1..arr_end]),
@@ -295,7 +425,7 @@ fn parse_locales_array(src: &str) -> (Vec<String>, bool) {
 
 /// The string value of `defaultLocale: '...'` in `src`, if literal.
 fn parse_default_locale(src: &str) -> Option<String> {
-    find_key_value(src, "defaultLocale").and_then(|idx| {
+    find_key_value(src, "defaultLocale", Some(1)).and_then(|idx| {
         let b = src.as_bytes();
         let q = *b.get(idx)?;
         if q != b'"' && q != b'\'' {
@@ -315,7 +445,7 @@ struct I18nBlock {
 }
 
 fn parse_i18n_block(content: &str) -> Option<I18nBlock> {
-    let val_idx = find_key_value(content, "i18n")?;
+    let val_idx = find_key_value(content, "i18n", Some(1))?;
     if content.as_bytes().get(val_idx) != Some(&b'{') {
         return None;
     }
@@ -350,6 +480,7 @@ fn build_i18n_snippet(locales: &[String], default_locale: &str) -> String {
 /// default x` shapes; returns None for anything else (HOC wrappers, computed
 /// configs) so callers can fail loudly instead of corrupting the file.
 fn find_exported_object_open(content: &str) -> Option<usize> {
+    let scan = scan_source(content);
     const ANCHORS: &[&str] = &[
         "export default defineConfig({",
         "module.exports = defineConfig({",
@@ -357,17 +488,17 @@ fn find_exported_object_open(content: &str) -> Option<usize> {
         "export default {",
     ];
     for anchor in ANCHORS {
-        if let Some(idx) = content.find(anchor) {
+        if let Some(idx) = find_in_code(content, &scan, anchor) {
             return Some(idx + anchor.len());
         }
     }
 
-    let ident = export_ident(content, "export default ")
-        .or_else(|| export_ident(content, "module.exports = "))?;
+    let ident = export_ident(content, &scan, "export default ")
+        .or_else(|| export_ident(content, &scan, "module.exports = "))?;
     let bytes = content.as_bytes();
     let decl_end = ["const ", "let ", "var "].iter().find_map(|kw| {
         let pat = format!("{kw}{ident}");
-        let idx = content.find(&pat)?;
+        let idx = find_in_code(content, &scan, &pat)?;
         let after = idx + pat.len();
         // Reject prefix matches on longer identifiers (nextConfigFoo).
         match bytes.get(after) {
@@ -394,8 +525,8 @@ fn find_exported_object_open(content: &str) -> Option<usize> {
 }
 
 /// Capture the identifier following `pat` (e.g. `export default nextConfig`).
-fn export_ident(content: &str, pat: &str) -> Option<String> {
-    let idx = content.find(pat)? + pat.len();
+fn export_ident(content: &str, scan: &SourceScan, pat: &str) -> Option<String> {
+    let idx = find_in_code(content, scan, pat)? + pat.len();
     let ident: String = content[idx..]
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
@@ -415,7 +546,7 @@ fn replace_locales_in(
     locales: &[String],
     default_locale: &str,
 ) -> Result<String, String> {
-    let loc_idx = find_key_value(src, "locales")
+    let loc_idx = find_key_value(src, "locales", Some(1))
         .filter(|i| src.as_bytes().get(*i) == Some(&b'['))
         .ok_or("The existing config has no `locales` array Ship Studio can update.")?;
     let loc_end = match_delim(src, loc_idx)
@@ -433,7 +564,7 @@ fn replace_locales_in(
         );
     }
 
-    let def_idx = find_key_value(src, "defaultLocale")
+    let def_idx = find_key_value(src, "defaultLocale", Some(1))
         .ok_or("The existing config has no `defaultLocale` Ship Studio can update.")?;
     let def_quote = *src
         .as_bytes()
@@ -469,7 +600,7 @@ fn apply_i18n_to_content(
     locales: &[String],
     default_locale: &str,
 ) -> Result<String, String> {
-    if let Some(val_idx) = find_key_value(content, "i18n") {
+    if let Some(val_idx) = find_key_value(content, "i18n", Some(1)) {
         if content.as_bytes().get(val_idx) != Some(&b'{') {
             return Err(
                 "An `i18n` key exists in the config but isn't a plain object Ship Studio can update."
@@ -687,7 +818,7 @@ pub(crate) fn astro_locale_prefixes(workspace: &Path) -> Vec<String> {
 /// Next.js i18n routing doesn't work with `output: 'export'` (static export
 /// bypasses the routing layer entirely).
 fn nextjs_uses_static_export(content: &str) -> bool {
-    find_key_value(content, "output").is_some_and(|idx| {
+    find_key_value(content, "output", Some(1)).is_some_and(|idx| {
         content[idx..].starts_with("'export'") || content[idx..].starts_with("\"export\"")
     })
 }
@@ -971,10 +1102,97 @@ module.exports = nextConfig;
 
     #[test]
     fn brace_matching_skips_strings_and_comments() {
-        let src = "i18n: { locales: ['a}b'], /* } */ defaultLocale: 'a}b', // }\n }";
+        let src = "{ i18n: { locales: ['a}b'], /* } */ defaultLocale: 'a}b', // }\n } }";
         let block = parse_i18n_block(src).expect("block found");
         assert_eq!(block.locales, vec!["a}b"]);
         assert_eq!(block.default_locale.as_deref(), Some("a}b"));
+    }
+
+    #[test]
+    fn nested_domain_keys_are_not_touched() {
+        // `domains` entries carry their own `defaultLocale`/`locales`; only
+        // the block-level (depth 1) keys may be read or written.
+        let src = r#"module.exports = {
+  i18n: {
+    domains: [{ domain: 'example.fr', defaultLocale: 'fr', locales: ['fr-CA'] }],
+    locales: ['en', 'fr'],
+    defaultLocale: 'en',
+  },
+};
+"#;
+        // Read side: the top-level default, not the domain's.
+        let block = parse_i18n_block(src).expect("block found");
+        assert_eq!(block.default_locale.as_deref(), Some("en"));
+        assert_eq!(block.locales, vec!["en", "fr"]);
+
+        // Write side: domain entries byte-for-byte intact, top-level updated.
+        let locales = vec!["en".to_string(), "de".to_string()];
+        let out = apply_i18n_to_content(src, &locales, "de").unwrap();
+        assert!(
+            out.contains("{ domain: 'example.fr', defaultLocale: 'fr', locales: ['fr-CA'] }"),
+            "domain entry must be untouched: {out}"
+        );
+        assert!(out.contains("locales: ['en', 'de']"));
+        assert!(out.contains("defaultLocale: 'de'"));
+    }
+
+    #[test]
+    fn block_commented_i18n_is_dead_config() {
+        let src = "module.exports = {\n  /*\n  i18n: {\n    locales: ['en'],\n    defaultLocale: 'en',\n  },\n  */\n  reactStrictMode: true,\n};\n";
+        assert!(
+            parse_i18n_block(src).is_none(),
+            "commented config is not live"
+        );
+        // Saving must insert a fresh live block, not edit inside the comment.
+        let locales = vec!["en".to_string(), "fr".to_string()];
+        let out = apply_i18n_to_content(src, &locales, "en").unwrap();
+        let block = parse_i18n_block(&out).expect("new live block");
+        assert_eq!(block.locales, vec!["en", "fr"]);
+        assert!(out.contains("/*"), "original comment preserved");
+    }
+
+    #[test]
+    fn url_in_string_does_not_hide_same_line_keys() {
+        // A `//` inside a string (e.g. an https URL) must not make the rest
+        // of the line invisible — that would insert a duplicate i18n block.
+        let src = "module.exports = { assetPrefix: 'https://cdn.example.com', i18n: { locales: ['en'], defaultLocale: 'en' } };\n";
+        let block = parse_i18n_block(src).expect("block found despite URL");
+        assert_eq!(block.locales, vec!["en"]);
+
+        let locales = vec!["en".to_string(), "fr".to_string()];
+        let out = apply_i18n_to_content(src, &locales, "en").unwrap();
+        assert_eq!(out.matches("i18n:").count(), 1, "no duplicate block: {out}");
+        assert!(out.contains("locales: ['en', 'fr']"));
+    }
+
+    #[test]
+    fn refuses_identifier_and_spread_locales() {
+        for arr in [
+            "locales: ['en', FRENCH_LOCALE]",
+            "locales: [...SHARED, 'fr']",
+        ] {
+            let src = format!("module.exports = {{ i18n: {{ {arr}, defaultLocale: 'en' }} }};\n");
+            let locales = vec!["en".to_string()];
+            assert!(
+                apply_i18n_to_content(&src, &locales, "en").is_err(),
+                "must refuse to rewrite: {arr}"
+            );
+        }
+    }
+
+    #[test]
+    fn comments_inside_locales_array_are_ignored() {
+        let (items, non_string) = extract_string_items("'en', /* 'fr', */ 'de' // 'es'");
+        assert_eq!(items, vec!["en", "de"]);
+        assert!(!non_string);
+    }
+
+    #[test]
+    fn insertion_anchor_ignores_comments() {
+        // The commented-out anchor must not win — and without a live anchor
+        // this wrapped config has no safe insertion point.
+        let src = "// module.exports = {\nmodule.exports = withPlugins({});\n";
+        assert!(find_exported_object_open(src).is_none());
     }
 
     #[test]

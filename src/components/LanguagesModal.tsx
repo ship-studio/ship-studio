@@ -264,7 +264,8 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
   const handleSaveAndTranslate = async () => {
     const updated = await saveConfig(true);
     if (!updated) return;
-    const targets = updated.locales.filter((l) => l !== updated.defaultLocale);
+    const updatedDefault = updated.defaultLocale ?? updated.locales[0] ?? null;
+    const targets = updated.locales.filter((l) => l !== updatedDefault);
     if (targets.length === 0) return;
     void trackEvent('i18n_translate_requested', {
       locale_count: updated.locales.length,
@@ -285,7 +286,8 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
       locale_count: status.locales.length,
       framework: status.framework,
     });
-    const targets = status.locales.filter((l) => l !== status.defaultLocale);
+    const statusDefault = status.defaultLocale ?? status.locales[0] ?? null;
+    const targets = status.locales.filter((l) => l !== statusDefault);
     setPromptReview({
       description: `This prompt asks your AI agent to translate your site into ${targets
         .map(localeDisplayName)
@@ -323,7 +325,10 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
 
   if (!isOpen) return null;
 
-  const translateTargets = status?.locales.filter((l) => l !== status.defaultLocale) ?? [];
+  // Match buildTranslatePrompt's fallback: with an unparseable defaultLocale,
+  // the first locale is treated as the default, not as a translation target.
+  const effectiveDefault = status ? (status.defaultLocale ?? status.locales[0] ?? null) : null;
+  const translateTargets = status?.locales.filter((l) => l !== effectiveDefault) ?? [];
   const draftTargets = draftLocales.filter((l) => l !== draftDefault);
   const showSetupFlow = !!status && !status.supported && status.agentSetupAvailable;
   // Removal needs honest messaging: Ship Studio never deletes files, and

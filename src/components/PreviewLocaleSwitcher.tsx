@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GlobeIcon } from './icons';
+import { useModal } from '../contexts/ModalContext';
 import { getI18nStatus, localeDisplayName, pathLocale, switchPathLocale } from '../lib/i18n';
 import { logger } from '../lib/logger';
 
@@ -72,6 +73,32 @@ export function PreviewLocaleSwitcher({
       cancelled = true;
     };
   }, [projectPath, applyStatus]);
+
+  // The Languages modal is where the config changes — refetch when it closes
+  // so the switcher appears right after languages are first enabled (when
+  // `config` is null there's no button to click, so open-click refresh alone
+  // can't recover).
+  const i18nModalOpen = useModal('i18n').isOpen;
+  const sawModalOpenRef = useRef(false);
+  useEffect(() => {
+    if (i18nModalOpen) {
+      sawModalOpenRef.current = true;
+      return;
+    }
+    if (!sawModalOpenRef.current) return;
+    sawModalOpenRef.current = false;
+    let cancelled = false;
+    getI18nStatus(projectPath)
+      .then((status) => {
+        if (!cancelled) applyStatus(status);
+      })
+      .catch((err) =>
+        logger.warn('[PreviewLocaleSwitcher] i18n status check failed', { error: String(err) })
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [i18nModalOpen, projectPath, applyStatus]);
 
   useEffect(() => {
     if (!open) return;
