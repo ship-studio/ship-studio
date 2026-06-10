@@ -22,6 +22,7 @@ import { MultiSourceControl } from './MultiSourceControl';
 import { UsageScope } from './UsageScope';
 import { CodeIcon } from './CodeIcon';
 import { SlackIcon } from '../icons/brand';
+import { PinIcon } from '../icons/layout';
 import { PropSection } from './PropSection';
 import { PropControlRenderer, type ControlRenderCtx } from './PropControlRenderer';
 import { CONTROL_SECTIONS } from '../../lib/editControls';
@@ -359,8 +360,9 @@ export function VisualEditorPanel({
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
 
   const onHeaderPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    // Don't start a drag from the close button.
-    if ((e.target as HTMLElement).closest('.ss-edit-panel__close')) return;
+    // Don't start a drag from the header buttons (pin/close) — pointer capture
+    // would swallow their click events.
+    if ((e.target as HTMLElement).closest('.ss-edit-panel__header-actions')) return;
     const r = rootRef.current?.getBoundingClientRect();
     if (!r) return;
     dragRef.current = { dx: e.clientX - r.left, dy: e.clientY - r.top };
@@ -426,20 +428,7 @@ export function VisualEditorPanel({
               title={pinned ? 'Unpin — float over the preview' : 'Pin as sidebar'}
               aria-pressed={pinned}
             >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 17v5" />
-                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z" />
-              </svg>
+              <PinIcon size={13} />
             </button>
           )}
           <button className="ss-edit-panel__close" onClick={onClose} aria-label="Exit edit mode">

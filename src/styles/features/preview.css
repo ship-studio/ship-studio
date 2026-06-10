@@ -234,21 +234,13 @@
   color: var(--text-muted);
 }
 
-.preview-refresh {
-  padding: 4px 8px;
-  font-size: 16px;
-  background: transparent;
-}
-
-.preview-refresh:hover {
-  background: var(--bg-tertiary);
-}
-
-/* Fullscreen toggle — sits right of the refresh button */
+/* Refresh + fullscreen — matched icon buttons (same icon pack, same height) */
+.preview-refresh,
 .preview-fullscreen-btn {
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 28px;
   padding: var(--spacing-xs) var(--spacing-sm);
   background: transparent;
   border: none;
@@ -260,6 +252,7 @@
     color var(--transition);
 }
 
+.preview-refresh:hover,
 .preview-fullscreen-btn:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
