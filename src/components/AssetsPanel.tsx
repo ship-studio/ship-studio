@@ -11,9 +11,11 @@
  * @module components/AssetsPanel
  */
 
+import { useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { formatFileSize, isImageFile, type Asset } from '../lib/assets';
 import { useAssetManagement } from '../hooks/useAssetManagement';
+import { useClickOutside } from '../hooks/useClickOutside';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { useModal } from '../contexts/ModalContext';
 import {
@@ -25,11 +27,15 @@ import {
   FolderIcon,
   FileIcon,
   ImageIcon,
+  ChevronIcon,
   ChevronRightIcon,
   FolderPlusIcon,
   CheckIcon,
   SearchIcon,
 } from './icons';
+
+/** Common asset folders offered in the root picker. */
+const ASSETS_ROOT_SUGGESTIONS = ['public', 'src/assets', 'assets', 'static'];
 
 // Grid and List icons for view toggle
 function GridIcon({ size = 14 }: { size?: number }) {
@@ -104,6 +110,8 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
     setSearchQuery,
     clearSearchQuery,
     deleteTarget,
+    assetsRoot,
+    changeAssetsRoot,
     fileInputRef,
     dropZoneRef,
     sortedAssets,
@@ -120,6 +128,30 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
     handleDragOver,
     handleDrop,
   } = useAssetManagement({ projectPath, isOpen, onToast });
+
+  // --- Assets root picker state ---
+  const [rootMenuOpen, setRootMenuOpen] = useState(false);
+  // null = not editing; string = custom folder input value
+  const [customRoot, setCustomRoot] = useState<string | null>(null);
+  const rootMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(
+    rootMenuRef,
+    () => {
+      setRootMenuOpen(false);
+      setCustomRoot(null);
+    },
+    rootMenuOpen
+  );
+
+  const selectRoot = (root: string) => {
+    setRootMenuOpen(false);
+    setCustomRoot(null);
+    if (root.trim() && root !== assetsRoot) void changeAssetsRoot(root);
+  };
+
+  const rootSuggestions = ASSETS_ROOT_SUGGESTIONS.includes(assetsRoot)
+    ? ASSETS_ROOT_SUGGESTIONS
+    : [assetsRoot, ...ASSETS_ROOT_SUGGESTIONS];
 
   // Render asset preview (thumbnail for images, icon for others)
   const renderAssetPreview = (asset: Asset) => {
@@ -220,15 +252,76 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
             )}
           </div>
 
-          {/* Breadcrumb navigation */}
+          {/* Breadcrumb navigation. The root crumb navigates home; the chevron
+              beside it re-points the panel at a different folder. */}
           {!searchQuery && (
             <div className="assets-breadcrumb">
-              {breadcrumbs.map((crumb, index) => (
+              <div className="assets-root-picker" ref={rootMenuRef}>
+                <button
+                  className={`assets-breadcrumb-btn ${breadcrumbs.length === 1 ? 'active' : ''}`}
+                  onClick={() => setCurrentPath('')}
+                >
+                  {assetsRoot}
+                </button>
+                <button
+                  className="assets-root-toggle"
+                  title="Change assets folder"
+                  onClick={() => setRootMenuOpen((o) => !o)}
+                >
+                  <ChevronIcon size={12} />
+                </button>
+                {rootMenuOpen && (
+                  <div className="assets-root-menu">
+                    {rootSuggestions.map((root) => (
+                      <button
+                        key={root}
+                        className={`assets-root-item ${root === assetsRoot ? 'active' : ''}`}
+                        onClick={() => selectRoot(root)}
+                      >
+                        <FolderIcon size={13} />
+                        <span>{root}</span>
+                        {root === assetsRoot && <CheckIcon size={12} />}
+                      </button>
+                    ))}
+                    {customRoot === null ? (
+                      <button className="assets-root-item" onClick={() => setCustomRoot('')}>
+                        <EditIcon size={13} />
+                        <span>Custom folder…</span>
+                      </button>
+                    ) : (
+                      <div className="assets-root-custom">
+                        <input
+                          type="text"
+                          value={customRoot}
+                          onChange={(e) => setCustomRoot(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') selectRoot(customRoot);
+                            if (e.key === 'Escape') setCustomRoot(null);
+                          }}
+                          placeholder="e.g. src/images"
+                          autoFocus
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                        />
+                        <button
+                          className="assets-new-folder-confirm"
+                          onClick={() => selectRoot(customRoot)}
+                        >
+                          <CheckIcon size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {breadcrumbs.slice(1).map((crumb, index) => (
                 <span key={crumb.path} className="assets-breadcrumb-item">
-                  {index > 0 && <ChevronRightIcon size={12} />}
+                  <ChevronRightIcon size={12} />
                   <button
                     className={`assets-breadcrumb-btn ${
-                      index === breadcrumbs.length - 1 ? 'active' : ''
+                      index === breadcrumbs.length - 2 ? 'active' : ''
                     }`}
                     onClick={() => setCurrentPath(crumb.path)}
                   >

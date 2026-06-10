@@ -14,6 +14,9 @@ import {
   deleteAsset,
   renameAsset,
   createAssetFolder,
+  getAssetsRoot,
+  setAssetsRoot,
+  DEFAULT_ASSETS_ROOT,
   type Asset,
 } from '../lib/assets';
 import { trackEvent, trackError, trackSearch } from '../lib/analytics';
@@ -49,6 +52,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [assetsRoot, setAssetsRootState] = useState(DEFAULT_ASSETS_ROOT);
 
   // --- Refs ---
   const deleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -76,8 +80,33 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       void loadAssets();
       setCurrentPath('');
       setSearchQuery('');
+      getAssetsRoot(projectPath)
+        .then(setAssetsRootState)
+        .catch((e) =>
+          logger.warn('Failed to load assets root', {
+            error: e instanceof Error ? e.message : String(e),
+          })
+        );
     }
-  }, [isOpen, loadAssets]);
+  }, [isOpen, loadAssets, projectPath]);
+
+  // Re-point the panel at a different folder (persisted per project).
+  const changeAssetsRoot = async (root: string) => {
+    try {
+      const saved = await setAssetsRoot(projectPath, root);
+      setAssetsRootState(saved);
+      setCurrentPath('');
+      setSearchQuery('');
+      await loadAssets();
+      void trackEvent('assets_root_changed', { $screen_name: 'Workspace' });
+      onToast?.(`Assets folder set to ${saved}`, 'success');
+    } catch (e) {
+      trackError('assets_root_change', e, 'Workspace');
+      const msg = e instanceof Error ? e.message : 'Failed to change assets folder';
+      setError(msg);
+      onToast?.(msg, 'error');
+    }
+  };
 
   // --- Computed values ---
 
@@ -110,7 +139,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
   // Breadcrumb navigation
   const pathParts = currentPath ? currentPath.split('/') : [];
   const breadcrumbs: Breadcrumb[] = [
-    { name: 'public', path: '' },
+    { name: assetsRoot, path: '' },
     ...pathParts.map((part, index) => ({
       name: part,
       path: pathParts.slice(0, index + 1).join('/'),
@@ -248,9 +277,12 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
     }
   };
 
-  // Handle copy path
+  // Handle copy path. Files under /public are served from the site root, so
+  // copy a web path; for any other root copy a project-relative path (useful
+  // for imports, e.g. src/assets/logo.png).
   const handleCopyPath = async (asset: Asset) => {
-    const webPath = `/${asset.path}`;
+    const webPath =
+      assetsRoot === DEFAULT_ASSETS_ROOT ? `/${asset.path}` : `${assetsRoot}/${asset.path}`;
     try {
       await navigator.clipboard.writeText(webPath);
       setCopiedPath(asset.path);
@@ -335,6 +367,8 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
     setSearchQuery: handleSearchChange,
     clearSearchQuery: () => setSearchQuery(''),
     deleteTarget,
+    assetsRoot,
+    changeAssetsRoot,
 
     // Refs
     fileInputRef,

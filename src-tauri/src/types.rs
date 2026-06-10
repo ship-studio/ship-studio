@@ -210,6 +210,11 @@ pub struct ProjectMetadata {
     /// operations stay at the repo root.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_subpath: Option<String>,
+    /// Folder (relative to the project workspace) the Assets panel manages.
+    /// `None` means the default `public`. Set to e.g. `src/assets` for Astro
+    /// projects that use the built-in image pipeline.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assets_root: Option<String>,
 }
 
 fn default_schema_version() -> u32 {
@@ -233,6 +238,7 @@ impl Default for ProjectMetadata {
             terminal_state: None,
             custom_thumbnail: None,
             workspace_subpath: None,
+            assets_root: None,
         }
     }
 }

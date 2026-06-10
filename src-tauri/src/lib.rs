@@ -575,6 +575,8 @@ pub fn run() {
             commands::code::list_project_files,
             commands::code::read_project_file,
             // Assets
+            commands::assets::get_assets_root,
+            commands::assets::set_assets_root,
             commands::assets::list_assets,
             commands::assets::upload_asset,
             commands::assets::delete_asset,

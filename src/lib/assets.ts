@@ -1,13 +1,34 @@
 /**
- * Asset management functions for the /public folder.
+ * Asset management functions for the project's assets folder.
  *
  * These functions wrap Tauri commands for managing files in a project's
- * public directory - listing, uploading, deleting, renaming assets.
+ * assets folder — listing, uploading, deleting, renaming assets. The folder
+ * defaults to `/public` but can be re-pointed per project (e.g. `src/assets`
+ * for Astro image pipelines) via get/setAssetsRoot.
  *
  * @module lib/assets
  */
 
 import { invoke } from '@tauri-apps/api/core';
+
+/** Folder the Assets panel manages when no per-project override is set. */
+export const DEFAULT_ASSETS_ROOT = 'public';
+
+/**
+ * Get the folder (relative to the project) the Assets panel manages.
+ * Returns "public" unless the project overrides it.
+ */
+export async function getAssetsRoot(projectPath: string): Promise<string> {
+  return invoke<string>('get_assets_root', { projectPath });
+}
+
+/**
+ * Point the Assets panel at a different folder (persisted per project).
+ * Creates the folder if it doesn't exist; returns the normalized root.
+ */
+export async function setAssetsRoot(projectPath: string, root: string): Promise<string> {
+  return invoke<string>('set_assets_root', { projectPath, root });
+}
 
 /**
  * Represents a file or folder in the /public directory
