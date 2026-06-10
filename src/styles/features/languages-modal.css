@@ -156,14 +156,7 @@
   font-size: 11px;
   color: var(--text-muted);
   cursor: pointer;
-  opacity: 0;
-  transition:
-    color var(--transition),
-    opacity var(--transition);
-}
-
-.languages-row:hover .languages-row-make-default {
-  opacity: 1;
+  transition: color var(--transition);
 }
 
 .languages-row-make-default:hover {
@@ -259,5 +252,12 @@
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.4;
-  max-width: 260px;
+  max-width: 240px;
+}
+
+.languages-footer-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
 }

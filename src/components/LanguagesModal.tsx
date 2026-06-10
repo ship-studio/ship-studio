@@ -166,7 +166,15 @@ export function LanguagesModal({
     setDraftLocales(draftLocales.filter((l) => l !== code));
   };
 
-  const handleSave = async () => {
+  const sendPrompt = (prompt: string, toast: string) => {
+    if (!onSendToClaude) return;
+    onSendToClaude(prompt);
+    showToast(toast, 'success');
+    onClose();
+  };
+
+  /** Write the config; returns the fresh status on success, null on failure. */
+  const saveConfig = async (showSuccessToast: boolean): Promise<I18nStatus | null> => {
     setIsSaving(true);
     setSaveError(null);
     setNeedsAiFallback(false);
@@ -175,23 +183,37 @@ export function LanguagesModal({
       setStatus(updated);
       resetDraft(updated);
       void trackEvent('i18n_config_saved', { locale_count: draftLocales.length });
-      showToast('Language settings saved', 'success');
+      if (showSuccessToast) showToast('Language settings saved', 'success');
+      return updated;
     } catch (err) {
       const cmdErr = asCommandError(err);
       setSaveError(formatCommandError(cmdErr));
       if (cmdErr.type === 'Validation' && cmdErr.field === 'config') {
         setNeedsAiFallback(true);
       }
+      return null;
     } finally {
       setIsSaving(false);
     }
   };
 
-  const sendPrompt = (prompt: string, toast: string) => {
-    if (!onSendToClaude) return;
-    onSendToClaude(prompt);
-    showToast(toast, 'success');
-    onClose();
+  const handleSaveOnly = () => void saveConfig(true);
+
+  /** The happy path: save the new languages, then hand translation to the agent. */
+  const handleSaveAndTranslate = async () => {
+    const updated = await saveConfig(false);
+    if (!updated) return;
+    const targets = updated.locales.filter((l) => l !== updated.defaultLocale);
+    if (targets.length === 0 || !onSendToClaude) return;
+    void trackEvent('i18n_translate_requested', {
+      locale_count: updated.locales.length,
+      framework: updated.framework,
+      via: 'save_and_translate',
+    });
+    sendPrompt(
+      buildTranslatePrompt(updated),
+      `Languages saved — ${agentDisplayName} is translating`
+    );
   };
 
   const handleAgentSetup = () => {
@@ -220,6 +242,7 @@ export function LanguagesModal({
   if (!isOpen) return null;
 
   const translateTargets = status?.locales.filter((l) => l !== status.defaultLocale) ?? [];
+  const draftTargets = draftLocales.filter((l) => l !== draftDefault);
   const showSetupFlow = !!status && !status.supported && status.agentSetupAvailable;
 
   const picker = (
@@ -316,27 +339,47 @@ export function LanguagesModal({
             </div>
           )}
 
-          <div className="languages-footer">
-            {status.configured && translateTargets.length > 0 && onSendToClaude ? (
-              <Button
-                variant="secondary"
-                onClick={handleTranslate}
-                disabled={isDirty}
-                title={isDirty ? 'Save your changes first' : undefined}
-              >
+          {/* Footer adapts to where the user is in the flow:
+              unsaved new languages → "Save & translate" is the happy path;
+              saved with translations pending possible → translate;
+              nothing actionable → no footer. */}
+          {isDirty && draftTargets.length > 0 && onSendToClaude && (
+            <div className="languages-footer">
+              <span className="languages-footer-note">
+                New languages start as a copy of {localeDisplayName(draftDefault)} until translated.
+              </span>
+              <div className="languages-footer-buttons">
+                <Button variant="ghost" onClick={handleSaveOnly} disabled={isSaving}>
+                  Save only
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => void handleSaveAndTranslate()}
+                  disabled={isSaving}
+                >
+                  {isSaving ? 'Saving…' : 'Save & translate with AI'}
+                </Button>
+              </div>
+            </div>
+          )}
+          {isDirty && !(draftTargets.length > 0 && onSendToClaude) && (
+            <div className="languages-footer">
+              <span />
+              <Button variant="primary" onClick={handleSaveOnly} disabled={isSaving}>
+                {isSaving ? 'Saving…' : status.configured ? 'Save changes' : 'Enable languages'}
+              </Button>
+            </div>
+          )}
+          {!isDirty && translateTargets.length > 0 && onSendToClaude && (
+            <div className="languages-footer">
+              <span className="languages-footer-note">
+                Languages are set up — run translation whenever you add or change content.
+              </span>
+              <Button variant="primary" onClick={handleTranslate}>
                 Translate with AI
               </Button>
-            ) : (
-              <span />
-            )}
-            <Button
-              variant="primary"
-              onClick={() => void handleSave()}
-              disabled={!isDirty || isSaving}
-            >
-              {isSaving ? 'Saving…' : status.configured ? 'Save changes' : 'Enable languages'}
-            </Button>
-          </div>
+            </div>
+          )}
         </div>
       )}
     </ModalFrame>

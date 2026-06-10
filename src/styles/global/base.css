@@ -475,6 +475,20 @@ button:hover {
   cursor: not-allowed;
 }
 
+/* Keep each variant's background when hovering a disabled button — the
+   global `button:hover` element rule above otherwise outranks the variant
+   class (its own hover rules are gated on :not(:disabled)). */
+.button--primary:hover {
+  background: var(--action);
+  border-color: var(--action);
+}
+
+.button--secondary:hover,
+.button--danger:hover,
+.button--ghost:hover {
+  background: transparent;
+}
+
 .button--primary {
   background: var(--action);
   color: var(--action-text);
