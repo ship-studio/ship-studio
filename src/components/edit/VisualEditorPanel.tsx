@@ -273,11 +273,12 @@ interface Props {
   onOpenInCode?: (file: string, line: number) => void;
   onCommit: () => void;
   onClose: () => void;
-  /** Docked as a full-height right sidebar instead of floating over the canvas. */
+  /** Docked as a right sidebar instead of floating over the canvas. */
   pinned?: boolean;
   onTogglePin?: () => void;
-  /** Top edge when pinned (bottom of the workspace header). */
+  /** Vertical bounds when pinned — matches the preview container. */
   pinnedTop?: number;
+  pinnedHeight?: number;
 }
 
 const PANEL_WIDTH = 264;
@@ -313,6 +314,7 @@ export function VisualEditorPanel({
   pinned = false,
   onTogglePin,
   pinnedTop = 0,
+  pinnedHeight = 0,
 }: Props) {
   const resolution = selection?.resolution ?? null;
   // Both 'resolved' (one spot) and 'multi' (several identical spots) are editable.
@@ -391,14 +393,14 @@ export function VisualEditorPanel({
       style={
         pinned
           ? {
-              // Docked: full-height sidebar at the window's right edge, below
-              // the workspace header. The preview reserves matching space via
-              // .preview-container--editor-pinned.
+              // Docked: sidebar at the window's right edge spanning exactly
+              // the preview container's height. The preview reserves matching
+              // space via .preview-container--editor-pinned.
               position: 'fixed',
               top: pinnedTop,
               right: 0,
-              bottom: 0,
               left: 'auto',
+              ...(pinnedHeight > 0 ? { height: pinnedHeight } : { bottom: 0 }),
               zIndex: 1000,
               maxHeight: 'none',
             }

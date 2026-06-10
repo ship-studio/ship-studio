@@ -51,7 +51,8 @@ import type { ProjectType } from '../lib/static-server';
 // SVG icons for breakpoints
 const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
   if (type === 'full') {
-    // Expand/maximize icon for full width
+    // Horizontal stretch-to-edges for full width — deliberately distinct from
+    // the diagonal expand arrows on the fullscreen toolbar button.
     return (
       <svg
         width="16"
@@ -60,11 +61,14 @@ const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       >
-        <polyline points="15 3 21 3 21 9" />
-        <polyline points="9 21 3 21 3 15" />
-        <line x1="21" y1="3" x2="14" y2="10" />
-        <line x1="3" y1="21" x2="10" y2="14" />
+        <line x1="3" y1="4" x2="3" y2="20" />
+        <line x1="21" y1="4" x2="21" y2="20" />
+        <line x1="7" y1="12" x2="17" y2="12" />
+        <polyline points="10 9 7 12 10 15" />
+        <polyline points="14 9 17 12 14 15" />
       </svg>
     );
   }
@@ -317,9 +321,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     return () => window.removeEventListener('keydown', handler);
   }, [isFullscreen]);
 
-  // Pin the visual editor as a full-height sidebar (instead of a floating
-  // panel over the canvas) — persisted across sessions. The preview makes
-  // room via a class on the container, in both normal and fullscreen modes.
+  // Pin the visual editor as a sidebar (instead of a floating panel over the
+  // canvas) — persisted in localStorage, so it's a cross-project setting.
+  // The preview makes room via a class on the container, in both normal and
+  // fullscreen modes.
   const [editorPinned, setEditorPinned] = useState(
     () => localStorage.getItem('visualEditorPinned') === '1'
   );
@@ -329,6 +334,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       return !p;
     });
   }, []);
+
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Inspect-panel vertical resize. Null = use the default 1fr split from CSS;
   // a number = explicit panel height in px (overrides via inline grid-template-rows).
@@ -503,6 +510,29 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onToast,
   });
 
+  // The pinned sidebar matches the preview container's vertical bounds — in
+  // normal mode the container sits below the workspace tab bar, in fullscreen
+  // it starts right under the header, and the inspect panel changes its
+  // height. Measured so the sidebar never overlaps surrounding chrome.
+  const [pinnedRect, setPinnedRect] = useState({ top: 0, height: 0 });
+  useEffect(() => {
+    if (!(editor.editMode && editorPinned)) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setPinnedRect({ top: Math.round(r.top), height: Math.round(r.height) });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [editor.editMode, editorPinned, isFullscreen]);
+
   const [iframeSize, setIframeSize] = useState<{ w: number; h: number } | null>(null);
   const iframeSizeObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -645,6 +675,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
   return (
     <div
+      ref={containerRef}
       className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}${
         editor.editMode && editorPinned ? ' preview-container--editor-pinned' : ''
       }`}
@@ -1013,7 +1044,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             onClose={editor.toggleEditMode}
             pinned={editorPinned}
             onTogglePin={toggleEditorPinned}
-            pinnedTop={chromeTop}
+            pinnedTop={pinnedRect.top}
+            pinnedHeight={pinnedRect.height}
           />,
           document.body
         )}
