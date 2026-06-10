@@ -27,6 +27,11 @@ export interface I18nStatus {
   configFile: string | null;
   /** Set when an i18n block exists but couldn't be fully parsed. */
   parseWarning: string | null;
+  /**
+   * True when the project isn't manageable yet but a guided AI setup flow
+   * exists (Next.js App Router without next-intl).
+   */
+  agentSetupAvailable: boolean;
 }
 
 interface RawI18nStatus {
@@ -38,6 +43,7 @@ interface RawI18nStatus {
   default_locale: string | null;
   config_file: string | null;
   parse_warning: string | null;
+  agent_setup_available: boolean;
 }
 
 function mapStatus(raw: RawI18nStatus): I18nStatus {
@@ -50,6 +56,7 @@ function mapStatus(raw: RawI18nStatus): I18nStatus {
     defaultLocale: raw.default_locale,
     configFile: raw.config_file,
     parseWarning: raw.parse_warning,
+    agentSetupAvailable: raw.agent_setup_available,
   };
 }
 
@@ -133,6 +140,22 @@ export function buildTranslatePrompt(status: I18nStatus): string {
   const targets = status.locales.filter((l) => l !== defaultLocale);
   const targetList = targets.map((l) => `${l} (${localeDisplayName(l)})`).join(', ');
 
+  if (status.framework === 'nextjs-app') {
+    return (
+      `This Next.js App Router project uses next-intl, configured in ${status.configFile ?? 'src/i18n/routing.ts'} ` +
+      `with locales [${status.locales.join(', ')}] and defaultLocale "${defaultLocale}".\n\n` +
+      `Please translate the site into: ${targetList}.\n\n` +
+      `The content lives in per-locale JSON dictionaries (messages/<locale>.json, or wherever ` +
+      `src/i18n/request.ts loads them from). For each target locale, translate every value in the ` +
+      `dictionary from the ${defaultLocale} version. Keep the JSON structure and all keys identical, ` +
+      `and preserve ICU syntax exactly ({placeholders}, plural/select forms, rich-text tags). ` +
+      `Don't translate brand names, code samples, or URLs. ` +
+      `If any user-facing text is still hardcoded in components instead of the dictionaries, extract it ` +
+      `into all locales' dictionaries first (useTranslations/getTranslations), then translate. ` +
+      `Ask me before adding any new dependencies.`
+    );
+  }
+
   if (status.framework === 'astro') {
     return (
       `This Astro project has built-in i18n routing configured in ${status.configFile ?? 'astro.config.mjs'} ` +
@@ -163,22 +186,130 @@ export function buildTranslatePrompt(status: I18nStatus): string {
 }
 
 /**
- * Fallback prompt when Ship Studio can't manage the config itself —
- * App Router projects, wrapped configs, or unparseable i18n blocks.
+ * Fallback prompt when a save fails because the existing config can't be
+ * edited safely (wrapped configs, unparseable i18n blocks / routing files).
  */
 export function buildAiSetupPrompt(status: I18nStatus): string {
-  if (status.framework === 'nextjs-app') {
-    return (
-      `This Next.js project uses the App Router, which has no built-in i18n routing. ` +
-      `Please set up internationalization for it: recommend a well-supported approach ` +
-      `(e.g. next-intl with a [locale] route segment and middleware), explain the trade-offs briefly, ` +
-      `and wait for my confirmation before installing anything or restructuring routes.`
-    );
-  }
+  const file =
+    status.configFile ??
+    (status.framework === 'astro' ? 'astro.config.mjs' : 'the framework config file');
   return (
-    `Please set up internationalized routing for this project by adding an i18n section ` +
-    `(locales array + defaultLocale) to the framework config file. ` +
+    `Please set up internationalized routing for this project by adding or fixing the i18n ` +
+    `configuration (a literal locales array + defaultLocale string) in ${file}. ` +
     `Ship Studio couldn't edit the config automatically, so review its current structure first ` +
     `and make the change in the appropriate place. Wait for my confirmation before installing anything.`
   );
+}
+
+/**
+ * The guided one-time App Router setup, executed by the embedded agent.
+ * Pins the exact next-intl layout (file paths, literal locales array,
+ * messages/<locale>.json) so the result lands in the shape Ship Studio's
+ * backend knows how to detect and manage afterwards.
+ */
+export function buildAppRouterSetupPrompt(locales: string[], defaultLocale: string): string {
+  const localeList = locales.map((l) => `${l} (${localeDisplayName(l)})`).join(', ');
+  const localesArray = locales.map((l) => `'${l}'`).join(', ');
+
+  return `Set up multilingual support (i18n) in this Next.js App Router project using next-intl.
+
+Languages: ${localeList}. Default: ${defaultLocale}.
+
+Complete ALL steps without stopping to ask — installing next-intl is approved. Important: Ship Studio reads and updates the files below, so keep the exact paths, the literal locales array in routing.ts, and the messages/<locale>.json layout.
+
+1. Install next-intl using this project's package manager (check the lockfile).
+
+2. Create the i18n config. Use src/i18n/ if the project has a src/ directory, otherwise i18n/ at the root, and adjust relative import paths to match.
+
+src/i18n/routing.ts:
+\`\`\`ts
+import {defineRouting} from 'next-intl/routing';
+
+export const routing = defineRouting({
+  locales: [${localesArray}],
+  defaultLocale: '${defaultLocale}'
+});
+\`\`\`
+
+src/i18n/request.ts:
+\`\`\`ts
+import {getRequestConfig} from 'next-intl/server';
+import {hasLocale} from 'next-intl';
+import {routing} from './routing';
+
+export default getRequestConfig(async ({requestLocale}) => {
+  const requested = await requestLocale;
+  const locale = hasLocale(routing.locales, requested)
+    ? requested
+    : routing.defaultLocale;
+
+  return {
+    locale,
+    messages: (await import(\`../../messages/\${locale}.json\`)).default
+  };
+});
+\`\`\`
+
+src/i18n/navigation.ts:
+\`\`\`ts
+import {createNavigation} from 'next-intl/navigation';
+import {routing} from './routing';
+
+export const {Link, redirect, usePathname, useRouter, getPathname} =
+  createNavigation(routing);
+\`\`\`
+
+3. Add the locale middleware. In Next.js 16+ this file is called proxy.ts; in earlier versions middleware.ts — check the installed Next version and name it accordingly (same directory level as the app/ directory's parent convention, i.e. src/ or root):
+\`\`\`ts
+import createMiddleware from 'next-intl/middleware';
+import {routing} from './i18n/routing';
+
+export default createMiddleware(routing);
+
+export const config = {
+  matcher: '/((?!api|trpc|_next|_vercel|.*\\\\..*).*)'
+};
+\`\`\`
+
+4. Wrap the Next.js config with the next-intl plugin (keep everything already in the config):
+\`\`\`ts
+import createNextIntlPlugin from 'next-intl/plugin';
+
+const withNextIntl = createNextIntlPlugin();
+export default withNextIntl(nextConfig);
+\`\`\`
+
+5. Move ALL page routes under a [locale] segment: app/page.tsx → app/[locale]/page.tsx, and so on for every route. Keep api routes, globals.css, favicon and other non-route files where they are. The locale layout (app/[locale]/layout.tsx) must validate the locale and wrap children in NextIntlClientProvider — merge this with whatever the existing root layout does (fonts, metadata, providers, analytics); don't drop anything:
+\`\`\`tsx
+import {NextIntlClientProvider, hasLocale} from 'next-intl';
+import {notFound} from 'next/navigation';
+import {setRequestLocale} from 'next-intl/server';
+import {routing} from '@/i18n/routing';
+
+export function generateStaticParams() {
+  return routing.locales.map((locale) => ({locale}));
+}
+
+export default async function LocaleLayout({children, params}) {
+  const {locale} = await params;
+  if (!hasLocale(routing.locales, locale)) {
+    notFound();
+  }
+  setRequestLocale(locale);
+
+  return (
+    <html lang={locale}>
+      <body>
+        <NextIntlClientProvider>{children}</NextIntlClientProvider>
+      </body>
+    </html>
+  );
+}
+\`\`\`
+
+6. Create messages/<locale>.json at the project root for every language (${locales.map((l) => `${l}.json`).join(', ')}). Extract the user-facing strings from the pages into messages/${defaultLocale}.json, namespaced per component (e.g. {"HomePage": {"title": "..."}}), and replace the hardcoded strings with useTranslations('HomePage') in client/shared components or getTranslations in async server components. For the other locales, copy ${defaultLocale}.json as-is for now — translation happens in a separate step later.
+
+7. Where internal navigation should be locale-aware, import Link/useRouter/usePathname/redirect from the new i18n/navigation file instead of next/link and next/navigation.
+
+8. Verify the project builds (or at minimum typechecks and the dev server renders) and fix any errors. Then give me a short summary of what changed.`;
 }

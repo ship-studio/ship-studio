@@ -22,6 +22,19 @@ const MAX_LOCALES: usize = 100;
 const NEXT_CONFIG_NAMES: &[&str] = &["next.config.js", "next.config.mjs", "next.config.ts"];
 const ASTRO_CONFIG_NAMES: &[&str] = &["astro.config.mjs", "astro.config.js", "astro.config.ts"];
 
+/// next-intl's routing config — the file Ship Studio manages for App Router
+/// projects. The setup prompt pins this location so detection stays reliable.
+const NEXT_INTL_ROUTING_CANDIDATES: &[&str] = &[
+    "src/i18n/routing.ts",
+    "src/i18n/routing.tsx",
+    "src/i18n/routing.js",
+    "i18n/routing.ts",
+    "i18n/routing.js",
+];
+
+/// Where next-intl message dictionaries conventionally live.
+const MESSAGES_DIR_CANDIDATES: &[&str] = &["messages", "src/messages", "locales", "src/locales"];
+
 #[derive(Serialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum I18nFramework {
@@ -47,6 +60,9 @@ pub struct I18nStatus {
     pub config_file: Option<String>,
     /// Set when an i18n block exists but couldn't be fully parsed.
     pub parse_warning: Option<String>,
+    /// True when the project isn't manageable yet but a guided AI setup flow
+    /// exists (Next.js App Router without next-intl).
+    pub agent_setup_available: bool,
 }
 
 // ============ Locale validation ============
@@ -262,6 +278,35 @@ fn extract_string_items(inner: &str) -> (Vec<String>, bool) {
     (items, has_non_string)
 }
 
+/// Top-level string locales from a `locales: [...]` array in `src`, plus a
+/// flag for non-string entries (objects, identifiers).
+fn parse_locales_array(src: &str) -> (Vec<String>, bool) {
+    match find_key_value(src, "locales") {
+        Some(arr_idx) if src.as_bytes().get(arr_idx) == Some(&b'[') => {
+            match match_delim(src, arr_idx) {
+                Some(arr_end) => extract_string_items(&src[arr_idx + 1..arr_end]),
+                None => (Vec::new(), true),
+            }
+        }
+        Some(_) => (Vec::new(), true),
+        None => (Vec::new(), false),
+    }
+}
+
+/// The string value of `defaultLocale: '...'` in `src`, if literal.
+fn parse_default_locale(src: &str) -> Option<String> {
+    find_key_value(src, "defaultLocale").and_then(|idx| {
+        let b = src.as_bytes();
+        let q = *b.get(idx)?;
+        if q != b'"' && q != b'\'' {
+            return None;
+        }
+        let rest = &src[idx + 1..];
+        let close = rest.find(q as char)?;
+        Some(rest[..close].to_string())
+    })
+}
+
 /// Parsed pieces of an existing `i18n: { ... }` block.
 struct I18nBlock {
     locales: Vec<String>,
@@ -276,33 +321,12 @@ fn parse_i18n_block(content: &str) -> Option<I18nBlock> {
     }
     let end = match_delim(content, val_idx)?;
     let block = &content[val_idx..=end];
-
-    let (locales, has_non_string_locales) = match find_key_value(block, "locales") {
-        Some(arr_idx) if block.as_bytes().get(arr_idx) == Some(&b'[') => {
-            match match_delim(block, arr_idx) {
-                Some(arr_end) => extract_string_items(&block[arr_idx + 1..arr_end]),
-                None => (Vec::new(), true),
-            }
-        }
-        Some(_) => (Vec::new(), true),
-        None => (Vec::new(), false),
-    };
-
-    let default_locale = find_key_value(block, "defaultLocale").and_then(|idx| {
-        let b = block.as_bytes();
-        let q = *b.get(idx)?;
-        if q != b'"' && q != b'\'' {
-            return None;
-        }
-        let rest = &block[idx + 1..];
-        let close = rest.find(q as char)?;
-        Some(rest[..close].to_string())
-    });
+    let (locales, has_non_string_locales) = parse_locales_array(block);
 
     Some(I18nBlock {
         locales,
         has_non_string_locales,
-        default_locale,
+        default_locale: parse_default_locale(block),
     })
 }
 
@@ -383,6 +407,45 @@ fn export_ident(content: &str, pat: &str) -> Option<String> {
     }
 }
 
+/// Surgically replace the `locales: [...]` array and `defaultLocale: '...'`
+/// value anywhere in `src`, leaving every other byte untouched. Works on an
+/// extracted `i18n` block (Next.js/Astro) or a whole next-intl routing file.
+fn replace_locales_in(
+    src: &str,
+    locales: &[String],
+    default_locale: &str,
+) -> Result<String, String> {
+    let loc_idx = find_key_value(src, "locales")
+        .filter(|i| src.as_bytes().get(*i) == Some(&b'['))
+        .ok_or("The existing config has no `locales` array Ship Studio can update.")?;
+    let loc_end = match_delim(src, loc_idx)
+        .ok_or("Couldn't parse the `locales` array (unbalanced brackets).")?;
+
+    let def_idx = find_key_value(src, "defaultLocale")
+        .ok_or("The existing config has no `defaultLocale` Ship Studio can update.")?;
+    let def_quote = *src
+        .as_bytes()
+        .get(def_idx)
+        .filter(|q| **q == b'"' || **q == b'\'')
+        .ok_or("`defaultLocale` isn't a plain string Ship Studio can update.")?;
+    let def_end = src[def_idx + 1..]
+        .find(def_quote as char)
+        .map(|i| i + def_idx + 1)
+        .ok_or("Couldn't parse the `defaultLocale` value.")?;
+
+    // Replace the later range first so the earlier offsets stay valid.
+    let mut replacements = [
+        (loc_idx, loc_end, build_locales_array(locales)),
+        (def_idx, def_end, format!("'{default_locale}'")),
+    ];
+    replacements.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut out = src.to_string();
+    for (start, end, rep) in replacements {
+        out.replace_range(start..=end, &rep);
+    }
+    Ok(out)
+}
+
 /// Apply the desired locales to a config file's content.
 ///
 /// If an `i18n` block exists, only the `locales` array and `defaultLocale`
@@ -404,35 +467,7 @@ fn apply_i18n_to_content(
         let block_end = match_delim(content, val_idx)
             .ok_or("Couldn't parse the existing i18n block (unbalanced braces).")?;
         let block = &content[val_idx..=block_end];
-
-        let loc_idx = find_key_value(block, "locales")
-            .filter(|i| block.as_bytes().get(*i) == Some(&b'['))
-            .ok_or("The existing i18n block has no `locales` array Ship Studio can update.")?;
-        let loc_end = match_delim(block, loc_idx)
-            .ok_or("Couldn't parse the `locales` array (unbalanced brackets).")?;
-
-        let def_idx = find_key_value(block, "defaultLocale")
-            .ok_or("The existing i18n block has no `defaultLocale` Ship Studio can update.")?;
-        let def_quote = *block
-            .as_bytes()
-            .get(def_idx)
-            .filter(|q| **q == b'"' || **q == b'\'')
-            .ok_or("`defaultLocale` isn't a plain string Ship Studio can update.")?;
-        let def_end = block[def_idx + 1..]
-            .find(def_quote as char)
-            .map(|i| i + def_idx + 1)
-            .ok_or("Couldn't parse the `defaultLocale` value.")?;
-
-        // Replace the later range first so the earlier offsets stay valid.
-        let mut replacements = [
-            (loc_idx, loc_end, build_locales_array(locales)),
-            (def_idx, def_end, format!("'{default_locale}'")),
-        ];
-        replacements.sort_by(|a, b| b.0.cmp(&a.0));
-        let mut new_block = block.to_string();
-        for (start, end, rep) in replacements {
-            new_block.replace_range(start..=end, &rep);
-        }
+        let new_block = replace_locales_in(block, locales, default_locale)?;
 
         let mut out = content.to_string();
         out.replace_range(val_idx..=block_end, &new_block);
@@ -475,6 +510,63 @@ fn default_config_content(
     }
 }
 
+// ============ next-intl (App Router) ============
+
+/// Locate the next-intl routing config, if the project has one.
+fn find_next_intl_routing(workspace: &Path) -> Option<&'static str> {
+    NEXT_INTL_ROUTING_CANDIDATES
+        .iter()
+        .find(|rel| workspace.join(rel).is_file())
+        .copied()
+}
+
+/// Locate the directory holding next-intl message dictionaries: the first
+/// conventional candidate that exists and contains a .json file.
+fn find_messages_dir(workspace: &Path) -> Option<PathBuf> {
+    MESSAGES_DIR_CANDIDATES
+        .iter()
+        .map(|rel| workspace.join(rel))
+        .find(|dir| {
+            std::fs::read_dir(dir).is_ok_and(|entries| {
+                entries
+                    .flatten()
+                    .any(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+            })
+        })
+}
+
+/// Make sure every locale has a message dictionary. New locales are seeded
+/// from the default locale's file (the site keeps working untranslated until
+/// the AI translation pass runs). Existing files are never touched.
+/// Returns a warning string when the messages directory can't be located.
+fn ensure_message_files(
+    workspace: &Path,
+    locales: &[String],
+    default_locale: &str,
+) -> Option<String> {
+    let Some(dir) = find_messages_dir(workspace) else {
+        return Some(
+            "Couldn't find the messages directory — create a <locale>.json file per language \
+             next to your existing message dictionaries."
+                .to_string(),
+        );
+    };
+    let seed = std::fs::read_to_string(dir.join(format!("{default_locale}.json")))
+        .unwrap_or_else(|_| "{}\n".to_string());
+    for locale in locales {
+        let path = dir.join(format!("{locale}.json"));
+        if !path.exists() {
+            if let Err(e) = std::fs::write(&path, &seed) {
+                return Some(format!(
+                    "Couldn't create {}: {e}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                ));
+            }
+        }
+    }
+    None
+}
+
 // ============ Detection & status ============
 
 fn detect_i18n_framework(workspace: &Path) -> I18nFramework {
@@ -514,7 +606,70 @@ fn unsupported_status(framework: I18nFramework, reason: &str) -> I18nStatus {
         default_locale: None,
         config_file: None,
         parse_warning: None,
+        agent_setup_available: false,
     }
+}
+
+/// Status for an App Router project: manageable when a next-intl routing
+/// config exists, otherwise a guided agent setup is offered.
+fn compute_app_router_status(workspace: &Path) -> I18nStatus {
+    let Some(routing_rel) = find_next_intl_routing(workspace) else {
+        let mut status = unsupported_status(
+            I18nFramework::NextjsApp,
+            "This Next.js project uses the App Router, which has no built-in i18n. \
+             Ship Studio can set it up with next-intl — the standard library for \
+             App Router projects.",
+        );
+        status.agent_setup_available = true;
+        return status;
+    };
+
+    let mut status = I18nStatus {
+        framework: I18nFramework::NextjsApp,
+        supported: true,
+        unsupported_reason: None,
+        configured: true,
+        locales: Vec::new(),
+        default_locale: None,
+        config_file: Some(routing_rel.to_string()),
+        parse_warning: None,
+        agent_setup_available: false,
+    };
+
+    let Ok(content) = std::fs::read_to_string(workspace.join(routing_rel)) else {
+        status.parse_warning = Some("Couldn't read the next-intl routing config.".to_string());
+        return status;
+    };
+    let (locales, has_non_string) = parse_locales_array(&content);
+    status.locales = locales;
+    status.default_locale = parse_default_locale(&content);
+    if has_non_string || status.locales.is_empty() {
+        status.parse_warning = Some(
+            "A next-intl config exists but Ship Studio couldn't read its locales.".to_string(),
+        );
+    }
+    status
+}
+
+/// Non-default locale URL prefixes configured for an Astro project. The page
+/// selector uses these to collapse per-language page duplicates (e.g. hide
+/// `/fr/about` when `/about` is the same page in the default language).
+pub(crate) fn astro_locale_prefixes(workspace: &Path) -> Vec<String> {
+    let Some(config_path) = find_config_file(workspace, ASTRO_CONFIG_NAMES) else {
+        return Vec::new();
+    };
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return Vec::new();
+    };
+    let Some(block) = parse_i18n_block(&content) else {
+        return Vec::new();
+    };
+    let default = block.default_locale.unwrap_or_default();
+    block
+        .locales
+        .into_iter()
+        .filter(|l| *l != default)
+        .collect()
 }
 
 /// Next.js i18n routing doesn't work with `output: 'export'` (static export
@@ -535,11 +690,7 @@ fn compute_status(workspace: &Path) -> I18nStatus {
             );
         }
         I18nFramework::NextjsApp => {
-            return unsupported_status(
-                framework,
-                "This Next.js project uses the App Router, which has no built-in i18n routing. \
-                 Ship Studio's multilingual setup currently supports the Pages Router and Astro.",
-            );
+            return compute_app_router_status(workspace);
         }
         I18nFramework::NextjsPages | I18nFramework::Astro => {}
     }
@@ -557,6 +708,7 @@ fn compute_status(workspace: &Path) -> I18nStatus {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().to_string()),
         parse_warning: None,
+        agent_setup_available: false,
     };
 
     let Some(config_path) = config_path else {
@@ -631,11 +783,45 @@ pub async fn set_i18n_config(
     let status = compute_status(&workspace);
     if !status.supported {
         return Err(CommandError::Validation {
-            field: "framework".to_string(),
+            field: if status.agent_setup_available {
+                // App Router without next-intl: the UI runs the guided agent
+                // setup instead of this command.
+                "setup".to_string()
+            } else {
+                "framework".to_string()
+            },
             reason: status
                 .unsupported_reason
                 .unwrap_or_else(|| "Unsupported project type".to_string()),
         });
+    }
+
+    // App Router: the managed file is next-intl's routing config, and each
+    // locale needs a message dictionary seeded from the default locale's.
+    if framework == I18nFramework::NextjsApp {
+        let routing_rel =
+            find_next_intl_routing(&workspace).ok_or_else(|| CommandError::Validation {
+                field: "setup".to_string(),
+                reason: "next-intl isn't set up yet — run the setup flow first.".to_string(),
+            })?;
+        let routing_path = workspace.join(routing_rel);
+        let content = std::fs::read_to_string(&routing_path)?;
+        let updated =
+            replace_locales_in(&content, &locales, &default_locale).map_err(|reason| {
+                CommandError::Validation {
+                    field: "config".to_string(),
+                    reason,
+                }
+            })?;
+        std::fs::write(&routing_path, updated)?;
+        let messages_warning = ensure_message_files(&workspace, &locales, &default_locale);
+        info!(config = routing_rel, "Updated next-intl routing config");
+
+        let mut status = compute_status(&workspace);
+        if status.parse_warning.is_none() {
+            status.parse_warning = messages_warning;
+        }
+        return Ok(status);
     }
 
     match find_config_file(&workspace, config_names_for(framework)) {
@@ -1025,6 +1211,118 @@ module.exports = nextConfig;
         assert!(!status.supported);
         assert_eq!(status.framework, I18nFramework::NextjsApp);
         assert!(status.unsupported_reason.unwrap().contains("App Router"));
+    }
+
+    // ---- next-intl (App Router) ----
+
+    const ROUTING_TS: &str = r#"import {defineRouting} from 'next-intl/routing';
+
+export const routing = defineRouting({
+  locales: ['en', 'de'],
+  defaultLocale: 'en'
+});
+"#;
+
+    #[test]
+    fn status_app_router_with_next_intl_is_managed() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            &tmp,
+            "package.json",
+            r#"{"dependencies":{"next":"15","next-intl":"4"}}"#,
+        );
+        std::fs::create_dir_all(tmp.path().join("app")).unwrap();
+        write(&tmp, "src/i18n/routing.ts", ROUTING_TS);
+        let status = compute_status(tmp.path());
+        assert_eq!(status.framework, I18nFramework::NextjsApp);
+        assert!(status.supported);
+        assert!(status.configured);
+        assert_eq!(status.locales, vec!["en", "de"]);
+        assert_eq!(status.default_locale.as_deref(), Some("en"));
+        assert_eq!(status.config_file.as_deref(), Some("src/i18n/routing.ts"));
+        assert!(!status.agent_setup_available);
+        assert!(status.parse_warning.is_none());
+    }
+
+    #[test]
+    fn status_app_router_without_next_intl_offers_setup() {
+        let tmp = TempDir::new().unwrap();
+        write(&tmp, "package.json", r#"{"dependencies":{"next":"15"}}"#);
+        std::fs::create_dir_all(tmp.path().join("app")).unwrap();
+        let status = compute_status(tmp.path());
+        assert_eq!(status.framework, I18nFramework::NextjsApp);
+        assert!(!status.supported);
+        assert!(status.agent_setup_available);
+        assert!(status.unsupported_reason.unwrap().contains("next-intl"));
+    }
+
+    #[test]
+    fn replace_locales_in_routing_file() {
+        let locales: Vec<String> = ["en", "fr", "ja"].iter().map(|s| s.to_string()).collect();
+        let out = replace_locales_in(ROUTING_TS, &locales, "fr").unwrap();
+        assert!(out.contains("locales: ['en', 'fr', 'ja']"));
+        assert!(out.contains("defaultLocale: 'fr'"));
+        assert!(out.contains("import {defineRouting} from 'next-intl/routing';"));
+        assert!(out.contains("export const routing = defineRouting({"));
+    }
+
+    #[test]
+    fn ensure_message_files_seeds_from_default() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            &tmp,
+            "messages/en.json",
+            "{\"HomePage\":{\"title\":\"Hi\"}}\n",
+        );
+        let locales: Vec<String> = ["en", "fr"].iter().map(|s| s.to_string()).collect();
+        let warning = ensure_message_files(tmp.path(), &locales, "en");
+        assert!(warning.is_none());
+        let fr = std::fs::read_to_string(tmp.path().join("messages/fr.json")).unwrap();
+        assert_eq!(fr, "{\"HomePage\":{\"title\":\"Hi\"}}\n");
+    }
+
+    #[test]
+    fn ensure_message_files_never_overwrites() {
+        let tmp = TempDir::new().unwrap();
+        write(&tmp, "messages/en.json", "{\"a\":\"1\"}\n");
+        write(&tmp, "messages/fr.json", "{\"a\":\"un\"}\n");
+        let locales: Vec<String> = ["en", "fr"].iter().map(|s| s.to_string()).collect();
+        assert!(ensure_message_files(tmp.path(), &locales, "en").is_none());
+        let fr = std::fs::read_to_string(tmp.path().join("messages/fr.json")).unwrap();
+        assert_eq!(fr, "{\"a\":\"un\"}\n", "existing dictionaries untouched");
+    }
+
+    #[test]
+    fn ensure_message_files_warns_without_messages_dir() {
+        let tmp = TempDir::new().unwrap();
+        let locales: Vec<String> = vec!["en".to_string()];
+        assert!(ensure_message_files(tmp.path(), &locales, "en").is_some());
+    }
+
+    // ---- astro locale prefixes (page selector support) ----
+
+    #[test]
+    fn astro_locale_prefixes_excludes_default() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            &tmp,
+            "astro.config.mjs",
+            "export default defineConfig({\n  i18n: {\n    locales: ['en', 'fr', 'de'],\n    defaultLocale: 'en',\n  },\n});\n",
+        );
+        assert_eq!(astro_locale_prefixes(tmp.path()), vec!["fr", "de"]);
+    }
+
+    #[test]
+    fn astro_locale_prefixes_empty_without_i18n() {
+        let tmp = TempDir::new().unwrap();
+        write(
+            &tmp,
+            "astro.config.mjs",
+            "export default defineConfig({});\n",
+        );
+        assert!(astro_locale_prefixes(tmp.path()).is_empty());
+        let empty = TempDir::new().unwrap();
+        assert!(astro_locale_prefixes(empty.path()).is_empty());
     }
 
     #[test]

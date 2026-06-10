@@ -343,6 +343,21 @@ pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandEr
             let pages_dir = project.join("src").join("pages");
             if pages_dir.exists() {
                 let mut pages = detection::scan_astro_pages(&pages_dir, &pages_dir)?;
+                // With Astro i18n, non-default locale folders mirror the
+                // default-language pages — hide the duplicates so the page
+                // selector lists each page once.
+                let locale_prefixes = crate::commands::i18n::astro_locale_prefixes(&project);
+                if !locale_prefixes.is_empty() {
+                    pages.retain(|p| {
+                        let first = p
+                            .route
+                            .trim_start_matches('/')
+                            .split('/')
+                            .next()
+                            .unwrap_or("");
+                        !locale_prefixes.iter().any(|l| l == first)
+                    });
+                }
                 detection::sort_pages(&mut pages);
                 return Ok(pages);
             }
@@ -385,10 +400,14 @@ pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandEr
                 }
                 let mut pages = detection::scan_nextjs_pages(&src_app_dir, &src_app_dir)?;
                 detection::sort_pages(&mut pages);
+                pages.dedup_by(|a, b| a.route == b.route);
                 return Ok(pages);
             }
             let mut pages = detection::scan_nextjs_pages(&app_dir, &app_dir)?;
             detection::sort_pages(&mut pages);
+            // Stripping the [locale] segment can alias routes (e.g. a stray
+            // app/page.tsx next to app/[locale]/page.tsx) — list each once.
+            pages.dedup_by(|a, b| a.route == b.route);
             Ok(pages)
         }
     }

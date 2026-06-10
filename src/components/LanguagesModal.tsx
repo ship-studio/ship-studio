@@ -1,10 +1,13 @@
 /**
- * LanguagesModal — multilingual (i18n) setup for Next.js (Pages Router) and
- * Astro projects.
+ * LanguagesModal — multilingual (i18n) setup for Next.js and Astro projects.
  *
- * Reads/writes the framework's built-in i18n config via the Rust i18n
- * commands. When the config can't be edited safely (App Router, wrapped
- * configs), falls back to handing a setup prompt to the embedded AI agent.
+ * Three states:
+ * - Managed (Next.js Pages Router, Astro, or App Router with next-intl):
+ *   pick languages, Ship Studio writes the config directly.
+ * - Guided setup (App Router without next-intl): pick languages, the
+ *   embedded agent runs a pinned one-time setup, after which the project
+ *   becomes managed.
+ * - Unsupported: clear explanation.
  *
  * @module components/LanguagesModal
  */
@@ -23,6 +26,7 @@ import {
   setI18nConfig,
   buildTranslatePrompt,
   buildAiSetupPrompt,
+  buildAppRouterSetupPrompt,
   localeDisplayName,
   LOCALE_CATALOG,
   type I18nStatus,
@@ -30,9 +34,77 @@ import {
 
 interface LanguagesModalProps {
   projectPath: string;
-  /** Hands a prompt to the embedded agent terminal (translate / AI fallback). */
+  /** Hands a prompt to the embedded agent terminal (setup / translate). */
   onSendToClaude?: (prompt: string) => void;
   agentDisplayName?: string;
+}
+
+/** Selected languages as rows: name, code, default badge / actions. */
+function LanguageRows({
+  locales,
+  defaultLocale,
+  onMakeDefault,
+  onRemove,
+}: {
+  locales: string[];
+  defaultLocale: string;
+  onMakeDefault: (code: string) => void;
+  onRemove: (code: string) => void;
+}) {
+  return (
+    <div className="languages-rows">
+      {locales.map((code) => (
+        <div key={code} className="languages-row">
+          <span className="languages-row-name">{localeDisplayName(code)}</span>
+          <span className="languages-row-code">{code}</span>
+          <span className="languages-row-actions">
+            {code === defaultLocale ? (
+              <span className="languages-row-badge">Default</span>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="languages-row-make-default"
+                  onClick={() => onMakeDefault(code)}
+                >
+                  Make default
+                </button>
+                <button
+                  type="button"
+                  className="languages-row-remove"
+                  onClick={() => onRemove(code)}
+                  aria-label={`Remove ${localeDisplayName(code)}`}
+                >
+                  <CloseIcon size={12} />
+                </button>
+              </>
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Remaining catalog languages as one-click "+ Language" pills. */
+function AddLanguagePills({
+  selected,
+  onAdd,
+}: {
+  selected: string[];
+  onAdd: (code: string) => void;
+}) {
+  const available = LOCALE_CATALOG.filter((l) => !selected.includes(l.code));
+  if (available.length === 0) return null;
+  return (
+    <div className="languages-pills">
+      {available.map((l) => (
+        <button key={l.code} type="button" className="languages-pill" onClick={() => onAdd(l.code)}>
+          <span className="languages-pill-plus">+</span> {l.name}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function LanguagesModal({
@@ -53,7 +125,6 @@ export function LanguagesModal({
 
   const [draftLocales, setDraftLocales] = useState<string[]>(['en']);
   const [draftDefault, setDraftDefault] = useState('en');
-  const [addSelection, setAddSelection] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   /** True when the save failed because the config can't be edited safely. */
@@ -71,7 +142,6 @@ export function LanguagesModal({
     if (!isOpen || !projectPath) return;
     setSaveError(null);
     setNeedsAiFallback(false);
-    setAddSelection('');
     void loadStatus().then((s) => resetDraft(s));
   }, [isOpen, projectPath, loadStatus, resetDraft]);
 
@@ -87,18 +157,11 @@ export function LanguagesModal({
     );
   }, [status, draftLocales, draftDefault]);
 
-  const availableToAdd = useMemo(
-    () => LOCALE_CATALOG.filter((l) => !draftLocales.includes(l.code)),
-    [draftLocales]
-  );
-
-  const handleAdd = () => {
-    if (!addSelection || draftLocales.includes(addSelection)) return;
-    setDraftLocales([...draftLocales, addSelection]);
-    setAddSelection('');
+  const addLocale = (code: string) => {
+    if (!draftLocales.includes(code)) setDraftLocales([...draftLocales, code]);
   };
 
-  const handleRemove = (code: string) => {
+  const removeLocale = (code: string) => {
     if (code === draftDefault) return;
     setDraftLocales(draftLocales.filter((l) => l !== code));
   };
@@ -131,6 +194,14 @@ export function LanguagesModal({
     onClose();
   };
 
+  const handleAgentSetup = () => {
+    void trackEvent('i18n_app_router_setup_started', { locale_count: draftLocales.length });
+    sendPrompt(
+      buildAppRouterSetupPrompt(draftLocales, draftDefault),
+      `Setup started — watch ${agentDisplayName} in the terminal`
+    );
+  };
+
   const handleTranslate = () => {
     if (!status) return;
     void trackEvent('i18n_translate_requested', {
@@ -149,6 +220,25 @@ export function LanguagesModal({
   if (!isOpen) return null;
 
   const translateTargets = status?.locales.filter((l) => l !== status.defaultLocale) ?? [];
+  const showSetupFlow = !!status && !status.supported && status.agentSetupAvailable;
+
+  const picker = (
+    <>
+      <div className="languages-section">
+        <div className="languages-section-label">Your languages</div>
+        <LanguageRows
+          locales={draftLocales}
+          defaultLocale={draftDefault}
+          onMakeDefault={setDraftDefault}
+          onRemove={removeLocale}
+        />
+      </div>
+      <div className="languages-section">
+        <div className="languages-section-label">Add a language</div>
+        <AddLanguagePills selected={draftLocales} onAdd={addLocale} />
+      </div>
+    </>
+  );
 
   return (
     <ModalFrame isOpen onClose={onClose} title="Languages" className="languages-modal">
@@ -163,88 +253,55 @@ export function LanguagesModal({
         <div className="languages-error">Couldn't check this project's language setup.</div>
       )}
 
-      {!isLoading && status && !status.supported && (
+      {/* Unsupported, no path forward */}
+      {!isLoading && status && !status.supported && !showSetupFlow && (
         <div className="languages-unsupported">
           <div className="languages-unsupported-icon">
             <GlobeIcon size={28} />
           </div>
           <p>{status.unsupportedReason}</p>
-          {status.framework === 'nextjs-app' && onSendToClaude && (
-            <Button variant="secondary" onClick={handleAiFallback}>
-              Ask {agentDisplayName} to set it up
-            </Button>
-          )}
         </div>
       )}
 
+      {/* App Router: guided one-time setup */}
+      {!isLoading && showSetupFlow && (
+        <div className="languages-editor">
+          <p className="languages-intro">
+            Your project uses the Next.js App Router. Ship Studio adds multilingual support with{' '}
+            <strong>next-intl</strong> — pick your languages and {agentDisplayName} does the
+            one-time setup:
+          </p>
+          <ol className="languages-steps">
+            <li>Install next-intl</li>
+            <li>Move your pages under a locale-aware route</li>
+            <li>Extract text into per-language dictionaries</li>
+            <li>Add routing so visitors get the right language</li>
+          </ol>
+
+          {picker}
+
+          <div className="languages-footer">
+            <span className="languages-footer-note">
+              Runs in your terminal — takes a few minutes. Reopen Languages when it's done.
+            </span>
+            <Button variant="primary" onClick={handleAgentSetup} disabled={!onSendToClaude}>
+              Set up with {agentDisplayName}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Managed: edit locales directly */}
       {!isLoading && status && status.supported && (
         <div className="languages-editor">
           {!status.configured && (
             <p className="languages-intro">
-              Make your site available in multiple languages. Pick the languages you want to support
-              — visitors get routed automatically (e.g. <code>/fr/about</code>).
+              Make your site available in multiple languages — visitors get routed automatically
+              (e.g. <code>/fr/about</code>).
             </p>
           )}
 
-          <div className="languages-field">
-            <label htmlFor="languages-default-select">Default language</label>
-            <select
-              id="languages-default-select"
-              value={draftDefault}
-              onChange={(e) => setDraftDefault(e.target.value)}
-            >
-              {draftLocales.map((code) => (
-                <option key={code} value={code}>
-                  {localeDisplayName(code)} ({code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="languages-field">
-            <label>Languages</label>
-            <div className="languages-chips">
-              {draftLocales.map((code) => (
-                <span
-                  key={code}
-                  className={`languages-chip${code === draftDefault ? ' languages-chip-default' : ''}`}
-                >
-                  {localeDisplayName(code)}
-                  <span className="languages-chip-code">{code}</span>
-                  {code === draftDefault ? (
-                    <span className="languages-chip-badge">default</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="languages-chip-remove"
-                      onClick={() => handleRemove(code)}
-                      aria-label={`Remove ${localeDisplayName(code)}`}
-                    >
-                      <CloseIcon size={10} />
-                    </button>
-                  )}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="languages-add-row">
-            <select
-              aria-label="Add a language"
-              value={addSelection}
-              onChange={(e) => setAddSelection(e.target.value)}
-            >
-              <option value="">Add a language…</option>
-              {availableToAdd.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.name} ({l.code})
-                </option>
-              ))}
-            </select>
-            <Button variant="secondary" size="sm" onClick={handleAdd} disabled={!addSelection}>
-              Add
-            </Button>
-          </div>
+          {picker}
 
           {status.parseWarning && <div className="languages-note">{status.parseWarning}</div>}
 
@@ -253,13 +310,25 @@ export function LanguagesModal({
               {saveError}
               {needsAiFallback && onSendToClaude && (
                 <Button variant="secondary" size="sm" onClick={handleAiFallback}>
-                  Ask {agentDisplayName} to set it up
+                  Ask {agentDisplayName} to fix it
                 </Button>
               )}
             </div>
           )}
 
-          <div className="languages-actions">
+          <div className="languages-footer">
+            {status.configured && translateTargets.length > 0 && onSendToClaude ? (
+              <Button
+                variant="secondary"
+                onClick={handleTranslate}
+                disabled={isDirty}
+                title={isDirty ? 'Save your changes first' : undefined}
+              >
+                Translate with AI
+              </Button>
+            ) : (
+              <span />
+            )}
             <Button
               variant="primary"
               onClick={() => void handleSave()}
@@ -268,24 +337,6 @@ export function LanguagesModal({
               {isSaving ? 'Saving…' : status.configured ? 'Save changes' : 'Enable languages'}
             </Button>
           </div>
-
-          {status.configured && translateTargets.length > 0 && onSendToClaude && (
-            <div className="languages-translate">
-              <div className="languages-translate-text">
-                <strong>Translate your pages</strong>
-                <span>
-                  Ask {agentDisplayName} to translate your site into{' '}
-                  {translateTargets.map((l) => localeDisplayName(l)).join(', ')}.
-                </span>
-              </div>
-              <Button variant="secondary" onClick={handleTranslate} disabled={isDirty}>
-                Translate with AI
-              </Button>
-            </div>
-          )}
-          {status.configured && translateTargets.length > 0 && isDirty && (
-            <div className="languages-note">Save your changes before translating.</div>
-          )}
         </div>
       )}
     </ModalFrame>

@@ -9,6 +9,7 @@ import {
   localeDisplayName,
   buildTranslatePrompt,
   buildAiSetupPrompt,
+  buildAppRouterSetupPrompt,
   type I18nStatus,
 } from './i18n';
 
@@ -22,6 +23,7 @@ function status(overrides: Partial<I18nStatus> = {}): I18nStatus {
     defaultLocale: 'en',
     configFile: 'next.config.js',
     parseWarning: null,
+    agentSetupAvailable: false,
     ...overrides,
   };
 }
@@ -74,9 +76,27 @@ describe('buildTranslatePrompt', () => {
     expect(prompt).toContain('ja (Japanese)');
   });
 
+  it('targets next-intl message dictionaries for the App Router', () => {
+    const prompt = buildTranslatePrompt(
+      status({
+        framework: 'nextjs-app',
+        configFile: 'src/i18n/routing.ts',
+        locales: ['en', 'es'],
+      })
+    );
+    expect(prompt).toContain('next-intl');
+    expect(prompt).toContain('src/i18n/routing.ts');
+    expect(prompt).toContain('messages/<locale>.json');
+    expect(prompt).toContain('ICU');
+    expect(prompt).toContain('es (Spanish)');
+  });
+
   it('asks before adding dependencies', () => {
     expect(buildTranslatePrompt(status())).toContain('before adding any new dependencies');
     expect(buildTranslatePrompt(status({ framework: 'astro' }))).toContain(
+      'before adding any new dependencies'
+    );
+    expect(buildTranslatePrompt(status({ framework: 'nextjs-app' }))).toContain(
       'before adding any new dependencies'
     );
   });
@@ -85,22 +105,51 @@ describe('buildTranslatePrompt', () => {
 // ============ buildAiSetupPrompt ============
 
 describe('buildAiSetupPrompt', () => {
-  it('suggests an App Router approach for nextjs-app', () => {
-    const prompt = buildAiSetupPrompt(
-      status({ framework: 'nextjs-app', supported: false, configured: false })
-    );
-    expect(prompt).toContain('App Router');
-    expect(prompt).toContain('next-intl');
-  });
-
-  it('asks for a manual config edit otherwise', () => {
+  it('asks for a manual config edit naming the file', () => {
     const prompt = buildAiSetupPrompt(status());
     expect(prompt).toContain('defaultLocale');
+    expect(prompt).toContain('next.config.js');
     expect(prompt).toContain("couldn't edit the config automatically");
   });
 
-  it('always defers installs to the user', () => {
-    expect(buildAiSetupPrompt(status({ framework: 'nextjs-app' }))).toContain('confirmation');
+  it('defers installs to the user', () => {
     expect(buildAiSetupPrompt(status())).toContain('confirmation');
+  });
+});
+
+// ============ buildAppRouterSetupPrompt ============
+
+describe('buildAppRouterSetupPrompt', () => {
+  const prompt = buildAppRouterSetupPrompt(['en', 'fr', 'ja'], 'en');
+
+  it('pins the chosen locales into routing.ts code', () => {
+    expect(prompt).toContain("locales: ['en', 'fr', 'ja']");
+    expect(prompt).toContain("defaultLocale: 'en'");
+    expect(prompt).toContain('src/i18n/routing.ts');
+  });
+
+  it('covers the full next-intl anatomy', () => {
+    expect(prompt).toContain('defineRouting');
+    expect(prompt).toContain('getRequestConfig');
+    expect(prompt).toContain('createNavigation');
+    expect(prompt).toContain('createMiddleware');
+    expect(prompt).toContain('createNextIntlPlugin');
+    expect(prompt).toContain('NextIntlClientProvider');
+    expect(prompt).toContain('generateStaticParams');
+  });
+
+  it('handles the Next.js 16 proxy.ts rename', () => {
+    expect(prompt).toContain('proxy.ts');
+    expect(prompt).toContain('middleware.ts');
+  });
+
+  it('creates a messages file per locale and ends with verification', () => {
+    expect(prompt).toContain('en.json, fr.json, ja.json');
+    expect(prompt).toContain('useTranslations');
+    expect(prompt).toContain('Verify the project builds');
+  });
+
+  it('pre-authorizes the install so the agent does not stall', () => {
+    expect(prompt).toContain('installing next-intl is approved');
   });
 });
