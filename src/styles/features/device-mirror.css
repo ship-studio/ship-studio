@@ -66,6 +66,8 @@
   min-height: 0;
   padding: var(--spacing-md);
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* The streamed simulator framebuffer. Constrain to the stage, preserve aspect,

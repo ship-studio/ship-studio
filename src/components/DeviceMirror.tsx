@@ -614,7 +614,14 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
             <ResetIcon size={14} /> Restart
           </Button>
         </div>
-        <div className="device-mirror-stage">
+        <div
+          className="device-mirror-stage"
+          // A double-click would start a native text/image selection that
+          // floods the pane blue — clicks here are touches, never selections.
+          onMouseDown={(e) => {
+            if (e.detail > 1) e.preventDefault();
+          }}
+        >
           {activePlatform === 'android' ? (
             // Key by attempt so a heal/Restart remounts the decoder even when the
             // backend hands back the same bridge port (wsUrl alone wouldn't change).

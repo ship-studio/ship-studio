@@ -80,13 +80,13 @@ export const TEMPLATES: Template[] = [
   {
     id: 'expo-mobile',
     name: 'Expo',
-    description: 'An iOS & Android app powered by Expo — the easiest mobile path',
+    description: 'An iOS & Android app — the easiest mobile path',
     repo: 'https://github.com/ship-studio/expo-starter',
   },
   {
     id: 'react-native-mobile',
     name: 'React Native',
-    description: 'An iOS & Android app with bare React Native — full native control',
+    description: 'An iOS & Android app with full native control',
     repo: 'https://github.com/ship-studio/react-native-starter',
   },
   {
