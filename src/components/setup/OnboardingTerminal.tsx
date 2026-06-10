@@ -271,7 +271,11 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
           if (event.key === 'c' && event.ctrlKey && !event.shiftKey && !event.altKey) {
             const selection = term.getSelection();
             if (selection) {
-              void navigator.clipboard.writeText(selection);
+              navigator.clipboard.writeText(selection).catch((err: unknown) => {
+                logger.warn('[OnboardingTerminal] Failed to copy selection to clipboard', {
+                  error: String(err),
+                });
+              });
               term.clearSelection();
               return false; // Prevent sending to PTY
             }

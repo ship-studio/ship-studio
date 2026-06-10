@@ -176,53 +176,11 @@
   }
 }
 
-/* Screenshot Preview Modal */
-.screenshot-preview-overlay {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40px;
-}
-
+/* Screenshot Preview Modal — rendered via ModalFrame; the modal should size
+   to the image, so undo .modal-frame-content's fixed 480px width. */
 .screenshot-preview-modal {
-  display: flex;
-  flex-direction: column;
-  max-width: 90vw;
-  max-height: 90vh;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  width: auto;
   overflow: hidden;
-  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
-}
-
-.screenshot-preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-tertiary);
-}
-
-.screenshot-preview-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.screenshot-preview-close {
-  padding: 4px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-
-.screenshot-preview-close:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
 }
 
 .screenshot-preview-content {

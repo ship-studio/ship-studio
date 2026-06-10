@@ -204,9 +204,13 @@
   animation: spin 0.8s linear infinite;
 }
 
-/* Client Editor Modal */
+/* Client Editor Modal — rendered via ModalFrame, so it restores the legacy
+   .modal sizing/padding that .modal-frame-content doesn't provide. */
 .client-editor-modal {
+  display: block;
+  width: 90%;
   max-width: 420px;
+  padding: var(--spacing-xl);
   animation: plugin-suggestion-in 0.25s ease-out;
 }
 
@@ -224,7 +228,14 @@
 }
 
 .client-editor-modal h3 {
+  font-size: 18px;
+  margin-bottom: var(--spacing-md);
   text-align: center;
+}
+
+.client-editor-modal p {
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
 }
 
 .client-editor-modal > p {

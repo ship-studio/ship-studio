@@ -103,7 +103,7 @@ pub async fn set_always_on_top(window: Window, enabled: bool) -> Result<(), Comm
 #[tauri::command]
 #[tracing::instrument]
 pub async fn save_compact_position(x: i32, y: i32) -> Result<(), CommandError> {
-    save_compact_position_internal(x, y).map_err(CommandError::from)
+    save_compact_position_internal(x, y)
 }
 
 /// Internal helper to save position (used by both command and exit_compact_mode)

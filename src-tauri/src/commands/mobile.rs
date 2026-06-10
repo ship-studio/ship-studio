@@ -513,11 +513,11 @@ async fn ensure_emulator(preferred: Option<String>) -> Result<(AndroidDevice, bo
     // while one is running — `expo run:android` / `react-native run-android`
     // target "the" device and would be ambiguous with two attached.
     let running = list_android_devices().await?;
-    if !running.is_empty() {
-        let dev = preferred
-            .as_deref()
-            .and_then(|p| running.iter().find(|d| d.serial == p).cloned())
-            .unwrap_or_else(|| running.into_iter().next().expect("non-empty"));
+    let already_up = preferred
+        .as_deref()
+        .and_then(|p| running.iter().find(|d| d.serial == p).cloned())
+        .or_else(|| running.into_iter().next());
+    if let Some(dev) = already_up {
         return Ok((dev, false));
     }
 
@@ -1550,7 +1550,7 @@ async fn handle_bridge_client(
             } = sess;
             *current_scid.lock().unwrap_or_else(|e| e.into_inner()) = Some(scid);
             if sink
-                .send(Message::Text(bridge_hello("scrcpy").into()))
+                .send(Message::Text(bridge_hello("scrcpy")))
                 .await
                 .is_ok()
             {
@@ -1568,11 +1568,7 @@ async fn handle_bridge_client(
         }
         None => {
             tracing::info!(%serial, "scrcpy unavailable — using screenrecord mirror");
-            if sink
-                .send(Message::Text(bridge_hello("adb").into()))
-                .await
-                .is_err()
-            {
+            if sink.send(Message::Text(bridge_hello("adb"))).await.is_err() {
                 return;
             }
             tokio::select! {

@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { CameraIcon, CloseIcon } from './icons';
+import { ModalFrame } from './primitives/ModalFrame';
 import { logger } from '../lib/logger';
 
 /** Duration to show the toast before auto-dismiss (ms) */
@@ -121,37 +122,23 @@ export function ScreenshotPreviewModal({ filePath, onClose }: ScreenshotPreviewM
       );
   }, [filePath]);
 
-  // Close on escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
   return (
-    <div className="modal-overlay screenshot-preview-overlay" onClick={onClose}>
-      <div className="screenshot-preview-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="screenshot-preview-header">
-          <span className="screenshot-preview-title">Screenshot Preview</span>
-          <button className="screenshot-preview-close" onClick={onClose}>
-            <CloseIcon size={20} />
-          </button>
-        </div>
-        <div className="screenshot-preview-content">
-          {imageSrc ? (
-            <img src={imageSrc} alt="Full screenshot" />
-          ) : (
-            <div className="screenshot-modal-loading">Loading...</div>
-          )}
-        </div>
-        <div className="screenshot-preview-footer">
-          <span className="screenshot-preview-path">{filePath.split('/').pop()}</span>
-        </div>
+    <ModalFrame
+      isOpen
+      onClose={onClose}
+      title="Screenshot Preview"
+      className="screenshot-preview-modal"
+    >
+      <div className="screenshot-preview-content">
+        {imageSrc ? (
+          <img src={imageSrc} alt="Full screenshot" />
+        ) : (
+          <div className="screenshot-modal-loading">Loading...</div>
+        )}
       </div>
-    </div>
+      <div className="screenshot-preview-footer">
+        <span className="screenshot-preview-path">{filePath.split('/').pop()}</span>
+      </div>
+    </ModalFrame>
   );
 }

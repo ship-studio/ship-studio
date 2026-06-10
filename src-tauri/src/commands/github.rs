@@ -364,7 +364,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     }
 
     // Ensure git identity is configured (required for commits)
-    ensure_git_identity(&validated_path).map_err(CommandError::from)?;
+    ensure_git_identity(&validated_path)?;
 
     // Stage and commit any files
     let _ = git_stage_and_commit(

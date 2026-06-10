@@ -23,6 +23,7 @@ use crate::utils::{create_command, get_extended_path};
 /// pruned it), resume exits code 1 and we fall back to a fresh session.
 /// The fallback works but wastes ~1s and produces noisy logs.
 #[tauri::command]
+#[tracing::instrument(skip(project_path, session_id), fields(project = %project_path, session_id = %session_id))]
 pub fn claude_session_exists(project_path: String, session_id: String) -> bool {
     let Some(home) = dirs::home_dir() else {
         return false;

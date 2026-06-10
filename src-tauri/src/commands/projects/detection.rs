@@ -362,9 +362,9 @@ pub(crate) fn scan_nextjs_pages(
                         if let std::path::Component::Normal(s) = c {
                             let segment = s.to_string_lossy();
                             // Skip route groups: directories starting with '(' and ending with ')'
-                            if segment.starts_with('(') && segment.ends_with(')') {
-                                None
-                            } else if segment == "[locale]" {
+                            if (segment.starts_with('(') && segment.ends_with(')'))
+                                || segment == "[locale]"
+                            {
                                 None
                             } else {
                                 Some(segment.to_string())

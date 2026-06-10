@@ -330,6 +330,7 @@ pub async fn get_project_folder(project_path: String) -> Result<Option<String>, 
 
 /// Get all project paths that are in folders (used to filter unfiled projects)
 #[tauri::command]
+#[tracing::instrument]
 pub async fn get_filed_project_paths() -> Result<Vec<String>, CommandError> {
     let config = load_folder_config()?;
 
@@ -343,6 +344,7 @@ pub async fn get_filed_project_paths() -> Result<Vec<String>, CommandError> {
 
 /// Get projects in a specific folder
 #[tauri::command]
+#[tracing::instrument(skip(folder_id), fields(folder_id = %folder_id))]
 pub async fn get_folder_projects(folder_id: String) -> Result<Vec<String>, CommandError> {
     let config = load_folder_config()?;
 
@@ -357,6 +359,7 @@ pub async fn get_folder_projects(folder_id: String) -> Result<Vec<String>, Comma
 
 /// Get folder details by ID
 #[tauri::command]
+#[tracing::instrument(skip(folder_id), fields(folder_id = %folder_id))]
 pub async fn get_folder(folder_id: String) -> Result<Option<Folder>, CommandError> {
     let config = load_folder_config()?;
 
