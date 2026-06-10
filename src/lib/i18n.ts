@@ -501,6 +501,33 @@ export function buildAiSetupPrompt(status: I18nStatus): string {
 }
 
 /**
+ * Optional cleanup after removing languages: Ship Studio only edits the
+ * config (never deletes files), so translated content lingers — and Astro
+ * keeps serving locale folders that still exist. This prompt asks the agent
+ * to remove the leftovers.
+ */
+export function buildRemovalCleanupPrompt(status: I18nStatus, removed: string[]): string {
+  const removedList = removed.map((l) => `${l} (${localeDisplayName(l)})`).join(', ');
+  const kept = status.locales.join(', ');
+  const frameworkFiles =
+    status.framework === 'astro'
+      ? `Delete the src/pages/<locale>/ folder for each removed locale — Astro keeps serving those pages as plain routes while the folders exist. Also delete any per-locale dictionaries for them.`
+      : status.framework === 'nextjs-app'
+        ? `Delete messages/<locale>.json for each removed locale (wherever the request config loads dictionaries from).`
+        : `Delete the per-locale dictionary files for each removed locale (e.g. locales/<locale>.json), if the project has them.`;
+
+  return (
+    `I removed these languages from this project's i18n config: ${removedList}. ` +
+    `The remaining locales are [${kept}].\n\n` +
+    `Please clean up the leftover files for the removed languages so stale content isn't served or shipped. ` +
+    `${frameworkFiles} ` +
+    `Also update anything that still references the removed locales (language switchers, hreflang tags, generateStaticParams, sitemap entries). ` +
+    `List every file you're going to delete BEFORE deleting it, only touch files for the removed locales, ` +
+    `and verify the project still builds afterwards.`
+  );
+}
+
+/**
  * The guided one-time App Router setup, executed by the embedded agent.
  * Pins the exact next-intl layout (file paths, literal locales array,
  * messages/<locale>.json) so the result lands in the shape Ship Studio's

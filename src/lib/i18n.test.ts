@@ -13,6 +13,7 @@ import {
   buildTranslatePrompt,
   buildAiSetupPrompt,
   buildAppRouterSetupPrompt,
+  buildRemovalCleanupPrompt,
   type I18nStatus,
 } from './i18n';
 
@@ -193,6 +194,33 @@ describe('buildAiSetupPrompt', () => {
 
   it('defers installs to the user', () => {
     expect(buildAiSetupPrompt(status())).toContain('confirmation');
+  });
+});
+
+// ============ buildRemovalCleanupPrompt ============
+
+describe('buildRemovalCleanupPrompt', () => {
+  it('names the removed and kept locales', () => {
+    const prompt = buildRemovalCleanupPrompt(status({ locales: ['en', 'fr'] }), ['ru']);
+    expect(prompt).toContain('ru (Russian)');
+    expect(prompt).toContain('[en, fr]');
+  });
+
+  it('warns that Astro keeps serving locale folders', () => {
+    const prompt = buildRemovalCleanupPrompt(status({ framework: 'astro' }), ['ru']);
+    expect(prompt).toContain('src/pages/<locale>/');
+    expect(prompt).toContain('keeps serving');
+  });
+
+  it('targets message dictionaries for the App Router', () => {
+    const prompt = buildRemovalCleanupPrompt(status({ framework: 'nextjs-app' }), ['ru']);
+    expect(prompt).toContain('messages/<locale>.json');
+  });
+
+  it('requires listing deletions first and a build check', () => {
+    const prompt = buildRemovalCleanupPrompt(status(), ['ru']);
+    expect(prompt).toContain('BEFORE deleting');
+    expect(prompt).toContain('still builds');
   });
 });
 

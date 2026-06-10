@@ -32,6 +32,7 @@ import {
   buildTranslatePrompt,
   buildAiSetupPrompt,
   buildAppRouterSetupPrompt,
+  buildRemovalCleanupPrompt,
   localeDisplayName,
   searchLocales,
   type I18nStatus,
@@ -202,6 +203,13 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
     );
   }, [status, draftLocales, draftDefault]);
 
+  /** Languages the draft removes relative to the saved config. */
+  const removedLocales = useMemo(
+    () =>
+      status && status.configured ? status.locales.filter((l) => !draftLocales.includes(l)) : [],
+    [status, draftLocales]
+  );
+
   const addLocale = (code: string) => {
     if (!draftLocales.includes(code)) setDraftLocales([...draftLocales, code]);
   };
@@ -235,7 +243,22 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
     }
   };
 
-  const handleSaveOnly = () => void saveConfig(true);
+  const handleSaveOnly = async () => {
+    const removed = removedLocales;
+    const updated = await saveConfig(true);
+    if (!updated || removed.length === 0) return;
+    // Ship Studio never deletes files, so removed languages leave translated
+    // content behind (which Astro keeps serving). Offer an optional cleanup.
+    void trackEvent('i18n_removal_cleanup_offered', { removed_count: removed.length });
+    setPromptReview({
+      description: `${removed.map(localeDisplayName).join(', ')} removed from the config. The translated files stay in your project${
+        updated.framework === 'astro'
+          ? ' — and Astro keeps serving those pages until the locale folders are deleted'
+          : ''
+      }. This optional prompt asks your AI agent to clean them up; press Back to skip.`,
+      prompt: buildRemovalCleanupPrompt(updated, removed),
+    });
+  };
 
   /** The happy path: save the new languages, then review the translate prompt. */
   const handleSaveAndTranslate = async () => {
@@ -303,6 +326,16 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
   const translateTargets = status?.locales.filter((l) => l !== status.defaultLocale) ?? [];
   const draftTargets = draftLocales.filter((l) => l !== draftDefault);
   const showSetupFlow = !!status && !status.supported && status.agentSetupAvailable;
+  // Removal needs honest messaging: Ship Studio never deletes files, and
+  // Astro keeps serving locale folders that still exist on disk.
+  const removalNote =
+    removedLocales.length > 0
+      ? `Removing ${removedLocales.map(localeDisplayName).join(', ')}: ${
+          status?.framework === 'astro'
+            ? 'their pages keep serving until the files are removed (cleanup offered after saving).'
+            : 'those pages stop being served; translated files stay in your project.'
+        }`
+      : null;
 
   const picker = (
     <>
@@ -428,10 +461,11 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
           {isDirty && draftTargets.length > 0 && (
             <div className="languages-footer">
               <span className="languages-footer-note">
-                New languages start as a copy of {localeDisplayName(draftDefault)} until translated.
+                {removalNote ??
+                  `New languages start as a copy of ${localeDisplayName(draftDefault)} until translated.`}
               </span>
               <div className="languages-footer-buttons">
-                <Button variant="ghost" onClick={handleSaveOnly} disabled={isSaving}>
+                <Button variant="ghost" onClick={() => void handleSaveOnly()} disabled={isSaving}>
                   Save only
                 </Button>
                 <Button
@@ -446,8 +480,12 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
           )}
           {isDirty && draftTargets.length === 0 && (
             <div className="languages-footer">
-              <span />
-              <Button variant="primary" onClick={handleSaveOnly} disabled={isSaving}>
+              {removalNote ? (
+                <span className="languages-footer-note">{removalNote}</span>
+              ) : (
+                <span />
+              )}
+              <Button variant="primary" onClick={() => void handleSaveOnly()} disabled={isSaving}>
                 {isSaving ? 'Saving…' : status.configured ? 'Save changes' : 'Enable languages'}
               </Button>
             </div>
