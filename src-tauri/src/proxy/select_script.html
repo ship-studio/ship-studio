@@ -275,7 +275,22 @@ function updateFmtBar(){
 }
 function onDbl(e){if(!active||txtEditing)return;var el=textTarget(e.target);if(!el||!txtEditable)return;e.preventDefault();e.stopPropagation();startText(el,e.clientX,e.clientY);}
 function onMove(e){if(!active||txtEditing)return;ensureHover();var t=pickTarget(e.target);if(t&&selectedSet.indexOf(t)!==-1)t=null;place(hoverBox,t);}
-function onClick(e){if(!active||txtEditing)return;var el=pickTarget(e.target);if(!el)return;e.preventDefault();e.stopPropagation();restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el)},'*');}
+function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:treeIdFor(el)},'*');}
+function onClick(e){if(!active||txtEditing)return;var el=pickTarget(e.target);if(!el)return;e.preventDefault();e.stopPropagation();selectEl(el);}
+/* ===== Element tree (read-only navigator) =====
+   The parent requests a lightweight DOM snapshot; nodes get ephemeral ids so
+   the parent can select/hover them. nodeById is rebuilt on every snapshot so
+   stale elements from previous renders don't accumulate. */
+var treeIds=new WeakMap(),treeById={},treeNextId=1,treeOn=false,treeObserver=null,treeTimer=null;
+var TREE_MAX_NODES=4000,TREE_MAX_DEPTH=60;
+function treeIdFor(el){var id=treeIds.get(el);if(!id){id=treeNextId++;treeIds.set(el,id);}treeById[id]=el;return id;}
+function treeSkip(el){if(el.nodeType!==1)return true;var t=el.tagName;if(t==='SCRIPT'||t==='STYLE'||t==='NOSCRIPT'||t==='TEMPLATE'||t==='LINK'||t==='META')return true;if(el.getAttribute('data-ss-overlay'))return true;return false;}
+function treeOwnText(el){var s='';for(var i=0;i<el.childNodes.length;i++){var c=el.childNodes[i];if(c.nodeType===3)s+=c.nodeValue;}return s.replace(/\s+/g,' ').trim().slice(0,48);}
+function treeBuild(el,depth,budget){var kids=[];if(depth<TREE_MAX_DEPTH){for(var i=0;i<el.children.length;i++){var c=el.children[i];if(treeSkip(c))continue;if(budget.n>=TREE_MAX_NODES)break;budget.n++;kids.push(treeBuild(c,depth+1,budget));}}return{i:treeIdFor(el),t:(el.tagName||'').toLowerCase(),c:(el.getAttribute('class')||'').trim().slice(0,120),x:treeOwnText(el),k:kids};}
+function treeSend(){treeById={};var budget={n:0};var root=treeBuild(document.body,0,budget);window.parent.postMessage({type:'ss:tree',tree:root,truncated:budget.n>=TREE_MAX_NODES},'*');}
+function treeIsSsNode(n){return n.nodeType===1&&(n.getAttribute('data-ss-overlay')||(n.id&&n.id.indexOf('ss-')===0));}
+function treeDirty(){if(!treeOn)return;if(treeTimer)clearTimeout(treeTimer);treeTimer=setTimeout(function(){if(treeOn)window.parent.postMessage({type:'ss:treeDirty'},'*');},300);}
+function treeEnsureObserver(){if(treeObserver)return;treeObserver=new MutationObserver(function(ms){for(var i=0;i<ms.length;i++){var m=ms[i],j;for(j=0;j<m.addedNodes.length;j++)if(!treeIsSsNode(m.addedNodes[j])){treeDirty();return;}for(j=0;j<m.removedNodes.length;j++)if(!treeIsSsNode(m.removedNodes[j])){treeDirty();return;}}});treeObserver.observe(document.body,{childList:true,subtree:true});}
 function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active)placeSet();}
 window.addEventListener('message',function(e){var d=e.data||{};
 if(d.type==='ss:activate'){active=true;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
@@ -292,7 +307,11 @@ else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selec
    (no longer reverted on deselect/deactivate) and re-baseline the class. HMR re-renders
    from source and the real compiled CSS takes over. */
 else if(d.type==='ss:suppressReload'){window.__ssSuppressUntil=Date.now()+3000;}
-else if(d.type==='ss:commit'){pendingMark=null;txtRevertEl=null;snapshotOrig();window.__ssSuppressUntil=Date.now()+2000;}});
+else if(d.type==='ss:commit'){pendingMark=null;txtRevertEl=null;snapshotOrig();window.__ssSuppressUntil=Date.now()+2000;}
+else if(d.type==='ss:requestTree'){treeOn=true;treeEnsureObserver();treeSend();}
+else if(d.type==='ss:treeOff'){treeOn=false;}
+else if(d.type==='ss:selectNode'){var tn=treeById[d.id];if(tn&&tn.isConnected&&active&&!txtEditing){try{tn.scrollIntoView({block:'nearest'});}catch(err){}selectEl(tn);}}
+else if(d.type==='ss:hoverNode'){if(!active)return;var th=d.id!=null?treeById[d.id]:null;ensureHover();place(hoverBox,th&&th.isConnected?th:null);}});
 document.addEventListener('mousemove',onMove,true);
 document.addEventListener('click',onClick,true);
 document.addEventListener('dblclick',onDbl,true);

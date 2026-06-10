@@ -43,6 +43,8 @@ import { useVisualEditor } from '../hooks/useVisualEditor';
 import { useBreakpoints } from '../hooks/useBreakpoints';
 import { BASE_BREAKPOINT, isTailwindActive, type Breakpoint as TwBreakpoint } from '../lib/edit';
 import { VisualEditorPanel } from './edit/VisualEditorPanel';
+import { ElementTreePanel } from './edit/ElementTreePanel';
+import { useElementTree } from '../hooks/useElementTree';
 import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocaleSwitcher';
 import { CompactIcon, ExpandIcon, ResetIcon } from './icons';
 import { pathLocale, switchPathLocale } from '../lib/i18n';
@@ -508,6 +510,11 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onToast,
   });
 
+  // Element tree (navigator) — left column in fullscreen edit mode, like
+  // Webflow's navigator: read-only, select-only.
+  const showTree = isFullscreen && editor.editMode;
+  const elementTree = useElementTree({ iframeRef, enabled: showTree });
+
   const [iframeSize, setIframeSize] = useState<{ w: number; h: number } | null>(null);
   const iframeSizeObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -652,7 +659,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     <div
       className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}${
         editor.editMode && editorPinned ? ' preview-container--editor-pinned' : ''
-      }`}
+      }${showTree ? ' preview-container--tree' : ''}`}
       data-logs={showLogs ? 'open' : 'closed'}
       style={{
         ...(showLogs && inspectPanelHeight !== null
@@ -988,6 +995,15 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         healthPanelRef={healthPanelRef}
         onHealthOutput={onHealthOutput}
       />
+      {showTree && (
+        <ElementTreePanel
+          tree={elementTree.tree}
+          truncated={elementTree.truncated}
+          selectedId={elementTree.selectedId}
+          onSelect={elementTree.selectNode}
+          onHover={elementTree.hoverNode}
+        />
+      )}
       {editor.editMode &&
         (() => {
           // Floating mode portals to <body> (position:fixed is the only way to

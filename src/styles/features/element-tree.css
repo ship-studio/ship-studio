@@ -1,0 +1,108 @@
+/* Element tree panel — read-only navigator shown as the preview container's
+   left grid column in fullscreen edit mode (see preview.css for the grid). */
+
+.ss-tree-panel {
+  grid-area: 2 / 1 / -1 / 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.ss-tree-panel__header {
+  display: flex;
+  align-items: center;
+  height: var(--preview-toolbar-h);
+  flex-shrink: 0;
+  padding: 0 var(--spacing-md);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.ss-tree-panel__title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.ss-tree-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--spacing-xs) 0;
+}
+
+.ss-tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  height: 24px;
+  padding-right: var(--spacing-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--text-secondary);
+}
+
+.ss-tree-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.ss-tree-row.selected {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ss-tree-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.ss-tree-chevron.open {
+  transform: rotate(90deg);
+}
+
+.ss-tree-chevron-spacer {
+  flex-shrink: 0;
+  width: 14px;
+}
+
+.ss-tree-tag {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-family: monospace;
+}
+
+.ss-tree-class {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.ss-tree-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ss-tree-panel__empty,
+.ss-tree-panel__note {
+  padding: var(--spacing-md);
+  color: var(--text-muted);
+}

@@ -90,6 +90,9 @@
   /* Preview toolbar height — also sizes the pinned editor panel's header so
      the two bars line up. */
   --preview-toolbar-h: 47px;
+  /* Element tree (navigator) panel width — the preview's left grid column in
+     fullscreen edit mode. */
+  --tree-panel-w: 240px;
   --z-modal-overlay: 1000;
   --z-modal: 1001;
   --z-tooltip: 1100;

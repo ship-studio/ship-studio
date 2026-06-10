@@ -279,7 +279,19 @@
   grid-template-columns: minmax(0, 1fr) var(--editor-panel-w);
 }
 
-.preview-container--editor-pinned .preview-toolbar {
+/* Element tree (navigator) on the left in fullscreen edit mode. Composes with
+   the pinned editor: tree | canvas | editor. Panels use negative column lines
+   so each works with or without the other. */
+.preview-container--tree {
+  grid-template-columns: var(--tree-panel-w) minmax(0, 1fr);
+}
+
+.preview-container--tree.preview-container--editor-pinned {
+  grid-template-columns: var(--tree-panel-w) minmax(0, 1fr) var(--editor-panel-w);
+}
+
+.preview-container--editor-pinned .preview-toolbar,
+.preview-container--tree .preview-toolbar {
   grid-column: 1 / -1;
 }
 
@@ -287,7 +299,7 @@
    overrides need higher specificity than the base .ss-edit-panel rules. */
 .ss-edit-panel.ss-edit-panel--pinned {
   position: static;
-  grid-area: 2 / 2 / -1 / 3;
+  grid-area: 2 / -2 / -1 / -1;
   width: auto;
   min-width: 0;
   max-height: none;
