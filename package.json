@@ -2,7 +2,7 @@
   "name": "ship-studio",
   "private": true,
   "version": "0.7.1",
-  "description": "Ship Studio — a desktop app for shipping web projects with AI coding agents.",
+  "description": "Ship Studio \u2014 a desktop app for shipping web projects with AI coding agents.",
   "license": "MIT",
   "homepage": "https://github.com/ship-studio/ship-studio#readme",
   "repository": {
@@ -47,7 +47,6 @@
     "@cstar.help/js": "^0.3.4",
     "@sentry/react": "^10.48.0",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-deep-link": "^2.4.6",
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",

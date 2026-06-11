@@ -17,7 +17,6 @@
 import { useState, useCallback, useMemo, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { GitHubButton } from './GitHubButton';
-import { ClientEditorButton } from './ClientEditorButton';
 import { openInFinder } from '../lib/ide';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { PublishBranchDropdown } from './PublishBranchDropdown';
@@ -35,9 +34,6 @@ import type { LoadedPlugin } from '../hooks/usePlugins';
 import type { PluginThemeData } from '../contexts/PluginContext';
 
 export const HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare', 'netlify'];
-
-// Client editor entry point hidden for now. Flip to true to re-enable.
-const SHOW_CLIENT_EDITOR = false;
 
 export interface WorkspaceHeaderProps {
   // Project
@@ -213,9 +209,8 @@ export function WorkspaceHeader({
         {headerExtras}
       </div>
 
-      {/* Right side — client editor, GitHub, Publish slot, hosting plugin, Publish */}
+      {/* Right side — GitHub, Publish slot, hosting plugin, Publish */}
       <div className="workspace-header-right">
-        {SHOW_CLIENT_EDITOR && <ClientEditorButton projectPath={projectPath} />}
         <span data-education-id="github-button">
           <GitHubButton
             githubState={integrations.github}

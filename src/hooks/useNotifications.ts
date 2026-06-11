@@ -40,7 +40,7 @@ export function useNotifications({
   const prevAgentStatusMap = useRef<Map<string, AgentStatus>>(new Map());
 
   // Current-project tabs waiting for user attention. Kept as a local Set
-  // so TerminalTabSelector / current-project sidebar rows can read it
+  // so current-project sidebar rows can read it
   // without reaching into the registry for every render. Background
   // projects' attention flags live in sessionRegistry.
   const [attentionTabs, setAttentionTabs] = useState<Set<number>>(new Set());

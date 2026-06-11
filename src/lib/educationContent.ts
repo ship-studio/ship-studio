@@ -120,11 +120,6 @@ export const educationContent: Record<string, EducationItem> = {
     description:
       'Configure settings specific to this project, like the dev server command and other project-level preferences.',
   },
-  'client-editor-button': {
-    title: 'Add Clients',
-    description:
-      'Let your clients edit text, images, and content directly on their live site — no code required. Edits become pull requests in your repo automatically.',
-  },
   'support-button': {
     title: 'Support',
     description:

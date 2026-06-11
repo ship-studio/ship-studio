@@ -570,7 +570,6 @@ pub fn run() {
             commands::setup::sign_out_agent,
             commands::setup::uninstall_agent,
             // Client Editor
-            commands::client_editor::detect_client_editor,
             // Code Browser
             commands::code::list_project_files,
             commands::code::read_project_file,
