@@ -538,7 +538,7 @@ export function useDevServer(currentProjectPath: string | null) {
         // a local web port, so there's no web dev server to start. The user
         // runs `expo start` / `flutter run` in the terminal; the (forthcoming)
         // device-mirror preview attaches to the booted simulator/emulator.
-        // See docs/mobile-app-preview-plan.md.
+        // See docs/internal/mobile-app-preview-plan.md.
         logger.info('[OpenProject] Native mobile project detected; skipping web dev server', {
           projectPath,
           projectType: detectedType,

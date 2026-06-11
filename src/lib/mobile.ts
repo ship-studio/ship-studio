@@ -6,7 +6,7 @@
  * WebSocket control channel; {@link DeviceMirror} embeds the stream and drives
  * input over that channel.
  *
- * See docs/mobile-app-preview-plan.md (§10c).
+ * See docs/internal/mobile-app-preview-plan.md (§10c).
  *
  * @module lib/mobile
  */
@@ -251,7 +251,7 @@ export type TouchPhase = 'down' | 'move' | 'up';
  * `{ type, x, y }` body, where `type` is "begin" | "move" | "end" (NOT
  * "down"/"up" — those are HID keyboard phases on a different opcode). This was
  * reverse-engineered from serve-sim's client and verified end-to-end against a
- * booted simulator. See docs/mobile-app-preview-plan.md.
+ * booted simulator. See docs/internal/mobile-app-preview-plan.md.
  */
 const TOUCH_OPCODE = 3;
 const PHASE_TO_SERVE_SIM: Record<TouchPhase, string> = {

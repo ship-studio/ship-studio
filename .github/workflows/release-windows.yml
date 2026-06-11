@@ -15,15 +15,15 @@ jobs:
       - name: Force LF line endings
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: '.nvmrc'
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9
 
@@ -83,7 +83,7 @@ jobs:
           ls -la artifacts/
 
       - name: Upload updater artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: updater-windows-x86_64
           path: artifacts/
@@ -96,10 +96,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout repo for release notes
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download updater artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: updater-windows-x86_64
           path: artifacts

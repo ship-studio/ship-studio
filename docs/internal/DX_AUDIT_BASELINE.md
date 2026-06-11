@@ -1,6 +1,6 @@
 # DX Drift Audit Baseline
 
-Captured after Blocks 1–15 of [DX_REFACTOR_PLAN.md](../DX_REFACTOR_PLAN.md) landed.
+Captured after Blocks 1–15 of the DX refactor plan (internal, pre-open-source) landed.
 
 Run `bash scripts/audit-dx-drift.sh` to capture current numbers; diff against
 this baseline. Trends downward = system working. Trends upward = guardrails

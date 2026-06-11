@@ -13,7 +13,7 @@
  * That's what lets a multi-minute build survive a tab switch. This is the mobile
  * counterpart to {@link Preview}.
  *
- * See docs/mobile-app-preview-plan.md (§10c) and docs/mobile-app-preview-status.md.
+ * See docs/internal/mobile-app-preview-plan.md (§10c) and docs/internal/mobile-app-preview-status.md.
  *
  * @module components/DeviceMirror
  */

@@ -5,7 +5,7 @@
 //! MJPEG stream + a WebSocket control channel for the booted simulator; the
 //! frontend embeds the stream and drives input over the WebSocket directly.
 //!
-//! See `docs/mobile-app-preview-plan.md` (§10c) for the evaluation that led to
+//! See `docs/internal/mobile-app-preview-plan.md` (§10c) for the evaluation that led to
 //! this approach instead of a custom ScreenCaptureKit/Indigo-HID sidecar.
 //!
 //! Requirements: macOS + Xcode command line tools (`xcrun simctl`) + Node 18+
