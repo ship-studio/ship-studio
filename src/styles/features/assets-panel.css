@@ -441,6 +441,11 @@
   cursor: pointer;
 }
 
+/* Pick mode (e.g. the visual editor's "Replace image") — files are click targets. */
+.assets-item.is-pickable {
+  cursor: pointer;
+}
+
 .assets-item-main {
   display: flex;
   align-items: center;
@@ -614,6 +619,10 @@
 }
 
 .assets-grid-item.is-folder {
+  cursor: pointer;
+}
+
+.assets-grid-item.is-pickable {
   cursor: pointer;
 }
 

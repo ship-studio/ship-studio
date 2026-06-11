@@ -8,6 +8,11 @@
  * - Create new folders
  * - Copy asset paths for use in code
  *
+ * The modal body is exported separately as `AssetsModal` with explicit
+ * open/close props plus an optional pick mode, so other features (the visual
+ * editor's "Replace image") reuse the exact same browser as a file picker
+ * instead of growing a second asset UI.
+ *
  * @module components/AssetsPanel
  */
 
@@ -85,8 +90,30 @@ interface AssetsPanelProps {
   projectPath: string;
 }
 
+/** The workspace Assets manager — the `AssetsModal` body bound to the
+ *  'assetsPanel' modal id. */
 export function AssetsPanel({ projectPath }: AssetsPanelProps) {
-  const { isOpen, close: onClose } = useModal('assetsPanel');
+  const { isOpen, close } = useModal('assetsPanel');
+  return <AssetsModal projectPath={projectPath} isOpen={isOpen} onClose={close} />;
+}
+
+export interface AssetsModalProps {
+  /** Absolute path to the project directory */
+  projectPath: string;
+  isOpen: boolean;
+  onClose: () => void;
+  /** Pick mode: the same browser, but image files become click-to-pick targets
+   *  (non-image files are hidden, folders still navigate) and the title says
+   *  what the pick is for. Management actions (upload, rename, …) stay — a
+   *  picker is the moment you notice the asset needs a tweak. */
+  pick?: {
+    /** Modal title, e.g. "Replace image". */
+    title: string;
+    onPick: (asset: Asset) => void;
+  };
+}
+
+export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalProps) {
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const {
@@ -153,6 +180,19 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
     ? ASSETS_ROOT_SUGGESTIONS
     : [assetsRoot, ...ASSETS_ROOT_SUGGESTIONS];
 
+  // Pick mode shows only what's pickable (images) plus folders to navigate into.
+  const visibleAssets = pick
+    ? sortedAssets.filter((a) => a.isDirectory || isImageFile(a.name))
+    : sortedAssets;
+
+  /** Clicking an item: folders navigate; in pick mode files are the pick target. */
+  const handleItemClick = (asset: Asset) => {
+    if (asset.isDirectory) navigateToFolder(asset);
+    else if (pick) pick.onPick(asset);
+  };
+  const itemModeClass = (asset: Asset) =>
+    asset.isDirectory ? ' is-folder' : pick ? ' is-pickable' : '';
+
   // Render asset preview (thumbnail for images, icon for others)
   const renderAssetPreview = (asset: Asset) => {
     if (asset.isDirectory) {
@@ -185,7 +225,7 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal assets-panel-modal" onClick={(e) => e.stopPropagation()}>
         <div className="assets-panel-header">
-          <h3>Assets</h3>
+          <h3>{pick ? pick.title : 'Assets'}</h3>
           <button className="assets-close-btn" onClick={onClose}>
             <CloseIcon size={16} />
           </button>
@@ -383,13 +423,15 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
           >
             {isLoading ? (
               <div className="assets-loading">Loading assets...</div>
-            ) : sortedAssets.length === 0 ? (
+            ) : visibleAssets.length === 0 ? (
               <div className="assets-empty">
                 <div className="assets-empty-icon">
                   {searchQuery ? <SearchIcon size={32} /> : <ImageIcon size={32} />}
                 </div>
                 <p>
-                  {searchQuery ? `No assets matching "${searchQuery}"` : 'No assets in this folder'}
+                  {searchQuery
+                    ? `No ${pick ? 'images' : 'assets'} matching "${searchQuery}"`
+                    : `No ${pick ? 'images' : 'assets'} in this folder`}
                 </p>
                 {!searchQuery && (
                   <p className="assets-empty-hint">Drag and drop files here or click Upload</p>
@@ -397,15 +439,9 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
               </div>
             ) : viewMode === 'list' ? (
               <div className="assets-list">
-                {sortedAssets.map((asset) => (
-                  <div
-                    key={asset.path}
-                    className={`assets-item ${asset.isDirectory ? 'is-folder' : ''}`}
-                  >
-                    <div
-                      className="assets-item-main"
-                      onClick={() => (asset.isDirectory ? navigateToFolder(asset) : null)}
-                    >
+                {visibleAssets.map((asset) => (
+                  <div key={asset.path} className={`assets-item${itemModeClass(asset)}`}>
+                    <div className="assets-item-main" onClick={() => handleItemClick(asset)}>
                       {renderAssetPreview(asset)}
                       {renameTarget?.path === asset.path ? (
                         <input
@@ -477,11 +513,11 @@ export function AssetsPanel({ projectPath }: AssetsPanelProps) {
               </div>
             ) : (
               <div className="assets-grid">
-                {sortedAssets.map((asset) => (
+                {visibleAssets.map((asset) => (
                   <div
                     key={asset.path}
-                    className={`assets-grid-item ${asset.isDirectory ? 'is-folder' : ''}`}
-                    onClick={() => (asset.isDirectory ? navigateToFolder(asset) : null)}
+                    className={`assets-grid-item${itemModeClass(asset)}`}
+                    onClick={() => handleItemClick(asset)}
                   >
                     <div className="assets-grid-preview">
                       {asset.isDirectory ? (

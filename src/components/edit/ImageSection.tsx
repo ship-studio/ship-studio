@@ -1,14 +1,16 @@
 /**
  * "Image" section of the visual editor panel, shown when the selection is an
  * `<img>`: the current asset (thumbnail + path) and a Webflow-style Replace
- * button that opens the asset picker. Replacing writes the new path straight to
- * source (picking IS the save), so there's no dirty state here.
+ * button that opens the shared assets browser (`AssetsModal`) in pick mode.
+ * Picking writes the new path straight to source (picking IS the save), so
+ * there's no dirty state here.
  */
 
 import { useCallback, useState } from 'react';
 import { Button } from '../primitives/Button';
 import { PropSection } from './PropSection';
-import { ImagePickerModal } from './ImagePickerModal';
+import { AssetsModal } from '../AssetsPanel';
+import { assetWebPath } from '../../lib/assets';
 import type { ElementSignature, ImageResolution } from '../../lib/edit';
 
 interface Props {
@@ -64,12 +66,14 @@ export function ImageSection({ signature, resolution, projectPath, onReplace }: 
           )}
         </div>
       </div>
-      <ImagePickerModal
-        isOpen={pickerOpen}
+      <AssetsModal
         projectPath={projectPath}
-        currentSrc={resolution?.status === 'resolved' ? resolution.src : signature.attrSrc}
-        onPick={(webPath) => void handlePick(webPath)}
+        isOpen={pickerOpen}
         onClose={() => setPickerOpen(false)}
+        pick={{
+          title: 'Replace image',
+          onPick: (asset) => void handlePick(assetWebPath(asset.path)),
+        }}
       />
     </PropSection>
   );
