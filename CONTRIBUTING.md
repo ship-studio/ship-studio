@@ -34,15 +34,45 @@ pnpm tauri dev
 
 This starts both the Vite dev server (frontend) and Tauri app (backend).
 
+## Before You Push — the CI Gates
+
+Every PR runs these checks in CI. Run them locally first and your PR will
+pass on the first try:
+
+```bash
+pnpm check:all     # typecheck + lint + prettier + rustfmt + clippy + pattern & LOC checks
+pnpm test:run      # frontend tests (Vitest)
+pnpm rust:test     # backend tests (cargo test)
+```
+
+Notes:
+
+- CI runs `pnpm lint:strict` (zero warnings allowed) — `check:all` runs plain
+  `lint`, so fix warnings too.
+- Formatting failures are auto-fixable: `pnpm format` (TS/CSS) and
+  `pnpm rust:fmt` (Rust).
+- `check:patterns` rejects banned patterns (hand-rolled modals, raw
+  `setInterval`, `Result<T, String>`, raw hex colors, …) — see
+  [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md) for what to
+  use instead.
+- `check:loc` enforces per-file line ceilings; if you hit one, split the file
+  rather than raising the limit.
+- Frontend coverage thresholds are enforced in CI — add tests for non-trivial
+  logic.
+
 ## Project Architecture
 
 ```
 src/                        # React frontend (TypeScript)
-├── components/             # UI components (~55 files)
-│   └── setup/              # Onboarding wizard components
-├── lib/                    # Tauri command wrappers (~30 modules)
+├── components/             # UI components
+│   ├── setup/              # Onboarding wizard
+│   ├── edit/               # Visual editor panels
+│   └── primitives/         # Shared ModalFrame, Button, …
+├── lib/                    # Tauri command wrappers & utilities (~60 modules)
 ├── hooks/                  # Custom React hooks
-├── styles/                 # CSS files
+├── commands/               # Cmd+K palette registry
+├── contexts/               # Modal, toast, and other app contexts
+├── styles/                 # CSS (global tokens, features, modes, components)
 └── App.tsx                 # Main app component & state
 
 src-tauri/                  # Rust backend
@@ -54,18 +84,20 @@ src-tauri/                  # Rust backend
 │   ├── cache.rs            # TTL-based git caching
 │   └── commands/           # Modular command handlers
 │       ├── git/            # Git operations (branches, status, stash, sync)
-│       ├── projects/       # Project CRUD (detection, metadata, templates)
+│       ├── projects/       # Project CRUD (detection, metadata, sessions, templates)
 │       ├── setup/          # Onboarding (auth, install, status checks)
 │       ├── plugins/        # Plugin lifecycle & storage
 │       ├── ide/            # IDE launch & screenshot capture
+│       ├── pty/            # Pseudo-terminal spawn/stream
+│       ├── skills/         # Agent skill search & install
+│       ├── health/         # Project health checks
 │       ├── github.rs       # GitHub CLI integration
-│       ├── pty.rs          # Pseudo-terminal management
 │       ├── publishing.rs   # Vercel deployment workflow
+│       ├── mobile.rs       # Mobile app preview (Expo/RN/Flutter)
+│       ├── edit.rs         # Visual editor backend
 │       ├── conflicts.rs    # Merge conflict resolution
 │       ├── ai.rs           # AI-powered PR generation
-│       ├── assets.rs       # /public folder file management
-│       ├── env.rs          # Environment variable management
-│       └── ...             # ~25 modules total
+│       └── ...             # ~30 modules total — see CLAUDE.md for the full list
 ├── Cargo.toml              # Rust dependencies
 └── tauri.conf.json         # Tauri configuration
 ```
@@ -157,9 +189,9 @@ Add screenshot capture for project thumbnails
 
 1. Create a feature branch from `main`
 2. Make your changes with clear commits
-3. Test locally with `pnpm tauri dev`
-4. Build successfully with `pnpm tauri build`
-5. Submit PR with description of changes
+3. Run the CI gates locally: `pnpm check:all && pnpm test:run && pnpm rust:test`
+4. Test the affected flows by hand with `pnpm tauri dev`
+5. Submit PR with description of changes — the PR template walks you through the patterns checklist
 
 ## Common Development Tasks
 
@@ -224,7 +256,7 @@ Unit tests are colocated in source files using `#[cfg(test)]` modules.
 
 Before submitting a PR, verify:
 
-- [ ] All automated tests pass (`pnpm test:run && pnpm rust:test`)
+- [ ] CI gates pass (`pnpm check:all && pnpm test:run && pnpm rust:test`)
 - [ ] App launches without errors
 - [ ] Can create a new project
 - [ ] Terminal works and responds to input
@@ -378,12 +410,13 @@ repository's visibility. Ship Studio is distributed as `.dmg` and `.exe`
 installers, not as an npm package. The repo itself is open source under
 MIT (see [LICENSE](LICENSE)).
 
-### Why is `CLAUDE.md` checked in?
+### Why are `CLAUDE.md` and `AGENTS.md` checked in?
 
-It's a long-form contributor reference used by both humans and AI coding
-assistants. The "How to Do Things in Ship Studio" section documents the
-canonical primitives the codebase has standardised on; anything you write
-should follow those patterns.
+`CLAUDE.md` is a long-form contributor reference used by both humans and AI
+coding assistants. The "How to Do Things in Ship Studio" section documents
+the canonical primitives the codebase has standardised on; anything you
+write should follow those patterns. `AGENTS.md` is the short version of the
+same contract for agent tools that read that filename by convention.
 
 ## License
 

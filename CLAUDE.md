@@ -3,12 +3,19 @@
 ## Feature Overview
 
 Ship Studio is a desktop app for web developers that provides:
-- **Project Management** - Create new projects or import existing repos from GitHub
-- **Terminal with Claude Code** - Integrated terminal with Claude AI for code assistance
+- **Project Management** - Create new projects from templates (web + mobile starters), import repos from GitHub, register external local folders, and organize the dashboard with folders
+- **AI Agent Terminal** - Integrated terminal for Claude Code, Codex, or Opencode, with multi-tab and side-by-side panes
+- **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects
+- **Visual Editing** - Point-and-click edit mode on the preview with a pinnable editor panel and a Webflow-style element tree (fullscreen)
+- **Mobile App Preview** - Build and mirror Expo / React Native / Flutter apps on the iOS simulator inside the workspace
 - **Branch Management** - Create, switch, and manage git branches
 - **Pull Request Creation** - Submit PRs with AI-generated titles and descriptions
 - **Merge Conflict Resolution** - Visual UI for resolving git merge conflicts
-- **Asset Management** - Upload, view, and delete files in `/public` folder
+- **Snapshots & Backups** - Create and restore project snapshots (rewind)
+- **Asset Management** - Upload, view, and delete files under a configurable assets folder (default `/public`)
+- **Multi-Window & Hot Sessions** - Open projects in separate windows; the project rail keeps background sessions (PTYs + dev server) alive when you return to the dashboard
+- **Plugins, Skills & MCP** - Extend the app with plugins; install agent skills and configure MCP servers
+- **Command Palette** - Cmd+K palette; every user-facing feature registers its actions here (see "New feature → contribute commands")
 - **IDE Integration** - Open projects in VS Code or Cursor with one click
 - **Vercel Deployment** - Publish to staging/production via Vercel integration
 - **Auto-Updates** - Automatic update detection and installation
@@ -41,22 +48,42 @@ Ship Studio is a desktop app for web developers that provides:
 - Structured logging via `tracing` crate, logs stored at `~/Library/Logs/ShipStudio/`
 
 #### Command Modules
-Key command modules in `src-tauri/src/commands/`:
-- `ai.rs` - AI-powered PR title/description generation via Claude CLI
-- `assets.rs` - File management for `/public` folder (list, upload, delete)
+Command modules in `src-tauri/src/commands/`. Domains with submodules are directories:
+- `git/` - Git operations (branches, status, stash, sync) with TTL caching
+- `health/` - Project health checks (dependency audit, diagnostics)
+- `ide/` - VS Code/Cursor launch, preview screenshots
+- `plugins/` - Plugin lifecycle and storage
+- `projects/` - Project CRUD: detection, metadata, dev-server config, pins, sessions, templates, UI state, window registry
+- `pty/` - Pseudo-terminal spawn/stream for the embedded agent terminals
+- `setup/` - First-run onboarding: install, auth, status checks, mock/force modes
+- `skills/` - Agent skill search and install
+
+Single-file domains:
+- `ai.rs` - AI-powered PR title/description generation via the agent CLI
+- `analytics.rs` - PostHog event tracking (API key stays in Rust; see `docs/analytics.md`)
+- `assets.rs` - Assets panel file management (configurable root, default `/public`)
 - `claude.rs` - Claude Code binary detection and version checking
+- `code.rs` - Code mode (in-app file browsing/editing)
 - `conflicts.rs` - Merge conflict detection, parsing, and resolution
+- `edit.rs` - Visual editor backend (mutations, committing edits back to source)
 - `env.rs` - Environment variable management
-- `git.rs` - Git operations (status, branches, commits, diffs, stash)
+- `external_projects.rs` - Registry for projects outside `~/ShipStudio`
+- `folders.rs` - Dashboard project folders
 - `github.rs` - GitHub CLI integration (auth status, push, remote management)
 - `i18n.rs` - Multilingual config management (Next.js Pages i18n, Astro i18n, next-intl routing.ts) via conservative string surgery — fails with Validation errors instead of guessing
-- `ide.rs` - VS Code/Cursor detection and project opening
-- `projects.rs` - Project CRUD operations and metadata management
-- `pty.rs` - Pseudo-terminal spawning for embedded Claude Code terminal
+- `mcp.rs` - MCP server configuration for agents
+- `mobile.rs` - Native mobile app preview (Expo / React Native / Flutter): simulator boot, build, launch, mirror
+- `monorepo.rs` - Workspace detection for pnpm/yarn/npm monorepos
+- `proxy.rs` - Preview proxy control (the proxy itself lives in `src-tauri/src/proxy/`)
+- `pty_session.rs` - Long-lived backend-owned PTY sessions (e.g. mobile builds)
 - `publishing.rs` - Vercel deployment workflow and publish record tracking
 - `pull_requests.rs` - PR listing and creation via `gh` CLI
-- `setup.rs` - First-run setup, onboarding, and integration checks
-- `vercel.rs` - Vercel CLI integration (auth, project linking, domains)
+- `settings.rs` - App-level settings persistence
+- `snapshots.rs` - Project snapshots / backups (rewind)
+- `static_server.rs` - Static file server for plain HTML projects
+- `support.rs` - In-app support requests
+- `templates.rs` - Project template export/extraction
+- `window.rs` - Window management helpers
 
 ### AI Features
 - PR title/description generation using Claude CLI (`src-tauri/src/commands/ai.rs`)
@@ -74,29 +101,39 @@ Key command modules in `src-tauri/src/commands/`:
 - Structured logging via `src/lib/logger.ts`
 
 #### Frontend Libraries
-Key modules in `src/lib/`:
+Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
+- `agents-management.ts` / `agent.ts` - Agent CLI detection, install state, default-agent selection
 - `ai.ts` - AI generation wrapper for PR descriptions
-- `assets.ts` - Asset management (list, upload, delete public files)
+- `analytics.ts` - PostHog event wrapper (every event documented in `docs/analytics.md`)
+- `assets.ts` - Asset management (list, upload, delete; configurable assets root)
+- `backups.ts` / `snapshots.ts` - Snapshot create/restore (rewind)
 - `branches.ts` - Branch operations and PR status management
 - `claude.ts` - Claude Code detection and availability checking
 - `conflicts.ts` - Conflict resolution operations
+- `edit.ts` / `editControls.ts` / `inspectStore.ts` - Visual editor state and iframe protocol
+- `errors.ts` - TypeScript mirror of `CommandError` + `asCommandError`/`formatCommandError` helpers
+- `external-projects.ts` / `folders.ts` / `pins.ts` - Dashboard organization (external repos, folders, pinned rail)
 - `fonts.ts` - Font loading utilities for the terminal
 - `git.ts` - Git operations wrapper (status, commits, branches)
-- `github.ts` - GitHub operations (auth, push, clone)
+- `github.ts` - GitHub operations (auth, push, clone) and publishing flow
 - `i18n.ts` - Multilingual support: status/config wrappers, full-ISO language search, locale path helpers for the preview switcher, and agent prompt builders (translate, App Router next-intl setup, removal cleanup)
 - `logger.ts` - Structured frontend logging
+- `mcp.ts` / `skills.ts` / `plugins.ts` / `plugin-loader.ts` - Agent extensions and the plugin system
+- `mobile.ts` / `androidMirror.ts` - Mobile app preview and device mirror
 - `polling.ts` - Exponential backoff utilities for async operations
 - `project.ts` - Project metadata and file operations
-- `setup.ts` - Setup wizard and integration status
+- `projectSessions.ts` / `sessionRegistry.ts` / `ptySession.ts` - Hot project sessions (backend authority + frontend mirror)
+- `setup.ts` - Setup wizard step definitions and integration status
+- `terminalLinks.ts` - Clickable URLs in terminals (web-links addon)
 - `updater.ts` - Auto-update functionality and version checking
-- `vercel.ts` - Vercel deployment operations
 
 ## Testing
 
 ### Frontend Tests (Vitest + React Testing Library)
 ```bash
-npm test          # Run all tests
-npm run test:ui   # Run with Vitest UI
+pnpm test:run     # Run all tests once
+pnpm test         # Watch mode
+pnpm test:ui      # Run with Vitest UI
 ```
 
 Tests are in `src/**/*.test.{ts,tsx}`. Uses official `@tauri-apps/api/mocks` for mocking Tauri IPC.
@@ -186,8 +223,8 @@ The wizard has 4 steps defined in `src/lib/setup.ts` (`WIZARD_STEPS`):
 |------|----|-------|---------------|
 | 1 | `package-manager` | homebrew, node, npm_fix | All present items ready |
 | 2 | `git-github` | git, gh, gh_auth | All 3 ready |
-| 3 | `agent` | claude, claude_auth, codex, codex_auth | At least 1 agent pair ready |
-| 4 | `hosting` | *(none)* | Always (placeholder, skippable) |
+| 3 | `agent` | claude, claude_auth, codex, codex_auth, opencode, opencode_auth | At least 1 agent pair ready |
+| 4 | `hosting` | vercel, vercel_auth | Both ready (skippable) |
 
 Key files:
 - `src/components/setup/OnboardingScreen.tsx` — wizard orchestrator
@@ -211,7 +248,7 @@ CSS variables (`--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--text-primar
 ## Common Patterns
 
 ### Publishing Flow
-1. User clicks Publish in PublishDropdown
+1. User clicks Publish in PublishBranchDropdown
 2. Backend pushes to GitHub (staging or main branch)
 3. Vercel auto-deploys via GitHub integration
 4. Result (URL, state, timestamp) is saved to `.shipstudio/project.json`

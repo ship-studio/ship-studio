@@ -6,6 +6,10 @@
 - [ ]
 - [ ]
 
+## CI gates
+<!-- These run automatically on the PR; running them locally first saves a round-trip. -->
+- [ ] `pnpm check:all && pnpm test:run && pnpm rust:test` passes locally
+
 <details>
 <summary><strong>Patterns checklist</strong> (only relevant if you changed code)</summary>
 

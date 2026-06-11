@@ -27,7 +27,7 @@ already — you mostly need to swap secrets and a handful of identifiers.
 
 ## 1 — Brand & identifiers
 
-Things to change so your build is unambiguously yours, not Memberstack's:
+Things to change so your build is unambiguously yours, not the upstream project's:
 
 | File | Field | What to change |
 |------|-------|----------------|
@@ -177,10 +177,10 @@ If you want to keep the two-repo split:
 
 ## 5 — Telemetry
 
-The official Ship Studio build sends events to a Memberstack-owned
+The official Ship Studio build sends events to the upstream maintainers'
 [PostHog](https://posthog.com/) project and crash reports to
 [Sentry](https://sentry.io/). **Forks must not reuse these keys** — they're
-write-only ingest keys, but Memberstack pays for the events.
+write-only ingest keys, but the upstream maintainers pay for the events.
 
 Three choices:
 
