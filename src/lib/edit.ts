@@ -24,6 +24,11 @@ export interface ElementSignature {
   /** CSS properties this element gets from UNLAYERED rules (custom CSS that beats
    *  Tailwind utilities). Edits touching these need the important modifier to win. */
   unlayeredProps?: string[];
+  /** The element's raw `src` attribute (images) — the image resolver's search key. */
+  attrSrc?: string | null;
+  /** The absolute URL the browser actually loaded for an `<img>` (resolves
+   *  relative paths and srcset) — used only to render the panel's thumbnail. */
+  currentSrc?: string | null;
 }
 
 /** A source location of a className literal. */
@@ -99,6 +104,46 @@ export function applyTextEdit(
   newText: string
 ): Promise<void> {
   return invoke('apply_text_edit', { projectPath, file, line, column, oldText, newText });
+}
+
+// ───────────────────────────── Image source ─────────────────────────────────
+//
+// "Replace image" follows the text-editing model: resolve the clicked <img> to
+// the static `src="…"` literal in source (class-anchored, falling back to a
+// search for the rendered src value), then surgically rewrite that literal.
+
+/** Outcome of resolving an image's `src` to source (mirrors the Rust enum). */
+export type ImageResolution =
+  | {
+      status: 'resolved';
+      file: string;
+      line: number;
+      column: number;
+      /** Current static src value — the write-back's drift baseline. */
+      src: string;
+      confidence: string;
+    }
+  | { status: 'read_only'; reason: string };
+
+/** Resolve a clicked image to its editable `src` source literal. */
+export function resolveImageSource(
+  projectPath: string,
+  signature: ElementSignature
+): Promise<ImageResolution> {
+  return invoke<ImageResolution>('resolve_image_source', { projectPath, signature });
+}
+
+/** Surgically replace one static `src` literal, verifying it still equals `oldSrc`.
+ *  `column` pins the exact attribute when identical values share a line. */
+export function applySrcEdit(
+  projectPath: string,
+  file: string,
+  line: number,
+  column: number,
+  oldSrc: string,
+  newSrc: string
+): Promise<void> {
+  return invoke('apply_src_edit', { projectPath, file, line, column, oldSrc, newSrc });
 }
 
 // ───────────────────────────── Breakpoints ──────────────────────────────────

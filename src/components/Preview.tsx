@@ -1035,8 +1035,11 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           const panel = (
             <VisualEditorPanel
               selection={editor.selection}
+              projectPath={projectPath}
               currentClass={editor.currentClass}
               textResolution={editor.textResolution}
+              imageResolution={editor.imageResolution}
+              onReplaceImage={editor.replaceImage}
               textBlockedNonce={editor.textBlockedNonce}
               breakpoints={breakpoints}
               activeBreakpoint={activeBreakpoint}

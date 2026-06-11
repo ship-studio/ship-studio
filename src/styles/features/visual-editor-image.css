@@ -1,0 +1,123 @@
+/* Visual editor — Image section + asset picker (split from visual-editor.css
+   to keep that file under its LOC ceiling). */
+/* ── Image section (asset replacement) ──
+   Shown when the selection is an <img>: current asset thumbnail + path, and the
+   Replace button that opens the asset picker. */
+.ss-edit-image {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: flex-start;
+}
+.ss-edit-image__thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+.ss-edit-image__thumb--empty {
+  display: inline-block;
+}
+.ss-edit-image__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+.ss-edit-image__path {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--spacing-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-edit-image__note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* ── Image picker modal ──
+   A picker-shaped view of the assets folder: image thumbnails in a grid, an
+   upload action in the footer. Rides on ModalFrame for overlay/ESC/close. */
+.ss-image-picker {
+  width: 480px;
+  max-width: 90vw;
+}
+.ss-image-picker__hint {
+  margin: 0 0 var(--spacing-md);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.ss-image-picker__error {
+  margin: 0 0 var(--spacing-md);
+  font-size: 12px;
+  color: var(--error);
+}
+.ss-image-picker__empty {
+  margin: 0;
+  padding: var(--spacing-xl) 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.ss-image-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--spacing-sm);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.ss-image-picker__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    border-color var(--transition),
+    background var(--transition);
+}
+.ss-image-picker__item:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--text-muted);
+}
+.ss-image-picker__item.is-current {
+  border-color: var(--accent);
+}
+.ss-image-picker__thumb {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+.ss-image-picker__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ss-image-picker__name {
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ss-image-picker__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border);
+}

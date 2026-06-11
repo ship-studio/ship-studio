@@ -40,6 +40,8 @@ function renderPanel(
   return render(
     <VisualEditorPanel
       selection={selection}
+      projectPath="/Users/test/ShipStudio/demo"
+      onReplaceImage={vi.fn(async () => {})}
       currentClass={currentClass}
       breakpoints={BREAKPOINTS}
       activeBreakpoint={activeBreakpoint}
@@ -243,6 +245,8 @@ describe('VisualEditorPanel', () => {
       <VisualEditorPanel
         selection={resolvedSelection}
         currentClass="p-3"
+        projectPath="/Users/test/ShipStudio/demo"
+        onReplaceImage={vi.fn(async () => {})}
         breakpoints={BREAKPOINTS}
         activeBreakpoint={BASE_BREAKPOINT}
         breakpointTooWide={false}
@@ -276,6 +280,8 @@ describe('VisualEditorPanel', () => {
       <VisualEditorPanel
         selection={resolvedSelection}
         currentClass="p-3"
+        projectPath="/Users/test/ShipStudio/demo"
+        onReplaceImage={vi.fn(async () => {})}
         breakpoints={BREAKPOINTS}
         activeBreakpoint={BASE_BREAKPOINT}
         breakpointTooWide={false}
@@ -299,6 +305,8 @@ describe('VisualEditorPanel', () => {
 
   // Default props for inline renders that need to override a specific handler.
   const mk = () => ({
+    projectPath: '/Users/test/ShipStudio/demo',
+    onReplaceImage: vi.fn(async () => {}),
     breakpoints: BREAKPOINTS,
     activeBreakpoint: BASE_BREAKPOINT,
     breakpointTooWide: false,
@@ -366,6 +374,8 @@ describe('VisualEditorPanel', () => {
       <VisualEditorPanel
         selection={multiSelection}
         currentClass="flex p-4"
+        projectPath="/Users/test/ShipStudio/demo"
+        onReplaceImage={vi.fn(async () => {})}
         breakpoints={BREAKPOINTS}
         activeBreakpoint={BASE_BREAKPOINT}
         breakpointTooWide={false}
@@ -413,5 +423,77 @@ describe('VisualEditorPanel', () => {
     fireEvent.keyDown(gap, { key: 'Enter' });
     expect(onApplyEnum).toHaveBeenCalledWith('gap-[10rem]', { gap: '10rem' });
     vi.unstubAllGlobals();
+  });
+
+  // ── Image section (asset replacement) ──
+
+  const imgSelection: Selection = {
+    signature: {
+      className: '',
+      tagName: 'img',
+      ancestorClasses: [],
+      attrSrc: '/hero.png',
+      currentSrc: 'http://localhost:3000/hero.png',
+    },
+    // A classless image: the CLASS resolver has nothing static to offer…
+    resolution: {
+      status: 'read_only',
+      reason: 'These classes aren’t a static string in source (dynamic or generated).',
+    },
+    instanceCount: 1,
+  };
+
+  it('shows the Image section with Replace for a resolved image src', () => {
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={imgSelection}
+        currentClass=""
+        imageResolution={{
+          status: 'resolved',
+          file: 'app/page.tsx',
+          line: 3,
+          column: 11,
+          src: '/hero.png',
+          confidence: 'src',
+        }}
+      />
+    );
+    expect(screen.getByText('Image')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Replace image/ })).toBeInTheDocument();
+    expect(screen.getByText('/hero.png')).toBeInTheDocument();
+    // …and that class verdict is expected for a classless image, so the generic
+    // read-only banner is suppressed (the Image section carries the state).
+    expect(screen.queryByText(/aren’t a static string/)).not.toBeInTheDocument();
+  });
+
+  it('shows the reason instead of Replace when the image src is dynamic', () => {
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={imgSelection}
+        currentClass=""
+        imageResolution={{ status: 'read_only', reason: 'This image’s source is set in code.' }}
+      />
+    );
+    expect(screen.getByText('This image’s source is set in code.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Replace image/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps the class read-only banner for an image that HAS classes', () => {
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={{
+          ...imgSelection,
+          signature: { ...imgSelection.signature, className: 'h-12 w-auto' },
+        }}
+        currentClass="h-12 w-auto"
+        imageResolution={{ status: 'read_only', reason: 'This image’s source is set in code.' }}
+      />
+    );
+    // Styles genuinely aren't editable here — that's worth surfacing alongside Image.
+    expect(screen.getByText(/aren’t a static string/)).toBeInTheDocument();
+    expect(screen.getByText('Image')).toBeInTheDocument();
   });
 });

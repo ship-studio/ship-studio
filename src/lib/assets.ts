@@ -154,6 +154,17 @@ export async function createAssetFolder(projectPath: string, folderPath: string)
 }
 
 /**
+ * The URL a browser requests for an asset under the assets root — what the visual
+ * editor's image replacement writes into `src="…"`. Next.js, Astro, and Vite all
+ * serve the assets folder (`public/` by default) at the site root, so the asset's
+ * root-relative path IS its URL. Segments are percent-encoded so file names with
+ * spaces or `#` stay one URL.
+ */
+export function assetWebPath(assetPath: string): string {
+  return '/' + assetPath.split('/').map(encodeURIComponent).join('/');
+}
+
+/**
  * Helper to format file size for display
  */
 export function formatFileSize(bytes: number): string {

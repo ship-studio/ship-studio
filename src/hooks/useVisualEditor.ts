@@ -20,6 +20,8 @@ import {
   applyClassnameEditMulti,
   resolveTextSource,
   applyTextEdit,
+  resolveImageSource,
+  applySrcEdit,
   findComponentUsage,
   spacingValue,
   spacingTokenFor,
@@ -43,6 +45,7 @@ import {
   type ElementSignature,
   type Resolution,
   type TextResolution,
+  type ImageResolution,
   type UsageReport,
 } from '../lib/edit';
 import { logger } from '../lib/logger';
@@ -174,6 +177,24 @@ export function useVisualEditor({
   // a commit arrives before the (async) select-time resolve has landed.
   const selectedSigRef = useRef<ElementSignature | null>(null);
 
+  // Image src editing: the resolved src target for the current selection (null when
+  // the element isn't an image or its src isn't a static literal). Mirrored into a
+  // ref so `replaceImage` reads the latest baseline without re-subscribing.
+  const [imageResolution, setImageResolution] = useState<ImageResolution | null>(null);
+  const imageTargetRef = useRef<{
+    file: string;
+    line: number;
+    column: number;
+    src: string;
+  } | null>(null);
+  const setImageTarget = useCallback((res: ImageResolution | null) => {
+    imageTargetRef.current =
+      res?.status === 'resolved'
+        ? { file: res.file, line: res.line, column: res.column, src: res.src }
+        : null;
+    setImageResolution(res);
+  }, []);
+
   const post = useCallback(
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
     [iframeRef]
@@ -271,6 +292,7 @@ export function useVisualEditor({
       setMultiTarget('all'); // a fresh selection defaults to editing all occurrences
       setUsage(null);
       setTextTarget(null); // optimistic; iframe allows editing until told otherwise
+      setImageTarget(null);
       const usageToken = ++usageTokenRef.current;
       void (async () => {
         try {
@@ -320,10 +342,37 @@ export function useVisualEditor({
       } else {
         post({ type: 'ss:textInfo', editable: false });
       }
+      // Image src resolution runs in parallel for <img> elements — drives the
+      // panel's Image section (current asset + Replace).
+      if (sig.tagName === 'img') {
+        void (async () => {
+          try {
+            const imgRes = await resolveImageSource(projectPath, sig);
+            // Ignore if the selection changed underneath us.
+            if (usageTokenRef.current === usageToken) setImageTarget(imgRes);
+          } catch (err) {
+            logger.error('[VisualEditor] image resolve failed', { error: String(err) });
+            if (usageTokenRef.current === usageToken)
+              setImageTarget({
+                status: 'read_only',
+                reason: 'Could not resolve this image to source.',
+              });
+          }
+        })();
+      }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [editMode, projectPath, onToast, post, setLiveClass, setMultiTarget, setTextTarget]);
+  }, [
+    editMode,
+    projectPath,
+    onToast,
+    post,
+    setLiveClass,
+    setMultiTarget,
+    setTextTarget,
+    setImageTarget,
+  ]);
 
   /**
    * Merge a Tailwind token into the live class at the active breakpoint and
@@ -452,6 +501,47 @@ export function useVisualEditor({
     [selection, projectPath, onToast, post]
   );
 
+  /**
+   * Replace the selected image's src in source (immediate write, like a text
+   * commit — picking an asset IS the save) and swap the preview instantly.
+   * Throws on failure so the picker can stay open for another try.
+   */
+  const replaceImage = useCallback(
+    async (newSrc: string) => {
+      const target = imageTargetRef.current;
+      if (!target) {
+        onToast?.('Lost track of this image — reselect it and try again.', 'error');
+        throw new Error('no image target');
+      }
+      if (newSrc === target.src) return; // already this asset — nothing to write
+      // Arm reload suppression before writing (same reasoning as a class commit).
+      post({ type: 'ss:suppressReload' });
+      try {
+        await applySrcEdit(
+          projectPath,
+          target.file,
+          target.line,
+          target.column,
+          target.src,
+          newSrc
+        );
+        // Advance the drift baseline so consecutive replacements keep working.
+        target.src = newSrc;
+        setImageResolution((prev) =>
+          prev?.status === 'resolved' ? { ...prev, src: newSrc } : prev
+        );
+        post({ type: 'ss:setSrc', value: newSrc }); // instant preview (HMR confirms)
+        post({ type: 'ss:commit' });
+        onToast?.('Image replaced', 'success');
+      } catch (err) {
+        logger.error('[VisualEditor] image write-back failed', { error: String(err) });
+        onToast?.(String(err), 'error');
+        throw err;
+      }
+    },
+    [projectPath, onToast, post]
+  );
+
   // Auto-save: debounce a silent commit after edits settle. Re-running on every
   // class change clears the prior timer (so a drag saves once, when it stops); the
   // resolved-and-dirty guard means it never fires on selection alone, and the
@@ -473,11 +563,12 @@ export function useVisualEditor({
         setSelection(null);
         setLiveClass('');
         setTextTarget(null);
+        setImageTarget(null);
         selectedSigRef.current = null;
       }
       return !prev;
     });
-  }, [setLiveClass, setTextTarget]);
+  }, [setLiveClass, setTextTarget, setImageTarget]);
 
   return {
     editMode,
@@ -487,6 +578,10 @@ export function useVisualEditor({
     usage,
     /** Text-editability of the current selection (drives the panel's hint). */
     textResolution,
+    /** Image-src editability of the current selection (drives the Image section). */
+    imageResolution,
+    /** Write a new src to source and swap the preview (immediate save). */
+    replaceImage,
     /** Bumps when a double-click hits dynamic text — pulses the hand-off block. */
     textBlockedNonce,
     multiTarget,

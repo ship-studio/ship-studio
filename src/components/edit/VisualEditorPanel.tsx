@@ -24,6 +24,7 @@ import { CodeIcon } from './CodeIcon';
 import { SlackIcon } from '../icons/brand';
 import { PinIcon } from '../icons/layout';
 import { PropSection } from './PropSection';
+import { ImageSection } from './ImageSection';
 import { PropControlRenderer, type ControlRenderCtx } from './PropControlRenderer';
 import { CONTROL_SECTIONS } from '../../lib/editControls';
 import { breakpointPrefixes, type UsageReport } from '../../lib/edit';
@@ -37,6 +38,7 @@ import type {
   ElementSignature,
   Resolution,
   TextResolution,
+  ImageResolution,
 } from '../../lib/edit';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import type { Selection } from '../../hooks/useVisualEditor';
@@ -235,11 +237,17 @@ function CustomCssHint() {
 
 interface Props {
   selection: Selection | null;
+  /** Project root — the Image section's asset picker lists assets from it. */
+  projectPath: string;
   /** The class string currently applied live (what "Save" will persist). */
   currentClass: string;
   /** Text-editability of the selection. When read-only (dynamic text), the panel
    *  offers a copy-able request to hand the edit to the coding agent. */
   textResolution?: TextResolution | null;
+  /** Image-src editability of the selection — drives the Image section. */
+  imageResolution?: ImageResolution | null;
+  /** Write a new src to source and swap the preview (immediate save). */
+  onReplaceImage: (webPath: string) => Promise<void>;
   /** Bumps each time a double-click hits dynamic text — pulses the hand-off block
    *  so the user's eye is drawn to the panel after their click did nothing. */
   textBlockedNonce?: number;
@@ -290,8 +298,11 @@ function initialPos() {
 
 export function VisualEditorPanel({
   selection,
+  projectPath,
   currentClass,
   textResolution,
+  imageResolution,
+  onReplaceImage,
   textBlockedNonce,
   breakpoints,
   activeBreakpoint,
@@ -313,6 +324,8 @@ export function VisualEditorPanel({
   onTogglePin,
 }: Props) {
   const resolution = selection?.resolution ?? null;
+  // Images get an Image section (current asset + Replace) on top of style controls.
+  const isImage = selection?.signature.tagName === 'img';
   // Both 'resolved' (one spot) and 'multi' (several identical spots) are editable.
   const editable = resolution?.status === 'resolved' || resolution?.status === 'multi';
   const dirty = editable && currentClass !== resolution.class_name;
@@ -472,8 +485,22 @@ export function VisualEditorPanel({
           />
         )}
 
-        {resolution?.status === 'read_only' && textResolution?.status !== 'read_only' && (
-          <p className="ss-edit-panel__readonly">{resolution.reason}</p>
+        {/* For a classless image the class resolver's "not a static string" verdict is
+            expected (there's nothing to style-edit) — the Image section carries the
+            state instead of a confusing read-only banner. */}
+        {resolution?.status === 'read_only' &&
+          textResolution?.status !== 'read_only' &&
+          (!isImage || !!selection?.signature.className) && (
+            <p className="ss-edit-panel__readonly">{resolution.reason}</p>
+          )}
+
+        {isImage && selection && (
+          <ImageSection
+            signature={selection.signature}
+            resolution={imageResolution ?? null}
+            projectPath={projectPath}
+            onReplace={onReplaceImage}
+          />
         )}
 
         {controlsVisible && (

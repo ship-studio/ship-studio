@@ -49,7 +49,7 @@ function matching(el){var c=el.getAttribute('class');if(!c||!c.trim())return [el
    top-level rules only (descends media/supports and non-layered @imports, but skips
    @layer blocks — i.e. all the Tailwind utilities). Cross-origin sheets throw → skipped. */
 function uLayered(el){var props={};function scan(rules){for(var i=0;i<rules.length;i++){var r=rules[i];if(r.type===1){try{if(el.matches(r.selectorText)){var st=r.style;for(var j=0;j<st.length;j++)props[st[j]]=1;}}catch(e){}}else if(r.cssRules&&!(r.constructor&&r.constructor.name==='CSSLayerBlockRule')){try{scan(r.cssRules);}catch(e){}}else if(r.type===3&&r.styleSheet&&r.layerName==null){try{scan(r.styleSheet.cssRules);}catch(e){}}}}var s=document.styleSheets;for(var i=0;i<s.length;i++){try{var rr=s[i].cssRules;if(rr)scan(rr);}catch(e){}}var out=[];for(var k in props)out.push(k);return out;}
-function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el)};}
+function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
 function ensureStyle(){if(!styleEl){styleEl=document.createElement('style');styleEl.id='ss-preview';document.head.appendChild(styleEl);}return styleEl;}
 /* Build the preview CSS for one selection from its accumulated decls: base (minPx 0)
    as a bare rule, variants wrapped in @media, emitted ascending by minPx so a larger
@@ -107,9 +107,10 @@ function serializeInner(el){
    source — we select the editable container (e.g. the <h1>) that the run belongs to.
    A class is NOT required — classless tags resolve by content. */
 function textTarget(node){var el=(node&&node.nodeType===3)?node.parentElement:node,best=null;while(el&&el!==document.body){if(isEditableText(el))best=el;else if(best)break;el=el.parentElement;}return best;}
-/* What a single click selects: the editable-text element (outermost) under the cursor
-   if there is one, else the nearest classed ancestor (the style-editing target). */
-function pickTarget(node){return textTarget(node)||editable((node&&node.nodeType===3)?node.parentElement:node);}
+/* What a single click selects: an image gets picked directly (even classless — the
+   panel offers asset replacement, resolved by src value), else the editable-text
+   element (outermost) under the cursor, else the nearest classed ancestor. */
+function pickTarget(node){var el=(node&&node.nodeType===3)?node.parentElement:node;if(el&&el.nodeType===1&&el.tagName==='IMG')return el;return textTarget(node)||editable(el);}
 /* Is `el` rendered/owned by React? React tags its host DOM nodes with __reactFiber$…
    / __reactProps$… keys. Astro/plain HTML have none. */
 function isReactNode(el){if(!el)return false;var ks=Object.getOwnPropertyNames(el);for(var i=0;i<ks.length;i++){if(ks[i].indexOf('__react')===0)return true;}return false;}
@@ -306,6 +307,11 @@ else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selec
 /* Edit was saved to source: clear the pending flag so the preview rule + class are kept
    (no longer reverted on deselect/deactivate) and re-baseline the class. HMR re-renders
    from source and the real compiled CSS takes over. */
+/* Replace the selected image(s)' src for an instant preview. The source write has
+   already happened (host-initiated, like a text commit); HMR re-renders to the same
+   value, so this only bridges the gap. srcset is cleared so a framework-generated
+   candidate set can't keep showing the old image until then. */
+else if(d.type==='ss:setSrc'){if(typeof d.value==='string'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el||el.tagName!=='IMG')continue;el.setAttribute('src',d.value);if(el.hasAttribute('srcset'))el.setAttribute('srcset','');}}placeSet();}
 else if(d.type==='ss:suppressReload'){window.__ssSuppressUntil=Date.now()+3000;}
 else if(d.type==='ss:commit'){pendingMark=null;txtRevertEl=null;snapshotOrig();window.__ssSuppressUntil=Date.now()+2000;}
 else if(d.type==='ss:requestTree'){treeOn=true;treeEnsureObserver();treeSend();}

@@ -58,6 +58,10 @@ pub struct ElementSignature {
     /// Ancestor class strings, nearest-first, used to anchor to a component/file.
     #[serde(default)]
     pub ancestor_classes: Vec<String>,
+    /// The element's raw `src` attribute (images) — the image-source resolver's
+    /// search key when there's no class anchor.
+    #[serde(default)]
+    pub attr_src: Option<String>,
 }
 
 /// One source location of a className literal.
@@ -126,8 +130,11 @@ struct Span {
     tag: String,
 }
 
+/// Bytes that can extend an attribute/identifier name. Includes `-` so a needle
+/// like `src` never matches inside `data-src=` (JSX identifiers can't contain `-`,
+/// so this never rejects a real `className=`).
 fn is_ident_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b == b'-'
 }
 
 /// React/JSX `className` only. Production callers use [`find_attr_spans`] with the
@@ -1264,6 +1271,414 @@ pub fn apply_text_edit(
     Ok(())
 }
 
+// ───────────────────────────── Image source ─────────────────────────────────
+//
+// "Replace image" rides the same rails as class/text editing: resolve the clicked
+// <img> to the static `src="…"` literal in source, then surgically rewrite that
+// literal. Strategy 1 anchors on the element's className (the same resolver style
+// edits use) and reads the `src` attribute inside that opening tag — this also
+// covers framework image components (`<Image className=… src="/x.png">`) whose
+// rendered URL differs from the authored one. Strategy 2 — for classless images —
+// searches the project for the rendered `src` attribute value. Only static string
+// literals are editable; `src={…}` (imports, expressions) is read-only, mirroring
+// the className rules. No Multi rung: the same image rendered from several source
+// spots (nav + footer logo) can't be told apart, so we report it rather than guess.
+
+/// Resolution of an `<img>`'s `src` attribute to its source literal.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ImageResolution {
+    /// A single static `src="…"` literal was found and is editable.
+    Resolved {
+        /// Path relative to the project root, POSIX-style.
+        file: String,
+        /// 1-based line of the src literal's value.
+        line: usize,
+        /// 1-based column of the src literal's value.
+        column: usize,
+        /// Current static src value — the write-back's drift baseline.
+        src: String,
+        /// How the match was reached: class confidence, or "src" | "tag" | "ancestor".
+        confidence: String,
+    },
+    /// The src isn't a static string literal (import, expression) or is ambiguous.
+    ReadOnly { reason: String },
+}
+
+/// Outcome of looking for a `src` attribute inside one opening tag.
+enum SrcInTag {
+    /// A static literal, with the absolute byte offset of its value.
+    Static { value: String, value_start: usize },
+    /// A `src={…}` expression — present but not editable.
+    Dynamic,
+    /// No `src` attribute on this tag at all.
+    Missing,
+}
+
+/// The byte offset of the `>` ending the opening tag, scanning from `from` (a byte
+/// inside the tag, e.g. just past an attribute value's closing quote). Quote- and
+/// `{…}`-aware so a `>` inside an attribute string or an arrow function
+/// (`onLoad={() => a > b}`) can't end the tag early. Unlike [`text_run_in_tag`]'s
+/// scan, self-closing tags are fine — that's the common `<img />`.
+fn open_tag_end(src: &str, from: usize) -> Option<usize> {
+    let bytes = src.as_bytes();
+    let mut i = from;
+    let mut in_str: u8 = 0;
+    let mut depth: i32 = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str != 0 {
+            if b == in_str {
+                in_str = 0;
+            }
+        } else if b == b'"' || b == b'\'' || b == b'`' {
+            in_str = b;
+        } else if b == b'{' {
+            depth += 1;
+        } else if b == b'}' {
+            depth = (depth - 1).max(0);
+        } else if depth == 0 && b == b'>' {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Whether an opening-tag slice contains a standalone `name=` attribute (any value
+/// form) — used to tell a dynamic `src={…}` apart from no `src` at all.
+fn has_attr_name(tag: &str, name: &str) -> bool {
+    let bytes = tag.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = tag[from..].find(name) {
+        let i = from + rel;
+        from = i + name.len();
+        if i > 0 && is_ident_byte(bytes[i - 1]) {
+            continue;
+        }
+        let mut j = i + name.len();
+        while j < bytes.len() && (bytes[j] as char).is_whitespace() {
+            j += 1;
+        }
+        if j < bytes.len() && bytes[j] == b'=' {
+            return true;
+        }
+    }
+    false
+}
+
+/// Look for the `src` attribute inside the opening tag that contains the className
+/// literal at `class_value_start..class_value_end`. The tag is bounded by the
+/// nearest `<` before the class value and the expression-aware `>` after it; a
+/// mis-bound (e.g. a `<` inside an exotic arbitrary class value) at worst yields
+/// `Missing` — the drift-guarded write-back means a wrong edit can never happen.
+fn src_attr_in_tag(src: &str, class_value_start: usize, class_value_end: usize) -> SrcInTag {
+    let Some(start) = src[..class_value_start].rfind('<') else {
+        return SrcInTag::Missing;
+    };
+    let Some(gt) = open_tag_end(src, class_value_end + 1) else {
+        return SrcInTag::Missing;
+    };
+    let tag = &src[start..gt];
+    if let Some(span) = find_attr_spans(tag, &["src"]).into_iter().next() {
+        return SrcInTag::Static {
+            value: span.value,
+            value_start: start + span.value_start,
+        };
+    }
+    if has_attr_name(tag, "src") {
+        SrcInTag::Dynamic
+    } else {
+        SrcInTag::Missing
+    }
+}
+
+/// One static `src="…"` literal found in source.
+#[derive(Debug, Clone)]
+struct SrcOccurrence {
+    value: String,
+    /// Project-relative POSIX path.
+    file: String,
+    line: usize,
+    column: usize,
+    /// Lowercased nearest opening-tag identifier (soft signal, like class matching).
+    tag: String,
+}
+
+/// Index every static `src="…"` literal under `root` (same walk/filters as the
+/// className index). Built fresh per resolve — image selections are infrequent
+/// enough that a cache isn't worth the invalidation surface.
+fn index_src_occurrences(root: &Path) -> Vec<SrcOccurrence> {
+    let mut out = Vec::new();
+    let walker = ignore::WalkBuilder::new(root)
+        .standard_filters(true)
+        .build();
+    for entry in walker.flatten() {
+        let path = entry.path();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        if !SOURCE_EXTS.contains(&ext.as_str()) {
+            continue;
+        }
+        let Ok(src) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        for span in find_attr_spans(&src, &["src"]) {
+            out.push(SrcOccurrence {
+                value: span.value,
+                file: rel.clone(),
+                line: span.line,
+                column: span.column,
+                tag: span.tag,
+            });
+        }
+    }
+    out
+}
+
+/// Minimal percent-decoder (UTF-8, `+`→space). None on malformed escapes.
+fn percent_decode(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' => {
+                let hex = s.get(i + 1..i + 3)?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                i += 3;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// If `src` is a Next.js image-optimizer URL (`/_next/image?url=…`), recover the
+/// authored source path from the `url` param so it matches the source literal.
+fn next_image_url(src: &str) -> Option<String> {
+    let query = src.strip_prefix("/_next/image?")?;
+    for pair in query.split('&') {
+        if let Some(v) = pair.strip_prefix("url=") {
+            return percent_decode(v);
+        }
+    }
+    None
+}
+
+/// Resolve an image by searching source for its rendered `src` value. Used when
+/// there's no class anchor (classless `<img>`, or a repeated class). Disambiguates
+/// repeats by tag, then by a unique ancestor's file — same ladder as class/text.
+fn resolve_src_by_value(
+    class_occ: &[Occurrence],
+    src_occ: &[SrcOccurrence],
+    sig: &ElementSignature,
+) -> ImageResolution {
+    const DYNAMIC_REASON: &str =
+        "This image's source comes from code or data, so it can't be swapped here.";
+    let Some(raw) = sig.attr_src.as_deref().filter(|s| !s.trim().is_empty()) else {
+        return ImageResolution::ReadOnly {
+            reason: DYNAMIC_REASON.into(),
+        };
+    };
+    let want = next_image_url(raw).unwrap_or_else(|| raw.to_string());
+    let matches: Vec<&SrcOccurrence> = src_occ.iter().filter(|o| o.value == want).collect();
+    if matches.is_empty() {
+        return ImageResolution::ReadOnly {
+            reason: DYNAMIC_REASON.into(),
+        };
+    }
+
+    let distinct = |cands: &[&SrcOccurrence]| {
+        let mut set = std::collections::HashSet::new();
+        for c in cands {
+            set.insert((c.file.as_str(), c.line, c.column));
+        }
+        set.len()
+    };
+    let resolved = |o: &SrcOccurrence, confidence: &str| ImageResolution::Resolved {
+        file: o.file.clone(),
+        line: o.line,
+        column: o.column,
+        src: o.value.clone(),
+        confidence: confidence.to_string(),
+    };
+
+    if distinct(&matches) == 1 {
+        return resolved(matches[0], "src");
+    }
+
+    // Narrow by tag (soft — only if it leaves candidates).
+    let tag_filtered: Vec<&SrcOccurrence> = matches
+        .iter()
+        .copied()
+        .filter(|o| o.tag == sig.tag_name)
+        .collect();
+    let pool = if tag_filtered.is_empty() {
+        matches.clone()
+    } else {
+        tag_filtered
+    };
+    if distinct(&pool) == 1 {
+        return resolved(pool[0], "tag");
+    }
+
+    // Anchor to the file of a unique-in-source ancestor class.
+    for anc in &sig.ancestor_classes {
+        let anc_occ: Vec<&Occurrence> = class_occ.iter().filter(|o| &o.class_name == anc).collect();
+        if anc_occ.len() == 1 {
+            let file = &anc_occ[0].file;
+            let in_file: Vec<&SrcOccurrence> =
+                pool.iter().copied().filter(|o| &o.file == file).collect();
+            if distinct(&in_file) == 1 {
+                return resolved(in_file[0], "ancestor");
+            }
+            break;
+        }
+    }
+
+    ImageResolution::ReadOnly {
+        reason: "This image is used in several places in your code, so the editor can't tell which one you mean — change it in the Code tab instead.".into(),
+    }
+}
+
+/// Resolve a clicked image to its editable `src` source literal. Strategy 1: anchor
+/// on the element's className (most reliable; also covers framework image components
+/// whose rendered URL differs from the authored one). Strategy 2: search source for
+/// the rendered `src` attribute value.
+#[tauri::command]
+#[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
+pub fn resolve_image_source(
+    project_path: String,
+    signature: ElementSignature,
+) -> Result<ImageResolution, CommandError> {
+    let root = validate_project_path(&project_path)?;
+    let occurrences = index_occurrences_cached(&root);
+
+    // Strategy 1: class-anchored.
+    if !signature.class_name.trim().is_empty() {
+        if let Resolution::Resolved {
+            file,
+            line,
+            class_name,
+            confidence,
+            ..
+        } = resolve(occurrences.as_slice(), &signature)
+        {
+            if let Ok(src) = std::fs::read_to_string(root.join(&file)) {
+                if let Some(span) = find_attr_spans(&src, attrs_for_path(&file))
+                    .into_iter()
+                    .find(|s| s.line == line && s.value == class_name)
+                {
+                    match src_attr_in_tag(&src, span.value_start, span.value_end) {
+                        SrcInTag::Static { value, value_start } => {
+                            let (line, column) = line_col(&src, value_start);
+                            return Ok(ImageResolution::Resolved {
+                                file,
+                                line,
+                                column,
+                                src: value,
+                                confidence,
+                            });
+                        }
+                        SrcInTag::Dynamic => {
+                            return Ok(ImageResolution::ReadOnly {
+                                reason: "This image's source is set in code (an import or expression), so it can't be swapped here.".into(),
+                            });
+                        }
+                        SrcInTag::Missing => {} // fall through to the value search
+                    }
+                }
+            }
+        }
+    }
+
+    // Strategy 2: value search.
+    let src_occ = index_src_occurrences(&root);
+    Ok(resolve_src_by_value(
+        occurrences.as_slice(),
+        &src_occ,
+        &signature,
+    ))
+}
+
+/// Characters that can't appear in a quoted attribute value without breaking the
+/// markup: quotes/backticks would terminate the literal, `<`/`>` would inject
+/// markup, `{`/`}` would read as a JSX expression. Control chars have no business
+/// in a URL; spaces are fine (browsers encode them).
+fn invalid_src_value(s: &str) -> bool {
+    s.is_empty()
+        || s.chars()
+            .any(|c| matches!(c, '"' | '\'' | '`' | '<' | '>' | '{' | '}' | '\\') || c.is_control())
+}
+
+/// Surgically replace one static `src` literal's value, after verifying it still
+/// equals `old_src` (drift guard). The `column` pins the exact attribute when
+/// identical values share a line. Only the literal's value is touched — the rest of
+/// the file is preserved byte-for-byte.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path, file = %file, line = line))]
+pub fn apply_src_edit(
+    project_path: String,
+    file: String,
+    line: usize,
+    column: usize,
+    old_src: String,
+    new_src: String,
+) -> Result<(), CommandError> {
+    if invalid_src_value(&new_src) {
+        return Err(CommandError::Validation {
+            field: "new_src".into(),
+            reason: "Image paths can't be empty or contain quotes, braces, or angle brackets."
+                .into(),
+        });
+    }
+    let root = validate_project_path(&project_path)?;
+    let abs = root.join(&file);
+    // Defense in depth: the edited file must stay inside the project.
+    let canon_root = root.canonicalize().map_err(CommandError::from)?;
+    let canon_file = abs.canonicalize().map_err(CommandError::from)?;
+    if !canon_file.starts_with(&canon_root) {
+        return Err(CommandError::Validation {
+            field: "file".into(),
+            reason: "edit target is outside the project".into(),
+        });
+    }
+
+    let src = std::fs::read_to_string(&abs).map_err(CommandError::from)?;
+    let span = find_attr_spans(&src, &["src"])
+        .into_iter()
+        .find(|s| s.line == line && s.column == column && s.value == old_src)
+        .ok_or_else(|| CommandError::Validation {
+            field: "old_src".into(),
+            reason: "source no longer matches — reselect the image".into(),
+        })?;
+
+    let mut updated = String::with_capacity(src.len() + new_src.len());
+    updated.push_str(&src[..span.value_start]);
+    updated.push_str(&new_src);
+    updated.push_str(&src[span.value_end..]);
+
+    std::fs::write(&abs, updated).map_err(CommandError::from)?;
+    invalidate_index_cache(&root);
+    Ok(())
+}
+
 // ───────────────────────────── Breakpoints ──────────────────────────────────
 
 /// A responsive breakpoint the editor can target (serialized to the frontend as
@@ -1724,6 +2139,7 @@ mod tests {
             tag_name: tag.into(),
             text: None,
             ancestor_classes: ancestors.iter().map(|s| s.to_string()).collect(),
+            attr_src: None,
         }
     }
 
@@ -2141,6 +2557,7 @@ const items = [];
             tag_name: "p".into(),
             text: Some("Health systems.".into()),
             ancestor_classes: vec![],
+            attr_src: None,
         };
         match resolve_text_by_content(&[], &texts, &sig) {
             TextResolution::Resolved { line, text, .. } => {
@@ -2163,6 +2580,7 @@ const items = [];
             tag_name: "span".into(),
             text: Some("KEY INDUSTRIES".into()), // CSS-uppercased innerText
             ancestor_classes: vec![],
+            attr_src: None,
         };
         match resolve_text_by_content(&[], &texts, &sig) {
             TextResolution::Resolved { line, text, .. } => {
@@ -2184,6 +2602,7 @@ const items = [];
             tag_name: "a".into(),
             text: Some("Read more".into()),
             ancestor_classes: vec![],
+            attr_src: None,
         };
         assert!(matches!(
             resolve_text_by_content(&[], &texts, &sig),
@@ -2402,5 +2821,142 @@ const items = [];
         assert!(chk(&c), "tailwind.config.js present → active");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ───────────────────────── Image source ─────────────────────────
+
+    fn img_sig(class: &str, tag: &str, src: &str) -> ElementSignature {
+        ElementSignature {
+            class_name: class.into(),
+            tag_name: tag.into(),
+            text: None,
+            ancestor_classes: vec![],
+            attr_src: Some(src.into()),
+        }
+    }
+
+    fn soc(value: &str, file: &str, line: usize, tag: &str) -> SrcOccurrence {
+        SrcOccurrence {
+            value: value.into(),
+            file: file.into(),
+            line,
+            column: 1,
+            tag: tag.into(),
+        }
+    }
+
+    #[test]
+    fn finds_static_src_skips_dynamic_and_lookalikes() {
+        let src = r#"
+            <img src="/hero.png" alt="hero" />
+            <img src={heroImg} alt="dynamic" />
+            <div data-src="/not-an-img.png" srcset="/a.png 1x" />
+            <Image src={"/quoted.png"} />
+        "#;
+        let spans = find_attr_spans(src, &["src"]);
+        let values: Vec<&str> = spans.iter().map(|s| s.value.as_str()).collect();
+        assert_eq!(values, vec!["/hero.png", "/quoted.png"]);
+    }
+
+    #[test]
+    fn src_in_tag_static_before_and_after_class() {
+        for src in [
+            r#"<img className="logo" src="/logo.png" />"#,
+            r#"<img src="/logo.png" className="logo" />"#,
+            "<img\n  src=\"/logo.png\"\n  className=\"logo\"\n  onLoad={() => a > b}\n/>",
+        ] {
+            let class_span = find_attr_spans(src, &["className"])
+                .into_iter()
+                .find(|s| s.value == "logo")
+                .unwrap();
+            match src_attr_in_tag(src, class_span.value_start, class_span.value_end) {
+                SrcInTag::Static { value, .. } => assert_eq!(value, "/logo.png"),
+                _ => panic!("expected Static in {src}"),
+            }
+        }
+    }
+
+    #[test]
+    fn src_in_tag_dynamic_and_missing() {
+        let dynamic = r#"<img className="logo" src={logo} />"#;
+        let span = find_attr_spans(dynamic, &["className"])[0].clone();
+        assert!(matches!(
+            src_attr_in_tag(dynamic, span.value_start, span.value_end),
+            SrcInTag::Dynamic
+        ));
+
+        let missing = r#"<div className="logo">x</div>"#;
+        let span = find_attr_spans(missing, &["className"])[0].clone();
+        assert!(matches!(
+            src_attr_in_tag(missing, span.value_start, span.value_end),
+            SrcInTag::Missing
+        ));
+    }
+
+    #[test]
+    fn src_in_tag_ignores_sibling_tags() {
+        // A src on a CHILD tag must not be picked up for a tag without one.
+        let src = r#"<div className="wrap"><img src="/a.png" /></div>"#;
+        let span = find_attr_spans(src, &["className"])[0].clone();
+        assert!(matches!(
+            src_attr_in_tag(src, span.value_start, span.value_end),
+            SrcInTag::Missing
+        ));
+    }
+
+    #[test]
+    fn next_image_url_decodes_the_authored_path() {
+        assert_eq!(
+            next_image_url("/_next/image?url=%2Fhero%20shot.png&w=640&q=75"),
+            Some("/hero shot.png".into())
+        );
+        assert_eq!(next_image_url("/hero.png"), None);
+    }
+
+    #[test]
+    fn src_value_search_resolves_unique_and_reports_ambiguous() {
+        let occ = vec![
+            soc("/logo.png", "Nav.tsx", 4, "img"),
+            soc("/hero.png", "Hero.tsx", 9, "img"),
+        ];
+        match resolve_src_by_value(&[], &occ, &img_sig("", "img", "/hero.png")) {
+            ImageResolution::Resolved {
+                file, line, src, ..
+            } => {
+                assert_eq!(file, "Hero.tsx");
+                assert_eq!(line, 9);
+                assert_eq!(src, "/hero.png");
+            }
+            other => panic!("expected Resolved, got {other:?}"),
+        }
+
+        let dup = vec![
+            soc("/logo.png", "Nav.tsx", 4, "img"),
+            soc("/logo.png", "Footer.tsx", 12, "img"),
+        ];
+        assert!(matches!(
+            resolve_src_by_value(&[], &dup, &img_sig("", "img", "/logo.png")),
+            ImageResolution::ReadOnly { .. }
+        ));
+    }
+
+    #[test]
+    fn src_value_search_unwraps_next_image_optimizer_urls() {
+        let occ = vec![soc("/hero.png", "Hero.tsx", 9, "image")];
+        let sig = img_sig("", "img", "/_next/image?url=%2Fhero.png&w=828&q=75");
+        assert!(matches!(
+            resolve_src_by_value(&[], &occ, &sig),
+            ImageResolution::Resolved { .. }
+        ));
+    }
+
+    #[test]
+    fn src_value_rejects_markup_breaking_paths() {
+        assert!(invalid_src_value(""));
+        assert!(invalid_src_value(r#"/a".png"#));
+        assert!(invalid_src_value("/a{b}.png"));
+        assert!(invalid_src_value("/a<b>.png"));
+        assert!(!invalid_src_value("/images/My Logo (1).png"));
+        assert!(!invalid_src_value("/hero.png?v=2"));
     }
 }

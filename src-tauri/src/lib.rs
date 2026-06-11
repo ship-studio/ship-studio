@@ -372,6 +372,8 @@ pub fn run() {
             commands::edit::apply_classname_edit_multi,
             commands::edit::resolve_text_source,
             commands::edit::apply_text_edit,
+            commands::edit::resolve_image_source,
+            commands::edit::apply_src_edit,
             commands::edit::find_component_usage,
             commands::edit::detect_breakpoints,
             commands::edit::is_tailwind_active,

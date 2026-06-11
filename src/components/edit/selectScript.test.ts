@@ -237,3 +237,35 @@ it('accumulates preview rules across multiple properties', () => {
   expect(block()).not.toContain('padding:');
   expect(block()).toContain('gap:2.5rem !important');
 });
+
+/** Drain jsdom's async postMessage queue so a prior test's un-awaited `ss:select`
+ *  can't be the one a fresh `nextSelect()` resolves with. */
+const flushMessages = () => new Promise((r) => setTimeout(r, 0));
+
+it('selects a clicked image directly — even classless — and reports its src', async () => {
+  document.body.innerHTML = '<div class="figure"><img src="/images/hero.png" alt="Hero" /></div>';
+  send({ type: 'ss:activate' });
+  await flushMessages();
+  const selected = nextSelect();
+  document.querySelector('img')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  const msg = await selected;
+  // The image itself is the selection target (not the classed parent div).
+  expect(msg.signature.tagName).toBe('img');
+  expect(msg.signature.className).toBe('');
+  expect(msg.signature.attrSrc).toBe('/images/hero.png');
+});
+
+it('swaps the selected image src on ss:setSrc and clears a stale srcset', async () => {
+  document.body.innerHTML =
+    '<img class="logo" src="/old.png" srcset="/old.png 1x, /old@2x.png 2x" />';
+  send({ type: 'ss:activate' });
+  await flushMessages();
+  const selected = nextSelect();
+  document.querySelector('img')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await selected;
+  send({ type: 'ss:setSrc', value: '/new.png' });
+  const img = document.querySelector('img')!;
+  expect(img.getAttribute('src')).toBe('/new.png');
+  // srcset would keep showing the old candidate set — it's cleared until HMR re-renders.
+  expect(img.getAttribute('srcset')).toBe('');
+});
