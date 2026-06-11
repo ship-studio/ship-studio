@@ -606,14 +606,19 @@ fn validate_project_name(name: &str) -> Result<String, CommandError> {
 /// Renames a project's directory on disk and rekeys all path-keyed stores.
 ///
 /// Only ~/ShipStudio projects can be renamed (external projects are rejected,
-/// matching `delete_project`). Refuses to rename while the project is open in a
-/// window or has an active background session, to avoid racing live PTYs and
-/// reserved ports. Everything inside the directory — git remotes, `.vercel`,
-/// `.shipstudio` metadata — travels with the move untouched. Returns the new
-/// absolute path.
+/// matching `delete_project`). Refuses to rename while the project is open in
+/// a *different* window; a hot background session (the rail keeps PTYs and dev
+/// servers alive after the user returns to the dashboard) is suspended first
+/// so the folder isn't moved out from under live processes. Everything inside
+/// the directory — git remotes, `.vercel`, `.shipstudio` metadata — travels
+/// with the move untouched. Returns the new absolute path.
 #[tauri::command]
-#[tracing::instrument]
-pub async fn rename_project(old_path: String, new_name: String) -> Result<String, CommandError> {
+#[tracing::instrument(skip(window))]
+pub async fn rename_project(
+    window: tauri::Window,
+    old_path: String,
+    new_name: String,
+) -> Result<String, CommandError> {
     let project_path = std::path::Path::new(&old_path);
 
     // Reject external projects (their folders live outside ~/ShipStudio).
@@ -640,15 +645,34 @@ pub async fn rename_project(old_path: String, new_name: String) -> Result<String
     // Validate + normalize the requested name.
     let new_name = validate_project_name(&new_name)?;
 
-    // Refuse to rename a project that's currently open or actively running —
-    // moving the directory out from under live PTYs / reserved ports is a
-    // recipe for corruption. Suspended pinned sessions are fine (rekeyed below).
-    if crate::state::get_window_for_project(&old_path).is_some() {
-        return Err(("Close this project before renaming it.".to_string()).into());
+    // The rename UI only exists on the dashboard, so if the window registry
+    // says *this* window owns the project, the entry is stale — the user
+    // navigated back to the dashboard, which never unregisters (hot-session
+    // contract). Clear it and continue. A *different* window owning it means
+    // the project may genuinely be on screen there: refuse.
+    if let Some(owning_label) = crate::state::get_window_for_project(&old_path) {
+        if owning_label != window.label() {
+            return Err(
+                "This project is open in another window. Close that window, then rename."
+                    .to_string()
+                    .into(),
+            );
+        }
+        crate::state::unregister_project_window(&old_path);
     }
+
+    // A hot background session (PTYs / dev server kept alive by the rail)
+    // would have the folder moved out from under its live processes. Suspend
+    // it first — same teardown as the rail's close button; the pin survives
+    // and is rekeyed below, so the user can cold-start it at the new path.
     if let Some(session) = crate::state::get_session(&old_path) {
         if session.status == crate::state::SessionStatus::Active {
-            return Err(("Close this project before renaming it.".to_string()).into());
+            let killed = sessions::suspend_session_internal(&old_path).await;
+            tracing::info!(
+                "Suspended hot session before rename: project={}, killed_ptys={}",
+                old_path,
+                killed
+            );
         }
     }
 

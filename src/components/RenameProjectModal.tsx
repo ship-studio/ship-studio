@@ -11,6 +11,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 interface RenameProjectModalProps {
   /** Whether the modal is open */
@@ -57,7 +58,7 @@ export function RenameProjectModal({
       await onRename(trimmed);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
     } finally {
       setLoading(false);
     }
@@ -83,7 +84,7 @@ export function RenameProjectModal({
         </div>
         <p className="hint">
           This renames the folder on disk. Git history, deployments, and project settings are
-          preserved.
+          preserved. If the project is running in the background, it will be stopped first.
         </p>
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">

@@ -26,6 +26,7 @@ import {
   exportProjectAsTemplate,
 } from '../lib/project';
 import { unregisterExternalProject } from '../lib/external-projects';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError } from '../lib/analytics';
 import {
@@ -311,7 +312,7 @@ export function ProjectList({
       logger.error('Failed to delete project', {
         error: error instanceof Error ? error.message : String(error),
       });
-      alert('Failed to delete project: ' + String(error));
+      alert('Failed to delete project: ' + formatCommandError(asCommandError(error)));
     } finally {
       setDeleting(false);
     }

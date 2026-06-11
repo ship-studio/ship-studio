@@ -103,18 +103,27 @@ pub async fn register_project_session(
 #[tauri::command]
 #[tracing::instrument]
 pub async fn suspend_project_session(project_path: String) -> Result<u32, CommandError> {
-    let killed = kill_project_pty_internal(&project_path);
+    Ok(suspend_session_internal(&project_path).await)
+}
+
+/// Shared suspension teardown: kill the project's PTYs, tear down its mobile
+/// preview, and mark the registry entry `Suspended`. Used by the
+/// `suspend_project_session` command and by `rename_project`, which suspends
+/// a hot background session before moving the folder out from under it.
+/// Returns the number of PTYs killed.
+pub async fn suspend_session_internal(project_path: &str) -> u32 {
+    let killed = kill_project_pty_internal(project_path);
     // Suspending frees the project's resources — the mobile preview (serve-sim
     // daemon + app-build pty_session) lives in registries the PTY sweep above
     // doesn't reach, so tear it down explicitly here too.
-    crate::commands::mobile::teardown_mobile_preview(project_path.clone()).await;
-    mark_session_suspended(&project_path);
+    crate::commands::mobile::teardown_mobile_preview(project_path.to_string()).await;
+    mark_session_suspended(project_path);
     tracing::info!(
         "Suspended session: project={}, killed_ptys={}",
         project_path,
         killed
     );
-    Ok(killed)
+    killed
 }
 
 /// Fully remove a project session from the registry.
