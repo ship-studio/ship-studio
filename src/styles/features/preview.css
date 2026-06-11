@@ -235,9 +235,10 @@
   color: var(--text-muted);
 }
 
-/* Refresh + fullscreen — matched icon buttons (same icon pack, same height) */
+/* Refresh + fullscreen + tree toggle — matched icon buttons */
 .preview-refresh,
-.preview-fullscreen-btn {
+.preview-fullscreen-btn,
+.preview-tree-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -254,9 +255,14 @@
 }
 
 .preview-refresh:hover,
-.preview-fullscreen-btn:hover {
+.preview-fullscreen-btn:hover,
+.preview-tree-btn:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+.preview-tree-btn.active {
+  color: var(--accent);
 }
 
 /* Fullscreen: the container covers the window below the workspace header
@@ -310,11 +316,12 @@
   box-shadow: none;
 }
 
-/* The pinned header is its own bar below the toolbar — keep the same bar
-   height as the toolbar for consistency; no drag affordance while docked. */
+/* The pinned header is its own bar below the toolbar — same bar height and
+   surface as the toolbar for consistency; no drag affordance while docked. */
 .ss-edit-panel.ss-edit-panel--pinned .ss-edit-panel__header {
   height: var(--preview-toolbar-h);
   flex-shrink: 0;
+  background: var(--bg-secondary);
 }
 .ss-edit-panel.ss-edit-panel--pinned .ss-edit-panel__header,
 .ss-edit-panel.ss-edit-panel--pinned .ss-edit-panel__header:active {

@@ -46,7 +46,7 @@ import { VisualEditorPanel } from './edit/VisualEditorPanel';
 import { ElementTreePanel } from './edit/ElementTreePanel';
 import { useElementTree } from '../hooks/useElementTree';
 import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocaleSwitcher';
-import { CompactIcon, ExpandIcon, ResetIcon } from './icons';
+import { CompactIcon, ExpandIcon, PanelLeftIcon, ResetIcon } from './icons';
 import { pathLocale, switchPathLocale } from '../lib/i18n';
 import type { ProjectType } from '../lib/static-server';
 
@@ -511,8 +511,18 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   });
 
   // Element tree (navigator) — left column in fullscreen edit mode, like
-  // Webflow's navigator: read-only, select-only.
-  const showTree = isFullscreen && editor.editMode;
+  // Webflow's navigator: read-only, select-only. Toggleable from the toolbar;
+  // the choice persists cross-project like the editor pin.
+  const [treeVisible, setTreeVisible] = useState(
+    () => localStorage.getItem('elementTreeVisible') !== '0'
+  );
+  const toggleTreeVisible = useCallback(() => {
+    setTreeVisible((v) => {
+      localStorage.setItem('elementTreeVisible', v ? '0' : '1');
+      return !v;
+    });
+  }, []);
+  const showTree = isFullscreen && editor.editMode && treeVisible;
   const elementTree = useElementTree({ iframeRef, enabled: showTree });
 
   const [iframeSize, setIframeSize] = useState<{ w: number; h: number } | null>(null);
@@ -812,6 +822,18 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         >
           {isFullscreen ? <CompactIcon size={14} /> : <ExpandIcon size={14} />}
         </button>
+
+        {isFullscreen && editor.editMode && (
+          <button
+            type="button"
+            className={`preview-tree-btn${treeVisible ? ' active' : ''}`}
+            onClick={toggleTreeVisible}
+            title={treeVisible ? 'Hide element tree' : 'Show element tree'}
+            aria-pressed={treeVisible}
+          >
+            <PanelLeftIcon size={14} />
+          </button>
+        )}
 
         {previewPlugins}
 

@@ -18,7 +18,8 @@
   height: var(--preview-toolbar-h);
   flex-shrink: 0;
   padding: 0 var(--spacing-md);
-  background: var(--bg-tertiary);
+  /* Same surface as the preview toolbar so the bars read as one row. */
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
 }
 
