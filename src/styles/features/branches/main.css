@@ -12,7 +12,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -59,7 +59,7 @@
 }
 
 .branch-live-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 1px 5px;
   background: rgba(34, 197, 94, 0.15);
   color: var(--success-light);
@@ -76,7 +76,7 @@
 }
 
 .branch-unsaved-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 1px 5px;
   background: rgba(245, 158, 11, 0.15);
   color: var(--warning);
@@ -107,7 +107,7 @@
 .branch-changes-header {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -123,7 +123,7 @@
   gap: 8px;
   padding: 8px 12px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   transition: background var(--transition-fast);
 }
 
@@ -146,7 +146,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   line-height: 1;
   border-radius: 3px;
@@ -211,7 +211,7 @@
   border: none;
   border-radius: var(--radius-sm);
   color: white;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -233,7 +233,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--error);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -288,7 +288,7 @@
 
 .branch-dropdown-header {
   padding: 12px 14px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -301,7 +301,7 @@
 
 .branch-dropdown-section-label {
   padding: 8px 14px 4px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -315,7 +315,7 @@
   border: none;
   border-radius: 0;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
   transition: background var(--transition);
@@ -353,7 +353,7 @@
 }
 
 .branch-item-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 1px 5px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -368,7 +368,7 @@
 }
 
 .branch-item-meta {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -398,7 +398,7 @@
   background: none;
   border: none;
   color: #3b82f6;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
   transition:

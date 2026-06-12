@@ -15,14 +15,14 @@
 
 .branch-selector-header h2 {
   margin: 0 0 4px 0;
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .branch-selector-header p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
 }
 
@@ -38,7 +38,7 @@
 
 .branch-selector-section-label {
   padding: 8px 24px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -101,20 +101,20 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .branch-selector-meta {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
 }
 
 .branch-selector-warning {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--warning);
 }
 
@@ -133,7 +133,7 @@
   background: none;
   border: none;
   color: #3b82f6;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition: color var(--transition);
 }
@@ -153,7 +153,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   outline: none;
   transition: border-color var(--transition);
 }
@@ -171,7 +171,7 @@
   align-items: center;
   gap: 8px;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
 }
 
@@ -181,7 +181,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 /* Branch Selector Footer */
@@ -220,7 +220,7 @@
 
 .publish-branch-header h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -251,14 +251,14 @@
 }
 
 .publish-branch-name {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .publish-branch-description {
   margin-bottom: 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -272,7 +272,7 @@
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--error-light);
   line-height: 1.4;
 }
@@ -282,7 +282,7 @@
   margin-bottom: 8px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 .publish-branch-url-label {
@@ -331,7 +331,7 @@
 
 .post-merge-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -342,7 +342,7 @@
 
 .post-merge-body p {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -356,7 +356,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   text-decoration: none;
   margin-top: var(--spacing-md);
@@ -425,7 +425,7 @@
 }
 
 .pr-card-title {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -434,14 +434,14 @@
 }
 
 .pr-card-number {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 400;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .pr-card-meta {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
 }
 
@@ -455,7 +455,7 @@
   padding: 2px 6px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-family: monospace;
 }
 
@@ -467,7 +467,7 @@
   padding: 6px 10px;
   background: rgba(245, 158, 11, 0.1);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--warning);
 }
 
@@ -493,7 +493,7 @@
 
 /* TODO: Replace hard-coded #3b82f6 with var(--accent) for theme consistency */
 .pr-card-current-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: #3b82f6;
   font-weight: 500;
   flex-shrink: 0;
@@ -533,7 +533,7 @@
 
 .git-error-header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -543,7 +543,7 @@
 }
 
 .git-error-description {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--text-secondary);
   line-height: 1.5;
   margin-bottom: 16px;
@@ -554,7 +554,7 @@
 }
 
 .git-error-prompt-label {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   margin-bottom: 8px;
 }
@@ -564,7 +564,7 @@
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.5;
   font-family: inherit;
@@ -625,7 +625,7 @@
 
 .submit-review-header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -639,7 +639,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -692,7 +692,7 @@
 
 .submit-review-commit-prompt p {
   margin: 0 0 10px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -706,7 +706,7 @@
   border: none;
   border-radius: var(--radius);
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition);
@@ -731,7 +731,7 @@
 
 .submit-review-label {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin-bottom: 6px;
 }
@@ -743,7 +743,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   outline: none;
   transition: border-color var(--transition);
   box-sizing: border-box;
@@ -770,7 +770,7 @@ select.submit-review-input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-family: inherit;
   resize: vertical;
   outline: none;
@@ -801,7 +801,7 @@ select.submit-review-input {
 
 .unsaved-changes-body p {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--text-secondary);
   line-height: 1.5;
 }

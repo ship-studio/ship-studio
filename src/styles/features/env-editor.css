@@ -15,7 +15,7 @@
 }
 
 .env-editor-header h3 {
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   margin: 0;
 }
@@ -59,7 +59,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-family: monospace;
   cursor: pointer;
   transition:
@@ -82,7 +82,7 @@
 .env-file-tab.env-add-file {
   padding: 6px 10px;
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
 }
 
@@ -98,7 +98,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-family: monospace;
   width: 140px;
 }
@@ -155,7 +155,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-family: monospace;
 }
 
@@ -176,7 +176,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-family: monospace;
 }
 
@@ -245,7 +245,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -264,7 +264,7 @@
   border: none;
   border-radius: var(--radius);
   color: #1e1e1e;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -289,7 +289,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -307,7 +307,7 @@
   padding: 40px 20px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 
 .env-empty-state {
@@ -336,14 +336,14 @@
 }
 
 .env-empty-state h4 {
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 8px 0;
 }
 
 .env-empty-state p {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-muted);
   margin: 0 0 20px 0;
   max-width: 260px;
@@ -355,7 +355,7 @@
   border: none;
   border-radius: var(--radius);
   color: #1e1e1e;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -376,7 +376,7 @@
 
 .env-error {
   color: var(--error);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   padding: 8px 12px;
   background: rgba(244, 71, 71, 0.1);
   border-radius: var(--radius);
@@ -407,7 +407,7 @@
   align-items: center;
   gap: 8px;
   color: var(--warning-light);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .env-sync-info svg {
@@ -420,7 +420,7 @@
   border: 1px solid rgba(251, 191, 36, 0.4);
   border-radius: var(--radius);
   color: var(--warning-light);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -445,7 +445,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -493,14 +493,14 @@
 }
 
 .env-paste-header h4 {
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   margin: 0;
   color: var(--text-primary);
 }
 
 .env-paste-hint {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-muted);
   margin: 0;
 }
@@ -513,7 +513,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-family: monospace;
   line-height: 1.5;
   resize: vertical;
@@ -542,7 +542,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -561,7 +561,7 @@
   border: none;
   border-radius: var(--radius);
   color: #1e1e1e;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
   transition:

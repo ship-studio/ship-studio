@@ -7,7 +7,7 @@
   min-height: 0;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 .health-tab--empty {
@@ -26,7 +26,7 @@
 }
 
 .health-tab-empty-title {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -62,7 +62,7 @@
   gap: 4px;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   background: var(--bg-tertiary);
 }
 
@@ -226,7 +226,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 400;
   line-height: 1.4;
   white-space: normal;
@@ -245,7 +245,7 @@
 
 .health-tab-row-status {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 .health-tab-row--pass .health-tab-row-status {
@@ -263,7 +263,7 @@
 .health-tab-row-meta,
 .health-tab-row-time {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -349,7 +349,7 @@
 .health-tab-output-meta {
   color: var(--text-muted);
   font-weight: 400;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -365,7 +365,7 @@
   padding: var(--spacing-md);
   overflow: auto;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--text-primary);
   background: var(--bg-primary);
@@ -398,7 +398,7 @@
 }
 
 .health-tab-suggestions-title {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -418,7 +418,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 .health-tab-suggestion-code {
@@ -439,7 +439,7 @@
   margin: 0;
   padding: var(--spacing-md);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--text-primary);
   background: var(--bg-primary);

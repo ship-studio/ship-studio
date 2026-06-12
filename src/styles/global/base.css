@@ -32,11 +32,15 @@
   --bg-primary: #1e1e1e;
   --bg-secondary: #252526;
   --bg-tertiary: #2d2d2d;
+  /* Recessed wells: terminal panes, log output, code editors */
+  --bg-deep: #1a1a1a;
 
   /* Text */
   --text-primary: #cccccc;
   --text-secondary: #9d9d9d;
   --text-muted: #6d6d6d;
+  /* Pure white — high-emphasis text/icons on dark surfaces */
+  --text-bright: #ffffff;
 
   /* Brand / interactive */
   --accent: #ffffff;
@@ -52,6 +56,59 @@
   --warning-light: #fbbf24;
   --error: #f44747;
   --error-light: #ef4444;
+
+  /* Informational blue (links, info banners, "open" PR state, focus accents) */
+  --info: #3b82f6;
+  --info-hover: #2563eb;
+  --info-light: #60a5fa;
+  --info-dark: #1d4ed8;
+
+  /* AI / agent accent (skills, MCP, plugin marketplace) */
+  --purple: #a855f7;
+  --purple-light: #a78bfa;
+
+  /* RGB triplets — for alpha tints only: rgba(var(--error-rgb), 0.1).
+   * Keep each in sync with its solid token above. */
+  --success-rgb: 78, 205, 196;
+  --success-light-rgb: 34, 197, 94;
+  --warning-rgb: 245, 158, 11;
+  --warning-light-rgb: 251, 191, 36;
+  --error-rgb: 244, 71, 71;
+  --error-light-rgb: 239, 68, 68;
+  --info-rgb: 59, 130, 246;
+  --info-light-rgb: 96, 165, 250;
+  --purple-rgb: 147, 51, 234;
+  --border-rgb: 60, 60, 60;
+  --white-rgb: 255, 255, 255;
+  --black-rgb: 0, 0, 0;
+
+  /* White hover/selection tints on dark surfaces */
+  --tint-subtle: rgba(255, 255, 255, 0.05);
+  --tint: rgba(255, 255, 255, 0.08);
+  --tint-strong: rgba(255, 255, 255, 0.1);
+
+  /* Black scrims (overlays behind modals, image dimming) — suffix = alpha % */
+  --overlay-30: rgba(0, 0, 0, 0.3);
+  --overlay-40: rgba(0, 0, 0, 0.4);
+  --overlay-50: rgba(0, 0, 0, 0.5);
+  --overlay-60: rgba(0, 0, 0, 0.6);
+  --overlay-70: rgba(0, 0, 0, 0.7);
+  --overlay-80: rgba(0, 0, 0, 0.8);
+
+  /* ANSI terminal palette (health diagnostics, browser tools, log rendering) */
+  --ansi-green: #0dbc79;
+  --ansi-bright-green: #23d18b;
+  --ansi-red: #f14c4c;
+  --ansi-yellow: #e5e510;
+  --ansi-blue: #3b8eea;
+  --ansi-blue-dark: #2472c8;
+  --ansi-blue-rgb: 59, 142, 234;
+
+  /* Code syntax colors (VS Code dark palette — code mode, diff rendering) */
+  --code-keyword: #569cd6;
+  --code-string: #ce9178;
+  --code-property: #9cdcfe;
+  --code-comment: #6a9955;
 
   /* Structure */
   --border: #3c3c3c;
@@ -119,6 +176,18 @@
 
   /* Typography */
   --font-mono: 'JetBrainsMono NF', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  /* Type scale — dense desktop UI, hence 1px steps at the small end.
+   * Off-scale sizes (9px, 15px, 17px…) are migration debt: round to the
+   * nearest token when touching that code, don't add new tokens. */
+  --font-size-xs: 10px; /* fine print, badges, kbd hints */
+  --font-size-sm: 11px; /* secondary labels, metadata */
+  --font-size-base: 12px; /* default UI chrome text */
+  --font-size-md: 13px; /* body / readable paragraphs */
+  --font-size-lg: 14px; /* emphasized body, inputs, buttons */
+  --font-size-xl: 16px; /* section headings */
+  --font-size-2xl: 18px; /* modal titles */
+  --font-size-3xl: 24px; /* hero / celebration screens */
 }
 
 /* Common flex centering utility */
@@ -229,7 +298,7 @@ button {
   cursor: pointer;
   border: none;
   border-radius: var(--radius);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   padding: 10px 16px;
   transition:
     background-color 0.2s,
@@ -286,7 +355,7 @@ button:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -341,7 +410,7 @@ button:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -434,7 +503,7 @@ button:hover {
 }
 
 .modal-frame-title {
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
   display: flex;
@@ -471,7 +540,7 @@ button:hover {
   padding: var(--spacing-sm) var(--spacing-lg);
   border-radius: var(--radius);
   border: 1px solid transparent;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -546,7 +615,7 @@ button:hover {
 
 .button--sm {
   padding: var(--spacing-xs) var(--spacing-md);
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 .button--block {
@@ -576,7 +645,7 @@ button:hover {
 }
 
 .empty-state-description {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   max-width: 360px;
   line-height: 1.5;

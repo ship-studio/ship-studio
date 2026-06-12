@@ -1,7 +1,7 @@
 /* Hints */
 .hint {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 /* Modal */
@@ -28,7 +28,7 @@
 }
 
 .modal h3 {
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   margin-bottom: 12px;
 }
 
@@ -72,7 +72,7 @@
 
 .quit-confirm-modal p {
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   margin: 0 0 20px;
 }
 
@@ -85,7 +85,7 @@
 .quit-confirm-actions button {
   min-width: 80px;
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 /* Plugin Suggestion Modal */
@@ -128,7 +128,7 @@
 }
 
 .plugin-suggestion-desc {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.55;
   color: var(--text-secondary);
   margin-bottom: 0;
@@ -152,7 +152,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -177,7 +177,7 @@
   border: none;
   border-radius: var(--radius-md);
   color: var(--action-text);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
   transition:

@@ -28,7 +28,7 @@
   gap: var(--spacing-xs);
 }
 .ss-edit-image__path {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
@@ -39,7 +39,7 @@
 }
 .ss-edit-image__note {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   color: var(--text-muted);
 }

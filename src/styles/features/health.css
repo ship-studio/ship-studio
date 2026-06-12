@@ -16,7 +16,7 @@
     background-color 0.15s,
     color 0.15s,
     border-color 0.15s;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   flex-shrink: 0;
   white-space: nowrap;
@@ -77,7 +77,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -155,7 +155,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -188,7 +188,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
   cursor: pointer;
@@ -292,7 +292,7 @@
 }
 
 .health-count {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -315,7 +315,7 @@
   border: 1px solid rgba(59, 142, 234, 0.4);
   border-radius: var(--radius);
   color: #3b8eea;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
   flex-shrink: 0;
@@ -364,7 +364,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   white-space: nowrap;
   z-index: var(--z-dropdown);
@@ -466,7 +466,7 @@
   background: #1a1a1a;
   border-radius: var(--radius-md);
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   line-height: 1.5;
   color: var(--text-secondary);
   white-space: pre-wrap;
@@ -488,7 +488,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
 }
 
@@ -504,7 +504,7 @@
   gap: 6px;
   padding: 8px 14px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -561,7 +561,7 @@
   border: 1px solid rgba(255, 193, 7, 0.3);
   border-radius: var(--radius);
   color: #ffc107;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -581,7 +581,7 @@
 
 .health-suggestions-intro {
   margin: 0 0 16px 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -607,13 +607,13 @@
 }
 
 .health-suggestion-category {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .health-suggestion-reason {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   background: rgba(255, 255, 255, 0.05);
   padding: 2px 8px;
@@ -631,7 +631,7 @@
 
 .health-suggestion-script code {
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: #0dbc79;
 }
 

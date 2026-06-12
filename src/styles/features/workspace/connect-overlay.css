@@ -30,14 +30,14 @@
 }
 
 .connect-overlay-title {
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   margin-bottom: 8px;
   color: var(--text-primary);
 }
 
 .connect-overlay-description {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--text-secondary);
   margin-bottom: 24px;
   line-height: 1.5;
@@ -48,7 +48,7 @@
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   border-radius: var(--radius-md);
   border: none;

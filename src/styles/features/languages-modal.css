@@ -12,7 +12,7 @@
   padding: var(--spacing-xl);
   justify-content: center;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 /* Standalone load-error (no editor wrapper) */
@@ -36,7 +36,7 @@
 .languages-unsupported p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
   max-width: 360px;
 }
@@ -51,7 +51,7 @@
 .languages-intro {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
 }
 
@@ -61,7 +61,7 @@
 
 .languages-intro code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   background: var(--bg-tertiary);
   padding: 1px var(--spacing-xs);
   border-radius: var(--radius-sm);
@@ -75,7 +75,7 @@
   flex-direction: column;
   gap: var(--spacing-xs);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
 }
 
@@ -90,7 +90,7 @@
 }
 
 .languages-section-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -117,13 +117,13 @@
 }
 
 .languages-row-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
 }
 
 .languages-row-code {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   background: var(--bg-tertiary);
   padding: 1px var(--spacing-xs);
@@ -138,7 +138,7 @@
 }
 
 .languages-row-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -153,7 +153,7 @@
   background: none;
   border: none;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   cursor: pointer;
   transition: color var(--transition);
@@ -194,7 +194,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--spacing-sm) var(--spacing-md);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   outline: none;
   transition: border-color var(--transition);
 }
@@ -208,7 +208,7 @@
 }
 
 .languages-pills-empty {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   padding: var(--spacing-sm) 0;
 }
@@ -231,7 +231,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
   padding: var(--spacing-xs) var(--spacing-md);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   cursor: pointer;
   transition:
@@ -251,7 +251,7 @@
 /* Prompt review box — the exact text handed to the agent */
 .languages-prompt-box {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--text-secondary);
   background: var(--bg-primary);
@@ -266,7 +266,7 @@
 }
 
 .languages-note {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--warning);
   line-height: 1.4;
 }
@@ -276,7 +276,7 @@
   flex-direction: column;
   gap: var(--spacing-sm);
   align-items: flex-start;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--error-light);
   line-height: 1.4;
 }
@@ -293,7 +293,7 @@
 }
 
 .languages-footer-note {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   line-height: 1.4;
   max-width: 240px;

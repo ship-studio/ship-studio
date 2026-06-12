@@ -56,7 +56,7 @@
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
@@ -125,7 +125,7 @@
   background: transparent;
   border: none;
   outline: none;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary);
   padding: 0;
   min-width: 0;
@@ -147,7 +147,7 @@
   align-items: center;
   height: 26px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
@@ -226,7 +226,7 @@
 }
 
 .mcp-server-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -239,7 +239,7 @@
 }
 
 .mcp-status-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -250,7 +250,7 @@
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -262,7 +262,7 @@
 }
 
 .mcp-server-command {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   margin-top: 6px;
   line-height: 1.4;
@@ -276,7 +276,7 @@
 
 .mcp-remove-btn {
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
@@ -307,7 +307,7 @@
 }
 
 .mcp-add-description {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin: 2px 0 12px;
   line-height: 1.5;
@@ -319,7 +319,7 @@
   border: 1px solid var(--border);
   border-radius: 3px;
   font-family: 'SF Mono', Monaco, monospace;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary);
 }
 
@@ -331,7 +331,7 @@
 .mcp-add-input {
   flex: 1;
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -352,7 +352,7 @@
 
 .mcp-add-btn {
   padding: 8px 14px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--action-text);
   background: var(--action);
@@ -383,7 +383,7 @@
 }
 
 .mcp-scope-toggle-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   margin-right: 4px;
 }
@@ -393,7 +393,7 @@
   align-items: center;
   height: 26px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
@@ -428,7 +428,7 @@
   padding: 32px 16px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .mcp-loading-spinner {
@@ -453,7 +453,7 @@
   border: 1px solid rgba(220, 38, 38, 0.3);
   border-radius: var(--radius);
   color: var(--error);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   margin-bottom: 12px;
 }
 
@@ -463,7 +463,7 @@
   border: 1px solid rgba(78, 205, 196, 0.3);
   border-radius: var(--radius);
   color: var(--success-light);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   margin-bottom: 12px;
 }
 
@@ -478,6 +478,6 @@
 }
 
 .mcp-footer-hint {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
 }

@@ -15,7 +15,7 @@
 }
 
 .assets-panel-header h3 {
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   margin: 0;
 }
@@ -70,7 +70,7 @@
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   outline: none;
 }
 
@@ -120,7 +120,7 @@
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition:
@@ -188,7 +188,7 @@
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -226,7 +226,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .assets-root-custom input:focus {
@@ -250,7 +250,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -329,7 +329,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .assets-new-folder input:focus {
@@ -410,12 +410,12 @@
 .assets-empty p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 
 .assets-empty p.assets-empty-hint {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   margin-top: 4px;
 }
 
@@ -495,7 +495,7 @@
 
 .assets-item-name {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -503,7 +503,7 @@
 }
 
 .assets-item-size {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   margin-left: 8px;
   flex-shrink: 0;
@@ -517,7 +517,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .assets-rename-input:focus {
@@ -576,14 +576,14 @@
 
 .assets-drag-overlay p {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
 }
 
 /* Error */
 .assets-error {
   color: var(--error);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   padding: 8px 12px;
   background: rgba(244, 71, 71, 0.1);
   border-radius: var(--radius);
@@ -660,7 +660,7 @@
 
 .assets-grid-name {
   display: block;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -671,7 +671,7 @@
 .assets-grid-item .assets-rename-input {
   width: 100%;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   padding: 2px 4px;
 }
 

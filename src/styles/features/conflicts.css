@@ -74,7 +74,7 @@
 
 .conflict-header h2 {
   margin: 0 0 4px 0;
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -83,7 +83,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .conflict-file-name {
@@ -96,13 +96,13 @@
 
 .conflict-progress {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 /* Explanation */
 .conflict-explanation {
   padding: 12px 24px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
@@ -141,7 +141,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -162,7 +162,7 @@
 
 .conflict-branch-name {
   font-weight: 400;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   text-transform: none;
   letter-spacing: 0;
   color: var(--text-muted);
@@ -176,14 +176,14 @@
   flex: 1;
   padding: 12px;
   overflow: auto;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   line-height: 1.5;
 }
 
 .conflict-panel-content pre {
   margin: 0;
   font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text-primary);
@@ -199,7 +199,7 @@
   padding-top: 8px;
   border-top: 1px dashed var(--border);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-style: italic;
 }
 
@@ -227,7 +227,7 @@
 .conflict-btn {
   padding: 10px 20px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -306,7 +306,7 @@
   background: rgba(59, 130, 246, 0.08);
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -340,7 +340,7 @@
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition: color var(--transition);
   text-align: left;
@@ -373,7 +373,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -391,7 +391,7 @@
 }
 
 .conflict-context-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-muted);
   margin-bottom: 6px;
@@ -406,7 +406,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -427,7 +427,7 @@
 }
 
 .conflict-diff-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   margin-bottom: 6px;
   text-transform: uppercase;
@@ -449,7 +449,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;

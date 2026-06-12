@@ -15,14 +15,14 @@
 
 .publish-success-message {
   padding: 0 16px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .publish-branch-hint {
   padding: 0 16px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -44,7 +44,7 @@
 
 .publish-elapsed {
   margin-left: auto;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 400;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -67,7 +67,7 @@
 
 .publish-deploying-message {
   padding: 0 16px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -75,7 +75,7 @@
 /* Deployed URL */
 .publish-deployed-message {
   padding: 0 16px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -90,7 +90,7 @@
 
 .publish-url-text {
   flex: 1;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -109,7 +109,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -134,7 +134,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -176,7 +176,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -206,7 +206,7 @@
 
 .publish-error-message {
   padding: 0 16px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   background: rgba(220, 38, 38, 0.05);
   margin: 0 16px 16px;

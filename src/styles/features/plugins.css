@@ -56,7 +56,7 @@
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-secondary);
   background: transparent;
@@ -111,7 +111,7 @@
   background: transparent;
   border: none;
   outline: none;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary);
   padding: 0;
   min-width: 0;
@@ -139,7 +139,7 @@
   gap: 8px;
   padding: 32px 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .plugins-loading-spinner {
@@ -161,12 +161,12 @@
   text-align: center;
   padding: 32px 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 /* Beta notice */
 .plugins-beta-notice {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.25);
@@ -259,20 +259,20 @@
 }
 
 .plugin-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .plugin-meta {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   margin-left: 6px;
   vertical-align: middle;
 }
 
 .plugin-desc {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin-top: 4px;
   line-height: 1.4;
@@ -287,7 +287,7 @@
 }
 
 .plugin-action-link {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   background: none;
   border: none;
@@ -318,12 +318,12 @@
 }
 
 .plugin-action-status {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
 .plugin-toggle-btn {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   padding: 3px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
@@ -348,7 +348,7 @@
 
 /* Library: Install / Installed badges */
 .plugin-library-install-btn {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   padding: 3px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--success) 40;
@@ -372,14 +372,14 @@
 }
 
 .plugin-installed-badge {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .plugin-category-badge {
   display: inline-block;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 2px 7px;
   margin-top: 6px;
   border-radius: var(--radius-sm);
@@ -411,7 +411,7 @@
 }
 
 .plugins-url-toggle {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   background: none;
   border: none;
@@ -426,7 +426,7 @@
 
 /* Install input (shared between URL and old add tab) */
 .plugins-install-hint {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin: 0 0 12px;
 }
@@ -440,7 +440,7 @@
   flex: 1;
   height: 32px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -461,7 +461,7 @@
 .plugins-install-btn {
   height: 32px;
   padding: 0 16px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   background: var(--success);
   color: #fff;
@@ -485,7 +485,7 @@
 .plugins-error {
   margin-top: 8px;
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--error-light);
   background: var(--error-light) 10;
   border: 1px solid var(--error-light) 30;
@@ -502,7 +502,7 @@
 }
 
 .plugins-footer-hint {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
 
@@ -525,7 +525,7 @@
 
 /* Dev Plugin Local Path */
 .plugin-local-path {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   color: var(--text-secondary);
   margin-top: 2px;
@@ -540,7 +540,7 @@
   width: 100%;
   margin-top: 12px;
   padding: 10px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--warning);
   background: transparent;
@@ -572,7 +572,7 @@
   border-radius: var(--radius-full);
   background: var(--error-light) 20;
   color: var(--error-light);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   cursor: help;
 }

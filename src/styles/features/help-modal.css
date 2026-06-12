@@ -61,7 +61,7 @@
 }
 
 .help-section-title {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -99,13 +99,13 @@
 
 .help-command-name {
   font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .help-command-desc {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -120,7 +120,7 @@
 }
 
 .help-tip {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   padding: 10px 12px;
   line-height: 1.4;
@@ -142,7 +142,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-family: 'SF Mono', Monaco, monospace;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   margin: 0 2px;
 }
@@ -154,7 +154,7 @@
 }
 
 .help-example-category {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-muted);
   padding: 0 4px;
@@ -166,7 +166,7 @@
 }
 
 .help-example {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   background: var(--bg-tertiary);
   padding: 10px 12px;
@@ -198,7 +198,7 @@
 }
 
 .help-footer-hint {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
 }
 
@@ -230,7 +230,7 @@
 
 .help-skill-name {
   font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-primary);
   display: flex;
@@ -239,7 +239,7 @@
 }
 
 .help-skill-toggle {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 400;
   color: var(--text-muted);
   width: 16px;
@@ -248,7 +248,7 @@
 }
 
 .help-skill-desc {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   line-height: 1.5;
   margin-top: 8px;
@@ -263,7 +263,7 @@
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 400;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -271,7 +271,7 @@
 }
 
 .help-loading {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-muted);
   font-style: italic;
   padding: 0 10px;

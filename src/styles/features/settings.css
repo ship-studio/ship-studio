@@ -17,7 +17,7 @@
 }
 
 .settings-modal-header h2 {
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -49,13 +49,13 @@
 }
 
 .settings-row-label {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .settings-row-description {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   line-height: 1.4;
 }

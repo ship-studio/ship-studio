@@ -21,7 +21,7 @@
 }
 
 .workspace-titlebar h1 {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -32,7 +32,7 @@
 
 .workspace-titlebar .project-path {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-family: monospace;
   white-space: nowrap;
   overflow: hidden;
@@ -53,7 +53,7 @@
 }
 
 .workspace-titlebar .back-link {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   white-space: nowrap;
   flex-shrink: 0;
   background: none;

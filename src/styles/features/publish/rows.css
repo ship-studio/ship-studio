@@ -54,13 +54,13 @@
 }
 
 .publish-row-label {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .publish-row-badge {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   padding: 2px 6px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
@@ -103,7 +103,7 @@
 }
 
 .url-text {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -133,7 +133,7 @@
 }
 
 .publish-option-status {
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 .deployment-state {
@@ -171,7 +171,7 @@
 }
 
 .branch-status {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   margin-top: 6px;
   padding-left: 26px;
@@ -179,7 +179,7 @@
 
 .publish-hint {
   padding: 12px 16px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   background: var(--bg-tertiary);
   border-top: 1px solid var(--border);
@@ -187,7 +187,7 @@
 
 .publish-error {
   padding: 12px 16px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: #dc2626;
   background: rgba(220, 38, 38, 0.1);
   border-top: 1px solid var(--border);
@@ -211,7 +211,7 @@
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition: color var(--transition);
 }
@@ -238,7 +238,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -257,7 +257,7 @@
   border: none;
   border-radius: var(--radius);
   color: var(--action-text);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -277,14 +277,14 @@
 
 /* Publish Option Labels (simplified) */
 .publish-option-label {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
   margin-bottom: 2px;
 }
 
 .publish-option-description {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
 }
 
@@ -311,7 +311,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   border-radius: var(--radius);
   transition:

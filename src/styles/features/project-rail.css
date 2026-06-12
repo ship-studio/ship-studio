@@ -156,7 +156,7 @@ body.rail-drag-active iframe {
 
 .project-rail-placeholder {
   font-family: var(--font-mono, Menlo, monospace);
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -214,7 +214,7 @@ body.rail-drag-active iframe {
   border-radius: var(--radius-full);
   background: var(--error);
   color: #ffffff;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 16px;
   text-align: center;
@@ -241,7 +241,7 @@ body.rail-drag-active iframe {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   border-radius: var(--radius-sm);
 }
@@ -302,7 +302,7 @@ body.rail-drag-active iframe {
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   outline: none;
 }
 
@@ -326,7 +326,7 @@ body.rail-drag-active iframe {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   border-radius: var(--radius-sm);
   white-space: nowrap;
@@ -341,7 +341,7 @@ body.rail-drag-active iframe {
 .project-rail-picker-empty {
   padding: var(--spacing-sm) var(--spacing-md);
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 /* Projects view wrapper: rail + dashboard in a row. */
@@ -368,5 +368,5 @@ body.rail-drag-active iframe {
 
 .project-loading-body p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }

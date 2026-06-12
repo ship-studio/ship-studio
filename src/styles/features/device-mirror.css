@@ -18,7 +18,7 @@
 }
 
 .device-mirror-label {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   margin-right: auto;
 }
@@ -37,7 +37,7 @@
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   padding: 2px var(--spacing-sm);
   /* Concentric with the container (radius − the 2px padding) so the active pill's
@@ -125,7 +125,7 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   cursor: pointer;
   text-align: left;
@@ -158,7 +158,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -200,7 +200,7 @@
 .device-mirror-build-hint {
   margin: 0;
   padding: var(--spacing-xs) var(--spacing-md);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--warning, #f59e0b);
 }
 

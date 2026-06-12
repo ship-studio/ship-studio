@@ -112,7 +112,7 @@
 }
 
 .terminal-title {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   font-weight: 500;
 }

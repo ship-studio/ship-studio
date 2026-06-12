@@ -7,7 +7,7 @@
 .move-folder-modal .modal-subtitle {
   margin-bottom: 16px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 
 .move-folder-loading {
@@ -36,7 +36,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
   transition:
@@ -69,7 +69,7 @@
 }
 
 .move-folder-item-count {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
 }
 
@@ -85,7 +85,7 @@
   text-align: center;
   padding: 24px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .move-folder-item.move-folder-new-btn {
@@ -120,7 +120,7 @@
   border: none;
   outline: none;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-family: inherit;
   padding: 4px 0;
 }
@@ -135,7 +135,7 @@
   color: var(--bg-primary);
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -159,7 +159,7 @@
 .form-group label {
   display: block;
   margin-bottom: 6px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -171,7 +171,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   transition: border-color var(--transition);
 }
 
@@ -188,5 +188,5 @@
   margin-top: 8px;
   margin-bottom: 0;
   color: var(--error);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }

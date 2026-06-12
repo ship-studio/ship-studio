@@ -60,7 +60,7 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-lg);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border);
 }
@@ -69,7 +69,7 @@
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
 }
 
 .command-palette-scope-value {
@@ -94,7 +94,7 @@
   appearance: none;
   -webkit-appearance: none;
   padding: var(--spacing-md) 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-muted);
   cursor: pointer;
   font-family: inherit;
@@ -139,7 +139,7 @@
   padding: var(--spacing-2xl) var(--spacing-lg);
   color: var(--text-muted);
   text-align: center;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .command-palette-group + .command-palette-group {
@@ -151,7 +151,7 @@
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
 }
 
@@ -169,7 +169,7 @@
   color: var(--text-primary);
   cursor: pointer;
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   transition: background-color var(--transition-fast);
   min-height: 40px;
 }
@@ -202,7 +202,7 @@
 }
 
 .command-palette-row-title {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -211,7 +211,7 @@
 }
 
 .command-palette-row-subtitle {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -238,7 +238,7 @@
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1;
   height: 20px;
 }
@@ -251,7 +251,7 @@
   padding: var(--spacing-sm) var(--spacing-lg);
   border-top: 1px solid var(--border);
   background: var(--bg-primary);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 

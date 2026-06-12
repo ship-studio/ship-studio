@@ -55,7 +55,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: white;
   flex-shrink: 0;
@@ -78,13 +78,13 @@
 }
 
 .import-owner-name {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .import-owner-type {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
 }
 
@@ -100,7 +100,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
@@ -165,13 +165,13 @@
 }
 
 .import-repo-name {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .import-repo-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   font-weight: 500;
@@ -188,7 +188,7 @@
 }
 
 .import-repo-description {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   margin: 0;
   line-height: 1.4;
@@ -208,7 +208,7 @@
   gap: 12px;
   padding: 32px 16px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .import-repo-loading {
@@ -232,14 +232,14 @@
 }
 
 .workspace-picker-title {
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 var(--spacing-xs);
 }
 
 .workspace-picker-subtitle {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
   color: var(--text-secondary);
   margin: 0;
@@ -316,7 +316,7 @@
 }
 
 .workspace-picker-item-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -325,7 +325,7 @@
 }
 
 .workspace-picker-item-sub {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   line-height: 1.4;
   white-space: nowrap;
@@ -335,7 +335,7 @@
 
 .workspace-picker-item-sub-mono {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 .workspace-picker-item-meta {
@@ -346,7 +346,7 @@
 }
 
 .workspace-picker-item-script {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   background: var(--bg-tertiary);
   padding: 2px 6px;
@@ -359,7 +359,7 @@
 }
 
 .workspace-picker-item-port {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
 }

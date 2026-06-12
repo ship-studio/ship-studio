@@ -11,7 +11,7 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   padding: 0;
   transition: color var(--transition);
@@ -30,7 +30,7 @@
 
 .publish-reset-confirm p {
   margin: 0 0 10px 0;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
 }
 
@@ -46,7 +46,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -71,7 +71,7 @@
 }
 
 .publish-live-sites-header {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -107,7 +107,7 @@
 }
 
 .publish-live-site-label {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-secondary);
   flex-shrink: 0;
@@ -115,7 +115,7 @@
 }
 
 .publish-live-site-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -137,7 +137,7 @@
 .publish-live-site-url {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-primary);
   font-family: monospace;
   overflow: hidden;
@@ -172,7 +172,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition:
     background-color 0.15s,

@@ -25,7 +25,7 @@
 }
 
 .backups-modal-subtitle {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   margin: 4px 0 0 0;
 }
@@ -72,11 +72,11 @@
   gap: 12px;
   padding: 40px 20px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .backups-empty-hint {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   opacity: 0.7;
 }
 
@@ -86,7 +86,7 @@
   color: var(--error-light);
   padding: 10px 12px;
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   margin-bottom: 12px;
 }
 
@@ -96,7 +96,7 @@
   color: var(--success-light);
   padding: 10px 12px;
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   margin-bottom: 12px;
   display: flex;
   align-items: center;
@@ -130,7 +130,7 @@
 }
 
 .backup-message {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -142,7 +142,7 @@
   align-items: center;
   gap: 8px;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -153,7 +153,7 @@
 
 .backup-restore-btn {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -180,7 +180,7 @@
 }
 
 .backup-current {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   padding: 4px 8px;
   background: var(--bg-tertiary);
@@ -196,7 +196,7 @@
 }
 
 .backups-footer-hint {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -221,7 +221,7 @@
 }
 
 .backups-confirm-description {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
@@ -234,7 +234,7 @@
 }
 
 .backups-confirm-backup .backup-message {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   margin-bottom: 4px;
 }
@@ -243,7 +243,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -256,7 +256,7 @@
 
 .backups-confirm-cancel {
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -282,7 +282,7 @@
 
 .backups-confirm-restore {
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -343,7 +343,7 @@
 }
 
 .backups-badge {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   padding: 3px 6px;
@@ -358,12 +358,12 @@
 
 .backups-branch-name {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
 }
 
 .backups-success-description {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   margin: 0;
 }
@@ -372,7 +372,7 @@
   text-align: left;
   margin: 4px 0 12px;
   padding-left: 20px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
 }
 
@@ -390,7 +390,7 @@
 
 .backups-success-pr-btn {
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -414,7 +414,7 @@
 
 .backups-success-close-btn {
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   background: transparent;
   border: 1px solid var(--border);

@@ -6,7 +6,7 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
 }
 
@@ -17,7 +17,7 @@
 
 .capture-shortcut {
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   white-space: nowrap;
 }

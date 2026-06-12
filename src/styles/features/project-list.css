@@ -82,12 +82,12 @@
 
 .connection-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--text-primary);
 }
 
 .connection-status {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--success);
   white-space: nowrap;
   overflow: hidden;
@@ -100,7 +100,7 @@
 
 .connection-action {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -142,7 +142,7 @@
 
 .project-list-empty .hint {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   margin-top: 8px;
 }
 
@@ -205,7 +205,7 @@
   border: 1px solid var(--border) !important;
   border-radius: 6px !important;
   padding: 6px 10px !important;
-  font-size: 12px !important;
+  font-size: var(--font-size-base) !important;
   color: var(--text-primary) !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
   z-index: 1000 !important;

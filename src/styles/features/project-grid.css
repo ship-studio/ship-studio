@@ -50,7 +50,7 @@
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 
 .project-card-info {
@@ -84,7 +84,7 @@
 }
 
 .project-card-path {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   font-family: monospace;
   white-space: nowrap;
@@ -93,7 +93,7 @@
 }
 
 .project-card-workspace {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   font-family: monospace;
   white-space: nowrap;
@@ -109,7 +109,7 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   letter-spacing: 1px;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -134,7 +134,7 @@
 }
 
 .project-list-cleanup-status {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   margin: 0;
 }
@@ -168,7 +168,7 @@
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -190,7 +190,7 @@
 
 .project-card-dropdown-item .toggle-indicator {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
@@ -248,7 +248,7 @@
 
 .auto-accept-warning-modal h3 {
   margin: 0 0 12px;
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
 }
 
 .auto-accept-warning-modal p {
@@ -272,7 +272,7 @@
   padding: 12px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   margin-bottom: 20px;
 }
 
@@ -299,7 +299,7 @@
   }
 
   .project-card-name {
-    font-size: 14px;
+    font-size: var(--font-size-lg);
   }
 
   .folder-card-info {
@@ -307,7 +307,7 @@
   }
 
   .folder-card-name {
-    font-size: 14px;
+    font-size: var(--font-size-lg);
   }
 }
 
@@ -323,15 +323,15 @@
   }
 
   .project-card-name {
-    font-size: 14px;
+    font-size: var(--font-size-lg);
   }
 
   .project-card-meta {
-    font-size: 11px;
+    font-size: var(--font-size-sm);
   }
 
   .project-card-deployment {
-    font-size: 11px;
+    font-size: var(--font-size-sm);
   }
 
   .folder-card-info {
@@ -339,11 +339,11 @@
   }
 
   .folder-card-name {
-    font-size: 14px;
+    font-size: var(--font-size-lg);
   }
 
   .folder-card-count {
-    font-size: 11px;
+    font-size: var(--font-size-sm);
   }
 
   /* Smaller dropdown for narrow screens */
@@ -353,6 +353,6 @@
 
   .project-card-dropdown-item {
     padding: 8px 10px;
-    font-size: 12px;
+    font-size: var(--font-size-base);
   }
 }

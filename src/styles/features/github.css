@@ -15,7 +15,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   border-radius: var(--radius);
 }
 
@@ -38,7 +38,7 @@
   align-items: center;
   gap: 8px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .github-status-connected svg {
@@ -64,7 +64,7 @@
   gap: 6px;
   padding: 0 8px;
   height: 28px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   transition:
@@ -139,7 +139,7 @@
 
 .github-error {
   color: var(--error);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   margin-left: 8px;
 }
 
@@ -154,14 +154,14 @@
 
 .github-modal h3 {
   padding: 20px 20px 0;
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   margin: 0;
 }
 
 .github-modal > p {
   padding: 6px 20px 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-muted);
   margin: 0;
 }
@@ -176,7 +176,7 @@
 .github-form > label:first-child,
 .github-form > label:nth-child(2) {
   padding: 0 20px 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-secondary);
   display: flex;
@@ -191,7 +191,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-family: monospace;
   outline: none;
   cursor: pointer;
@@ -230,7 +230,7 @@
   padding: 12px 0 12px 14px;
   color: var(--text-muted);
   font-family: monospace;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   white-space: nowrap;
 }
 
@@ -241,7 +241,7 @@
   border: none;
   color: var(--text-primary);
   font-family: monospace;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   outline: none;
 }
@@ -312,20 +312,20 @@
 
 .visibility-option strong {
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
 }
 
 .visibility-option span {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 .github-form .github-error {
   margin: 0;
   padding: 12px 20px;
   background: rgba(244, 71, 71, 0.1);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 /* GitHub Modal Actions */

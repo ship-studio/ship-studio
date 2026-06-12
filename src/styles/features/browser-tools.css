@@ -28,7 +28,7 @@
   border-radius: 0;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition: color var(--transition);
@@ -66,7 +66,7 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
 }
 
@@ -93,7 +93,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   transition:
     color var(--transition),
@@ -147,7 +147,7 @@
   justify-content: center;
   flex: 1;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 /* ===== Console view ===== */
@@ -160,7 +160,7 @@
      content reflows horizontally on tab switch. */
   scrollbar-gutter: stable;
   font-family: 'JetBrainsMono NF', Menlo, Monaco, 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 .console-row {
@@ -176,7 +176,7 @@
   flex-shrink: 0;
   min-width: 44px;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.5px;
   padding-top: 2px;
@@ -225,7 +225,7 @@
   display: flex;
   flex-direction: column;
   font-family: 'JetBrainsMono NF', Menlo, Monaco, 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 .network-header {
@@ -236,7 +236,7 @@
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -308,7 +308,7 @@
   display: flex;
   flex-direction: column;
   font-family: 'JetBrainsMono NF', Menlo, Monaco, 'Courier New', monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   background: var(--bg-primary);
 }
 
@@ -317,7 +317,7 @@
   background: rgba(229, 229, 16, 0.1);
   border-bottom: 1px solid rgba(229, 229, 16, 0.3);
   color: #e5e510;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   flex-shrink: 0;
 }
 

@@ -20,7 +20,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   pointer-events: auto;
   animation: toast-slide-in 0.3s ease;
@@ -135,7 +135,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -145,7 +145,7 @@
 }
 
 .screenshot-toast-hint {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -208,7 +208,7 @@
 }
 
 .screenshot-preview-path {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-family: monospace;
   color: var(--text-muted);
 }

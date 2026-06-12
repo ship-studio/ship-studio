@@ -24,7 +24,7 @@
 }
 
 .main-branch-banner-text {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--warning-light);
   white-space: nowrap;
   overflow: hidden;
@@ -62,7 +62,7 @@
   border: 1px solid rgba(245, 158, 11, 0.3);
   border-radius: var(--radius-sm);
   color: var(--warning-light);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -82,7 +82,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--warning-light);
   cursor: pointer;
   white-space: nowrap;

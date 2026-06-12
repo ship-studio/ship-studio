@@ -90,7 +90,7 @@
 
 .folder-card-open-label {
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
 }
 
@@ -120,7 +120,7 @@
 }
 
 .folder-card-count {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
 }
 
@@ -134,7 +134,7 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   letter-spacing: 1px;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -172,7 +172,7 @@
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
   transition:
@@ -209,7 +209,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -228,7 +228,7 @@
 }
 
 .folder-breadcrumb-current {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-primary);
 }

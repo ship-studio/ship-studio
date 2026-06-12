@@ -25,7 +25,7 @@
 .update-banner-badge {
   background: var(--action);
   color: var(--action-text);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   padding: 3px 8px;
   border-radius: var(--radius-sm);
@@ -35,7 +35,7 @@
 
 .update-banner-version {
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
 }
 
@@ -48,7 +48,7 @@
 .update-banner-btn {
   padding: 6px 12px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   border: none;
@@ -100,14 +100,14 @@
 
 .update-banner-progress-text {
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   min-width: 36px;
 }
 
 .update-banner-error {
   color: var(--error);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-family: 'JetBrainsMono NF', monospace;
   max-width: 400px;
   overflow: hidden;
@@ -123,7 +123,7 @@
 
 .update-banner-notes li {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
   margin-bottom: 2px;
 }

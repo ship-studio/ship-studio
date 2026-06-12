@@ -56,7 +56,7 @@
   align-items: center;
   height: 28px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
@@ -125,7 +125,7 @@
   background: transparent;
   border: none;
   outline: none;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary);
   padding: 0;
   min-width: 0;
@@ -147,7 +147,7 @@
   align-items: center;
   height: 26px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
@@ -200,7 +200,7 @@
 }
 
 .skill-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -213,7 +213,7 @@
 }
 
 .skill-plugin {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   font-family: 'SF Mono', Monaco, monospace;
 }
@@ -225,7 +225,7 @@
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -237,7 +237,7 @@
 }
 
 .skill-desc {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin-top: 6px;
   line-height: 1.4;
@@ -249,7 +249,7 @@
 
 .skill-remove-btn {
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
@@ -287,7 +287,7 @@
 .skills-search-input {
   flex: 1;
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -306,7 +306,7 @@
 
 .skills-search-btn {
   padding: 8px 14px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--action-text);
   background: var(--action);
@@ -337,7 +337,7 @@
 }
 
 .skills-scope-toggle-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   margin-right: 4px;
 }
@@ -347,7 +347,7 @@
   align-items: center;
   height: 26px;
   padding: 0 10px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
@@ -408,20 +408,20 @@
 }
 
 .skills-result-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .skills-result-package {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   font-family: 'SF Mono', Monaco, monospace;
   margin-top: 2px;
 }
 
 .skills-result-desc {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin-top: 6px;
   line-height: 1.4;
@@ -435,7 +435,7 @@
 
 .skills-install-btn {
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--action-text);
   background: var(--action);
@@ -469,7 +469,7 @@
   padding: 32px 16px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .skills-loading-spinner {
@@ -494,7 +494,7 @@
   border: 1px solid rgba(220, 38, 38, 0.3);
   border-radius: var(--radius);
   color: var(--error);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   margin-bottom: 12px;
 }
 
@@ -509,14 +509,14 @@
 }
 
 .skills-footer-hint {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
 }
 
 .skills-footer-link {
   display: flex;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   text-decoration: none;
   transition: color var(--transition);
@@ -533,7 +533,7 @@
 }
 
 .skills-cli-unavailable p {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   margin: 0 0 12px;
 }
@@ -545,6 +545,6 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-family: 'SF Mono', Monaco, monospace;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-primary);
 }

@@ -19,14 +19,14 @@
 }
 
 .agents-panel-title {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 
 .agents-panel-subtitle {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin: 2px 0 0 0;
 }
@@ -78,7 +78,7 @@
 }
 
 .agents-panel-row-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
@@ -87,7 +87,7 @@
 }
 
 .agents-panel-row-status {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -112,7 +112,7 @@
   color: var(--text-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   line-height: 1.4;
   cursor: pointer;
@@ -221,7 +221,7 @@
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   text-align: left;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -259,7 +259,7 @@
 
 .agents-panel-confirm-body {
   padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -294,14 +294,14 @@
 }
 
 .dashboard-card-title {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 
 .dashboard-card-subtitle {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin: 2px 0 0 0;
 }
@@ -375,7 +375,7 @@ button.dashboard-card-row {
 }
 
 .dashboard-card-row-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
@@ -384,7 +384,7 @@ button.dashboard-card-row {
 }
 
 .dashboard-card-row-status {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;

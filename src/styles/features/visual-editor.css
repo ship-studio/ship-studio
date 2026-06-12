@@ -9,7 +9,7 @@
   gap: var(--spacing-xs);
   height: 28px;
   padding: 0 var(--spacing-sm);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -79,7 +79,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 /* Pin-as-sidebar styles (pin button, header actions, pinned layout) live in
@@ -110,7 +110,7 @@
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   line-height: 1;
   cursor: pointer;
   padding: 0 var(--spacing-xs);
@@ -154,7 +154,7 @@
 
 /* Shown in the footer while the source location resolves (Save not ready yet). */
 .ss-edit-panel__locating {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
 }
 
@@ -164,7 +164,7 @@
   align-items: center;
   gap: 6px;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   background: none;
   border: none;
@@ -228,7 +228,7 @@
   min-width: 21px;
   height: 20px;
   padding: 0 var(--spacing-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   background: transparent;
   border: none;
@@ -283,7 +283,7 @@
   width: max-content;
   max-width: 100%;
   padding: 6px 9px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 400;
   line-height: 1.45;
   text-align: left;
@@ -310,7 +310,7 @@
 .ss-edit-panel__bp-note {
   margin: 0 0 var(--spacing-sm);
   padding: var(--spacing-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--warning) 12%, transparent);
@@ -345,7 +345,7 @@
   width: max-content;
   max-width: 210px;
   padding: 6px 9px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 400;
   line-height: 1.45;
   text-align: left;
@@ -366,7 +366,7 @@
   visibility: visible;
 }
 .ss-edit-panel__csshint-tip code {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 1px 4px;
   background: var(--bg-secondary);
   border-radius: var(--radius-sm);
@@ -377,7 +377,7 @@
   margin: var(--spacing-xs) 0 0;
   padding-top: var(--spacing-sm);
   border-top: 1px solid var(--border);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -397,7 +397,7 @@
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   cursor: pointer;
   transition: background var(--transition);
@@ -418,7 +418,7 @@
 }
 .ss-edit-panel__dynhelp p {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -469,7 +469,7 @@
   min-width: 92px;
   height: 22px;
   padding: 0 var(--spacing-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -512,7 +512,7 @@
   display: flex;
   align-items: center;
   padding: 4px var(--spacing-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   text-align: left;
   color: var(--text-secondary);
   background: transparent;
@@ -569,7 +569,7 @@
   background-size: 8px 8px;
 }
 .ss-color-swatch__empty {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -612,7 +612,7 @@
   width: 100%;
   height: 26px;
   padding: 0 var(--spacing-sm);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
   background: var(--bg-tertiary);
@@ -639,7 +639,7 @@
 }
 .ss-edit-intro__lead {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -676,7 +676,7 @@
 .ss-edit-panel__multi {
   margin: 0;
   padding: 6px var(--spacing-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   color: var(--warning, #e0a458);
   background: color-mix(in srgb, var(--warning, #e0a458) 12%, transparent);
@@ -715,7 +715,7 @@
 .ss-edit-panel__locitem {
   width: 100%;
   padding: 4px var(--spacing-sm);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
   text-align: left;
   color: var(--text-secondary);
@@ -738,7 +738,7 @@
 /* Scope hint — where the element's component is used across the project. */
 .ss-edit-panel__scope {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   color: var(--text-muted);
 }
@@ -780,7 +780,7 @@
 }
 .ss-usage-modal__name {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--accent, var(--action));
 }
 .ss-usage-modal__body {
@@ -790,7 +790,7 @@
 .ss-usage-modal__note {
   margin: 0 0 var(--spacing-lg);
   padding: var(--spacing-sm) var(--spacing-md);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   line-height: 1.5;
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--warning, #e0a458) 10%, transparent);
@@ -838,7 +838,7 @@
   background: var(--text-muted);
 }
 .ss-usage-sec__label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -846,7 +846,7 @@
 }
 .ss-usage-sec__count {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 .ss-usage-sec__list {
@@ -876,7 +876,7 @@
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 .ss-usage-row__dir {
   flex: 0 1 auto;
@@ -930,7 +930,7 @@
   gap: var(--spacing-sm);
 }
 .ss-edit-panel__source code {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -964,7 +964,7 @@
 
 .ss-edit-panel__badge {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
@@ -995,7 +995,7 @@
   cursor: pointer;
   user-select: none;
   list-style: none;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1077,7 +1077,7 @@
   margin: 0;
   padding: 0;
   text-align: center;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   line-height: 1;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
@@ -1154,7 +1154,7 @@
 .ss-edit-panel__label {
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
 
@@ -1185,7 +1185,7 @@
   position: fixed;
   z-index: calc(var(--z-modal-overlay) + 2);
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-primary);
   background: var(--bg-tertiary);
@@ -1227,7 +1227,7 @@
   gap: 6px;
   height: 28px;
   padding: 0 var(--spacing-md);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-tertiary);
@@ -1245,7 +1245,7 @@
   height: 20px;
   padding: 0;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
   background: var(--bg-tertiary);
@@ -1269,7 +1269,7 @@
   width: 92px;
   height: 20px;
   padding: 0 var(--spacing-xs);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
@@ -1301,7 +1301,7 @@
   align-items: center;
   gap: var(--spacing-xs);
   padding: 4px 6px;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
@@ -1324,7 +1324,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   line-height: 1;
   color: var(--text-muted);
   background: none;
@@ -1351,7 +1351,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   line-height: 1;
   color: var(--text-secondary);
   background: var(--bg-tertiary);
@@ -1365,11 +1365,11 @@
 }
 .ss-custom-css__hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 .ss-custom-css__hint code {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 1px 3px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
@@ -1383,7 +1383,7 @@
 }
 
 .ss-edit-panel__classes {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--text-muted);
   background: var(--bg-tertiary);

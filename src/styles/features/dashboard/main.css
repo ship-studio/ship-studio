@@ -121,7 +121,7 @@
 }
 
 .slack-cta-content span {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -137,7 +137,7 @@
   border: 1px solid rgba(147, 51, 234, 0.3);
   border-radius: var(--radius);
   color: #c4b5fd;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -197,7 +197,7 @@
     background-color var(--transition);
   height: 30px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
   color: var(--text-muted);
@@ -220,12 +220,12 @@
 .dashboard-search-placeholder {
   flex: 1;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1;
 }
 
 .dashboard-search-shortcut {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   padding: 2px 5px;
   background: var(--bg-tertiary);
@@ -243,7 +243,7 @@
 /* Compact button styles for dashboard header - matches editor UI */
 .dashboard-header-actions button {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
 }
 
 .dashboard-header-actions .btn-secondary {

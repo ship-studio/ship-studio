@@ -10,7 +10,7 @@
 }
 
 .branches-tab-section-header {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -28,7 +28,7 @@
   border: 1px dashed var(--border);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -67,7 +67,7 @@
 .branches-new-branch-prefix {
   padding: 10px 0 10px 12px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   white-space: nowrap;
   user-select: none;
 }
@@ -79,7 +79,7 @@
   border: none;
   border-radius: 0;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   outline: none;
 }
 
@@ -101,7 +101,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-muted);
   cursor: pointer;
   user-select: none;
@@ -156,7 +156,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
   margin-bottom: 4px;
@@ -176,13 +176,13 @@
 }
 
 .branch-card-current-label {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: #3b82f6;
   font-weight: 500;
 }
 
 .branch-card-meta {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
 }
 
@@ -194,7 +194,7 @@
 }
 
 .branch-card-badge {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
@@ -226,7 +226,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition:
     background-color 0.15s,
@@ -289,7 +289,7 @@
   justify-content: center;
   gap: 16px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 
 .prs-tab-loading .branch-item-spinner {
@@ -306,7 +306,7 @@
   justify-content: center;
   gap: 16px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 
 .prs-tab-error button {
@@ -327,7 +327,7 @@
 }
 
 .prs-tab-section-header {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -366,7 +366,7 @@
 
 .prs-tab-empty-title {
   margin: 0 0 8px 0;
-  font-size: 16px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -374,7 +374,7 @@
 .prs-tab-empty-description {
   margin: 0 0 20px 0;
   max-width: 320px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -385,7 +385,7 @@
   border: none;
   border-radius: var(--radius);
   color: var(--action-text);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition);
@@ -393,5 +393,5 @@
 
 .prs-tab-empty-action:hover {
   background: var(--action-hover);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }

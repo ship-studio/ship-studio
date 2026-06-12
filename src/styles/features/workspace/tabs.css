@@ -24,7 +24,7 @@
   border-radius: 0;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition: color 0.15s;
@@ -85,7 +85,7 @@
 }
 
 .preview-label {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -100,7 +100,7 @@
   border: 1px solid transparent;
   border-radius: var(--radius);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -175,7 +175,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -239,7 +239,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:

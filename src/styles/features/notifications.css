@@ -29,14 +29,14 @@
 
 .notification-settings-header h2 {
   margin: 0 0 4px 0;
-  font-size: 18px;
+  font-size: var(--font-size-2xl);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .notification-settings-header p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
 }
 
@@ -65,13 +65,13 @@
 }
 
 .notification-setting-title {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .notification-setting-description {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   margin-top: 2px;
 }
@@ -143,7 +143,7 @@
 
 .notification-sound-option {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -167,7 +167,7 @@
 }
 
 .notification-custom-path {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   padding: 4px 8px;
   background: var(--bg-tertiary);
@@ -182,7 +182,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   background: none;
   border: 1px solid var(--border);
   border-radius: var(--radius);
