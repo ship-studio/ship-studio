@@ -115,10 +115,25 @@ export function Dropdown({
       const btn = triggerRef.current;
       if (!btn) return;
       const rect = btn.getBoundingClientRect();
+      // Explicitly neutralize the class's `left: 0` / `margin-top` — with only
+      // `right` set inline, the menu would stretch from the viewport's left
+      // edge to the anchor. Inline styles must own both horizontal edges.
       setPortalPos(
         align === 'right'
-          ? { position: 'fixed', top: rect.bottom + 6, right: window.innerWidth - rect.right }
-          : { position: 'fixed', top: rect.bottom + 6, left: rect.left }
+          ? {
+              position: 'fixed',
+              top: rect.bottom + 6,
+              right: window.innerWidth - rect.right,
+              left: 'auto',
+              marginTop: 0,
+            }
+          : {
+              position: 'fixed',
+              top: rect.bottom + 6,
+              left: rect.left,
+              right: 'auto',
+              marginTop: 0,
+            }
       );
     };
     anchor();
