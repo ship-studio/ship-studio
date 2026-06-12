@@ -1,8 +1,13 @@
 /**
  * PluginsDropdown — left-cluster header dropdown that lists the plugin
  * manager plus every currently-loaded non-hosting plugin. Matches the
- * visual shape of `ToolbarDropdown` (toolbar-icon-btn trigger,
- * `.toolbar-dropdown-menu` body) so both live-together consistently.
+ * visual shape of `ToolbarDropdown` (toolbar-icon-btn trigger, menu body
+ * styled like the Dropdown primitive) so both live-together consistently.
+ *
+ * NOT built on the Dropdown primitive (`primitives/Dropdown.tsx`) — the
+ * primitive unmounts its menu children while closed, and this menu must
+ * stay mounted (see below). If the primitive ever grows a `keepMounted`
+ * mode, migrate this component to it.
  *
  * Mounting strategy: the menu is rendered *always* and hidden via
  * off-screen absolute positioning when closed (see `.is-hidden` in
@@ -69,10 +74,7 @@ export function PluginsDropdown({
         <ChevronIcon size={10} className={isOpen ? 'chevron-flipped' : undefined} />
       </button>
 
-      <div
-        className={`toolbar-dropdown-menu plugins-dropdown-menu ${isOpen ? '' : 'is-hidden'}`}
-        role="menu"
-      >
+      <div className={`plugins-dropdown-menu ${isOpen ? '' : 'is-hidden'}`} role="menu">
         <button
           className="toolbar-dropdown-item"
           onClick={() => {
@@ -83,7 +85,7 @@ export function PluginsDropdown({
           <PuzzleIcon size={14} />
           <span>Plugin Manager</span>
         </button>
-        {plugins.length > 0 && <div className="toolbar-dropdown-divider" />}
+        {plugins.length > 0 && <div className="ss-dropdown__divider" />}
         {plugins.map((plugin) => (
           <PluginDropdownRow
             key={plugin.info.manifest.id}

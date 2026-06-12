@@ -1,9 +1,7 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useClickOutside } from '../hooks/useClickOutside';
 import { getAgentById } from '../lib/agent';
 import { ChevronIcon, CloseIcon } from './icons/common';
 import { PlusIcon } from './icons/utility';
+import { Dropdown, DropdownItem } from './primitives/Dropdown';
 import type { TerminalTab } from '../hooks/useTerminalManagement';
 
 interface TerminalSplitHeadersProps {
@@ -104,34 +102,6 @@ function PaneHeader({
   showAddButton,
   onAddPane,
 }: PaneHeaderProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  const closeMenu = useCallback(() => setIsOpen(false), []);
-  useClickOutside(rootRef, closeMenu, isOpen, '.toolbar-dropdown-menu');
-
-  // Anchor the portaled menu under the trigger. Anchor by LEFT edge —
-  // pane labels are left-aligned within each pane column, so left anchor
-  // keeps the menu under the label rather than drifting right.
-  useLayoutEffect(() => {
-    if (!isOpen) return;
-    const anchor = () => {
-      const btn = buttonRef.current;
-      if (!btn) return;
-      const rect = btn.getBoundingClientRect();
-      setMenuPosition({ top: rect.bottom + 6, left: rect.left });
-    };
-    anchor();
-    window.addEventListener('scroll', anchor, true);
-    window.addEventListener('resize', anchor);
-    return () => {
-      window.removeEventListener('scroll', anchor, true);
-      window.removeEventListener('resize', anchor);
-    };
-  }, [isOpen]);
-
   // Reserve a 4px gutter on any side that abuts a drag handle so the
   // 8px-wide handle (centered on the boundary) sits in clean space rather
   // than overlapping the header chrome.
@@ -141,23 +111,42 @@ function PaneHeader({
   };
 
   return (
-    <div
-      className="terminal-split-pane-header"
-      style={style}
-      ref={rootRef}
-      data-pane-idx={paneIndex}
-    >
-      <button
-        ref={buttonRef}
-        type="button"
-        className={`toolbar-icon-btn terminal-split-pane-trigger ${isOpen ? 'is-open' : ''}`}
-        onClick={() => setIsOpen((v) => !v)}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
+    <div className="terminal-split-pane-header" style={style} data-pane-idx={paneIndex}>
+      {/* Portal mode: the header lives inside the overflow-clipped terminal
+          area, so the menu renders fixed in a body portal. Default left
+          alignment keeps the menu under the left-aligned pane label rather
+          than drifting right. */}
+      <Dropdown
+        portal
+        menuClassName="toolbar-dropdown-menu"
+        trigger={(p) => (
+          <button
+            type="button"
+            className={`toolbar-icon-btn terminal-split-pane-trigger ${p['aria-expanded'] ? 'is-open' : ''}`}
+            {...p}
+          >
+            <span className="terminal-split-pane-name">{label}</span>
+            <ChevronIcon size={10} className={p['aria-expanded'] ? 'chevron-flipped' : undefined} />
+          </button>
+        )}
       >
-        <span className="terminal-split-pane-name">{label}</span>
-        <ChevronIcon size={10} className={isOpen ? 'chevron-flipped' : undefined} />
-      </button>
+        {tabs.map((t) => {
+          const isCurrent = t.id === tabId;
+          const inOtherPane = !isCurrent && assignedTabIds.includes(t.id);
+          const itemLabel = tabTitles.get(t.id) || getAgentById(t.agentId).displayName;
+          return (
+            <DropdownItem
+              key={t.id}
+              active={isCurrent}
+              onSelect={() => onSelectTab(paneIndex, t.id)}
+            >
+              <span>{itemLabel}</span>
+              {inOtherPane && <span className="toggle-indicator off">SWAP</span>}
+              {isCurrent && <span className="toggle-indicator on">ON</span>}
+            </DropdownItem>
+          );
+        })}
+      </Dropdown>
       <div className="terminal-split-pane-actions">
         {showAddButton && (
           <button
@@ -180,38 +169,6 @@ function PaneHeader({
           <CloseIcon size={12} />
         </button>
       </div>
-      {isOpen &&
-        menuPosition &&
-        createPortal(
-          <div
-            className="toolbar-dropdown-menu toolbar-dropdown-menu-floating"
-            style={{ top: menuPosition.top, left: menuPosition.left }}
-            role="menu"
-          >
-            {tabs.map((t) => {
-              const isCurrent = t.id === tabId;
-              const inOtherPane = !isCurrent && assignedTabIds.includes(t.id);
-              const itemLabel = tabTitles.get(t.id) || getAgentById(t.agentId).displayName;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="menuitem"
-                  className="toolbar-dropdown-item"
-                  onClick={() => {
-                    onSelectTab(paneIndex, t.id);
-                    setIsOpen(false);
-                  }}
-                >
-                  <span>{itemLabel}</span>
-                  {inOtherPane && <span className="toggle-indicator off">SWAP</span>}
-                  {isCurrent && <span className="toggle-indicator on">ON</span>}
-                </button>
-              );
-            })}
-          </div>,
-          document.body
-        )}
     </div>
   );
 }

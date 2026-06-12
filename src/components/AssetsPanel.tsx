@@ -20,7 +20,7 @@ import { useRef, useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { formatFileSize, isImageFile, type Asset } from '../lib/assets';
 import { useAssetManagement } from '../hooks/useAssetManagement';
-import { useClickOutside } from '../hooks/useClickOutside';
+import { Dropdown, DropdownItem } from './primitives/Dropdown';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { useModal } from '../contexts/ModalContext';
 import {
@@ -157,23 +157,23 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
   } = useAssetManagement({ projectPath, isOpen, onToast });
 
   // --- Assets root picker state ---
-  const [rootMenuOpen, setRootMenuOpen] = useState(false);
   // null = not editing; string = custom folder input value
   const [customRoot, setCustomRoot] = useState<string | null>(null);
-  const rootMenuRef = useRef<HTMLDivElement>(null);
-  useClickOutside(
-    rootMenuRef,
-    () => {
-      setRootMenuOpen(false);
-      setCustomRoot(null);
-    },
-    rootMenuOpen
-  );
+  const rootPickerRef = useRef<HTMLDivElement>(null);
 
   const selectRoot = (root: string) => {
-    setRootMenuOpen(false);
     setCustomRoot(null);
     if (root.trim() && root !== assetsRoot) void changeAssetsRoot(root);
+  };
+
+  /** Close the root menu from the custom-folder input (Enter / confirm click).
+   *  The Dropdown primitive owns its open state, so close it the way a user
+   *  would — by toggling the trigger. Suggestion rows don't need this:
+   *  DropdownItem auto-closes on select. */
+  const closeRootMenu = () => {
+    rootPickerRef.current
+      ?.querySelector<HTMLButtonElement>('.assets-root-toggle[aria-expanded="true"]')
+      ?.click();
   };
 
   const rootSuggestions = ASSETS_ROOT_SUGGESTIONS.includes(assetsRoot)
@@ -296,65 +296,81 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
               beside it re-points the panel at a different folder. */}
           {!searchQuery && (
             <div className="assets-breadcrumb">
-              <div className="assets-root-picker" ref={rootMenuRef}>
+              <div className="assets-root-picker" ref={rootPickerRef}>
                 <button
                   className={`assets-breadcrumb-btn ${breadcrumbs.length === 1 ? 'active' : ''}`}
                   onClick={() => setCurrentPath('')}
                 >
                   {assetsRoot}
                 </button>
-                <button
-                  className="assets-root-toggle"
-                  title="Change assets folder"
-                  onClick={() => setRootMenuOpen((o) => !o)}
+                <Dropdown
+                  menuClassName="assets-root-menu"
+                  onOpenChange={(open) => {
+                    if (!open) setCustomRoot(null);
+                  }}
+                  trigger={(p) => (
+                    <button className="assets-root-toggle" title="Change assets folder" {...p}>
+                      <ChevronIcon size={12} />
+                    </button>
+                  )}
                 >
-                  <ChevronIcon size={12} />
-                </button>
-                {rootMenuOpen && (
-                  <div className="assets-root-menu">
-                    {rootSuggestions.map((root) => (
+                  {rootSuggestions.map((root) => (
+                    <DropdownItem
+                      key={root}
+                      icon={<FolderIcon size={13} />}
+                      active={root === assetsRoot}
+                      onSelect={() => selectRoot(root)}
+                    >
+                      <span>{root}</span>
+                      {root === assetsRoot && <CheckIcon size={12} />}
+                    </DropdownItem>
+                  ))}
+                  {customRoot === null ? (
+                    <DropdownItem
+                      icon={<EditIcon size={13} />}
+                      keepOpen
+                      onSelect={() => setCustomRoot('')}
+                    >
+                      <span>Custom folder…</span>
+                    </DropdownItem>
+                  ) : (
+                    <div className="assets-root-custom">
+                      <input
+                        type="text"
+                        value={customRoot}
+                        onChange={(e) => setCustomRoot(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            selectRoot(customRoot);
+                            closeRootMenu();
+                          }
+                          if (e.key === 'Escape') {
+                            // Back to the suggestion list — stop the event so
+                            // the Dropdown's window-level ESC handler doesn't
+                            // close the whole menu.
+                            e.stopPropagation();
+                            setCustomRoot(null);
+                          }
+                        }}
+                        placeholder="e.g. src/images"
+                        autoFocus
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                      />
                       <button
-                        key={root}
-                        className={`assets-root-item ${root === assetsRoot ? 'active' : ''}`}
-                        onClick={() => selectRoot(root)}
+                        className="assets-new-folder-confirm"
+                        onClick={() => {
+                          selectRoot(customRoot);
+                          closeRootMenu();
+                        }}
                       >
-                        <FolderIcon size={13} />
-                        <span>{root}</span>
-                        {root === assetsRoot && <CheckIcon size={12} />}
+                        <CheckIcon size={14} />
                       </button>
-                    ))}
-                    {customRoot === null ? (
-                      <button className="assets-root-item" onClick={() => setCustomRoot('')}>
-                        <EditIcon size={13} />
-                        <span>Custom folder…</span>
-                      </button>
-                    ) : (
-                      <div className="assets-root-custom">
-                        <input
-                          type="text"
-                          value={customRoot}
-                          onChange={(e) => setCustomRoot(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') selectRoot(customRoot);
-                            if (e.key === 'Escape') setCustomRoot(null);
-                          }}
-                          placeholder="e.g. src/images"
-                          autoFocus
-                          autoComplete="off"
-                          autoCorrect="off"
-                          autoCapitalize="off"
-                          spellCheck={false}
-                        />
-                        <button
-                          className="assets-new-folder-confirm"
-                          onClick={() => selectRoot(customRoot)}
-                        >
-                          <CheckIcon size={14} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
+                </Dropdown>
               </div>
               {breadcrumbs.slice(1).map((crumb, index) => (
                 <span key={crumb.path} className="assets-breadcrumb-item">

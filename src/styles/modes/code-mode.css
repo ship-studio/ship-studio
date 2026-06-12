@@ -277,15 +277,6 @@
   background: var(--bg-secondary);
 }
 
-.code-viewer-header .ide-dropdown-container {
-  position: relative;
-}
-
-.code-viewer-header .ide-dropdown {
-  right: 0;
-  left: auto;
-}
-
 .code-viewer-placeholder {
   display: flex;
   flex-direction: column;

@@ -13,6 +13,7 @@ import { checkIdeAvailability, openInIde } from '../lib/ide';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../contexts/ToastContext';
+import { Dropdown, DropdownItem } from './primitives/Dropdown';
 import { Spinner } from './primitives/Spinner';
 import { ChevronIcon, CodeIcon, FileIcon, VSCodeIcon, CursorIcon, CopyIcon } from './icons';
 import { trackEvent } from '../lib/analytics';
@@ -88,7 +89,6 @@ export function CodeViewer({
     vscode: false,
     cursor: false,
   });
-  const [showIdeDropdown, setShowIdeDropdown] = useState(false);
   const [openingIde, setOpeningIde] = useState<string | null>(null);
   const { copy } = useCopyToClipboard({
     onCopy: () => onToast?.('Copied to clipboard', 'success'),
@@ -481,40 +481,38 @@ export function CodeViewer({
         <span className="code-viewer-path">{filePath}</span>
         {fileContent && <span className="code-viewer-size">{formatSize(fileContent.size)}</span>}
         {hasIde && (
-          <div
-            className="ide-dropdown-container"
-            onMouseEnter={() => setShowIdeDropdown(true)}
-            onMouseLeave={() => setShowIdeDropdown(false)}
-          >
-            <button className="code-viewer-open-btn" title="Open in IDE">
-              <span>Open with</span>
-              <ChevronIcon size={10} />
-            </button>
-            {showIdeDropdown && (
-              <div className="ide-dropdown">
-                <div className="ide-dropdown-inner">
-                  {ideAvailability.vscode && (
-                    <button
-                      onClick={() => void handleOpenInIde('vscode')}
-                      disabled={openingIde !== null}
-                    >
-                      <VSCodeIcon size={14} />
-                      {openingIde === 'vscode' ? 'Opening...' : 'VS Code'}
-                    </button>
-                  )}
-                  {ideAvailability.cursor && (
-                    <button
-                      onClick={() => void handleOpenInIde('cursor')}
-                      disabled={openingIde !== null}
-                    >
-                      <CursorIcon size={14} />
-                      {openingIde === 'cursor' ? 'Opening...' : 'Cursor'}
-                    </button>
-                  )}
-                </div>
-              </div>
+          // Portal mode: .code-tab clips overflow, so the menu renders fixed
+          // in a body portal. Right-aligned — the button sits at the right
+          // end of the viewer header (matches the old `right: 0` override).
+          <Dropdown
+            portal
+            align="right"
+            trigger={(p) => (
+              <button className="code-viewer-open-btn" title="Open in IDE" {...p}>
+                <span>Open with</span>
+                <ChevronIcon size={10} />
+              </button>
             )}
-          </div>
+          >
+            {ideAvailability.vscode && (
+              <DropdownItem
+                icon={<VSCodeIcon size={14} />}
+                onSelect={() => void handleOpenInIde('vscode')}
+                disabled={openingIde !== null}
+              >
+                {openingIde === 'vscode' ? 'Opening...' : 'VS Code'}
+              </DropdownItem>
+            )}
+            {ideAvailability.cursor && (
+              <DropdownItem
+                icon={<CursorIcon size={14} />}
+                onSelect={() => void handleOpenInIde('cursor')}
+                disabled={openingIde !== null}
+              >
+                {openingIde === 'cursor' ? 'Opening...' : 'Cursor'}
+              </DropdownItem>
+            )}
+          </Dropdown>
         )}
       </div>
       <div className="code-viewer-content" ref={codeRef}>

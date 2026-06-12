@@ -9,7 +9,6 @@
  * @module components/ProjectCardMenu
  */
 
-import { useState, useRef, useCallback } from 'react';
 import {
   TrashIcon,
   FolderIcon,
@@ -19,7 +18,7 @@ import {
   ImageIcon,
   EditIcon,
 } from './icons';
-import { useClickOutside } from '../hooks/useClickOutside';
+import { Dropdown, DropdownItem, DropdownDivider } from './primitives/Dropdown';
 
 interface ProjectCardMenuProps {
   /** Whether main branch warning is hidden */
@@ -62,133 +61,71 @@ export function ProjectCardMenu({
   isPinned,
   onTogglePin,
 }: ProjectCardMenuProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const closeMenu = useCallback(() => setIsOpen(false), []);
-  useClickOutside(menuRef, closeMenu, isOpen);
-
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOpen(false);
-    onDelete();
-  };
-
-  const handleRemoveClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOpen(false);
-    onRemove?.();
-  };
-
-  const handleRenameClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOpen(false);
-    onRename?.();
-  };
-
-  const handleMoveToFolderClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOpen(false);
-    onMoveToFolder?.();
-  };
-
-  const handleToggleMainBranchWarning = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onToggleMainBranchWarning(!hideMainBranchWarning);
-    setIsOpen(false);
-  };
-
-  const handleExportAsTemplateClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOpen(false);
-    onExportAsTemplate?.();
-  };
-
-  const handleUploadThumbnailClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOpen(false);
-    onUploadThumbnail?.();
-  };
-
-  const handleMenuButtonClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsOpen(!isOpen);
-  };
-
   return (
-    <div className="project-card-menu-container" ref={menuRef}>
-      <button className="project-card-menu" onClick={handleMenuButtonClick} title="Project options">
-        &bull;&bull;&bull;
-      </button>
-
-      {isOpen && (
-        <div className="project-card-dropdown">
-          <button
-            className={`project-card-dropdown-item ${!hideMainBranchWarning ? 'active' : ''}`}
-            onClick={handleToggleMainBranchWarning}
-          >
-            <WarningIcon size={14} />
-            <span>Main branch warning</span>
-            <span className={`toggle-indicator ${!hideMainBranchWarning ? 'on' : 'off'}`}>
-              {!hideMainBranchWarning ? 'ON' : 'OFF'}
-            </span>
+    <div className="project-card-menu-container">
+      <Dropdown
+        align="right"
+        trigger={(p) => (
+          <button className="project-card-menu" title="Project options" {...p}>
+            &bull;&bull;&bull;
           </button>
-          {onRename && !isExternal && (
-            <button className="project-card-dropdown-item" onClick={handleRenameClick}>
-              <EditIcon size={14} />
-              <span>Rename project</span>
-            </button>
-          )}
-          {onMoveToFolder && (
-            <button className="project-card-dropdown-item" onClick={handleMoveToFolderClick}>
-              <FolderIcon size={14} />
-              <span>Move to folder</span>
-            </button>
-          )}
-          {onExportAsTemplate && (
-            <button className="project-card-dropdown-item" onClick={handleExportAsTemplateClick}>
-              <DownloadIcon size={14} />
-              <span>Export as template</span>
-            </button>
-          )}
-          {onUploadThumbnail && (
-            <button className="project-card-dropdown-item" onClick={handleUploadThumbnailClick}>
-              <ImageIcon size={14} />
-              <span>Upload new thumbnail</span>
-            </button>
-          )}
-          {onTogglePin && (
-            <button
-              className="project-card-dropdown-item"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsOpen(false);
-                onTogglePin(!isPinned);
-              }}
-            >
+        )}
+      >
+        <DropdownItem
+          icon={<WarningIcon size={14} />}
+          onSelect={() => onToggleMainBranchWarning(!hideMainBranchWarning)}
+        >
+          <span>Main branch warning</span>
+          <span className={`toggle-indicator ${!hideMainBranchWarning ? 'on' : 'off'}`}>
+            {!hideMainBranchWarning ? 'ON' : 'OFF'}
+          </span>
+        </DropdownItem>
+        {onRename && !isExternal && (
+          <DropdownItem icon={<EditIcon size={14} />} onSelect={onRename}>
+            <span>Rename project</span>
+          </DropdownItem>
+        )}
+        {onMoveToFolder && (
+          <DropdownItem icon={<FolderIcon size={14} />} onSelect={onMoveToFolder}>
+            <span>Move to folder</span>
+          </DropdownItem>
+        )}
+        {onExportAsTemplate && (
+          <DropdownItem icon={<DownloadIcon size={14} />} onSelect={onExportAsTemplate}>
+            <span>Export as template</span>
+          </DropdownItem>
+        )}
+        {onUploadThumbnail && (
+          <DropdownItem icon={<ImageIcon size={14} />} onSelect={onUploadThumbnail}>
+            <span>Upload new thumbnail</span>
+          </DropdownItem>
+        )}
+        {onTogglePin && (
+          <DropdownItem
+            icon={
               <span
                 aria-hidden="true"
                 style={{ width: 14, display: 'inline-block', textAlign: 'center' }}
               >
-                {isPinned ? '\u25CB' : '\u25CF'}
+                {isPinned ? '○' : '●'}
               </span>
-              <span>{isPinned ? 'Unpin from sidebar' : 'Pin to sidebar'}</span>
-            </button>
-          )}
-          <div className="project-card-dropdown-divider" />
-          {isExternal && onRemove ? (
-            <button className="project-card-dropdown-item danger" onClick={handleRemoveClick}>
-              <CloseIcon size={14} />
-              <span>Remove from list</span>
-            </button>
-          ) : (
-            <button className="project-card-dropdown-item danger" onClick={handleDeleteClick}>
-              <TrashIcon size={14} />
-              <span>Delete project</span>
-            </button>
-          )}
-        </div>
-      )}
+            }
+            onSelect={() => onTogglePin(!isPinned)}
+          >
+            <span>{isPinned ? 'Unpin from sidebar' : 'Pin to sidebar'}</span>
+          </DropdownItem>
+        )}
+        <DropdownDivider />
+        {isExternal && onRemove ? (
+          <DropdownItem variant="danger" icon={<CloseIcon size={14} />} onSelect={onRemove}>
+            <span>Remove from list</span>
+          </DropdownItem>
+        ) : (
+          <DropdownItem variant="danger" icon={<TrashIcon size={14} />} onSelect={onDelete}>
+            <span>Delete project</span>
+          </DropdownItem>
+        )}
+      </Dropdown>
     </div>
   );
 }

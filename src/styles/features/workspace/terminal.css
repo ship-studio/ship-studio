@@ -308,7 +308,13 @@
 /* Pane label trigger reuses .toolbar-icon-btn for consistency with the
    Agent Settings dropdown. Natural size — the action cluster's
    `margin-left: auto` handles right-alignment; no max-width math needed.
-   `min-width: 0` lets the label ellipsize if a pane gets very narrow. */
+   `min-width: 0` (on the Dropdown primitive's wrapper AND the trigger
+   inside it) lets the label ellipsize if a pane gets very narrow. */
+.terminal-split-pane-header .ss-dropdown {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .terminal-split-pane-trigger {
   flex: 0 1 auto;
   min-width: 0;
@@ -380,19 +386,52 @@
   margin-left: auto;
 }
 
-/* Toolbar Dropdown */
+/* Toolbar Dropdown.
+   The Agent Settings dropdown (ToolbarDropdown) and the split-pane tab
+   picker (TerminalSplitHeaders) are built on the Dropdown primitive in
+   portal mode; the shell (position, bg, border, shadow, click-outside)
+   comes from `.ss-dropdown__menu` in base.css. Only the deltas the
+   primitive doesn't provide live here, passed via `menuClassName`. */
+
+/* Wraps PluginsDropdown's hand-rolled trigger + always-mounted menu. */
 .toolbar-dropdown-container {
   position: relative;
   display: flex;
   align-items: center;
 }
 
-.toolbar-dropdown-menu {
+/* Doubled selector outranks visual-editor.css's unscoped `.ss-dropdown__*`
+   rules (imported after this file), which would otherwise impose the
+   visual editor's compact enum-menu styling on these menus. */
+.ss-dropdown__menu.toolbar-dropdown-menu {
+  /* The menu floats over terminal panes / preview chrome — keep the
+     pre-primitive modal-overlay tier rather than --z-dropdown. */
+  z-index: var(--z-modal-overlay);
+  max-height: none;
+}
+
+/* Re-assert the primitive's item metrics (base.css) over visual-editor.css's
+   compact overrides; `nowrap` keeps long pane/tab titles on one line, widening
+   the menu instead of wrapping (pre-migration behavior). */
+.ss-dropdown__menu.toolbar-dropdown-menu .ss-dropdown__item {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-md);
+  white-space: nowrap;
+}
+
+.ss-dropdown__menu.toolbar-dropdown-menu .ss-dropdown__item:not(.ss-dropdown__item--active) {
+  color: var(--text-primary);
+}
+
+/* PluginsDropdown's always-mounted menu (NOT the primitive — see the
+   mounting-strategy comment in PluginsDropdown.tsx). Mirrors the
+   `.ss-dropdown__menu` shell so it stays visually identical. */
+.plugins-dropdown-menu {
   position: absolute;
   top: calc(100% + 6px);
-  /* Anchor to the left of the trigger — the Agent Settings dropdown now
-     lives in the left cluster of the workspace header, so the menu
-     expands rightward/downward from the button. */
+  /* Anchor to the left of the trigger — the Plugins dropdown lives in
+     the left cluster of the workspace header, so the menu expands
+     rightward/downward from the button. */
   left: 0;
   z-index: var(--z-modal-overlay);
   background: var(--bg-secondary);
@@ -400,17 +439,7 @@
   border-radius: var(--radius-md);
   min-width: 200px;
   box-shadow: var(--shadow);
-  padding: 4px;
-}
-
-/* Portaled variant: menu rendered into <body> with JS-computed viewport
-   coords. Escapes `overflow: hidden` on any ancestor — needed for the
-   Agent Settings dropdown in .terminal-tabs-bar, whose grandparent
-   .terminal-pane clips absolute children. */
-.toolbar-dropdown-menu-floating {
-  position: fixed;
-  top: auto;
-  left: auto;
+  padding: var(--spacing-xs);
 }
 
 .toolbar-dropdown-item {
@@ -447,7 +476,7 @@
    cycles. Hidden via off-screen absolute positioning (not display:none)
    so plugin-rendered modals using position:fixed can still paint to
    the viewport even while their dropdown ancestor is "closed". */
-.toolbar-dropdown-menu.is-hidden {
+.plugins-dropdown-menu.is-hidden {
   left: -99999px !important;
   top: -99999px !important;
   pointer-events: none;
@@ -456,9 +485,9 @@
 
 /* Plugin modals use position:fixed inside the hidden menu — they need
    to override the inherited `visibility: hidden` so they can render. */
-.toolbar-dropdown-menu.is-hidden [class*='overlay'],
-.toolbar-dropdown-menu.is-hidden [class*='modal'],
-.toolbar-dropdown-menu.is-hidden [class*='portal'] {
+.plugins-dropdown-menu.is-hidden [class*='overlay'],
+.plugins-dropdown-menu.is-hidden [class*='modal'],
+.plugins-dropdown-menu.is-hidden [class*='portal'] {
   visibility: visible;
   pointer-events: auto;
 }
@@ -579,11 +608,9 @@
   display: none !important;
 }
 
-.toolbar-dropdown-item.auto-accept-on {
-  color: var(--warning);
-}
-
-.toolbar-dropdown-item .toggle-indicator {
+/* ON/OFF + SWAP badges inside primitive DropdownItems (Auto-accept in the
+   Agent Settings menu; tab assignment in the split-pane picker). */
+.toolbar-dropdown-menu .toggle-indicator {
   margin-left: auto;
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -593,13 +620,7 @@
   color: var(--text-muted);
 }
 
-.toolbar-dropdown-item .toggle-indicator.on {
+.toolbar-dropdown-menu .toggle-indicator.on {
   background: rgba(var(--warning-rgb), 0.2);
   color: var(--warning);
-}
-
-.toolbar-dropdown-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
 }

@@ -39,11 +39,8 @@
 
 /* .dashboard-settings-row removed in favor of .dashboard-card + .dashboard-card-row */
 
-/* Sort Dropdown */
-.sort-dropdown {
-  position: relative;
-}
-
+/* Sort Dropdown — menu/items come from the Dropdown primitive (ss-dropdown__*);
+   only the trigger button and small scoped menu tweaks live here. */
 .sort-dropdown-btn {
   display: flex;
   align-items: center;
@@ -67,51 +64,9 @@
   color: var(--text-primary);
 }
 
-.sort-dropdown-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  min-width: 140px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  z-index: var(--z-dropdown);
-  overflow: hidden;
-}
-
-.sort-dropdown-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 10px 12px;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast),
-    border-color var(--transition-fast);
-}
-
-.sort-dropdown-item:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.sort-dropdown-item.active {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.sort-dropdown-item svg {
-  color: var(--success);
+/* Keep the selected-option checkmark pushed to the right edge of the menu. */
+.sort-dropdown-menu .ss-dropdown__item span {
+  flex: 1;
 }
 
 /* Project Card Metadata */
@@ -280,54 +235,6 @@
   background: var(--accent);
   border-color: var(--accent);
   color: var(--text-bright);
-}
-
-/* ============ Project Card Menu ============ */
-
-.project-card-menu-container {
-  position: relative;
-}
-
-.project-card-dropdown-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  min-width: 140px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  z-index: var(--z-modal-overlay);
-  overflow: visible;
-}
-
-.project-card-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 12px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast),
-    border-color var(--transition-fast);
-}
-
-.project-card-menu-item:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.project-card-menu-item-danger:hover {
-  background: rgba(var(--error-light-rgb), 0.1);
-  color: var(--error);
 }
 
 /* ============ Responsive Dashboard Styles ============ */

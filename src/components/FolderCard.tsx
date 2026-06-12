@@ -7,10 +7,10 @@
  * @module components/FolderCard
  */
 
-import { useState, useRef, useCallback, memo } from 'react';
+import { memo } from 'react';
 import { FolderInfo } from '../lib/folders';
 import { FolderIcon, EditIcon, TrashIcon } from './icons';
-import { useClickOutside } from '../hooks/useClickOutside';
+import { Dropdown, DropdownItem } from './primitives/Dropdown';
 
 /** Props for the FolderCard component */
 interface FolderCardProps {
@@ -30,12 +30,6 @@ export const FolderCard = memo(function FolderCard({
   onRename,
   onDelete,
 }: FolderCardProps) {
-  const [showMenu, setShowMenu] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const closeMenu = useCallback(() => setShowMenu(false), []);
-  useClickOutside(menuRef, closeMenu, showMenu);
-
   // Create a 2x2 grid of thumbnails
   const thumbnails = folder.preview_thumbnails.slice(0, 4);
   // Pad with nulls to always have 4 slots
@@ -82,44 +76,21 @@ export const FolderCard = memo(function FolderCard({
             {folder.project_count} {folder.project_count === 1 ? 'project' : 'projects'}
           </span>
         </div>
-        <div className="folder-card-menu-container" ref={menuRef}>
-          <button
-            className="folder-card-menu-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowMenu(!showMenu);
-            }}
-            title="Folder options"
-          >
-            &bull;&bull;&bull;
-          </button>
-          {showMenu && (
-            <div className="folder-card-menu">
-              <button
-                className="folder-card-menu-item"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMenu(false);
-                  onRename();
-                }}
-              >
-                <EditIcon size={14} />
-                Rename
-              </button>
-              <button
-                className="folder-card-menu-item folder-card-menu-item-danger"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMenu(false);
-                  onDelete();
-                }}
-              >
-                <TrashIcon size={14} />
-                Delete
-              </button>
-            </div>
+        <Dropdown
+          align="right"
+          trigger={(p) => (
+            <button className="folder-card-menu-btn" title="Folder options" {...p}>
+              &bull;&bull;&bull;
+            </button>
           )}
-        </div>
+        >
+          <DropdownItem icon={<EditIcon size={14} />} onSelect={onRename}>
+            Rename
+          </DropdownItem>
+          <DropdownItem variant="danger" icon={<TrashIcon size={14} />} onSelect={onDelete}>
+            Delete
+          </DropdownItem>
+        </Dropdown>
       </div>
     </div>
   );

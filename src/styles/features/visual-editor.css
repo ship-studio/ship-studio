@@ -461,7 +461,7 @@
 }
 
 /* Custom dropdown (trigger lives in the panel; menu is portaled to <body>). */
-.ss-dropdown__trigger {
+.ss-enum__trigger {
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -477,18 +477,18 @@
   cursor: pointer;
   transition: border-color var(--transition);
 }
-.ss-dropdown__trigger:hover {
+.ss-enum__trigger:hover {
   border-color: var(--text-muted);
 }
-.ss-dropdown__trigger[aria-expanded='true'] {
+.ss-enum__trigger[aria-expanded='true'] {
   border-color: var(--action);
 }
-.ss-dropdown__trigger svg {
+.ss-enum__trigger svg {
   flex-shrink: 0;
   color: var(--text-muted);
 }
 
-.ss-dropdown__menu {
+.ss-enum__menu {
   position: fixed;
   z-index: calc(var(--z-modal-overlay) + 1);
   display: flex;
@@ -503,12 +503,12 @@
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
 }
-.ss-dropdown__menu::-webkit-scrollbar {
+.ss-enum__menu::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;
 }
-.ss-dropdown__item {
+.ss-enum__item {
   display: flex;
   align-items: center;
   padding: 4px var(--spacing-sm);
@@ -523,11 +523,11 @@
     background var(--transition),
     color var(--transition);
 }
-.ss-dropdown__item:hover {
+.ss-enum__item:hover {
   color: var(--text-primary);
   background: var(--bg-tertiary);
 }
-.ss-dropdown__item.is-active {
+.ss-enum__item.is-active {
   color: var(--action-text);
   background: var(--action);
 }
@@ -604,7 +604,7 @@
 .ss-color-picker__row {
   display: flex;
 }
-.ss-color-picker__row .ss-dropdown__trigger {
+.ss-color-picker__row .ss-enum__trigger {
   width: 100%;
 }
 

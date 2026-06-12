@@ -74,7 +74,7 @@ export function EnumDropdown({ label, options, value, onChange }: Props) {
       <button
         ref={triggerRef}
         type="button"
-        className="ss-dropdown__trigger"
+        className="ss-enum__trigger"
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -97,7 +97,7 @@ export function EnumDropdown({ label, options, value, onChange }: Props) {
         createPortal(
           <div
             ref={menuRef}
-            className="ss-dropdown__menu"
+            className="ss-enum__menu"
             role="listbox"
             id={listId}
             style={{ top: menuRect.top, left: menuRect.left, minWidth: menuRect.width }}
@@ -108,7 +108,7 @@ export function EnumDropdown({ label, options, value, onChange }: Props) {
                 type="button"
                 role="option"
                 aria-selected={o.token === value}
-                className={`ss-dropdown__item${o.token === value ? ' is-active' : ''}`}
+                className={`ss-enum__item${o.token === value ? ' is-active' : ''}`}
                 onClick={() => {
                   onChange(o.token);
                   setOpen(false);

@@ -145,56 +145,14 @@
   margin: 0;
 }
 
-/* Project Card Menu Dropdown */
+/* Project Card Menu Dropdown — menu itself is the Dropdown primitive
+   (ss-dropdown in base.css); only the wrapper and the ON/OFF toggle
+   badge are styled here. */
 .project-card-menu-container {
-  position: relative;
   flex-shrink: 0;
 }
 
-.project-card-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: var(--z-modal-overlay);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  min-width: 200px;
-  box-shadow: var(--shadow);
-  padding: 4px;
-  margin-top: 4px;
-}
-
-.project-card-dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-size-md);
-  text-align: left;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: background var(--transition);
-  white-space: nowrap;
-}
-
-.project-card-dropdown-item:hover {
-  background: var(--bg-tertiary);
-}
-
-.project-card-dropdown-item.danger {
-  color: var(--danger);
-}
-
-.project-card-dropdown-item.danger:hover {
-  background: rgba(var(--error-light-rgb), 0.1);
-}
-
-.project-card-dropdown-item .toggle-indicator {
+.project-card-menu-container .toggle-indicator {
   margin-left: auto;
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -204,15 +162,9 @@
   color: var(--text-muted);
 }
 
-.project-card-dropdown-item .toggle-indicator.on {
+.project-card-menu-container .toggle-indicator.on {
   background: rgba(var(--success-light-rgb), 0.2);
   color: var(--success);
-}
-
-.project-card-dropdown-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
 }
 
 /* Auto-accept mode badge on project card */
@@ -350,15 +302,5 @@
 
   .folder-card-count {
     font-size: var(--font-size-sm);
-  }
-
-  /* Smaller dropdown for narrow screens */
-  .project-card-dropdown {
-    min-width: 180px;
-  }
-
-  .project-card-dropdown-item {
-    padding: 8px 10px;
-    font-size: var(--font-size-base);
   }
 }

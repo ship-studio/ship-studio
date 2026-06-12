@@ -124,10 +124,8 @@
   color: var(--text-muted);
 }
 
-.folder-card-menu-container {
-  position: relative;
-}
-
+/* Folder card menu — the menu itself is the Dropdown primitive (ss-dropdown
+   in base.css); only the trigger button is styled here. */
 .folder-card-menu-btn {
   flex-shrink: 0;
   padding: 4px 8px;
@@ -147,48 +145,6 @@
 .folder-card-menu-btn:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
-}
-
-.folder-card-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  min-width: 120px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  z-index: var(--z-modal-overlay);
-  overflow: visible;
-}
-
-.folder-card-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 12px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast),
-    border-color var(--transition-fast);
-}
-
-.folder-card-menu-item:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.folder-card-menu-item-danger:hover {
-  background: rgba(var(--error-light-rgb), 0.1);
-  color: var(--error);
 }
 
 /* ============ Folder Breadcrumb ============ */
