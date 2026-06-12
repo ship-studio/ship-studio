@@ -232,7 +232,7 @@
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 
-@keyframes /* Hide on narrow screens - same breakpoint as changelog */
+/* Hide on narrow screens - same breakpoint as changelog */
 @media (max-width: 1100px) {
   .github-calendar-wrapper {
     display: none;

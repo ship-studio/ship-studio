@@ -482,7 +482,7 @@
   margin: 0 auto 12px;
 }
 
-@keyframes.skills-error {
+.skills-error {
   padding: 12px;
   background: rgba(var(--error-deep-rgb), 0.1);
   border: 1px solid rgba(var(--error-deep-rgb), 0.3);

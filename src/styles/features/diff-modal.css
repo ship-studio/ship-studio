@@ -245,7 +245,7 @@
   animation: spin 1s linear infinite;
 }
 
-@keyframes /* Error state */
+/* Error state */
 .diff-error {
   display: flex;
   flex-direction: column;

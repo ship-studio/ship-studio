@@ -143,7 +143,7 @@
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes.setup-item-name {
+.setup-item-name {
   font-weight: 500;
   font-size: var(--font-size-lg);
   flex: 1;
@@ -789,7 +789,7 @@
   animation: fadeIn 0.15s ease-out;
 }
 
-@keyframes.onboarding-terminal-modal {
+.onboarding-terminal-modal {
   width: 90%;
   max-width: 700px;
   background: var(--bg-secondary);

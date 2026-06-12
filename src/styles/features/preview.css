@@ -529,7 +529,7 @@
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes /* Preview Viewport */
+/* Preview Viewport */
 .preview-viewport {
   flex: 1;
   display: flex;
