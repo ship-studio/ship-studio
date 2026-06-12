@@ -490,15 +490,34 @@ pub fn resolve_workspace_path(project_root: &std::path::Path) -> std::path::Path
                     return project_root.to_path_buf();
                 }
                 let candidate = project_root.join(rel);
-                if candidate.exists() {
-                    candidate
-                } else {
+                if !candidate.exists() {
                     tracing::warn!(
                         project = %project_root.display(),
                         subpath = %sub,
                         "workspace_subpath points at a missing directory; falling back to repo root"
                     );
-                    project_root.to_path_buf()
+                    return project_root.to_path_buf();
+                }
+                // The lexical check above blocks `..`, but a relative entry like
+                // `apps/web` could itself be a symlink to /tmp/escape. Canonicalize
+                // both sides and confirm containment before trusting it as the cwd.
+                match (
+                    dunce::canonicalize(&candidate),
+                    dunce::canonicalize(project_root),
+                ) {
+                    (Ok(canon_candidate), Ok(canon_root))
+                        if canon_candidate.starts_with(&canon_root) =>
+                    {
+                        candidate
+                    }
+                    _ => {
+                        tracing::warn!(
+                            project = %project_root.display(),
+                            subpath = %sub,
+                            "workspace_subpath resolves outside the project root; falling back to repo root"
+                        );
+                        project_root.to_path_buf()
+                    }
                 }
             }
             _ => project_root.to_path_buf(),

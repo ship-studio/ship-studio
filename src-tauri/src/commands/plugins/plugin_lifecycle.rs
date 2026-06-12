@@ -9,8 +9,8 @@ use tauri::AppHandle;
 
 use super::{
     check_min_app_version, get_plugins_dir, now_ms, read_git_head, read_manifest, read_registry,
-    validate_required_commands, warn_on_setup_items, write_registry, PluginInfo, PluginUpdateCheck,
-    RegistryEntry,
+    validate_plugin_id, validate_required_commands, warn_on_setup_items, write_registry,
+    PluginInfo, PluginUpdateCheck, RegistryEntry,
 };
 
 /// Validate a git URL before passing it to `git clone`.
@@ -211,6 +211,11 @@ pub async fn install_plugin(
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), CommandError> {
+    // Reject traversal-style IDs before joining onto the plugins dir — this
+    // command calls remove_dir_all on the result without requiring registry
+    // membership, so an unchecked `../../x` would delete outside .shipstudio.
+    validate_plugin_id(&plugin_id)?;
+
     // Guard: dev plugins should use unlink instead
     let registry = read_registry(&project_path)?;
     if let Some(entry) = registry.plugins.iter().find(|e| e.plugin_id == plugin_id) {
@@ -246,6 +251,7 @@ pub async fn update_plugin(
     project_path: String,
     plugin_id: String,
 ) -> Result<PluginInfo, CommandError> {
+    validate_plugin_id(&plugin_id)?;
     let registry = read_registry(&project_path)?;
     let entry = registry
         .plugins
