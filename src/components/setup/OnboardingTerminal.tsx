@@ -235,6 +235,12 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
           spawnArgs = args;
         }
 
+        // The PTY merges this env over the app's own — pin npm/pnpm
+        // "invocation directory" vars so they can't leak a stale path into
+        // tools that trust them over process.cwd() (see Terminal.tsx).
+        env.INIT_CWD = homePath;
+        env.PNPM_SCRIPT_SRC_DIR = homePath;
+
         // Spawn PTY using tauri-pty
         // Must pass all essential env vars since env replaces (not merges with) parent environment
         // eslint-disable-next-line @typescript-eslint/await-thenable

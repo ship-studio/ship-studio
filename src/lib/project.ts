@@ -382,6 +382,16 @@ export async function startDevServer(
         NUXT_TELEMETRY_DISABLED: '1',
       };
 
+  // npm/pnpm record where the user invoked them in INIT_CWD (and pnpm in
+  // PNPM_SCRIPT_SRC_DIR), and the PTY merges our env over the app's own —
+  // so when Ship Studio itself runs under `pnpm tauri dev`, those leak into
+  // every child. Tools that trust them over process.cwd() then resolve paths
+  // against the WRONG directory: the Shopify CLI reads INIT_CWD first, sees a
+  // non-theme directory, and `theme dev` mirrors it by deleting every file on
+  // the remote development theme. Pin both to the real working directory.
+  env.INIT_CWD = projectPath;
+  env.PNPM_SCRIPT_SRC_DIR = projectPath;
+
   // On Windows, commands like npm/npx are .cmd batch scripts that CreateProcessW
   // cannot execute directly (os error 193). Wrap through cmd.exe to resolve them.
   const spawnCmd = isWindows() ? 'cmd.exe' : command;

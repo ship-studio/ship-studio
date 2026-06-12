@@ -552,6 +552,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             SHELL: '/bin/zsh',
           };
         }
+        // The PTY merges this env over the app's own, so npm/pnpm "invocation
+        // directory" vars leak through when Ship Studio runs under `pnpm tauri
+        // dev`. Tools the agent runs (e.g. `shopify theme dev`) trust INIT_CWD
+        // over process.cwd() and resolve paths against the wrong directory —
+        // pin both to where this terminal actually runs.
+        env.INIT_CWD = projectPath;
+        env.PNPM_SCRIPT_SRC_DIR = projectPath;
 
         const agentArgs: string[] = [];
 
