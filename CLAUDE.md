@@ -451,10 +451,10 @@ CSS lives under this folder structure:
 
 ```
 src/styles/
-├── global/      base.css, typography, utility classes
-├── features/    branches/, plugins/, dashboard/, publish/
-├── modes/       compact-mode, education-mode
-└── components/  modal, tooltip, button
+├── global/      base.css (tokens, primitives' styles, shared keyframes)
+├── features/    branches/, plugins/, dashboard/, publish/, workspace/, …
+├── modes/       compact-mode, education-mode, code-mode
+└── components/  modal, command-palette
 ```
 
 Don't dump new files into `src/styles/` root unless they're genuinely cross-cutting.
