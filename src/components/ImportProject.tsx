@@ -14,6 +14,7 @@
 
 import { useState, useEffect } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { readTextFile } from '@tauri-apps/plugin-fs';
 import { trackError } from '../lib/analytics';
 import {
   getGitHubUsername,
@@ -327,11 +328,24 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
   /** Resume install + setup after clone (and optionally after the workspace picker). */
   const finishImport = async (projectPath: string) => {
     try {
-      setCurrentStep('install');
-      const packageManager = await detectPackageManager(projectPath);
-      setImportedPackageManager(packageManager);
+      // Not every repo is an npm project (Flutter, plain HTML, Rust, …).
+      // `npm install` exits ENOENT when there's no package.json, killing the
+      // import after a successful clone — skip the install step instead, the
+      // same way the zip-template path does.
+      let hasPackageJson = true;
+      try {
+        await readTextFile(`${projectPath}/package.json`);
+      } catch {
+        hasPackageJson = false;
+      }
 
-      await runPackageInstall(projectPath, packageManager);
+      if (hasPackageJson) {
+        setCurrentStep('install');
+        const packageManager = await detectPackageManager(projectPath);
+        setImportedPackageManager(packageManager);
+
+        await runPackageInstall(projectPath, packageManager);
+      }
 
       setCurrentStep('setup');
       await ensureGitignoreHasShipstudio(projectPath);
