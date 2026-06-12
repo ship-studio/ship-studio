@@ -75,7 +75,15 @@ const notify = () => {
   for (const l of Array.from(listeners)) l();
 };
 
+/** Preview content is always served from a localhost dev-server/proxy/static
+ * port. Requiring that origin keeps the privileged app frame (origin
+ * `tauri://…`) — and anything running in it, e.g. plugins — from spoofing
+ * inspector telemetry. */
+const isPreviewOrigin = (origin: string) =>
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
 const handleMessage = (event: MessageEvent) => {
+  if (!isPreviewOrigin(event.origin)) return;
   const data = event.data as ShimMessage | null;
   if (!data || typeof data !== 'object' || data.source !== CHANNEL) return;
 

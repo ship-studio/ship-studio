@@ -2,7 +2,7 @@
 
 use super::extract_skills_cli_error;
 use crate::errors::CommandError;
-use crate::utils::{create_command, get_extended_path};
+use crate::utils::{create_command, get_extended_path, validate_project_path};
 
 /// Install a skill using the Skills CLI
 /// Runs: npx skills add <package> -y --agent <agent-id>
@@ -24,14 +24,19 @@ pub async fn install_skill(
 
     let skills_agent_id = agent.skills_agent_id.unwrap_or(agent.id);
     let mut cmd = create_command("npx");
+    // Pin `skills@latest` (not bare `skills`) so npx resolves from the npm
+    // registry instead of preferring a `node_modules/.bin/skills` shipped by a
+    // malicious imported repo. `--` before the package stops a package name
+    // starting with `-` from being parsed as a flag (argument injection).
     cmd.args([
         "--yes",
-        "skills",
+        "skills@latest",
         "add",
-        &package,
         "-y",
         "--agent",
         skills_agent_id,
+        "--",
+        &package,
     ])
     .env("PATH", get_extended_path())
     .env("HOME", &home)
@@ -42,7 +47,9 @@ pub async fn install_skill(
     // Set working directory based on scope
     if scope == "project" {
         if let Some(ref path) = project_path {
-            cmd.current_dir(path);
+            // Constrain to a known ShipStudio/registered project.
+            let validated = validate_project_path(path)?;
+            cmd.current_dir(&validated);
         } else {
             return Err(
                 ("Project path required for project-scoped installation".to_string()).into(),
@@ -87,14 +94,17 @@ pub async fn remove_skill(
 
     let skills_agent_id = agent.skills_agent_id.unwrap_or(agent.id);
     let mut cmd = create_command("npx");
+    // See install_skill: pin `skills@latest` and `--`-terminate options so a
+    // malicious repo's local binary / a `-`-leading package can't be abused.
     cmd.args([
         "--yes",
-        "skills",
+        "skills@latest",
         "remove",
-        &package,
         "-y",
         "--agent",
         skills_agent_id,
+        "--",
+        &package,
     ])
     .env("PATH", get_extended_path())
     .env("HOME", &home)
@@ -105,7 +115,8 @@ pub async fn remove_skill(
     // Set working directory based on scope
     if scope == "project" {
         if let Some(ref path) = project_path {
-            cmd.current_dir(path);
+            let validated = validate_project_path(path)?;
+            cmd.current_dir(&validated);
         } else {
             return Err(("Project path required for project-scoped removal".to_string()).into());
         }

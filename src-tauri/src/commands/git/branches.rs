@@ -213,6 +213,11 @@ pub async fn switch_branch(
     auto_stash: bool,
 ) -> Result<SwitchResult, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
+    // Reject ref names that could be parsed by git as an option (argument
+    // injection) — same guard create_branch already applies.
+    if branch_name.starts_with('-') || branch_name.contains("..") {
+        return Err(("Invalid branch name".to_string()).into());
+    }
     let mut stashed = false;
     let mut stash_applied = false;
     let mut pending_stash_from: Option<String> = None;
@@ -271,7 +276,7 @@ pub async fn switch_branch(
 
     // Try to checkout the branch
     let checkout_output = create_command("git")
-        .args(["checkout", &branch_name])
+        .args(["checkout", "--end-of-options", &branch_name])
         .current_dir(&validated_path)
         .output()
         .map_err(|e| e.to_string())?;
@@ -464,6 +469,11 @@ pub async fn delete_branch(
     let validated_path = validate_project_path(&project_path)?;
     info!(delete_remote, "Deleting branch");
 
+    // Reject ref names git could parse as an option (argument injection).
+    if branch_name.starts_with('-') || branch_name.contains("..") {
+        return Err(("Invalid branch name".to_string()).into());
+    }
+
     // Don't allow deleting main/master
     if branch_name == "main" || branch_name == "master" {
         warn!("Attempted to delete main branch");
@@ -488,7 +498,7 @@ pub async fn delete_branch(
 
     // Delete local branch
     let local_output = create_command("git")
-        .args(["branch", "-D", &branch_name])
+        .args(["branch", "-D", "--", &branch_name])
         .current_dir(&validated_path)
         .output()
         .map_err(|e| e.to_string())?;

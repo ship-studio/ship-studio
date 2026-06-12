@@ -128,12 +128,24 @@ pub async fn extract_template_zip(
             continue;
         }
 
-        // Security: prevent path traversal
-        if outpath.contains("..") {
+        // Security: prevent zip-slip. A substring `..` check is insufficient —
+        // an absolute entry name (e.g. `/Users/me/.zshenv`) contains no `..`,
+        // and `Path::join` with an absolute path DISCARDS the base, writing
+        // outside the project. Reject any entry that isn't a plain relative path
+        // (no root, no drive prefix, no `..` component).
+        let rel = std::path::Path::new(&outpath);
+        let is_safe_relative = rel.components().all(|c| {
+            matches!(
+                c,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        });
+        if !is_safe_relative {
+            tracing::warn!(entry = %outpath, "Skipping unsafe zip entry during template extraction");
             continue;
         }
 
-        let dest_path = project_path.join(&outpath);
+        let dest_path = project_path.join(rel);
 
         if file.is_dir() {
             std::fs::create_dir_all(&dest_path)
@@ -165,11 +177,13 @@ pub async fn extract_template_zip(
                 use std::os::unix::fs::PermissionsExt;
                 if let Some(mode) = file.unix_mode() {
                     if mode & 0o111 != 0 {
-                        // Has execute bit
+                        // Has execute bit. Set a fixed 0o755 rather than the
+                        // raw archive mode so a malicious template can't ship a
+                        // setuid/setgid binary.
                         let mut perms = std::fs::metadata(&dest_path)
                             .map_err(|e| format!("Failed to get file metadata: {e}"))?
                             .permissions();
-                        perms.set_mode(mode);
+                        perms.set_mode(0o755);
                         std::fs::set_permissions(&dest_path, perms).ok();
                     }
                 }

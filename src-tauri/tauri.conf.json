@@ -17,9 +17,7 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$HOME/ShipStudio/**",
-          "$HOME/**",
-          "/Volumes/**"
+          "$HOME/ShipStudio/**"
         ]
       }
     }

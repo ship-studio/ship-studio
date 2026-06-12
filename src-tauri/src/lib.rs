@@ -162,6 +162,12 @@ pub fn run() {
                 main_builder.build()?;
             }
 
+            // The static asset-protocol scope (tauri.conf.json) only covers
+            // ~/ShipStudio. Grant access to registered external project roots at
+            // runtime so we don't have to expose all of $HOME/Volumes statically
+            // (which would let any main-frame script read ~/.ssh, ~/.aws, etc.).
+            commands::external_projects::grant_asset_scope_for_registered(_app.handle());
+
             // Build a custom menu on macOS that replaces Cmd+W (Close Window)
             // with a custom "Close Tab" action that emits an event to the frontend
             #[cfg(target_os = "macos")]

@@ -47,7 +47,7 @@ function setup() {
       breakpoints: BREAKPOINTS,
     })
   );
-  return hook;
+  return { ...hook, iframeRef };
 }
 
 /** Flush pending microtasks (e.g. the async resolve) under act. */
@@ -59,11 +59,14 @@ const advance = (ms: number) =>
     await Promise.resolve();
   });
 
-/** Drive a selection through the in-window message bridge and resolve it. */
-async function select(className: string) {
+/** Drive a selection through the in-window message bridge and resolve it.
+ *  `source` mirrors the real preview iframe's contentWindow — the hook now
+ *  rejects messages from any other source as a security measure. */
+async function select(className: string, source: MessageEventSource) {
   await act(async () => {
     window.dispatchEvent(
       new MessageEvent('message', {
+        source,
         data: {
           type: 'ss:select',
           signature: { className, tagName: 'div', ancestorClasses: [] },
@@ -99,9 +102,9 @@ afterEach(() => {
 
 describe('useVisualEditor auto-save', () => {
   it('does NOT save automatically when auto-save is off', async () => {
-    const { result } = setup();
+    const { result, iframeRef } = setup();
     act(() => result.current.toggleEditMode());
-    await select('p-3');
+    await select('p-3', iframeRef.current!.contentWindow!);
 
     act(() => result.current.applyEnum('p-8', { padding: '2rem' }));
     await advance(2000);
@@ -109,10 +112,10 @@ describe('useVisualEditor auto-save', () => {
   });
 
   it('debounces a burst of edits into ONE save when auto-save is on', async () => {
-    const { result } = setup();
+    const { result, iframeRef } = setup();
     act(() => result.current.toggleAutoSave()); // turn on
     act(() => result.current.toggleEditMode());
-    await select('p-3');
+    await select('p-3', iframeRef.current!.contentWindow!);
 
     // Simulate a drag: many rapid mutations, each well within the debounce window.
     act(() => {

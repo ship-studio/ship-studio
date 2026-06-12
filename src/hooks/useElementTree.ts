@@ -66,6 +66,9 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
     post({ type: 'ss:requestTree' });
 
     const onMessage = (e: MessageEvent) => {
+      // SECURITY: only trust messages from the actual preview iframe (untrusted
+      // project content runs inside it).
+      if (e.source !== iframeRef.current?.contentWindow) return;
       const d = e.data as
         | { type?: string; tree?: WireNode; truncated?: boolean; nodeId?: number }
         | undefined;

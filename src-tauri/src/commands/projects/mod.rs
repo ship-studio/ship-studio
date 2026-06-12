@@ -535,31 +535,29 @@ pub async fn remove_git_history(project_path: String) -> Result<(), CommandError
 #[tauri::command]
 #[tracing::instrument]
 pub async fn delete_project(path: String) -> Result<(), CommandError> {
-    let project_path = std::path::Path::new(&path);
+    // Canonicalize FIRST (resolves symlinks and `..`) so the containment check
+    // below can't be defeated by a lexical path like `~/ShipStudio/../../.ssh`.
+    // `Path::starts_with` is purely lexical and would otherwise pass such a path
+    // straight through to `remove_dir_all`.
+    let canonical = dunce::canonicalize(&path).map_err(|_| "Project not found".to_string())?;
 
     // Check if this is an external project
-    if let Ok(canonical) = dunce::canonicalize(project_path) {
-        if crate::commands::external_projects::is_registered_external_path(&canonical)? {
-            return Err(
-                "Cannot delete external projects. Use 'Remove from list' instead."
-                    .to_string()
-                    .into(),
-            );
-        }
+    if crate::commands::external_projects::is_registered_external_path(&canonical)? {
+        return Err(
+            "Cannot delete external projects. Use 'Remove from list' instead."
+                .to_string()
+                .into(),
+        );
     }
 
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
 
-    if !project_path.starts_with(&shipstudio_dir) {
+    if !canonical.starts_with(&shipstudio_dir) {
         return Err(("Can only delete projects from ShipStudio directory".to_string()).into());
     }
 
-    if !project_path.exists() {
-        return Err(("Project not found".to_string()).into());
-    }
-
-    std::fs::remove_dir_all(project_path).map_err(|e| e.to_string())?;
+    std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -619,27 +617,28 @@ pub async fn rename_project(
     old_path: String,
     new_name: String,
 ) -> Result<String, CommandError> {
-    let project_path = std::path::Path::new(&old_path);
+    // Canonicalize FIRST (resolves symlinks and `..`); `Path::starts_with` is
+    // lexical, so checking the raw `old_path` would let `~/ShipStudio/../../foo`
+    // escape the sandbox and rename arbitrary directories. State stores are
+    // still keyed by the original `old_path` string the frontend passed.
+    let project_path =
+        dunce::canonicalize(&old_path).map_err(|_| "Project not found".to_string())?;
+    let project_path = project_path.as_path();
 
     // Reject external projects (their folders live outside ~/ShipStudio).
-    if let Ok(canonical) = dunce::canonicalize(project_path) {
-        if crate::commands::external_projects::is_registered_external_path(&canonical)? {
-            return Err(
-                "Renaming external projects isn't supported yet. Remove it from the list and re-add it under a new folder name."
-                    .to_string()
-                    .into(),
-            );
-        }
+    if crate::commands::external_projects::is_registered_external_path(project_path)? {
+        return Err(
+            "Renaming external projects isn't supported yet. Remove it from the list and re-add it under a new folder name."
+                .to_string()
+                .into(),
+        );
     }
 
-    // Must live inside ~/ShipStudio and exist.
+    // Must live inside ~/ShipStudio.
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
     if !project_path.starts_with(&shipstudio_dir) {
         return Err(("Can only rename projects in the ShipStudio directory".to_string()).into());
-    }
-    if !project_path.exists() {
-        return Err(("Project not found".to_string()).into());
     }
 
     // Validate + normalize the requested name.

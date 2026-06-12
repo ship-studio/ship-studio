@@ -9,7 +9,7 @@
 //! - Claude: `claude mcp list`, `claude mcp add`, `claude mcp remove`
 //! - Codex: `codex mcp list`, `codex mcp add`, `codex mcp remove`
 use crate::errors::CommandError;
-use crate::utils::{create_command, find_executable, get_extended_path};
+use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
 use serde::Serialize;
 
 /// Represents an MCP server configured for an agent.
@@ -189,6 +189,12 @@ pub async fn list_mcp_servers(
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_default();
 
+    // Constrain the agent's working directory to a known project.
+    let validated_cwd = match &project_path {
+        Some(p) => Some(validate_project_path(p)?),
+        None => None,
+    };
+
     // Run `<binary> mcp list` — this returns name, command/URL, and status
     let mut list_cmd = create_command(&binary);
     list_cmd
@@ -201,7 +207,7 @@ pub async fn list_mcp_servers(
         list_cmd.env_remove("CLAUDECODE");
     }
 
-    if let Some(ref path) = project_path {
+    if let Some(ref path) = validated_cwd {
         list_cmd.current_dir(path);
     }
 
@@ -240,7 +246,7 @@ pub async fn list_mcp_servers(
             get_cmd.env_remove("CLAUDECODE");
         }
 
-        if let Some(ref path) = project_path {
+        if let Some(ref path) = validated_cwd {
             get_cmd.current_dir(path);
         }
 
@@ -315,7 +321,7 @@ pub async fn add_mcp_server(
     cmd.args(&parsed_args);
 
     if let Some(ref path) = project_path {
-        cmd.current_dir(path);
+        cmd.current_dir(validate_project_path(path)?);
     }
 
     let output = cmd
@@ -370,7 +376,7 @@ pub async fn remove_mcp_server(
     cmd.arg(&name);
 
     if let Some(ref path) = project_path {
-        cmd.current_dir(path);
+        cmd.current_dir(validate_project_path(path)?);
     }
 
     let output = cmd

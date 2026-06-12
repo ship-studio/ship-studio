@@ -13,6 +13,37 @@ use super::{
     RegistryEntry,
 };
 
+/// Validate a git URL before passing it to `git clone`.
+///
+/// Blocks two classes of attack:
+/// 1. Argument injection — a value starting with `-` is interpreted by git as a
+///    flag rather than a URL.
+/// 2. Local/command-executing transports — git's `ext::` transport runs an
+///    arbitrary command, and `file://`/bare local paths can pull from anywhere
+///    on disk. Only network transports to a remote host are allowed.
+fn validate_clone_url(url: &str) -> Result<(), CommandError> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("Plugin repository URL is empty".to_string().into());
+    }
+    if trimmed.starts_with('-') {
+        return Err("Invalid plugin repository URL".to_string().into());
+    }
+    let lowered = trimmed.to_ascii_lowercase();
+    let allowed = lowered.starts_with("https://")
+        || lowered.starts_with("git://")
+        || lowered.starts_with("ssh://")
+        || lowered.starts_with("git@");
+    if !allowed {
+        return Err(
+            "Plugin repository URL must be an https://, ssh://, git:// or git@ remote"
+                .to_string()
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 /// List all installed plugins for a project
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
@@ -55,6 +86,8 @@ pub async fn install_plugin(
     project_path: String,
     repo_url: String,
 ) -> Result<PluginInfo, CommandError> {
+    validate_clone_url(&repo_url)?;
+
     let plugins_dir = get_plugins_dir(&project_path)?;
     fs::create_dir_all(&plugins_dir).map_err(|e| format!("Failed to create plugins dir: {e}"))?;
 
@@ -69,6 +102,7 @@ pub async fn install_plugin(
             "clone",
             "--depth",
             "1",
+            "--",
             &repo_url,
             &temp_dir.to_string_lossy(),
         ])
@@ -222,6 +256,8 @@ pub async fn update_plugin(
     let source_url = entry.source_url.clone();
     let was_enabled = entry.enabled;
 
+    validate_clone_url(&source_url)?;
+
     // Re-install from source (clean install)
     let plugins_dir = get_plugins_dir(&project_path)?;
     let plugin_dir = plugins_dir.join(&plugin_id);
@@ -236,6 +272,7 @@ pub async fn update_plugin(
             "clone",
             "--depth",
             "1",
+            "--",
             &source_url,
             &plugin_dir.to_string_lossy(),
         ])
@@ -374,5 +411,40 @@ pub fn toggle_plugin(
         Ok(())
     } else {
         Err((format!("Plugin '{plugin_id}' not found")).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_clone_url;
+
+    #[test]
+    fn accepts_normal_remotes() {
+        for url in [
+            "https://github.com/owner/repo",
+            "https://github.com/owner/repo.git",
+            "ssh://git@github.com/owner/repo.git",
+            "git://example.com/repo.git",
+            "git@github.com:owner/repo.git",
+        ] {
+            assert!(validate_clone_url(url).is_ok(), "should accept {url}");
+        }
+    }
+
+    #[test]
+    fn rejects_command_executing_transports() {
+        // git's ext:: transport runs an arbitrary command during clone.
+        assert!(validate_clone_url("ext::sh -c 'touch /tmp/pwned'").is_err());
+        assert!(validate_clone_url("file:///etc/passwd").is_err());
+        assert!(validate_clone_url("/some/local/path").is_err());
+    }
+
+    #[test]
+    fn rejects_argument_injection() {
+        // A leading dash would be parsed by `git clone` as a flag, not a URL.
+        assert!(validate_clone_url("--upload-pack=touch /tmp/x").is_err());
+        assert!(validate_clone_url("-oProxyCommand=evil").is_err());
+        assert!(validate_clone_url("").is_err());
+        assert!(validate_clone_url("   ").is_err());
     }
 }

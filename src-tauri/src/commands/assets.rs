@@ -278,6 +278,18 @@ pub async fn upload_asset(
         );
     }
 
+    // Refuse to write through a symlink at the final component: a malicious
+    // repo could pre-plant `public/logo.png` as a symlink to ~/.zshenv, and
+    // `fs::write` follows symlinks, so the containment check on the parent dir
+    // above isn't enough on its own.
+    if let Ok(meta) = fs::symlink_metadata(&file_path) {
+        if meta.file_type().is_symlink() {
+            return Err(
+                ("Security error: refusing to overwrite a symlinked asset path".to_string()).into(),
+            );
+        }
+    }
+
     // Write file
     fs::write(&file_path, file_data).map_err(|e| format!("Failed to write file: {e}"))?;
 

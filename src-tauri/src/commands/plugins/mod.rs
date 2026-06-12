@@ -331,16 +331,23 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Get the storage file path for a plugin
-pub(crate) fn get_storage_path(plugin_id: &str, project_path: &str) -> Result<PathBuf, String> {
-    // Validate plugin_id is safe
-    if plugin_id.contains('/')
+/// Reject plugin IDs that could escape the plugins directory when joined as a
+/// path component (traversal, separators, dotfiles).
+pub(crate) fn validate_plugin_id(plugin_id: &str) -> Result<(), String> {
+    if plugin_id.is_empty()
+        || plugin_id.contains('/')
         || plugin_id.contains('\\')
         || plugin_id.contains("..")
         || plugin_id.starts_with('.')
     {
         return Err("Invalid plugin ID".to_string());
     }
+    Ok(())
+}
+
+/// Get the storage file path for a plugin
+pub(crate) fn get_storage_path(plugin_id: &str, project_path: &str) -> Result<PathBuf, String> {
+    validate_plugin_id(plugin_id)?;
 
     let plugins_dir = get_plugins_dir(project_path)?;
     Ok(plugins_dir.join(plugin_id).join("storage.json"))
@@ -350,6 +357,7 @@ pub(crate) fn get_storage_path(plugin_id: &str, project_path: &str) -> Result<Pa
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<String, CommandError> {
+    validate_plugin_id(&plugin_id)?;
     let registry = read_registry(&project_path)?;
     let entry = registry.plugins.iter().find(|e| e.plugin_id == plugin_id);
 
@@ -387,6 +395,7 @@ pub fn read_plugin_manifest(
     project_path: String,
     plugin_id: String,
 ) -> Result<PluginManifest, CommandError> {
+    validate_plugin_id(&plugin_id)?;
     let registry = read_registry(&project_path)?;
     let entry = registry.plugins.iter().find(|e| e.plugin_id == plugin_id);
 

@@ -226,8 +226,24 @@ export function usePreviewConnection({
     };
   }, [serverReady, port]);
 
-  // Listen for navigation and error events from the injected proxy scripts
+  // Listen for navigation and error events from the injected proxy scripts.
+  //
+  // SECURITY: these messages originate from the preview iframe, which renders
+  // untrusted project content (the user's dev server, its deps, embedded
+  // frames). Without an origin check, any script in that page could forge a
+  // `shipstudio:send-error-to-claude` message and inject arbitrary text into
+  // the AI agent terminal, or silently write to the clipboard. Only accept
+  // messages whose origin is the preview's own dev-server / proxy port.
   useEffect(() => {
+    const allowedOrigins = new Set<string>([
+      `http://localhost:${port}`,
+      `http://127.0.0.1:${port}`,
+    ]);
+    if (proxyPort) {
+      allowedOrigins.add(`http://localhost:${proxyPort}`);
+      allowedOrigins.add(`http://127.0.0.1:${proxyPort}`);
+    }
+
     const handleMessage = (
       event: MessageEvent<{
         type?: string;
@@ -236,6 +252,7 @@ export function usePreviewConnection({
         message?: string;
       }>
     ) => {
+      if (!allowedOrigins.has(event.origin)) return;
       const data = event.data;
       if (data && data.type === 'shipstudio:navigate' && typeof data.pathname === 'string') {
         const pathname: string = data.pathname || '/';
@@ -260,7 +277,7 @@ export function usePreviewConnection({
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onSendToClaude, onToast]);
+  }, [onSendToClaude, onToast, port, proxyPort]);
 
   // Auto-reload for static HTML projects when files change on disk
   useEffect(() => {

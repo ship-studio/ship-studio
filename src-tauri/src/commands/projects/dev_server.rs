@@ -147,6 +147,28 @@ pub async fn set_workspace_subpath(
     subpath: Option<String>,
 ) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
+
+    // The subpath is later joined onto the project root and used as a working
+    // directory / asset root. Reject anything that isn't a plain relative path
+    // so it can't escape the project (absolute paths replace the root; `..`
+    // walks out of it).
+    if let Some(ref sub) = subpath {
+        let rel = std::path::Path::new(sub);
+        let is_safe_relative = rel.components().all(|c| {
+            matches!(
+                c,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        });
+        if !is_safe_relative {
+            return Err(
+                ("Invalid workspace subpath: must be a relative path inside the project"
+                    .to_string())
+                .into(),
+            );
+        }
+    }
+
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");
 

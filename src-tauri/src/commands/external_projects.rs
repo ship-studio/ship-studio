@@ -12,6 +12,35 @@ use tauri_plugin_dialog::DialogExt;
 
 // ============ Helper Functions ============
 
+/// Grant the asset protocol (`convertFileSrc`) read access to a directory at
+/// runtime. The static scope in tauri.conf.json deliberately only covers
+/// ~/ShipStudio; external projects live anywhere on disk, so we widen the scope
+/// for each registered external root individually rather than exposing all of
+/// `$HOME`/`/Volumes` (which would let any main-frame script read ~/.ssh etc.).
+pub fn grant_asset_scope(app: &AppHandle, path: &Path) {
+    use tauri::Manager;
+    if path.is_dir() {
+        if let Err(e) = app.asset_protocol_scope().allow_directory(path, true) {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "Failed to grant asset-protocol scope for external project"
+            );
+        }
+    }
+}
+
+/// Grant asset-protocol scope to every already-registered external project.
+/// Called once at startup so reopening an external project shows its thumbnails
+/// and assets without re-registering.
+pub fn grant_asset_scope_for_registered(app: &AppHandle) {
+    if let Ok(cfg) = load_config() {
+        for proj in &cfg.projects {
+            grant_asset_scope(app, Path::new(&proj.path));
+        }
+    }
+}
+
 /// Get the path to the external projects config file
 fn get_config_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
@@ -181,6 +210,10 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
 
     save_config(&config)?;
 
+    // Widen the asset-protocol scope to this newly-registered root so its
+    // thumbnails/assets render without a restart.
+    grant_asset_scope(&app, &canonical);
+
     Ok(Some(canonical_str))
 }
 
@@ -248,6 +281,31 @@ fn clear_workspace_subpath_in_metadata(project_root: &Path) -> Result<(), String
     Ok(())
 }
 
+/// Heuristic: does this directory look like a real project root the user would
+/// legitimately open? Used to gate dialog-less auto-registration so the trust
+/// boundary can't be silently widened to arbitrary directories. Intentionally
+/// generous about *project* shapes but excludes things like ~/.ssh, ~/.aws.
+fn looks_like_project_root(path: &Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+    const MARKERS: &[&str] = &[
+        ".git",
+        "package.json",
+        ".shipstudio",
+        "Cargo.toml",
+        "go.mod",
+        "pyproject.toml",
+        "requirements.txt",
+        "Gemfile",
+        "pom.xml",
+        "build.gradle",
+        "composer.json",
+        "index.html",
+    ];
+    MARKERS.iter().any(|m| path.join(m).exists())
+}
+
 /// Register an external project by path (no folder picker dialog).
 ///
 /// Called automatically when a project outside ~/ShipStudio is opened
@@ -256,8 +314,11 @@ fn clear_workspace_subpath_in_metadata(project_root: &Path) -> Result<(), String
 ///
 /// Returns Ok(true) if newly registered, Ok(false) if already registered or inside ~/ShipStudio.
 #[tauri::command]
-#[tracing::instrument]
-pub async fn ensure_external_project_registered(path: String) -> Result<bool, CommandError> {
+#[tracing::instrument(skip(app))]
+pub async fn ensure_external_project_registered(
+    app: AppHandle,
+    path: String,
+) -> Result<bool, CommandError> {
     let canonical =
         dunce::canonicalize(Path::new(&path)).map_err(|e| format!("Invalid path: {e}"))?;
 
@@ -271,6 +332,20 @@ pub async fn ensure_external_project_registered(path: String) -> Result<bool, Co
     // Skip if already registered
     if is_registered_external_path(&canonical)? {
         return Ok(false);
+    }
+
+    // This command registers a NEW path into the trust boundary without a native
+    // folder-picker dialog (unlike `register_external_project`). To stop a
+    // compromised webview from registering arbitrary sensitive directories
+    // (e.g. ~/.ssh, ~/.aws) and thereby making them pass `validate_project_path`,
+    // only auto-register paths that actually look like a project root. The
+    // picker flow remains the way to add anything that doesn't.
+    if !looks_like_project_root(&canonical) {
+        return Err(format!(
+            "Refusing to auto-register '{}': it does not look like a project directory. Add it via the folder picker instead.",
+            canonical.display()
+        )
+        .into());
     }
 
     // Register it
@@ -287,6 +362,7 @@ pub async fn ensure_external_project_registered(path: String) -> Result<bool, Co
     });
 
     save_config(&config)?;
+    grant_asset_scope(&app, &canonical);
     tracing::info!("Auto-registered external project: {}", canonical_str);
 
     Ok(true)
@@ -309,4 +385,39 @@ pub async fn is_project_external(path: String) -> Result<bool, CommandError> {
         }
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::looks_like_project_root;
+    use std::fs;
+
+    #[test]
+    fn rejects_sensitive_non_project_dirs() {
+        // A directory with no project markers (the ~/.ssh attack shape) must not
+        // be auto-registerable into the trust boundary.
+        let base = std::env::temp_dir().join("ss-audit-not-a-project");
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).expect("mkdir");
+        fs::write(base.join("id_rsa"), b"x").expect("write");
+        assert!(!looks_like_project_root(&base));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn accepts_dir_with_project_marker() {
+        let base = std::env::temp_dir().join("ss-audit-is-a-project");
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).expect("mkdir");
+        fs::write(base.join("package.json"), b"{}").expect("write");
+        assert!(looks_like_project_root(&base));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rejects_nonexistent_or_file() {
+        let missing = std::env::temp_dir().join("ss-audit-missing-xyz");
+        let _ = fs::remove_dir_all(&missing);
+        assert!(!looks_like_project_root(&missing));
+    }
 }

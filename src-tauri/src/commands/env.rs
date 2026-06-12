@@ -4,7 +4,7 @@
 
 use crate::errors::CommandError;
 use crate::types::{EnvFile, EnvVar};
-use crate::utils::validate_project_path;
+use crate::utils::{validate_project_file_path, validate_project_path};
 
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
@@ -40,7 +40,10 @@ pub async fn list_env_files(project_path: String) -> Result<Vec<EnvFile>, Comman
 #[tauri::command]
 #[tracing::instrument(skip(file_path), fields(file = %file_path))]
 pub async fn read_env_file(file_path: String) -> Result<Vec<EnvVar>, CommandError> {
-    let contents = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
+    // Constrain reads to files inside ShipStudio/registered projects so this
+    // can't be used to exfiltrate arbitrary files (~/.aws/credentials, etc.).
+    let safe_path = validate_project_file_path(&file_path)?;
+    let contents = std::fs::read_to_string(&safe_path).map_err(|e| e.to_string())?;
     let mut vars = Vec::new();
 
     for line in contents.lines() {
@@ -83,6 +86,9 @@ const MAX_ENV_VALUE_LENGTH: usize = 65536;
 #[tauri::command]
 #[tracing::instrument(skip(file_path, vars), fields(file = %file_path, var_count = vars.len()))]
 pub async fn write_env_file(file_path: String, vars: Vec<EnvVar>) -> Result<(), CommandError> {
+    // Constrain writes to files inside ShipStudio/registered projects so this
+    // can't be used to overwrite arbitrary files (~/.zshenv, shell rc, etc.).
+    let safe_path = validate_project_file_path(&file_path)?;
     let mut contents = String::new();
 
     for var in vars {
@@ -131,7 +137,7 @@ pub async fn write_env_file(file_path: String, vars: Vec<EnvVar>) -> Result<(), 
         contents.push_str(&format!("{}={}\n", var.key, value));
     }
 
-    std::fs::write(&file_path, contents).map_err(|e| e.to_string())?;
+    std::fs::write(&safe_path, contents).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -174,18 +180,9 @@ pub async fn create_env_file(
 #[tauri::command]
 #[tracing::instrument(skip(file_path), fields(file = %file_path))]
 pub async fn delete_env_file(file_path: String) -> Result<(), CommandError> {
-    // Validate the file is inside ShipStudio directory
-    let path = std::path::Path::new(&file_path);
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
-
-    let canonical = dunce::canonicalize(path).map_err(|e| format!("Invalid path: {e}"))?;
-    if !canonical.starts_with(&shipstudio_dir) {
-        return Err(
-            ("Security error: cannot delete files outside ShipStudio directory".to_string()).into(),
-        );
-    }
-
-    std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
+    // Validate the file is inside ShipStudio (or a registered external project)
+    // and operate on the canonicalized path to avoid `..`/symlink escapes.
+    let safe_path = validate_project_file_path(&file_path)?;
+    std::fs::remove_file(&safe_path).map_err(|e| e.to_string())?;
     Ok(())
 }

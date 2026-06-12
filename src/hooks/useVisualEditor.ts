@@ -217,6 +217,10 @@ export function useVisualEditor({
   useEffect(() => {
     if (!editMode) return;
     const handler = (e: MessageEvent) => {
+      // SECURITY: only trust messages from the actual preview iframe. The iframe
+      // hosts untrusted project content; a forged `ss:textCommit` from another
+      // frame would otherwise write to the user's source files.
+      if (e.source !== iframeRef.current?.contentWindow) return;
       const d = e.data as {
         type?: string;
         signature?: ElementSignature;
@@ -368,6 +372,7 @@ export function useVisualEditor({
     projectPath,
     onToast,
     post,
+    iframeRef,
     setLiveClass,
     setMultiTarget,
     setTextTarget,

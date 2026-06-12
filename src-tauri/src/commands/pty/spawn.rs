@@ -3,7 +3,7 @@
 use super::{PtyInfo, PTY_ID_COUNTER, PTY_REGISTRY};
 use crate::errors::CommandError;
 use crate::types::SpawnPtyOptions;
-use crate::utils::{create_command, get_extended_path};
+use crate::utils::{create_command, get_extended_path, validate_project_path};
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
@@ -31,6 +31,14 @@ pub async fn spawn_pty(
     window_label: String,
     project_path: Option<String>,
 ) -> Result<u32, CommandError> {
+    // Constrain the working directory to a ShipStudio/registered project so a
+    // compromised webview can't spawn a process anywhere on disk. The frontend
+    // always launches terminals in a project root, a workspace subpath, or the
+    // ~/ShipStudio root itself — all of which validate.
+    let validated_cwd = validate_project_path(&options.cwd)?;
+    let mut options = options;
+    options.cwd = validated_cwd.to_string_lossy().to_string();
+
     let id = PTY_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
     let app_handle = app.clone();
     let label_for_thread = window_label.clone();

@@ -141,38 +141,34 @@ pub fn get_ahead_behind_batch(
         return results;
     }
 
-    // Build a shell script that runs rev-list for each branch in one subprocess
-    let mut script = String::new();
+    // Run git as argv per branch (NOT via a shell). Branch names are
+    // attacker-controlled repository content — a name like `x';rm -rf ~;'` is a
+    // valid git ref, so interpolating it into a `sh -c` string was a command
+    // injection. Passing it as a literal argument to `git` removes the shell
+    // entirely. The leading `--end-of-options` stops a `-`-leading ref from
+    // being parsed as a flag.
     for name in branch_names {
-        // Each line outputs: branch_name\tahead\tbehind
-        // If rev-list fails (e.g. branch doesn't exist on remote), output 0\t0
-        script.push_str(&format!(
-            "printf '%s\\t' '{}'; git rev-list --left-right --count '{}...{}' 2>/dev/null || printf '0\\t0'; printf '\\n'; ",
-            name, name, compare_to
-        ));
-    }
+        let range = format!("{name}...{compare_to}");
+        let output = create_command("git")
+            .args(["rev-list", "--left-right", "--count", "--end-of-options"])
+            .arg(&range)
+            .current_dir(path)
+            .output();
 
-    let output = create_command("sh")
-        .args(["-c", &script])
-        .current_dir(path)
-        .output();
-
-    match output {
-        Ok(out) if out.status.success() => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split('\t').collect();
-                if parts.len() >= 3 {
-                    let name = parts[0].to_string();
-                    let ahead = parts[1].parse().unwrap_or(0);
-                    let behind = parts[2].parse().unwrap_or(0);
-                    results.insert(name, (ahead, behind));
+        let (ahead, behind) = match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let parts: Vec<&str> = stdout.trim().split('\t').collect();
+                if parts.len() == 2 {
+                    (parts[0].parse().unwrap_or(0), parts[1].parse().unwrap_or(0))
+                } else {
+                    (0, 0)
                 }
             }
-        }
-        _ => {
-            // Fallback: all branches get (0, 0)
-        }
+            // Branch may not exist on remote, etc. — default to (0, 0).
+            _ => (0, 0),
+        };
+        results.insert((*name).to_string(), (ahead, behind));
     }
 
     results
