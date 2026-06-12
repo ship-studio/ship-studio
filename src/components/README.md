@@ -25,6 +25,8 @@ One folder per feature domain. Token + primitive reference: [docs/design-system.
 Cross-cutting components mounted at the app level (by `App.tsx` or global hosts), not owned by any single feature view:
 
 - `AppGlobalModals.tsx` — globally-mounted modals that palette commands can open from any view
+  (mounts `HelpModal` and `dashboard/ChangelogModal` — a modal can live in a feature folder and
+  still be globally mounted here)
 - `ConnectOverlay.tsx` — full-tab "connect GitHub" gate shown when a feature needs auth
 - `EducationOverlay.tsx` — Education Mode x-ray overlay (hover any UI element to learn it)
 - `ErrorBoundary.tsx` — top-level crash recovery, including plugin-crash attribution/uninstall
