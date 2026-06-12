@@ -226,11 +226,3 @@
   font-size: 15px;
   font-weight: 500;
 }
-
-.publish-in-progress-header svg {
-  flex-shrink: 0;
-}
-
-.spinner-icon {
-  animation: spin 1s linear infinite;
-}

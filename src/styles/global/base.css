@@ -303,15 +303,6 @@ body.compact-mode-active html {
 }
 
 /* Spinner */
-.spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--border);
-  border-top-color: var(--text-muted);
-  border-radius: var(--radius-full);
-  animation: spin 1s linear infinite;
-}
-
 /* Shared keyframes — keyframe names are GLOBAL in CSS. Define shared ones
    here only; a feature-file duplicate silently overrides every consumer
    app-wide depending on import order. */

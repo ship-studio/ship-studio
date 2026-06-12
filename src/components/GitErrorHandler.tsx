@@ -8,6 +8,7 @@
  */
 
 import { WarningIcon, CopyIcon } from './icons';
+import { ModalFrame } from './primitives/ModalFrame';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../contexts/ToastContext';
 
@@ -98,50 +99,48 @@ Please help me understand what went wrong and how to fix it.`,
   };
 
   return (
-    <div className="git-error-modal" onClick={onClose}>
-      <div className="git-error-content" onClick={(e) => e.stopPropagation()}>
-        <div className="git-error-header">
-          <div className="git-error-icon">
-            <WarningIcon size={24} />
-          </div>
-          <h2>{errorInfo.title}</h2>
+    <ModalFrame isOpen onClose={onClose} className="git-error-content" ariaLabel={errorInfo.title}>
+      <div className="git-error-header">
+        <div className="git-error-icon">
+          <WarningIcon size={24} />
         </div>
+        <h2>{errorInfo.title}</h2>
+      </div>
 
-        <div className="git-error-body">
-          <p className="git-error-description">{errorInfo.description}</p>
+      <div className="git-error-body">
+        <p className="git-error-description">{errorInfo.description}</p>
 
-          <div className="git-error-prompt-section">
-            <div className="git-error-prompt-label">Ask Claude to help:</div>
-            <div className="git-error-prompt">{errorInfo.claudePrompt}</div>
-          </div>
-        </div>
-
-        <div className="git-error-footer">
-          {errorType === 'merge_conflict' && onResolveConflicts ? (
-            <>
-              <button className="branch-card-action" onClick={handleCopyPrompt}>
-                <CopyIcon size={12} />
-                Copy Prompt
-              </button>
-              <button className="branch-card-action primary" onClick={onResolveConflicts}>
-                Resolve Conflicts
-              </button>
-            </>
-          ) : (
-            <>
-              <button className="branch-card-action" onClick={handleCopyPrompt}>
-                <CopyIcon size={12} />
-                Copy to Clipboard
-              </button>
-              {onSendToClaude && (
-                <button className="branch-card-action primary" onClick={handleSendToClaude}>
-                  Send to Claude
-                </button>
-              )}
-            </>
-          )}
+        <div className="git-error-prompt-section">
+          <div className="git-error-prompt-label">Ask Claude to help:</div>
+          <div className="git-error-prompt">{errorInfo.claudePrompt}</div>
         </div>
       </div>
-    </div>
+
+      <div className="git-error-footer">
+        {errorType === 'merge_conflict' && onResolveConflicts ? (
+          <>
+            <button className="branch-card-action" onClick={handleCopyPrompt}>
+              <CopyIcon size={12} />
+              Copy Prompt
+            </button>
+            <button className="branch-card-action primary" onClick={onResolveConflicts}>
+              Resolve Conflicts
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="branch-card-action" onClick={handleCopyPrompt}>
+              <CopyIcon size={12} />
+              Copy to Clipboard
+            </button>
+            {onSendToClaude && (
+              <button className="branch-card-action primary" onClick={handleSendToClaude}>
+                Send to Claude
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </ModalFrame>
   );
 }

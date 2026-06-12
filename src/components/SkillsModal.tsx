@@ -11,6 +11,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { SearchIcon } from './icons';
 import { ModalFrame } from './primitives/ModalFrame';
+import { Spinner } from './primitives/Spinner';
 import {
   type AgentSkill,
   checkSkillsCli,
@@ -284,7 +285,7 @@ export function SkillsModal({
 
               {isLoadingSkills && skills.length === 0 && (
                 <div className="skills-loading">
-                  <div className="skills-loading-spinner" />
+                  <Spinner className="skills-loading-spinner" />
                   Loading skills...
                 </div>
               )}
@@ -387,7 +388,7 @@ export function SkillsModal({
 
                   {isSearching && (
                     <div className="skills-loading">
-                      <div className="skills-loading-spinner" />
+                      <Spinner className="skills-loading-spinner" />
                       Searching skills...
                     </div>
                   )}

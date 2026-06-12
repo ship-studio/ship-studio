@@ -12,6 +12,7 @@ import {
   SETUP_TIME_ESTIMATES,
   BREW_PACKAGES,
 } from '../../lib/setup';
+import { Spinner } from '../primitives/Spinner';
 
 interface SetupItemProps {
   item: SetupItemType;
@@ -82,11 +83,6 @@ function EmptyCircleIcon() {
   );
 }
 
-/** Spinner for in-progress items */
-function SpinnerIcon() {
-  return <div className="setup-item-spinner" />;
-}
-
 /** Lock icon for blocked items */
 function BlockedIcon() {
   return (
@@ -117,7 +113,7 @@ function getStatusIcon(status: SetupItemStatus) {
     case 'error':
       return <ErrorIcon />;
     case 'in_progress':
-      return <SpinnerIcon />;
+      return <Spinner style={{ color: 'var(--accent)' }} />;
     case 'blocked':
       return <BlockedIcon />;
     default:

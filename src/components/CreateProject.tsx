@@ -17,6 +17,7 @@ import { trackEvent } from '../lib/analytics';
 import { logger } from '../lib/logger';
 import { UploadIcon } from './icons';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { useProjectCreation, TEMPLATES, STEPS, STATUS_MESSAGES } from '../hooks/useProjectCreation';
 import { TemplateGallery, type CommunityTemplate } from './TemplateGallery';
 
@@ -156,7 +157,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
         <div className="create-modal-content creating">
           <h2>Creating "{projectName}"</h2>
 
-          <div className="create-spinner" />
+          <Spinner size="lg" className="create-spinner" />
 
           <p className="create-status">{STATUS_MESSAGES[currentStep]}</p>
 
@@ -177,7 +178,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   ) : status === 'active' ? (
-                    <div className="checklist-spinner" />
+                    <Spinner />
                   ) : (
                     <svg
                       width="18"

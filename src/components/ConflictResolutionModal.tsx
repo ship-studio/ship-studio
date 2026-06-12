@@ -19,6 +19,7 @@ import { WarningIcon, CopyIcon, ChevronIcon, InfoIcon } from './icons';
 import { trackEvent, trackError } from '../lib/analytics';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { useAsyncState } from '../hooks/useAsyncState';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../contexts/ToastContext';
@@ -218,7 +219,7 @@ Please help me understand what each version does and recommend which one to keep
     return (
       <ModalFrame isOpen onClose={handleClose} showCloseButton={false} className="conflict-content">
         <div className="conflict-loading">
-          <div className="conflict-spinner" />
+          <Spinner size="lg" />
           <p>Analyzing conflicts...</p>
         </div>
       </ModalFrame>

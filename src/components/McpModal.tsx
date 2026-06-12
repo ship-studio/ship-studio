@@ -11,6 +11,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { SearchIcon } from './icons';
 import { ModalFrame } from './primitives/ModalFrame';
+import { Spinner } from './primitives/Spinner';
 import { type McpServer, listMcpServers, addMcpServer, removeMcpServer } from '../lib/mcp';
 import { trackEvent, trackSearch } from '../lib/analytics';
 import { logger } from '../lib/logger';
@@ -234,7 +235,7 @@ export function McpModal({
 
               {isLoadingServers && servers.length === 0 && (
                 <div className="mcp-loading">
-                  <div className="mcp-loading-spinner" />
+                  <Spinner className="mcp-loading-spinner" />
                   Loading MCP servers...
                 </div>
               )}

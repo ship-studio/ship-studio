@@ -43,6 +43,7 @@ import {
   type WorkspacePick,
 } from './import-project/steps/Step3WorkspacePicker';
 import { logger } from '../lib/logger';
+import { Spinner } from './primitives/Spinner';
 
 /** Props for the ImportProject component */
 interface ImportProjectProps {
@@ -436,7 +437,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     if (loadingAccounts) {
       return (
         <div className="create-modal-content creating">
-          <div className="create-spinner" />
+          <Spinner size="lg" className="create-spinner" />
           <p className="create-status">Loading GitHub accounts...</p>
         </div>
       );

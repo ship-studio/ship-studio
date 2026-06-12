@@ -50,7 +50,6 @@ vi.mock('./setup/OnboardingTerminal', () => ({
 // Strip heavy icon SVGs; only need predictable DOM.
 vi.mock('./icons', () => ({
   CheckIcon: () => <span data-testid="check-icon" />,
-  SpinnerIcon: () => <span data-testid="spinner-icon" />,
   ClaudeIcon: () => <span data-testid="claude-icon" />,
 }));
 

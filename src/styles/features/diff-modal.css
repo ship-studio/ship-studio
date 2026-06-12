@@ -236,15 +236,6 @@
   color: var(--text-muted);
 }
 
-.diff-spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--border);
-  border-top-color: var(--text-muted);
-  border-radius: var(--radius-full);
-  animation: spin 1s linear infinite;
-}
-
 /* Error state */
 .diff-error {
   display: flex;

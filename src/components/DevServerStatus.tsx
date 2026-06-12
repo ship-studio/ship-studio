@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { stripAnsi } from '../lib/ansi';
 
 /** Last N log lines to show inline — enough to catch a compile error or an
@@ -108,7 +109,7 @@ export function DevServerStatus({
   return (
     <div className={`preview-status preview-status--${phase}`}>
       {phase === 'loading' ? (
-        <div className="spinner" />
+        <Spinner size="lg" style={{ color: 'var(--text-muted)' }} />
       ) : (
         <div className="preview-status__icon" aria-hidden>
           <svg

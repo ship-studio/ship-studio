@@ -20,6 +20,7 @@ import { CelebrationScreen } from './CelebrationScreen';
 import { OnboardingTerminal } from './OnboardingTerminal';
 import { trackEvent, trackPageview } from '../../lib/analytics';
 import { Button } from '../primitives/Button';
+import { Spinner } from '../primitives/Spinner';
 import { logger } from '../../lib/logger';
 import {
   SetupItem,
@@ -487,7 +488,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   if (state === 'loading') {
     return (
       <div className="onboarding-screen onboarding-loading">
-        <div className="spinner" />
+        <Spinner size="lg" style={{ color: 'var(--text-muted)' }} />
         <p>Checking setup status...</p>
       </div>
     );

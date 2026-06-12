@@ -22,6 +22,7 @@ import { GitHubIcon, WarningIcon, BranchIcon } from './icons';
 import { trackEvent, trackError } from '../lib/analytics';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { useOptionalToast } from '../contexts/ToastContext';
 
 interface PullRequestsTabProps {
@@ -202,7 +203,7 @@ export function PullRequestsTab({
     return (
       <div className="prs-tab">
         <div className="prs-tab-loading">
-          <div className="branch-item-spinner" />
+          <Spinner size="lg" />
           <span>Loading pull requests...</span>
         </div>
       </div>

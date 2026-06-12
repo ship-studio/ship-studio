@@ -27,6 +27,7 @@ import {
 import type { LoadedPlugin } from '../hooks/usePlugins';
 import { useModal } from '../contexts/ModalContext';
 import { PluginInstallForm } from './PluginInstallForm';
+import { Spinner } from './primitives/Spinner';
 import { PluginStatusGrid } from './PluginStatusGrid';
 
 type Tab = 'installed' | 'library';
@@ -427,7 +428,7 @@ export function PluginManager({
             <>
               {isLoading && plugins.length === 0 && (
                 <div className="plugins-loading">
-                  <div className="plugins-loading-spinner" />
+                  <Spinner style={{ color: 'var(--text-primary)' }} />
                   Loading plugins...
                 </div>
               )}
@@ -485,7 +486,7 @@ export function PluginManager({
 
               {isLoadingRegistry && registry.length === 0 && (
                 <div className="plugins-loading">
-                  <div className="plugins-loading-spinner" />
+                  <Spinner style={{ color: 'var(--text-primary)' }} />
                   Loading plugin library...
                 </div>
               )}

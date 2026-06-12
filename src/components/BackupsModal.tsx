@@ -8,13 +8,14 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { SpinnerIcon, CheckIcon, PullRequestIcon } from './icons';
+import { CheckIcon, PullRequestIcon } from './icons';
 import { getBackups, restoreBackup, Backup, RestoreResult } from '../lib/backups';
 import { trackEvent } from '../lib/analytics';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
 import { useAsyncState } from '../hooks/useAsyncState';
 import { EmptyState } from './primitives/EmptyState';
+import { Spinner } from './primitives/Spinner';
 import { useModal } from '../contexts/ModalContext';
 
 interface BackupsModalProps {
@@ -136,9 +137,7 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
               variant="primary"
               onClick={() => void handleConfirmRestore()}
               disabled={isRestoring}
-              leftIcon={
-                isRestoring ? <SpinnerIcon size={14} className="spinner-icon" /> : undefined
-              }
+              leftIcon={isRestoring ? <Spinner size="sm" /> : undefined}
             >
               {isRestoring ? 'Restoring...' : 'Restore'}
             </Button>
@@ -207,7 +206,7 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
 
         {isLoading ? (
           <div className="backups-loading">
-            <SpinnerIcon size={20} className="spinner-icon" />
+            <Spinner />
             <span>Loading backups...</span>
           </div>
         ) : isNotGitRepo ? (

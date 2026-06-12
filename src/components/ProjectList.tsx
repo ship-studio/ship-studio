@@ -51,6 +51,8 @@ import { SearchAndSort } from './SearchAndSort';
 import { FolderBreadcrumb } from './FolderBreadcrumb';
 import { MoveFolderModal } from './MoveFolderModal';
 import { SettingsModal } from './SettingsModal';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Spinner } from './primitives/Spinner';
 import { GitHubCalendar } from './GitHubCalendar';
 import { useModal } from '../contexts/ModalContext';
 import {
@@ -497,7 +499,7 @@ export function ProjectList({
         />
         <div className="project-list dashboard">
           <div className="project-list-loading">
-            <div className="spinner" />
+            <Spinner size="lg" style={{ color: 'var(--text-muted)' }} />
             <p>Loading projects...</p>
             {cleanupStatus && <p className="project-list-cleanup-status">{cleanupStatus}</p>}
           </div>
@@ -716,9 +718,13 @@ export function ProjectList({
 
         {/* Delete Project Confirmation Modal */}
         {deleteConfirm && (
-          <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <h3>Delete Project?</h3>
+          <ModalFrame
+            isOpen
+            onClose={() => setDeleteConfirm(null)}
+            title="Delete Project?"
+            showCloseButton={false}
+          >
+            <div style={{ padding: 'var(--spacing-xl)' }}>
               <p>
                 Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?
               </p>
@@ -739,14 +745,18 @@ export function ProjectList({
                 </button>
               </div>
             </div>
-          </div>
+          </ModalFrame>
         )}
 
         {/* Delete Folder Confirmation Modal */}
         {deleteFolderConfirm && (
-          <div className="modal-overlay" onClick={() => setDeleteFolderConfirm(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <h3>Delete Folder?</h3>
+          <ModalFrame
+            isOpen
+            onClose={() => setDeleteFolderConfirm(null)}
+            title="Delete Folder?"
+            showCloseButton={false}
+          >
+            <div style={{ padding: 'var(--spacing-xl)' }}>
               <p>
                 Are you sure you want to delete <strong>{deleteFolderConfirm.name}</strong>?
               </p>
@@ -766,7 +776,7 @@ export function ProjectList({
                 </button>
               </div>
             </div>
-          </div>
+          </ModalFrame>
         )}
 
         {/* Settings Modal */}

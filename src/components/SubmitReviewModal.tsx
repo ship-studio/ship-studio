@@ -17,6 +17,7 @@ import { asCommandError, formatCommandError, isMergeConflictError } from '../lib
 import { logger } from '../lib/logger';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { GitHubIcon, WarningIcon } from './icons';
 import { useOptionalToast } from '../contexts/ToastContext';
 
@@ -419,7 +420,7 @@ export function SubmitReviewModal({
             >
               {isGenerating ? (
                 <>
-                  <span className="submit-review-spinner" />
+                  <Spinner size="sm" />
                   Generating with AI...
                 </>
               ) : (
@@ -456,7 +457,7 @@ export function SubmitReviewModal({
               >
                 {isGenerating ? (
                   <>
-                    <span className="submit-review-spinner" />
+                    <Spinner size="sm" />
                     Committing & generating...
                   </>
                 ) : (

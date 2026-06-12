@@ -6,6 +6,7 @@
  */
 
 import { Button } from '../../primitives/Button';
+import { Spinner } from '../../primitives/Spinner';
 
 /** Import progress steps */
 export type Step = 'clone' | 'install' | 'setup' | 'done';
@@ -57,7 +58,7 @@ export function Step3ImportProgress({
     <div className="create-modal-content creating">
       <h2>Importing "{repoName}"</h2>
 
-      <div className="create-spinner" />
+      <Spinner size="lg" className="create-spinner" />
 
       <p className="create-status">{STATUS_MESSAGES[currentStep]}</p>
 
@@ -78,7 +79,7 @@ export function Step3ImportProgress({
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               ) : status === 'active' ? (
-                <div className="checklist-spinner" />
+                <Spinner />
               ) : (
                 <svg
                   width="18"

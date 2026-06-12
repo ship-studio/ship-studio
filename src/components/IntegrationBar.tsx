@@ -10,7 +10,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { CheckIcon, WarningIcon, ChevronIcon, ClaudeIcon, GitHubIcon, SpinnerIcon } from './icons';
+import { CheckIcon, WarningIcon, ChevronIcon, ClaudeIcon, GitHubIcon } from './icons';
+import { Spinner } from './primitives/Spinner';
 import { getFullSetupStatus, SetupItem, SETUP_ITEM_ORDER } from '../lib/setup';
 import { logger } from '../lib/logger';
 
@@ -80,7 +81,7 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
       : `${readyCount}/${totalCount} ready`;
 
   const statusIcon = isLoading ? (
-    <SpinnerIcon size={14} className="spinner-icon" />
+    <Spinner size="sm" />
   ) : allConnected ? (
     <CheckIcon size={14} className="integration-bar-status-icon success" />
   ) : (

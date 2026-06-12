@@ -134,15 +134,6 @@
   height: 20px;
 }
 
-.setup-item-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: var(--radius-full);
-  animation: spin 0.8s linear infinite;
-}
-
 .setup-item-name {
   font-weight: 500;
   font-size: var(--font-size-lg);

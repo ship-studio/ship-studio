@@ -26,9 +26,10 @@ import {
 import { OnboardingTerminal } from './setup/OnboardingTerminal';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { logger } from '../lib/logger';
-import { CheckIcon, SpinnerIcon, ClaudeIcon } from './icons';
+import { CheckIcon, ClaudeIcon } from './icons';
 
 function KebabGlyph() {
   return (
@@ -240,7 +241,7 @@ export function AgentsPanel() {
             Install, sign in, or switch the default agent new terminals use.
           </p>
         </div>
-        {loading && <SpinnerIcon size={14} className="agents-panel-spinner" />}
+        {loading && <Spinner size="sm" className="agents-panel-spinner" />}
       </header>
 
       <div className="agents-panel-list">
@@ -301,7 +302,7 @@ export function AgentsPanel() {
                       >
                         <span className="agents-default-pill-radio">
                           {isSwitchingToThis ? (
-                            <SpinnerIcon size={10} className="spinner-icon" />
+                            <Spinner size="sm" />
                           ) : agent.isDefault ? (
                             <CheckIcon size={10} />
                           ) : null}

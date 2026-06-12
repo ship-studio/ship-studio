@@ -78,6 +78,7 @@ import type { PluginThemeData } from '../contexts/PluginContext';
 import type { PinnedProjectRow } from '../hooks/usePinnedProjects';
 import { useModal } from '../contexts/ModalContext';
 import { sessionRegistry } from '../lib/sessionRegistry';
+import { Spinner } from './primitives/Spinner';
 import '../styles/features/notifications.css';
 
 // ---------------------------------------------------------------------------
@@ -1335,7 +1336,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             data-education-id="screenshot-button"
                           >
                             {isCapturing ? (
-                              <div className="capture-spinner" />
+                              <Spinner size="sm" style={{ color: 'var(--accent)' }} />
                             ) : (
                               <CameraIcon size={14} />
                             )}
@@ -1351,7 +1352,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             data-education-id="crop-button"
                           >
                             {isCropCapturing ? (
-                              <div className="capture-spinner" />
+                              <Spinner size="sm" style={{ color: 'var(--accent)' }} />
                             ) : (
                               <CropIcon size={14} />
                             )}

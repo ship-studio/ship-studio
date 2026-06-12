@@ -95,7 +95,7 @@ describe('SetupItem', () => {
     render(<SetupItem item={item} />);
 
     expect(screen.getByText('Installing Node.js...')).toBeInTheDocument();
-    expect(document.querySelector('.setup-item-spinner')).toBeInTheDocument();
+    expect(document.querySelector('.ss-spinner')).toBeInTheDocument();
   });
 
   it('renders "in_progress" with brew hint for brew packages', () => {

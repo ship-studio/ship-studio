@@ -318,6 +318,9 @@
 }
 
 .health-tab-glyph.running {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
   color: var(--warning);
 }
 

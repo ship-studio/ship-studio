@@ -6,6 +6,7 @@
  */
 
 import { Button } from '../../primitives/Button';
+import { Spinner } from '../../primitives/Spinner';
 import type { GitHubRepo } from '../../../lib/github';
 
 export interface Step2RepoSelectionProps {
@@ -82,7 +83,7 @@ export function Step2RepoSelection({
       <div className="import-repo-list">
         {loadingRepos ? (
           <div className="import-repo-loading">
-            <div className="checklist-spinner" />
+            <Spinner style={{ color: 'var(--text-primary)' }} />
             <span>Loading repositories...</span>
           </div>
         ) : filteredRepos.length === 0 ? (

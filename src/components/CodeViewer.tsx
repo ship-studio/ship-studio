@@ -13,6 +13,7 @@ import { checkIdeAvailability, openInIde } from '../lib/ide';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../contexts/ToastContext';
+import { Spinner } from './primitives/Spinner';
 import { ChevronIcon, CodeIcon, FileIcon, VSCodeIcon, CursorIcon, CopyIcon } from './icons';
 import { trackEvent } from '../lib/analytics';
 import { fileExtensionForAnalytics } from '../lib/code';
@@ -393,7 +394,7 @@ export function CodeViewer({
           <span className="code-viewer-path">{filePath}</span>
         </div>
         <div className="code-viewer-placeholder">
-          <div className="capture-spinner" />
+          <Spinner size="sm" style={{ color: 'var(--accent)' }} />
         </div>
       </div>
     );

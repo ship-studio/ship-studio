@@ -47,6 +47,7 @@ import { ElementTreePanel } from './edit/ElementTreePanel';
 import { useElementTree } from '../hooks/useElementTree';
 import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocaleSwitcher';
 import { CompactIcon, ExpandIcon, PanelLeftIcon, ResetIcon } from './icons';
+import { Spinner } from './primitives/Spinner';
 import { pathLocale, switchPathLocale } from '../lib/i18n';
 import type { ProjectType } from '../lib/static-server';
 
@@ -939,14 +940,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             {/* Branch switching overlay */}
             {isBranchSwitching && (
               <div className="preview-branch-switching-overlay">
-                <div className="preview-branch-switching-spinner" />
+                <Spinner size="lg" style={{ color: 'var(--accent)' }} />
                 <span>Switching branch...</span>
               </div>
             )}
             {/* Dev server restarting overlay */}
             {isDevServerRestarting && (
               <div className="preview-branch-switching-overlay">
-                <div className="preview-branch-switching-spinner" />
+                <Spinner size="lg" style={{ color: 'var(--accent)' }} />
                 <span>Restarting dev server...</span>
               </div>
             )}

@@ -1,7 +1,7 @@
 /**
  * Navigation and UI chrome icons.
  *
- * Chevrons, check marks, warnings, close, info, spinner, search, arrows, and more/dots menus.
+ * Chevrons, check marks, warnings, close, info, search, arrows, and more/dots menus.
  */
 
 interface IconProps {
@@ -111,22 +111,6 @@ export function InfoIcon({ size = 16 }: IconProps) {
       <circle cx="12" cy="12" r="10" />
       <line x1="12" y1="8" x2="12" y2="12" />
       <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
-
-export function SpinnerIcon({ size = 20, className }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className={className || 'spinner-icon'}
-    >
-      <circle cx="12" cy="12" r="9" strokeDasharray="42 14" strokeLinecap="round" />
     </svg>
   );
 }

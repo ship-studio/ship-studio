@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFileTree } from '../hooks/useFileTree';
 import { FileTree } from './FileTree';
 import { CodeViewer } from './CodeViewer';
+import { Spinner } from './primitives/Spinner';
 import { ResetIcon, SearchIcon } from './icons';
 import { type FileTreeNode, fileExtensionForAnalytics } from '../lib/code';
 import { trackEvent, trackSearch } from '../lib/analytics';
@@ -141,7 +142,7 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
         <div className="code-tab-sidebar-content">
           {isLoadingTree ? (
             <div className="code-tab-sidebar-loading">
-              <div className="capture-spinner" />
+              <Spinner size="sm" style={{ color: 'var(--accent)' }} />
             </div>
           ) : treeError ? (
             <div className="code-tab-sidebar-error">

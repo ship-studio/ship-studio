@@ -308,6 +308,20 @@ import { ModalFrame } from './primitives/ModalFrame';
 
 For toggling state, pair with `useModalState()` from `src/hooks/useModalState.ts`.
 
+### Loading spinner → use `<Spinner>` from `src/components/primitives/Spinner.tsx`
+
+Don't hand-roll `border-top-color` + `animation: spin` divs — there used to be 16 per-feature copies.
+
+```tsx
+import { Spinner } from './primitives/Spinner';
+
+<Spinner size="sm" />                                  {/* 14px — inline, inside buttons */}
+<Spinner />                                            {/* 20px — default */}
+<Spinner size="lg" style={{ color: 'var(--accent)' }} /> {/* 32px — section loading */}
+```
+
+The arc uses `currentColor` — set `color` on the spinner or let it inherit (inside a green action button it's automatically dark).
+
 ### New button → use `<Button variant="...">` from `src/components/primitives/Button.tsx`
 
 Don't invent per-domain button classes (`foo-btn`, `xyz-action`, etc.) — they fragment the design system.

@@ -10,7 +10,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { ProjectGitHubStatus } from '../lib/github';
 import { publishBranch } from '../lib/branches';
-import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon, SpinnerIcon } from './icons';
+import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon } from './icons';
+import { Spinner } from './primitives/Spinner';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError } from '../lib/analytics';
@@ -320,7 +321,7 @@ export function PublishBranchDropdown({
           {publishState.status === 'publishing' && (
             <>
               <div className="publish-in-progress-header">
-                <SpinnerIcon />
+                <Spinner />
                 <span>{isMainBranch ? 'Publishing to production...' : 'Syncing changes...'}</span>
               </div>
               <div className="publish-actions">

@@ -16,6 +16,7 @@ import { FileIcon } from './icons';
 import { trackError } from '../lib/analytics';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { useAsyncState } from '../hooks/useAsyncState';
 
 // Image extensions to detect for preview
@@ -181,7 +182,7 @@ export function DiffModal({ projectPath, filePath, fileStatus, onClose }: DiffMo
         <div className="diff-body">
           {isLoading && (
             <div className="diff-loading">
-              <div className="diff-spinner" />
+              <Spinner size="lg" />
               <p>Loading diff...</p>
             </div>
           )}

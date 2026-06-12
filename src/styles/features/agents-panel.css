@@ -144,9 +144,10 @@
   cursor: wait;
 }
 
-.agents-default-pill.switching .spinner-icon {
+.agents-default-pill.switching .ss-spinner {
   width: 10px;
   height: 10px;
+  border-width: 1.5px;
 }
 
 .agents-default-pill-radio {

@@ -12,6 +12,7 @@ import { FolderIcon, CheckIcon, PlusIcon } from './icons';
 import { logger } from '../lib/logger';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 
 /** Props for the MoveFolderModal component */
 interface MoveFolderModalProps {
@@ -113,7 +114,7 @@ export function MoveFolderModal({
 
         {loading ? (
           <div className="move-folder-loading">
-            <div className="spinner" />
+            <Spinner size="lg" style={{ color: 'var(--text-muted)' }} />
           </div>
         ) : (
           <div className="move-folder-list">

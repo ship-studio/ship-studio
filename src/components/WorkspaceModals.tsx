@@ -34,6 +34,7 @@ import type { AgentConfig } from '../lib/agent';
 import type { BranchInfo } from '../lib/branches';
 import type { AuthTerminalConfig, IntegrationState } from '../hooks/useIntegrationStatus';
 import type { LoadedPlugin } from '../hooks/usePlugins';
+import { Spinner } from './primitives/Spinner';
 
 export interface WorkspaceModalsProps {
   // Project context
@@ -325,7 +326,7 @@ export function WorkspaceModals({
               >
                 {pluginSuggestionInstalling ? (
                   <>
-                    <span className="plugin-suggestion-spinner" />
+                    <Spinner size="sm" />
                     Installing…
                   </>
                 ) : (

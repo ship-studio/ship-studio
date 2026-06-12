@@ -54,6 +54,7 @@ import { UpdateBanner } from './components/UpdateBanner';
 import { MonorepoPickerModal } from './components/MonorepoPickerModal';
 import { ModalFrame } from './components/primitives/ModalFrame';
 import { Button } from './components/primitives/Button';
+import { Spinner } from './components/primitives/Spinner';
 import { ToastContext } from './contexts/ToastContext';
 import { ModalProvider, useModal } from './contexts/ModalContext';
 import { CommandPaletteHost } from './components/CommandPalette/CommandPaletteHost';
@@ -105,6 +106,7 @@ function App({ initialProjectPath }: AppProps) {
 const EMPTY_TAB_TITLES: Map<number, string> = new Map();
 const EMPTY_ATTENTION_TABS: Set<number> = new Set();
 const noop = () => {};
+const loadingSpinner = <Spinner size="lg" style={{ color: 'var(--text-muted)' }} />; // legacy .spinner look
 
 function AppContents({ initialProjectPath }: AppProps) {
   const [view, setView] = useState<AppView>('loading');
@@ -1043,7 +1045,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       <>
         <div className="app loading">
           <img src="/ship_studio_full_noshadow.svg" alt="Ship Studio" className="app-logo" />
-          <div className="spinner" />
+          {loadingSpinner}
         </div>
         {quitConfirmModal}
       </>
@@ -1194,7 +1196,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             isProjectDevServerRunning={isServerRunning}
           />
           <div className="project-loading-body">
-            <div className="spinner" />
+            {loadingSpinner}
             <p>Opening {currentProject?.name}...</p>
           </div>
         </div>
@@ -1207,9 +1209,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   if (!currentProject) {
     return (
       <>
-        <div className="app loading">
-          <div className="spinner" />
-        </div>
+        <div className="app loading">{loadingSpinner}</div>
         {quitConfirmModal}
       </>
     );

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type MouseEvent } from 'react';
+import { useEffect, useRef, type ReactNode, type MouseEvent } from 'react';
 
 interface ModalFrameProps {
   isOpen: boolean;
@@ -34,10 +34,20 @@ export function ModalFrame({
     return () => window.removeEventListener('keydown', handler);
   }, [isOpen, dismissable, onClose]);
 
+  // Only dismiss when the press STARTED on the overlay. A click fires on the
+  // overlay when a text-selection drag begins inside the modal and the mouse
+  // releases outside it — closing then would throw away unsaved input.
+  const pressBeganOnOverlay = useRef(false);
+
   if (!isOpen) return null;
 
-  const handleOverlayClick = () => {
-    if (dismissable) onClose();
+  const handleOverlayMouseDown = (e: MouseEvent) => {
+    pressBeganOnOverlay.current = e.target === e.currentTarget;
+  };
+
+  const handleOverlayClick = (e: MouseEvent) => {
+    if (dismissable && pressBeganOnOverlay.current && e.target === e.currentTarget) onClose();
+    pressBeganOnOverlay.current = false;
   };
 
   const stop = (e: MouseEvent) => e.stopPropagation();
@@ -45,6 +55,7 @@ export function ModalFrame({
   return (
     <div
       className="modal-frame-overlay"
+      onMouseDown={handleOverlayMouseDown}
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"

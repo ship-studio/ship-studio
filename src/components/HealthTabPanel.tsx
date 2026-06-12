@@ -29,7 +29,8 @@ import { useOptionalToast } from '../contexts/ToastContext';
 import { stripAnsi } from '../lib/ansi';
 import { Button } from './primitives/Button';
 import { ModalFrame } from './primitives/ModalFrame';
-import { SpinnerIcon, FileIcon, CopyIcon, ResetIcon } from './icons';
+import { Spinner } from './primitives/Spinner';
+import { FileIcon, CopyIcon, ResetIcon } from './icons';
 
 const CATEGORY_HINTS: Record<ScriptCategory, string> = {
   test: "Runs your project's test suite (vitest, jest, etc.) and reports pass/fail.",
@@ -167,7 +168,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
             >
               {health.isRunningAll ? (
                 <>
-                  <SpinnerIcon size={12} /> Running…
+                  <Spinner size="sm" /> Running…
                 </>
               ) : (
                 'Run all'
@@ -195,7 +196,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
               title="Re-detect scripts from package.json"
               aria-label="Refresh scripts"
             >
-              {health.isRefreshing ? <SpinnerIcon size={12} /> : <ResetIcon size={12} />}
+              {health.isRefreshing ? <Spinner size="sm" /> : <ResetIcon size={12} />}
             </button>
             <button
               type="button"
@@ -205,7 +206,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
               title="View package.json"
               aria-label="View package.json"
             >
-              {health.isLoadingPackageJson ? <SpinnerIcon size={12} /> : <FileIcon size={12} />}
+              {health.isLoadingPackageJson ? <Spinner size="sm" /> : <FileIcon size={12} />}
             </button>
           </div>
         </div>
@@ -278,7 +279,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
                     disabled={state.status === 'running' || health.isRunningAll}
                     title={state.result ? 'Re-run check' : 'Run check'}
                   >
-                    {state.status === 'running' ? <SpinnerIcon size={12} /> : 'Run'}
+                    {state.status === 'running' ? <Spinner size="sm" /> : 'Run'}
                   </Button>
                 </div>
               </li>
@@ -424,7 +425,8 @@ function HelpHint({ label }: { label: string }) {
 
 function StatusGlyph({ status }: { status: CheckStatus }) {
   if (status === 'missing') return null;
-  if (status === 'running') return <SpinnerIcon size={10} className="health-tab-glyph running" />;
+  if (status === 'running')
+    return <Spinner size="sm" className="health-tab-glyph running" label="Running" />;
   return <span className={`health-tab-glyph dot ${status}`} aria-hidden="true" />;
 }
 

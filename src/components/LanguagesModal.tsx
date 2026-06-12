@@ -19,11 +19,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ModalFrame } from './primitives/ModalFrame';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { useModal } from '../contexts/ModalContext';
 import { useAsyncState } from '../hooks/useAsyncState';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../contexts/ToastContext';
-import { GlobeIcon, SpinnerIcon, CloseIcon } from './icons';
+import { GlobeIcon, CloseIcon } from './icons';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { trackEvent } from '../lib/analytics';
 import {
@@ -387,7 +388,7 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
 
       {!promptReview && isLoading && (
         <div className="languages-loading">
-          <SpinnerIcon size={16} />
+          <Spinner />
           <span>Checking project…</span>
         </div>
       )}

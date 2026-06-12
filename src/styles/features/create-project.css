@@ -262,14 +262,10 @@
   color: var(--text-primary);
 }
 
+/* Layout + tint for the create/import flow's <Spinner size="lg"> */
 .create-spinner {
-  width: 40px;
-  height: 40px;
   margin: 28px 0;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: var(--radius-full);
-  animation: spin 1s linear infinite;
+  color: var(--accent);
 }
 
 .create-status {
@@ -305,16 +301,6 @@
 }
 
 .checklist-item svg {
-  flex-shrink: 0;
-}
-
-.checklist-spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--border);
-  border-top-color: var(--text-primary);
-  border-radius: var(--radius-full);
-  animation: spin 1s linear infinite;
   flex-shrink: 0;
 }
 

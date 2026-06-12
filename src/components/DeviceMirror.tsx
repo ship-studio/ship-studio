@@ -43,8 +43,9 @@ import { usePolling } from '../hooks/usePolling';
 import { checkDependenciesInstalled } from '../lib/project';
 import { attachPtySession, writePtySession } from '../lib/ptySession';
 import { getWindowLabel } from '../lib/window';
-import { SpinnerIcon, ResetIcon, ChevronIcon } from './icons';
+import { ResetIcon, ChevronIcon } from './icons';
 import { Button } from './primitives/Button';
+import { Spinner } from './primitives/Spinner';
 import { BuildTerminal } from './BuildTerminal';
 import { AndroidMirrorStage } from './AndroidMirrorStage';
 
@@ -657,7 +658,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
                 onClick={() => setBuildOpen((o) => !o)}
                 aria-expanded={buildOpen}
               >
-                {launchStatus === 'building' && <SpinnerIcon size={12} />}
+                {launchStatus === 'building' && <Spinner size="sm" />}
                 <span className="device-mirror-build-title">{summary}</span>
               </button>
               {launchStatus === 'failed' && onSendToAgent && (
@@ -725,7 +726,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
   // ---- Progress (starting) ----
   return (
     <div className="preview-loading">
-      <SpinnerIcon size={24} />
+      <Spinner />
       <span className="hint">{PLATFORM_COPY[platform ?? 'ios'].startHint}</span>
     </div>
   );
