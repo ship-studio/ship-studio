@@ -19,7 +19,7 @@
 //! time — so the resolver never guesses a single wrong edit target.
 
 use crate::errors::CommandError;
-use crate::utils::validate_project_path;
+use crate::utils::{resolve_workspace_path, validate_project_path};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -1815,6 +1815,8 @@ fn apply_v3_screens(config: &str, map: &mut std::collections::BTreeMap<String, u
 #[tracing::instrument(fields(project = %project_path))]
 pub fn is_tailwind_active(project_path: String) -> Result<bool, CommandError> {
     let root = validate_project_path(&project_path)?;
+    // Monorepo projects wire Tailwind inside the chosen app, not the repo root.
+    let root = resolve_workspace_path(&root);
     Ok(tailwind_active_at(&root))
 }
 
@@ -1866,6 +1868,8 @@ fn tailwind_active_at(root: &Path) -> bool {
 #[tracing::instrument(fields(project = %project_path))]
 pub fn detect_breakpoints(project_path: String) -> Result<Vec<Breakpoint>, CommandError> {
     let root = validate_project_path(&project_path)?;
+    // Monorepo projects keep their CSS and Tailwind config inside the chosen app.
+    let root = resolve_workspace_path(&root);
     let mut map: std::collections::BTreeMap<String, u32> = DEFAULT_BREAKPOINTS
         .iter()
         .map(|(n, px)| (n.to_string(), *px))
@@ -2819,6 +2823,37 @@ const items = [];
         std::fs::create_dir_all(&c).unwrap();
         std::fs::write(c.join("tailwind.config.js"), "module.exports = {{}}").unwrap();
         assert!(chk(&c), "tailwind.config.js present → active");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn tailwind_detection_follows_workspace_subpath() {
+        let dir = std::env::temp_dir().join(format!("ss-tw-sub-{}", std::process::id()));
+        let repo = dir.join("monorepo");
+        std::fs::create_dir_all(repo.join(".shipstudio")).unwrap();
+        std::fs::write(
+            repo.join(".shipstudio").join("project.json"),
+            r#"{"_description":"","publish":{"staging":null,"production":null},"workspace_subpath":"website"}"#,
+        )
+        .unwrap();
+        let app = repo.join("website");
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::write(
+            app.join("postcss.config.mjs"),
+            "export default { plugins: { \"@tailwindcss/postcss\": {} } };",
+        )
+        .unwrap();
+
+        // The repo root has no Tailwind wiring of its own…
+        assert!(!tailwind_active_at(&repo), "repo root alone → not active");
+        // …but the resolved workspace does — the path is_tailwind_active now checks.
+        let workspace = crate::utils::resolve_workspace_path(&repo);
+        assert_eq!(workspace, app, "subpath resolves to the chosen app");
+        assert!(
+            tailwind_active_at(&workspace),
+            "workspace wires tailwind → active"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
