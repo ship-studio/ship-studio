@@ -1,9 +1,33 @@
 /**
- * Hook for project lifecycle operations.
+ * Hook for project lifecycle operations — owns the dashboard ⇄ workspace
+ * navigation, orchestrating every other subsystem on project open/close.
  *
- * Manages: project selection/opening, back-to-projects, project creation/import,
- * dev server restart, compact mode entry, GitHub status refresh,
- * preview readiness, terminal interactions, and auto-accept mode.
+ * `handleSelectProject` phases: monorepo workspace gate (pauses for picker) →
+ * claim navigation version + duplicate-open guard → save outgoing project's
+ * terminal state + read auto-accept → show workspace IMMEDIATELY (server spins
+ * up in background) → restore/seed terminal tabs → duplicate-window check +
+ * session registration (backend authority, `sessionRegistry` mirror) → kill +
+ * reserve dev port → fetch branch info → start dev server via
+ * `startServerForProject` (skipped when a hot session's server is reused) →
+ * background GitHub status / screenshots / plugin suggestion.
+ *
+ * `handleBackToProjects` is a *view switch*, not a teardown: dev server, PTYs,
+ * and session-registry entry stay alive (hot-session contract); only the
+ * sidebar close button or app quit stops a session.
+ *
+ * Exposes auto-accept mode, create/import modal state, the monorepo picker,
+ * the install-overlay terminal config, and publishing flags — all consumed by
+ * App.tsx, which threads them into WorkspaceView and the dashboard.
+ *
+ * Boundaries: lib/projectSessions + sessionRegistry, lib/window (port
+ * reservation, window registry), and direct invokes (`get/set_terminal_state`,
+ * `kill_port`, `mark_project_opened`, `register_project_for_window`, …).
+ *
+ * Gotchas: every await inside `handleSelectProject` is followed by a
+ * `navigationVersionRef` check — a newer navigation supersedes the in-flight
+ * one, which must then stop touching view state. And `installTerminalConfig.
+ * args` lives in state purely for reference stability: a fresh array literal
+ * per render would tear down + respawn the install PTY in a loop.
  *
  * @module hooks/useProjectLifecycle
  */

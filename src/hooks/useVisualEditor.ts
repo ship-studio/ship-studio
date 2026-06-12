@@ -1,15 +1,34 @@
 /**
- * Visual editor controller.
+ * Visual editor controller — owns edit-mode state and the postMessage bridge
+ * to the in-iframe selection script (`SELECT_SCRIPT` in
+ * `src-tauri/src/proxy/mod.rs`).
  *
- * Owns edit-mode state and the message bridge to the in-iframe selection script
- * (`SELECT_SCRIPT` in `src-tauri/src/proxy/mod.rs`):
- *  - toggling edit mode posts `ss:activate` / `ss:deactivate`
- *  - incoming `ss:select` messages are resolved to a source location
- *  - `previewClass` posts `ss:mutate` for instant DOM feedback (no write)
- *  - `commit` writes the merged className back to source via the backend
+ * Lifecycle: toggle on → post `ss:activate` (re-posted on every iframe `load`,
+ * since the script re-initializes inert on each HMR reload) → an `ss:select`
+ * click resolves to source via the backend (class resolution, plus parallel
+ * text/image resolutions guarded by a staleness token) → edits (`applyToken`,
+ * `setBoxSide`, `stepSpacing`, `reset`) twMerge the live class and post
+ * `ss:mutate` with breakpoint-scoped preview rules (instant DOM feedback, no
+ * write) → `commit` writes the merged className back to source and advances
+ * the drift baseline so consecutive edits keep working. Text and image edits
+ * (`ss:textCommit`, `replaceImage`) write immediately on confirm.
  *
- * The selection script re-initializes inert on every (HMR) reload, so we
- * re-post `ss:activate` on each iframe `load` while edit mode is on.
+ * Exposes `editMode`, `selection`, `currentClass`, text/image resolutions,
+ * `multiTarget`, auto-save, and the edit/commit callbacks — consumed by
+ * Preview.tsx, which threads them into VisualEditorPanel.
+ *
+ * Boundaries: lib/edit wrappers (`resolveClassnameSource`, `applyClassnameEdit
+ * [Multi]`, `resolveTextSource`/`applyTextEdit`, `resolveImageSource`/
+ * `applySrcEdit`, `findComponentUsage`) over the Rust edit backend; the iframe
+ * `ss:*` message protocol; localStorage for the auto-save opt-in.
+ *
+ * Gotchas: incoming messages are trusted only when `e.source` is the preview
+ * iframe's contentWindow — the iframe hosts untrusted project content, and a
+ * forged `ss:textCommit` would otherwise write to the user's files. Every
+ * write arms `ss:suppressReload` BEFORE touching disk: Astro's full reload can
+ * beat the post-write `ss:commit`, briefly reverting the preview. Live values
+ * (`currentClass`, text/image targets) are mirrored into refs so the commit
+ * callbacks read fresh state without re-subscribing the message handler.
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';

@@ -1,11 +1,37 @@
 /**
- * Hook for dev server lifecycle management.
+ * Hook for dev server lifecycle management — owns one dev-server handle per
+ * project path so hot (pinned) projects keep their servers running across
+ * project switches.
  *
- * Tracks one dev-server handle per project path so that pinned projects can
- * keep their servers running across project switches. External callers still
- * see a single "current project" scalar API — `devServerPort`, `projectType`,
- * `customDevCommand`, output buffers, etc. — which is derived from the map
- * keyed by the `currentProjectPath` argument.
+ * `startServerForProject` phases: resolve workspace cwd (monorepo subpath) →
+ * detect project type → dependency gate (`node_modules` missing sets
+ * `needsInstall` and defers the spawn; Preview renders an install CTA) →
+ * spawn per type: custom command for `generic`, static file server for
+ * `statichtml`, skip entirely for mobile, `shopify theme dev` behind a
+ * store-connected gate, plain `startDevServer` PTY otherwise → wire an exit
+ * watcher that nulls the handle when the process dies externally (otherwise
+ * `isServerRunning` lies and the next open "reuses" a dead server).
+ *
+ * Output pipeline: probe-line filter (liveness `GET /` pings, with a pending-
+ * line buffer because PTY chunks aren't line-aligned) → 100KB ring buffer →
+ * 300ms-throttled version bump that only re-renders for the active project.
+ *
+ * External callers see a single "current project" scalar API — `devServerPort`,
+ * `projectType`, `customDevCommand`, `needsInstall`, output versions, plus
+ * synthetic refs (`devServerRef`, `devServerOutputRef`) whose `.current`
+ * getters read the map slot live — derived from the map keyed by the
+ * `currentProjectPath` argument. Consumed by App.tsx, which feeds Preview,
+ * the dev-logs pane, and useProjectLifecycle's reuse/restart decisions.
+ *
+ * Boundaries: lib/project (`startDevServer` PTY), lib/static-server,
+ * lib/shopify, and `kill_port` / `clear_project_cache` invokes.
+ *
+ * Gotchas: `stopServer` sets `suppressed` BEFORE stopping so leaked PTY
+ * onData listeners can't write into a buffer consumers believe is cleared;
+ * the exit watcher only clears state when the map still points at the handle
+ * it watched (a restart swaps handles under it); `currentPathRef` is synced
+ * during render so handlers firing between `setCurrentProject` and the next
+ * commit still target the right project.
  */
 
 import { useState, useRef, useCallback, useMemo } from 'react';

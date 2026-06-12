@@ -1,8 +1,32 @@
 /**
- * Hook that encapsulates all project creation logic for the CreateProject wizard.
+ * Hook that owns all project-creation logic for the CreateProject wizard —
+ * state, side effects, and handlers — so the component only renders.
  *
- * Extracts state management, side effects, and handlers from CreateProject
- * so the component only handles rendering.
+ * Two-step form (`formStep`): pick a source ('select-template': a built-in
+ * `TEMPLATES` entry, or a .zip via browser file picker / Tauri drag-drop) →
+ * 'enter-name'. Then the creation pipeline (`currentStep`, mirrored by the
+ * progress UI via `getStepStatus`): clone (`git clone` through a `spawn_pty`
+ * PTY; zips go through `extract_template_zip`; blank uses
+ * `create_blank_project`) → init (`remove_git_history` so the project
+ * detaches from the template repo, gitignore `.shipstudio/`, fire-and-forget
+ * Vercel plugin install) → install (`npm install` via PTY, gated on an npm
+ * cache-permission pre-check) → done → `onComplete(projectPath)`, which the
+ * caller turns into a project open. `retryInstall` re-runs just the install
+ * step against `createdProjectPath`.
+ *
+ * Consumed solely by `components/dashboard/CreateProject.tsx`.
+ *
+ * Boundaries: `spawn_pty` + the `pty-output`/`pty-exit` events (exit codes
+ * mapped to friendly errors: 243 npm cache, 128 git auth, 69 Xcode license),
+ * `list_projects` (duplicate-name check), `ensure_shipstudio_dir`,
+ * lib/setup (`checkNpmCachePermissions`), lib/plugins.
+ *
+ * Gotchas: `waitForPtyExit` treats a `null` exit code (process killed) as
+ * SUCCESS, so a killed clone/install proceeds to the next step. The two zip
+ * sources are mutually exclusive (`zipFile` from the browser vs `zipPath`
+ * from Tauri drag-drop — selecting one clears the other), and the native
+ * drag-drop listeners are only attached on the select-template step while
+ * not creating.
  *
  * @module hooks/useProjectCreation
  */

@@ -1,14 +1,32 @@
 /**
- * Terminal tab state — per project.
+ * Terminal tab state — per project. Owns the agent-terminal tab lists (and
+ * split-pane layout) for every open session, keyed by project path.
  *
- * Slice 4: each project that's been opened keeps its own tab list alive
- * until the session is explicitly closed. `useTerminalManagement` now
- * stores `Map<projectPath, ProjectTerminalState>` and exposes the CURRENT
- * project's slice through the same scalar API consumers already use.
- * Terminal React components are rendered for every active session; the
- * non-current ones get `display: none` from WorkspaceView so their xterm
- * instances (and the PTY processes they drive) keep running in the
- * background for multitasking.
+ * Lifecycle of a project's slice: seed (`ensureProjectSeeded` creates one
+ * default tab, or `restoreTerminalTabs` rebuilds from persisted backend state
+ * with `shouldResume: true`) → mutate (add/close tabs up to 5, switch agent —
+ * which kills the PTY and mints a fresh session ID, split-pane enable/resize/
+ * remove) → teardown (`closeAllTerminalsForProject` on explicit session close,
+ * `killAllTerminals` on window close). Each project keeps its tabs alive until
+ * explicitly closed (Slice 4 hot sessions): Terminal components are rendered
+ * for every session in `allSessions`, with non-current ones hidden via
+ * `display: none` by WorkspaceView so xterm + PTYs keep running.
+ *
+ * State lives in a `Map<projectPath, ProjectTerminalState>` ref; the CURRENT
+ * project's slice is exposed through scalars (`terminalTabs`,
+ * `activeTerminalTab`, `splitPaneTabIds`, …) re-derived via an epoch counter.
+ * Consumed by App.tsx, which threads it into WorkspaceView,
+ * TerminalSplitHeaders, and useProjectLifecycle (tab save/restore on switch).
+ *
+ * Boundaries: no Tauri calls of its own — PTYs are driven through
+ * `TerminalHandle` refs (`terminalRefsMap`, keyed `${projectPath}::${tabId}`);
+ * persistence (`get/set_terminal_state`) is the caller's job.
+ *
+ * Gotchas: `restoreTerminalTabs` is deliberately idempotent — if the project
+ * already has in-memory state, restoring would clobber live hot-session PTYs,
+ * so it no-ops. Split-pane sizes always re-sum to 100: closing/removing a pane
+ * redistributes its share across survivors, and `setSplitPaneSizes` clamps to
+ * a 12% minimum then renormalizes.
  *
  * @module hooks/useTerminalManagement
  */
