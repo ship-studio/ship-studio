@@ -247,7 +247,7 @@
 .agents-panel-terminal-body {
   flex: 1;
   min-height: 0;
-  background: #1e1e1e;
+  background: #1e1e1e; /* css-ok: must match xterm theme bg */
   border-radius: var(--radius);
   overflow: hidden;
 }

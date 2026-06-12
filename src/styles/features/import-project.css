@@ -1,5 +1,16 @@
 /* Import Project Modal Styles */
 
+/* Import-local colors — marketing gradient stops and one-offs, not part of the global scale. */
+:root {
+  --imp-avatar-user-start: #667eea;
+  --imp-avatar-user-end: #764ba2;
+  --imp-avatar-org-start: #11998e;
+  --imp-avatar-org-end: #38ef7d;
+  --imp-avatar-collab-start: #f093fb;
+  --imp-avatar-collab-end: #f5576c;
+  --imp-private-badge-violet-rgb: 139, 92, 246;
+}
+
 .import-modal {
   max-width: 560px;
   max-height: 85vh;
@@ -31,9 +42,9 @@
   border-radius: 10px;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   text-align: left;
 }
 
@@ -44,30 +55,42 @@
 
 .import-owner-btn.selected {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
 }
 
 .import-owner-avatar {
   width: 36px;
   height: 36px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(
+    135deg,
+    var(--imp-avatar-user-start) 0%,
+    var(--imp-avatar-user-end) 100%
+  );
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--font-size-lg);
   font-weight: 600;
-  color: white;
+  color: var(--text-bright);
   flex-shrink: 0;
 }
 
 .import-owner-avatar.org {
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  background: linear-gradient(
+    135deg,
+    var(--imp-avatar-org-start) 0%,
+    var(--imp-avatar-org-end) 100%
+  );
 }
 
 .import-owner-avatar.collab {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background: linear-gradient(
+    135deg,
+    var(--imp-avatar-collab-start) 0%,
+    var(--imp-avatar-collab-end) 100%
+  );
 }
 
 .import-owner-info {
@@ -102,14 +125,14 @@
   color: var(--text-primary);
   font-size: var(--font-size-lg);
   transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--transition),
+    box-shadow var(--transition);
 }
 
 .import-search input:focus {
   outline: none;
   border-color: var(--text-muted);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px var(--tint-subtle);
 }
 
 .import-search input::placeholder {
@@ -141,9 +164,9 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   text-align: left;
 }
 
@@ -154,7 +177,7 @@
 
 .import-repo-item.selected {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
 }
 
 .import-repo-header {
@@ -178,8 +201,8 @@
 }
 
 .import-repo-badge.private {
-  background: rgba(139, 92, 246, 0.2);
-  color: #a78bfa;
+  background: rgba(var(--imp-private-badge-violet-rgb), 0.2);
+  color: var(--purple-light);
 }
 
 .import-repo-badge.lang {

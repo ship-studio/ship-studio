@@ -113,9 +113,9 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-url-btn:hover {
@@ -137,15 +137,15 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   font-family: monospace;
 }
 
 .publish-url-button:hover {
   background: var(--border);
-  color: #3b82f6;
+  color: var(--info);
 }
 
 .publish-url-button svg {
@@ -180,9 +180,9 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-done:hover {
@@ -195,7 +195,7 @@
   align-items: center;
   gap: 12px;
   padding: 20px 16px;
-  color: #dc2626;
+  color: var(--error-deep);
   font-size: 15px;
   font-weight: 500;
 }
@@ -208,7 +208,7 @@
   padding: 0 16px 16px;
   font-size: var(--font-size-md);
   color: var(--text-secondary);
-  background: rgba(220, 38, 38, 0.05);
+  background: rgba(var(--error-deep-rgb), 0.05);
   margin: 0 16px 16px;
   padding: 12px;
   border-radius: var(--radius);

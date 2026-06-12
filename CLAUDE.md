@@ -397,6 +397,15 @@ The tokens live at the top of [src/styles/global/base.css](src/styles/global/bas
 
 Need a value that doesn't exist yet? Add the token to `:root` in [base.css](src/styles/global/base.css) first, then use it.
 
+**Raw color literals fail CI** (`pnpm check:patterns`). The rules:
+
+- Colors used in 2+ files or belonging to a semantic family (status, info, purple, ANSI) → global token in base.css. Alpha tints use the RGB-triplet companions: `rgba(var(--error-rgb), 0.1)`, white tints use `--tint/--tint-subtle/--tint-strong`, black scrims use `--overlay-30…80`.
+- Intentional one-off colors (brand hues, feature-specific accents) → a file-local token in a `:root` block at the top of that feature's CSS file, prefixed with the feature name (`--dm-failed-red`, `--setup-wizard-green`).
+- A raw value that genuinely must stay (e.g. backgrounds matching xterm's theme) → tag the line with a `/* css-ok: reason */` comment.
+- Font sizes use the type scale (`--font-size-xs` … `--font-size-3xl`). Off-scale sizes (15px, 17px…) are migration debt — round to the nearest token when touching that code.
+- `@keyframes` names are **global** in CSS. Shared keyframes (`spin`, `fadeIn`, `skeleton-pulse`) live in base.css only; feature-specific ones must be feature-prefixed. Duplicates fail CI (a duplicate silently overrides every consumer app-wide based on import order).
+- `var(--something)` referencing a token that's defined nowhere fails CI — an undefined var makes the declaration invalid and the style silently doesn't apply.
+
 ### New CSS file → mind the folder structure
 
 CSS lives under this folder structure:

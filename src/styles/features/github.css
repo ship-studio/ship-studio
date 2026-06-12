@@ -1,3 +1,8 @@
+/* GitHub-local colors — intentional one-offs, not part of the global scale. */
+:root {
+  --github-publish-hover-teal: #5ed9d0;
+}
+
 /* GitHub Integration - Project List */
 .project-list-actions {
   display: flex;
@@ -68,9 +73,9 @@
   border-radius: var(--radius);
   border: 1px solid var(--border);
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .github-button.github-install,
@@ -96,13 +101,13 @@
 
 .github-button.github-publish {
   background: var(--success);
-  color: #1e1e1e;
+  color: var(--bg-primary);
   font-weight: 600;
   margin-left: auto;
 }
 
 .github-button.github-publish:hover:not(:disabled) {
-  background: #5ed9d0;
+  background: var(--github-publish-hover-teal);
 }
 
 .github-button.github-publish:disabled,
@@ -281,9 +286,9 @@
   position: relative;
   flex-shrink: 0;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .visibility-option input[type='radio']:checked {
@@ -298,7 +303,7 @@
   top: 50%;
   width: 6px;
   height: 6px;
-  background: #1e1e1e;
+  background: var(--bg-primary);
   border-radius: var(--radius-full);
   transform: translate(-50%, -50%);
 }
@@ -324,7 +329,7 @@
 .github-form .github-error {
   margin: 0;
   padding: 12px 20px;
-  background: rgba(244, 71, 71, 0.1);
+  background: rgba(var(--error-rgb), 0.1);
   font-size: var(--font-size-md);
 }
 

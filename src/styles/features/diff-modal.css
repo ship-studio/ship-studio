@@ -3,7 +3,7 @@
 .diff-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay-70);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -63,23 +63,23 @@
 }
 
 .diff-status-modified {
-  background: rgba(234, 179, 8, 0.2);
-  color: #eab308;
+  background: rgba(var(--modified-yellow-rgb), 0.2);
+  color: var(--modified-yellow);
 }
 
 .diff-status-added {
-  background: rgba(34, 197, 94, 0.2);
+  background: rgba(var(--success-light-rgb), 0.2);
   color: var(--success-light);
 }
 
 .diff-status-deleted {
-  background: rgba(239, 68, 68, 0.2);
+  background: rgba(var(--error-light-rgb), 0.2);
   color: var(--error-light);
 }
 
 .diff-status-renamed {
-  background: rgba(168, 85, 247, 0.2);
-  color: #a855f7;
+  background: rgba(var(--purple-rgb), 0.2);
+  color: var(--purple);
 }
 
 .diff-close-btn {
@@ -90,9 +90,9 @@
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   flex-shrink: 0;
 }
 
@@ -186,7 +186,7 @@
 }
 
 .diff-line-add {
-  background: rgba(34, 197, 94, 0.15);
+  background: rgba(var(--success-light-rgb), 0.15);
 }
 
 .diff-line-add .diff-line-prefix,
@@ -195,7 +195,7 @@
 }
 
 .diff-line-delete {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(var(--error-light-rgb), 0.15);
 }
 
 .diff-line-delete .diff-line-prefix,
@@ -204,8 +204,8 @@
 }
 
 .diff-line-hunk {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: rgba(var(--info-rgb), 0.1);
+  color: var(--info);
   font-weight: 500;
   padding-top: 8px;
   padding-bottom: 8px;
@@ -242,16 +242,10 @@
   border: 3px solid var(--border);
   border-top-color: var(--text-muted);
   border-radius: var(--radius-full);
-  animation: diff-spin 1s linear infinite;
+  animation: spin 1s linear infinite;
 }
 
-@keyframes diff-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Error state */
+@keyframes /* Error state */
 .diff-error {
   display: flex;
   flex-direction: column;
@@ -270,9 +264,9 @@
   cursor: pointer;
   font-size: var(--font-size-md);
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .diff-error button:hover {

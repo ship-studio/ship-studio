@@ -108,6 +108,6 @@
 
 .settings-toggle.on .settings-toggle-thumb {
   transform: translateX(16px);
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  background: var(--text-bright);
+  box-shadow: 0 1px 3px var(--overlay-30);
 }

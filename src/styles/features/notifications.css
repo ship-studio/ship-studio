@@ -2,7 +2,7 @@
 .notification-settings-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -119,13 +119,13 @@
 }
 
 .notification-toggle input:checked + .notification-toggle-slider {
-  background: #3b82f6;
-  border-color: #3b82f6;
+  background: var(--info);
+  border-color: var(--info);
 }
 
 .notification-toggle input:checked + .notification-toggle-slider::before {
   transform: translateX(18px);
-  background: white;
+  background: var(--text-bright);
 }
 
 /* Sound Picker */
@@ -150,9 +150,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .notification-sound-option:hover {
@@ -161,9 +161,9 @@
 }
 
 .notification-sound-option.selected {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.4);
-  color: #3b82f6;
+  background: rgba(var(--info-rgb), 0.15);
+  border-color: rgba(var(--info-rgb), 0.4);
+  color: var(--info);
 }
 
 .notification-custom-path {
@@ -189,9 +189,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   width: fit-content;
 }
 

@@ -31,9 +31,9 @@
   position: relative;
   flex-shrink: 0;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-row input[type='checkbox']:checked {
@@ -48,7 +48,7 @@
   top: 45%;
   width: 3px;
   height: 6px;
-  border: solid white;
+  border: solid var(--text-bright);
   border-width: 0 1.5px 1.5px 0;
   transform: translate(-50%, -50%) rotate(45deg);
 }
@@ -92,9 +92,9 @@
   align-items: center;
   justify-content: center;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-row-link:hover {
@@ -155,7 +155,7 @@
 }
 
 .deployment-state.state-error {
-  color: #dc2626;
+  color: var(--error-deep);
 }
 
 .deployment-state.state-canceled {
@@ -188,8 +188,8 @@
 .publish-error {
   padding: 12px 16px;
   font-size: var(--font-size-base);
-  color: #dc2626;
-  background: rgba(220, 38, 38, 0.1);
+  color: var(--error-deep);
+  background: rgba(var(--error-deep-rgb), 0.1);
   border-top: 1px solid var(--border);
 }
 
@@ -241,9 +241,9 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-close:hover {
@@ -261,9 +261,9 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-submit:hover {
@@ -315,9 +315,9 @@
   cursor: pointer;
   border-radius: var(--radius);
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-quick-link:hover {

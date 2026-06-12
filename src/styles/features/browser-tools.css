@@ -168,7 +168,7 @@
   align-items: flex-start;
   gap: var(--spacing-sm);
   padding: 4px var(--spacing-md);
-  border-bottom: 1px solid rgba(60, 60, 60, 0.3);
+  border-bottom: 1px solid rgba(var(--border-rgb), 0.3);
   line-height: 1.5;
 }
 
@@ -194,24 +194,24 @@
 }
 
 .console-row-warn {
-  background: rgba(229, 229, 16, 0.05);
+  background: rgba(var(--ansi-yellow-rgb), 0.05);
 }
 
 .console-row-warn .console-row-level {
-  color: #e5e510;
+  color: var(--ansi-yellow);
 }
 
 .console-row-error {
-  background: rgba(241, 76, 76, 0.08);
+  background: rgba(var(--ansi-red-rgb), 0.08);
 }
 
 .console-row-error .console-row-level,
 .console-row-error .console-row-args {
-  color: #f14c4c;
+  color: var(--ansi-red);
 }
 
 .console-row-info .console-row-level {
-  color: #3b8eea;
+  color: var(--ansi-blue);
 }
 
 .console-row-debug {
@@ -254,7 +254,7 @@
   grid-template-columns: 70px 70px 1fr 80px;
   gap: var(--spacing-md);
   padding: 4px var(--spacing-md);
-  border-bottom: 1px solid rgba(60, 60, 60, 0.3);
+  border-bottom: 1px solid rgba(var(--border-rgb), 0.3);
   color: var(--text-primary);
   cursor: default;
 }
@@ -289,16 +289,16 @@
 }
 
 .network-row.status-ok .network-col-status {
-  color: #23d18b;
+  color: var(--ansi-bright-green);
 }
 
 .network-row.status-bad .network-col-status {
-  color: #e5e510;
+  color: var(--ansi-yellow);
 }
 
 .network-row.status-err .network-col-status,
 .network-row.status-err .network-col-url {
-  color: #f14c4c;
+  color: var(--ansi-red);
 }
 
 /* ===== Elements view ===== */
@@ -314,9 +314,9 @@
 
 .elements-truncated-banner {
   padding: 6px var(--spacing-md);
-  background: rgba(229, 229, 16, 0.1);
-  border-bottom: 1px solid rgba(229, 229, 16, 0.3);
-  color: #e5e510;
+  background: rgba(var(--ansi-yellow-rgb), 0.1);
+  border-bottom: 1px solid rgba(var(--ansi-yellow-rgb), 0.3);
+  color: var(--ansi-yellow);
   font-size: var(--font-size-sm);
   flex-shrink: 0;
 }
@@ -357,7 +357,7 @@
 }
 
 .el-row-comment .el-comment {
-  color: #6a9955;
+  color: var(--code-comment);
   font-style: italic;
 }
 
@@ -371,7 +371,7 @@
   flex-shrink: 0;
   color: var(--text-muted);
   font-size: 8px;
-  transition: transform 0.1s ease;
+  transition: transform var(--transition-fast);
 }
 
 .el-toggle.is-open {
@@ -387,7 +387,7 @@
 }
 
 .el-tag {
-  color: #569cd6;
+  color: var(--code-keyword);
 }
 
 .el-attr {
@@ -395,7 +395,7 @@
 }
 
 .el-attr-name {
-  color: #9cdcfe;
+  color: var(--code-property);
 }
 
 .el-attr-eq {
@@ -403,7 +403,7 @@
 }
 
 .el-attr-value {
-  color: #ce9178;
+  color: var(--code-string);
 }
 
 .el-ellipsis {

@@ -49,7 +49,7 @@
 
 .connection-card.connected {
   border-color: var(--success);
-  border-color: rgba(78, 205, 196, 0.3);
+  border-color: rgba(var(--success-rgb), 0.3);
 }
 
 .connection-card.disconnected {
@@ -68,7 +68,7 @@
 }
 
 .connection-card.connected .connection-icon {
-  background: rgba(78, 205, 196, 0.15);
+  background: rgba(var(--success-rgb), 0.15);
   color: var(--success);
 }
 
@@ -108,9 +108,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   white-space: nowrap;
 }
 
@@ -172,9 +172,9 @@
   border-radius: var(--radius-sm);
   opacity: 0;
   transition:
-    opacity 0.15s,
-    color 0.15s,
-    background 0.15s;
+    opacity var(--transition),
+    color var(--transition),
+    background var(--transition);
   z-index: 1;
   display: flex;
   align-items: center;
@@ -207,7 +207,7 @@
   padding: 6px 10px !important;
   font-size: var(--font-size-base) !important;
   color: var(--text-primary) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: var(--shadow) !important;
   z-index: 1000 !important;
 }
 
@@ -232,17 +232,7 @@
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 
-@keyframes skeleton-pulse {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.7;
-  }
-}
-
-/* Hide on narrow screens - same breakpoint as changelog */
+@keyframes /* Hide on narrow screens - same breakpoint as changelog */
 @media (max-width: 1100px) {
   .github-calendar-wrapper {
     display: none;

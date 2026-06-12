@@ -41,8 +41,8 @@
   justify-content: center;
   border-radius: var(--radius-sm);
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    color var(--transition);
 }
 
 .backups-close-btn:hover {
@@ -81,8 +81,8 @@
 }
 
 .backups-error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(var(--error-light-rgb), 0.1);
+  border: 1px solid rgba(var(--error-light-rgb), 0.3);
   color: var(--error-light);
   padding: 10px 12px;
   border-radius: var(--radius-md);
@@ -91,8 +91,8 @@
 }
 
 .backups-success {
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(var(--success-light-rgb), 0.1);
+  border: 1px solid rgba(var(--success-light-rgb), 0.3);
   color: var(--success-light);
   padding: 10px 12px;
   border-radius: var(--radius-md);
@@ -161,8 +161,8 @@
   color: var(--text-primary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    border-color var(--transition);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -264,9 +264,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    border-color var(--transition),
+    color var(--transition);
 }
 
 .backups-confirm-cancel:hover:not(:disabled) {
@@ -290,8 +290,8 @@
   color: var(--text-primary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    border-color var(--transition);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -326,7 +326,7 @@
   width: 48px;
   height: 48px;
   border-radius: var(--radius-full);
-  background: rgba(34, 197, 94, 0.1);
+  background: rgba(var(--success-light-rgb), 0.1);
   color: var(--success-light);
   display: flex;
   align-items: center;
@@ -352,8 +352,8 @@
 }
 
 .backups-badge-preview {
-  color: rgba(96, 165, 250, 0.9);
-  background: rgba(96, 165, 250, 0.12);
+  color: rgba(var(--info-light-rgb), 0.9);
+  background: rgba(var(--info-light-rgb), 0.12);
 }
 
 .backups-branch-name {
@@ -398,8 +398,8 @@
   color: var(--text-primary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    border-color var(--transition);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -422,9 +422,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    border-color var(--transition),
+    color var(--transition);
   width: 100%;
 }
 

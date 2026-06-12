@@ -63,9 +63,9 @@
   font-family: monospace;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-file-tab:hover {
@@ -76,7 +76,7 @@
 .env-file-tab.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #1e1e1e;
+  color: var(--bg-primary);
 }
 
 .env-file-tab.env-add-file {
@@ -248,9 +248,9 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-add-btn:hover {
@@ -263,14 +263,14 @@
   background: var(--accent);
   border: none;
   border-radius: var(--radius);
-  color: #1e1e1e;
+  color: var(--bg-primary);
   font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-save-btn:hover:not(:disabled) {
@@ -292,13 +292,13 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-delete-file-btn:hover {
-  background: rgba(244, 71, 71, 0.1);
+  background: rgba(var(--error-rgb), 0.1);
   border-color: var(--error);
   color: var(--error);
 }
@@ -354,14 +354,14 @@
   background: var(--accent);
   border: none;
   border-radius: var(--radius);
-  color: #1e1e1e;
+  color: var(--bg-primary);
   font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-create-btn:hover {
@@ -378,7 +378,7 @@
   color: var(--error);
   font-size: var(--font-size-md);
   padding: 8px 12px;
-  background: rgba(244, 71, 71, 0.1);
+  background: rgba(var(--error-rgb), 0.1);
   border-radius: var(--radius);
 }
 
@@ -390,8 +390,8 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  background: rgba(var(--warning-light-rgb), 0.1);
+  border: 1px solid rgba(var(--warning-light-rgb), 0.3);
   border-radius: var(--radius-md);
 }
 
@@ -416,8 +416,8 @@
 
 .env-sync-btn {
   padding: 6px 12px;
-  background: rgba(251, 191, 36, 0.2);
-  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: rgba(var(--warning-light-rgb), 0.2);
+  border: 1px solid rgba(var(--warning-light-rgb), 0.4);
   border-radius: var(--radius);
   color: var(--warning-light);
   font-size: var(--font-size-base);
@@ -425,13 +425,13 @@
   cursor: pointer;
   white-space: nowrap;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-sync-btn:hover {
-  background: rgba(251, 191, 36, 0.3);
+  background: rgba(var(--warning-light-rgb), 0.3);
   border-color: var(--warning-light);
 }
 
@@ -448,9 +448,9 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-paste-btn:hover {
@@ -466,7 +466,7 @@
 .env-paste-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -545,9 +545,9 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-paste-cancel:hover {
@@ -560,14 +560,14 @@
   background: var(--accent);
   border: none;
   border-radius: var(--radius);
-  color: #1e1e1e;
+  color: var(--bg-primary);
   font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .env-paste-confirm:hover:not(:disabled) {

@@ -63,7 +63,7 @@
 }
 
 .branch-selector-item.selected {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(var(--info-rgb), 0.1);
 }
 
 .branch-selector-radio {
@@ -75,20 +75,20 @@
   margin-top: 2px;
   position: relative;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .branch-selector-item.selected .branch-selector-radio {
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .branch-selector-item.selected .branch-selector-radio::after {
   content: '';
   position: absolute;
   inset: 3px;
-  background: #3b82f6;
+  background: var(--info);
   border-radius: var(--radius-full);
 }
 
@@ -132,14 +132,14 @@
   padding: 0;
   background: none;
   border: none;
-  color: #3b82f6;
+  color: var(--info);
   font-size: var(--font-size-md);
   cursor: pointer;
   transition: color var(--transition);
 }
 
 .branch-create-toggle:hover {
-  color: #60a5fa;
+  color: var(--info-light);
 }
 
 .branch-create-form {
@@ -159,7 +159,7 @@
 }
 
 .branch-create-input:focus {
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .branch-create-input::placeholder {
@@ -198,7 +198,7 @@
 .publish-branch-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -269,8 +269,8 @@
   gap: 8px;
   margin-bottom: 12px;
   padding: 10px 12px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(var(--error-light-rgb), 0.1);
+  border: 1px solid rgba(var(--error-light-rgb), 0.3);
   border-radius: var(--radius);
   font-size: var(--font-size-base);
   color: var(--error-light);
@@ -308,7 +308,7 @@
 .post-merge-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -417,7 +417,7 @@
 }
 
 .pr-card-status.merged {
-  background: #a855f7;
+  background: var(--purple);
 }
 
 .pr-card-status.closed {
@@ -465,7 +465,7 @@
   gap: 6px;
   margin-top: 8px;
   padding: 6px 10px;
-  background: rgba(245, 158, 11, 0.1);
+  background: rgba(var(--warning-rgb), 0.1);
   border-radius: var(--radius);
   font-size: var(--font-size-base);
   color: var(--warning);
@@ -485,16 +485,14 @@
   justify-content: center;
 }
 
-/* TODO: Replace hard-coded #3b82f6 with var(--accent) for theme consistency */
 .pr-card-checked-out {
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.05);
+  border-color: var(--info);
+  background: rgba(var(--info-rgb), 0.05);
 }
 
-/* TODO: Replace hard-coded #3b82f6 with var(--accent) for theme consistency */
 .pr-card-current-label {
   font-size: var(--font-size-sm);
-  color: #3b82f6;
+  color: var(--info);
   font-weight: 500;
   flex-shrink: 0;
 }
@@ -503,7 +501,7 @@
 .git-error-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -583,7 +581,7 @@
 .submit-review-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -643,16 +641,16 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   white-space: nowrap;
 }
 
 .submit-review-generate-btn:hover:not(:disabled) {
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .submit-review-generate-btn:disabled {
@@ -668,16 +666,10 @@
   border: 2px solid var(--border);
   border-top-color: var(--text-primary);
   border-radius: var(--radius-full);
-  animation: submit-review-spin 0.6s linear infinite;
+  animation: spin 0.6s linear infinite;
 }
 
-@keyframes submit-review-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.submit-review-body {
+@keyframes.submit-review-body {
   padding: 20px 24px;
 }
 
@@ -702,10 +694,10 @@
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: #3b82f6;
+  background: var(--info);
   border: none;
   border-radius: var(--radius);
-  color: #fff;
+  color: var(--text-bright);
   font-size: var(--font-size-md);
   font-weight: 500;
   cursor: pointer;
@@ -713,7 +705,7 @@
 }
 
 .submit-review-commit-btn:hover:not(:disabled) {
-  background: #2563eb;
+  background: var(--info-hover);
 }
 
 .submit-review-commit-btn:disabled {
@@ -759,7 +751,7 @@ select.submit-review-input {
 }
 
 .submit-review-input:focus {
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .submit-review-textarea {
@@ -778,7 +770,7 @@ select.submit-review-input {
 }
 
 .submit-review-textarea:focus {
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .submit-review-footer {
@@ -820,8 +812,4 @@ select.submit-review-input {
   background: var(--bg-tertiary);
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+@keyframes;

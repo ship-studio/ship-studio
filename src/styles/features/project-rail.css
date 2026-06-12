@@ -213,7 +213,7 @@ body.rail-drag-active iframe {
   padding: 0 4px;
   border-radius: var(--radius-full);
   background: var(--error);
-  color: #ffffff;
+  color: var(--text-bright);
   font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 16px;
@@ -256,7 +256,7 @@ body.rail-drag-active iframe {
 
 .project-rail-menu-item.danger:hover {
   background: var(--error);
-  color: #ffffff;
+  color: var(--text-bright);
 }
 
 /* "+" button — last item in the rail list. */

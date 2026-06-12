@@ -40,9 +40,9 @@
   text-align: left;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .move-folder-item:hover:not(:disabled) {
@@ -52,7 +52,7 @@
 }
 
 .move-folder-item.active {
-  background: rgba(78, 205, 196, 0.1);
+  background: rgba(var(--success-rgb), 0.1);
   border-color: var(--success);
   color: var(--text-primary);
 }

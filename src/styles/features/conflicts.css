@@ -1,9 +1,15 @@
 /* Merge Conflict Resolution Modal */
 
+/* Conflict-local colors — intentional one-offs, not part of the global scale. */
+:root {
+  /* Hover state for the "theirs" (green) button — darker step of --success-light. */
+  --conflict-theirs-hover: #16a34a;
+}
+
 .conflict-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay-70);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -149,15 +155,15 @@
 }
 
 .conflict-panel-header.yours {
-  color: #3b82f6;
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.05);
+  color: var(--info);
+  border-color: var(--info);
+  background: rgba(var(--info-rgb), 0.05);
 }
 
 .conflict-panel-header.theirs {
   color: var(--success-light);
   border-color: var(--success-light);
-  background: rgba(34, 197, 94, 0.05);
+  background: rgba(var(--success-light-rgb), 0.05);
 }
 
 .conflict-branch-name {
@@ -231,9 +237,9 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -250,23 +256,23 @@
 }
 
 .conflict-btn.yours {
-  background: #3b82f6;
-  border: 1px solid #3b82f6;
-  color: white;
+  background: var(--info);
+  border: 1px solid var(--info);
+  color: var(--text-bright);
 }
 
 .conflict-btn.yours:hover:not(:disabled) {
-  background: #2563eb;
+  background: var(--info-hover);
 }
 
 .conflict-btn.theirs {
   background: var(--success-light);
   border: 1px solid var(--success-light);
-  color: white;
+  color: var(--text-bright);
 }
 
 .conflict-btn.theirs:hover:not(:disabled) {
-  background: #16a34a;
+  background: var(--conflict-theirs-hover);
 }
 
 .conflict-btn.secondary {
@@ -282,13 +288,13 @@
 
 .conflict-btn.danger-outline {
   background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(var(--error-light-rgb), 0.3);
   color: var(--error-light);
 }
 
 .conflict-btn.danger-outline:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(var(--error-light-rgb), 0.1);
+  border-color: rgba(var(--error-light-rgb), 0.5);
 }
 
 .conflict-btn:disabled {
@@ -303,8 +309,8 @@
   gap: 10px;
   margin: 0 24px 16px;
   padding: 12px 14px;
-  background: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: rgba(var(--info-rgb), 0.08);
+  border: 1px solid rgba(var(--info-rgb), 0.2);
   border-radius: var(--radius-md);
   font-size: var(--font-size-base);
   color: var(--text-secondary);
@@ -313,7 +319,7 @@
 
 .conflict-callout-icon {
   flex-shrink: 0;
-  color: #3b82f6;
+  color: var(--info);
 }
 
 .conflict-callout > span:nth-child(2) {
@@ -376,9 +382,9 @@
   font-size: var(--font-size-base);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .conflict-copy-btn:hover {
@@ -435,7 +441,7 @@
 }
 
 .conflict-diff-label.yours {
-  color: #3b82f6;
+  color: var(--info);
 }
 
 .conflict-diff-label.theirs {
@@ -467,8 +473,4 @@
   background: var(--bg-secondary);
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+@keyframes;

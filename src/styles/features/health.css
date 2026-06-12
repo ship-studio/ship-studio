@@ -1,5 +1,12 @@
 /* Code Health Panel Styles */
 
+/* Health-local colors — intentional one-offs, not part of the global scale. */
+:root {
+  --health-amber: #ffc107;
+  --health-amber-rgb: 255, 193, 7;
+  --health-dot-idle: #666;
+}
+
 /* Health toggle button - appears inline in the terminal toolbar */
 .health-toggle {
   display: flex;
@@ -13,9 +20,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   font-size: var(--font-size-base);
   font-weight: 500;
   flex-shrink: 0;
@@ -23,7 +30,7 @@
 }
 
 .health-toggle:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   color: var(--text-primary);
   border-color: var(--border);
 }
@@ -44,7 +51,7 @@
   display: flex;
   align-items: center;
   padding: 9px 12px;
-  background: #252525;
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   gap: 8px;
   min-height: 48px;
@@ -73,22 +80,22 @@
   gap: 6px;
   height: 28px;
   padding: 0 10px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   border: 1px solid transparent;
   border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: var(--font-size-base);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .health-button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint);
   color: var(--text-primary);
 }
 
@@ -97,26 +104,26 @@
 }
 
 .health-button.pass {
-  border-color: rgba(13, 188, 121, 0.3);
-  color: #0dbc79;
+  border-color: rgba(var(--ansi-green-rgb), 0.3);
+  color: var(--ansi-green);
 }
 
 .health-button.pass:hover {
-  background: rgba(13, 188, 121, 0.1);
+  background: rgba(var(--ansi-green-rgb), 0.1);
 }
 
 .health-button.fail {
-  border-color: rgba(241, 76, 76, 0.3);
-  color: #f14c4c;
+  border-color: rgba(var(--ansi-red-rgb), 0.3);
+  color: var(--ansi-red);
 }
 
 .health-button.fail:hover {
-  background: rgba(241, 76, 76, 0.1);
+  background: rgba(var(--ansi-red-rgb), 0.1);
 }
 
 .health-button.running {
-  border-color: rgba(36, 114, 200, 0.3);
-  color: #2472c8;
+  border-color: rgba(var(--ansi-blue-dark-rgb), 0.3);
+  color: var(--ansi-blue-dark);
 }
 
 .health-rerun {
@@ -133,13 +140,13 @@
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .health-rerun:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--tint-strong);
   color: var(--text-primary);
 }
 
@@ -151,22 +158,22 @@
   height: 28px;
   padding: 0 12px;
   margin-left: auto;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
   font-size: var(--font-size-base);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .health-run-all:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint);
   color: var(--text-primary);
   border-color: var(--text-muted);
 }
@@ -184,7 +191,7 @@
   min-width: 28px;
   height: 28px;
   padding: 0 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-muted);
@@ -193,28 +200,28 @@
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   flex-shrink: 0;
   white-space: nowrap;
 }
 
 .health-auto-run:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint);
   color: var(--text-primary);
   border-color: var(--text-muted);
 }
 
 .health-auto-run.active {
-  background: rgba(59, 142, 234, 0.15);
-  border-color: rgba(59, 142, 234, 0.4);
-  color: #3b8eea;
+  background: rgba(var(--ansi-blue-rgb), 0.15);
+  border-color: rgba(var(--ansi-blue-rgb), 0.4);
+  color: var(--ansi-blue);
 }
 
 .health-auto-run.active:hover {
-  background: rgba(59, 142, 234, 0.2);
-  border-color: rgba(59, 142, 234, 0.6);
+  background: rgba(var(--ansi-blue-rgb), 0.2);
+  border-color: rgba(var(--ansi-blue-rgb), 0.6);
 }
 
 .health-auto-run:disabled {
@@ -229,20 +236,20 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   flex-shrink: 0;
 }
 
 .health-pkg-json:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint);
   color: var(--text-primary);
   border-color: var(--text-muted);
 }
@@ -259,20 +266,20 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   flex-shrink: 0;
 }
 
 .health-refresh:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint);
   color: var(--text-primary);
   border-color: var(--text-muted);
 }
@@ -297,11 +304,11 @@
 }
 
 .health-count.pass {
-  color: #0dbc79;
+  color: var(--ansi-green);
 }
 
 .health-count.fail {
-  color: #f14c4c;
+  color: var(--ansi-red);
 }
 
 .health-countdown {
@@ -311,10 +318,10 @@
   height: 28px;
   padding: 0 8px;
   margin-left: 4px;
-  background: rgba(59, 142, 234, 0.15);
-  border: 1px solid rgba(59, 142, 234, 0.4);
+  background: rgba(var(--ansi-blue-rgb), 0.15);
+  border: 1px solid rgba(var(--ansi-blue-rgb), 0.4);
   border-radius: var(--radius);
-  color: #3b8eea;
+  color: var(--ansi-blue);
   font-size: var(--font-size-sm);
   font-weight: 500;
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
@@ -336,20 +343,20 @@
 }
 
 .status-dot.idle {
-  color: #666;
+  color: var(--health-dot-idle);
 }
 
 .status-dot.running {
-  color: #2472c8;
+  color: var(--ansi-blue-dark);
   animation: spin 1s linear infinite;
 }
 
 .status-dot.pass {
-  color: #0dbc79;
+  color: var(--ansi-green);
 }
 
 .status-dot.fail {
-  color: #f14c4c;
+  color: var(--ansi-red);
 }
 
 /* Tooltip */
@@ -393,7 +400,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -428,7 +435,7 @@
   gap: 10px;
   font-size: 15px;
   font-weight: 600;
-  color: #f14c4c;
+  color: var(--ansi-red);
 }
 
 .health-modal-close {
@@ -444,13 +451,13 @@
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .health-modal-close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--tint-strong);
   color: var(--text-primary);
 }
 
@@ -463,7 +470,7 @@
 .health-modal-output {
   margin: 0;
   padding: 16px;
-  background: #1a1a1a;
+  background: var(--bg-deep);
   border-radius: var(--radius-md);
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
   font-size: var(--font-size-base);
@@ -508,19 +515,19 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .health-modal-btn.secondary {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   border: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
 .health-modal-btn.secondary:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint);
   color: var(--text-primary);
 }
 
@@ -557,24 +564,24 @@
   gap: 4px;
   height: 28px;
   padding: 0 10px;
-  background: rgba(255, 193, 7, 0.1);
-  border: 1px solid rgba(255, 193, 7, 0.3);
+  background: rgba(var(--health-amber-rgb), 0.1);
+  border: 1px solid rgba(var(--health-amber-rgb), 0.3);
   border-radius: var(--radius);
-  color: #ffc107;
+  color: var(--health-amber);
   font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   flex-shrink: 0;
   white-space: nowrap;
 }
 
 .health-suggestions-btn:hover {
-  background: rgba(255, 193, 7, 0.15);
-  border-color: rgba(255, 193, 7, 0.5);
+  background: rgba(var(--health-amber-rgb), 0.15);
+  border-color: rgba(var(--health-amber-rgb), 0.5);
 }
 
 /* Suggestions Modal Content */
@@ -594,7 +601,7 @@
 
 .health-suggestion-item {
   padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--white-rgb), 0.03);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -615,7 +622,7 @@
 .health-suggestion-reason {
   font-size: var(--font-size-sm);
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   padding: 2px 8px;
   border-radius: var(--radius-sm);
 }
@@ -625,14 +632,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: #1a1a1a;
+  background: var(--bg-deep);
   border-radius: var(--radius);
 }
 
 .health-suggestion-script code {
   font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
   font-size: var(--font-size-base);
-  color: #0dbc79;
+  color: var(--ansi-green);
 }
 
 .health-suggestion-copy {
@@ -646,23 +653,16 @@
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .health-suggestion-copy:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--tint-strong);
   color: var(--text-primary);
 }
 
 /* Spinner Animation */
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
+@keyframes;

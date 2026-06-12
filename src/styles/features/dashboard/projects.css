@@ -56,9 +56,9 @@
   font-size: var(--font-size-base);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .sort-dropdown-btn:hover {
@@ -95,9 +95,9 @@
   text-align: left;
   cursor: pointer;
   transition:
-    background-color 0.1s,
-    color 0.1s,
-    border-color 0.1s;
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .sort-dropdown-item:hover {
@@ -271,15 +271,15 @@
   font-size: var(--font-size-base);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .integration-bar-item-connect:hover {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: var(--text-bright);
 }
 
 /* ============ Project Card Menu ============ */
@@ -315,9 +315,9 @@
   text-align: left;
   cursor: pointer;
   transition:
-    background-color 0.1s,
-    color 0.1s,
-    border-color 0.1s;
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .project-card-menu-item:hover {
@@ -326,7 +326,7 @@
 }
 
 .project-card-menu-item-danger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(var(--error-light-rgb), 0.1);
   color: var(--error);
 }
 

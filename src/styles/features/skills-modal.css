@@ -35,8 +35,8 @@
   justify-content: center;
   border-radius: var(--radius-sm);
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    color var(--transition);
 }
 
 .skills-close-btn:hover {
@@ -64,9 +64,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .skills-tab:hover {
@@ -155,9 +155,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .skills-filter-btn:hover {
@@ -232,8 +232,8 @@
 }
 
 .skill-scope-badge.project {
-  color: #a78bfa;
-  border-color: rgba(167, 139, 250, 0.4);
+  color: var(--purple-light);
+  border-color: rgba(var(--purple-light-rgb), 0.4);
 }
 
 .skill-desc {
@@ -257,9 +257,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   flex-shrink: 0;
 }
 
@@ -314,9 +314,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .skills-search-btn:hover {
@@ -355,9 +355,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .skills-scope-btn:hover {
@@ -443,9 +443,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   flex-shrink: 0;
 }
 
@@ -478,20 +478,14 @@
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: var(--radius-full);
-  animation: skills-spin 0.8s linear infinite;
+  animation: spin 0.8s linear infinite;
   margin: 0 auto 12px;
 }
 
-@keyframes skills-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.skills-error {
+@keyframes.skills-error {
   padding: 12px;
-  background: rgba(220, 38, 38, 0.1);
-  border: 1px solid rgba(220, 38, 38, 0.3);
+  background: rgba(var(--error-deep-rgb), 0.1);
+  border: 1px solid rgba(var(--error-deep-rgb), 0.3);
   border-radius: var(--radius);
   color: var(--error);
   font-size: var(--font-size-md);

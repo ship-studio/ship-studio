@@ -31,16 +31,16 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   width: 100%;
 }
 
 .branches-new-branch-btn:hover {
   background: var(--bg-tertiary);
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: var(--info);
+  color: var(--info);
 }
 
 .branches-new-branch-form {
@@ -61,7 +61,7 @@
 }
 
 .branches-new-branch-input-wrapper:focus-within {
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .branches-new-branch-prefix {
@@ -112,7 +112,7 @@
   height: 14px;
   margin: 0;
   cursor: pointer;
-  accent-color: #3b82f6;
+  accent-color: var(--info);
 }
 
 .branches-new-branch-checkbox:hover {
@@ -142,8 +142,8 @@
 }
 
 .branch-card.current {
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.05);
+  border-color: var(--info);
+  background: rgba(var(--info-rgb), 0.05);
 }
 
 .branch-card-info {
@@ -177,7 +177,7 @@
 
 .branch-card-current-label {
   font-size: var(--font-size-sm);
-  color: #3b82f6;
+  color: var(--info);
   font-weight: 500;
 }
 
@@ -202,12 +202,12 @@
 }
 
 .branch-card-badge.ahead {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: rgba(var(--info-rgb), 0.1);
+  color: var(--info);
 }
 
 .branch-card-badge.behind {
-  background: rgba(245, 158, 11, 0.1);
+  background: rgba(var(--warning-rgb), 0.1);
   color: var(--warning);
 }
 
@@ -229,9 +229,9 @@
   font-size: var(--font-size-base);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .branch-card-action:hover {
@@ -254,19 +254,19 @@
 }
 
 .branch-card-action.danger:hover {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(var(--error-light-rgb), 0.1);
+  border-color: rgba(var(--error-light-rgb), 0.3);
 }
 
 .branch-card-action.danger-outline {
   background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  border: 1px solid rgba(var(--error-light-rgb), 0.3);
   color: var(--error-light);
 }
 
 .branch-card-action.danger-outline:hover {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(var(--error-light-rgb), 0.1);
+  border-color: rgba(var(--error-light-rgb), 0.5);
 }
 
 .branch-card-action.danger-outline:disabled {

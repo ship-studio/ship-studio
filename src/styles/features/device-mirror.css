@@ -1,5 +1,10 @@
 /* Native mobile preview (iOS Simulator mirror). See components/DeviceMirror.tsx. */
 
+/* Device-mirror-local colors — intentional one-offs, not in the global scale. */
+:root {
+  --dm-failed-red: #e5484d; /* build-failed state (was a dead var(--danger) fallback) */
+}
+
 .device-mirror {
   flex: 1;
   display: flex;
@@ -55,7 +60,7 @@
 
 .device-mirror-platform-btn.active {
   background: var(--accent);
-  color: var(--action-text); /* --accent is #fff in this theme → needs dark text */
+  color: var(--action-text); /* --accent is white in this theme → needs dark text */
 }
 
 .device-mirror-stage {
@@ -79,7 +84,7 @@
   object-fit: contain;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
-  background: #000;
+  background: #000; /* css-ok: true-black letterbox behind device frame */
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -137,11 +142,11 @@
 }
 
 .device-mirror-build-toggle[data-state='failed'] {
-  color: var(--danger, #e5484d);
+  color: var(--dm-failed-red);
 }
 
 .device-mirror-build-toggle[data-state='launched'] {
-  color: var(--success, #46a758);
+  color: var(--success);
 }
 
 .device-mirror-build-title {
@@ -201,7 +206,7 @@
   margin: 0;
   padding: var(--spacing-xs) var(--spacing-md);
   font-size: var(--font-size-sm);
-  color: var(--warning, #f59e0b);
+  color: var(--warning);
 }
 
 .device-mirror-build-hint code {

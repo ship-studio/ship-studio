@@ -35,8 +35,8 @@
   justify-content: center;
   border-radius: var(--radius-sm);
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    color var(--transition);
 }
 
 .plugins-close-btn:hover {
@@ -64,9 +64,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .plugins-tab:hover {
@@ -151,13 +151,7 @@
   animation: spin 0.6s linear infinite;
 }
 
-@keyframes plugins-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.plugins-empty {
+@keyframes.plugins-empty {
   text-align: center;
   padding: 32px 0;
   color: var(--text-secondary);
@@ -168,8 +162,8 @@
 .plugins-beta-notice {
   font-size: var(--font-size-base);
   color: var(--text-secondary);
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: rgba(var(--warning-rgb), 0.08);
+  border: 1px solid rgba(var(--warning-rgb), 0.25);
   border-radius: var(--radius);
   padding: 8px 12px;
   margin-bottom: 12px;
@@ -306,11 +300,11 @@
 }
 
 .plugin-action-link.plugin-action-update {
-  color: #3b82f6;
+  color: var(--info);
 }
 
 .plugin-action-link.plugin-action-update:hover {
-  color: #60a5fa;
+  color: var(--info-light);
 }
 
 .plugin-action-link.plugin-action-danger:hover:not(:disabled) {
@@ -332,14 +326,14 @@
   cursor: pointer;
   flex-shrink: 0;
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    color var(--transition);
 }
 
 .plugin-toggle-btn.enabled {
   background: var(--success);
   border-color: var(--success);
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .plugin-toggle-btn:hover {
@@ -358,8 +352,8 @@
   font-weight: 500;
   flex-shrink: 0;
   transition:
-    background-color 0.15s,
-    opacity 0.15s;
+    background-color var(--transition),
+    opacity var(--transition);
 }
 
 .plugin-library-install-btn:hover:not(:disabled) {
@@ -464,7 +458,7 @@
   font-size: var(--font-size-base);
   font-weight: 500;
   background: var(--success);
-  color: #fff;
+  color: var(--text-bright);
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
@@ -548,8 +542,8 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    border-color var(--transition);
 }
 
 .plugins-link-dev-btn:hover:not(:disabled) {

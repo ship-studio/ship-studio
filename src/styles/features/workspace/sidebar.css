@@ -688,12 +688,12 @@
 
 .sidebar-row-dot.dot-active {
   background: var(--success-light);
-  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
+  box-shadow: 0 0 0 2px rgba(var(--success-light-rgb), 0.15);
 }
 
 .sidebar-row-dot.dot-attention {
   background: var(--warning);
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+  box-shadow: 0 0 0 2px rgba(var(--warning-rgb), 0.2);
   animation: sidebar-pulse 1.6s ease-in-out infinite;
 }
 
@@ -802,7 +802,7 @@
 
 .sidebar-row-action:hover:not(:disabled) {
   background: none;
-  color: #fff;
+  color: var(--text-bright);
 }
 
 .sidebar-row-action:disabled {

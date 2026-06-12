@@ -58,7 +58,7 @@
 }
 .preview-edit-toggle-switch.is-on::after {
   transform: translateX(10px);
-  background: #ffffff;
+  background: var(--text-bright);
 }
 
 .ss-edit-panel {
@@ -207,7 +207,7 @@
 }
 .ss-edit-panel__switch.is-on::after {
   transform: translateX(10px);
-  background: #ffffff;
+  background: var(--text-bright);
 }
 
 /* Segmented control — a tray with inset, individually-rounded segments so the
@@ -678,8 +678,8 @@
   padding: 6px var(--spacing-sm);
   font-size: var(--font-size-sm);
   line-height: 1.4;
-  color: var(--warning, #e0a458);
-  background: color-mix(in srgb, var(--warning, #e0a458) 12%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
   border-radius: var(--radius-sm);
 }
 
@@ -761,10 +761,10 @@
 }
 /* Tone the warning variant (in a layout / every page) with the warning color. */
 .ss-edit-panel__scope--wide {
-  color: var(--warning, #e0a458);
+  color: var(--warning);
 }
 .ss-edit-panel__scope--btn.ss-edit-panel__scope--wide {
-  background: color-mix(in srgb, var(--warning, #e0a458) 12%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 .ss-edit-panel__scope strong {
   color: inherit;
@@ -793,8 +793,8 @@
   font-size: var(--font-size-base);
   line-height: 1.5;
   color: var(--text-secondary);
-  background: color-mix(in srgb, var(--warning, #e0a458) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warning, #e0a458) 26%, transparent);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 26%, transparent);
   border-radius: var(--radius-md);
 }
 .ss-usage-modal__note strong {
@@ -832,7 +832,7 @@
   background: var(--action);
 }
 .ss-usage-sec__dot--layout {
-  background: var(--warning, #e0a458);
+  background: var(--warning);
 }
 .ss-usage-sec__dot--component {
   background: var(--text-muted);
@@ -972,8 +972,8 @@
   cursor: default;
 }
 .ss-edit-panel__badge--approx {
-  color: var(--warning, #e0a458);
-  background: color-mix(in srgb, var(--warning, #e0a458) 14%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
 }
 
 /* Collapsible control sections (Layout, Spacing, Typography, …). Native

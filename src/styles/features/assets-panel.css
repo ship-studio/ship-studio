@@ -57,7 +57,7 @@
 }
 
 .assets-search:focus-within {
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .assets-search svg {
@@ -124,9 +124,9 @@
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .assets-breadcrumb-btn:hover {
@@ -253,9 +253,9 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .assets-toolbar-btn:hover:not(:disabled) {
@@ -291,9 +291,9 @@
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .assets-view-btn:hover {
@@ -334,7 +334,7 @@
 
 .assets-new-folder input:focus {
   outline: none;
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 .assets-new-folder input::placeholder {
@@ -522,7 +522,7 @@
 
 .assets-rename-input:focus {
   outline: none;
-  border-color: #3b82f6;
+  border-color: var(--info);
 }
 
 /* Item actions */
@@ -562,7 +562,7 @@
 .assets-drag-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(var(--accent-rgb, 34, 197, 94), 0.1);
+  background: rgba(var(--success-light-rgb), 0.1);
   border: 2px dashed var(--accent);
   border-radius: var(--radius-md);
   display: flex;
@@ -585,7 +585,7 @@
   color: var(--error);
   font-size: var(--font-size-md);
   padding: 8px 12px;
-  background: rgba(244, 71, 71, 0.1);
+  background: rgba(var(--error-rgb), 0.1);
   border-radius: var(--radius);
 }
 
@@ -608,9 +608,9 @@
   border-radius: var(--radius-md);
   cursor: default;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   position: relative;
 }
 
@@ -703,9 +703,9 @@
 /* Delete button armed state (ready to confirm) */
 .assets-action-btn.assets-action-delete.armed {
   background: var(--error-light);
-  color: white;
+  color: var(--text-bright);
 }
 
 .assets-action-btn.assets-action-delete.armed:hover {
-  background: #dc2626;
+  background: var(--error-deep);
 }

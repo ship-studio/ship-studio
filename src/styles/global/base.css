@@ -57,6 +57,12 @@
   --error: #f44747;
   --error-light: #ef4444;
 
+  /* Deep red — destructive/armed states (delete confirmation, publish errors) */
+  --error-deep: #dc2626;
+
+  /* Modified-state yellow (git modified badges, needs-attention markers) */
+  --modified-yellow: #eab308;
+
   /* Informational blue (links, info banners, "open" PR state, focus accents) */
   --info: #3b82f6;
   --info-hover: #2563eb;
@@ -66,6 +72,13 @@
   /* AI / agent accent (skills, MCP, plugin marketplace) */
   --purple: #a855f7;
   --purple-light: #a78bfa;
+  /* Deeper purple used only for tinted purple backgrounds (#9333ea) */
+  --purple-deep-rgb: 147, 51, 234;
+
+  /* Slack community CTA brand hues (dashboard, setup, support panel) */
+  --slack-pink: #e9a7fb;
+  --slack-lavender: #c4b5fd;
+  --slack-lavender-bright: #ddd6fe;
 
   /* RGB triplets — for alpha tints only: rgba(var(--error-rgb), 0.1).
    * Keep each in sync with its solid token above. */
@@ -75,9 +88,12 @@
   --warning-light-rgb: 251, 191, 36;
   --error-rgb: 244, 71, 71;
   --error-light-rgb: 239, 68, 68;
+  --error-deep-rgb: 220, 38, 38;
+  --modified-yellow-rgb: 234, 179, 8;
   --info-rgb: 59, 130, 246;
   --info-light-rgb: 96, 165, 250;
-  --purple-rgb: 147, 51, 234;
+  --purple-rgb: 168, 85, 247;
+  --purple-light-rgb: 167, 139, 250;
   --border-rgb: 60, 60, 60;
   --white-rgb: 255, 255, 255;
   --black-rgb: 0, 0, 0;
@@ -102,7 +118,11 @@
   --ansi-yellow: #e5e510;
   --ansi-blue: #3b8eea;
   --ansi-blue-dark: #2472c8;
+  --ansi-green-rgb: 13, 188, 121;
+  --ansi-red-rgb: 241, 76, 76;
+  --ansi-yellow-rgb: 229, 229, 16;
   --ansi-blue-rgb: 59, 142, 234;
+  --ansi-blue-dark-rgb: 36, 114, 200;
 
   /* Code syntax colors (VS Code dark palette — code mode, diff rendering) */
   --code-keyword: #569cd6;
@@ -112,6 +132,11 @@
 
   /* Structure */
   --border: #3c3c3c;
+  /* Hover states for list rows / tabs / bordered cards. These names were
+   * referenced (undefined) for months — hovers silently rendered transparent.
+   * Defined conservatively as aliases; tune freely. */
+  --bg-hover: var(--bg-tertiary);
+  --border-hover: var(--text-muted);
 
   /* Spacing scale (use for padding, margin, gap) */
   --spacing-xs: 4px;
@@ -287,9 +312,21 @@ body.compact-mode-active html {
   animation: spin 1s linear infinite;
 }
 
+/* Shared keyframes — keyframe names are GLOBAL in CSS. Define shared ones
+   here only; a feature-file duplicate silently overrides every consumer
+   app-wide depending on import order. */
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
@@ -458,7 +495,7 @@ button:hover {
 
 .toggle-pill-switch.is-on::after {
   transform: translateX(10px);
-  background: #ffffff;
+  background: var(--text-bright);
 }
 
 /* Rotate the chevron 180° when its parent dropdown is open. */
@@ -471,7 +508,7 @@ button:hover {
 .modal-frame-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--overlay-70);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -595,11 +632,11 @@ button:hover {
 .button--danger {
   background: transparent;
   color: var(--error-light);
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: rgba(var(--error-light-rgb), 0.3);
 }
 
 .button--danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(var(--error-light-rgb), 0.1);
 }
 
 .button--ghost {
@@ -652,15 +689,16 @@ button:hover {
 }
 
 /* ===== Primitive: Skeleton ===== */
+/* 0.4/0.7 (not the 0.5/0.85 once written here) — project-list.css carried a
+   same-named duplicate that loaded later and won everywhere; these are the
+   values the app has always actually rendered. */
 @keyframes skeleton-pulse {
-  0% {
-    opacity: 0.5;
+  0%,
+  100% {
+    opacity: 0.4;
   }
   50% {
-    opacity: 0.85;
-  }
-  100% {
-    opacity: 0.5;
+    opacity: 0.7;
   }
 }
 

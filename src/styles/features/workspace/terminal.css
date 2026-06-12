@@ -6,7 +6,7 @@
      Settings buttons align vertically with the sidebar toggle above. */
   padding: 9px 10px;
   min-height: 48px;
-  background: #252525;
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -50,9 +50,9 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   outline: none;
 }
 
@@ -199,9 +199,9 @@
   flex-shrink: 0;
   opacity: 0;
   transition:
-    opacity 0.1s,
-    background 0.1s,
-    color 0.1s;
+    opacity var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .tab-selector-item:hover .tab-selector-close-btn {
@@ -209,7 +209,7 @@
 }
 
 .tab-selector-close-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(var(--error-light-rgb), 0.15);
   color: var(--danger);
 }
 
@@ -243,7 +243,7 @@
 .terminal-tab-content[data-agent-id='opencode'] {
   left: 0;
   padding: 0;
-  background: #1e1e1e;
+  background: var(--bg-primary);
 }
 
 .terminal-tab-content[data-agent-id='opencode'] .xterm,
@@ -253,7 +253,7 @@
   height: 100% !important;
   padding: 0 !important;
   margin: 0 !important;
-  background: #1e1e1e !important;
+  background: var(--bg-primary) !important;
 }
 
 .terminal-tab-content[data-agent-id='opencode'] .xterm-viewport {
@@ -594,7 +594,7 @@
 }
 
 .toolbar-dropdown-item .toggle-indicator.on {
-  background: rgba(245, 158, 11, 0.2);
+  background: rgba(var(--warning-rgb), 0.2);
   color: var(--warning);
 }
 

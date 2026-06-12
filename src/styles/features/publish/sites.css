@@ -1,3 +1,8 @@
+/* Publish-local colors — intentional one-offs, not part of the global scale. */
+:root {
+  --publish-prod-green-rgb: 74, 222, 128;
+}
+
 /* Reset Section */
 .publish-reset-section {
   padding: 12px 16px;
@@ -49,9 +54,9 @@
   font-size: var(--font-size-base);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-reset-options button:hover:not(:disabled) {
@@ -90,9 +95,9 @@
   border-radius: var(--radius);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   margin-bottom: 8px;
   text-align: left;
 }
@@ -125,13 +130,13 @@
 }
 
 .publish-live-site-badge-prod {
-  color: rgba(74, 222, 128, 0.9);
-  background: rgba(74, 222, 128, 0.12);
+  color: rgba(var(--publish-prod-green-rgb), 0.9);
+  background: rgba(var(--publish-prod-green-rgb), 0.12);
 }
 
 .publish-live-site-badge-preview {
-  color: rgba(96, 165, 250, 0.9);
-  background: rgba(96, 165, 250, 0.12);
+  color: rgba(var(--info-light-rgb), 0.9);
+  background: rgba(var(--info-light-rgb), 0.12);
 }
 
 .publish-live-site-url {
@@ -175,9 +180,9 @@
   font-size: var(--font-size-base);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .publish-link-button:hover {

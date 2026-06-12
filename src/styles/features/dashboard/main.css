@@ -1,5 +1,11 @@
 /* ============ Dashboard Styles ============ */
 
+/* Dashboard-local colors — intentional one-offs (Slack CTA purples), not part of the global scale. */
+:root {
+  --dash-slack-grad-start: rgba(97, 31, 105, 0.15);
+  --dash-slack-grad-end: rgba(78, 29, 129, 0.1);
+}
+
 /* Dashboard with changelog sidebar layout */
 .dashboard-with-changelog {
   display: flex;
@@ -102,8 +108,12 @@
   gap: 16px;
   padding: 12px 16px;
   margin-bottom: 20px;
-  background: linear-gradient(135deg, rgba(97, 31, 105, 0.15) 0%, rgba(78, 29, 129, 0.1) 100%);
-  border: 1px solid rgba(147, 51, 234, 0.2);
+  background: linear-gradient(
+    135deg,
+    var(--dash-slack-grad-start) 0%,
+    var(--dash-slack-grad-end) 100%
+  );
+  border: 1px solid rgba(var(--purple-deep-rgb), 0.2);
   border-radius: 10px;
 }
 
@@ -117,7 +127,7 @@
 
 .slack-cta-content svg {
   flex-shrink: 0;
-  color: #e9a7fb;
+  color: var(--slack-pink);
 }
 
 .slack-cta-content span {
@@ -133,25 +143,25 @@
 
 .slack-cta-join {
   padding: 4px 10px;
-  background: rgba(147, 51, 234, 0.2);
-  border: 1px solid rgba(147, 51, 234, 0.3);
+  background: rgba(var(--purple-deep-rgb), 0.2);
+  border: 1px solid rgba(var(--purple-deep-rgb), 0.3);
   border-radius: var(--radius);
-  color: #c4b5fd;
+  color: var(--slack-lavender);
   font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .slack-cta-join:hover {
-  background: rgba(147, 51, 234, 0.3);
-  border-color: rgba(147, 51, 234, 0.5);
-  color: #ddd6fe;
+  background: rgba(var(--purple-deep-rgb), 0.3);
+  border-color: rgba(var(--purple-deep-rgb), 0.5);
+  color: var(--slack-lavender-bright);
 }
 
 .slack-cta-hide {
@@ -163,8 +173,8 @@
   flex-shrink: 0;
   border-radius: var(--radius-sm);
   transition:
-    color 0.15s,
-    background-color 0.15s;
+    color var(--transition),
+    background-color var(--transition);
 }
 
 .slack-cta-hide:hover {

@@ -90,13 +90,13 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 32px var(--overlay-40);
   cursor: pointer;
   z-index: var(--z-app-modal-content);
   animation: screenshot-toast-in 0.3s ease;
   transition:
-    opacity 0.3s ease,
-    transform 0.3s ease;
+    opacity var(--transition-slow),
+    transform var(--transition-slow);
 }
 
 .screenshot-toast:hover {

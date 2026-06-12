@@ -76,7 +76,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -139,9 +139,9 @@
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .folder-card-menu-btn:hover {
@@ -176,9 +176,9 @@
   text-align: left;
   cursor: pointer;
   transition:
-    background-color 0.1s,
-    color 0.1s,
-    border-color 0.1s;
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .folder-card-menu-item:hover {
@@ -187,7 +187,7 @@
 }
 
 .folder-card-menu-item-danger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(var(--error-light-rgb), 0.1);
   color: var(--error);
 }
 
@@ -212,9 +212,9 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .folder-breadcrumb-back:hover {

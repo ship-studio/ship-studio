@@ -1,11 +1,18 @@
 /* Create Project Modal */
+
+/* Create-project-local colors — intentional one-offs, not part of the global scale. */
+:root {
+  --create-default-green: #34c759;
+  --create-default-green-rgb: 52, 199, 89;
+}
+
 .create-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--overlay-80);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -14,16 +21,7 @@
   animation: fadeIn 0.15s ease-out;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes slideUp {
+@keyframes@keyframes slideUp {
   from {
     opacity: 0;
     transform: translateY(10px) scale(0.98);
@@ -43,7 +41,7 @@
   max-height: 90vh;
   overflow-y: auto;
   animation: slideUp 0.2s ease-out;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 25px 50px -12px var(--overlay-50);
 }
 
 .create-modal-content {
@@ -87,9 +85,9 @@
   cursor: pointer;
   border-radius: var(--radius);
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   margin: -4px -4px 0 0;
 }
 
@@ -118,8 +116,8 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    color 0.15s,
-    border-color 0.15s;
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .create-tab:hover {
@@ -153,9 +151,9 @@
   cursor: pointer;
   text-align: left;
   transition:
-    border-color 0.15s,
-    background-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--transition),
+    background-color var(--transition),
+    box-shadow var(--transition);
 }
 
 .stack-card:hover {
@@ -217,14 +215,14 @@
   color: var(--text-primary);
   font-size: 15px;
   transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--transition),
+    box-shadow var(--transition);
 }
 
 .create-modal-content input:focus {
   outline: none;
   border-color: var(--text-muted);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px var(--tint-subtle);
 }
 
 .create-modal-content input::placeholder {
@@ -327,8 +325,8 @@
   gap: 14px;
   padding: 16px 20px;
   margin-top: 24px;
-  background: rgba(244, 71, 71, 0.1);
-  border: 1px solid rgba(244, 71, 71, 0.3);
+  background: rgba(var(--error-rgb), 0.1);
+  border: 1px solid rgba(var(--error-rgb), 0.3);
   border-radius: var(--radius-md);
   text-align: center;
   width: 100%;
@@ -354,9 +352,9 @@
   cursor: pointer;
   text-align: center;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .template-default-toggle:hover {
@@ -365,9 +363,9 @@
 }
 
 .template-default-toggle.active {
-  border-color: #34c759;
-  color: #34c759;
-  background: rgba(52, 199, 89, 0.08);
+  border-color: var(--create-default-green);
+  color: var(--create-default-green);
+  background: rgba(var(--create-default-green-rgb), 0.08);
 }
 
 .template-context {
@@ -415,9 +413,9 @@
   border-radius: 10px;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   margin-bottom: 0;
 }
 
@@ -428,7 +426,7 @@
 
 .template-dropzone.dragging {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
 }
 
 .template-dropzone svg {
@@ -452,7 +450,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tint-subtle);
   border: 1px solid var(--accent);
   border-radius: 10px;
   margin-bottom: 0;
@@ -486,9 +484,9 @@
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
   flex-shrink: 0;
 }
 
@@ -526,15 +524,15 @@
   color: var(--text-primary);
   font-size: var(--font-size-md);
   transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--transition),
+    box-shadow var(--transition);
   box-sizing: border-box;
 }
 
 .create-modal-content input.tg-search-input:focus {
   outline: none;
   border-color: var(--text-muted);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px var(--tint-subtle);
 }
 
 .create-modal-content input.tg-search-input::placeholder {
@@ -556,8 +554,8 @@
   align-items: center;
   justify-content: center;
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    color var(--transition);
 }
 
 .tg-search-clear:hover {
@@ -600,11 +598,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px var(--overlay-30);
   transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    border-color var(--transition),
+    color var(--transition);
 }
 
 .tg-scroll-btn:hover {
@@ -631,9 +629,9 @@
   overflow: hidden;
   cursor: pointer;
   transition:
-    border-color 0.15s,
-    background-color 0.15s,
-    box-shadow 0.15s;
+    border-color var(--transition),
+    background-color var(--transition),
+    box-shadow var(--transition);
   text-align: left;
   padding: 0;
   position: relative;
@@ -729,7 +727,7 @@
   background: linear-gradient(
     90deg,
     var(--bg-tertiary) 0%,
-    rgba(255, 255, 255, 0.06) 50%,
+    rgba(var(--white-rgb), 0.06) 50%,
     var(--bg-tertiary) 100%
   );
   background-size: 200px 100%;

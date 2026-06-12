@@ -118,9 +118,9 @@
   font-size: var(--font-size-md);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .page-switcher-btn:hover {
@@ -196,9 +196,9 @@
   text-align: left;
   cursor: pointer;
   transition:
-    background-color 0.1s,
-    color 0.1s,
-    border-color 0.1s;
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .page-item:hover {
@@ -207,7 +207,7 @@
 }
 
 .page-item.active {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint);
   color: var(--text-primary);
 }
 
@@ -379,9 +379,9 @@
   white-space: nowrap;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .preview-dimensions:hover:not(:disabled) {
@@ -429,7 +429,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--transition);
   outline: none;
 }
 
@@ -526,16 +526,10 @@
   border: 3px solid var(--border);
   border-top-color: var(--accent);
   border-radius: var(--radius-full);
-  animation: preview-spin 0.8s linear infinite;
+  animation: spin 0.8s linear infinite;
 }
 
-@keyframes preview-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Preview Viewport */
+@keyframes /* Preview Viewport */
 .preview-viewport {
   flex: 1;
   display: flex;
@@ -596,7 +590,7 @@
   width: 100%;
   height: 100%;
   border: none;
-  background: #1e1e1e;
+  background: var(--bg-primary);
 }
 
 /* Preview resize overlay (captures mouse during drag) */
@@ -625,8 +619,8 @@
   align-items: center;
   justify-content: center;
   transition:
-    background 0.15s,
-    border-color 0.15s;
+    background var(--transition),
+    border-color var(--transition);
 }
 
 .preview-resize-handle:hover {
@@ -720,7 +714,7 @@
 
 .preview-logs-toggle-switch.is-on::after {
   transform: translateX(10px);
-  background: #ffffff;
+  background: var(--text-bright);
 }
 
 /* Collapsible dev server logs panel (bottom of preview) */
@@ -729,7 +723,7 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: #1a1a1a;
+  background: #1a1a1a; /* css-ok: must match xterm theme bg */
   border-top: 1px solid var(--border);
   /* Isolate the panel's internal layout from ancestors: any Network
      row / DOM tree / console line change inside the panel won't
@@ -861,7 +855,7 @@
 }
 
 /* DevServerLogs layout: optional toolbar above the xterm container.
-   The terminal area keeps its hard-coded #1a1a1a to match xterm's
+   The terminal area keeps its hard-coded 1a1a1a to match xterm's
    theme background exactly — tokenizing this pulls in a theme-aware
    value that won't match the renderer. */
 .dev-server-logs {
@@ -870,7 +864,7 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: #1a1a1a;
+  background: #1a1a1a; /* css-ok: must match xterm theme bg */
 }
 
 .dev-server-logs-toolbar {
@@ -918,7 +912,7 @@
 .dev-server-logs-terminal {
   flex: 1;
   min-height: 0;
-  background: #1a1a1a;
+  background: #1a1a1a; /* css-ok: must match xterm theme bg */
 }
 
 /* Crop selection overlay */
@@ -934,9 +928,9 @@
 
 .crop-selection {
   position: absolute;
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(var(--white-rgb), 0.8);
   background: transparent;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 9999px var(--overlay-50);
   pointer-events: none;
 }
 
@@ -945,8 +939,8 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: #fff;
+  background: var(--overlay-80);
+  color: var(--text-bright);
   padding: 16px 24px;
   border-radius: var(--radius-md);
   font-size: var(--font-size-lg);
@@ -959,7 +953,7 @@
 
 .crop-hint {
   font-size: var(--font-size-base);
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(var(--white-rgb), 0.6);
 }
 
 /* Preview loading and error states */

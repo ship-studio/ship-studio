@@ -1,5 +1,13 @@
 /* Setup/Onboarding Screen Styles */
 
+/* Setup-local colors — intentional one-offs, not part of the global scale.
+   The wizard greens are the onboarding install/CTA brand hue (lighter than
+   --action). */
+:root {
+  --setup-wizard-green: #7fe89a;
+  --setup-wizard-green-hover: #6dd889;
+}
+
 /* ============ Onboarding Screen ============ */
 
 .onboarding-screen {
@@ -57,8 +65,8 @@
 }
 
 .onboarding-error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(var(--error-light-rgb), 0.1);
+  border: 1px solid rgba(var(--error-light-rgb), 0.3);
   border-radius: var(--radius-md);
   padding: 16px;
   margin-bottom: 24px;
@@ -90,8 +98,8 @@
   border-radius: 10px;
   border: 1px solid var(--border);
   transition:
-    border-color 0.15s,
-    background-color 0.15s;
+    border-color var(--transition),
+    background-color var(--transition);
 }
 
 .setup-item:hover {
@@ -99,13 +107,13 @@
 }
 
 .setup-item-status-ready {
-  border-color: rgba(34, 197, 94, 0.3);
-  background: rgba(34, 197, 94, 0.05);
+  border-color: rgba(var(--success-light-rgb), 0.3);
+  background: rgba(var(--success-light-rgb), 0.05);
 }
 
 .setup-item-status-error {
-  border-color: rgba(239, 68, 68, 0.3);
-  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(var(--error-light-rgb), 0.3);
+  background: rgba(var(--error-light-rgb), 0.05);
 }
 
 .setup-item-status-blocked {
@@ -135,13 +143,7 @@
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.setup-item-name {
+@keyframes.setup-item-name {
   font-weight: 500;
   font-size: var(--font-size-lg);
   flex: 1;
@@ -203,8 +205,8 @@
   border: none;
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    opacity 0.15s;
+    background-color var(--transition),
+    opacity var(--transition);
 }
 
 .setup-item-btn:disabled {
@@ -214,13 +216,13 @@
 
 .setup-item-btn-install,
 .setup-item-btn-connect {
-  background: #7fe89a;
-  color: #1e1e1e;
+  background: var(--setup-wizard-green);
+  color: var(--action-text);
 }
 
 .setup-item-btn-install:hover:not(:disabled),
 .setup-item-btn-connect:hover:not(:disabled) {
-  background: #6dd889;
+  background: var(--setup-wizard-green-hover);
 }
 
 .setup-item-btn-retry {
@@ -286,15 +288,15 @@
 }
 
 .wizard-indicator-dot.current {
-  background: #7fe89a;
-  border-color: #7fe89a;
-  color: #1e1e1e;
+  background: var(--setup-wizard-green);
+  border-color: var(--setup-wizard-green);
+  color: var(--action-text);
 }
 
 .wizard-indicator-dot.completed {
-  background: #7fe89a;
-  border-color: #7fe89a;
-  color: white;
+  background: var(--setup-wizard-green);
+  border-color: var(--setup-wizard-green);
+  color: var(--text-bright);
 }
 
 .wizard-indicator-dot.past {
@@ -313,7 +315,7 @@
 }
 
 .wizard-indicator-line.active {
-  background: #7fe89a;
+  background: var(--setup-wizard-green);
 }
 
 .wizard-indicator-label {
@@ -397,9 +399,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .wizard-nav-back:hover {
@@ -413,17 +415,17 @@
   font-weight: 500;
   border-radius: var(--radius-md);
   border: none;
-  background: #7fe89a;
-  color: #1e1e1e;
+  background: var(--setup-wizard-green);
+  color: var(--action-text);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
 }
 
 .wizard-nav-next:hover:not(:disabled) {
-  background: #6dd889;
+  background: var(--setup-wizard-green-hover);
 }
 
 .wizard-nav-next:disabled {
@@ -451,12 +453,12 @@
 }
 
 .wizard-agent-card.ready {
-  border-color: rgba(34, 197, 94, 0.3);
+  border-color: rgba(var(--success-light-rgb), 0.3);
 }
 
 .wizard-agent-card.selected {
   border-color: var(--success);
-  background: rgba(34, 197, 94, 0.05);
+  background: rgba(var(--success-light-rgb), 0.05);
   cursor: pointer;
 }
 
@@ -496,8 +498,8 @@
   font-weight: 500;
   padding: 2px 8px;
   border-radius: var(--radius-sm);
-  background: rgba(147, 51, 234, 0.15);
-  color: #c4b5fd;
+  background: rgba(var(--purple-deep-rgb), 0.15);
+  color: var(--slack-lavender);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -558,8 +560,8 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    color var(--transition);
   margin-top: 8px;
 }
 
@@ -580,15 +582,15 @@
   align-items: center;
   gap: 12px;
   padding: 14px 18px;
-  background: rgba(147, 51, 234, 0.08);
-  border: 1px solid rgba(147, 51, 234, 0.2);
+  background: rgba(var(--purple-deep-rgb), 0.08);
+  border: 1px solid rgba(var(--purple-deep-rgb), 0.2);
   border-radius: 10px;
   margin-top: 16px;
 }
 
 .onboarding-slack-cta svg {
   flex-shrink: 0;
-  color: #e9a7fb;
+  color: var(--slack-pink);
 }
 
 .onboarding-slack-cta span {
@@ -605,19 +607,19 @@
 
 .onboarding-slack-cta button {
   padding: 6px 14px;
-  background: rgba(147, 51, 234, 0.2);
-  border: 1px solid rgba(147, 51, 234, 0.3);
+  background: rgba(var(--purple-deep-rgb), 0.2);
+  border: 1px solid rgba(var(--purple-deep-rgb), 0.3);
   border-radius: var(--radius);
-  color: #c4b5fd;
+  color: var(--slack-lavender);
   font-size: var(--font-size-md);
   font-weight: 500;
   flex-shrink: 0;
 }
 
 .onboarding-slack-cta button:hover {
-  background: rgba(147, 51, 234, 0.3);
-  border-color: rgba(147, 51, 234, 0.5);
-  color: #ddd6fe;
+  background: rgba(var(--purple-deep-rgb), 0.3);
+  border-color: rgba(var(--purple-deep-rgb), 0.5);
+  color: var(--slack-lavender-bright);
 }
 
 /* ============ Celebration Screen ============ */
@@ -779,7 +781,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -787,23 +789,14 @@
   animation: fadeIn 0.15s ease-out;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.onboarding-terminal-modal {
+@keyframes.onboarding-terminal-modal {
   width: 90%;
   max-width: 700px;
   background: var(--bg-secondary);
   border-radius: var(--radius-lg);
   overflow: hidden;
   border: 1px solid var(--border);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 20px 60px var(--overlay-40);
   animation: scaleIn 0.2s ease-out;
 }
 
@@ -843,8 +836,8 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition:
-    background-color 0.15s,
-    color 0.15s;
+    background-color var(--transition),
+    color var(--transition);
 }
 
 .onboarding-terminal-cancel:hover {
@@ -854,7 +847,7 @@
 
 .onboarding-terminal-container {
   height: 350px;
-  background: #1e1e1e;
+  background: var(--bg-primary);
 }
 
 /* ============ Optional Items ============ */
