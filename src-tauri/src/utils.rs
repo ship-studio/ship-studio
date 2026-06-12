@@ -405,7 +405,22 @@ pub fn validate_project_file_path(file_path: &str) -> Result<std::path::PathBuf,
         ));
     }
 
-    Ok(canonical_parent.join(file_name))
+    let resolved = canonical_parent.join(file_name);
+
+    // Refuse to operate through a symlink at the final component. The parent
+    // check above confines the directory, but `fs::read`/`write`/`remove_file`
+    // follow symlinks — so a malicious repo could plant `proj/.env` as a symlink
+    // to ~/.zshenv and escape the sandbox on the final hop. (Mirrors the guard
+    // in assets.rs::upload_asset.)
+    if let Ok(meta) = std::fs::symlink_metadata(&resolved) {
+        if meta.file_type().is_symlink() {
+            return Err(format!(
+                "Security error: '{file_path}' is a symlink; refusing to follow it"
+            ));
+        }
+    }
+
+    Ok(resolved)
 }
 
 /// Resolve a project path to its "active workspace" directory.
@@ -906,6 +921,39 @@ mod tests {
             assert!(
                 result.is_ok(),
                 "not-yet-created file inside ShipStudio should validate, got {result:?}"
+            );
+        }
+
+        /// A `.env` that is itself a symlink pointing outside the sandbox must be
+        /// rejected — otherwise fs::write/read/remove would follow it (the
+        /// planted-symlink RCE this helper guards against).
+        #[test]
+        #[cfg(unix)]
+        fn rejects_symlinked_final_component() {
+            use std::os::unix::fs::symlink;
+            let root = shipstudio_root();
+            if fs::create_dir_all(&root).is_err() {
+                eprintln!("skipping: couldn't create ~/ShipStudio");
+                return;
+            }
+            let dir = root.join(".audit-env-symlink-test");
+            let _ = fs::remove_dir_all(&dir);
+            if fs::create_dir_all(&dir).is_err() {
+                eprintln!("skipping: couldn't create test dir");
+                return;
+            }
+            let link = dir.join(".env");
+            // Point at /tmp/... outside ShipStudio; target need not exist.
+            if symlink("/tmp/ss-audit-symlink-target", &link).is_err() {
+                let _ = fs::remove_dir_all(&dir);
+                eprintln!("skipping: couldn't create symlink");
+                return;
+            }
+            let result = validate_project_file_path(&link.to_string_lossy());
+            let _ = fs::remove_dir_all(&dir);
+            assert!(
+                result.is_err(),
+                "symlinked final component must be rejected, got {result:?}"
             );
         }
     }
