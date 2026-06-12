@@ -1103,6 +1103,22 @@
   word-break: break-word;
 }
 
+/* Interactive logs (PTY-backed): focusable so the user can answer CLI
+   prompts (store password, y/n confirms) by typing right here. */
+.preview-status__logs-body--interactive {
+  cursor: text;
+}
+.preview-status__logs-body--interactive:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.preview-status__logs-hint {
+  margin: var(--spacing-xs) 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 /* Locale Switcher — view the preview in another configured language */
 .locale-switcher {
   position: relative;

@@ -38,7 +38,8 @@ export type ModalId =
   | 'conflictResolution'
   | 'diff'
   | 'quitConfirm'
-  | 'commandPalette';
+  | 'commandPalette'
+  | 'shopifyStore';
 
 interface ModalContextValue {
   isOpen: (id: ModalId) => boolean;

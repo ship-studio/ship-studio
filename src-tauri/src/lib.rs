@@ -459,6 +459,11 @@ pub fn run() {
             commands::claude::check_claude_cli_status,
             commands::claude::install_claude_cli,
             commands::claude::claude_session_exists,
+            // Shopify theme integration
+            commands::shopify::check_shopify_cli_status,
+            commands::shopify::get_shopify_store,
+            commands::shopify::set_shopify_store,
+            commands::shopify::kill_stale_theme_dev,
             // Claude skills
             commands::skills::list_claude_skills,
             commands::skills::check_skills_cli,

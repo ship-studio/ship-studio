@@ -23,6 +23,9 @@ pub enum ProjectType {
     Reactnative,
     /// Flutter app (native mobile). See docs/internal/mobile-app-preview-plan.md.
     Flutter,
+    /// Shopify Liquid theme (Online Store 2.0). Previewed via `shopify theme dev`,
+    /// which renders Liquid server-side against a connected store.
+    Shopifytheme,
     /// Has package.json but isn't a recognized web framework (Tauri, CLI tools, etc.)
     Generic,
     Unknown,
@@ -215,6 +218,11 @@ pub struct ProjectMetadata {
     /// projects that use the built-in image pipeline.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assets_root: Option<String>,
+    /// Shopify store domain (e.g. `my-store.myshopify.com`) for Shopify theme
+    /// projects. Passed to `shopify theme dev --store`. `None` until the user
+    /// connects a store via the preview-pane setup flow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shopify_store: Option<String>,
 }
 
 fn default_schema_version() -> u32 {
@@ -239,6 +247,7 @@ impl Default for ProjectMetadata {
             custom_thumbnail: None,
             workspace_subpath: None,
             assets_root: None,
+            shopify_store: None,
         }
     }
 }

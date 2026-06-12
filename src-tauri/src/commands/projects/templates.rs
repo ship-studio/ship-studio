@@ -191,11 +191,15 @@ pub async fn extract_template_zip(
         }
     }
 
-    // Verify it's a valid project (has package.json or HTML files)
-    if !project_path.join("package.json").exists() && !has_html_files(&project_path) {
+    // Verify it's a valid project (has package.json, HTML files, or a
+    // Shopify theme layout)
+    if !project_path.join("package.json").exists()
+        && !has_html_files(&project_path)
+        && !project_path.join("layout").join("theme.liquid").exists()
+    {
         // Clean up invalid project
         std::fs::remove_dir_all(&project_path).ok();
-        return Err("Invalid template: no package.json or .html files found. Please use a valid project template."
+        return Err("Invalid template: no package.json, .html files, or Shopify theme layout found. Please use a valid project template."
             .to_string()
             .into());
     }

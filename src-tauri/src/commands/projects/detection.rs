@@ -43,6 +43,9 @@ fn detection_signature(project_path: &std::path::Path) -> u128 {
         "metro.config.js",
         "metro.config.ts",
         "pubspec.yaml",
+        // Shopify theme signals (nested paths work — metadata() takes any path)
+        "layout/theme.liquid",
+        "config/settings_schema.json",
     ];
     let mut max_nanos: u128 = 0;
     for name in SENTINELS {
@@ -213,6 +216,21 @@ pub(crate) fn is_flutter_project(project_path: &std::path::Path) -> bool {
     false
 }
 
+/// Detect if this is a Shopify Liquid theme (Online Store 2.0).
+///
+/// `layout/theme.liquid` is mandatory in every Shopify theme, and
+/// `config/settings_schema.json` exists in any theme that has settings —
+/// either is conclusive, and no other project type uses these paths. Checked
+/// before the package.json fallbacks so a theme that carries a package.json
+/// (e.g. for a Tailwind build step) isn't misclassified as Generic.
+pub(crate) fn is_shopify_theme_project(project_path: &std::path::Path) -> bool {
+    project_path.join("layout").join("theme.liquid").exists()
+        || project_path
+            .join("config")
+            .join("settings_schema.json")
+            .exists()
+}
+
 /// Check if a directory contains HTML files in its root
 pub fn has_html_files(project_path: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(project_path) {
@@ -274,6 +292,13 @@ fn detect_project_type_uncached(project_path: &std::path::Path) -> ProjectType {
     }
     if is_react_native_project(project_path) {
         return ProjectType::Reactnative;
+    }
+
+    // Shopify themes next — their markers (layout/theme.liquid) are exclusive
+    // to themes, and a theme may carry a package.json (Tailwind tooling) that
+    // would otherwise fall through to Generic.
+    if is_shopify_theme_project(project_path) {
+        return ProjectType::Shopifytheme;
     }
 
     // Check framework-specific configs first
@@ -794,6 +819,50 @@ mod tests {
         assert_eq!(
             detect_project_type_uncached(tmp.path()),
             ProjectType::Reactnative
+        );
+    }
+
+    #[test]
+    fn detects_shopify_theme_via_layout() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("layout")).unwrap();
+        std::fs::write(
+            tmp.path().join("layout/theme.liquid"),
+            "{{ content_for_layout }}",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Shopifytheme
+        );
+    }
+
+    #[test]
+    fn detects_shopify_theme_via_settings_schema() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("config")).unwrap();
+        std::fs::write(tmp.path().join("config/settings_schema.json"), "[]").unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Shopifytheme
+        );
+    }
+
+    #[test]
+    fn shopify_theme_with_tailwind_package_json_is_not_generic() {
+        // A theme using Tailwind tooling has a package.json — the theme
+        // markers must win over the Generic fallback.
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("layout")).unwrap();
+        std::fs::write(tmp.path().join("layout/theme.liquid"), "").unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"devDependencies":{"tailwindcss":"4.0.0"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Shopifytheme
         );
     }
 

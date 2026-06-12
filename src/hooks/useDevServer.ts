@@ -44,6 +44,12 @@ import {
   ProjectType,
 } from '../lib/static-server';
 import { invoke } from '@tauri-apps/api/core';
+import {
+  createLoginPromptDetector,
+  getShopifyStore,
+  killStaleThemeDev,
+  shopifyThemeDevCommand,
+} from '../lib/shopify';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getWindowLabel } from '../lib/window';
@@ -73,11 +79,40 @@ interface ProjectServerState {
    *  probe-line filter can match patterns split across chunk boundaries
    *  (the PTY emits chunks of arbitrary size — they are not line-aligned). */
   pendingOutputLine: string;
+  /** Shopify themes only: watches output for `shopify theme dev`'s blocking
+   *  "Press any key to open the login page" prompt. Lazily created; reset on
+   *  every (re)spawn so each run can auto-answer the prompt once. */
+  shopifyLoginDetector: ((chunk: string) => boolean) | null;
+  /** Set when the login prompt was seen but `handle` wasn't assigned yet
+   *  (the prompt can race the spawn call's resolution). */
+  shopifyLoginNudgePending: boolean;
 }
 
 const DEFAULT_PORT = 3000;
 const OUTPUT_BUFFER_MAX = 100_000;
 const OUTPUT_THROTTLE_MS = 300;
+
+/** Write to a dev-server PTY. Tolerates the Windows fallback handle, whose
+ *  minimal IPty stub only implements kill(). Returns true when written. */
+function safePtyWrite(handle: DevServerHandle | null, data: string): boolean {
+  if (!handle || typeof handle.pty.write !== 'function') return false;
+  try {
+    handle.pty.write(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Resize a dev-server PTY (same Windows-stub tolerance as safePtyWrite). */
+function safePtyResize(handle: DevServerHandle | null, cols: number, rows: number): void {
+  if (!handle || typeof handle.pty.resize !== 'function') return;
+  try {
+    handle.pty.resize(cols, rows);
+  } catch {
+    /* PTY already dead — resize is best-effort */
+  }
+}
 
 function makeState(): ProjectServerState {
   return {
@@ -96,6 +131,8 @@ function makeState(): ProjectServerState {
     suppressed: false,
     needsInstall: null,
     pendingOutputLine: '',
+    shopifyLoginDetector: null,
+    shopifyLoginNudgePending: false,
   };
 }
 
@@ -357,6 +394,21 @@ export function useDevServer(currentProjectPath: string | null) {
         const s = statesRef.current.get(projectPath);
         if (!s) return;
         if (s.suppressed) return;
+        // `shopify theme dev` blocks on "Press any key to open the login
+        // page" — the logs pane is read-only, so press it for the user.
+        // Lives here (not on a spawn path) so every way a theme dev server
+        // gets wired — fresh start, toolbar restart, custom command, hot
+        // session re-attach — is covered.
+        if (s.type === 'shopifytheme') {
+          s.shopifyLoginDetector ??= createLoginPromptDetector();
+          if (s.shopifyLoginDetector(stripAnsi(data))) {
+            s.shopifyLoginNudgePending = true;
+          }
+          if (s.shopifyLoginNudgePending && safePtyWrite(s.handle, '\r')) {
+            s.shopifyLoginNudgePending = false;
+            logger.info('[DevServer] Shopify login prompt detected; auto-opening browser login');
+          }
+        }
         const { kept, pending } = filterProbeChunk(s.pendingOutputLine, data);
         s.pendingOutputLine = pending;
         if (!kept) return; // chunk was entirely buffered or entirely filtered
@@ -445,8 +497,14 @@ export function useDevServer(currentProjectPath: string | null) {
       // Now verify `node_modules` exists. If not, the dev server would fail
       // with "Cannot find module 'next'" — surface a Preview-pane install CTA
       // instead. Cleared by `clearNeedsInstall` after install succeeds.
+      // Shopify themes are exempt: `shopify theme dev` needs no npm install,
+      // and a theme's optional package.json (Tailwind tooling, or one an
+      // agent added) must not block the preview behind an install gate.
       try {
-        const depStatus = await checkDependenciesInstalled(projectPath);
+        const depStatus =
+          detectedType === 'shopifytheme'
+            ? { installed: true, hasPackageJson: false }
+            : await checkDependenciesInstalled(projectPath);
         if (!depStatus.installed && depStatus.hasPackageJson) {
           const packageManager = await detectPackageManager(projectPath).catch((err) => {
             logger.warn(
@@ -543,6 +601,54 @@ export function useDevServer(currentProjectPath: string | null) {
           projectPath,
           projectType: detectedType,
         });
+      } else if (detectedType === 'shopifytheme') {
+        // Shopify themes render through `shopify theme dev`, which needs a
+        // connected store. Without one we defer — the preview pane shows the
+        // ShopifySetup gate, which connects a store and restarts the server.
+        let store: string | null = null;
+        try {
+          store = await getShopifyStore(projectPath);
+        } catch {
+          /* not connected yet */
+        }
+        if (store) {
+          try {
+            s.outputBuffer = '';
+            s.healthBuffer = '';
+            s.outputVersion = 0;
+            s.healthVersion = 0;
+            bump();
+            void trackEvent('dev_server_started', {
+              project_type: 'shopifytheme',
+              port,
+              project_name: projectName,
+              $screen_name: 'Workspace',
+            });
+            // Fresh run — allow the login auto-answer (see createOutputHandler)
+            // to fire once for this spawn.
+            s.shopifyLoginDetector = null;
+            s.shopifyLoginNudgePending = false;
+            // Reap prompt-stuck leftovers first: they hold a dev session that
+            // would make this run stall on a "proceed?" confirm.
+            await killStaleThemeDev(store).catch(() => undefined);
+            s.handle = await startDevServer(
+              cwd,
+              port,
+              windowLabel,
+              createOutputHandler(projectPath),
+              shopifyThemeDevCommand(store, port)
+            );
+            wireExitWatcher(projectPath, s);
+            logger.info('[OpenProject] Shopify theme dev server started', { store, port });
+          } catch (error) {
+            logger.error('Failed to start Shopify theme dev server', { error });
+          }
+        } else {
+          logger.info(
+            '[OpenProject] Shopify theme detected, no store connected; deferring dev server',
+            { projectPath }
+          );
+        }
       } else {
         try {
           s.outputBuffer = '';
@@ -706,6 +812,32 @@ export function useDevServer(currentProjectPath: string | null) {
         if (s.type === 'generic') {
           if (!s.customCommand) return;
           await stopAndRestart(s.customCommand);
+        } else if (s.type === 'shopifytheme') {
+          // Themes restart through `shopify theme dev`, never the package.json
+          // fallback (`npm run dev` is meaningless in a theme repo). No store
+          // connected → nothing to restart; the preview gate handles connect.
+          let store: string | null = null;
+          try {
+            store = await getShopifyStore(projectPath);
+          } catch {
+            /* not connected yet */
+          }
+          if (!store) {
+            logger.warn('[DevServer] Restart skipped: Shopify theme has no connected store');
+            return;
+          }
+          try {
+            await withTimeout(invoke('kill_port', { port: effectivePort }), 5000, undefined);
+          } catch {
+            /* Ignore if nothing to kill */
+          }
+          // Reap prompt-stuck leftovers (they never bind the port, so
+          // kill_port can't see them, and their stale dev session makes the
+          // new run stall on a "proceed?" confirm).
+          await killStaleThemeDev(store).catch(() => undefined);
+          s.shopifyLoginDetector = null;
+          s.shopifyLoginNudgePending = false;
+          await stopAndRestart(shopifyThemeDevCommand(store, effectivePort));
         } else if (s.type === 'statichtml') {
           const windowLabel = getWindowLabel();
           try {
@@ -741,6 +873,25 @@ export function useDevServer(currentProjectPath: string | null) {
       }
     },
     [bump, createOutputHandler, getOrCreateState, wireExitWatcher]
+  );
+
+  /** Type into the current project's dev-server PTY — lets the user answer
+   *  interactive CLI prompts (Shopify store password, y/n confirms) right in
+   *  the logs pane instead of dead-ending on a read-only view. */
+  const writeToDevServer = useCallback(
+    (data: string) => {
+      safePtyWrite(getState(currentPathRef.current)?.handle ?? null, data);
+    },
+    [getState]
+  );
+
+  /** Keep the dev-server PTY's size in sync with the logs terminal so
+   *  interactive prompts render at the visible width. */
+  const resizeDevServer = useCallback(
+    (cols: number, rows: number) => {
+      safePtyResize(getState(currentPathRef.current)?.handle ?? null, cols, rows);
+    },
+    [getState]
   );
 
   const saveCustomDevCommand = useCallback(
@@ -821,5 +972,7 @@ export function useDevServer(currentProjectPath: string | null) {
     clearOutputBuffers,
     saveCustomDevCommand,
     clearNeedsInstall,
+    writeToDevServer,
+    resizeDevServer,
   };
 }

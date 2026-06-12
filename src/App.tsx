@@ -226,6 +226,8 @@ function AppContents({ initialProjectPath }: AppProps) {
     saveCustomDevCommand,
     needsInstall,
     clearNeedsInstall,
+    writeToDevServer,
+    resizeDevServer,
   } = useDevServer(currentProject?.path ?? null);
 
   // Cleanup every live dev server when the window is closed (prevents
@@ -714,6 +716,8 @@ function AppContents({ initialProjectPath }: AppProps) {
       handleHealthOutput,
       needsInstall,
       onRunInstall: handleRunInstallCurrent,
+      onDevServerInput: writeToDevServer,
+      onDevServerResize: resizeDevServer,
     }),
     [
       devServerRef,
@@ -729,6 +733,8 @@ function AppContents({ initialProjectPath }: AppProps) {
       healthPanelRef,
       needsInstall,
       handleRunInstallCurrent,
+      writeToDevServer,
+      resizeDevServer,
     ]
   );
 

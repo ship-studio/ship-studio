@@ -78,6 +78,13 @@ export const TEMPLATES: Template[] = [
     skipInstall: true,
   },
   {
+    id: 'shopify-theme',
+    name: 'Shopify Theme',
+    description: 'An Online Store 2.0 theme — previews against your real store',
+    repo: 'https://github.com/ship-studio/shopify-theme-starter',
+    skipInstall: true,
+  },
+  {
     id: 'expo-mobile',
     name: 'Expo',
     description: 'An iOS & Android app — the easiest mobile path',

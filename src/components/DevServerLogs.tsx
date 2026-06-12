@@ -1,12 +1,14 @@
 /**
- * DevServerLogs component that displays the dev server (npm run dev) output.
+ * DevServerLogs component that displays the dev server output.
  *
- * This component creates a read-only terminal view using xterm.js to display
- * the output from the Next.js development server. It supports:
+ * This component creates a terminal view using xterm.js to display the
+ * output from the dev server. It supports:
  * - Full ANSI color code rendering
  * - Automatic scrolling to latest output
- * - Terminal resize handling
+ * - Terminal resize handling (mirrored to the PTY via onResize)
  * - Live updates as new output arrives
+ * - Typing into the dev-server PTY (via onInput) so interactive CLI prompts
+ *   — Shopify store passwords, y/n confirms — can be answered in place
  * - "Send to agent" — full buffer (tail-capped) or a user-dragged selection
  *
  * @module components/DevServerLogs
@@ -31,6 +33,17 @@ import '@xterm/xterm/css/xterm.css';
    read. Selection-send is unbounded (user chose it deliberately). */
 const MAX_LOG_LINES_ON_SEND = 500;
 
+/* Some CLIs (TUI-style tools like `shopify theme dev`) emit alternate-screen
+   switches. In xterm the alternate buffer has NO scrollback, so one stray
+   `\x1b[?1049h` permanently kills scrolling in this read-only log view.
+   Strip the smcup/rmcup family before writing. */
+// eslint-disable-next-line no-control-regex
+const ALT_SCREEN_SEQUENCES = /\x1b\[\?(?:1049|1047|1048|47)[hl]/g;
+
+function sanitizeLogChunk(chunk: string): string {
+  return chunk.replace(ALT_SCREEN_SEQUENCES, '');
+}
+
 /** Props for the DevServerLogs component */
 interface DevServerLogsProps {
   /** Current output from the dev server */
@@ -39,6 +52,10 @@ interface DevServerLogsProps {
   outputVersion: number;
   /** Pipe the current server logs into the agent terminal. */
   onSendToAgent?: (text: string) => void;
+  /** Forward keystrokes into the dev-server PTY (interactive prompts). */
+  onInput?: (data: string) => void;
+  /** Mirror the terminal's cols/rows to the dev-server PTY. */
+  onResize?: (cols: number, rows: number) => void;
 }
 
 interface SelectionInfo {
@@ -47,12 +64,25 @@ interface SelectionInfo {
   mouseY: number;
 }
 
-export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServerLogsProps) {
+export function DevServerLogs({
+  output,
+  outputVersion,
+  onSendToAgent,
+  onInput,
+  onResize,
+}: DevServerLogsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [isReady, setIsReady] = useState(false);
   const lastWrittenLengthRef = useRef(0);
+
+  // The terminal is created once (isReady effect); keep the latest handlers
+  // in refs so its onData/resize hooks never go stale.
+  const onInputRef = useRef(onInput);
+  onInputRef.current = onInput;
+  const onResizeRef = useRef(onResize);
+  onResizeRef.current = onResize;
 
   // Selection popover
   const { showToast } = useOptionalToast();
@@ -104,7 +134,9 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
       cursorBlink: false,
       cursorStyle: 'block',
       scrollback: 10000,
-      disableStdin: true, // Read-only
+      // Stdin stays enabled so interactive CLI prompts (Shopify password,
+      // y/n confirms) can be answered here; keys flow to the PTY via onInput.
+      disableStdin: false,
       theme: {
         background: '#1a1a1a',
         foreground: '#cccccc',
@@ -135,13 +167,22 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
 
     term.open(container);
 
-    // Initial fit
+    // Initial fit + sync the PTY to the visible size so interactive prompts
+    // render at the width the user actually sees.
     setTimeout(() => {
       fitAddon.fit();
+      onResizeRef.current?.(term.cols, term.rows);
     }, 0);
 
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
+
+    // Forward keystrokes (including arrows/enter for CLI selection prompts)
+    // into the dev-server PTY. The PTY echoes, so typed input renders via
+    // the normal output path.
+    const inputDisposable = term.onData((data) => {
+      onInputRef.current?.(data);
+    });
 
     // Snapshot selected text as xterm updates it. We read from the ref
     // in mouseup rather than calling term.getSelection() there, because
@@ -152,11 +193,11 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
     });
 
     // Write initial message
-    term.write('\x1b[90m$ npm run dev\x1b[0m\r\n\r\n');
+    term.write('\x1b[90m$ dev server\x1b[0m\r\n\r\n');
 
     // Write current output
     if (output) {
-      term.write(output);
+      term.write(sanitizeLogChunk(output), () => term.scrollToBottom());
       lastWrittenLengthRef.current = output.length;
     }
 
@@ -177,6 +218,7 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
         try {
           fit.fit();
           t.refresh(0, t.rows - 1);
+          onResizeRef.current?.(t.cols, t.rows);
         } catch {
           // fit() throws if container is 0×0 (e.g. mid-transition);
           // safe to ignore — next resize event will retry.
@@ -189,6 +231,7 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       selectionDisposable.dispose();
+      inputDisposable.dispose();
       lastWrittenLengthRef.current = 0;
       if (terminalRef.current) {
         terminalRef.current.dispose();
@@ -202,10 +245,24 @@ export function DevServerLogs({ output, outputVersion, onSendToAgent }: DevServe
   useEffect(() => {
     if (!terminalRef.current || !isReady) return;
 
-    // Only write new content (what we haven't written yet)
+    const term = terminalRef.current;
     if (output.length > lastWrittenLengthRef.current) {
+      // Only write new content (what we haven't written yet). Follow the
+      // tail unless the user has deliberately scrolled up to read history.
+      const buf = term.buffer.active;
+      const wasAtBottom = buf.viewportY >= buf.baseY;
       const newContent = output.slice(lastWrittenLengthRef.current);
-      terminalRef.current.write(newContent);
+      term.write(sanitizeLogChunk(newContent), () => {
+        if (wasAtBottom) term.scrollToBottom();
+      });
+      lastWrittenLengthRef.current = output.length;
+    } else if (output.length < lastWrittenLengthRef.current) {
+      // The buffer shrank — a dev-server restart cleared it. Without this
+      // branch the slice-based comparison goes stale and NOTHING renders
+      // until the new run's output outgrows the old one.
+      term.reset();
+      term.write('\x1b[90m$ dev server\x1b[0m\r\n\r\n');
+      if (output) term.write(sanitizeLogChunk(output), () => term.scrollToBottom());
       lastWrittenLengthRef.current = output.length;
     }
   }, [output, outputVersion, isReady]);

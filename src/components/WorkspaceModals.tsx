@@ -22,6 +22,7 @@ import { McpModal } from './McpModal';
 import { PluginManager } from './PluginManager';
 import { DevCommandModal } from './DevCommandModal';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
+import { ShopifyStoreModal } from './ShopifyStoreModal';
 import { GitErrorHandler } from './GitErrorHandler';
 import { SubmitReviewModal } from './SubmitReviewModal';
 import { ConflictResolutionModal } from './ConflictResolutionModal';
@@ -140,6 +141,10 @@ export interface WorkspaceModalsProps {
   onSavePort: (port: number) => void;
   isWebProject: boolean;
 
+  // Shopify store modal — read state via useModal('shopifyStore')
+  isShopifyTheme: boolean;
+  onShopifyStoreSaved: () => void;
+
   // Plugin terminal
   pluginTerminal: { command: string; args: string[]; title: string } | null;
   pluginTerminalExited: boolean;
@@ -205,6 +210,8 @@ export function WorkspaceModals({
   devServerPort,
   onSavePort,
   isWebProject,
+  isShopifyTheme,
+  onShopifyStoreSaved,
   pluginTerminal,
   pluginTerminalExited,
   onClosePluginTerminal,
@@ -446,6 +453,11 @@ export function WorkspaceModals({
 
       {/* Dev Command Modal (web projects still use standalone for "Edit dev command" button) */}
       <DevCommandModal currentCommand={customDevCommand} onSave={onSaveDevCommand} />
+
+      {/* Shopify store connect/change modal */}
+      {isShopifyTheme && (
+        <ShopifyStoreModal projectPath={projectPath} onStoreSaved={onShopifyStoreSaved} />
+      )}
 
       {/* Project Settings Modal */}
       <ProjectSettingsModal

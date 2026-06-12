@@ -61,6 +61,7 @@
 @import './features/settings.css';
 @import './features/support-panel.css';
 @import './features/project-rail.css';
+@import './features/shopify.css';
 
 /* Modes */
 @import './modes/education-mode.css';

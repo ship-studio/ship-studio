@@ -33,6 +33,33 @@ interface DevServerStatusProps {
   onRetry: () => void;
   /** Hand the stuck server + logs to the agent. Absent when no agent is wired. */
   onFixWithAgent?: () => void;
+  /** Type into the dev-server PTY — CLIs like `shopify theme dev` block on
+   *  interactive prompts (passwords, y/n confirms) that must be answerable
+   *  right here, where the user is staring at them. */
+  onInput?: (data: string) => void;
+}
+
+/** Translate a React key event to the PTY byte sequence a CLI prompt expects. */
+function keyToPtyData(e: React.KeyboardEvent): string | null {
+  if (e.metaKey || e.ctrlKey || e.altKey) return null;
+  switch (e.key) {
+    case 'Enter':
+      return '\r';
+    case 'Backspace':
+      return '\x7f';
+    case 'ArrowUp':
+      return '\x1b[A';
+    case 'ArrowDown':
+      return '\x1b[B';
+    case 'ArrowRight':
+      return '\x1b[C';
+    case 'ArrowLeft':
+      return '\x1b[D';
+    case 'Escape':
+      return '\x1b';
+    default:
+      return e.key.length === 1 ? e.key : null;
+  }
 }
 
 function title(phase: DevServerPhase, isStatic: boolean): string {
@@ -51,6 +78,7 @@ export function DevServerStatus({
   onStop,
   onRetry,
   onFixWithAgent,
+  onInput,
 }: DevServerStatusProps) {
   const [logsOpen, setLogsOpen] = useState(true);
   const logBodyRef = useRef<HTMLPreElement>(null);
@@ -167,9 +195,32 @@ export function DevServerStatus({
             Logs
           </button>
           {logsOpen && (
-            <pre ref={logBodyRef} className="preview-status__logs-body" onScroll={handleLogScroll}>
-              {logTail}
-            </pre>
+            <>
+              <pre
+                ref={logBodyRef}
+                className={`preview-status__logs-body${onInput ? ' preview-status__logs-body--interactive' : ''}`}
+                onScroll={handleLogScroll}
+                tabIndex={onInput ? 0 : undefined}
+                onKeyDown={
+                  onInput
+                    ? (e) => {
+                        const data = keyToPtyData(e);
+                        if (data !== null) {
+                          e.preventDefault();
+                          onInput(data);
+                        }
+                      }
+                    : undefined
+                }
+              >
+                {logTail}
+              </pre>
+              {onInput && (
+                <p className="preview-status__logs-hint">
+                  Waiting on a prompt? Click the logs and type to answer it.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}

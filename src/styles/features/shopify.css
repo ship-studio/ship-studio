@@ -1,0 +1,61 @@
+/* Shopify theme integration — the preview-pane setup gate (ShopifySetup)
+   and the store connect/change modal (ShopifyStoreModal). The gate card
+   itself reuses .preview-install-prompt; these are the Shopify-specific
+   additions (store form, error line, external link). */
+
+.shopify-setup-form {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  width: 100%;
+  max-width: 360px;
+}
+
+.shopify-setup-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  transition: border-color var(--transition);
+}
+
+.shopify-setup-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.shopify-setup-error {
+  color: var(--error);
+  margin: 0;
+}
+
+.shopify-setup-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
+}
+
+.shopify-store-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+}
+
+.shopify-store-modal-body .shopify-setup-input {
+  width: 100%;
+}
+
+.shopify-store-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}

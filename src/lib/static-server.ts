@@ -18,6 +18,7 @@ export type ProjectType =
   | 'statichtml'
   | 'reactnative'
   | 'flutter'
+  | 'shopifytheme'
   | 'generic'
   | 'unknown';
 

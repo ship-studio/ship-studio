@@ -62,6 +62,8 @@ import { getAgentById } from '../lib/agent';
 import type { AgentConfig } from '../lib/agent';
 import type { Project } from '../lib/project';
 import { isMobileProjectType, type ProjectType } from '../lib/static-server';
+import { ShopifySetup } from './ShopifySetup';
+import { useShopifyTheme } from '../hooks/useShopifyTheme';
 import { isMac } from '../lib/setup';
 import type { TerminalTab } from '../hooks/useTerminalManagement';
 import type { TerminalHandle } from './Terminal';
@@ -130,6 +132,10 @@ interface DevServerProps {
   handleHealthOutput: (data: string) => void;
   needsInstall: { packageManager: string } | null;
   onRunInstall: () => void;
+  /** Type into the dev-server PTY (interactive CLI prompts in the logs pane). */
+  onDevServerInput: (data: string) => void;
+  /** Sync the dev-server PTY size to the logs terminal. */
+  onDevServerResize: (cols: number, rows: number) => void;
 }
 
 interface NotificationProps {
@@ -438,6 +444,8 @@ export const WorkspaceView = memo(function WorkspaceView({
     handleHealthOutput,
     needsInstall,
     onRunInstall,
+    onDevServerInput,
+    onDevServerResize,
   } = devServer;
 
   const {
@@ -706,6 +714,15 @@ export const WorkspaceView = memo(function WorkspaceView({
     setWorkspaceTab,
     setShowSubmitReview,
     handleResolveConflicts: () => void handleResolveConflicts(),
+  });
+
+  // Shopify themes: preview gate state + palette commands.
+  const shopify = useShopifyTheme({
+    projectPath: currentProject.path,
+    projectType,
+    onSendToAgent: sendToClaude,
+    showToast,
+    restartDevServer: handleRestartDevServer,
   });
 
   // Per-turn working-tree snapshots so users can undo/redo agent edits.
@@ -1355,7 +1372,16 @@ export const WorkspaceView = memo(function WorkspaceView({
                         based on `workspaceTab`. */}
 
                       {/* Tab content */}
-                      {workspaceTab === 'preview' && isWebProject && (
+                      {workspaceTab === 'preview' && isWebProject && shopify.showGate && (
+                        <ShopifySetup
+                          key={currentProject.path}
+                          projectPath={currentProject.path}
+                          onSendToAgent={sendToClaude}
+                          onReady={shopify.markReady}
+                          onConnected={shopify.connect}
+                        />
+                      )}
+                      {workspaceTab === 'preview' && isWebProject && !shopify.showGate && (
                         <div style={{ flex: 1, display: 'flex' }}>
                           <Preview
                             key={`${currentProject.path}-${devServerPort}`}
@@ -1377,6 +1403,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                             onToggleLogs={hasDevServer ? togglePreviewLogs : undefined}
                             devServerOutput={devServerOutput}
                             devServerOutputVersion={devServerOutputVersion}
+                            onDevServerInput={onDevServerInput}
+                            onDevServerResize={onDevServerResize}
                             inspectTab={inspectTab}
                             onInspectTabChange={setInspectTab}
                             healthPanelRef={healthPanelRef}
@@ -1528,6 +1556,8 @@ export const WorkspaceView = memo(function WorkspaceView({
           devServerPort={devServerPort}
           onSavePort={lifecycle.handleSavePort}
           isWebProject={isWebProject}
+          isShopifyTheme={shopify.isShopifyTheme}
+          onShopifyStoreSaved={shopify.connect}
           pluginTerminal={pluginTerminal}
           pluginTerminalExited={pluginTerminalExited}
           onClosePluginTerminal={closePluginTerminal}

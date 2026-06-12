@@ -176,6 +176,10 @@ interface PreviewProps {
   devServerOutput?: string;
   /** Version counter that bumps when devServerOutput changes */
   devServerOutputVersion?: number;
+  /** Type into the dev-server PTY — answers interactive CLI prompts. */
+  onDevServerInput?: (data: string) => void;
+  /** Sync the dev-server PTY size to the logs terminal. */
+  onDevServerResize?: (cols: number, rows: number) => void;
   /** Controlled inspect-panel sub-tab. Falls back to local state when unset. */
   inspectTab?: InspectTab;
   /** Callback when the user switches inspect-panel sub-tabs. */
@@ -249,6 +253,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     onToggleLogs,
     devServerOutput = '',
     devServerOutputVersion = 0,
+    onDevServerInput,
+    onDevServerResize,
     inspectTab,
     onInspectTabChange,
     healthPanelRef,
@@ -437,7 +443,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // `@import "tailwindcss"` without the Vite/PostCSS plugin produces dead classes.
   // Gate on a backend check so projects without Tailwind never show the edit button.
   const [tailwindActive, setTailwindActive] = useState(false);
-  const editorFramework = projectType === 'nextjs' || projectType === 'astro';
+  const editorFramework =
+    projectType === 'nextjs' || projectType === 'astro' || projectType === 'shopifytheme';
   useEffect(() => {
     if (!projectPath || !editorFramework) {
       setTailwindActive(false);
@@ -452,8 +459,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     };
   }, [projectPath, editorFramework]);
 
-  // Visual editor supports className/class string resolution for React (Next.js)
-  // and Astro templates. Both resolve the same way in the Rust backend.
+  // Visual editor supports className/class string resolution for React (Next.js),
+  // Astro, and Shopify Liquid templates — all resolve the same way in the Rust
+  // backend. The Tailwind gate keeps plain-CSS themes from showing an edit
+  // button whose class writes would never compile.
   const editorEnabled = conn.serverReady && editorFramework && tailwindActive;
 
   // Locale config reported by the locale switcher (null when the project has
@@ -661,6 +670,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         onStop={conn.stopConnecting}
         onRetry={conn.handleRetry}
         onFixWithAgent={handleFixWithAgent}
+        onInput={onDevServerInput}
       />
     );
   }
@@ -1016,6 +1026,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         onActiveTabChange={onInspectTabChange}
         healthPanelRef={healthPanelRef}
         onHealthOutput={onHealthOutput}
+        onDevServerInput={onDevServerInput}
+        onDevServerResize={onDevServerResize}
       />
       {showTree && (
         <ElementTreePanel
@@ -1086,6 +1098,10 @@ interface InspectPanelProps {
   onActiveTabChange?: (tab: InspectTab) => void;
   healthPanelRef?: RefObject<HealthTabPanelRef | null>;
   onHealthOutput?: (data: string) => void;
+  /** Type into the dev-server PTY — answers interactive CLI prompts. */
+  onDevServerInput?: (data: string) => void;
+  /** Sync the dev-server PTY size to the logs terminal. */
+  onDevServerResize?: (cols: number, rows: number) => void;
 }
 
 const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function InspectPanel(
@@ -1100,6 +1116,8 @@ const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function Insp
     onActiveTabChange,
     healthPanelRef,
     onHealthOutput,
+    onDevServerInput,
+    onDevServerResize,
   },
   ref
 ) {
@@ -1176,6 +1194,8 @@ const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function Insp
             output={devServerOutput}
             outputVersion={devServerOutputVersion}
             onSendToAgent={onSendToAgent}
+            onInput={onDevServerInput}
+            onResize={onDevServerResize}
           />
         </div>
         <div className={`preview-logs-slot ${activeTab === 'browser' ? 'is-active' : ''}`}>
