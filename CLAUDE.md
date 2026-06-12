@@ -100,6 +100,19 @@ Single-file domains:
 - Polling uses exponential backoff (`src/lib/polling.ts`)
 - Structured logging via `src/lib/logger.ts`
 
+#### Components Structure
+`src/components/` is organized by domain — new components go in the matching folder:
+- `dashboard/` - Home screen: project list/grid/cards, folders, create/import flows, settings, changelog
+- `workspace/` - Workspace shell: WorkspaceView, header/sidebar, modals wrapper, split panes, compact mode, assets panel
+- `terminal/` - Agent/build terminals, dev-server logs/status, dev command modal
+- `preview/` - Live preview, browser tools, device mirror (mobile), locale switcher, screenshots
+- `branches/` - Git/branch UI: branches/PR tabs, conflict resolution, diff, publish controls, GitHub button
+- `code/` - Code mode: viewer, file tree, code tab, health panel
+- `plugins/` - Plugin manager/slots/dropdown, MCP and Skills modals
+- `shopify/` - Shopify theme setup and store modal
+- `primitives/`, `icons/`, `setup/`, `edit/`, `support/`, `CommandPalette/`, `import-project/` - pre-existing groups
+- Root holds only cross-cutting files: ErrorBoundary, UpdateBanner, EducationOverlay, ConnectOverlay, AppGlobalModals, HelpModal
+
 #### Frontend Libraries
 Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `agents-management.ts` / `agent.ts` - Agent CLI detection, install state, default-agent selection

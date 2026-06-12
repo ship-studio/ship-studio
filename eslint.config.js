@@ -102,7 +102,7 @@ export default tseslint.config(
       'src/**/*.test.{ts,tsx}',
       // Block 5.4 — clipboard exceptions (xterm key handler, per-row copy state,
       // postMessage handler). Rationale documented in DX_REFACTOR_PLAN.md.
-      'src/components/Terminal.tsx',
+      'src/components/terminal/Terminal.tsx',
       'src/components/setup/OnboardingTerminal.tsx',
       'src/hooks/useAssetManagement.ts',
       'src/hooks/usePreviewConnection.ts',
@@ -112,7 +112,7 @@ export default tseslint.config(
       'src/hooks/useCodeHealth.ts',
       'src/hooks/useScreenshotManagement.ts',
       'src/components/UpdateBanner.tsx',
-      'src/components/CreateProject.tsx',
+      'src/components/dashboard/CreateProject.tsx',
     ],
     rules: {
       'no-restricted-syntax': [
@@ -141,11 +141,11 @@ export default tseslint.config(
       // PTY / screenshot / plugin-bridge surface where the useInvoke shape
       // (loading/error state) doesn't match the usage pattern; migration
       // tracked as follow-up work. New components must still use useInvoke.
-      'src/components/Terminal.tsx',
+      'src/components/terminal/Terminal.tsx',
       'src/components/setup/OnboardingTerminal.tsx',
-      'src/components/PluginSlot.tsx',
-      'src/components/ScreenshotPreview.tsx',
-      'src/components/CreateProject.tsx',
+      'src/components/plugins/PluginSlot.tsx',
+      'src/components/preview/ScreenshotPreview.tsx',
+      'src/components/dashboard/CreateProject.tsx',
     ],
     rules: {
       'no-restricted-imports': [

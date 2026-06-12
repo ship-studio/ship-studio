@@ -32,8 +32,8 @@ rg -c 'Result<.*, String>' src-tauri/src/commands/ 2>/dev/null \
 echo
 
 echo "-- LOC of largest components: --"
-for f in src/components/WorkspaceView.tsx src/components/ProjectList.tsx \
-         src/components/PluginManager.tsx src/components/ImportProject.tsx \
+for f in src/components/workspace/WorkspaceView.tsx src/components/dashboard/ProjectList.tsx \
+         src/components/plugins/PluginManager.tsx src/components/dashboard/ImportProject.tsx \
          src/App.tsx; do
   if [ -f "$f" ]; then
     printf "  %-50s %5d\n" "$f" "$(wc -l <"$f" | tr -d ' ')"

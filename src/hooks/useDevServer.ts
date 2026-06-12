@@ -53,7 +53,7 @@ import {
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getWindowLabel } from '../lib/window';
-import type { HealthTabPanelRef } from '../components/HealthTabPanel';
+import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
 import { stripAnsi } from '../lib/ansi';
 
 /** All the per-project server state we track in the map. */

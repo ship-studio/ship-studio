@@ -40,10 +40,10 @@ echo "Components (.tsx limit 1200):"
 # openInCode callback threaded to the Code tab). Bumped again for the Shopify
 # theme preview gate (the logic lives in useShopifyTheme/ShopifySetup; this is
 # just the render branch + hook call the orchestrator must own).
-check_file src/components/WorkspaceView.tsx 1570
-check_file src/components/ProjectList.tsx 800
-check_file src/components/PluginManager.tsx 700
-check_file src/components/ImportProject.tsx 500
+check_file src/components/workspace/WorkspaceView.tsx 1570
+check_file src/components/dashboard/ProjectList.tsx 800
+check_file src/components/plugins/PluginManager.tsx 700
+check_file src/components/dashboard/ImportProject.tsx 500
 check_file src/App.tsx 1250
 echo
 echo "CSS (limit 1200 per file):"

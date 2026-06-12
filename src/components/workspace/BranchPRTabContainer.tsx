@@ -6,8 +6,8 @@
  * @module components/workspace/BranchPRTabContainer
  */
 
-import { BranchesTab } from '../BranchesTab';
-import { PullRequestsTab } from '../PullRequestsTab';
+import { BranchesTab } from '../branches/BranchesTab';
+import { PullRequestsTab } from '../branches/PullRequestsTab';
 import { ConnectOverlay } from '../ConnectOverlay';
 import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
 import type { IntegrationState } from '../../hooks/useIntegrationStatus';

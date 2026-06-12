@@ -16,7 +16,7 @@ import {
   playSound,
 } from '../lib/sounds';
 import { sessionRegistry } from '../lib/sessionRegistry';
-import type { AgentStatus } from '../components/Terminal';
+import type { AgentStatus } from '../components/terminal/Terminal';
 
 export interface UseNotificationsParams {
   activeTerminalTab: number;

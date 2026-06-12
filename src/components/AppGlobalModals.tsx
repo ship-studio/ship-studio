@@ -1,5 +1,5 @@
 import { HelpModal } from './HelpModal';
-import { ChangelogModal } from './ChangelogModal';
+import { ChangelogModal } from './dashboard/ChangelogModal';
 import { useModal } from '../contexts/ModalContext';
 import { usePaletteContext } from './CommandPalette/paletteContext';
 

@@ -9,7 +9,7 @@
 import { useCallback, useState } from 'react';
 import { Button } from '../primitives/Button';
 import { PropSection } from './PropSection';
-import { AssetsModal } from '../AssetsPanel';
+import { AssetsModal } from '../workspace/AssetsPanel';
 import { assetWebPath } from '../../lib/assets';
 import type { ElementSignature, ImageResolution } from '../../lib/edit';
 

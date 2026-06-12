@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useBranchManagement, type UseBranchManagementParams } from './useBranchManagement';
 import type { RefObject } from 'react';
-import type { PreviewHandle } from '../components/Preview';
-import type { HealthTabPanelRef } from '../components/HealthTabPanel';
+import type { PreviewHandle } from '../components/preview/Preview';
+import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
 
 // Mock external dependencies
 vi.mock('../lib/branches', () => ({

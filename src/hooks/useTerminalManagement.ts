@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { TerminalHandle } from '../components/Terminal';
+import type { TerminalHandle } from '../components/terminal/Terminal';
 import { getAgentById, getDefaultAgentId } from '../lib/agent';
 import type { AgentConfig } from '../lib/agent';
 import { trackEvent } from '../lib/analytics';

@@ -22,8 +22,8 @@ import { getChangedFiles, ChangedFile } from '../lib/git';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
-import type { PreviewHandle } from '../components/Preview';
-import type { HealthTabPanelRef } from '../components/HealthTabPanel';
+import type { PreviewHandle } from '../components/preview/Preview';
+import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
 import { usePolling } from './usePolling';
 import type { Project } from '../lib/project';
 

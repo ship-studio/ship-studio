@@ -40,9 +40,9 @@ import { useBranchManagement } from './hooks/useBranchManagement';
 import { useNotifications } from './hooks/useNotifications';
 import { useProjectLifecycle } from './hooks/useProjectLifecycle';
 import { useAppSetup } from './hooks/useAppSetup';
-import { ProjectsView } from './components/ProjectsView';
-import { WorkspaceView } from './components/WorkspaceView';
-import { WorkspaceSidebar } from './components/WorkspaceSidebar';
+import { ProjectsView } from './components/dashboard/ProjectsView';
+import { WorkspaceView } from './components/workspace/WorkspaceView';
+import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { useProjectRail } from './hooks/useProjectRail';
 import { OnboardingScreen } from './components/setup';
 import { Project } from './lib/project';
@@ -51,7 +51,7 @@ import { initDefaultAgent } from './lib/agent';
 import { sessionRegistry } from './lib/sessionRegistry';
 import { unregisterProjectSession } from './lib/projectSessions';
 import { UpdateBanner } from './components/UpdateBanner';
-import { MonorepoPickerModal } from './components/MonorepoPickerModal';
+import { MonorepoPickerModal } from './components/dashboard/MonorepoPickerModal';
 import { ModalFrame } from './components/primitives/ModalFrame';
 import { Button } from './components/primitives/Button';
 import { Spinner } from './components/primitives/Spinner';
@@ -145,7 +145,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   }, []);
   const [cleanupStatus, setCleanupStatus] = useState<string | null>(null);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
-  const previewRef = useRef<import('./components/Preview').PreviewHandle | null>(null);
+  const previewRef = useRef<import('./components/preview/Preview').PreviewHandle | null>(null);
   const currentProjectPathRef = useRef<string | null>(null);
 
   // Terminal tabs management — per-project, so switching doesn't destroy

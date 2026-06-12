@@ -124,7 +124,7 @@ echo
 
 # 5. Modal files that don't import ModalFrame (heuristic — new modal files only)
 echo "Checking new *Modal.tsx files for ModalFrame usage…"
-MODAL_FILES=$(ls src/components/*Modal.tsx 2>/dev/null)
+MODAL_FILES=$(find src/components -name '*Modal.tsx' 2>/dev/null)
 MISSING_MODAL_FRAME=0
 for f in $MODAL_FILES; do
   if ! grep -q "ModalFrame" "$f"; then

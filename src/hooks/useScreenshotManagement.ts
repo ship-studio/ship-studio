@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect, type RefObject } from 'react';
-import type { PreviewHandle } from '../components/Preview';
+import type { PreviewHandle } from '../components/preview/Preview';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 

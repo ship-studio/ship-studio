@@ -19,7 +19,7 @@ import {
   getWorkspaceSubpath,
   setWorkspaceSubpath,
 } from '../lib/project';
-import type { WorkspacePick } from '../components/MonorepoPickerModal';
+import type { WorkspacePick } from '../components/dashboard/MonorepoPickerModal';
 import { getProjectGitHubStatus } from '../lib/github';
 import { GITHUB_STATUS_FALLBACK } from './useIntegrationStatus';
 import {
