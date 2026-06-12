@@ -338,6 +338,16 @@ import { Button } from './primitives/Button';
 
 Variants: `primary | secondary | danger | ghost`. Sizes: `md | sm`. Use `block` for full-width.
 
+**When a raw `<button>` is fine** (don't force these into `<Button>`):
+
+- `toolbar-icon-btn` buttons — plugin-stable shared class for icon-only toolbar chrome
+- Icon-only buttons ≤ 28px (close ×, hover-reveal row actions, inline input confirm/cancel) — Button's padding would distort them
+- Toggle/switch UI (`aria-pressed` pills), segmented controls, tab buttons (`role="tab"`)
+- Dropdown triggers (the render-prop keeps the feature's own button) and anything inside a primitive
+- Brand-colored CTAs whose hue is intentional (connect overlay green, conflict yours/theirs pair) — changing them is a design decision, not a cleanup
+
+Everything else that's a standalone action button (CTA, submit, cancel, delete, confirm) uses `<Button variant>`.
+
 ### Async state in components → use `useAsyncState` or `useInvoke`
 
 Don't hand-roll `isLoading` + `error` + `data` state triples; they forget the mount guard, forget the `finally`, and drift.
