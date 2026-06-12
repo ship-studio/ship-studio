@@ -2234,6 +2234,30 @@ const items = [];
     }
 
     #[test]
+    fn liquid_scans_class_and_interpolated_values_stay_unresolvable() {
+        let src = r#"{% schema %}{ "name": "Hero" }{% endschema %}
+<section class="hero hero--{{ section.settings.style }}">
+  <h1 class="hero__heading">{{ section.settings.heading }}</h1>
+  {% if section.settings.show_cta %}
+    <a class="btn btn--primary" href="{{ section.settings.url }}">Go</a>
+  {% endif %}
+</section>"#;
+        let spans = find_attr_spans(src, attrs_for_ext("liquid"));
+        let values: Vec<&str> = spans.iter().map(|s| s.value.as_str()).collect();
+        assert!(values.contains(&"hero__heading"));
+        assert!(values.contains(&"btn btn--primary"));
+        // The interpolated class IS indexed as literal source text — but it can
+        // never equal a rendered DOM className, so resolution stays read-only.
+        let interpolated = "hero hero--{{ section.settings.style }}";
+        assert!(values.contains(&interpolated));
+        let occs = vec![occ(interpolated, "sections/hero.liquid", 2, "section")];
+        assert!(matches!(
+            resolve(&occs, &sig("hero hero--bold", "section", &[])),
+            Resolution::ReadOnly { .. }
+        ));
+    }
+
+    #[test]
     fn astro_component_name_from_filename() {
         assert_eq!(
             astro_component_name("src/components/Header.astro").as_deref(),
