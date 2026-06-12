@@ -309,7 +309,12 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
                     if (!open) setCustomRoot(null);
                   }}
                   trigger={(p) => (
-                    <button className="assets-root-toggle" title="Change assets folder" {...p}>
+                    <button
+                      className="assets-root-toggle"
+                      title="Change assets folder"
+                      aria-label="Change assets folder"
+                      {...p}
+                    >
                       <ChevronIcon size={12} />
                     </button>
                   )}

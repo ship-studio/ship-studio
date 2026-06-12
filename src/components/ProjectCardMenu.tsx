@@ -66,7 +66,12 @@ export function ProjectCardMenu({
       <Dropdown
         align="right"
         trigger={(p) => (
-          <button className="project-card-menu" title="Project options" {...p}>
+          <button
+            className="project-card-menu"
+            title="Project options"
+            aria-label="Project options"
+            {...p}
+          >
             &bull;&bull;&bull;
           </button>
         )}

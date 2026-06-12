@@ -23,12 +23,6 @@ export interface SearchAndSortProps {
   totalCount: number;
   sortBy: SortOption;
   onSortChange: (option: SortOption) => void;
-  /** The Dropdown primitive owns open state now; retained so existing parents
-   *  compile. The current value is ignored. */
-  showSortDropdown?: boolean;
-  /** Mirrors the dropdown's open state to the parent (was the open-state
-   *  setter before the Dropdown primitive took ownership). */
-  onToggleSortDropdown?: (show: boolean) => void;
   onNewFolder: () => void;
 }
 
@@ -37,7 +31,6 @@ export function SearchAndSort({
   totalCount,
   sortBy,
   onSortChange,
-  onToggleSortDropdown,
   onNewFolder,
 }: SearchAndSortProps) {
   return (
@@ -49,7 +42,6 @@ export function SearchAndSort({
         <Dropdown
           align="right"
           menuClassName="sort-dropdown-menu"
-          onOpenChange={onToggleSortDropdown}
           trigger={(p) => (
             <button className="sort-dropdown-btn" data-education-id="sort-projects" {...p}>
               {SORT_LABELS[sortBy]}

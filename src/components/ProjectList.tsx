@@ -177,7 +177,6 @@ export function ProjectList({
   // key off an empty string. It's effectively a constant for now.
   const [searchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('last_opened');
-  const [showSortDropdown, setShowSortDropdown] = useState(false);
 
   const loadProjects = async () => {
     try {
@@ -579,8 +578,6 @@ export function ProjectList({
           totalCount={totalCount}
           sortBy={sortBy}
           onSortChange={setSortBy}
-          showSortDropdown={showSortDropdown}
-          onToggleSortDropdown={setShowSortDropdown}
           onNewFolder={() => setShowNewFolderModal(true)}
         />
 

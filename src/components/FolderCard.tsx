@@ -79,7 +79,12 @@ export const FolderCard = memo(function FolderCard({
         <Dropdown
           align="right"
           trigger={(p) => (
-            <button className="folder-card-menu-btn" title="Folder options" {...p}>
+            <button
+              className="folder-card-menu-btn"
+              title="Folder options"
+              aria-label="Folder options"
+              {...p}
+            >
               &bull;&bull;&bull;
             </button>
           )}
