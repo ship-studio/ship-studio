@@ -223,6 +223,11 @@ pub struct ProjectMetadata {
     /// connects a store via the preview-pane setup flow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shopify_store: Option<String>,
+    /// Keys this app version doesn't know about, preserved verbatim across
+    /// read-modify-write cycles — an older build must never silently drop
+    /// fields written by a newer one.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 fn default_schema_version() -> u32 {
@@ -248,6 +253,7 @@ impl Default for ProjectMetadata {
             workspace_subpath: None,
             assets_root: None,
             shopify_store: None,
+            extra: serde_json::Map::new(),
         }
     }
 }

@@ -91,6 +91,28 @@ fn empty_body() -> ProxyBody {
         .boxed()
 }
 
+/// Remove the `frame-ancestors` directive from a CSP header value so the page
+/// can render inside the preview iframe. Returns the value untouched when no
+/// directive matched, and `None` when nothing remains (drop the header).
+fn strip_frame_ancestors(value: &hyper::header::HeaderValue) -> Option<hyper::header::HeaderValue> {
+    let Ok(s) = value.to_str() else {
+        // Unparseable CSP — drop it rather than risk it blanking the iframe.
+        return None;
+    };
+    if !s.to_ascii_lowercase().contains("frame-ancestors") {
+        return Some(value.clone());
+    }
+    let kept: Vec<&str> = s
+        .split(';')
+        .map(str::trim)
+        .filter(|d| !d.is_empty() && !d.to_ascii_lowercase().starts_with("frame-ancestors"))
+        .collect();
+    if kept.is_empty() {
+        return None;
+    }
+    hyper::header::HeaderValue::from_str(&kept.join("; ")).ok()
+}
+
 /// A running proxy instance.
 struct ProxyInstance {
     _proxy_port: u16,
@@ -338,6 +360,17 @@ async fn proxy_http_request(
             if key == hyper::header::CONTENT_LENGTH || key == hyper::header::CONTENT_ENCODING {
                 continue;
             }
+            // The page renders inside the preview iframe — drop anti-framing
+            // headers (Shopify storefronts send X-Frame-Options: DENY).
+            if key == hyper::header::X_FRAME_OPTIONS {
+                continue;
+            }
+            if key == hyper::header::CONTENT_SECURITY_POLICY {
+                if let Some(v) = strip_frame_ancestors(value) {
+                    response = response.header(key, v);
+                }
+                continue;
+            }
             response = response.header(key, value);
         }
 
@@ -349,6 +382,15 @@ async fn proxy_http_request(
 
         let mut response = Response::builder().status(status);
         for (key, value) in &headers {
+            if key == hyper::header::X_FRAME_OPTIONS {
+                continue;
+            }
+            if key == hyper::header::CONTENT_SECURITY_POLICY {
+                if let Some(v) = strip_frame_ancestors(value) {
+                    response = response.header(key, v);
+                }
+                continue;
+            }
             response = response.header(key, value);
         }
 
@@ -501,4 +543,37 @@ async fn handle_websocket_upgrade(
     }
 
     Ok(client_response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_frame_ancestors;
+    use hyper::header::HeaderValue;
+
+    #[test]
+    fn csp_without_frame_ancestors_passes_through() {
+        let v = HeaderValue::from_static("default-src 'self'; img-src *");
+        assert_eq!(strip_frame_ancestors(&v).unwrap(), v);
+    }
+
+    #[test]
+    fn frame_ancestors_directive_is_removed() {
+        let v = HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'; img-src *");
+        assert_eq!(
+            strip_frame_ancestors(&v).unwrap(),
+            HeaderValue::from_static("default-src 'self'; img-src *")
+        );
+    }
+
+    #[test]
+    fn csp_that_is_only_frame_ancestors_is_dropped() {
+        let v = HeaderValue::from_static("frame-ancestors 'none'");
+        assert!(strip_frame_ancestors(&v).is_none());
+    }
+
+    #[test]
+    fn frame_ancestors_match_is_case_insensitive() {
+        let v = HeaderValue::from_static("Frame-Ancestors https://admin.shopify.com");
+        assert!(strip_frame_ancestors(&v).is_none());
+    }
 }
