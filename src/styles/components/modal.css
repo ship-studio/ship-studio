@@ -1,7 +1,5 @@
 /* Modal-local colors — intentional one-offs, not part of the global scale. */
 :root {
-  /* Hover state for .btn-danger — lighter step of --error. */
-  --modal-danger-hover: #ff5252;
   /* --action (#54e36e) as an rgb triplet for alpha tints (no global --action-rgb). */
   --modal-action-green-rgb: 84, 227, 110;
 }
@@ -50,21 +48,6 @@
   justify-content: flex-end;
   gap: 12px;
   margin-top: 24px;
-}
-
-.btn-danger {
-  background: var(--error);
-  color: var(--text-bright);
-  font-weight: 600;
-}
-
-.btn-danger:hover {
-  background: var(--modal-danger-hover);
-}
-
-.btn-danger:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 /* Quit Confirmation Modal */

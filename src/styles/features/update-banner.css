@@ -45,38 +45,6 @@
   gap: 8px;
 }
 
-.update-banner-btn {
-  padding: 6px 12px;
-  border-radius: var(--radius);
-  font-size: var(--font-size-md);
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.update-banner-btn.secondary {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-.update-banner-btn.secondary:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.update-banner-btn.primary {
-  background: var(--action);
-  color: var(--action-text);
-}
-
-.update-banner-btn.primary:hover {
-  background: var(--action-hover);
-}
-
 .update-banner-progress-container {
   display: flex;
   align-items: center;

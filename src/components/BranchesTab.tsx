@@ -247,30 +247,33 @@ export function BranchesTab({
                 (() => {
                   const existingPR = openPRs.find((pr) => pr.headRef === currentBranchInfo.name);
                   return existingPR ? (
-                    <button
-                      className="branch-card-action"
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={() => onViewPR?.()}
                       title={`PR #${existingPR.number}: ${existingPR.title}`}
                     >
                       View PR #{existingPR.number}
-                    </button>
+                    </Button>
                   ) : (
-                    <button
-                      className="branch-card-action primary"
+                    <Button
+                      variant="primary"
+                      size="sm"
                       onClick={() => onSubmitForReview(currentBranchInfo.name)}
                     >
                       Submit for Review
-                    </button>
+                    </Button>
                   );
                 })()}
-              <button
-                className="branch-card-action danger-outline"
+              <Button
+                variant="danger"
+                size="sm"
                 onClick={() => setShowRevertConfirm(true)}
                 disabled={isReverting}
                 title="Discard local changes and pull from GitHub"
               >
                 {isReverting ? 'Reverting...' : 'Revert to GitHub'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -321,22 +324,24 @@ export function BranchesTab({
                 </label>
               )}
               <div className="branches-new-branch-actions">
-                <button
-                  className="branch-card-action"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => {
                     setShowNewBranch(false);
                     setNewBranchName('');
                   }}
                 >
                   Cancel
-                </button>
-                <button
-                  className="branch-card-action primary"
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => void handleCreateBranch()}
                   disabled={!newBranchName.trim() || isCreatingBranch}
                 >
                   {isCreatingBranch ? 'Creating...' : 'Create'}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -545,19 +550,19 @@ function BranchCard({
 
       <div className="branch-card-actions">
         {isCurrent && showSubmitForReview && (
-          <button className="branch-card-action primary" onClick={onSubmitForReview}>
+          <Button variant="primary" size="sm" onClick={onSubmitForReview}>
             Submit for Review
-          </button>
+          </Button>
         )}
         {!isCurrent && (
-          <button className="branch-card-action" onClick={onSwitch} disabled={isSwitching}>
+          <Button variant="secondary" size="sm" onClick={onSwitch} disabled={isSwitching}>
             {isSwitching ? 'Switching...' : 'Switch'}
-          </button>
+          </Button>
         )}
         {showDelete && (
-          <button className="branch-card-action danger" onClick={onDelete} disabled={isDeleting}>
+          <Button variant="danger" size="sm" onClick={onDelete} disabled={isDeleting}>
             {isDeleting ? 'Deleting...' : 'Delete'}
-          </button>
+          </Button>
         )}
       </div>
     </div>

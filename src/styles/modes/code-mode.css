@@ -111,21 +111,6 @@
   font-size: var(--font-size-base);
 }
 
-.code-tab-retry-btn {
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-}
-
-.code-tab-retry-btn:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
 /* Divider */
 .code-tab-divider {
   width: 1px;

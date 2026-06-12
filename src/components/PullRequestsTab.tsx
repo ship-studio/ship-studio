@@ -522,32 +522,34 @@ function PrCard({
             <GitHubIcon size={16} />
           </button>
           {onCheckout && !isCheckedOut && (
-            <button className="branch-card-action" onClick={onCheckout} disabled={isCheckingOut}>
+            <Button variant="secondary" size="sm" onClick={onCheckout} disabled={isCheckingOut}>
               {isCheckingOut ? 'Pulling...' : 'Pull'}
-            </button>
+            </Button>
           )}
           {hasConflicts && onResolveConflicts ? (
-            <button
-              className="branch-card-action primary"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => onResolveConflicts(pr.headRef, pr.baseRef)}
             >
               Resolve
-            </button>
+            </Button>
           ) : (
             onMerge && (
-              <button
-                className={`branch-card-action ${canMerge ? 'primary' : ''}`}
+              <Button
+                variant={canMerge ? 'primary' : 'secondary'}
+                size="sm"
                 onClick={onMerge}
                 disabled={isMerging || !canMerge}
               >
                 {isMerging ? 'Merging...' : 'Merge'}
-              </button>
+              </Button>
             )
           )}
           {onClose && (
-            <button className="branch-card-action danger" onClick={onClose} disabled={isClosing}>
+            <Button variant="danger" size="sm" onClick={onClose} disabled={isClosing}>
               {isClosing ? 'Closing...' : 'Close'}
-            </button>
+            </Button>
           )}
         </div>
       )}

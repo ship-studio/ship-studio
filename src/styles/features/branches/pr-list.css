@@ -217,6 +217,8 @@
   flex-shrink: 0;
 }
 
+/* Text actions on branch/PR cards now use the <Button> primitive; this class
+   remains only for the icon-only GitHub link (.pr-card-icon-btn). */
 .branch-card-action {
   display: flex;
   align-items: center;
@@ -237,41 +239,6 @@
 .branch-card-action:hover {
   background: var(--border);
   color: var(--text-primary);
-}
-
-.branch-card-action.primary {
-  background: var(--action);
-  border-color: var(--action);
-  color: var(--action-text);
-}
-
-.branch-card-action.primary:hover {
-  background: var(--action-hover);
-}
-
-.branch-card-action.danger {
-  color: var(--error-light);
-}
-
-.branch-card-action.danger:hover {
-  background: rgba(var(--error-light-rgb), 0.1);
-  border-color: rgba(var(--error-light-rgb), 0.3);
-}
-
-.branch-card-action.danger-outline {
-  background: transparent;
-  border: 1px solid rgba(var(--error-light-rgb), 0.3);
-  color: var(--error-light);
-}
-
-.branch-card-action.danger-outline:hover {
-  background: rgba(var(--error-light-rgb), 0.1);
-  border-color: rgba(var(--error-light-rgb), 0.5);
-}
-
-.branch-card-action.danger-outline:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* Pull Requests Tab */

@@ -21,6 +21,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { formatFileSize, isImageFile, type Asset } from '../lib/assets';
 import { useAssetManagement } from '../hooks/useAssetManagement';
 import { Dropdown, DropdownItem } from './primitives/Dropdown';
+import { Button } from './primitives/Button';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { useModal } from '../contexts/ModalContext';
 import {
@@ -234,14 +235,14 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
         <div className="assets-panel-content">
           {/* Toolbar */}
           <div className="assets-toolbar">
-            <button
-              className="assets-toolbar-btn"
+            <Button
+              variant="secondary"
+              leftIcon={<UploadIcon size={14} />}
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
             >
-              <UploadIcon size={14} />
               {isUploading ? 'Uploading...' : 'Upload'}
-            </button>
+            </Button>
             <input
               ref={fileInputRef}
               type="file"
@@ -249,10 +250,13 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
               onChange={(e) => void handleUpload(e.target.files)}
               style={{ display: 'none' }}
             />
-            <button className="assets-toolbar-btn" onClick={() => setShowNewFolder(true)}>
-              <FolderPlusIcon size={14} />
+            <Button
+              variant="secondary"
+              leftIcon={<FolderPlusIcon size={14} />}
+              onClick={() => setShowNewFolder(true)}
+            >
               New Folder
-            </button>
+            </Button>
             <div className="assets-toolbar-spacer" />
             <div className="assets-view-toggle">
               <button

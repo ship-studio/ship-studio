@@ -202,33 +202,6 @@
   align-items: center;
 }
 
-.assets-toolbar-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.assets-toolbar-btn:hover:not(:disabled) {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.assets-toolbar-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .assets-toolbar-spacer {
   flex: 1;
 }

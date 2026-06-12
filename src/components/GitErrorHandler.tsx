@@ -9,6 +9,7 @@
 
 import { WarningIcon, CopyIcon } from './icons';
 import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
 import { useCopyToClipboard } from '../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../contexts/ToastContext';
 
@@ -119,24 +120,32 @@ Please help me understand what went wrong and how to fix it.`,
       <div className="git-error-footer">
         {errorType === 'merge_conflict' && onResolveConflicts ? (
           <>
-            <button className="branch-card-action" onClick={handleCopyPrompt}>
-              <CopyIcon size={12} />
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<CopyIcon size={12} />}
+              onClick={handleCopyPrompt}
+            >
               Copy Prompt
-            </button>
-            <button className="branch-card-action primary" onClick={onResolveConflicts}>
+            </Button>
+            <Button variant="primary" size="sm" onClick={onResolveConflicts}>
               Resolve Conflicts
-            </button>
+            </Button>
           </>
         ) : (
           <>
-            <button className="branch-card-action" onClick={handleCopyPrompt}>
-              <CopyIcon size={12} />
+            <Button
+              variant="secondary"
+              size="sm"
+              leftIcon={<CopyIcon size={12} />}
+              onClick={handleCopyPrompt}
+            >
               Copy to Clipboard
-            </button>
+            </Button>
             {onSendToClaude && (
-              <button className="branch-card-action primary" onClick={handleSendToClaude}>
+              <Button variant="primary" size="sm" onClick={handleSendToClaude}>
                 Send to Claude
-              </button>
+              </Button>
             )}
           </>
         )}

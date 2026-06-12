@@ -838,29 +838,13 @@
   overflow-x: hidden;
 }
 
+/* Layout-only — colors/hover/cursor come from the Button primitive (ghost).
+ * Full-bleed: fixed height; flush corners via the sidebar-wide
+ * border-radius reset above. Font pinned to the sidebar's base size so the
+ * footer matches the rows above it. */
 .workspace-sidebar-add-project {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  width: 100%;
   height: 44px;
-  padding: 0 var(--spacing-md);
-  background: var(--bg-secondary);
-  border: none;
-  color: var(--text-muted);
-  font: inherit;
   font-size: var(--font-size-base);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background var(--transition-fast),
-    color var(--transition-fast);
-}
-
-.workspace-sidebar-add-project:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
 }
 
 .workspace-sidebar-add-icon {

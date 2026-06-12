@@ -167,35 +167,3 @@
   gap: 8px;
   padding: 0 16px 16px;
 }
-
-.publish-link-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.publish-link-button:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.publish-link-button.publish-link-loading {
-  color: var(--text-muted);
-  cursor: default;
-}
-
-.publish-link-button.publish-link-loading:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-}

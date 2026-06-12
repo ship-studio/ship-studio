@@ -47,6 +47,7 @@ import { ElementTreePanel } from './edit/ElementTreePanel';
 import { useElementTree } from '../hooks/useElementTree';
 import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocaleSwitcher';
 import { CompactIcon, ExpandIcon, PanelLeftIcon, ResetIcon } from './icons';
+import { Button } from './primitives/Button';
 import { Spinner } from './primitives/Spinner';
 import { pathLocale, switchPathLocale } from '../lib/i18n';
 import type { ProjectType } from '../lib/static-server';
@@ -632,9 +633,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         <p className="hint">
           This project hasn't run <code>{needsInstall.packageManager} install</code> yet.
         </p>
-        <button className="btn-primary" onClick={onRunInstall} disabled={!onRunInstall}>
+        <Button variant="primary" onClick={onRunInstall} disabled={!onRunInstall}>
           Install with {needsInstall.packageManager}
-        </button>
+        </Button>
       </div>
     );
   }

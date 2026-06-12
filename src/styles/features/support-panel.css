@@ -11,8 +11,7 @@
   --support-ticket-resolved: #4ade80;
   --support-ticket-closed: #9ca3af;
   --support-ticket-closed-rgb: 107, 114, 128;
-  /* Form submit hover + soft error banner */
-  --support-submit-hover: #16a34a;
+  /* Soft error banner */
   --support-error-soft: #f87171;
   --support-error-soft-rgb: 255, 77, 77;
 }
@@ -514,40 +513,6 @@
   justify-content: flex-end;
   gap: 8px;
   padding-top: 8px;
-}
-
-.support-form-actions button {
-  padding: 8px 16px;
-  border-radius: var(--radius);
-  font-size: var(--font-size-md);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.support-form-actions .support-cancel-btn {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.support-form-actions .support-cancel-btn:hover:not(:disabled) {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.support-form-actions .support-submit-btn {
-  background: var(--success-light);
-  border: none;
-  color: var(--text-bright);
-}
-
-.support-form-actions .support-submit-btn:hover:not(:disabled) {
-  background: var(--support-submit-hover);
-}
-
-.support-form-actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* ─── Share Project Info Toggle ────────────────────────────────────────────── */

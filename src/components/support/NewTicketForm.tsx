@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { Button } from '../primitives/Button';
 import { createTicket } from '../../lib/support';
 import type { Conversation } from '../../lib/support';
 import { trackEvent } from '../../lib/analytics';
@@ -239,16 +240,12 @@ export function NewTicketForm({
 
       {/* Actions */}
       <div className="support-form-actions">
-        <button className="support-cancel-btn" onClick={onCancel} disabled={submitting}>
+        <Button variant="secondary" onClick={onCancel} disabled={submitting}>
           Cancel
-        </button>
-        <button
-          className="support-submit-btn"
-          onClick={() => void handleSubmit()}
-          disabled={!canSubmit}
-        >
+        </Button>
+        <Button variant="primary" onClick={() => void handleSubmit()} disabled={!canSubmit}>
           {submitting ? 'Submitting...' : 'Submit'}
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -52,6 +52,7 @@ import { FolderBreadcrumb } from './FolderBreadcrumb';
 import { MoveFolderModal } from './MoveFolderModal';
 import { SettingsModal } from './SettingsModal';
 import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
 import { Spinner } from './primitives/Spinner';
 import { GitHubCalendar } from './GitHubCalendar';
 import { useModal } from '../contexts/ModalContext';
@@ -715,65 +716,26 @@ export function ProjectList({
 
         {/* Delete Project Confirmation Modal */}
         {deleteConfirm && (
-          <ModalFrame
-            isOpen
-            onClose={() => setDeleteConfirm(null)}
+          <DeleteConfirmModal
             title="Delete Project?"
-            showCloseButton={false}
-          >
-            <div style={{ padding: 'var(--spacing-xl)' }}>
-              <p>
-                Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?
-              </p>
-              <p className="hint">
-                This will delete the local copy from your computer. If this project is connected to
-                GitHub, your code will remain there and you can reimport it at any time.
-              </p>
-              <div className="modal-actions">
-                <button onClick={() => setDeleteConfirm(null)} disabled={deleting}>
-                  Cancel
-                </button>
-                <button
-                  className="btn-danger"
-                  onClick={() => void handleDelete(deleteConfirm)}
-                  disabled={deleting}
-                >
-                  {deleting ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </ModalFrame>
+            name={deleteConfirm.name}
+            hint="This will delete the local copy from your computer. If this project is connected to GitHub, your code will remain there and you can reimport it at any time."
+            deleting={deleting}
+            onCancel={() => setDeleteConfirm(null)}
+            onDelete={() => void handleDelete(deleteConfirm)}
+          />
         )}
 
         {/* Delete Folder Confirmation Modal */}
         {deleteFolderConfirm && (
-          <ModalFrame
-            isOpen
-            onClose={() => setDeleteFolderConfirm(null)}
+          <DeleteConfirmModal
             title="Delete Folder?"
-            showCloseButton={false}
-          >
-            <div style={{ padding: 'var(--spacing-xl)' }}>
-              <p>
-                Are you sure you want to delete <strong>{deleteFolderConfirm.name}</strong>?
-              </p>
-              <p className="hint">
-                Projects in this folder will not be deleted. They will appear at the root level.
-              </p>
-              <div className="modal-actions">
-                <button onClick={() => setDeleteFolderConfirm(null)} disabled={deletingFolder}>
-                  Cancel
-                </button>
-                <button
-                  className="btn-danger"
-                  onClick={() => void handleDeleteFolder(deleteFolderConfirm)}
-                  disabled={deletingFolder}
-                >
-                  {deletingFolder ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </ModalFrame>
+            name={deleteFolderConfirm.name}
+            hint="Projects in this folder will not be deleted. They will appear at the root level."
+            deleting={deletingFolder}
+            onCancel={() => setDeleteFolderConfirm(null)}
+            onDelete={() => void handleDeleteFolder(deleteFolderConfirm)}
+          />
         )}
 
         {/* Settings Modal */}
@@ -788,5 +750,41 @@ export function ProjectList({
         {/* ChangelogModal is mounted globally in <AppGlobalModals>. */}
       </div>
     </div>
+  );
+}
+
+/** Shared delete-confirmation dialog for projects and folders. */
+function DeleteConfirmModal({
+  title,
+  name,
+  hint,
+  deleting,
+  onCancel,
+  onDelete,
+}: {
+  title: string;
+  name: string;
+  hint: string;
+  deleting: boolean;
+  onCancel: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <ModalFrame isOpen onClose={onCancel} title={title} showCloseButton={false}>
+      <div style={{ padding: 'var(--spacing-xl)' }}>
+        <p>
+          Are you sure you want to delete <strong>{name}</strong>?
+        </p>
+        <p className="hint">{hint}</p>
+        <div className="modal-actions">
+          <Button variant="secondary" onClick={onCancel} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={onDelete} disabled={deleting}>
+            {deleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </div>
+      </div>
+    </ModalFrame>
   );
 }

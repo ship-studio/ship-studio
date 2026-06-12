@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { SearchIcon, ChevronIcon, ResetIcon } from './icons';
+import { Button } from './primitives/Button';
 import { BrowserDropdown } from './BrowserDropdown';
 import { useOpenPalette } from './CommandPalette/paletteContext';
 import { ALL_AGENTS, TERMINAL, getAgentById, type AgentConfig } from '../lib/agent';
@@ -621,15 +622,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       </div>
 
       <div className="workspace-sidebar-footer">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          block
           className="workspace-sidebar-add-project"
           onClick={onOpenProjectPicker}
           title="Open a project"
         >
           <span className="workspace-sidebar-add-icon">+</span>
           <span>Open project</span>
-        </button>
+        </Button>
       </div>
     </aside>
   );

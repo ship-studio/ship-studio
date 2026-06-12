@@ -10,6 +10,7 @@ import { useFileTree } from '../hooks/useFileTree';
 import { FileTree } from './FileTree';
 import { CodeViewer } from './CodeViewer';
 import { Spinner } from './primitives/Spinner';
+import { Button } from './primitives/Button';
 import { ResetIcon, SearchIcon } from './icons';
 import { type FileTreeNode, fileExtensionForAnalytics } from '../lib/code';
 import { trackEvent, trackSearch } from '../lib/analytics';
@@ -147,9 +148,9 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
           ) : treeError ? (
             <div className="code-tab-sidebar-error">
               <span>Failed to load files</span>
-              <button className="code-tab-retry-btn" onClick={refreshTree}>
+              <Button variant="secondary" size="sm" onClick={refreshTree}>
                 Retry
-              </button>
+              </Button>
             </div>
           ) : filteredTree.length === 0 ? (
             <div className="code-tab-sidebar-empty">

@@ -231,70 +231,6 @@
   gap: 8px;
 }
 
-.env-add-btn {
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.env-add-btn:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.env-save-btn {
-  padding: 8px 16px;
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius);
-  color: var(--bg-primary);
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.env-save-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.env-save-btn:disabled {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  cursor: not-allowed;
-}
-
-.env-delete-file-btn {
-  padding: 8px 12px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.env-delete-file-btn:hover {
-  background: rgba(var(--error-rgb), 0.1);
-  border-color: var(--error);
-  color: var(--error);
-}
-
 .env-empty {
   padding: 40px 20px;
   text-align: center;
@@ -341,25 +277,6 @@
   max-width: 260px;
 }
 
-.env-create-btn {
-  padding: 10px 20px;
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius);
-  color: var(--bg-primary);
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.env-create-btn:hover {
-  background: var(--accent-hover);
-}
-
 .env-loading {
   padding: 40px 20px;
   text-align: center;
@@ -403,54 +320,6 @@
 }
 
 .env-sync-info svg {
-  flex-shrink: 0;
-}
-
-.env-sync-btn {
-  padding: 6px 12px;
-  background: rgba(var(--warning-light-rgb), 0.2);
-  border: 1px solid rgba(var(--warning-light-rgb), 0.4);
-  border-radius: var(--radius);
-  color: var(--warning-light);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.env-sync-btn:hover {
-  background: rgba(var(--warning-light-rgb), 0.3);
-  border-color: var(--warning-light);
-}
-
-/* Paste .env Button */
-.env-paste-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.env-paste-btn:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.env-paste-btn svg {
   flex-shrink: 0;
 }
 
@@ -526,48 +395,4 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
-}
-
-.env-paste-cancel {
-  padding: 8px 16px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.env-paste-cancel:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.env-paste-confirm {
-  padding: 8px 16px;
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius);
-  color: var(--bg-primary);
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.env-paste-confirm:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
-.env-paste-confirm:disabled {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  cursor: not-allowed;
 }

@@ -17,6 +17,7 @@ import { useEnvEditor } from '../hooks/useEnvEditor';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { useModal } from '../contexts/ModalContext';
 import { ModalFrame } from './primitives/ModalFrame';
+import { Button } from './primitives/Button';
 
 /** Props for the EnvEditor component */
 interface EnvEditorProps {
@@ -164,9 +165,9 @@ export function EnvEditor({ projectPath }: EnvEditorProps) {
                       .env.example
                     </span>
                   </div>
-                  <button className="env-sync-btn" onClick={() => void handleSyncToExample()}>
+                  <Button variant="secondary" size="sm" onClick={() => void handleSyncToExample()}>
                     Sync to .env.example
-                  </button>
+                  </Button>
                 </div>
               )}
               {syncStatus.missingInLocal.length > 0 && (
@@ -190,9 +191,9 @@ export function EnvEditor({ projectPath }: EnvEditorProps) {
                       .env.local
                     </span>
                   </div>
-                  <button className="env-sync-btn" onClick={() => void handleSyncToLocal()}>
+                  <Button variant="secondary" size="sm" onClick={() => void handleSyncToLocal()}>
                     Add to .env.local
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -293,41 +294,46 @@ export function EnvEditor({ projectPath }: EnvEditorProps) {
 
             <div className="env-actions">
               <div className="env-actions-left">
-                <button className="env-add-btn" onClick={handleAddVar}>
+                <Button variant="secondary" onClick={handleAddVar}>
                   + Add Variable
-                </button>
-                <button className="env-paste-btn" onClick={() => setShowPasteModal(true)}>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
-                  </svg>
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowPasteModal(true)}
+                  leftIcon={
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                    </svg>
+                  }
+                >
                   Paste .env
-                </button>
+                </Button>
               </div>
               <div className="env-actions-right">
                 {selectedFile && (
-                  <button
-                    className="env-delete-file-btn"
+                  <Button
+                    variant="danger"
                     onClick={() => void handleDeleteFile()}
                     title="Delete this file"
                   >
                     Delete File
-                  </button>
+                  </Button>
                 )}
-                <button
-                  className="env-save-btn"
+                <Button
+                  variant="primary"
                   onClick={() => void handleSave()}
                   disabled={!hasChanges || isSaving || isLoading}
                 >
                   {isSaving ? 'Saving...' : 'Save'}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -336,9 +342,9 @@ export function EnvEditor({ projectPath }: EnvEditorProps) {
             <div className="env-empty-icon">$</div>
             <h4>No environment files</h4>
             <p>Create an .env file to store your API keys and secrets.</p>
-            <button className="env-create-btn" onClick={() => setShowNewFileInput(true)}>
+            <Button variant="primary" onClick={() => setShowNewFileInput(true)}>
               Create .env.local
-            </button>
+            </Button>
           </div>
         )}
 
@@ -383,22 +389,18 @@ export function EnvEditor({ projectPath }: EnvEditorProps) {
               spellCheck={false}
             />
             <div className="env-paste-actions">
-              <button
-                className="env-paste-cancel"
+              <Button
+                variant="secondary"
                 onClick={() => {
                   setShowPasteModal(false);
                   setPasteContent('');
                 }}
               >
                 Cancel
-              </button>
-              <button
-                className="env-paste-confirm"
-                onClick={handlePasteEnv}
-                disabled={!pasteContent.trim()}
-              >
+              </Button>
+              <Button variant="primary" onClick={handlePasteEnv} disabled={!pasteContent.trim()}>
                 Add Variables
-              </button>
+              </Button>
             </div>
           </div>
         </div>

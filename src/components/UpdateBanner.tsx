@@ -18,6 +18,7 @@ import { Update } from '@tauri-apps/plugin-updater';
 import { checkForUpdate, downloadAndInstall, restartApp, UpdateInfo } from '../lib/updater';
 import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
+import { Button } from './primitives/Button';
 import '../styles/features/update-banner.css';
 
 /** How often to check for updates (1 hour) */
@@ -168,12 +169,12 @@ export function UpdateBanner() {
         </div>
         {status === 'idle' && (
           <div className="update-banner-actions">
-            <button className="update-banner-btn secondary" onClick={handleLater}>
+            <Button variant="secondary" size="sm" onClick={handleLater}>
               Later
-            </button>
-            <button className="update-banner-btn primary" onClick={() => void handleUpdate()}>
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => void handleUpdate()}>
               Update Now
-            </button>
+            </Button>
           </div>
         )}
         {status === 'downloading' && (
@@ -185,16 +186,16 @@ export function UpdateBanner() {
           </div>
         )}
         {status === 'ready' && (
-          <button className="update-banner-btn primary" onClick={() => void handleRestart()}>
+          <Button variant="primary" size="sm" onClick={() => void handleRestart()}>
             Restart to Apply
-          </button>
+          </Button>
         )}
         {status === 'error' && (
           <div className="update-banner-actions">
             <span className="update-banner-error">{error}</span>
-            <button className="update-banner-btn secondary" onClick={() => void handleUpdate()}>
+            <Button variant="secondary" size="sm" onClick={() => void handleUpdate()}>
               Retry
-            </button>
+            </Button>
           </div>
         )}
       </div>
