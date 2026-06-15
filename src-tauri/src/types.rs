@@ -198,6 +198,13 @@ pub struct ProjectMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub dev_server_port: Option<u16>,
+    /// When set, serve the project as a static site even though a `package.json`
+    /// is present (which would otherwise classify it as `generic` and start no
+    /// server). Lets a plain static site that carries build tooling (PostCSS,
+    /// autoprefixer, a CSS minifier) keep a working preview. `None` = respect
+    /// auto-detection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub force_static_serve: Option<bool>,
     /// Saved terminal tab state for session restoration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_state: Option<TerminalState>,
@@ -248,6 +255,7 @@ impl Default for ProjectMetadata {
             hide_main_branch_warning: None,
             custom_dev_command: None,
             dev_server_port: None,
+            force_static_serve: None,
             terminal_state: None,
             custom_thumbnail: None,
             workspace_subpath: None,
@@ -769,4 +777,42 @@ pub struct CompactModePreferences {
     pub always_on_top: bool,
     /// Whether the output area is currently expanded
     pub is_expanded: bool,
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::ProjectMetadata;
+
+    #[test]
+    fn force_static_serve_is_omitted_when_unset() {
+        let meta = ProjectMetadata::default();
+        assert_eq!(meta.force_static_serve, None);
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(
+            !json.contains("force_static_serve"),
+            "None should not serialize the field (skip_serializing_if), got: {json}"
+        );
+    }
+
+    #[test]
+    fn force_static_serve_round_trips_when_set() {
+        let mut meta = ProjectMetadata::default();
+        meta.force_static_serve = Some(true);
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(json.contains("\"force_static_serve\":true"));
+
+        let parsed: ProjectMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.force_static_serve, Some(true));
+    }
+
+    #[test]
+    fn legacy_files_without_the_field_default_to_none() {
+        // A project.json written by an older build omits the key entirely (the
+        // default already serializes without it). Deserializing must yield None,
+        // not an error.
+        let legacy_json = serde_json::to_string(&ProjectMetadata::default()).unwrap();
+        assert!(!legacy_json.contains("force_static_serve"));
+        let parsed: ProjectMetadata = serde_json::from_str(&legacy_json).unwrap();
+        assert_eq!(parsed.force_static_serve, None);
+    }
 }

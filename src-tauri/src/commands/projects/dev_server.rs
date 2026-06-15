@@ -63,6 +63,60 @@ pub async fn set_custom_dev_command(
     Ok(())
 }
 
+/// Gets whether this project is forced to serve as a static site, overriding
+/// the `generic` classification a root `package.json` would otherwise trigger.
+/// Returns `false` when unset.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn get_force_static_serve(project_path: String) -> Result<bool, CommandError> {
+    let project = validate_project_path(&project_path)?;
+    let metadata_path = project.join(".shipstudio").join("project.json");
+
+    if !metadata_path.exists() {
+        return Ok(false);
+    }
+
+    let metadata = std::fs::read_to_string(&metadata_path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<ProjectMetadata>(&contents).ok())
+        .unwrap_or_default();
+
+    Ok(metadata.force_static_serve.unwrap_or(false))
+}
+
+/// Sets whether this project is forced to serve as a static site. Stores `None`
+/// (field omitted) when turned off, so the JSON stays clean.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn set_force_static_serve(project_path: String, force: bool) -> Result<(), CommandError> {
+    let project = validate_project_path(&project_path)?;
+    let shipstudio_dir = project.join(".shipstudio");
+    let metadata_path = shipstudio_dir.join("project.json");
+
+    let mut metadata = if metadata_path.exists() {
+        std::fs::read_to_string(&metadata_path)
+            .ok()
+            .and_then(|contents| serde_json::from_str::<ProjectMetadata>(&contents).ok())
+            .unwrap_or_default()
+    } else {
+        ProjectMetadata::default()
+    };
+
+    metadata.force_static_serve = if force { Some(true) } else { None };
+
+    if !shipstudio_dir.exists() {
+        std::fs::create_dir_all(&shipstudio_dir)
+            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
+    }
+
+    let contents = serde_json::to_string_pretty(&metadata)
+        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
+    std::fs::write(&metadata_path, contents)
+        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
+
+    Ok(())
+}
+
 /// Gets the dev server port for a project (returns None if not configured, meaning use default 3000)
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]

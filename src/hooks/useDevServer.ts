@@ -43,6 +43,7 @@ import {
   getWorkspaceSubpath,
   resolveWorkspacePath,
   checkDependenciesInstalled,
+  getForceStaticServe,
 } from '../lib/project';
 import { detectPackageManager } from '../lib/github';
 
@@ -517,6 +518,27 @@ export function useDevServer(currentProjectPath: string | null) {
       } catch {
         logger.warn('[OpenProject] Failed to detect project type, defaulting to unknown');
       }
+
+      // A plain static site that carries a root `package.json` only for build
+      // tooling (PostCSS, autoprefixer, a CSS minifier) is detected as `generic`
+      // and would start no server. The user can opt into static serving via
+      // `.shipstudio/project.json` → `force_static_serve`; when set, treat it as
+      // a static-HTML project so it serves over the static server and the
+      // Preview pane renders (it gates out `generic`/`unknown`).
+      let forceStatic = false;
+      try {
+        forceStatic = await getForceStaticServe(projectPath);
+      } catch {
+        /* default: respect detection */
+      }
+      if (forceStatic && (detectedType === 'generic' || detectedType === 'unknown')) {
+        logger.info('[OpenProject] force_static_serve set; serving as static HTML', {
+          projectPath,
+          detectedType,
+        });
+        detectedType = 'statichtml';
+      }
+
       s.type = detectedType;
       bump();
 
@@ -527,8 +549,11 @@ export function useDevServer(currentProjectPath: string | null) {
       // and a theme's optional package.json (Tailwind tooling, or one an
       // agent added) must not block the preview behind an install gate.
       try {
+        // Shopify themes and force-static projects don't need an npm install to
+        // preview: the theme runs via `shopify theme dev`, and a force-static
+        // site is served straight off disk regardless of its build tooling.
         const depStatus =
-          detectedType === 'shopifytheme'
+          detectedType === 'shopifytheme' || forceStatic
             ? { installed: true, hasPackageJson: false }
             : await checkDependenciesInstalled(projectPath);
         if (!depStatus.installed && depStatus.hasPackageJson) {

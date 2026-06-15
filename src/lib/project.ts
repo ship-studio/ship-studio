@@ -633,6 +633,24 @@ export async function setCustomDevCommand(
   return invoke<void>('set_custom_dev_command', { projectPath, command });
 }
 
+/**
+ * Get whether the project is forced to serve as a static site (overriding the
+ * `generic` classification a root `package.json` would otherwise trigger).
+ * @param projectPath - Absolute path to the project directory
+ */
+export async function getForceStaticServe(projectPath: string): Promise<boolean> {
+  return invoke<boolean>('get_force_static_serve', { projectPath });
+}
+
+/**
+ * Set whether the project is forced to serve as a static site.
+ * @param projectPath - Absolute path to the project directory
+ * @param force - true to always serve statically; false to respect detection
+ */
+export async function setForceStaticServe(projectPath: string, force: boolean): Promise<void> {
+  return invoke<void>('set_force_static_serve', { projectPath, force });
+}
+
 /** A runnable app discovered inside a monorepo at import time. */
 export interface WorkspaceInfo {
   /** Package name from the workspace's `package.json`. */

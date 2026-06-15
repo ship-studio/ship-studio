@@ -370,6 +370,8 @@ pub fn run() {
             commands::projects::set_custom_dev_command,
             commands::projects::get_dev_server_port,
             commands::projects::set_dev_server_port,
+            commands::projects::get_force_static_serve,
+            commands::projects::set_force_static_serve,
             commands::projects::get_workspace_subpath,
             commands::projects::set_workspace_subpath,
             commands::projects::check_dependencies_installed,

@@ -10,6 +10,7 @@ vi.mock('../lib/project', () => ({
   }),
   getCustomDevCommand: vi.fn().mockResolvedValue(null),
   setCustomDevCommand: vi.fn().mockResolvedValue(undefined),
+  getForceStaticServe: vi.fn().mockResolvedValue(false),
   getWorkspaceSubpath: vi.fn().mockResolvedValue(null),
   resolveWorkspacePath: (path: string, subpath: string | null) =>
     subpath ? `${path}/${subpath}` : path,
@@ -54,6 +55,7 @@ describe('useDevServer', () => {
       stop: vi.fn().mockResolvedValue(undefined),
     } as never);
     vi.mocked(project.getCustomDevCommand).mockResolvedValue(null);
+    vi.mocked(project.getForceStaticServe).mockResolvedValue(false);
     vi.mocked(project.getWorkspaceSubpath).mockResolvedValue(null);
   });
 
@@ -172,6 +174,50 @@ describe('useDevServer', () => {
       expect(result.current.projectType).toBe('statichtml');
       expect(result.current.devServerPort).toBe(9090);
       expect(startStaticServer).toHaveBeenCalledWith('main', '/path/to/project');
+    });
+
+    it('serves a generic project statically when force_static_serve is set', async () => {
+      // A static site with a package.json detects as `generic`, which would
+      // otherwise start no server. force_static_serve overrides it to static.
+      const { detectProjectType, startStaticServer } = await import('../lib/static-server');
+      const { getForceStaticServe, startDevServer } = await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('generic');
+      vi.mocked(getForceStaticServe).mockResolvedValue(true);
+      vi.mocked(startStaticServer).mockResolvedValue(9091);
+
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      let detectedType: string | undefined;
+      await act(async () => {
+        detectedType = await result.current.startServerForProject(
+          '/path/to/project',
+          'my-project',
+          3000,
+          'main'
+        );
+      });
+
+      expect(detectedType).toBe('statichtml');
+      expect(result.current.projectType).toBe('statichtml');
+      expect(startStaticServer).toHaveBeenCalledWith('main', '/path/to/project');
+      // It must NOT fall into the generic/no-command branch that starts nothing.
+      expect(startDevServer).not.toHaveBeenCalled();
+    });
+
+    it('leaves a generic project as-is when force_static_serve is off', async () => {
+      const { detectProjectType, startStaticServer } = await import('../lib/static-server');
+      const { getForceStaticServe } = await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('generic');
+      vi.mocked(getForceStaticServe).mockResolvedValue(false);
+
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
+      });
+
+      expect(result.current.projectType).toBe('generic');
+      expect(startStaticServer).not.toHaveBeenCalled();
     });
 
     it('starts dev server for non-static projects', async () => {

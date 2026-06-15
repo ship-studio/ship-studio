@@ -467,6 +467,7 @@ export function WorkspaceModals({
         customDevCommand={customDevCommand}
         onSaveDevCommand={onSaveDevCommand}
         isWebProject={isWebProject}
+        projectPath={projectPath}
       />
 
       {/* Plugin terminal modal — reuses OnboardingTerminal for interactive CLI commands */}
