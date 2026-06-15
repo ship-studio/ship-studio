@@ -457,6 +457,7 @@ pub fn run() {
             commands::settings::set_terminal_gpu_enabled,
             // AI generation
             commands::ai::generate_pr_description,
+            commands::ai::generate_commit_message,
             // Claude integration
             commands::claude::check_claude_cli_status,
             commands::claude::install_claude_cli,

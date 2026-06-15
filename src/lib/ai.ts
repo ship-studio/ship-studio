@@ -35,3 +35,18 @@ export async function generatePRDescription(
     baseBranch,
   });
 }
+
+/**
+ * Generate a single-line commit message summarizing the project's current
+ * uncommitted changes, using the active agent CLI in print mode.
+ *
+ * The publish flow already calls this automatically on the backend; this
+ * wrapper exists for UI that wants to preview or regenerate the message.
+ *
+ * @param projectPath - Path to the project directory
+ * @returns A concise commit subject line
+ * @throws If no headless agent is available, there are no changes, or the CLI fails
+ */
+export async function generateCommitMessage(projectPath: string): Promise<string> {
+  return invoke<string>('generate_commit_message', { projectPath });
+}

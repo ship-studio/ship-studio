@@ -2,6 +2,7 @@
 //!
 //! Commands for publishing to GitHub, staging, and production.
 
+use crate::commands::ai::resolve_commit_message;
 use crate::commands::git::git_stage_and_commit;
 use crate::commands::github::ensure_git_identity;
 use crate::errors::CommandError;
@@ -16,7 +17,7 @@ pub async fn publish_to_github(
     commit_message: Option<String>,
 ) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path).map_err(CommandError::from)?;
-    let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
+    let message = resolve_commit_message(&validated_path, commit_message).await;
     info!(message = %message, "Publishing to GitHub");
 
     // Get current branch name
@@ -137,7 +138,7 @@ pub async fn publish_to_staging(
     commit_message: Option<String>,
 ) -> Result<PublishResult, CommandError> {
     let validated_path = validate_project_path(&project_path).map_err(CommandError::from)?;
-    let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
+    let message = resolve_commit_message(&validated_path, commit_message).await;
     info!(message = %message, "Publishing to staging");
 
     // Ensure git identity matches GitHub account before committing
@@ -188,7 +189,7 @@ pub async fn publish_to_production(
     commit_message: Option<String>,
 ) -> Result<PublishResult, CommandError> {
     let validated_path = validate_project_path(&project_path).map_err(CommandError::from)?;
-    let message = commit_message.unwrap_or_else(|| "Update from Ship Studio".to_string());
+    let message = resolve_commit_message(&validated_path, commit_message).await;
     info!(message = %message, "Publishing to production");
 
     // Ensure git identity matches GitHub account before committing
@@ -231,7 +232,7 @@ pub async fn publish_branch(
     commit_message: Option<String>,
 ) -> Result<PublishResult, CommandError> {
     let validated_path = validate_project_path(&project_path).map_err(CommandError::from)?;
-    let message = commit_message.unwrap_or_else(|| "Updates from Ship Studio".to_string());
+    let message = resolve_commit_message(&validated_path, commit_message).await;
 
     // Get current branch name
     let branch_output = create_command("git")
