@@ -5,7 +5,7 @@
  * The parent component handles persistence via Tauri commands.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import '../../styles/features/notifications.css';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
@@ -40,14 +40,23 @@ export function ProjectSettingsModal({
   // — a detected framework already serves itself.
   const showForceStatic = !isWebProject && !!projectPath;
   const [forceStatic, setForceStatic] = useState(false);
+  // The on-disk value once loaded for the current project, or null while the
+  // load is still in flight. Persisting is gated on this so a Save before the
+  // load resolves (or right after switching projects) can't clobber the real
+  // value with the stale default. A ref (not state) — it's only read at save
+  // time and must not trigger a render.
+  const loadedForceStatic = useRef<boolean | null>(null);
 
-  // Load the persisted override whenever the modal opens.
+  // Load the persisted override whenever the modal opens (or the project changes).
   useEffect(() => {
     if (!isOpen || !showForceStatic || !projectPath) return;
     let cancelled = false;
+    loadedForceStatic.current = null;
     getForceStaticServe(projectPath)
       .then((value) => {
-        if (!cancelled) setForceStatic(value);
+        if (cancelled) return;
+        setForceStatic(value);
+        loadedForceStatic.current = value;
       })
       .catch((err) => {
         logger.warn('[ProjectSettings] Failed to load force_static_serve', {
@@ -68,7 +77,14 @@ export function ProjectSettingsModal({
         const trimmed = devCommand.trim();
         onSaveDevCommand(trimmed || null);
       }
-      if (showForceStatic && projectPath) {
+      // Only persist when the current value has loaded and the user actually
+      // changed it — never write the stale default over an unread value.
+      if (
+        showForceStatic &&
+        projectPath &&
+        loadedForceStatic.current !== null &&
+        forceStatic !== loadedForceStatic.current
+      ) {
         void setForceStaticServe(projectPath, forceStatic).catch((err) => {
           logger.error('[ProjectSettings] Failed to save force_static_serve', {
             error: err instanceof Error ? err.message : String(err),
@@ -207,7 +223,7 @@ export function ProjectSettingsModal({
                   >
                     Serve files directly even though a <code>package.json</code> is present. Use
                     this for plain HTML/CSS sites that keep a <code>package.json</code> only for
-                    build tooling. Restart the dev server (or reopen the project) to apply.
+                    build tooling. Reopen the project to apply.
                   </span>
                 </span>
               </label>

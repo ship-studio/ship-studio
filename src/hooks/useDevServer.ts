@@ -524,14 +524,15 @@ export function useDevServer(currentProjectPath: string | null) {
       // and would start no server. The user can opt into static serving via
       // `.shipstudio/project.json` → `force_static_serve`; when set, treat it as
       // a static-HTML project so it serves over the static server and the
-      // Preview pane renders (it gates out `generic`/`unknown`).
+      // Preview pane renders (it gates out `generic`). Scoped to `generic` —
+      // the override is specifically for the package.json-present case.
       let forceStatic = false;
       try {
         forceStatic = await getForceStaticServe(projectPath);
       } catch {
         /* default: respect detection */
       }
-      if (forceStatic && (detectedType === 'generic' || detectedType === 'unknown')) {
+      if (forceStatic && detectedType === 'generic') {
         logger.info('[OpenProject] force_static_serve set; serving as static HTML', {
           projectPath,
           detectedType,
