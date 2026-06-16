@@ -57,8 +57,8 @@ function installSlowServerFetch() {
 
   return {
     fetchMock,
-    /** Every probe aborted? The bug is the probe timing out mid-compile. */
-    anyAborted: () => signals.some((s) => s.aborted),
+    callCount: () => signals.length,
+    lastSignal: () => signals[signals.length - 1],
     finishCompile: () => resolveResponse?.(),
   };
 }
@@ -82,7 +82,7 @@ describe('usePreviewConnection readiness probe', () => {
     expect(result.current.serverReady).toBe(false);
     expect(result.current.isLoading).toBe(true);
 
-    // The mount effect gates the first attempt behind a 1.5s settle timer.
+    // The mount effect gates the readiness probe behind a 1.5s settle timer.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1500);
     });
@@ -90,16 +90,18 @@ describe('usePreviewConnection readiness probe', () => {
       'http://localhost:3000',
       expect.objectContaining({ mode: 'no-cors' })
     );
+    const callsWhileCompiling = server.callCount();
 
-    // Advance well past the old 3s timeout (to ~10s) without the server
-    // responding. No probe may have been aborted — the readiness check must ride
-    // the in-flight compile. This is the exact regression: a 3s timeout aborted
-    // the probe at ~3s every attempt, so it never saw the (slow) success and the
-    // preview never opened, even though a plain browser loads it fine.
+    // Advance well past the old 3s timeout (to ~10s) while the server is still
+    // compiling (response withheld). The readiness probe must RIDE that single
+    // in-flight request — no new probe should fire. This is the exact
+    // regression: a 3s timeout aborted the probe at ~3s and the retry backoff
+    // fired fresh probes, so the count would climb here and the (slow) success
+    // was never observed, even though a plain browser loads the page fine.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8500);
     });
-    expect(server.anyAborted()).toBe(false);
+    expect(server.callCount()).toBe(callsWhileCompiling);
     expect(result.current.serverReady).toBe(false);
 
     // The dev server finishes compiling and responds — preview opens. Flush the
@@ -115,6 +117,38 @@ describe('usePreviewConnection readiness probe', () => {
 
     // Tear down inside act() so the effect cleanups (proxy stop, interval clear)
     // don't update state after the test and trip React's act() warning.
+    await act(async () => {
+      unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+
+  it('Stop aborts the in-flight probe instead of leaving a 30s fetch running', async () => {
+    const server = installSlowServerFetch();
+    const { result, unmount } = renderHook(() => usePreviewConnection(baseParams));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    const signal = server.lastSignal();
+    expect(signal?.aborted).toBe(false);
+    const callsBeforeStop = server.callCount();
+
+    // User hits Stop while the probe is mid-compile.
+    await act(async () => {
+      result.current.stopConnecting();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(result.current.isStopped).toBe(true);
+
+    // And no further probe fires afterward — the aborted probe must not schedule
+    // a retry behind the user's back, even past the longest backoff.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(server.callCount()).toBe(callsBeforeStop);
+
     await act(async () => {
       unmount();
       await vi.advanceTimersByTimeAsync(0);
