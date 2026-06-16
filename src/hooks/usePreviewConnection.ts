@@ -15,8 +15,22 @@ import { trackEvent } from '../lib/analytics';
 
 /** How often to refresh the page list (ms) */
 const PAGE_REFRESH_INTERVAL_MS = 5000;
-/** Timeout for dev server health check requests (ms) */
-const SERVER_CHECK_TIMEOUT_MS = 3000;
+/** Timeout for the periodic health check once the server is already up (ms).
+ *  The server is warm here, so a healthy reply is near-instant; 3s is plenty
+ *  and keeps a crashed server from lingering in the "ready" state. */
+const HEALTH_CHECK_TIMEOUT_MS = 3000;
+/** Timeout for an initial readiness probe (ms).
+ *
+ *  Must be generous: modern dev servers (Next.js / Turbopack, Vite) compile the
+ *  first route ON DEMAND and hold the HTTP request open until that compile
+ *  finishes — frequently 10–30s on a cold start with a real dependency tree.
+ *  The response headers don't arrive until then, so a short timeout aborts the
+ *  probe mid-compile every single attempt and the preview never opens, even
+ *  though the server is healthy (a plain browser, which doesn't abort, loads it
+ *  fine — just slowly). A genuinely-down server still rejects instantly with
+ *  connection-refused, so this longer window only affects the "connected but
+ *  still compiling" case it's meant to ride out. */
+const SERVER_READY_TIMEOUT_MS = 30000;
 /** Maximum retries before showing error state */
 export const SERVER_MAX_RETRIES = 60;
 /** Consecutive health check failures before marking server as down */
@@ -316,7 +330,7 @@ export function usePreviewConnection({
 
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), SERVER_CHECK_TIMEOUT_MS);
+        const timeoutId = setTimeout(() => controller.abort(), SERVER_READY_TIMEOUT_MS);
 
         await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
 
@@ -366,7 +380,7 @@ export function usePreviewConnection({
     const healthCheck = async () => {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), SERVER_CHECK_TIMEOUT_MS);
+        const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
 
         await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
 
