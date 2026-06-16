@@ -55,8 +55,10 @@ export function TemplateCard({
       </span>
       <span className="stack-card-desc">{description}</span>
       {selected && (
-        <div className="stack-card-check">
+        <div className="stack-card-check" aria-hidden="true">
           <svg
+            aria-hidden="true"
+            focusable="false"
             width="14"
             height="14"
             viewBox="0 0 24 24"
