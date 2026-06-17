@@ -1088,7 +1088,15 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onTogglePin={toggleEditorPinned}
             />
           );
-          return editorPinned ? panel : createPortal(panel, document.body);
+          // Pinned: wrap in a relative "dock" grid cell and absolutely-position
+          // the panel inside it. An absolute panel can't grow its grid track, so
+          // it's bounded to the cell's real height and its body scrolls — an
+          // in-flow panel was growing its row past the viewport in WebKit.
+          return editorPinned ? (
+            <div className="ss-edit-panel-dock">{panel}</div>
+          ) : (
+            createPortal(panel, document.body)
+          );
         })()}
     </div>
   );
