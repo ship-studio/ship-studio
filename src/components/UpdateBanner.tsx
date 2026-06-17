@@ -14,6 +14,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Update } from '@tauri-apps/plugin-updater';
 import { checkForUpdate, downloadAndInstall, restartApp, UpdateInfo } from '../lib/updater';
 import { trackEvent, trackError } from '../lib/analytics';
@@ -124,6 +125,25 @@ export function UpdateBanner() {
     }
   }, []);
 
+  // The banner occupies the top of the window (the macOS title-bar drag zone),
+  // covering the usual drag region. Make it draggable like the app's other
+  // top-of-window surfaces (dashboard, workspace header) so the window can still
+  // be moved/maximized while an update is available. Buttons are excluded so
+  // their clicks still work.
+  const handleBannerDrag = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
+    e.preventDefault();
+    void getCurrentWindow().startDragging();
+  }, []);
+
+  const handleBannerDoubleClick = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
+    const win = getCurrentWindow();
+    void win.isMaximized().then((maximized) => {
+      void (maximized ? win.unmaximize() : win.maximize());
+    });
+  }, []);
+
   const handleLater = useCallback(() => {
     if (updateAvailable) {
       void trackEvent('update_deferred', {
@@ -161,7 +181,11 @@ export function UpdateBanner() {
   const releaseNotes = parseReleaseNotes(updateAvailable.info.body);
 
   return (
-    <div className="update-banner">
+    <div
+      className="update-banner"
+      onMouseDown={handleBannerDrag}
+      onDoubleClick={handleBannerDoubleClick}
+    >
       <div className="update-banner-header">
         <div className="update-banner-title">
           <span className="update-banner-badge">Update Available</span>
