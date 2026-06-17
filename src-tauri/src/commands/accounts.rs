@@ -53,6 +53,30 @@ const ALL_CRED_KEYS: &[&str] = &[
     "git_email",
 ];
 
+/// Validates a frontend-supplied account id before it's joined into filesystem
+/// paths (`~/.ship-studio/accounts/<id>/`), keychain service names, or env vars.
+///
+/// Account ids are always either the literal `"default"` or a generated UUID, so
+/// we hold a strict allowlist: non-empty, at most 64 chars, ASCII alphanumeric
+/// and `-` only. This rejects `..`, `/`, `\`, and other traversal/injection
+/// payloads that would otherwise let a caller read or create directories outside
+/// the accounts root.
+pub fn validate_account_id(account_id: &str) -> Result<(), CommandError> {
+    let valid = !account_id.is_empty()
+        && account_id.len() <= 64
+        && account_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    if valid {
+        Ok(())
+    } else {
+        Err(CommandError::Validation {
+            field: "account_id".into(),
+            reason: "Invalid workspace id".into(),
+        })
+    }
+}
+
 // ============ Keychain helpers (macOS `security` CLI) ============
 
 fn keychain_service(account_id: &str) -> String {
@@ -60,8 +84,17 @@ fn keychain_service(account_id: &str) -> String {
 }
 
 fn write_to_keychain(account_id: &str, key: &str, value: &str) -> Result<(), CommandError> {
+    use std::io::Write;
+    use std::process::Stdio;
+
     let service = keychain_service(account_id);
-    let status = create_command("security")
+    // Pass the secret on stdin rather than as an argv entry — a CLI argument is
+    // visible to any user via `ps`/`/proc`, leaking the credential. With `-w`
+    // and no inline value, `security` prompts for the password and then a
+    // confirmation ("retype password"), reading both from stdin, so we send the
+    // value twice. Callers trim to a single line (no embedded newline), so the
+    // two reads each receive the full value.
+    let mut child = create_command("security")
         .args([
             "add-generic-password",
             "-U",
@@ -70,9 +103,22 @@ fn write_to_keychain(account_id: &str, key: &str, value: &str) -> Result<(), Com
             "-s",
             &service,
             "-w",
-            value,
         ])
-        .status()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Keychain write failed: {e}"))?;
+
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| CommandError::from("Keychain write failed: no stdin handle"))?
+        .write_all(format!("{value}\n{value}\n").as_bytes())
+        .map_err(|e| format!("Keychain write failed: {e}"))?;
+
+    let status = child
+        .wait()
         .map_err(|e| format!("Keychain write failed: {e}"))?;
 
     if !status.success() {
@@ -374,6 +420,7 @@ pub fn create_account(name: String, color: String) -> Result<Account, CommandErr
 #[tauri::command]
 #[tracing::instrument]
 pub fn update_account(id: String, name: String, color: String) -> Result<Account, CommandError> {
+    validate_account_id(&id)?;
     if name.trim().is_empty() {
         return Err(CommandError::Validation {
             field: "name".into(),
@@ -402,6 +449,7 @@ pub fn update_account(id: String, name: String, color: String) -> Result<Account
 #[tauri::command]
 #[tracing::instrument]
 pub fn delete_account(id: String) -> Result<(), CommandError> {
+    validate_account_id(&id)?;
     if id == DEFAULT_ACCOUNT_ID {
         return Err(CommandError::Validation {
             field: "id".into(),
@@ -423,6 +471,16 @@ pub fn delete_account(id: String) -> Result<(), CommandError> {
     }
 
     delete_all_account_credentials(&id);
+    // Remove the workspace's isolated config dir too — it holds live Claude /
+    // gh / codex session tokens. Leaving it behind means a deleted workspace's
+    // logins survive on disk (and would be reused if the id were ever reused).
+    // Guarded by validate_account_id above so this can't escape the accounts root.
+    let config_dir = account_config_root(&id);
+    if let Err(e) = std::fs::remove_dir_all(&config_dir) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(id = %id, error = %e, "Failed to remove account config dir on delete");
+        }
+    }
     write_app_state(&state)?;
     tracing::info!(id = %id, "Account deleted");
     Ok(())
@@ -447,6 +505,7 @@ pub fn get_active_account_id() -> Result<String, CommandError> {
 #[tauri::command]
 #[tracing::instrument]
 pub fn set_active_account_id(id: String) -> Result<(), CommandError> {
+    validate_account_id(&id)?;
     let mut state = read_app_state();
     ensure_default_account(&mut state);
     if !state.accounts.iter().any(|a| a.id == id) {
@@ -457,6 +516,9 @@ pub fn set_active_account_id(id: String) -> Result<(), CommandError> {
     }
     state.active_account_id = Some(id.clone());
     write_app_state(&state)?;
+    // The GitHub username is cached with a 10-min TTL; without busting it here a
+    // workspace switch would keep reporting the previous workspace's identity.
+    crate::commands::github::invalidate_github_username_cache();
     tracing::info!(id = %id, "Active account changed");
     Ok(())
 }
@@ -468,6 +530,7 @@ pub fn set_active_account_id(id: String) -> Result<(), CommandError> {
 pub async fn get_account_credential_status(
     id: String,
 ) -> Result<AccountCredentialStatus, CommandError> {
+    validate_account_id(&id)?;
     let claude_dir = claude_config_dir(&id);
     let claude_agent = crate::agent::get_agent_by_id("claude-code");
     let claude_auth_email = if claude_agent
@@ -525,6 +588,13 @@ pub fn get_active_account_env_vars() -> HashMap<String, String> {
 #[tauri::command]
 #[tracing::instrument]
 pub fn get_account_env_vars(account_id: String) -> HashMap<String, String> {
+    // Frontend-supplied id is joined into filesystem paths inside
+    // get_env_vars_for_account (create_dir_all). Reject anything that isn't a
+    // plain id rather than risk traversal; an empty map is a safe no-op.
+    if validate_account_id(&account_id).is_err() {
+        tracing::warn!(account_id = %account_id, "Rejected invalid account id for env vars");
+        return HashMap::new();
+    }
     get_env_vars_for_account(&account_id)
 }
 
@@ -535,6 +605,7 @@ pub fn get_account_env_vars(account_id: String) -> HashMap<String, String> {
 #[tauri::command]
 #[tracing::instrument(skip(value))]
 pub fn set_account_credential(id: String, key: String, value: String) -> Result<(), CommandError> {
+    validate_account_id(&id)?;
     if !ALL_CRED_KEYS.contains(&key.as_str()) {
         return Err(CommandError::Validation {
             field: "key".into(),
@@ -554,6 +625,7 @@ pub fn set_account_credential(id: String, key: String, value: String) -> Result<
 #[tauri::command]
 #[tracing::instrument]
 pub fn clear_account_credential(id: String, key: String) -> Result<(), CommandError> {
+    validate_account_id(&id)?;
     delete_from_keychain(&id, &key);
     Ok(())
 }
@@ -592,5 +664,37 @@ mod tests {
             parse_gh_auth_status(false, "", "You are not logged into any GitHub hosts."),
             None
         );
+    }
+
+    #[test]
+    fn validate_account_id_accepts_default_and_uuids() {
+        assert!(validate_account_id("default").is_ok());
+        assert!(validate_account_id("bd2a40a3-268d-4242-a350-fa720de78dd7").is_ok());
+    }
+
+    #[test]
+    fn validate_account_id_rejects_traversal_and_injection() {
+        for bad in [
+            "",
+            "..",
+            "../../etc",
+            "a/b",
+            "a\\b",
+            "foo/../bar",
+            ".",
+            "id with space",
+            "name;rm -rf",
+        ] {
+            assert!(
+                validate_account_id(bad).is_err(),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_account_id_rejects_overlong() {
+        let long = "a".repeat(65);
+        assert!(validate_account_id(&long).is_err());
     }
 }

@@ -245,10 +245,12 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
         }
     };
 
-    // Verify repo exists on GitHub using gh CLI (with timeout)
+    // Verify repo exists on GitHub using gh CLI (with timeout). Scope to the
+    // project's workspace so a repo private to that workspace's GitHub login
+    // resolves correctly even when another workspace is globally active.
     let step_start = std::time::Instant::now();
     debug!(github_repo = %github_repo, "Running gh repo view");
-    let mut gh_cmd = get_gh_command();
+    let mut gh_cmd = get_gh_command_for_project(&project);
     gh_cmd
         .args(["repo", "view", &github_repo, "--json", "url"])
         .current_dir(&project);
@@ -317,8 +319,9 @@ pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandErr
         return Ok(());
     }
 
-    // Fetch identity from GitHub CLI
-    let gh_output = get_gh_command()
+    // Fetch identity from GitHub CLI, scoped to this repo's workspace so the
+    // committed author matches the workspace's GitHub login, not the active one.
+    let gh_output = get_gh_command_for_project(repo_path)
         .args(["api", "user", "--jq", r#".login, .name, .email"#])
         .output()
         .map_err(|e| format!("Failed to get GitHub user info: {e}"))?;
@@ -428,8 +431,9 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
         }
     }
 
-    // Create GitHub repo and push
-    let mut gh_cmd = get_gh_command();
+    // Create GitHub repo and push, scoped to the project's workspace so the repo
+    // is created under that workspace's GitHub account, not the active one.
+    let mut gh_cmd = get_gh_command_for_project(&validated_path);
     gh_cmd
         .args([
             "repo", "create", repo_name, visibility, "--source", ".", "--remote", "origin",

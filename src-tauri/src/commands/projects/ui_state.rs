@@ -282,6 +282,9 @@ pub async fn move_project_to_account(
     project_path: String,
     account_id: String,
 ) -> Result<(), CommandError> {
+    // Validate the id before it's persisted into project.json — it later builds
+    // filesystem paths (CLAUDE_CONFIG_DIR etc.) when this project spawns a PTY.
+    crate::commands::accounts::validate_account_id(&account_id)?;
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");
