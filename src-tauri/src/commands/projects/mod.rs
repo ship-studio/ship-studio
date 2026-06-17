@@ -111,16 +111,17 @@ fn is_valid_project(path: &std::path::Path) -> bool {
 }
 
 /// Whether a project should be shown on the dashboard for the given active
-/// Workspace (Account). Projects opened before the Workspace picker existed
-/// have no `account_id` and are treated as belonging to the "Default" account.
+/// Workspace (Account). Resolves through the shared `effective_account_id_in`
+/// helper so visibility and credential routing never disagree: a project is
+/// shown in the workspace it effectively belongs to (tagged-and-existing → that
+/// workspace; untagged or tagged-to-a-deleted-workspace → Default). `accounts`
+/// is the live workspace list, passed in so this stays IO-free in the loop.
 fn project_visible_for_account(
     metadata: Option<&ProjectMetadata>,
     active_account_id: &str,
+    accounts: &[crate::types::Account],
 ) -> bool {
-    match metadata.and_then(|m| m.account_id.as_deref()) {
-        Some(account_id) => account_id == active_account_id,
-        None => active_account_id == crate::commands::accounts::DEFAULT_ACCOUNT_ID,
-    }
+    ui_state::effective_account_id_in(metadata, accounts) == active_account_id
 }
 
 // ============ Tauri Commands ============
@@ -131,6 +132,8 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
     let active_account_id = crate::commands::accounts::get_active_account_id()?;
+    // Live workspace list, read once so the visibility check stays IO-free per project.
+    let accounts = crate::commands::setup::read_app_state().accounts;
 
     if !shipstudio_dir.exists() {
         return Ok(Vec::new());
@@ -159,7 +162,7 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
                 None
             };
 
-            if !project_visible_for_account(metadata.as_ref(), &active_account_id) {
+            if !project_visible_for_account(metadata.as_ref(), &active_account_id, &accounts) {
                 continue;
             }
 
@@ -202,7 +205,7 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
                     None
                 };
 
-                if !project_visible_for_account(metadata.as_ref(), &active_account_id) {
+                if !project_visible_for_account(metadata.as_ref(), &active_account_id, &accounts) {
                     continue;
                 }
 
@@ -235,6 +238,8 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
     let home = dirs::home_dir().ok_or("Could not find home directory")?;
     let shipstudio_dir = home.join("ShipStudio");
     let active_account_id = crate::commands::accounts::get_active_account_id()?;
+    // Live workspace list, read once so the visibility check stays IO-free per project.
+    let accounts = crate::commands::setup::read_app_state().accounts;
 
     if !shipstudio_dir.exists() {
         return Ok(Vec::new());
@@ -263,7 +268,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                 None
             };
 
-            if !project_visible_for_account(metadata.as_ref(), &active_account_id) {
+            if !project_visible_for_account(metadata.as_ref(), &active_account_id, &accounts) {
                 continue;
             }
 
@@ -323,7 +328,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                     None
                 };
 
-                if !project_visible_for_account(metadata.as_ref(), &active_account_id) {
+                if !project_visible_for_account(metadata.as_ref(), &active_account_id, &accounts) {
                     continue;
                 }
 

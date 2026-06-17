@@ -733,8 +733,13 @@ pub struct QuickSetupCheck {
 }
 
 /// Persisted app-level state (stored in app data directory)
+///
+/// `#[serde(default)]` at the container level is load-bearing: when a newer
+/// build adds a field, reading an older `app_state.json` that lacks it must NOT
+/// fail the whole parse (which previously reset every setting, including saved
+/// Workspaces). Any missing field now falls back to its `Default` instead.
 #[derive(Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct AppState {
     /// Whether full setup has been completed at least once
     pub setup_complete: bool,
@@ -859,5 +864,39 @@ mod metadata_tests {
         assert!(!legacy_json.contains("force_static_serve"));
         let parsed: ProjectMetadata = serde_json::from_str(&legacy_json).unwrap();
         assert_eq!(parsed.force_static_serve, None);
+    }
+}
+
+#[cfg(test)]
+mod app_state_tests {
+    use super::AppState;
+
+    #[test]
+    fn partial_state_preserves_present_fields_and_defaults_missing() {
+        // A state file from a build that didn't yet have `setupComplete` (a
+        // non-Option field) must still parse: missing fields fall back to their
+        // default instead of failing the whole parse and wiping every setting.
+        let json = r##"{
+            "defaultAgentId": "codex",
+            "accounts": [
+                {"id":"abc","name":"Acme","color":"#fff","isDefault":false,"createdAt":1}
+            ],
+            "activeAccountId": "abc"
+        }"##;
+        let parsed: AppState = serde_json::from_str(json).expect("partial state must parse");
+        // Present fields survive.
+        assert_eq!(parsed.default_agent_id.as_deref(), Some("codex"));
+        assert_eq!(parsed.accounts.len(), 1);
+        assert_eq!(parsed.active_account_id.as_deref(), Some("abc"));
+        // Missing non-Option field gets its default rather than erroring.
+        assert!(!parsed.setup_complete);
+    }
+
+    #[test]
+    fn unknown_fields_are_ignored() {
+        // A field removed in a later schema must not break parsing of an older file.
+        let json = r#"{"setupComplete": true, "someRemovedField": 42}"#;
+        let parsed: AppState = serde_json::from_str(json).expect("unknown fields tolerated");
+        assert!(parsed.setup_complete);
     }
 }
