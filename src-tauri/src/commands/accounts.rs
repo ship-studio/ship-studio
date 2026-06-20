@@ -572,17 +572,21 @@ pub async fn get_account_credential_status(
     id: String,
 ) -> Result<AccountCredentialStatus, CommandError> {
     validate_account_id(&id)?;
-    let claude_dir = claude_config_dir(&id);
-    let claude_agent = crate::agent::get_agent_by_id("claude-code");
-    let claude_auth_email = if claude_agent
-        .auth_indicators
-        .iter()
-        .any(|indicator| claude_dir.join(indicator).exists())
-    {
-        Some("Connected".to_string())
-    } else {
-        None
+
+    // An agent is "connected" for this workspace if its auth file exists in the
+    // workspace's isolated config dir (the same file-based check used in setup).
+    let agent_connected = |agent_id: &str| -> Option<String> {
+        let agent = crate::agent::get_agent_by_id(agent_id);
+        let dir = agent_auth_dir(&id, agent);
+        agent
+            .auth_indicators
+            .iter()
+            .any(|indicator| dir.join(indicator).exists())
+            .then(|| "Connected".to_string())
     };
+    let claude_auth_email = agent_connected("claude-code");
+    let codex_auth_email = agent_connected("codex");
+    let opencode_auth_email = agent_connected("opencode");
 
     let mut gh_cmd = tokio::process::Command::from(create_command("gh"));
     gh_cmd.args(["auth", "status"]);
@@ -599,6 +603,8 @@ pub async fn get_account_credential_status(
 
     Ok(AccountCredentialStatus {
         claude_auth_email,
+        codex_auth_email,
+        opencode_auth_email,
         github_auth_email,
         has_anthropic_base_url: read_from_keychain(&id, "anthropic_base_url").is_some(),
         has_vercel_token: read_from_keychain(&id, "vercel_token").is_some(),
@@ -607,35 +613,12 @@ pub async fn get_account_credential_status(
     })
 }
 
-/// Returns env vars for the active account so the frontend can inject them
-/// into PTY sessions it spawns directly (e.g. OnboardingTerminal).
-///
-/// Includes `CLAUDE_CONFIG_DIR`, `GH_CONFIG_DIR`, `CODEX_HOME`,
-/// `XDG_DATA_HOME`, and any credential env vars (tokens, git identity)
-/// stored in the account's keychain.
-#[tauri::command]
-#[tracing::instrument]
-pub fn get_active_account_env_vars() -> HashMap<String, String> {
-    get_env_vars_for_active_account()
-}
-
-/// Returns env vars for a specific account, so the frontend can spawn a
-/// project's PTY using that project's workspace rather than the globally
-/// active one. Each open project is tagged with an `account_id`; the agent
-/// terminal resolves it via `get_project_account_id` and passes it here so
-/// Claude/GitHub/Codex auth follows the project, not a session-wide toggle.
-#[tauri::command]
-#[tracing::instrument]
-pub fn get_account_env_vars(account_id: String) -> HashMap<String, String> {
-    // Frontend-supplied id is joined into filesystem paths inside
-    // get_env_vars_for_account (create_dir_all). Reject anything that isn't a
-    // plain id rather than risk traversal; an empty map is a safe no-op.
-    if validate_account_id(&account_id).is_err() {
-        tracing::warn!(account_id = %account_id, "Rejected invalid account id for env vars");
-        return HashMap::new();
-    }
-    get_env_vars_for_account(&account_id)
-}
+// NOTE: there is deliberately no Tauri command that returns a Workspace's env
+// vars to the frontend. Those maps contain real secret token values
+// (Vercel/Figma/OpenAI/Anthropic-base-url) and must never cross the IPC
+// boundary into the webview. PTYs get the right Workspace env injected
+// server-side in `pty/spawn.rs` and `pty_session.rs` via the internal
+// `get_env_vars_for_project` / `get_env_vars_for_active_account` helpers.
 
 /// Reject any credential key not on the allowlist. Both set and clear funnel
 /// through this so the frontend can't probe or delete arbitrary keychain items

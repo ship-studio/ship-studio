@@ -288,6 +288,79 @@ pub async fn move_project_to_account(
     // filesystem paths (CLAUDE_CONFIG_DIR etc.) when this project spawns a PTY.
     crate::commands::accounts::validate_account_id(&account_id)?;
     let project = validate_project_path(&project_path)?;
+
+    let is_external = crate::commands::external_projects::is_registered_external_path(&project)?;
+
+    // Each workspace lists projects from its own folder. If the target workspace
+    // uses a *different* folder, relocate the project there so it actually shows
+    // up after the move — otherwise it would be tagged to a workspace whose
+    // folder it doesn't live in, and disappear from the dashboard. External
+    // projects keep their on-disk location (they list via the registry, not the
+    // folder scan), so we only retag those.
+    if !is_external {
+        let target_root = crate::utils::projects_root_for_account(&account_id);
+        let target_root_canon =
+            dunce::canonicalize(&target_root).unwrap_or_else(|_| target_root.clone());
+        let current_parent_canon = project
+            .parent()
+            .and_then(|p| dunce::canonicalize(p).ok());
+
+        let needs_move = current_parent_canon.is_some_and(|cp| cp != target_root_canon);
+
+        if needs_move {
+            // Refuse while the project is open — its live PTYs/dev server would be
+            // moved out from under them.
+            let is_open = crate::state::get_window_for_project(&project_path).is_some()
+                || crate::state::get_session(&project_path)
+                    .is_some_and(|s| s.status == crate::state::SessionStatus::Active);
+            if is_open {
+                return Err(
+                    "Close this project before moving it to another workspace."
+                        .to_string()
+                        .into(),
+                );
+            }
+
+            let name = project.file_name().ok_or("Invalid project path")?;
+            let dest = target_root.join(name);
+            if dest.exists() {
+                return Err(format!(
+                    "A project named \"{}\" already exists in that workspace's folder.",
+                    name.to_string_lossy()
+                )
+                .into());
+            }
+            std::fs::create_dir_all(&target_root)
+                .map_err(|e| format!("Failed to create the workspace's projects folder: {e}"))?;
+
+            // Move the folder (rename, with cross-volume copy fallback).
+            super::move_dir(&project, &dest)?;
+
+            // Tag the project at its NEW location, then rekey path-keyed stores.
+            write_project_account_id(&dest, &account_id)?;
+            let dest_str = dest.to_string_lossy().to_string();
+            if let Err(e) = super::pins::rename_pinned_path(&project_path, &dest_str) {
+                tracing::warn!(error = %e, "Failed to rekey pins after workspace move");
+            }
+            if let Err(e) = crate::commands::folders::rename_project_path(&project_path, &dest_str) {
+                tracing::warn!(error = %e, "Failed to rekey folder membership after workspace move");
+            }
+            crate::state::rename_session_path(&project_path, &dest_str);
+            return Ok(());
+        }
+    }
+
+    // No relocation needed (external, or already in the target folder): just retag.
+    write_project_account_id(&project, &account_id)
+}
+
+/// Write a project's Workspace tag into its `.shipstudio/project.json`. The
+/// Default workspace is stored as `None` so legacy/untagged projects stay
+/// visible there.
+fn write_project_account_id(
+    project: &std::path::Path,
+    account_id: &str,
+) -> Result<(), CommandError> {
     let shipstudio_dir = project.join(".shipstudio");
     let metadata_path = shipstudio_dir.join("project.json");
 
@@ -300,11 +373,10 @@ pub async fn move_project_to_account(
         ProjectMetadata::default()
     };
 
-    // Default workspace uses None so legacy projects remain visible there.
     metadata.account_id = if account_id == DEFAULT_ACCOUNT_ID {
         None
     } else {
-        Some(account_id)
+        Some(account_id.to_string())
     };
 
     if !shipstudio_dir.exists() {

@@ -205,6 +205,26 @@ export function AccountSettingsModal({
                   </div>
                 </div>
                 <div className="account-cred-row">
+                  <span className="account-cred-label">Codex</span>
+                  <div className="account-cred-status">
+                    <span
+                      className={`account-cred-badge ${credStatus?.codexAuthEmail ? 'set' : 'unset'}`}
+                    >
+                      {credStatus?.codexAuthEmail ? 'Connected' : 'Not connected'}
+                    </span>
+                  </div>
+                </div>
+                <div className="account-cred-row">
+                  <span className="account-cred-label">Opencode</span>
+                  <div className="account-cred-status">
+                    <span
+                      className={`account-cred-badge ${credStatus?.opencodeAuthEmail ? 'set' : 'unset'}`}
+                    >
+                      {credStatus?.opencodeAuthEmail ? 'Connected' : 'Not connected'}
+                    </span>
+                  </div>
+                </div>
+                <div className="account-cred-row">
                   <span className="account-cred-label">GitHub</span>
                   <div className="account-cred-status">
                     <span

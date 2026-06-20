@@ -473,8 +473,6 @@ pub fn run() {
             commands::accounts::get_account_credential_status,
             commands::accounts::set_account_credential,
             commands::accounts::clear_account_credential,
-            commands::accounts::get_active_account_env_vars,
-            commands::accounts::get_account_env_vars,
             // Projects folder
             commands::settings::get_projects_root,
             commands::settings::set_projects_root,

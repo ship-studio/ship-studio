@@ -806,6 +806,8 @@ pub struct Account {
 #[serde(rename_all = "camelCase")]
 pub struct AccountCredentialStatus {
     pub claude_auth_email: Option<String>,
+    pub codex_auth_email: Option<String>,
+    pub opencode_auth_email: Option<String>,
     pub github_auth_email: Option<String>,
     pub has_anthropic_base_url: bool,
     pub has_vercel_token: bool,

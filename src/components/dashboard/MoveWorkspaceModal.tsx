@@ -118,11 +118,11 @@ export function MoveWorkspaceModal({
           {target ? (
             <>
               <strong>{projectName}</strong> will use <strong>{target.name}</strong>'s Claude,
-              GitHub, and Codex logins and git identity. The project's files stay where they are on
-              disk — only which workspace it belongs to changes.
+              GitHub, and Codex logins and git identity. If {target.name} uses a different projects
+              folder, the project's files are moved there too.
             </>
           ) : (
-            "Moving a project changes which workspace's logins and credentials its terminals, git, and AI use. The project's files aren't moved on disk."
+            "Moving a project switches which workspace's logins and credentials its terminals, git, and AI use — and moves it into that workspace's projects folder."
           )}
         </p>
 

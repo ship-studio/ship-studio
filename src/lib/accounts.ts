@@ -31,6 +31,8 @@ export interface Account {
 /** Auth/credential status for a workspace (values stay in the keychain / CLI config). */
 export interface AccountCredentialStatus {
   claudeAuthEmail: string | null;
+  codexAuthEmail: string | null;
+  opencodeAuthEmail: string | null;
   githubAuthEmail: string | null;
   hasAnthropicBaseUrl: boolean;
   hasVercelToken: boolean;
@@ -72,7 +74,10 @@ export const SENSITIVE_KEYS = new Set<CredentialKey>(['anthropic_base_url', 'ver
 
 /** Maps AccountCredentialStatus boolean field → CredentialKey. */
 export const STATUS_FIELD_TO_KEY: Record<
-  Exclude<keyof AccountCredentialStatus, 'claudeAuthEmail' | 'githubAuthEmail'>,
+  Exclude<
+    keyof AccountCredentialStatus,
+    'claudeAuthEmail' | 'codexAuthEmail' | 'opencodeAuthEmail' | 'githubAuthEmail'
+  >,
   CredentialKey
 > = {
   hasAnthropicBaseUrl: 'anthropic_base_url',
@@ -184,11 +189,3 @@ export async function assignActiveWorkspaceToNewProject(projectPath: string): Pr
   }
 }
 
-/**
- * Env vars (CLAUDE_CONFIG_DIR, GH_CONFIG_DIR, CODEX_HOME, XDG_DATA_HOME,
- * credential tokens) for a specific workspace. Used to spawn a project's PTY
- * with that project's workspace, rather than the globally active one.
- */
-export async function getAccountEnvVars(id: string): Promise<Record<string, string>> {
-  return invoke<Record<string, string>>('get_account_env_vars', { accountId: id });
-}

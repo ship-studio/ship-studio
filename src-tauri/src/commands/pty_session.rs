@@ -163,6 +163,19 @@ pub async fn pty_session_open(
         cmd.env(std::ffi::OsString::from(k), std::ffi::OsString::from(v));
     }
 
+    // Inject the project's Workspace credentials/config dirs SERVER-SIDE, so
+    // secret token values (Vercel/Figma/OpenAI/Anthropic-base-url) never have to
+    // cross the IPC boundary into the webview's JS. The backend wins over any
+    // frontend-supplied values for these keys. Falls back to the active
+    // Workspace when the PTY isn't tied to a project.
+    let account_env = match project_path.as_deref() {
+        Some(p) => crate::commands::accounts::get_env_vars_for_project(std::path::Path::new(p)),
+        None => crate::commands::accounts::get_env_vars_for_active_account(),
+    };
+    for (k, v) in account_env {
+        cmd.env(std::ffi::OsString::from(&k), std::ffi::OsString::from(&v));
+    }
+
     let mut child = pair
         .slave
         .spawn_command(cmd)

@@ -7,7 +7,6 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
@@ -223,21 +222,10 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
           const systemPaths = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
           const fullPath = `${userPaths.join(':')}:${systemPaths}`;
 
-          // Fetch per-workspace env vars (CLAUDE_CONFIG_DIR, CODEX_HOME,
-          // XDG_DATA_HOME, GH_CONFIG_DIR, tokens, etc.) so that auth commands
-          // run in this terminal write credentials to the active workspace's
-          // isolated config dir, not the global ~/.claude / ~/.codex / etc.
-          const accountEnv = await invoke<Record<string, string>>(
-            'get_active_account_env_vars'
-          ).catch((err: unknown) => {
-            // Onboarding runs in the Default workspace, which maps to the global
-            // config dirs anyway — so an empty fallback is safe here, but log it.
-            logger.warn('[OnboardingTerminal] Failed to fetch workspace env vars', {
-              error: String(err),
-            });
-            return {} as Record<string, string>;
-          });
-
+          // Onboarding always runs in the Default workspace, which maps to the
+          // global config dirs the CLIs use by default (~/.claude, ~/.config/gh,
+          // ~/.codex). So there's no Workspace env to inject here — and we
+          // deliberately don't fetch credential tokens into the webview.
           env = {
             PATH: fullPath,
             HOME: homeNormalized.slice(0, -1),
@@ -245,7 +233,6 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             TERM: 'xterm-256color',
             LANG: 'en_US.UTF-8',
             SHELL: '/bin/zsh',
-            ...accountEnv,
           };
 
           spawnCmd = command;

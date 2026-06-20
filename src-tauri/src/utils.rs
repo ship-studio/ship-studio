@@ -420,6 +420,14 @@ fn account_root_in(
     default.to_path_buf()
 }
 
+/// The projects folder for a *specific* workspace (not necessarily the active
+/// one). Used when moving a project into another workspace's folder.
+pub fn projects_root_for_account(account_id: &str) -> std::path::PathBuf {
+    let default = default_projects_root().unwrap_or_default();
+    let state = crate::commands::setup::read_app_state();
+    account_root_in(&state, account_id, &default)
+}
+
 /// Drop the cached projects root. Call after persisting a new value so the next
 /// `projects_root()` re-reads from app state.
 pub fn invalidate_projects_root_cache() {

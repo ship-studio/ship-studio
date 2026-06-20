@@ -9,7 +9,7 @@
  * @module hooks/useActiveAccount
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   listAccounts,
   getActiveAccountId,
@@ -31,9 +31,18 @@ export function useActiveAccount(projectPath?: string | null) {
   const [activeAccount, setActiveAccount] = useState<Account | null>(cachedActiveAccount);
   const [accounts, setAccounts] = useState<Account[]>(cachedAccounts);
 
+  // Monotonic request id. `refresh()` has several awaits, so when the user
+  // switches projects quickly an earlier call can resolve AFTER a later one and
+  // overwrite the indicator with a stale workspace. Only the most recent call is
+  // allowed to apply its result.
+  const requestSeq = useRef(0);
+
   const refresh = useCallback(async () => {
+    const seq = ++requestSeq.current;
+    const isStale = () => seq !== requestSeq.current;
     try {
       const all = await listAccounts();
+      if (isStale()) return;
       cachedAccounts = all;
       setAccounts(all);
       // Prefer the open project's workspace; fall back to the active account.
@@ -44,10 +53,12 @@ export function useActiveAccount(projectPath?: string | null) {
       if (!accountId) {
         accountId = await getActiveAccountId();
       }
+      if (isStale()) return;
       const resolved = all.find((a) => a.id === accountId) ?? all[0] ?? null;
       cachedActiveAccount = resolved;
       setActiveAccount(resolved);
     } catch {
+      if (isStale()) return;
       // Keep the last-known values rather than blanking the indicator on a
       // transient fetch error.
       setAccounts(cachedAccounts);
