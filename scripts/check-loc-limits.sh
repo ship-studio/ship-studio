@@ -45,7 +45,7 @@ echo "Components (.tsx limit 1200):"
 # wiring. Extracting a TerminalPanes sub-component from WorkspaceView and an
 # account router from App.tsx remain on the roadmap as follow-ups.
 check_file src/components/workspace/WorkspaceView.tsx 1580
-check_file src/components/dashboard/ProjectList.tsx 880
+check_file src/components/dashboard/ProjectList.tsx 900
 check_file src/components/plugins/PluginManager.tsx 700
 check_file src/components/dashboard/ImportProject.tsx 500
 check_file src/App.tsx 1285

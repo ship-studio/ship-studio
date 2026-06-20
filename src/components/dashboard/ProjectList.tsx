@@ -65,6 +65,7 @@ import {
 } from '../../lib/settings';
 import { moveProjectToAccount, getProjectAccountId } from '../../lib/accounts';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
+import { useOptionalToast } from '../../contexts/ToastContext';
 import { SlackIcon, SettingsIcon, EyeOffIcon, ChevronRightIcon, HistoryIcon } from '../icons';
 
 /** Basic project info for selection callback */
@@ -137,6 +138,7 @@ export function ProjectList({
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [filedPaths, setFiledPaths] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const { showToast } = useOptionalToast();
   // Drives a reload whenever the active workspace changes (see the load effect).
   const { activeAccount, accounts } = useActiveAccount();
   const activeAccountId = activeAccount?.id;
@@ -490,11 +492,19 @@ export function ProjectList({
 
   const handleMoveProjectToWorkspace = async (accountId: string) => {
     if (!moveWorkspaceProject) return;
-    await moveProjectToAccount(moveWorkspaceProject.path, accountId);
-    void trackEvent('project_moved_to_workspace', { $screen_name: 'Dashboard' });
-    setMoveWorkspaceProject(null);
-    setMoveWorkspaceCurrentId(null);
-    await loadProjects();
+    const projectName = moveWorkspaceProject.name;
+    const workspaceName = accounts.find((a) => a.id === accountId)?.name ?? 'workspace';
+    try {
+      await moveProjectToAccount(moveWorkspaceProject.path, accountId);
+      void trackEvent('project_moved_to_workspace', { $screen_name: 'Dashboard' });
+      showToast(`Moved "${projectName}" to ${workspaceName}`, 'success');
+    } catch (err) {
+      showToast(formatCommandError(asCommandError(err)), 'error');
+    } finally {
+      setMoveWorkspaceProject(null);
+      setMoveWorkspaceCurrentId(null);
+      await loadProjects();
+    }
   };
 
   const handleOpenMoveWorkspaceModal = async (project: DashboardProject) => {

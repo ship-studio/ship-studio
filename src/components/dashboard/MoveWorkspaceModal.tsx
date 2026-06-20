@@ -32,9 +32,15 @@ export function MoveWorkspaceModal({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(false);
   const [selecting, setSelecting] = useState(false);
+  // The chosen target — selecting a workspace highlights it; nothing moves until
+  // the user confirms.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setSelectedId(null);
+      return;
+    }
     setLoading(true);
     listAccounts()
       .then(setAccounts)
@@ -46,11 +52,13 @@ export function MoveWorkspaceModal({
       .finally(() => setLoading(false));
   }, [isOpen]);
 
-  const handleSelect = async (accountId: string) => {
-    if (selecting || accountId === currentAccountId) return;
+  const target = accounts.find((a) => a.id === selectedId) ?? null;
+
+  const handleConfirm = async () => {
+    if (selecting || !selectedId || selectedId === currentAccountId) return;
     setSelecting(true);
     try {
-      await onSelect(accountId);
+      await onSelect(selectedId);
       onClose();
     } catch (err) {
       logger.error('Failed to move project to workspace', {
@@ -71,7 +79,7 @@ export function MoveWorkspaceModal({
     >
       <div style={{ padding: 'var(--spacing-xl)' }}>
         <p className="modal-subtitle">
-          Move <strong>{projectName}</strong> to:
+          Move <strong>{projectName}</strong> to a different workspace:
         </p>
 
         {loading ? (
@@ -82,11 +90,12 @@ export function MoveWorkspaceModal({
           <div className="move-folder-list">
             {accounts.map((account) => {
               const isCurrent = account.id === currentAccountId;
+              const isSelected = account.id === selectedId;
               return (
                 <button
                   key={account.id}
-                  className={`move-folder-item ${isCurrent ? 'active' : ''}`}
-                  onClick={() => void handleSelect(account.id)}
+                  className={`move-folder-item ${isSelected ? 'active' : ''}`}
+                  onClick={() => setSelectedId(account.id)}
                   disabled={selecting || isCurrent}
                 >
                   <span
@@ -94,16 +103,39 @@ export function MoveWorkspaceModal({
                     style={{ background: account.color, flexShrink: 0 }}
                   />
                   <span className="move-folder-item-name">{account.name}</span>
-                  {isCurrent && <CheckIcon size={16} />}
+                  {isCurrent ? (
+                    <span className="move-folder-item-tag">Current</span>
+                  ) : (
+                    isSelected && <CheckIcon size={16} />
+                  )}
                 </button>
               );
             })}
           </div>
         )}
 
+        <p className="move-workspace-explainer">
+          {target ? (
+            <>
+              <strong>{projectName}</strong> will use <strong>{target.name}</strong>'s Claude,
+              GitHub, and Codex logins and git identity. The project's files stay where they are on
+              disk — only which workspace it belongs to changes.
+            </>
+          ) : (
+            "Moving a project changes which workspace's logins and credentials its terminals, git, and AI use. The project's files aren't moved on disk."
+          )}
+        </p>
+
         <div className="modal-actions">
           <Button variant="secondary" onClick={onClose} disabled={selecting}>
             Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void handleConfirm()}
+            disabled={selecting || !target}
+          >
+            {selecting ? <Spinner size="sm" /> : target ? `Move to ${target.name}` : 'Move'}
           </Button>
         </div>
       </div>

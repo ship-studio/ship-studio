@@ -81,6 +81,22 @@
   color: var(--success);
 }
 
+/* "Current" pill on the workspace the project already belongs to. */
+.move-folder-item-tag {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* Explanation of what moving a project actually does (above the confirm button). */
+.move-workspace-explainer {
+  margin: var(--spacing-md) 0 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 .move-folder-empty {
   text-align: center;
   padding: 24px;

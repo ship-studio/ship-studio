@@ -1104,7 +1104,7 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   if (view === 'projects') {
     return (
-      <>
+      <ToastContext.Provider value={toastsProps}>
         <div className={`projects-with-rail${isCompact ? ' is-compact' : ''}`} key="view-projects">
           {!isCompact && (
             <WorkspaceSidebar
@@ -1192,7 +1192,7 @@ function AppContents({ initialProjectPath }: AppProps) {
           </div>
         )}
         {quitConfirmModal}
-      </>
+      </ToastContext.Provider>
     );
   }
 
