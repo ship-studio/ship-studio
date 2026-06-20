@@ -25,6 +25,35 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.9.0', // v0.9.0
+    items: [
+      'Custom classes — a Webflow-style class system in the visual editor, native to Tailwind. Select an element, name a class, and its styles become a reusable rule; edit that class once and every element using it updates. Built on Tailwind @apply, so it stays in your source',
+      "Apply, remove, and create — a searchable class picker lets you apply an existing class to an element, detach one, or create a new class from the element's current styles, with full keyboard navigation",
+      'Edits stay scoped — editing a class only touches the element you selected, even when several elements share the same Tailwind classes, and the class control is fully responsive across breakpoints',
+      'Safer by default — creating a class from styles never writes the kind of utility that would break your Tailwind build (markers like group/peer are kept on the element instead)',
+    ],
+  },
+  {
+    version: '0.8.2', // v0.8.2
+    items: [
+      'Live preview opens reliably on slower dev servers — projects on Next.js 16 / Turbopack that take a while to compile the first page no longer get stuck on "Stopped waiting"; the preview now rides the initial compile and opens once it\'s ready',
+      "The pinned visual editor panel now scrolls — when an element has lots of style controls, the panel's contents scroll instead of running off the bottom of the screen",
+    ],
+  },
+  {
+    version: '0.8.1', // v0.8.1
+    items: [
+      'Start faster — an empty dashboard now greets you with a one-click "Create your first project" instead of a blank screen',
+      'Organized template gallery — the create-project picker groups starters into Websites & web apps, Mobile apps, and Other, with a star marking the recommended pick in each',
+      'Tidier workspace header — the branch and your open tabs now share a single row, and labels collapse gracefully on narrow windows so nothing gets cut off',
+      'See when your agent is working — a subtle spinning dot on the project (and its tabs) in the sidebar shows an agent is thinking, visible at a glance without watching the terminal',
+      'Static-site preview — plain HTML/CSS/JS projects that happen to have a package.json can now opt into instant static preview, and if a static preview fails to load, a one-click "Fix with AI" hand-off helps your agent sort it',
+      'Smarter publishing — commit messages are now auto-written from your actual changes instead of a generic placeholder',
+      'Stash-aware branch switching — switching branches now tells you in the toast when your stashed changes were restored',
+      'Reliability — network commands (git, gh, agents) now time out instead of hanging the UI, dev-server port conflicts are cleared automatically, and PR-creation errors show a real message instead of "[object Object]"',
+    ],
+  },
+  {
     version: '0.8.0', // v0.8.0
     items: [
       'Shopify themes — Ship Studio now builds Online Store 2.0 themes. Create one from the new Shopify Theme starter (or import any theme repo), connect your store through a guided setup right in the preview pane, and the preview renders real Liquid against your actual store — products, collections, the lot — with hot reload on every save',

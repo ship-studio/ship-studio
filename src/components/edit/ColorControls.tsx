@@ -136,6 +136,7 @@ export function ColorField({
         ref={triggerRef}
         type="button"
         className="ss-color-swatch"
+        title={`${label} color`}
         aria-label={`${label} color`}
         aria-haspopup="dialog"
         aria-expanded={open}

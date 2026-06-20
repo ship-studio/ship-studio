@@ -1,0 +1,303 @@
+/* Visual editor — custom-class control + edit-target context bar (split from
+   visual-editor.css to keep that file under its LOC ceiling).
+
+   The context bar is the fixed sub-header that always shows which breakpoint and
+   which target (element vs. a shared custom class) you're editing; the control
+   itself is a searchable combobox popover, split into three zones — Edit target /
+   Apply existing / Create — built on the panel's ss-enum menu shell. The active
+   target is shown with a leading check + faint tint, never a solid fill.
+   See ClassBar.tsx. */
+
+/* Feature-local dimensions for the class control. These are intentional one-off
+   sizes (dropdown shell, control heights) with no equivalent on the global
+   spacing scale, so they live here as named tokens rather than magic numbers. */
+:root {
+  --classedit-trigger-max-w: 170px;
+  --classedit-menu-w: 248px;
+  --classedit-menu-max-h: 340px;
+  --classedit-search-h: 28px;
+  --classedit-check-w: 16px;
+  --classedit-row-pad-y: 7px;
+  /* Faint tint marking the active edit target (paired with a green check). */
+  --classedit-active-tint: color-mix(in srgb, var(--action) 14%, transparent);
+  /* Neutral highlight for hover / keyboard cursor. */
+  --classedit-hi-tint: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+/* Fixed context bar (breakpoint + edit target) — never scrolls, so you can
+   always see which breakpoint and class you're editing. */
+.ss-edit-panel__context {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ===== Trigger (closed control) ===== */
+/* Reads as a chip showing the active target: a green ".class" when editing a
+   shared class, a neutral "This element" when editing the element itself. */
+.ss-classedit__trigger {
+  max-width: var(--classedit-trigger-max-w);
+  gap: var(--spacing-xs);
+}
+.ss-classedit__triggerlabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+.ss-classedit__trigger.is-class .ss-classedit__name {
+  color: var(--action);
+}
+
+/* ===== Menu shell ===== */
+/* A fixed shell: search field pinned on top, a scrolling zoned list below, and a
+   pinned create row at the bottom. Overrides the ss-enum__menu defaults (loaded
+   earlier, same specificity). */
+.ss-classedit__menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  width: var(--classedit-menu-w);
+  max-width: calc(100vw - var(--spacing-md) * 2);
+  max-height: var(--classedit-menu-max-h);
+  padding: var(--spacing-xs);
+  overflow: hidden;
+}
+
+/* Reset only the size/inheritance-breaking bits of the global `button` rule.
+   IMPORTANT: do NOT use `font: inherit` here — that shorthand also resets
+   font-size, and `.ss-classedit__menu button` (specificity 0-1-1) would then
+   beat the per-item font-size rules, pulling the portaled <body> default size
+   onto every label. Reset family/weight only and let items own their size. */
+.ss-classedit__menu button {
+  font-family: inherit;
+  font-weight: 400;
+  line-height: 1.2;
+  margin: 0;
+  cursor: pointer;
+  /* Kill the global button background (base + :hover) — the highlight lives on
+     the row, never the inner pick/× buttons (those boxes leaked from `button`).
+     Equal specificity to `button:hover`, but this file loads later, so it wins.
+     Items still highlight via their higher-specificity .is-hi/.is-active rules. */
+  background: none;
+}
+.ss-classedit__menu button:hover {
+  background: none;
+}
+
+/* ===== Search ===== */
+.ss-classedit__searchwrap {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  height: var(--classedit-search-h);
+  padding: 0 var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.ss-classedit__searchwrap:focus-within {
+  border-color: var(--action);
+}
+.ss-classedit__searchwrap svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+.ss-classedit__search {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: none;
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+.ss-classedit__search::placeholder {
+  color: var(--text-muted);
+}
+
+/* ===== Scrolling zoned list ===== */
+.ss-classedit__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ss-classedit__scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Zone label (Edit target / Apply existing). */
+.ss-classedit__group {
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ss-classedit__group:first-child {
+  padding-top: var(--spacing-xs);
+}
+
+/* A target row (This element / an applied class) and an add row share metrics. */
+.ss-classedit__item,
+.ss-classedit__row,
+.ss-classedit__createrow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  width: 100%;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+/* Right inset for the × (its margin loses to the `.ss-classedit__menu button`
+   reset's `margin: 0`, so the gap lives on the row instead). The fill still
+   reaches the edge — only the button content is inset. */
+.ss-classedit__row {
+  padding-right: var(--spacing-sm);
+}
+.ss-classedit__item,
+.ss-classedit__createrow {
+  padding: var(--classedit-row-pad-y) var(--spacing-md);
+  font-size: var(--font-size-base);
+  text-align: left;
+  color: var(--text-secondary);
+  background: none;
+}
+
+/* Hover / keyboard-cursor highlight (neutral). */
+.ss-classedit__item.is-hi:not(:disabled),
+.ss-classedit__row.is-hi,
+.ss-classedit__createrow.is-hi:not(:disabled) {
+  background: var(--classedit-hi-tint);
+  color: var(--text-primary);
+}
+
+/* Active edit target: faint green tint + green check, never a solid fill. */
+.ss-classedit__item.is-active,
+.ss-classedit__row.is-active {
+  background: var(--classedit-active-tint);
+}
+.ss-classedit__item.is-active .ss-classedit__name,
+.ss-classedit__row.is-active .ss-classedit__name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.ss-classedit__item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Leading check slot — reserved on target rows (element + applied classes) so
+   names align whether or not the row is active. Not used on "apply" rows, so an
+   available class never looks selected. */
+.ss-classedit__check {
+  flex: 0 0 auto;
+  width: var(--classedit-check-w);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--action);
+}
+
+/* Applied-class row: the name picks (edit) on the left, × removes on the right. */
+.ss-classedit__pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--classedit-row-pad-y) 0 var(--classedit-row-pad-y) var(--spacing-md);
+  font-size: var(--font-size-base);
+  text-align: left;
+  color: var(--text-secondary);
+  background: none;
+}
+.ss-classedit__pick:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ss-classedit__row.is-active .ss-classedit__pick,
+.ss-classedit__row.is-hi .ss-classedit__pick {
+  color: var(--text-primary);
+}
+/* Just a bare ✕ glyph — no button chrome. Always visible (a hidden-until-hover
+   icon kept reading as an empty box), and the SVG close-icon wouldn't paint in
+   WebKit here, so this is a plain text character. Click removes the class. */
+.ss-classedit__x {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  transition: color var(--transition);
+}
+/* Full white on hover (--accent is #fff in this theme), from the muted base. */
+.ss-classedit__x:hover:not(:disabled) {
+  color: var(--accent);
+}
+.ss-classedit__x:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* "Apply existing" rows read quieter than target rows. */
+.ss-classedit__item--add {
+  color: var(--text-muted);
+}
+.ss-classedit__item--add svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+/* Pinned create row — separated from the list, the only affordance that mints
+   a new class (so an apply/filter Enter can never create one by accident). */
+.ss-classedit__createrow {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: var(--spacing-sm);
+}
+.ss-classedit__createrow svg {
+  flex: 0 0 auto;
+  color: var(--action);
+}
+.ss-classedit__createrow:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ss-classedit__createrow:disabled svg {
+  color: var(--text-muted);
+}
+.ss-classedit__createrow b {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* The label that truncates instead of wrapping. The flex parent's min-width:0
+   lets the ellipsis kick in. */
+.ss-classedit__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ss-classedit__empty {
+  padding: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}

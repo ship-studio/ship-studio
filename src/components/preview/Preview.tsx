@@ -641,14 +641,19 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   }
 
   if (conn.isLoading || conn.isStopped || conn.hasError) {
-    // The agent handoff only makes sense for real dev servers (static projects
-    // have no server log to diagnose) and when a Claude terminal is wired up.
-    const handleFixWithAgent =
-      onSendToClaude && !isStaticProject
-        ? () => {
-            const logs = stripAnsi(devServerOutput).split('\n').slice(-200).join('\n').trim();
-            const prompt =
-              `My dev server isn't coming up — Ship Studio is waiting on ` +
+    // Keep the agent handoff available as the always-present recovery whenever a
+    // Claude terminal is wired up — for static projects too (a different prompt,
+    // since they have no server log to attach).
+    const handleFixWithAgent = onSendToClaude
+      ? () => {
+          const logs = isStaticProject
+            ? ''
+            : stripAnsi(devServerOutput).split('\n').slice(-200).join('\n').trim();
+          const prompt = isStaticProject
+            ? `My site preview isn't loading. Ship Studio is serving this project as static ` +
+              `files on http://localhost:${port} but nothing shows up. Please check the project ` +
+              `has an index.html at its root (and any files it references) so the preview renders.`
+            : `My dev server isn't coming up — Ship Studio is waiting on ` +
               `http://localhost:${port} but it never responds.\n\n` +
               (logs
                 ? `Recent dev-server output:\n\n\`\`\`\n${logs}\n\`\`\`\n\n`
@@ -656,10 +661,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               `Please work out why it won't start — a busy port, a crash, a missing ` +
               `dependency, or a wrong or missing dev script — and fix it so it serves on ` +
               `port ${port}.`;
-            onSendToClaude(prompt);
-            void trackEvent('preview_fix_with_agent', { has_logs: !!logs });
-          }
-        : undefined;
+          onSendToClaude(prompt);
+          void trackEvent('preview_fix_with_agent', {
+            has_logs: !!logs,
+            is_static: isStaticProject,
+          });
+        }
+      : undefined;
 
     return (
       <DevServerStatus
@@ -1072,6 +1080,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onReset={editor.reset}
               multiTarget={editor.multiTarget}
               onMultiTargetChange={editor.setMultiTarget}
+              editTarget={editor.editTarget}
+              customClasses={editor.customClasses}
+              canCreateClass={editor.classEntryReady}
+              onEditElement={editor.editElement}
+              onEditClass={editor.editClass}
+              onApplyClass={(name) => editor.applyClass(name)}
+              onUnapplyClass={(name) => editor.unapplyClass(name)}
+              onCreateClass={(name) => void editor.createClassFromStyles(name)}
               usage={editor.usage}
               onOpenInCode={onOpenInCode}
               onCommit={() => void editor.commit()}
@@ -1080,7 +1096,16 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onTogglePin={toggleEditorPinned}
             />
           );
-          return editorPinned ? panel : createPortal(panel, document.body);
+          // Pinned: wrap in a relative "dock" grid cell and absolutely-position
+          // the panel inside it. An absolute panel can't grow its grid track, so
+          // it's forced to the cell's real (bounded) height and its body scrolls
+          // — grid track-sizing was letting the in-flow panel grow past the
+          // viewport in WebKit instead.
+          return editorPinned ? (
+            <div className="ss-edit-panel-dock">{panel}</div>
+          ) : (
+            createPortal(panel, document.body)
+          );
         })()}
     </div>
   );

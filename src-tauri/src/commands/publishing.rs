@@ -6,9 +6,30 @@ use crate::commands::ai::resolve_commit_message;
 use crate::commands::git::git_stage_and_commit;
 use crate::commands::github::ensure_git_identity;
 use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::PublishResult;
 use crate::utils::{create_command, validate_project_path};
+use std::path::Path;
 use tracing::{debug, error, info, instrument, warn};
+
+/// Timeout for network-facing git operations (pull/push). Matches
+/// `git/branches.rs::GIT_NETWORK_TIMEOUT_SECS` — a hung remote must not freeze
+/// the publish command forever.
+const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
+
+/// Run a network-facing git command (pull/push) with a timeout. Mirrors
+/// `git/branches.rs::run_git_net`: local ops stay on blocking `create_command`,
+/// only the remote-touching ones route through `run_with_timeout`.
+async fn run_git_net(
+    args: &[&str],
+    cwd: &Path,
+    label: &str,
+) -> Result<std::process::Output, CommandError> {
+    let mut cmd = create_command("git");
+    cmd.args(args).current_dir(cwd);
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
+}
 
 #[tauri::command]
 #[instrument(name = "publish_to_github", skip(project_path, commit_message), fields(project = %project_path))]
@@ -37,10 +58,12 @@ pub async fn publish_to_github(
     };
 
     // Pull latest changes first (rebase to keep history clean)
-    let pull_output = create_command("git")
-        .args(["pull", "--rebase", "origin", &branch])
-        .current_dir(&validated_path)
-        .output();
+    let pull_output = run_git_net(
+        &["pull", "--rebase", "origin", &branch],
+        &validated_path,
+        "pull --rebase",
+    )
+    .await;
 
     // Handle pull errors - log unexpected ones but don't fail
     match pull_output {
@@ -109,11 +132,7 @@ pub async fn publish_to_github(
     }
 
     // Push to origin
-    let output = create_command("git")
-        .args(["push", "-u", "origin", &branch])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(CommandError::from)?;
+    let output = run_git_net(&["push", "-u", "origin", &branch], &validated_path, "push").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -149,11 +168,12 @@ pub async fn publish_to_staging(
 
     // Push to staging branch - Vercel auto-deploys via GitHub integration
     // Note: Using regular push instead of force push to avoid overwriting others' work
-    let push_output = create_command("git")
-        .args(["push", "-u", "origin", "HEAD:staging"])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(CommandError::from)?;
+    let push_output = run_git_net(
+        &["push", "-u", "origin", "HEAD:staging"],
+        &validated_path,
+        "push staging",
+    )
+    .await?;
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
@@ -199,11 +219,12 @@ pub async fn publish_to_production(
     let _ = git_stage_and_commit(&validated_path, &message);
 
     // Push to main branch - Vercel auto-deploys to production via GitHub integration
-    let push_output = create_command("git")
-        .args(["push", "-u", "origin", "HEAD:main"])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(CommandError::from)?;
+    let push_output = run_git_net(
+        &["push", "-u", "origin", "HEAD:main"],
+        &validated_path,
+        "push main",
+    )
+    .await?;
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
@@ -283,11 +304,8 @@ pub async fn publish_branch(
     }
 
     // Push to origin
-    let push_output = create_command("git")
-        .args(["push", "-u", "origin", &branch])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(CommandError::from)?;
+    let push_output =
+        run_git_net(&["push", "-u", "origin", &branch], &validated_path, "push").await?;
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
@@ -319,4 +337,23 @@ pub async fn publish_branch(
         url: String::new(),
         state: "QUEUED".to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_git_net;
+    use std::path::Path;
+
+    /// The network git helper must actually execute git through the timeout path
+    /// (the whole point of A8 — replacing blocking `.output()` so a hung remote
+    /// can't freeze publishing). `--version` needs no repo or remote, so this is
+    /// deterministic and guards the `create_command` + `run_with_timeout` wiring.
+    #[tokio::test]
+    async fn run_git_net_executes_git_through_timeout() {
+        let out = run_git_net(&["--version"], Path::new("."), "--version")
+            .await
+            .expect("git --version should run within the timeout");
+        assert!(out.status.success());
+        assert!(String::from_utf8_lossy(&out.stdout).contains("git version"));
+    }
 }

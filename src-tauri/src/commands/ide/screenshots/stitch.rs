@@ -175,3 +175,51 @@ pub async fn stitch_screenshots(
 
     Ok(output_path_str)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Rgba;
+
+    fn solid(w: u32, h: u32, rgba: [u8; 4]) -> DynamicImage {
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(w, h, Rgba(rgba)))
+    }
+
+    #[test]
+    fn different_dimensions_are_not_similar() {
+        let a = solid(100, 100, [0, 0, 0, 255]);
+        let b = solid(100, 50, [0, 0, 0, 255]);
+        assert!(!images_are_similar(&a, &b, 0));
+    }
+
+    #[test]
+    fn identical_images_are_similar() {
+        let a = solid(120, 120, [10, 20, 30, 255]);
+        let b = solid(120, 120, [10, 20, 30, 255]);
+        assert!(images_are_similar(&a, &b, 0));
+    }
+
+    #[test]
+    fn within_compression_tolerance_is_similar() {
+        // Each channel differs by 5 (< 10 threshold) -> still counts as matching.
+        let a = solid(120, 120, [100, 100, 100, 255]);
+        let b = solid(120, 120, [105, 105, 105, 255]);
+        assert!(images_are_similar(&a, &b, 0));
+    }
+
+    #[test]
+    fn beyond_tolerance_is_not_similar() {
+        // Solid black vs solid white -> no sampled pixel matches.
+        let a = solid(120, 120, [0, 0, 0, 255]);
+        let b = solid(120, 120, [255, 255, 255, 255]);
+        assert!(!images_are_similar(&a, &b, 0));
+    }
+
+    #[test]
+    fn skip_header_still_samples_bottom_region() {
+        // With a sticky-header skip, the comparison still runs over the bottom content region.
+        let a = solid(120, 120, [50, 60, 70, 255]);
+        let b = solid(120, 120, [50, 60, 70, 255]);
+        assert!(images_are_similar(&a, &b, 40));
+    }
+}

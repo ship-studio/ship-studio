@@ -23,6 +23,11 @@ const COMMIT_MSG_CLI_TIMEOUT_SECS: u64 = 30;
 /// Fallback commit message used when AI generation is unavailable or fails.
 pub const DEFAULT_COMMIT_MESSAGE: &str = "Update from Ship Studio";
 
+/// Timeout for the local git context-gathering ops (branch/log/diff). Bounds a
+/// pathological repo (a huge diff) and keeps the work off the blocking path —
+/// these run via async tokio process, not std `.output()` on the executor.
+const GIT_TIMEOUT_SECS: u64 = 60;
+
 /// Gather git context and generate a PR title and description using Claude CLI.
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, base = %base_branch))]
@@ -47,10 +52,10 @@ pub async fn generate_pr_description(
     );
 
     // Gather context in parallel-ish (all quick git commands)
-    let branch_name = get_branch_name(&validated_path)?;
-    let commits = get_commit_messages(&validated_path, &base_branch)?;
-    let diff_stat = get_diff_stat(&validated_path, &base_branch)?;
-    let diff = get_diff(&validated_path, &base_branch)?;
+    let branch_name = get_branch_name(&validated_path).await?;
+    let commits = get_commit_messages(&validated_path, &base_branch).await?;
+    let diff_stat = get_diff_stat(&validated_path, &base_branch).await?;
+    let diff = get_diff(&validated_path, &base_branch).await?;
 
     if commits.is_empty() && diff.is_empty() {
         return Err(
@@ -103,12 +108,16 @@ pub async fn generate_pr_description(
     parse_response(&response).map_err(CommandError::from)
 }
 
-fn get_branch_name(path: &std::path::Path) -> Result<String, CommandError> {
-    let output = create_command("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+async fn get_branch_name(path: &std::path::Path) -> Result<String, CommandError> {
+    let mut cmd = create_command("git");
+    cmd.args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(path);
+    let output = run_with_timeout(
+        tokio::process::Command::from(cmd),
+        "git rev-parse",
+        GIT_TIMEOUT_SECS,
+    )
+    .await?;
 
     if !output.status.success() {
         return Err(("Failed to get current branch name".to_string()).into());
@@ -117,39 +126,51 @@ fn get_branch_name(path: &std::path::Path) -> Result<String, CommandError> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn get_commit_messages(path: &std::path::Path, base: &str) -> Result<String, String> {
-    let output = create_command("git")
-        .args([
-            "--no-pager",
-            "log",
-            &format!("{base}..HEAD"),
-            "--pretty=format:%s",
-            "--no-merges",
-        ])
-        .current_dir(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+async fn get_commit_messages(path: &std::path::Path, base: &str) -> Result<String, CommandError> {
+    let mut cmd = create_command("git");
+    cmd.args([
+        "--no-pager",
+        "log",
+        &format!("{base}..HEAD"),
+        "--pretty=format:%s",
+        "--no-merges",
+    ])
+    .current_dir(path);
+    let output = run_with_timeout(
+        tokio::process::Command::from(cmd),
+        "git log",
+        GIT_TIMEOUT_SECS,
+    )
+    .await?;
 
     // Not an error if there are no commits - diff might still exist
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn get_diff_stat(path: &std::path::Path, base: &str) -> Result<String, String> {
-    let output = create_command("git")
-        .args(["--no-pager", "diff", &format!("{base}...HEAD"), "--stat"])
-        .current_dir(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+async fn get_diff_stat(path: &std::path::Path, base: &str) -> Result<String, CommandError> {
+    let mut cmd = create_command("git");
+    cmd.args(["--no-pager", "diff", &format!("{base}...HEAD"), "--stat"])
+        .current_dir(path);
+    let output = run_with_timeout(
+        tokio::process::Command::from(cmd),
+        "git diff --stat",
+        GIT_TIMEOUT_SECS,
+    )
+    .await?;
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn get_diff(path: &std::path::Path, base: &str) -> Result<String, String> {
-    let output = create_command("git")
-        .args(["--no-pager", "diff", &format!("{base}...HEAD")])
-        .current_dir(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+async fn get_diff(path: &std::path::Path, base: &str) -> Result<String, CommandError> {
+    let mut cmd = create_command("git");
+    cmd.args(["--no-pager", "diff", &format!("{base}...HEAD")])
+        .current_dir(path);
+    let output = run_with_timeout(
+        tokio::process::Command::from(cmd),
+        "git diff",
+        GIT_TIMEOUT_SECS,
+    )
+    .await?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -633,5 +654,16 @@ mod tests {
         assert_ne!(msg, DEFAULT_COMMIT_MESSAGE);
         assert!(!msg.contains('\n'), "must be a single line");
         assert!(msg.chars().count() <= 100);
+    }
+
+    /// The git context helpers must run asynchronously through the timeout path
+    /// (they were blocking std `.output()` on the async executor). The repo root
+    /// is a git repo, so this is deterministic and guards the conversion wiring.
+    #[tokio::test]
+    async fn get_branch_name_runs_async_with_timeout() {
+        let out = get_branch_name(std::path::Path::new("."))
+            .await
+            .expect("git rev-parse should run within the timeout");
+        assert!(!out.is_empty());
     }
 }

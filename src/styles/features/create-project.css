@@ -1,9 +1,16 @@
 /* Create Project Modal */
 
-/* Create-project-local colors — intentional one-offs, not part of the global scale. */
+/* Create-project-local colors + sizing — intentional one-offs, off the global scale. */
 :root {
   --create-default-green: #34c759;
   --create-default-green-rgb: 52, 199, 89;
+  --create-group-gap: 18px;
+  --create-grid-gap: 10px;
+  --create-card-pad-y: 14px;
+  --create-card-radius: 10px;
+  /* "Recommended" star — a neutral grey so it reads as a quiet marker and
+     stays distinct from the green selected-state ring/check. */
+  --create-recommended-star: var(--text-muted);
 }
 
 .create-modal-overlay {
@@ -132,10 +139,23 @@
 }
 
 /* Stack Grid (Start from Scratch) */
+.stack-group {
+  margin-bottom: var(--create-group-gap);
+}
+
+.stack-group-title {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
 .stack-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  gap: var(--create-grid-gap);
 }
 
 .stack-card {
@@ -143,11 +163,15 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 14px 12px;
+  /* The card renders through the <Button> primitive, which sets
+     white-space: nowrap; reset it here so the multi-line descriptions wrap
+     within the card instead of overflowing on a single line and clipping. */
+  white-space: normal;
+  gap: var(--spacing-xs);
+  padding: var(--create-card-pad-y) var(--spacing-md);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--create-card-radius);
   cursor: pointer;
   text-align: left;
   transition:
@@ -166,9 +190,24 @@
 }
 
 .stack-card-name {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  /* nowrap keeps the "Recommended" tag on the title line; if it wrapped it
+     would add a row to only the recommended card and push that card's
+     description below the others in the row, breaking alignment. */
+  flex-wrap: nowrap;
   font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* "Recommended" star — a quiet grey marker, deliberately NOT the accent green
+   used for selection, so on the pre-selected default tile it stays a separate
+   signal from the green selected border/check. */
+.stack-card-star {
+  flex-shrink: 0;
+  color: var(--create-recommended-star);
 }
 
 .stack-card-desc {

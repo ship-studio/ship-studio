@@ -4,8 +4,27 @@
 
 use crate::commands::github::get_gh_command_for_project;
 use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::PullRequestInfo;
 use crate::utils::{create_command, validate_project_path};
+
+/// Timeout for network-facing CLI ops (gh/git) so a hung remote can't freeze a
+/// PR command. Matches git/branches.rs.
+const NETWORK_TIMEOUT_SECS: u64 = 60;
+
+/// Run an already-configured network-facing command (gh/git) with a timeout,
+/// replacing blocking `.output()` so a stalled remote can't hang the UI.
+async fn run_net(
+    cmd: std::process::Command,
+    label: &str,
+) -> Result<std::process::Output, CommandError> {
+    run_with_timeout(
+        tokio::process::Command::from(cmd),
+        label.to_string(),
+        NETWORK_TIMEOUT_SECS,
+    )
+    .await
+}
 
 /// List pull requests for the repository
 #[tauri::command]
@@ -15,18 +34,17 @@ pub async fn list_pull_requests(
 ) -> Result<Vec<PullRequestInfo>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
-    let output = get_gh_command_for_project(&validated_path)
-        .args([
-            "pr",
-            "list",
-            "--json",
-            "number,title,headRefName,baseRefName,author,state,mergeable,url,createdAt",
-            "--limit",
-            "20",
-        ])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = get_gh_command_for_project(&validated_path);
+    cmd.args([
+        "pr",
+        "list",
+        "--json",
+        "number,title,headRefName,baseRefName,author,state,mergeable,url,createdAt",
+        "--limit",
+        "20",
+    ])
+    .current_dir(&validated_path);
+    let output = run_net(cmd, "gh pr list").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -76,14 +94,14 @@ pub async fn create_pull_request(
     let validated_path = validate_project_path(&project_path)?;
 
     // Push the branch to the remote first (gh pr create requires this)
-    let push_output = create_command("git")
+    let mut push_cmd = create_command("git");
+    push_cmd
         .args(["push", "-u", "origin", "HEAD"])
         .envs(crate::commands::accounts::get_env_vars_for_project(
             &validated_path,
         ))
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| format!("Failed to push branch: {e}"))?;
+        .current_dir(&validated_path);
+    let push_output = run_net(push_cmd, "git push").await?;
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
@@ -98,11 +116,9 @@ pub async fn create_pull_request(
         "pr", "create", "--title", &title, "--body", &body_str, "--base", &base,
     ];
 
-    let output = get_gh_command_for_project(&validated_path)
-        .args(&args)
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = get_gh_command_for_project(&validated_path);
+    cmd.args(&args).current_dir(&validated_path);
+    let output = run_net(cmd, "gh pr create").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -122,11 +138,10 @@ pub async fn create_pull_request(
 pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
-    let output = get_gh_command_for_project(&validated_path)
-        .args(["pr", "merge", &pr_number.to_string(), "--merge"])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = get_gh_command_for_project(&validated_path);
+    cmd.args(["pr", "merge", &pr_number.to_string(), "--merge"])
+        .current_dir(&validated_path);
+    let output = run_net(cmd, "gh pr merge").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -157,11 +172,10 @@ pub async fn checkout_pull_request(
 ) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
-    let output = get_gh_command_for_project(&validated_path)
-        .args(["pr", "checkout", &pr_number.to_string()])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = get_gh_command_for_project(&validated_path);
+    cmd.args(["pr", "checkout", &pr_number.to_string()])
+        .current_dir(&validated_path);
+    let output = run_net(cmd, "gh pr checkout").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -187,11 +201,10 @@ pub async fn checkout_pull_request(
 pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
-    let output = get_gh_command_for_project(&validated_path)
-        .args(["pr", "close", &pr_number.to_string()])
-        .current_dir(&validated_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = get_gh_command_for_project(&validated_path);
+    cmd.args(["pr", "close", &pr_number.to_string()])
+        .current_dir(&validated_path);
+    let output = run_net(cmd, "gh pr close").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -199,4 +212,32 @@ pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// run_net must execute a network-facing command through the timeout path
+    /// (the fix: blocking `.output()` replaced so a hung remote can't freeze PR
+    /// commands). `git --version` is deterministic and needs no repo or remote.
+    #[tokio::test]
+    async fn run_net_executes_command_through_timeout() {
+        let mut cmd = create_command("git");
+        cmd.args(["--version"]);
+        let out = run_net(cmd, "git --version")
+            .await
+            .expect("git --version should run within the timeout");
+        assert!(out.status.success());
+        assert!(String::from_utf8_lossy(&out.stdout).contains("git version"));
+    }
+
+    /// is_conflict_stderr gates the MergeConflict error path; keep its phrase
+    /// matching honest so unrelated failures don't masquerade as conflicts.
+    #[test]
+    fn is_conflict_stderr_matches_only_conflict_phrases() {
+        assert!(is_conflict_stderr("Pull request is not mergeable"));
+        assert!(is_conflict_stderr("merge commit cannot be cleanly created"));
+        assert!(!is_conflict_stderr("could not find pull request"));
+    }
 }

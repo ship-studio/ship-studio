@@ -75,6 +75,7 @@ export function EnumDropdown({ label, options, value, onChange }: Props) {
         ref={triggerRef}
         type="button"
         className="ss-enum__trigger"
+        title={label}
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}

@@ -168,5 +168,5 @@ This is optional — the rest of the app works without it.
 
 - [GitHub Discussions](https://github.com/ship-studio/ship-studio/discussions) for questions.
 - [GitHub Issues](https://github.com/ship-studio/ship-studio/issues) for bug reports — please use the [bug report template](../.github/ISSUE_TEMPLATE/bug_report.md).
-- [Community Slack](https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ) for real-time chat.
+- [Community Slack](https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g) for real-time chat.
 - Security issues → [SECURITY.md](../SECURITY.md).

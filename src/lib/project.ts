@@ -265,6 +265,25 @@ function parseDevScriptForNpx(script: string, desiredPort: number): string[] | n
 }
 
 /**
+ * Get the extended shell PATH from the backend (includes nvm, Homebrew, the
+ * Claude desktop app, etc.) so spawned processes resolve the same tools the
+ * user's login shell would.
+ */
+export async function getShellPath(): Promise<string> {
+  return invoke<string>('get_shell_path');
+}
+
+/**
+ * Get the backend process's system environment variables. Needed on Windows,
+ * where a spawned process's env replaces (rather than merges with) the parent
+ * environment, so essential vars (SystemRoot, COMSPEC, PATHEXT, ...) must be
+ * passed through explicitly.
+ */
+export async function getSystemEnv(): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>('get_system_env');
+}
+
+/**
  * Start the development server for a project.
  * Intelligently handles different frameworks (Vite, Next.js, etc.)
  * by parsing the dev script and ensuring the correct port is used.
@@ -288,7 +307,7 @@ export async function startDevServer(
   // Get extended PATH from backend (includes nvm, Homebrew, etc.)
   const home = await homeDir();
   const homeNormalized = home.endsWith('/') ? home : `${home}/`;
-  const fullPath = await invoke<string>('get_shell_path');
+  const fullPath = await getShellPath();
 
   let command = 'npm';
   let args: string[] = ['run', 'dev', '--', '--port', port.toString()];
@@ -363,7 +382,7 @@ export async function startDevServer(
   // Must pass all essential env vars since env replaces (not merges with) parent environment.
   // On Windows, many system env vars (SystemRoot, COMSPEC, PATHEXT, TEMP, etc.) are required
   // for Node.js and cmd.exe to function, so we fetch them from the backend.
-  const systemEnv = await invoke<Record<string, string>>('get_system_env');
+  const systemEnv = await getSystemEnv();
   const env: Record<string, string> = isWindows()
     ? {
         ...systemEnv,

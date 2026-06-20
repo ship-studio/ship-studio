@@ -173,6 +173,7 @@ export function CompactTopbar({
           style={pinStyle}
           onClick={togglePin}
           aria-pressed={isPinned}
+          title={isPinned ? 'Unpin window' : 'Pin window on top'}
           aria-label={isPinned ? 'Unpin window' : 'Pin window on top'}
         >
           <PinIcon size={12} />
@@ -181,6 +182,7 @@ export function CompactTopbar({
           type="button"
           style={paletteBtnStyle}
           onClick={openAllPalette}
+          title="Open command palette"
           aria-label="Open command palette"
         >
           ⌘K
@@ -194,6 +196,7 @@ export function CompactTopbar({
             type="button"
             style={projectBtnStyle}
             onClick={openProjectPalette}
+            title={`Switch project (currently ${projectLabel})`}
             aria-label={`Switch project (currently ${projectLabel})`}
           >
             <span

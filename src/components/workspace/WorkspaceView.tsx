@@ -859,10 +859,105 @@ export const WorkspaceView = memo(function WorkspaceView({
     sessionRegistry.setTerminalTabAttention(currentProject.path, activeTerminalTab, false);
   }, [currentProject.path, activeTerminalTab, setAttentionTabs]);
 
+  // Branch chip + workspace tabs live in the single header row (left/right
+  // clusters of WorkspaceHeader). Composed here since they need git/branch +
+  // tab state, then passed in as nodes.
+  const branchIndicatorNode =
+    integrations.projectGithub?.status === 'connected' && currentBranch ? (
+      <BranchIndicator
+        currentBranch={currentBranch}
+        hasUncommittedChanges={hasUncommittedChanges}
+        changedFiles={changedFiles}
+        projectPath={currentProject.path}
+        isOnBranchesTab={workspaceTab === 'branches' || workspaceTab === 'prs'}
+        hasPreview={hasPreview}
+        onClick={() => {
+          if (workspaceTab === 'branches' || workspaceTab === 'prs') {
+            setWorkspaceTab(hasPreview ? 'preview' : 'code');
+          } else {
+            setWorkspaceTab('branches');
+          }
+        }}
+        onDiscard={() => {
+          void checkGitStatus(currentProject.path);
+        }}
+        onSave={() => setForcePublishOpen(true)}
+      />
+    ) : null;
+
+  const tabsNode = (
+    <div className="workspace-tabs">
+      {hasPreview && (
+        <button
+          className={`workspace-tab ${workspaceTab === 'preview' && !isPreviewHidden ? 'active' : ''}`}
+          onClick={() => {
+            setIsPreviewHidden(false);
+            setWorkspaceTab('preview');
+          }}
+          title="Preview"
+        >
+          <EyeIcon size={14} />
+          <span>Preview</span>
+        </button>
+      )}
+      {/* Focus mode — collapses the preview pane so the agent terminal takes the
+          full workspace. Active whenever the preview is hidden. */}
+      <button
+        className={`workspace-tab ${isPreviewHidden ? 'active' : ''}`}
+        onClick={() => setIsPreviewHidden(!isPreviewHidden)}
+        title={isPreviewHidden ? 'Exit focus mode' : 'Hide preview — agent only'}
+      >
+        <EyeOffIcon size={14} />
+        <span>Focus</span>
+      </button>
+      <button
+        className={`workspace-tab ${workspaceTab === 'code' && !isPreviewHidden ? 'active' : ''}`}
+        onClick={() => {
+          setIsPreviewHidden(false);
+          setWorkspaceTab('code');
+        }}
+        title="Code"
+      >
+        <CodeIcon size={14} />
+        <span>Code</span>
+      </button>
+      {integrations.projectGithub?.status === 'connected' && (
+        <>
+          <button
+            className={`workspace-tab ${workspaceTab === 'branches' && !isPreviewHidden ? 'active' : ''}`}
+            onClick={() => {
+              setIsPreviewHidden(false);
+              setWorkspaceTab('branches');
+            }}
+            title="Branches"
+            data-education-id="branches-tab"
+          >
+            <BranchIcon size={14} />
+            <span>Branches</span>
+          </button>
+          <button
+            className={`workspace-tab ${workspaceTab === 'prs' && !isPreviewHidden ? 'active' : ''}`}
+            onClick={() => {
+              setIsPreviewHidden(false);
+              setWorkspaceTab('prs');
+            }}
+            title="PRs"
+            data-education-id="prs-tab"
+          >
+            <PullRequestIcon size={14} />
+            <span>PRs</span>
+          </button>
+        </>
+      )}
+    </div>
+  );
+
   const header = WorkspaceHeader({
     projectPath: currentProject.path,
     projectName: currentProject.name,
     onOpenAssetsPanel: assetsPanelModal.open,
+    branchIndicator: branchIndicatorNode,
+    tabs: tabsNode,
     headerExtras: (
       <PluginsDropdown
         plugins={loadedPlugins.filter((p) => !HOSTING_PLUGIN_IDS.includes(p.info.manifest.id))}
@@ -995,101 +1090,6 @@ export const WorkspaceView = memo(function WorkspaceView({
                   onCreateBranch={() => setWorkspaceTab('branches')}
                 />
               )}
-
-              {/* Full-width branch + tabs bar. Historically this lived inside
-                the right pane of the SplitPane, but it was lifted up here
-                so the branch chip + workspace tabs span the full workspace
-                width and stay visible even when the preview pane is
-                hidden. The tabs still only control what's rendered in the
-                right pane — clicking "Code" / "Branches" / "PRs" swaps
-                that content, identical to before. */}
-              <div className="preview-tabs-bar">
-                {integrations.projectGithub?.status === 'connected' && currentBranch && (
-                  <BranchIndicator
-                    currentBranch={currentBranch}
-                    hasUncommittedChanges={hasUncommittedChanges}
-                    changedFiles={changedFiles}
-                    projectPath={currentProject.path}
-                    isOnBranchesTab={workspaceTab === 'branches' || workspaceTab === 'prs'}
-                    hasPreview={hasPreview}
-                    onClick={() => {
-                      if (workspaceTab === 'branches' || workspaceTab === 'prs') {
-                        setWorkspaceTab(hasPreview ? 'preview' : 'code');
-                      } else {
-                        setWorkspaceTab('branches');
-                      }
-                    }}
-                    onDiscard={() => {
-                      void checkGitStatus(currentProject.path);
-                    }}
-                    onSave={() => setForcePublishOpen(true)}
-                  />
-                )}
-                <div style={{ flex: 1 }} />
-                <div className="workspace-tabs">
-                  {hasPreview && (
-                    <button
-                      className={`workspace-tab ${workspaceTab === 'preview' && !isPreviewHidden ? 'active' : ''}`}
-                      onClick={() => {
-                        setIsPreviewHidden(false);
-                        setWorkspaceTab('preview');
-                      }}
-                    >
-                      <EyeIcon size={14} />
-                      <span>Preview</span>
-                    </button>
-                  )}
-                  {/* Focus mode — collapses the preview pane so the agent
-                    terminal takes the full workspace. Useful when the user
-                    is running their own browser as the preview. Active
-                    whenever the preview is hidden, regardless of which
-                    tab underlies it. */}
-                  <button
-                    className={`workspace-tab ${isPreviewHidden ? 'active' : ''}`}
-                    onClick={() => setIsPreviewHidden(!isPreviewHidden)}
-                    title={isPreviewHidden ? 'Exit focus mode' : 'Hide preview — agent only'}
-                  >
-                    <EyeOffIcon size={14} />
-                    <span>Focus</span>
-                  </button>
-                  <button
-                    className={`workspace-tab ${workspaceTab === 'code' && !isPreviewHidden ? 'active' : ''}`}
-                    onClick={() => {
-                      setIsPreviewHidden(false);
-                      setWorkspaceTab('code');
-                    }}
-                  >
-                    <CodeIcon size={14} />
-                    <span>Code</span>
-                  </button>
-                  {integrations.projectGithub?.status === 'connected' && (
-                    <>
-                      <button
-                        className={`workspace-tab ${workspaceTab === 'branches' && !isPreviewHidden ? 'active' : ''}`}
-                        onClick={() => {
-                          setIsPreviewHidden(false);
-                          setWorkspaceTab('branches');
-                        }}
-                        data-education-id="branches-tab"
-                      >
-                        <BranchIcon size={14} />
-                        <span>Branches</span>
-                      </button>
-                      <button
-                        className={`workspace-tab ${workspaceTab === 'prs' && !isPreviewHidden ? 'active' : ''}`}
-                        onClick={() => {
-                          setIsPreviewHidden(false);
-                          setWorkspaceTab('prs');
-                        }}
-                        data-education-id="prs-tab"
-                      >
-                        <PullRequestIcon size={14} />
-                        <span>PRs</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
 
               <div className="workspace-content">
                 <SplitPane

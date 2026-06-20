@@ -26,13 +26,12 @@ pub async fn extract_template_zip(
     zip_data: Option<Vec<u8>>,
     zip_path: Option<String>,
 ) -> Result<String, CommandError> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
+    let shipstudio_dir = crate::utils::projects_root()?;
 
-    // Ensure ShipStudio directory exists
+    // Ensure the projects root exists
     if !shipstudio_dir.exists() {
         std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create ShipStudio directory: {e}"))?;
+            .map_err(|e| format!("Failed to create projects directory: {e}"))?;
     }
 
     // Sanitize project name

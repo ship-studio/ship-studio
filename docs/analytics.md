@@ -85,6 +85,7 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | `screenshot_captured` | `mode` (`viewport`/`fullpage`), `success`, `fell_back` |
 | `preview_refreshed` | `trigger: 'user'` |
 | `preview_page_selected` | `route_pattern` (id segments → `:id`, capped 200), `depth` |
+| `preview_fix_with_agent` | `has_logs`, `is_static` |
 | `logs_sent_to_agent` | `source` (`full_buffer`/`selection`), `char_count`, `line_count`, `had_question` |
 | `browser_tools_subtab_switched` | `from_tab`, `to_tab` |
 | `browser_tools_cleared` | `tab` |
@@ -95,6 +96,10 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | `code_snippet_sent_to_agent` | `file_extension`, `language`, `line_count`, `char_count`, `had_question` |
 | `code_snippet_copied` | `file_extension`, `line_count` |
 | `search_performed` (`code_files`) | Debounced |
+| `custom_class_created` | `token_count` (utilities folded into `@apply`), `kept_count` (non-utility tokens left on the element) |
+| `custom_class_applied` | — |
+| `custom_class_unapplied` | — |
+| `custom_class_edited` | `token_count` (one event per settled edit, incl. auto-save) |
 
 ### Branches & PRs
 
@@ -132,6 +137,15 @@ The modal id is baked into the event name (`modal_<id>_opened` / `modal_<id>_clo
 | `modal_<id>_closed` | `modal_id`, `duration_ms`, optional `reason` (`'provider_unmount'` on app teardown) | `modal_envEditor_closed`, etc. |
 
 To get an aggregate "any modal opened" count in PostHog, use a regex match on event name (`modal_.*_opened`) or a property filter on `modal_id`.
+
+### Settings
+
+| Event | Properties |
+|---|---|
+| `calendar_visibility_toggled` | `visible` |
+| `terminal_gpu_toggled` | `enabled` |
+| `projects_root_changed` | `is_custom` (false when reset to the default `~/ShipStudio`) |
+| `projects_moved` | `moved_count`, `skipped_count` (after moving projects into a newly-chosen folder) |
 
 ### Plugins / Skills / MCP
 

@@ -398,7 +398,7 @@ See `CLAUDE.md` → **Onboarding / Setup Wizard Testing** for `SHIPSTUDIO_FORCE_
 
 - Check existing [issues](https://github.com/ship-studio/ship-studio/issues) for similar problems.
 - Open a [discussion](https://github.com/ship-studio/ship-studio/discussions) for "how do I…" questions.
-- Drop into the [community Slack](https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ).
+- Drop into the [community Slack](https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g).
 - Read the code comments and the docs in [docs/](docs/).
 
 ## FAQ

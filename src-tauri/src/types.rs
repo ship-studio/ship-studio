@@ -591,10 +591,6 @@ pub struct SpawnPtyOptions {
     pub cwd: String,
     pub command: String,
     pub args: Vec<String>,
-    #[allow(dead_code)]
-    pub rows: u32,
-    #[allow(dead_code)]
-    pub cols: u32,
 }
 
 // ============ Code Health ============
@@ -774,6 +770,12 @@ pub struct AppState {
     /// The currently active workspace/account ID for this session
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_account_id: Option<String>,
+    /// User-configured root directory where projects are listed and created.
+    /// None falls back to the built-in default (`~/ShipStudio`). The default root
+    /// always stays valid even when a custom one is set, so projects already in
+    /// `~/ShipStudio` keep opening.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projects_root: Option<String>,
 }
 
 // ============ Accounts (Workspaces) ============

@@ -39,6 +39,10 @@ export interface SwitchResult {
   success: boolean;
   /** Whether changes were stashed */
   stashedChanges: boolean;
+  /** When switching to a branch that has a pending stash, the source branch name */
+  pendingStashFrom: string | null;
+  /** Whether a stash was automatically applied during the switch */
+  stashApplied: boolean;
   /** Error message if switch failed */
   error: string | null;
 }
@@ -107,12 +111,16 @@ export async function switchBranch(
   const result = await invoke<{
     success: boolean;
     stashed_changes: boolean;
+    pending_stash_from: string | null;
+    stash_applied: boolean;
     error: string | null;
   }>('switch_branch', { projectPath, branchName, autoStash });
 
   return {
     success: result.success,
     stashedChanges: result.stashed_changes,
+    pendingStashFrom: result.pending_stash_from,
+    stashApplied: result.stash_applied,
     error: result.error,
   };
 }

@@ -91,6 +91,7 @@ pub(super) fn kill_process(pid: u32) {
 /// Get the reserved port for a `(window, project)` pair, if any.
 /// Returns None if no port is reserved for this pair.
 #[tauri::command]
+#[tracing::instrument]
 pub fn get_reserved_port_for_window(window_label: String, project_path: String) -> Option<u16> {
     tracing::info!(
         "get_reserved_port_for_window called: window='{}', project='{}'",
@@ -113,6 +114,7 @@ pub fn get_reserved_port_for_window(window_label: String, project_path: String) 
 /// Also checks against reserved ports to avoid race conditions in multi-window scenarios.
 /// Returns the first available port found.
 #[tauri::command]
+#[tracing::instrument]
 pub fn find_available_port(preferred_port: u16) -> Result<u16, CommandError> {
     use std::net::TcpListener;
 
@@ -143,6 +145,7 @@ pub fn find_available_port(preferred_port: u16) -> Result<u16, CommandError> {
 /// returns it (idempotent) — different projects in the same window each get
 /// their own port independently.
 #[tauri::command]
+#[tracing::instrument]
 pub fn find_and_reserve_port(
     window_label: String,
     project_path: String,
@@ -204,6 +207,7 @@ pub fn find_and_reserve_port(
 /// is being torn down. For window-wide cleanup on close, the backend calls
 /// `release_port_for_window` directly.
 #[tauri::command]
+#[tracing::instrument]
 pub fn release_reserved_port(
     window_label: String,
     project_path: String,
@@ -221,6 +225,7 @@ pub fn release_reserved_port(
 ///
 /// This is needed for the frontend PTY spawn since macOS apps don't inherit shell PATH.
 #[tauri::command]
+#[tracing::instrument]
 pub fn get_shell_path() -> String {
     get_extended_path()
 }
@@ -232,6 +237,7 @@ pub fn get_shell_path() -> String {
 /// that Node.js and cmd.exe require to function.
 /// On macOS/Linux, returns an empty map (the Unix env vars are hardcoded in the frontend).
 #[tauri::command]
+#[tracing::instrument]
 pub fn get_system_env() -> std::collections::HashMap<String, String> {
     #[allow(unused_mut)]
     let mut env = std::collections::HashMap::new();

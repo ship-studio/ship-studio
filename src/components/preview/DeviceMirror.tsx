@@ -675,6 +675,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
                 type="button"
                 className={`device-mirror-build-chevron${buildOpen ? ' open' : ''}`}
                 onClick={() => setBuildOpen((o) => !o)}
+                title={buildOpen ? 'Collapse build log' : 'Expand build log'}
                 aria-label={buildOpen ? 'Collapse build log' : 'Expand build log'}
               >
                 <ChevronIcon size={14} />

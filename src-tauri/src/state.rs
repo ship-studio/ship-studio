@@ -312,20 +312,19 @@ pub fn reserve_port_force(window_label: &str, project_path: &str, port: u16) -> 
         return false;
     };
     // Evict any stale holder of this exact port — serve-sim owns it now.
-    let stale: Vec<(String, String)> = ports
-        .iter()
-        .filter(|(_, &p)| p == port)
-        .map(|(k, _)| k.clone())
-        .collect();
-    for key in stale {
-        ports.remove(&key);
-        tracing::warn!(
-            "reserve_port_force: evicted stale reservation of port {} from ({}, {})",
-            port,
-            key.0,
-            key.1
-        );
-    }
+    ports.retain(|key, &mut p| {
+        if p == port {
+            tracing::warn!(
+                "reserve_port_force: evicted stale reservation of port {} from ({}, {})",
+                port,
+                key.0,
+                key.1
+            );
+            false
+        } else {
+            true
+        }
+    });
     port_set.insert(port);
     ports.insert((window_label.to_string(), project_path.to_string()), port);
     tracing::info!(

@@ -33,7 +33,7 @@ type GroupId = 'pinned' | 'projects';
 interface SidebarItem {
   key: string;
   label: string;
-  dotState: 'idle' | 'active' | 'attention' | 'muted';
+  dotState: 'idle' | 'active' | 'thinking' | 'attention' | 'muted';
   onSelect?: () => void;
   onClose?: () => void;
   isActive?: boolean;
@@ -182,7 +182,8 @@ function projectInitials(name: string): string {
  *   - tab has attention flag               → `attention` (amber pulse)
  *   - status === 'crashed'                 → `attention` (amber; TODO: red)
  *   - status === 'exited'                  → `muted` (grey, dimmed)
- *   - status === 'thinking' | 'waiting'    → `active` (green; agent busy)
+ *   - status === 'thinking'                → `thinking` (green; dot spins)
+ *   - status === 'waiting'                 → `active` (green; agent busy)
  *   - status === 'running' | 'starting'    → `active` (green; PTY alive)
  *   - no status yet (freshly-created tab)  → `active`
  *
@@ -194,6 +195,7 @@ function tabDotState(tab: { attention?: boolean; status?: TabStatus }): SidebarI
   if (tab.attention) return 'attention';
   if (tab.status === 'crashed') return 'attention';
   if (tab.status === 'exited') return 'muted';
+  if (tab.status === 'thinking') return 'thinking';
   return 'active';
 }
 
@@ -619,6 +621,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         type="button"
         className="workspace-sidebar-filter"
         onClick={() => openPalette()}
+        title="Open command palette"
         aria-label="Open command palette"
       >
         <SearchIcon size={12} />
@@ -862,6 +865,7 @@ function ProjectGroup({
             onToggleExpand();
           }}
           aria-expanded={isExpanded}
+          title={isExpanded ? 'Collapse project' : 'Expand project'}
           aria-label={isExpanded ? 'Collapse project' : 'Expand project'}
         >
           <ChevronIcon

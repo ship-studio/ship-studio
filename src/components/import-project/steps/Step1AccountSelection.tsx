@@ -30,7 +30,13 @@ export function Step1AccountSelection({
           <h2>Import Project</h2>
           <p>Select a GitHub account</p>
         </div>
-        <button className="create-modal-close" onClick={onCancel} type="button">
+        <button
+          className="create-modal-close"
+          onClick={onCancel}
+          type="button"
+          title="Close"
+          aria-label="Close"
+        >
           <svg
             width="20"
             height="20"

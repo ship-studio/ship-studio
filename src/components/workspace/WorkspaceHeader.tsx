@@ -28,7 +28,7 @@ import { SupportPanel } from '../support/SupportPanel';
 
 /** Ship Studio community Slack invite — the Support button opens this directly. */
 const SLACK_INVITE_URL =
-  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ';
+  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g';
 import type { IntegrationState } from '../../hooks/useIntegrationStatus';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 import type { PluginThemeData } from '../../contexts/PluginContext';
@@ -50,6 +50,16 @@ export interface WorkspaceHeaderProps {
   // pre-composed node because it needs plugin slot data that lives in
   // WorkspaceView. Omit to hide.
   headerExtras?: ReactNode;
+
+  // Branch chip rendered at the very end of the left cluster (after
+  // headerExtras). Pre-composed in WorkspaceView since it needs git/branch
+  // state. Omit to hide.
+  branchIndicator?: ReactNode;
+
+  // Workspace tabs (Preview/Focus/Code/Branches/PRs) rendered at the start of
+  // the right cluster (before the GitHub button). Pre-composed in WorkspaceView
+  // since they drive the right-pane tab state. Omit to hide.
+  tabs?: ReactNode;
 
   // Sidebar collapse — lives at the far-left of the header so the health
   // panel row below stays focused on health/logs. Omit `onToggleSidebar`
@@ -106,6 +116,8 @@ export function WorkspaceHeader({
   projectName,
   onOpenAssetsPanel,
   headerExtras,
+  branchIndicator,
+  tabs,
   isSidebarHidden,
   onToggleSidebar,
   integrations,
@@ -207,10 +219,12 @@ export function WorkspaceHeader({
           <span className="toolbar-btn-label">Support</span>
         </button>
         {headerExtras}
+        {branchIndicator}
       </div>
 
-      {/* Right side — GitHub, Publish slot, hosting plugin, Publish */}
+      {/* Right side — workspace tabs, GitHub, Publish slot, hosting plugin, Publish */}
       <div className="workspace-header-right">
+        {tabs}
         <span data-education-id="github-button">
           <GitHubButton
             githubState={integrations.github}

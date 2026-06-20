@@ -51,7 +51,13 @@ export function Step2RepoSelection({
             )}
           </p>
         </div>
-        <button className="create-modal-close" onClick={onCancel} type="button">
+        <button
+          className="create-modal-close"
+          onClick={onCancel}
+          type="button"
+          title="Close"
+          aria-label="Close"
+        >
           <svg
             width="20"
             height="20"

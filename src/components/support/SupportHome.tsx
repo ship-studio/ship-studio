@@ -11,7 +11,7 @@ import { trackEvent } from '../../lib/analytics';
 import { SlackIcon } from '../icons';
 
 const SLACK_INVITE_URL =
-  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ';
+  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g';
 
 interface SupportHomeProps {
   onNavigate: (view: SupportView) => void;

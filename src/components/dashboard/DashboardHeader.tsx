@@ -36,6 +36,7 @@ export function DashboardHeader({
         className="dashboard-search"
         data-education-id="search-projects"
         onClick={() => palette.open()}
+        title="Open command palette"
         aria-label="Open command palette"
       >
         <SearchIcon />

@@ -338,3 +338,79 @@ pub async fn complete_merge(project_path: String) -> Result<(), CommandError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(content: &str) -> (Vec<ConflictBlock>, String, String) {
+        let all_lines: Vec<&str> = content.lines().collect();
+        parse_conflicts(content, &all_lines)
+    }
+
+    #[test]
+    fn no_markers_yields_no_conflicts() {
+        let (conflicts, ours, theirs) = parse("line one\nline two\nline three");
+        assert!(conflicts.is_empty());
+        assert_eq!(ours, "");
+        assert_eq!(theirs, "");
+    }
+
+    #[test]
+    fn single_conflict_extracts_branches_and_content() {
+        let content =
+            "a\nb\nc\n<<<<<<< HEAD\nours line\n=======\ntheirs line\n>>>>>>> feature\nd\ne";
+        let (conflicts, ours, theirs) = parse(content);
+
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(ours, "HEAD");
+        assert_eq!(theirs, "feature");
+
+        let block = &conflicts[0];
+        assert_eq!(block.current_content, "ours line");
+        assert_eq!(block.incoming_content, "theirs line");
+        // Marker line is the 4th line (1-based).
+        assert_eq!(block.line_start, 4);
+        // Context excludes the conflict markers themselves.
+        assert!(block.context_before.contains('a'));
+        assert!(!block.context_before.contains("<<<<<<<"));
+        assert!(block.context_after.contains('d'));
+        assert!(!block.context_after.contains(">>>>>>>"));
+    }
+
+    #[test]
+    fn empty_marker_labels_fall_back_to_defaults() {
+        let content = "<<<<<<<\nfoo\n=======\nbar\n>>>>>>>";
+        let (conflicts, ours, theirs) = parse(content);
+
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(ours, "current");
+        assert_eq!(theirs, "incoming");
+        assert_eq!(conflicts[0].current_content, "foo");
+        assert_eq!(conflicts[0].incoming_content, "bar");
+    }
+
+    #[test]
+    fn multiple_conflicts_are_all_parsed_with_first_branch_names() {
+        let content = "x\n<<<<<<< HEAD\na1\n=======\nb1\n>>>>>>> feat\ny\n\
+                       <<<<<<< HEAD\na2\n=======\nb2\n>>>>>>> feat\nz";
+        let (conflicts, ours, theirs) = parse(content);
+
+        assert_eq!(conflicts.len(), 2);
+        assert_eq!(ours, "HEAD");
+        assert_eq!(theirs, "feat");
+        assert_eq!(conflicts[0].current_content, "a1");
+        assert_eq!(conflicts[0].incoming_content, "b1");
+        assert_eq!(conflicts[1].current_content, "a2");
+        assert_eq!(conflicts[1].incoming_content, "b2");
+    }
+
+    #[test]
+    fn multiline_conflict_sides_join_with_newlines() {
+        let content = "<<<<<<< HEAD\nl1\nl2\n=======\nr1\nr2\nr3\n>>>>>>> other";
+        let (conflicts, _ours, _theirs) = parse(content);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].current_content, "l1\nl2");
+        assert_eq!(conflicts[0].incoming_content, "r1\nr2\nr3");
+    }
+}

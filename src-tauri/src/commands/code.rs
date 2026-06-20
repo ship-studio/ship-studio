@@ -61,6 +61,14 @@ pub fn list_project_files(project_path: &str) -> Result<Vec<FileEntry>, CommandE
         .git_global(true)
         .git_exclude(true)
         .max_depth(Some(20))
+        // Prune always-skip directories during the walk by their own name.
+        // This matters most on Windows and for non-git projects: the `ignore`
+        // crate only applies .gitignore when a `.git` dir is present, so without
+        // this `node_modules` would be descended into and flood the tree.
+        .filter_entry(|entry| {
+            let name = entry.file_name().to_string_lossy();
+            !SKIP_DIRS.contains(&name.as_ref())
+        })
         .build();
 
     for result in walker {
@@ -89,7 +97,7 @@ pub fn list_project_files(project_path: &str) -> Result<Vec<FileEntry>, CommandE
         let relative_str = relative.to_string_lossy().to_string();
 
         // Skip entries in always-skipped directories
-        if should_skip_path(&relative_str) {
+        if should_skip_path(relative) {
             continue;
         }
 
@@ -117,17 +125,17 @@ pub fn list_project_files(project_path: &str) -> Result<Vec<FileEntry>, CommandE
 }
 
 /// Check if a relative path should be skipped based on SKIP_DIRS.
-fn should_skip_path(relative_path: &str) -> bool {
-    for skip in SKIP_DIRS {
-        if relative_path == *skip
-            || relative_path.starts_with(&format!("{skip}/"))
-            || relative_path.contains(&format!("/{skip}/"))
-            || relative_path.ends_with(&format!("/{skip}"))
-        {
-            return true;
-        }
-    }
-    false
+///
+/// Matches on individual path components so it behaves identically on Windows
+/// (`\` separators) and Unix (`/`). The previous string-based matching on `/`
+/// silently failed on Windows and leaked `node_modules` contents into the tree.
+fn should_skip_path(relative: &Path) -> bool {
+    relative.components().any(|component| match component {
+        std::path::Component::Normal(name) => SKIP_DIRS
+            .iter()
+            .any(|skip| name == std::ffi::OsStr::new(skip)),
+        _ => false,
+    })
 }
 
 /// Read a single file from the project.
@@ -298,14 +306,32 @@ mod tests {
 
     #[test]
     fn test_should_skip_path() {
-        assert!(should_skip_path(".git"));
-        assert!(should_skip_path(".git/HEAD"));
-        assert!(should_skip_path("node_modules"));
-        assert!(should_skip_path("node_modules/react/index.js"));
-        assert!(should_skip_path(".shipstudio"));
-        assert!(should_skip_path("src/.shipstudio"));
-        assert!(!should_skip_path("src/main.rs"));
-        assert!(!should_skip_path("README.md"));
-        assert!(!should_skip_path("src/components/GitView.tsx"));
+        assert!(should_skip_path(Path::new(".git")));
+        assert!(should_skip_path(Path::new(".git/HEAD")));
+        assert!(should_skip_path(Path::new("node_modules")));
+        assert!(should_skip_path(Path::new("node_modules/react/index.js")));
+        assert!(should_skip_path(Path::new(".shipstudio")));
+        assert!(should_skip_path(Path::new("src/.shipstudio")));
+        assert!(!should_skip_path(Path::new("src/main.rs")));
+        assert!(!should_skip_path(Path::new("README.md")));
+        assert!(!should_skip_path(Path::new("src/components/GitView.tsx")));
+    }
+
+    /// Regression: Windows paths use `\` separators. The old string-based
+    /// matcher only checked `/`, so `node_modules` leaked into the Code tab on
+    /// Windows. Component matching handles both separators.
+    #[test]
+    fn test_should_skip_path_windows_separators() {
+        use std::path::PathBuf;
+        // PathBuf::from with backslashes is parsed as separators on Windows and
+        // as a single component on Unix, so build the path from components to
+        // exercise the component matcher identically on both platforms.
+        let nested: PathBuf = ["node_modules", ".cache", "@babel", "fixture.cjs"]
+            .iter()
+            .collect();
+        assert!(should_skip_path(&nested));
+
+        let real: PathBuf = ["src", "app", "page.tsx"].iter().collect();
+        assert!(!should_skip_path(&real));
     }
 }

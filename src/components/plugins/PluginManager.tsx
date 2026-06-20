@@ -382,7 +382,7 @@ export function PluginManager({
       <div className="modal plugins-modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="plugins-modal-header">
           <h3>Plugins</h3>
-          <button className="plugins-close-btn" onClick={onClose}>
+          <button className="plugins-close-btn" onClick={onClose} title="Close" aria-label="Close">
             <CloseIcon size={16} />
           </button>
         </div>

@@ -322,6 +322,7 @@ export function AgentsPanel() {
                       type="button"
                       className="agents-panel-kebab"
                       onClick={() => setOpenMenuId(menuOpen ? null : agent.id)}
+                      title={`More actions for ${agent.displayName}`}
                       aria-label={`More actions for ${agent.displayName}`}
                       aria-haspopup="menu"
                       aria-expanded={menuOpen}

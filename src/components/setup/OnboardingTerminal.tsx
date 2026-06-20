@@ -7,13 +7,14 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { spawn, IPty } from 'tauri-pty';
 import { homeDir } from '@tauri-apps/api/path';
-import { invoke } from '@tauri-apps/api/core';
+import { getSystemEnv } from '../../lib/project';
 import { readDir, exists } from '@tauri-apps/plugin-fs';
 import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
@@ -162,7 +163,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
         if (isWin) {
           // Windows: get system env vars from backend and build Windows-compatible env
-          const systemEnv = await invoke<Record<string, string>>('get_system_env');
+          const systemEnv = await getSystemEnv();
 
           // Add extra tool installation paths to the front of PATH
           const programFiles = systemEnv['ProgramFiles'] || 'C:\\Program Files';
@@ -228,7 +229,14 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
           // isolated config dir, not the global ~/.claude / ~/.codex / etc.
           const accountEnv = await invoke<Record<string, string>>(
             'get_active_account_env_vars'
-          ).catch(() => ({}));
+          ).catch((err: unknown) => {
+            // Onboarding runs in the Default workspace, which maps to the global
+            // config dirs anyway — so an empty fallback is safe here, but log it.
+            logger.warn('[OnboardingTerminal] Failed to fetch workspace env vars', {
+              error: String(err),
+            });
+            return {} as Record<string, string>;
+          });
 
           env = {
             PATH: fullPath,

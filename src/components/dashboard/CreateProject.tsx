@@ -21,10 +21,12 @@ import { Spinner } from '../primitives/Spinner';
 import {
   useProjectCreation,
   TEMPLATES,
+  TEMPLATE_GROUPS,
   STEPS,
   STATUS_MESSAGES,
 } from '../../hooks/useProjectCreation';
 import { TemplateGallery, type CommunityTemplate } from './TemplateGallery';
+import { TemplateCard } from './TemplateCard';
 
 /** Props for the CreateProject component */
 interface CreateProjectProps {
@@ -64,6 +66,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
     handleRemoveZip,
     setZipPath,
     setZipFileName,
+    setError,
     saveDefaultTemplate,
     defaultTemplateId,
   } = useProjectCreation({ onComplete, onCancel });
@@ -141,8 +144,10 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
         setZipFileName(selectedCommunityTemplate.name + '.zip');
         rawHandleContinue();
       } catch (err) {
-        // Show error inline — don't block the modal
+        // Surface the failure (don't block the modal) — a silent catch left the
+        // button snapping back to "Continue" with no explanation.
         logger.error('Failed to download community template', { error: err });
+        setError("Couldn't download that template. Check your connection and try again.");
       } finally {
         setDownloading(false);
       }
@@ -266,40 +271,34 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
 
           {activeTab === 'scratch' && (
             <>
-              <div className="stack-grid">
-                {TEMPLATES.map((template) => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    className={`stack-card ${selectedTemplate?.id === template.id && !hasZipTemplate ? 'stack-card-selected' : ''}`}
-                    onClick={() => {
-                      handleTemplateSelect(template);
-                      void trackEvent('template_selected', {
-                        template_id: template.id,
-                        $screen_name: 'Create Project',
-                      });
-                      setSetAsDefaultChecked(false);
-                    }}
-                  >
-                    <span className="stack-card-name">{template.name}</span>
-                    <span className="stack-card-desc">{template.description}</span>
-                    {selectedTemplate?.id === template.id && !hasZipTemplate && (
-                      <div className="stack-card-check">
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                        >
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
+              {TEMPLATE_GROUPS.map((group) => {
+                const groupTemplates = TEMPLATES.filter((t) => t.category === group.id);
+                if (groupTemplates.length === 0) return null;
+                return (
+                  <div key={group.id} className="stack-group">
+                    <h3 className="stack-group-title">{group.label}</h3>
+                    <div className="stack-grid">
+                      {groupTemplates.map((template) => (
+                        <TemplateCard
+                          key={template.id}
+                          name={template.name}
+                          description={template.description}
+                          selected={selectedTemplate?.id === template.id && !hasZipTemplate}
+                          recommended={template.id === defaultTemplateId}
+                          onSelect={() => {
+                            handleTemplateSelect(template);
+                            void trackEvent('template_selected', {
+                              template_id: template.id,
+                              $screen_name: 'Create Project',
+                            });
+                            setSetAsDefaultChecked(false);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
 
               {selectedTemplate && selectedTemplate.id !== defaultTemplateId && !hasZipTemplate && (
                 <button

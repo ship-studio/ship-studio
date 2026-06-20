@@ -129,7 +129,12 @@ export function BranchesTab({
       if (result.success) {
         onBranchSwitch(branchName);
         void trackEvent('branch_switched', { $screen_name: 'Workspace' });
-        onToast?.(`Switched to ${branchName}`, 'success');
+        onToast?.(
+          result.stashApplied
+            ? `Switched to ${branchName} and restored your stashed changes`
+            : `Switched to ${branchName}`,
+          'success'
+        );
       } else if (result.error?.includes('Uncommitted changes')) {
         // Show the unsaved changes modal
         setPendingSwitch(branchName);

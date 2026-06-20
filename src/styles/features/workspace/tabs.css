@@ -9,7 +9,14 @@
   align-self: stretch;
   align-items: stretch;
   gap: 0;
-  margin-left: auto;
+}
+
+/* The tabs live in the single header row (right cluster). Cancel the header's
+   vertical padding so they span its full height and the active underline pins
+   flush to the header's bottom border, as the tab design intends. */
+.workspace-header .workspace-tabs {
+  margin-top: calc(var(--spacing-sm) * -1);
+  margin-bottom: calc(var(--spacing-sm) * -1);
 }
 
 .workspace-tab {
@@ -63,31 +70,6 @@
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-/* Preview Tabs Bar */
-.preview-tabs-bar {
-  display: flex;
-  align-items: center;
-  padding: 0 12px 0 8px;
-  min-height: 48px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  gap: 4px;
-  /* Establish stacking context so dropdowns appear above preview iframe */
-  position: relative;
-  z-index: 10;
-}
-
-.preview-tabs-bar-simple {
-  padding: 0 12px;
-}
-
-.preview-label {
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  color: var(--text-muted);
 }
 
 /* Open in Browser Button */

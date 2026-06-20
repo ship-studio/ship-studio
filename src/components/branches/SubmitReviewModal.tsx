@@ -115,7 +115,7 @@ export function SubmitReviewModal({
       setUsedAiGeneration(true);
       void trackEvent('ai_pr_description_generated', { $screen_name: 'Submit Review' });
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = formatCommandError(asCommandError(e));
       if (message.includes('No changes found')) {
         setNeedsCommit(true);
       } else {
@@ -150,7 +150,7 @@ export function SubmitReviewModal({
         $screen_name: 'Submit Review',
       });
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = formatCommandError(asCommandError(e));
       trackError('ai_pr_commit_and_generate', e, 'Submit Review');
       setError(`Failed: ${message}`);
       onToast?.('Failed to generate PR description', 'error');
@@ -201,7 +201,7 @@ export function SubmitReviewModal({
         onClose();
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = formatCommandError(asCommandError(e));
       trackError('pr_create', e, 'Submit Review');
       setError(message);
       onToast?.('Failed to create pull request', 'error');

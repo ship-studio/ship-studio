@@ -841,6 +841,20 @@
   background: var(--bg-primary);
 }
 
+.onboarding-terminal-hint {
+  padding: 10px 16px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.onboarding-terminal-hint strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* ============ Optional Items ============ */
 
 .setup-item-optional {

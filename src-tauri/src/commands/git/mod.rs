@@ -236,27 +236,24 @@ pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
     results
 }
 
-/// Returns the path to ~/ShipStudio directory
+/// Returns the configured projects root directory (custom or default `~/ShipStudio`).
 #[tauri::command]
 #[tracing::instrument]
 pub async fn get_shipstudio_dir() -> Result<String, CommandError> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
-    Ok(shipstudio_dir.to_string_lossy().to_string())
+    Ok(crate::utils::projects_root()?.to_string_lossy().to_string())
 }
 
-/// Creates ~/ShipStudio directory if it doesn't exist
+/// Creates the configured projects root directory if it doesn't exist.
 #[tauri::command]
 #[tracing::instrument]
 pub async fn ensure_shipstudio_dir() -> Result<String, CommandError> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
+    let projects_dir = crate::utils::projects_root()?;
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir).map_err(|e| e.to_string())?;
+    if !projects_dir.exists() {
+        std::fs::create_dir_all(&projects_dir).map_err(|e| e.to_string())?;
     }
 
-    Ok(shipstudio_dir.to_string_lossy().to_string())
+    Ok(projects_dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]

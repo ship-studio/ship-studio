@@ -86,12 +86,22 @@ export function SupportPanel({ isOpen, onClose, projectPath, projectName }: Supp
       <div className={`support-panel ${isOpen ? 'open' : ''}`}>
         <div className="support-panel-header">
           {showBack && (
-            <button className="support-back-btn" onClick={goBack}>
+            <button
+              className="support-back-btn"
+              onClick={goBack}
+              title="Go back"
+              aria-label="Go back"
+            >
               ←
             </button>
           )}
           <h2>{headerTitle}</h2>
-          <button className="support-close-btn" onClick={handleClose}>
+          <button
+            className="support-close-btn"
+            onClick={handleClose}
+            title="Close"
+            aria-label="Close"
+          >
             ×
           </button>
         </div>

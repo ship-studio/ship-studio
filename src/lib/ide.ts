@@ -48,3 +48,12 @@ export async function openInIde(
 export async function openInFinder(path: string): Promise<void> {
   return invoke<void>('open_in_finder', { path });
 }
+
+/**
+ * Read a saved screenshot file back as a base64 data string for inline display.
+ * @param filePath - Absolute path to the screenshot file
+ * @returns Base64-encoded image data
+ */
+export async function getScreenshotBase64(filePath: string): Promise<string> {
+  return invoke<string>('get_screenshot_base64', { filePath });
+}

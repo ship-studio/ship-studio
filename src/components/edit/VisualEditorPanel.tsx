@@ -26,6 +26,9 @@ import { PinIcon } from '../icons/layout';
 import { PropSection } from './PropSection';
 import { ImageSection } from './ImageSection';
 import { PropControlRenderer, type ControlRenderCtx } from './PropControlRenderer';
+import { ClassBar } from './ClassBar';
+import type { CustomClass } from '../../lib/customClasses';
+import type { EditTarget } from '../../hooks/useVisualEditor';
 import { CONTROL_SECTIONS } from '../../lib/editControls';
 import { breakpointPrefixes, type UsageReport } from '../../lib/edit';
 import type {
@@ -44,7 +47,7 @@ import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import type { Selection } from '../../hooks/useVisualEditor';
 
 const SLACK_INVITE_URL =
-  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ';
+  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g';
 
 /** Build a ready-to-paste request for the coding agent to change text that's rendered
  *  from code/data (so it can't be edited inline). The user pastes it into the terminal
@@ -275,6 +278,18 @@ interface Props {
   /** For a multi-location element: which spot(s) to write — 'all' or one index. */
   multiTarget: 'all' | number;
   onMultiTargetChange: (t: 'all' | number) => void;
+  /** Custom-class state + actions (Webflow-style class bar). Optional so the
+   *  panel can be rendered standalone (e.g. in tests) without the class wiring. */
+  editTarget?: EditTarget;
+  customClasses?: CustomClass[];
+  /** False when the project has no writable Tailwind entry stylesheet — disables
+   *  "create class". */
+  canCreateClass?: boolean;
+  onEditElement?: () => void;
+  onEditClass?: (name: string, tokens: string[]) => void;
+  onApplyClass?: (name: string) => void | Promise<void>;
+  onUnapplyClass?: (name: string) => void | Promise<void>;
+  onCreateClass?: (name: string) => void;
   /** Where the selected element's component is used project-wide (scope hint). */
   usage: UsageReport | null;
   /** Jump to a source file:line in the Code tab. */
@@ -316,6 +331,14 @@ export function VisualEditorPanel({
   onReset,
   multiTarget,
   onMultiTargetChange,
+  editTarget = { kind: 'element' },
+  customClasses = [],
+  canCreateClass = true,
+  onEditElement = () => {},
+  onEditClass = () => {},
+  onApplyClass = () => {},
+  onUnapplyClass = () => {},
+  onCreateClass = () => {},
   usage,
   onOpenInCode,
   onCommit,
@@ -328,7 +351,16 @@ export function VisualEditorPanel({
   const isImage = selection?.signature.tagName === 'img';
   // Both 'resolved' (one spot) and 'multi' (several identical spots) are editable.
   const editable = resolution?.status === 'resolved' || resolution?.status === 'multi';
-  const dirty = editable && currentClass !== resolution.class_name;
+  // Dirty baseline differs by edit target: a class edit compares the live @apply
+  // bag to the class's saved tokens (the element's className is irrelevant and
+  // never matches, which used to pin "Saving…" on forever); an element edit
+  // compares to the element's source className. Normalize whitespace so a stray
+  // double-space can't wedge it permanently dirty.
+  const norm = (s: string) => s.trim().replace(/\s+/g, ' ');
+  const dirty =
+    editTarget.kind === 'class'
+      ? norm(currentClass) !== norm(editTarget.baseline)
+      : editable && currentClass !== resolution.class_name;
   // Show the controls as soon as an element is selected — they only need the class
   // string (available instantly). The source badge + Save fill in once resolved, so
   // the panel doesn't flicker through a "Resolving…" collapse on every click.
@@ -438,43 +470,60 @@ export function VisualEditorPanel({
         </span>
       </div>
 
+      {/* Sticky context bar: always shows WHICH breakpoint and WHICH target you're
+          editing, while the controls below scroll. */}
+      {controlsVisible && (
+        <div className="ss-edit-panel__context">
+          {/* Breakpoint dropdown — picking one resizes the canvas; the active value
+              tracks the live preview width. Tailwind is mobile-first: edits cascade
+              up, so a value set on a breakpoint applies at that width and larger. */}
+          <div className="ss-edit-panel__control">
+            {/* The "?" reveals the mobile-first explainer — styles set on a breakpoint
+                apply at that width AND LARGER, which surprises desktop-first users. */}
+            <label className="ss-edit-panel__label">
+              Breakpoint
+              <HelpHint text={breakpointHelp} />
+            </label>
+            <EnumDropdown
+              label="Breakpoint"
+              value={activeBreakpoint.name}
+              options={breakpoints.map((bp) => ({
+                label: bp.minPx > 0 ? `${bp.name} · ≥${bp.minPx}px` : 'Base · all widths',
+                token: bp.name,
+              }))}
+              onChange={(name) => {
+                const bp = breakpoints.find((b) => b.name === name);
+                if (bp) onSelectBreakpoint(bp);
+              }}
+            />
+          </div>
+
+          {breakpointTooWide && (
+            <p className="ss-edit-panel__bp-note" role="note">
+              Preview is too narrow to show <strong>{activeBreakpoint.name}</strong> (≥
+              {activeBreakpoint.minPx}px). Edits still apply at this breakpoint — widen the preview
+              to see them.
+            </p>
+          )}
+
+          {/* Edit target: this element's own utilities, or a shared custom class. */}
+          <ClassBar
+            customClasses={customClasses}
+            elementClass={
+              editTarget.kind === 'element' ? currentClass : (selection?.signature.className ?? '')
+            }
+            editTarget={editTarget}
+            canCreate={canCreateClass}
+            onEditElement={onEditElement}
+            onEditClass={onEditClass}
+            onApplyExisting={onApplyClass}
+            onUnapply={onUnapplyClass}
+            onCreate={onCreateClass}
+          />
+        </div>
+      )}
+
       <div className="ss-edit-panel__body">
-        {controlsVisible && (
-          <>
-            {/* Breakpoint dropdown — picking one resizes the canvas; the active value
-                tracks the live preview width. Tailwind is mobile-first: edits cascade
-                up, so a value set on a breakpoint applies at that width and larger. */}
-            <div className="ss-edit-panel__control">
-              {/* The "?" reveals the mobile-first explainer — styles set on a breakpoint
-                  apply at that width AND LARGER, which surprises desktop-first users. */}
-              <label className="ss-edit-panel__label">
-                Breakpoint
-                <HelpHint text={breakpointHelp} />
-              </label>
-              <EnumDropdown
-                label="Breakpoint"
-                value={activeBreakpoint.name}
-                options={breakpoints.map((bp) => ({
-                  label: bp.minPx > 0 ? `${bp.name} · ≥${bp.minPx}px` : 'Base · all widths',
-                  token: bp.name,
-                }))}
-                onChange={(name) => {
-                  const bp = breakpoints.find((b) => b.name === name);
-                  if (bp) onSelectBreakpoint(bp);
-                }}
-              />
-            </div>
-
-            {breakpointTooWide && (
-              <p className="ss-edit-panel__bp-note" role="note">
-                Preview is too narrow to show <strong>{activeBreakpoint.name}</strong> (≥
-                {activeBreakpoint.minPx}px). Edits still apply at this breakpoint — widen the
-                preview to see them.
-              </p>
-            )}
-          </>
-        )}
-
         {!selection && <EditorIntro />}
 
         {textResolution?.status === 'read_only' && selection && (

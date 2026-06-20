@@ -67,7 +67,26 @@ import {
   type ImageResolution,
   type UsageReport,
 } from '../lib/edit';
+import {
+  detectTailwindSetup,
+  listCustomClasses,
+  createCustomClass,
+  updateCustomClass,
+  classifyApplyTokens,
+  type CustomClass,
+} from '../lib/customClasses';
 import { logger } from '../lib/logger';
+import { trackEvent } from '../lib/analytics';
+
+/**
+ * What the style controls currently edit:
+ * - `element` — the selected element's own className (writes to the JSX), the
+ *   long-standing behavior.
+ * - `class` — a shared custom class's `@apply` list (writes to the entry CSS,
+ *   updating every element that carries the class). `baseline` is the saved
+ *   token string, for dirty-detection / auto-save.
+ */
+export type EditTarget = { kind: 'element' } | { kind: 'class'; name: string; baseline: string };
 
 /** A breakpoint-scoped slice of the live-preview stylesheet: `decls` applied at
  *  `minPx` and up (0 = base, all widths). A null value deletes that property from
@@ -214,9 +233,55 @@ export function useVisualEditor({
     setImageResolution(res);
   }, []);
 
+  // What the controls edit (the element vs. a shared class). Mirrored into a ref
+  // so the mutate/commit callbacks branch on the latest value without re-subscribing.
+  const [editTarget, setEditTargetState] = useState<EditTarget>({ kind: 'element' });
+  const editTargetRef = useRef<EditTarget>({ kind: 'element' });
+  const setEditTarget = useCallback((t: EditTarget) => {
+    editTargetRef.current = t;
+    setEditTargetState(t);
+  }, []);
+
+  // The project's custom classes (refreshed on edit-mode entry and after writes).
+  const [customClasses, setCustomClasses] = useState<CustomClass[]>([]);
+
   const post = useCallback(
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
     [iframeRef]
+  );
+
+  // Route a live-preview mutation by edit target: an element edit sets the
+  // selected element's class attribute; a class edit injects decls scoped to the
+  // class selector (every instance), leaving element markup untouched.
+  const postMutate = useCallback(
+    (merged: string, rules: PreviewRule[]) => {
+      const target = editTargetRef.current;
+      if (target.kind === 'class') {
+        post({ type: 'ss:mutateClass', selector: `.${target.name}`, rules });
+      } else {
+        post({ type: 'ss:mutate', className: merged, rules });
+      }
+    },
+    [post]
+  );
+
+  // Point the controls at the selected element's own className (the default).
+  const editElement = useCallback(() => {
+    setEditTarget({ kind: 'element' });
+    setLiveClass(selectedSigRef.current?.className ?? '');
+    post({ type: 'ss:clearClassPreview' });
+  }, [post, setEditTarget, setLiveClass]);
+
+  // Point the controls at a custom class: seed the live token bag from its
+  // `@apply` list so every control reflects the class's current styles.
+  const editClass = useCallback(
+    (name: string, tokens: string[]) => {
+      const joined = tokens.join(' ');
+      setEditTarget({ kind: 'class', name, baseline: joined });
+      setLiveClass(joined);
+      post({ type: 'ss:clearClassPreview' });
+    },
+    [post, setEditTarget, setLiveClass]
   );
 
   // Activate/deactivate the in-iframe selection layer (external-system sync), and
@@ -312,6 +377,9 @@ export function useVisualEditor({
       selectedSigRef.current = sig;
       setSelection({ signature: sig, resolution: null, instanceCount });
       setLiveClass(sig.className);
+      // A fresh element selection always edits the element (not a leftover class).
+      setEditTarget({ kind: 'element' });
+      post({ type: 'ss:clearClassPreview' });
       setMultiTarget('all'); // a fresh selection defaults to editing all occurrences
       setUsage(null);
       setTextTarget(null); // optimistic; iframe allows editing until told otherwise
@@ -396,7 +464,32 @@ export function useVisualEditor({
     setMultiTarget,
     setTextTarget,
     setImageTarget,
+    setEditTarget,
   ]);
+
+  // Load the project's custom classes when edit mode opens; refresh helper lets
+  // writes (create/update/delete) push the fresh list back.
+  const refreshCustomClasses = useCallback(async () => {
+    try {
+      setCustomClasses(await listCustomClasses(projectPath));
+    } catch (err) {
+      logger.error('[VisualEditor] list custom classes failed', { error: String(err) });
+    }
+  }, [projectPath]);
+
+  // Whether the project has a writable Tailwind entry stylesheet — gates the
+  // "create / edit class" affordances. Apply/edit of existing classes already
+  // degrades naturally (the class list is empty without an entry), but create
+  // must be disabled with a hint rather than failing on a raw backend error.
+  const [classEntryReady, setClassEntryReady] = useState(true);
+
+  useEffect(() => {
+    if (!editMode) return;
+    void refreshCustomClasses();
+    void detectTailwindSetup(projectPath)
+      .then((setup) => setClassEntryReady(setup.entryCss != null))
+      .catch(() => setClassEntryReady(false));
+  }, [editMode, projectPath, refreshCustomClasses]);
 
   /**
    * Merge a Tailwind token into the live class at the active breakpoint and
@@ -420,9 +513,9 @@ export function useVisualEditor({
       const merged = twMerge(currentClassRef.current, withVariant(activeBreakpoint.prefix, bare));
       setLiveClass(merged);
       const rules: PreviewRule[] = style ? [{ minPx: activeBreakpoint.minPx, decls: style }] : [];
-      post({ type: 'ss:mutate', className: merged, rules });
+      postMutate(merged, rules);
     },
-    [post, setLiveClass, activeBreakpoint]
+    [postMutate, setLiveClass, activeBreakpoint]
   );
 
   /** Set one side of a box (padding/margin) at the active breakpoint to a scale
@@ -442,13 +535,9 @@ export function useVisualEditor({
         const v = boxSide(scoped, type, s);
         if (v) decls[`${type}-${s}`] = spacingCss(v);
       }
-      post({
-        type: 'ss:mutate',
-        className: merged,
-        rules: [{ minPx: activeBreakpoint.minPx, decls }],
-      });
+      postMutate(merged, [{ minPx: activeBreakpoint.minPx, decls }]);
     },
-    [post, setLiveClass, activeBreakpoint, known]
+    [postMutate, setLiveClass, activeBreakpoint, known]
   );
 
   /** Step a spacing utility (padding/margin/gap) by one unit at the active
@@ -476,13 +565,9 @@ export function useVisualEditor({
       setLiveClass(merged);
       const decls: Record<string, string | null> = {};
       for (const p of spec.cssProps) decls[p] = null;
-      post({
-        type: 'ss:mutate',
-        className: merged,
-        rules: [{ minPx: activeBreakpoint.minPx, decls }],
-      });
+      postMutate(merged, [{ minPx: activeBreakpoint.minPx, decls }]);
     },
-    [post, setLiveClass, activeBreakpoint, known]
+    [postMutate, setLiveClass, activeBreakpoint, known]
   );
 
   /** Persist the current live class to source. `silent` suppresses the success
@@ -490,11 +575,47 @@ export function useVisualEditor({
    *  errors still surface). */
   const commit = useCallback(
     async (opts?: { silent?: boolean }) => {
+      // Class edit: persist the @apply list to the entry CSS (updates every
+      // instance). No element markup changes, so the element-baseline dance below
+      // doesn't apply. Suppress the reload our own save triggers (avoids a flash).
+      const target = editTargetRef.current;
+      if (target.kind === 'class') {
+        const next = currentClassRef.current.trim();
+        if (next === target.baseline.trim()) return; // unchanged
+        const tokens = next.split(/\s+/).filter(Boolean);
+        post({ type: 'ss:suppressReload' });
+        try {
+          const list = await updateCustomClass(projectPath, target.name, tokens);
+          setCustomClasses(list);
+          void trackEvent('custom_class_edited', { token_count: tokens.length });
+          // Advance the baseline so consecutive edits (and auto-save) keep working.
+          setEditTarget({ kind: 'class', name: target.name, baseline: tokens.join(' ') });
+          // Keep the live override as the committed state — do NOT clear it here.
+          // The save's HMR reload is suppressed (no flash), so clearing would drop
+          // the element back to the STALE compiled rule until the next real reload,
+          // making the just-saved edit visibly revert. The override already mirrors
+          // the saved tokens; it's reconciled with the freshly-compiled @apply rule
+          // when the edit target switches or the panel closes (both clear class
+          // previews), or on the next genuine reload. Mirrors how element edits keep
+          // their live state via ss:commit rather than discarding it.
+          if (!opts?.silent) onToast?.('Class saved', 'success');
+        } catch (err) {
+          logger.error('[VisualEditor] class write-back failed', { error: String(err) });
+          onToast?.(String(err), 'error');
+        }
+        return;
+      }
+
       const sel = selection;
       const res = sel?.resolution;
       if (!res || (res.status !== 'resolved' && res.status !== 'multi')) return;
       const next = currentClassRef.current;
-      if (next === res.class_name) return; // nothing changed
+      // Use the LIVE source className (selectedSigRef) as the drift baseline, not
+      // the possibly-stale `selection` closure — a structural gesture may have
+      // advanced the source since this `commit` callback was created, and writing
+      // against a stale old-value would silently no-op at the backend.
+      const prev = selectedSigRef.current?.className ?? res.class_name;
+      if (next === prev) return; // nothing changed
       // Arm the reload-suppression window BEFORE writing: Astro's full-reload fires
       // the instant the file changes, which can beat the post-write ss:commit. Setting
       // it here means the reload our own save triggers is reliably swallowed (so the
@@ -502,16 +623,21 @@ export function useVisualEditor({
       post({ type: 'ss:suppressReload' });
       try {
         if (res.status === 'resolved') {
-          await applyClassnameEdit(projectPath, res.file, res.line, res.class_name, next);
+          await applyClassnameEdit(projectPath, res.file, res.line, prev, next);
         } else {
           // Multi: write to all matching source spots, or the one the user picked.
           const target = multiTargetRef.current;
           const edits =
             target === 'all' ? res.locations : res.locations.filter((_, i) => i === target);
-          await applyClassnameEditMulti(projectPath, edits, res.class_name, next);
+          await applyClassnameEditMulti(projectPath, edits, prev, next);
         }
-        // Advance the drift baseline so consecutive edits keep working.
+        // Advance the drift baseline so consecutive edits keep working. Keep
+        // selectedSigRef in lockstep — the structural gestures use it as the live
+        // source-className baseline, so it must reflect saved style edits too.
         setSelection({ ...sel, resolution: { ...res, class_name: next } });
+        if (selectedSigRef.current) {
+          selectedSigRef.current = { ...selectedSigRef.current, className: next };
+        }
         // Tell the in-iframe script this live state is now the saved baseline, so
         // deactivating (closing the panel) doesn't revert the just-saved edit
         // before HMR re-renders it from source.
@@ -522,8 +648,144 @@ export function useVisualEditor({
         onToast?.(String(err), 'error');
       }
     },
-    [selection, projectPath, onToast, post]
+    [selection, projectPath, onToast, post, setEditTarget]
   );
+
+  /** Rewrite the selected element's className in source to `next` (single or
+   *  multi location), advancing the drift baseline. Shared by the class apply /
+   *  unapply / extract gestures. No-op (returns false) on an unresolved element. */
+  const writeElementClass = useCallback(
+    async (next: string): Promise<boolean> => {
+      const sel = selection;
+      const res = sel?.resolution;
+      if (!res || (res.status !== 'resolved' && res.status !== 'multi')) {
+        onToast?.('Select an element whose source can be resolved first.', 'error');
+        return false;
+      }
+      // Drift baseline = the LIVE source className (selectedSigRef), not the
+      // possibly-stale `selection` state — so a burst of applies/unapplies before
+      // React re-renders each still writes against the right old value.
+      const prev = selectedSigRef.current?.className ?? res.class_name;
+      if (next === prev) return true;
+      post({ type: 'ss:suppressReload' });
+      if (res.status === 'resolved') {
+        await applyClassnameEdit(projectPath, res.file, res.line, prev, next);
+      } else {
+        // Honor the user's multi-location pick ('all' vs one index), same as commit().
+        const mt = multiTargetRef.current;
+        const edits = mt === 'all' ? res.locations : res.locations.filter((_, i) => i === mt);
+        await applyClassnameEditMulti(projectPath, edits, prev, next);
+      }
+      // Keep BOTH the selection signature (drives the class-bar chips) and the
+      // resolution baseline (drift guard) in sync with the element's new class.
+      const nextSig = { ...sel.signature, className: next };
+      setSelection({ ...sel, signature: nextSig, resolution: { ...res, class_name: next } });
+      selectedSigRef.current = nextSig;
+      // Reflect on the element itself (in element mode the live class is the element).
+      if (editTargetRef.current.kind === 'element') setLiveClass(next);
+      post({ type: 'ss:mutate', className: next, rules: [] });
+      post({ type: 'ss:commit' });
+      return true;
+    },
+    [selection, projectPath, onToast, post, setLiveClass]
+  );
+
+  /** The selected element's current className — read from the live class in
+   *  element mode, or the (kept-fresh) signature while a class is being edited.
+   *  The structural gestures below operate on THIS, never on a class's @apply. */
+  const currentElementClass = useCallback(
+    () =>
+      editTargetRef.current.kind === 'element'
+        ? currentClassRef.current
+        : (selectedSigRef.current?.className ?? ''),
+    []
+  );
+
+  /** Append an existing custom class to the selected element. Does NOT switch the
+   *  edit target — so several classes can be added in a row without the panel
+   *  yanking you into editing each one. */
+  const applyClass = useCallback(
+    async (name: string) => {
+      const current = currentElementClass().split(/\s+/).filter(Boolean);
+      if (current.includes(name)) return; // already on the element
+      try {
+        await writeElementClass([...current, name].join(' '));
+        void trackEvent('custom_class_applied');
+      } catch (err) {
+        onToast?.(String(err), 'error');
+      }
+    },
+    [currentElementClass, writeElementClass, onToast]
+  );
+
+  /** Remove a custom class from the selected element (the class stays defined in
+   *  CSS). Falls back to editing the element only if the removed class was the
+   *  active edit target. */
+  const unapplyClass = useCallback(
+    async (name: string) => {
+      const next = currentElementClass()
+        .split(/\s+/)
+        .filter((t) => t && t !== name)
+        .join(' ');
+      const wasEditing =
+        editTargetRef.current.kind === 'class' && editTargetRef.current.name === name;
+      try {
+        const ok = await writeElementClass(next);
+        if (ok && wasEditing) editElement();
+        void trackEvent('custom_class_unapplied');
+      } catch (err) {
+        onToast?.(String(err), 'error');
+      }
+    },
+    [currentElementClass, writeElementClass, editElement, onToast]
+  );
+
+  /** Webflow-style "create class from styles": move the element's utility tokens
+   *  into a new named class, keeping any classes it already had, then replace the
+   *  utilities on the element with the bare class name and edit the class. (The
+   *  element briefly shows unstyled until HMR compiles the new rule's `@apply`.) */
+  const createClassFromStyles = useCallback(
+    async (name: string) => {
+      const elTokens = currentElementClass().split(/\s+/).filter(Boolean);
+      const classNames = new Set(customClasses.map((c) => c.name));
+      const candidateUtilities = elTokens.filter((t) => !classNames.has(t));
+      try {
+        // Tokens that are plain custom classes (not utilities) can't go in @apply —
+        // applying them would break the Tailwind build. Keep those on the element.
+        const unsafe = new Set(await classifyApplyTokens(projectPath, candidateUtilities));
+        const utilities = candidateUtilities.filter((t) => !unsafe.has(t));
+        // Element keeps its existing classes + any non-utility tokens we couldn't move.
+        const kept = elTokens.filter((t) => classNames.has(t) || unsafe.has(t));
+        if (utilities.length === 0) {
+          onToast?.('This element has no Tailwind utilities to extract into a class.', 'error');
+          return;
+        }
+        const list = await createCustomClass(projectPath, name, utilities);
+        setCustomClasses(list);
+        void trackEvent('custom_class_created', {
+          token_count: utilities.length,
+          kept_count: kept.length,
+        });
+        const ok = await writeElementClass([...kept, name].join(' '));
+        if (!ok) {
+          // The class was created but couldn't be applied — still let the user edit it.
+          onToast?.(`Created .${name}, but couldn't update the element.`, 'error');
+        }
+        editClass(name, utilities);
+        if (unsafe.size > 0) {
+          onToast?.(`Kept ${[...unsafe].join(', ')} on the element (not a utility).`, 'success');
+        }
+      } catch (err) {
+        onToast?.(String(err), 'error');
+      }
+    },
+    [projectPath, customClasses, currentElementClass, writeElementClass, editClass, onToast]
+  );
+
+  // NOTE: deleting a custom class (delete_custom_class backend command) is a
+  // Phase-2 follow-up — it needs a confirmation flow in the bar since it removes
+  // shared styles and leaves orphan class names in markup. Intentionally not
+  // wired to UI yet (rather than shipped as a dead, unconfirmed action).
 
   /**
    * Replace the selected image's src in source (immediate write, like a text
@@ -572,12 +834,18 @@ export function useVisualEditor({
   // baseline-advance inside `commit` makes the next run a no-op (no loop).
   useEffect(() => {
     if (!autoSave) return;
-    const res = selection?.resolution;
-    if (res?.status !== 'resolved' && res?.status !== 'multi') return;
-    if (currentClass === res.class_name) return; // clean
+    let dirty = false;
+    if (editTarget.kind === 'class') {
+      dirty = currentClass.trim() !== editTarget.baseline.trim();
+    } else {
+      const res = selection?.resolution;
+      if (res?.status !== 'resolved' && res?.status !== 'multi') return;
+      dirty = currentClass !== res.class_name;
+    }
+    if (!dirty) return;
     const id = window.setTimeout(() => void commit({ silent: true }), AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(id);
-  }, [autoSave, currentClass, selection, commit]);
+  }, [autoSave, currentClass, selection, editTarget, commit]);
 
   const toggleEditMode = useCallback(() => {
     setEditModeOn((prev) => {
@@ -588,11 +856,12 @@ export function useVisualEditor({
         setLiveClass('');
         setTextTarget(null);
         setImageTarget(null);
+        setEditTarget({ kind: 'element' });
         selectedSigRef.current = null;
       }
       return !prev;
     });
-  }, [setLiveClass, setTextTarget, setImageTarget]);
+  }, [setLiveClass, setTextTarget, setImageTarget, setEditTarget]);
 
   return {
     editMode,
@@ -619,5 +888,22 @@ export function useVisualEditor({
     applyEnum: applyToken,
     reset,
     commit,
+    // ── Custom classes (Webflow-style) ───────────────────────────────────────
+    /** What the controls currently edit (the element, or a shared class). */
+    editTarget,
+    /** Switch the controls back to the selected element's own className. */
+    editElement,
+    /** Switch the controls to a custom class's `@apply` list. */
+    editClass,
+    /** The project's custom classes (for the class bar + apply menu). */
+    customClasses,
+    /** Whether a writable Tailwind entry stylesheet exists (gates create). */
+    classEntryReady,
+    /** Append an existing custom class to the element and edit it. */
+    applyClass,
+    /** Remove a custom class from the element (keeps it defined in CSS). */
+    unapplyClass,
+    /** Extract the element's utilities into a new named class and edit it. */
+    createClassFromStyles,
   };
 }

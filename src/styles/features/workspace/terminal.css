@@ -9,6 +9,19 @@
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  /* A floor gap so the left (undo/redo) and right (Split / Agent Settings)
+     clusters never butt up against each other once the flex:1 spacer between
+     them collapses on a narrow pane. */
+  gap: var(--spacing-sm);
+}
+
+/* Collapse "Agent Settings" to its gear icon at the SAME window width as the
+   header's label collapse (workspace/main.css) so every toolbar label drops to
+   icon-only in unison. Keep this breakpoint in sync with that one. */
+@media (max-width: 1300px) {
+  .terminal-tabs-bar .toolbar-btn-label {
+    display: none;
+  }
 }
 
 /* Right-side cluster — groups feature toggles + the Agent Settings

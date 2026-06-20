@@ -55,7 +55,10 @@ function ensureStyle(){if(!styleEl){styleEl=document.createElement('style');styl
    as a bare rule, variants wrapped in @media, emitted ascending by minPx so a larger
    breakpoint wins by source order. !important is safe — the sheet is preview-only and
    discarded on reload — and removes specificity fights with the page. */
-function buildCss(mark){var byMin=pvDecls[mark];if(!byMin)return '';var mins=[];for(var k in byMin)mins.push(Number(k));mins.sort(function(a,b){return a-b;});var sel='[data-ss-sel="'+mark+'"]',out='';for(var i=0;i<mins.length;i++){var m=mins[i],decls=byMin[m],body='';for(var p in decls)body+=p+':'+decls[p]+' !important;';if(!body)continue;var block=sel+'{'+body+'}';out+=m>0?'@media (min-width:'+m+'px){'+block+'}':block;}return out;}
+/* A "cls:<selector>" key previews a custom class across ALL its instances (the
+   selector is applied verbatim); any other key is a per-selection marker. */
+function previewSel(mark){var s=String(mark);return s.indexOf('cls:')===0?s.slice(4):'[data-ss-sel="'+s+'"]';}
+function buildCss(mark){var byMin=pvDecls[mark];if(!byMin)return '';var mins=[];for(var k in byMin)mins.push(Number(k));mins.sort(function(a,b){return a-b;});var sel=previewSel(mark),out='';for(var i=0;i<mins.length;i++){var m=mins[i],decls=byMin[m],body='';for(var p in decls)body+=p+':'+decls[p]+' !important;';if(!body)continue;var block=sel+'{'+body+'}';out+=m>0?'@media (min-width:'+m+'px){'+block+'}':block;}return out;}
 function rebuildSheet(){var css='';for(var k in pvDecls)css+=buildCss(k);ensureStyle().textContent=css;}
 /* Discard the current selection's UNCOMMITTED preview (revert class, drop its decls +
    marker). A committed selection is kept as-is — only the live pointer is released. */
@@ -295,7 +298,7 @@ function treeEnsureObserver(){if(treeObserver)return;treeObserver=new MutationOb
 function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active)placeSet();}
 window.addEventListener('message',function(e){var d=e.data||{};
 if(d.type==='ss:activate'){active=true;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
-else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;restoreSel();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
+else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 /* Parent's verdict on whether the current selection's text is editable in source. If
    the user already started editing optimistically (verdict hadn't arrived yet) and it
    turns out non-editable, bounce out now rather than failing silently at save. */
@@ -304,6 +307,14 @@ else if(d.type==='ss:textInfo'){txtEditable=!!d.editable;if(!txtEditable&&txtEdi
    and unhide the (still-original) element. Astro in-place: restore its innerHTML. */
 else if(d.type==='ss:textRevert'){if(txtPending){finalizePending();}else if(txtRevertEl){txtRevertEl.innerHTML=txtRevertHtml;placeSet();}txtRevertEl=null;}
 else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(typeof d.className==='string')el.setAttribute('class',d.className);}if(curMark!==null&&d.rules){var byMin=pvDecls[curMark]||(pvDecls[curMark]={});for(var r=0;r<d.rules.length;r++){var rule=d.rules[r],bucket=byMin[rule.minPx]||(byMin[rule.minPx]={});for(var p in rule.decls){if(rule.decls[p]==null)delete bucket[p];else bucket[p]=rule.decls[p];}}pendingMark=curMark;rebuildSheet();}placeSet();}
+/* Preview a CUSTOM CLASS edit across every instance: accumulate decls under a
+   selector-scoped key (no element's class attribute is touched — the elements
+   already carry the class). Persists until cleared or the next reload, so it
+   survives selecting other instances while editing the class. */
+else if(d.type==='ss:mutateClass'){if(typeof d.selector==='string'&&d.rules){var ck='cls:'+d.selector;var cByMin=pvDecls[ck]||(pvDecls[ck]={});for(var cr=0;cr<d.rules.length;cr++){var crule=d.rules[cr],cbucket=cByMin[crule.minPx]||(cByMin[crule.minPx]={});for(var cp in crule.decls){if(crule.decls[cp]==null)delete cbucket[cp];else cbucket[cp]=crule.decls[cp];}}rebuildSheet();}placeSet();}
+/* Drop a custom-class preview (host left class-edit mode / reverted). Omit the
+   selector to clear ALL class previews. */
+else if(d.type==='ss:clearClassPreview'){if(typeof d.selector==='string'){delete pvDecls['cls:'+d.selector];}else{for(var pk in pvDecls){if(String(pk).indexOf('cls:')===0)delete pvDecls[pk];}}rebuildSheet();}
 /* Edit was saved to source: clear the pending flag so the preview rule + class are kept
    (no longer reverted on deselect/deactivate) and re-baseline the class. HMR re-renders
    from source and the real compiled CSS takes over. */

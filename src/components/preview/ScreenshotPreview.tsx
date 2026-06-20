@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { getScreenshotBase64 } from '../../lib/ide';
 import { CameraIcon, CloseIcon } from '../icons';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { logger } from '../../lib/logger';
@@ -36,7 +36,7 @@ export function ScreenshotToast({ filePath, onDismiss, onViewFull }: ScreenshotT
 
   // Load image as base64 on mount
   useEffect(() => {
-    invoke<string>('get_screenshot_base64', { filePath })
+    getScreenshotBase64(filePath)
       .then(setImageSrc)
       .catch((err) =>
         logger.error('Failed to load screenshot', {
@@ -113,7 +113,7 @@ export function ScreenshotPreviewModal({ filePath, onClose }: ScreenshotPreviewM
 
   // Load image as base64 on mount
   useEffect(() => {
-    invoke<string>('get_screenshot_base64', { filePath })
+    getScreenshotBase64(filePath)
       .then(setImageSrc)
       .catch((err) =>
         logger.error('Failed to load screenshot', {

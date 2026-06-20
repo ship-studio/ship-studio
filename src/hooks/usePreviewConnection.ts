@@ -15,8 +15,22 @@ import { trackEvent } from '../lib/analytics';
 
 /** How often to refresh the page list (ms) */
 const PAGE_REFRESH_INTERVAL_MS = 5000;
-/** Timeout for dev server health check requests (ms) */
-const SERVER_CHECK_TIMEOUT_MS = 3000;
+/** Timeout for the periodic health check once the server is already up (ms).
+ *  The server is warm here, so a healthy reply is near-instant; 3s is plenty
+ *  and keeps a crashed server from lingering in the "ready" state. */
+const HEALTH_CHECK_TIMEOUT_MS = 3000;
+/** Timeout for an initial readiness probe (ms).
+ *
+ *  Must be generous: modern dev servers (Next.js / Turbopack, Vite) compile the
+ *  first route ON DEMAND and hold the HTTP request open until that compile
+ *  finishes — frequently 10–30s on a cold start with a real dependency tree.
+ *  The response headers don't arrive until then, so a short timeout aborts the
+ *  probe mid-compile every single attempt and the preview never opens, even
+ *  though the server is healthy (a plain browser, which doesn't abort, loads it
+ *  fine — just slowly). A genuinely-down server still rejects instantly with
+ *  connection-refused, so this longer window only affects the "connected but
+ *  still compiling" case it's meant to ride out. */
+const SERVER_READY_TIMEOUT_MS = 30000;
 /** Maximum retries before showing error state */
 export const SERVER_MAX_RETRIES = 60;
 /** Consecutive health check failures before marking server as down */
@@ -85,6 +99,12 @@ export function usePreviewConnection({
   // The pending "schedule next attempt" timer, tracked so Stop can cancel it
   // immediately rather than letting one more attempt fire.
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The in-flight readiness probe's AbortController. A readiness probe can now
+  // ride a compile for up to SERVER_READY_TIMEOUT_MS (30s), so a superseded
+  // attempt (Stop, project switch, restart) must be aborted explicitly —
+  // otherwise the fetch and its 30s abort timer leak until they fire on a
+  // controller nobody is listening to anymore.
+  const readyProbeControllerRef = useRef<AbortController | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -314,13 +334,12 @@ export function usePreviewConnection({
       setHasError(false);
       setServerReady(false);
 
+      const controller = new AbortController();
+      readyProbeControllerRef.current = controller;
+      const timeoutId = setTimeout(() => controller.abort(), SERVER_READY_TIMEOUT_MS);
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), SERVER_CHECK_TIMEOUT_MS);
-
         await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
 
-        clearTimeout(timeoutId);
         logger.info('[Preview] Server check succeeded', { port });
         setIsLoading(false);
         setHasError(false);
@@ -336,12 +355,22 @@ export function usePreviewConnection({
         // The fetch may have resolved after the user hit Stop — don't schedule
         // another attempt or flip into the error state behind their back.
         if (isStoppedRef.current) return;
+        // If this probe was superseded (aborted by the effect cleanup on a
+        // project/port change or restart, or replaced by a newer attempt), the
+        // ref no longer points at our controller. The active attempt owns
+        // retrying — bailing here avoids a stray duplicate retry.
+        if (readyProbeControllerRef.current !== controller) return;
         if (retryCount < SERVER_MAX_RETRIES) {
           const delay = Math.min(1000 * Math.pow(1.5, retryCount), 5000);
           retryTimerRef.current = setTimeout(() => setRetryCount((c) => c + 1), delay);
         } else {
           setIsLoading(false);
           setHasError(true);
+        }
+      } finally {
+        clearTimeout(timeoutId);
+        if (readyProbeControllerRef.current === controller) {
+          readyProbeControllerRef.current = null;
         }
       }
     };
@@ -352,6 +381,11 @@ export function usePreviewConnection({
         clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
       }
+      // Abort a probe left in flight by this attempt (project/port change,
+      // restart, or the next retry superseding it) so its long-lived fetch and
+      // 30s abort timer don't linger.
+      readyProbeControllerRef.current?.abort();
+      readyProbeControllerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- port is covered by devServerUrl
   }, [devServerUrl, retryCount, isStopped]);
@@ -366,7 +400,7 @@ export function usePreviewConnection({
     const healthCheck = async () => {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), SERVER_CHECK_TIMEOUT_MS);
+        const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
 
         await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
 
@@ -454,10 +488,18 @@ export function usePreviewConnection({
   // Halt the connect loop immediately — cancel any pending retry and drop out of
   // the loading state into a "stopped" state with Retry / Fix-with-agent actions.
   const stopConnecting = useCallback(() => {
+    // Set the ref before aborting so the probe's catch sees "stopped" and bails
+    // instead of scheduling another attempt (the state update won't have flushed
+    // to isStoppedRef by the time abort rejects the in-flight fetch).
+    isStoppedRef.current = true;
     if (retryTimerRef.current) {
       clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
     }
+    // Abort the in-flight readiness probe so Stop is honored immediately rather
+    // than leaving a 30s fetch running in the background.
+    readyProbeControllerRef.current?.abort();
+    readyProbeControllerRef.current = null;
     setIsStopped(true);
     setIsLoading(false);
     setHasError(false);

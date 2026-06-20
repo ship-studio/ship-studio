@@ -165,7 +165,13 @@ export function TemplateGallery({
           spellCheck={false}
         />
         {searchQuery && (
-          <button type="button" className="tg-search-clear" onClick={() => onSearchChange('')}>
+          <button
+            type="button"
+            className="tg-search-clear"
+            title="Clear search"
+            aria-label="Clear search"
+            onClick={() => onSearchChange('')}
+          >
             <svg
               width="14"
               height="14"
@@ -186,6 +192,8 @@ export function TemplateGallery({
           <button
             type="button"
             className="tg-scroll-btn tg-scroll-left"
+            title="Scroll left"
+            aria-label="Scroll left"
             onClick={() => scroll('left')}
           >
             <svg
@@ -231,6 +239,8 @@ export function TemplateGallery({
           <button
             type="button"
             className="tg-scroll-btn tg-scroll-right"
+            title="Scroll right"
+            aria-label="Scroll right"
             onClick={() => scroll('right')}
           >
             <svg

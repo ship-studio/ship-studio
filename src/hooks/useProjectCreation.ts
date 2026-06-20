@@ -43,6 +43,9 @@ import { installPlugin, VERCEL_PLUGIN_REPO } from '../lib/plugins';
 // Types & Constants
 // ---------------------------------------------------------------------------
 
+/** Grouping for the template picker, so the grid isn't an undifferentiated list. */
+export type TemplateCategory = 'web' | 'mobile' | 'other';
+
 /** Template definition for project scaffolding */
 export interface Template {
   /** Unique identifier for the template */
@@ -53,6 +56,8 @@ export interface Template {
   description: string;
   /** GitHub repository URL to clone */
   repo: string;
+  /** Which section of the picker this template appears under */
+  category: TemplateCategory;
   /** Skip the npm install step (templates with no package.json, e.g. HTML/Flutter) */
   skipInstall?: boolean;
 }
@@ -73,66 +78,83 @@ export const TEMPLATES: Template[] = [
   {
     id: 'nextjs-basic',
     name: 'Next.js',
-    description: 'A minimal Next.js starter with Tailwind CSS',
+    description: 'A modern website. A great default if you are not sure.',
     repo: 'https://github.com/ship-studio/static-marketing-site-starter',
+    category: 'web',
   },
   {
     id: 'sveltekit-basic',
     name: 'SvelteKit',
-    description: 'A minimal SvelteKit starter with Tailwind CSS',
+    description: 'A fast, lightweight website.',
     repo: 'https://github.com/ship-studio/sveltekit-static-marketing-site-starter',
+    category: 'web',
   },
   {
     id: 'astro-basic',
     name: 'Astro',
-    description: 'A minimal Astro starter with Tailwind CSS',
+    description: 'A content or marketing site that loads fast.',
     repo: 'https://github.com/ship-studio/astro-static-marketing-site-starter',
+    category: 'web',
   },
   {
     id: 'nuxt-basic',
     name: 'Nuxt',
-    description: 'A minimal Nuxt starter with Tailwind CSS',
+    description: 'A website built on Vue.',
     repo: 'https://github.com/ship-studio/nuxt-static-marketing-site-starter',
+    category: 'web',
   },
   {
     id: 'html-basic',
     name: 'HTML/CSS/JS',
-    description: 'A plain HTML starter — no framework, no build step',
+    description: 'A plain website with no framework or build step.',
     repo: 'https://github.com/ship-studio/html-starter',
-    skipInstall: true,
-  },
-  {
-    id: 'shopify-theme',
-    name: 'Shopify Theme',
-    description: 'An Online Store 2.0 theme — previews against your real store',
-    repo: 'https://github.com/ship-studio/shopify-theme-starter',
+    category: 'web',
     skipInstall: true,
   },
   {
     id: 'expo-mobile',
     name: 'Expo',
-    description: 'An iOS & Android app — the easiest mobile path',
+    description: 'An iOS and Android app. The easiest mobile path.',
     repo: 'https://github.com/ship-studio/expo-starter',
+    category: 'mobile',
   },
   {
     id: 'react-native-mobile',
     name: 'React Native',
-    description: 'An iOS & Android app with full native control',
+    description: 'An iOS and Android app with full native control.',
     repo: 'https://github.com/ship-studio/react-native-starter',
+    category: 'mobile',
   },
   {
     id: 'flutter-mobile',
     name: 'Flutter',
-    description: 'An iOS & Android app built with Flutter and Material 3',
+    description: 'An iOS and Android app built with Flutter.',
     repo: 'https://github.com/ship-studio/flutter-starter',
+    category: 'mobile',
+    skipInstall: true,
+  },
+  {
+    id: 'shopify-theme',
+    name: 'Shopify Theme',
+    description: 'An online store theme that previews against your real store.',
+    repo: 'https://github.com/ship-studio/shopify-theme-starter',
+    category: 'other',
     skipInstall: true,
   },
   {
     id: 'blank',
     name: 'Blank Project',
-    description: 'An empty folder — start from scratch',
+    description: 'An empty folder. Start completely from scratch.',
     repo: '',
+    category: 'other',
   },
+];
+
+/** Picker sections, in display order. */
+export const TEMPLATE_GROUPS: { id: TemplateCategory; label: string }[] = [
+  { id: 'web', label: 'Websites & web apps' },
+  { id: 'mobile', label: 'Mobile apps' },
+  { id: 'other', label: 'Other' },
 ];
 
 /** Form wizard steps before creation starts */
@@ -682,6 +704,7 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
     // Zip state setters (for community template download flow)
     setZipPath,
     setZipFileName,
+    setError,
 
     // Default template
     saveDefaultTemplate,

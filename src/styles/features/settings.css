@@ -60,6 +60,105 @@
   line-height: 1.4;
 }
 
+/* Projects folder row (stacked: label/description/path above the actions) */
+.settings-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* The path field is itself the click target — a pencil sits on the right. */
+.settings-folder-field {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--transition),
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.settings-folder-field:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.settings-folder-field:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-folder-field-path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-folder-field :last-child {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.settings-folder-field:hover:not(:disabled) :last-child {
+  color: var(--accent);
+}
+
+.settings-folder-reset {
+  align-self: flex-start;
+  margin-top: var(--spacing-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.settings-folder-reset:hover:not(:disabled) {
+  color: var(--text-secondary);
+}
+
+/* Move-projects prompt */
+.settings-move-intro {
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin: 0 0 var(--spacing-md);
+}
+
+.settings-move-paths {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  word-break: break-all;
+  margin: 0 0 var(--spacing-md);
+}
+
+.settings-move-note {
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0 0 var(--spacing-sm);
+}
+
+.settings-move-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+}
+
 /* Toggle switch */
 .settings-toggle {
   flex-shrink: 0;

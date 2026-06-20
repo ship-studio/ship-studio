@@ -8,6 +8,7 @@
 import { FolderCard } from './FolderCard';
 import { ProjectCard } from './ProjectCard';
 import { EmptyState } from '../primitives/EmptyState';
+import { Button } from '../primitives/Button';
 import type { DashboardProject } from '../../lib/project';
 import type { FolderInfo } from '../../lib/folders';
 
@@ -40,6 +41,8 @@ export interface ProjectGridViewProps {
   pinnedSet?: ReadonlySet<string>;
   /** Toggle pin state for a project. */
   onTogglePin?: (projectPath: string, pinned: boolean) => void;
+  /** Start the create-project flow (drives the zero-projects empty-state CTA). */
+  onCreateProject?: () => void;
 }
 
 export function ProjectGridView({
@@ -62,6 +65,7 @@ export function ProjectGridView({
   onDeleteFolder,
   pinnedSet,
   onTogglePin,
+  onCreateProject,
 }: ProjectGridViewProps) {
   if (totalCount === 0) {
     return (
@@ -76,7 +80,14 @@ export function ProjectGridView({
         ) : (
           <EmptyState
             title="No projects yet"
-            description="Create your first project to get started"
+            description="You don't need a repo or any code to start — pick a template and your AI agent builds it."
+            action={
+              onCreateProject ? (
+                <Button variant="primary" onClick={onCreateProject}>
+                  + Create your first project
+                </Button>
+              ) : undefined
+            }
           />
         )}
       </div>

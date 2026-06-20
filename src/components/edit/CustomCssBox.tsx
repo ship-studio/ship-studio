@@ -53,6 +53,7 @@ export function CustomCssBox({ currentClass, layer, onApplyEnum, onReset }: Prop
               <button
                 type="button"
                 className="ss-custom-css__chip-x"
+                title={`Remove ${p.prop}`}
                 aria-label={`Remove ${p.prop}`}
                 onClick={() => onReset({ match: (t) => t === p.token, cssProps: [p.prop] })}
               >

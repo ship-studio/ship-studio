@@ -600,6 +600,10 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
                 args={terminalConfig.args}
                 onExit={(exitCode) => void handleTerminalExit(exitCode)}
               />
+              <div className="onboarding-terminal-hint">
+                <strong>If you're asked for a password</strong>, type it and press Enter. It stays
+                hidden as you type — no dots or characters appear — but it is being entered.
+              </div>
             </div>
           </div>
         )}
@@ -613,7 +617,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           <button
             onClick={() =>
               void openUrl(
-                'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ'
+                'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g'
               )
             }
           >

@@ -157,13 +157,6 @@
   overflow: hidden;
 }
 
-.github-modal h3 {
-  padding: 20px 20px 0;
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  margin: 0;
-}
-
 .github-modal > p {
   padding: 6px 20px 0;
   font-size: var(--font-size-md);

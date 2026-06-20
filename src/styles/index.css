@@ -25,6 +25,7 @@
 @import './features/preview.css';
 @import './features/visual-editor.css';
 @import './features/visual-editor-image.css';
+@import './features/visual-editor-classes.css';
 @import './features/element-tree.css';
 @import './features/device-mirror.css';
 @import './features/browser-tools.css';

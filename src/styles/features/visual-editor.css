@@ -119,6 +119,9 @@
   color: var(--text-primary);
 }
 
+/* The fixed context bar (breakpoint + edit target) lives in
+   visual-editor-classes.css. */
+
 .ss-edit-panel__body {
   flex: 1 1 auto;
   min-height: 0;
@@ -128,6 +131,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+}
+/* Empty body (no resolved controls yet) shouldn't keep a stray padding band. */
+.ss-edit-panel__body:empty {
+  padding: 0;
 }
 /* Body children keep their natural height — the BODY scrolls, children never get
    compressed (which would clip their content under overflow:hidden). */

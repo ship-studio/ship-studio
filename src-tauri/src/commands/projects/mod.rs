@@ -101,7 +101,7 @@ fn ensure_gitignore_has_shipstudio_sync(project: &std::path::Path) -> Result<(),
 /// Check if a directory is a valid project.
 /// Accepts any directory inside ~/ShipStudio that has project files,
 /// a .gitignore (blank projects), or a .shipstudio metadata folder.
-fn is_valid_project(path: &std::path::Path) -> bool {
+pub(crate) fn is_valid_project(path: &std::path::Path) -> bool {
     path.is_dir()
         && (path.join("package.json").exists()
             || detection::has_html_files(path)
@@ -129,9 +129,10 @@ fn project_visible_for_account(
 #[tauri::command]
 #[tracing::instrument]
 pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
-    let active_account_id = crate::commands::accounts::get_active_account_id()?;
+    let shipstudio_dir = crate::utils::projects_root()?;
+    // Account resolution must never break project listing: degrade to "no active
+    // account" (everything visible) on failure rather than erroring the whole list.
+    let active_account_id = crate::commands::accounts::get_active_account_id().unwrap_or_default();
     // Live workspace list, read once so the visibility check stays IO-free per project.
     let accounts = crate::commands::setup::read_app_state().accounts;
 
@@ -235,9 +236,10 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
 #[tauri::command]
 #[tracing::instrument]
 pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandError> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
-    let active_account_id = crate::commands::accounts::get_active_account_id()?;
+    let shipstudio_dir = crate::utils::projects_root()?;
+    // Account resolution must never break the dashboard: degrade to "no active
+    // account" (everything visible) on failure rather than erroring the whole list.
+    let active_account_id = crate::commands::accounts::get_active_account_id().unwrap_or_default();
     // Live workspace list, read once so the visibility check stays IO-free per project.
     let accounts = crate::commands::setup::read_app_state().accounts;
 
@@ -533,15 +535,16 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn create_blank_project(project_path: String) -> Result<(), CommandError> {
     // Can't use validate_project_path because the directory doesn't exist yet.
-    // Instead, validate that the parent is within ~/ShipStudio.
+    // Instead, validate that the parent is within an allowed projects root.
     let path = std::path::Path::new(&project_path);
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
     let parent = path.parent().ok_or("Invalid project path")?;
     let canonical_parent =
         dunce::canonicalize(parent).map_err(|e| format!("Invalid parent path: {e}"))?;
-    if !canonical_parent.starts_with(&shipstudio_dir) {
-        return Err(("Project must be inside ~/ShipStudio".to_string()).into());
+    if !crate::utils::allowed_project_roots()
+        .iter()
+        .any(|root| canonical_parent.starts_with(root))
+    {
+        return Err(("Project must be inside the projects directory".to_string()).into());
     }
 
     std::fs::create_dir_all(path)
@@ -590,11 +593,11 @@ pub async fn delete_project(path: String) -> Result<(), CommandError> {
         );
     }
 
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
-
-    if !canonical.starts_with(&shipstudio_dir) {
-        return Err(("Can only delete projects from ShipStudio directory".to_string()).into());
+    if !crate::utils::allowed_project_roots()
+        .iter()
+        .any(|root| canonical.starts_with(root))
+    {
+        return Err(("Can only delete projects from the projects directory".to_string()).into());
     }
 
     std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())?;
@@ -674,11 +677,12 @@ pub async fn rename_project(
         );
     }
 
-    // Must live inside ~/ShipStudio.
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
-    if !project_path.starts_with(&shipstudio_dir) {
-        return Err(("Can only rename projects in the ShipStudio directory".to_string()).into());
+    // Must live inside an allowed projects root.
+    if !crate::utils::allowed_project_roots()
+        .iter()
+        .any(|root| project_path.starts_with(root))
+    {
+        return Err(("Can only rename projects in the projects directory".to_string()).into());
     }
 
     // Validate + normalize the requested name.
@@ -748,6 +752,221 @@ pub async fn rename_project(
     Ok(new_path_str)
 }
 
+// ============ Move projects between roots ============
+
+/// Projects in a source root bucketed by how they'd move into a destination root.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovableProjects {
+    /// Projects that can be moved cleanly.
+    pub movable: Vec<String>,
+    /// Projects whose name already exists in the destination.
+    pub collisions: Vec<String>,
+    /// Projects currently open in a window or running a hot session.
+    pub open: Vec<String>,
+}
+
+/// One project skipped during a move, with a human-readable reason.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedProject {
+    pub name: String,
+    pub reason: String,
+}
+
+/// Outcome of moving projects between roots.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveReport {
+    pub moved: Vec<String>,
+    pub skipped: Vec<SkippedProject>,
+}
+
+/// Whether a project path is open in a window or has an active hot session.
+fn is_project_open(path: &str) -> bool {
+    if crate::state::get_window_for_project(path).is_some() {
+        return true;
+    }
+    matches!(
+        crate::state::get_session(path),
+        Some(s) if s.status == crate::state::SessionStatus::Active
+    )
+}
+
+/// Recursively copy a directory tree (cross-volume fallback for [`move_dir`]).
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else if file_type.is_symlink() {
+            #[cfg(unix)]
+            {
+                let target = std::fs::read_link(&from)?;
+                std::os::unix::fs::symlink(target, &to)?;
+            }
+            #[cfg(not(unix))]
+            {
+                std::fs::copy(&from, &to)?;
+            }
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Move a directory, falling back to copy+delete when `rename` can't cross volumes.
+fn move_dir(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    if std::fs::rename(src, dst).is_ok() {
+        return Ok(());
+    }
+    copy_dir_recursive(src, dst).map_err(|e| format!("copy failed: {e}"))?;
+    std::fs::remove_dir_all(src).map_err(|e| format!("cleanup after copy failed: {e}"))?;
+    Ok(())
+}
+
+/// Bucket immediate project subfolders of `from` by movable / collision / open.
+/// Hidden dirs (e.g. the `.shipstudio` app-config dir, which stays at the default
+/// root regardless of where projects live) are skipped.
+fn scan_movable(
+    from: &std::path::Path,
+    to: &std::path::Path,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut movable = Vec::new();
+    let mut collisions = Vec::new();
+    let mut open = Vec::new();
+    let Ok(entries) = std::fs::read_dir(from) else {
+        return (movable, collisions, open);
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if !is_valid_project(&path) {
+            continue;
+        }
+        let src_str = path.to_string_lossy().to_string();
+        if is_project_open(&src_str) {
+            open.push(name);
+        } else if to.join(&name).exists() {
+            collisions.push(name);
+        } else {
+            movable.push(name);
+        }
+    }
+    movable.sort();
+    collisions.sort();
+    open.sort();
+    (movable, collisions, open)
+}
+
+/// Preview which projects in `from` can be moved into `to` (drives the move prompt).
+#[tauri::command]
+#[tracing::instrument]
+pub async fn list_movable_projects(
+    from: String,
+    to: String,
+) -> Result<MovableProjects, CommandError> {
+    let from_dir = std::path::Path::new(&from);
+    let to_dir = std::path::Path::new(&to);
+    // Same folder (or missing source) → nothing to move.
+    if !from_dir.is_dir() || dunce::canonicalize(from_dir).ok() == dunce::canonicalize(to_dir).ok()
+    {
+        return Ok(MovableProjects {
+            movable: vec![],
+            collisions: vec![],
+            open: vec![],
+        });
+    }
+    let (movable, collisions, open) = scan_movable(from_dir, to_dir);
+    Ok(MovableProjects {
+        movable,
+        collisions,
+        open,
+    })
+}
+
+/// Move project folders from one projects root into another.
+///
+/// Skips projects that are currently open or whose name collides in the
+/// destination. For each moved project, rekeys pins, folder membership, and
+/// session state so the dashboard stays consistent. Returns a per-project report.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn move_projects_to_root(from: String, to: String) -> Result<MoveReport, CommandError> {
+    let from_dir = std::path::Path::new(&from);
+    let to_dir = std::path::Path::new(&to);
+
+    if !from_dir.is_dir() {
+        return Err((format!("Source folder doesn't exist: {from}")).into());
+    }
+    if !to_dir.is_dir() {
+        return Err((format!("Destination folder doesn't exist: {to}")).into());
+    }
+    if dunce::canonicalize(from_dir).ok() == dunce::canonicalize(to_dir).ok() {
+        return Ok(MoveReport {
+            moved: vec![],
+            skipped: vec![],
+        });
+    }
+
+    let mut moved = Vec::new();
+    let mut skipped = Vec::new();
+
+    let entries = std::fs::read_dir(from_dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let src = entry.path();
+        if !is_valid_project(&src) {
+            continue;
+        }
+        let src_str = src.to_string_lossy().to_string();
+        if is_project_open(&src_str) {
+            skipped.push(SkippedProject {
+                name,
+                reason: "currently open — close it first".into(),
+            });
+            continue;
+        }
+        let dst = to_dir.join(&name);
+        if dst.exists() {
+            skipped.push(SkippedProject {
+                name,
+                reason: "a folder with the same name already exists in the destination".into(),
+            });
+            continue;
+        }
+        match move_dir(&src, &dst) {
+            Ok(()) => {
+                let dst_str = dst.to_string_lossy().to_string();
+                // Rekey path-keyed stores (best-effort; the move already succeeded).
+                if let Err(e) = pins::rename_pinned_path(&src_str, &dst_str) {
+                    tracing::warn!(error = %e, "Failed to rekey pins after project move");
+                }
+                if let Err(e) = crate::commands::folders::rename_project_path(&src_str, &dst_str) {
+                    tracing::warn!(error = %e, "Failed to rekey folder membership after project move");
+                }
+                crate::state::rename_session_path(&src_str, &dst_str);
+                moved.push(name);
+            }
+            Err(e) => skipped.push(SkippedProject { name, reason: e }),
+        }
+    }
+
+    tracing::info!("Moved {} project(s) from {} to {}", moved.len(), from, to);
+    Ok(MoveReport { moved, skipped })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -770,5 +989,50 @@ mod tests {
         assert!(validate_project_name("..").is_err());
         assert!(validate_project_name(".hidden").is_err());
         assert!(validate_project_name(&"x".repeat(256)).is_err());
+    }
+
+    /// Create a minimal valid project directory (a `.gitignore` makes
+    /// `is_valid_project` return true).
+    fn make_project(root: &std::path::Path, name: &str) {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".gitignore"), ".shipstudio/\n").unwrap();
+    }
+
+    #[test]
+    fn scan_movable_buckets_clean_collision_and_skips_hidden() {
+        let from = tempfile::tempdir().unwrap();
+        let to = tempfile::tempdir().unwrap();
+
+        make_project(from.path(), "alpha"); // movable
+        make_project(from.path(), "beta"); // collides below
+        make_project(to.path(), "beta"); // destination already has beta
+
+        // A hidden config dir and a non-project dir must be ignored.
+        std::fs::create_dir_all(from.path().join(".shipstudio")).unwrap();
+        std::fs::create_dir_all(from.path().join("not-a-project")).unwrap();
+
+        let (movable, collisions, open) = scan_movable(from.path(), to.path());
+
+        assert_eq!(movable, vec!["alpha".to_string()]);
+        assert_eq!(collisions, vec!["beta".to_string()]);
+        assert!(open.is_empty());
+    }
+
+    #[test]
+    fn move_dir_relocates_a_directory_tree() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        let dst = tmp.path().join("dst");
+        std::fs::create_dir_all(src.join("nested")).unwrap();
+        std::fs::write(src.join("nested").join("file.txt"), "hello").unwrap();
+
+        move_dir(&src, &dst).unwrap();
+
+        assert!(!src.exists());
+        assert_eq!(
+            std::fs::read_to_string(dst.join("nested").join("file.txt")).unwrap(),
+            "hello"
+        );
     }
 }

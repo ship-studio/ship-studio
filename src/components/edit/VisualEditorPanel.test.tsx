@@ -35,7 +35,8 @@ function renderPanel(
   onToggleAutoSave = vi.fn(),
   onApplyEnum = vi.fn(),
   onSetSide = vi.fn(),
-  onReset = vi.fn()
+  onReset = vi.fn(),
+  editTarget: import('../../hooks/useVisualEditor').EditTarget = { kind: 'element' }
 ) {
   return render(
     <VisualEditorPanel
@@ -55,6 +56,13 @@ function renderPanel(
       onReset={onReset}
       multiTarget="all"
       onMultiTargetChange={vi.fn()}
+      editTarget={editTarget}
+      customClasses={[]}
+      onEditElement={vi.fn()}
+      onEditClass={vi.fn()}
+      onApplyClass={vi.fn()}
+      onUnapplyClass={vi.fn()}
+      onCreateClass={vi.fn()}
       usage={null}
       onCommit={vi.fn()}
       onClose={vi.fn()}
@@ -135,6 +143,49 @@ describe('VisualEditorPanel', () => {
       'aria-checked',
       'true'
     );
+  });
+
+  it('settles to "Saved" for a class edit once the @apply bag matches its baseline', () => {
+    // Regression: dirty used to compare the class's @apply tokens (currentClass)
+    // to the ELEMENT's className (resolution.class_name) — never equal — pinning
+    // "Saving…" on forever for every class edit.
+    const classTarget = {
+      kind: 'class' as const,
+      name: 'tall-lh',
+      baseline: 'text-[var(--muted)]  mb-10', // extra space — must still read clean
+    };
+    renderPanel(
+      resolvedSelection,
+      'text-[var(--muted)] mb-10', // live @apply bag, normalized — matches baseline
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      true, // auto-save on
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      classTarget
+    );
+    expect(screen.queryByText('Saving…')).not.toBeInTheDocument();
+  });
+
+  it('shows "Saving…" for a class edit whose @apply bag diverges from its baseline', () => {
+    const classTarget = { kind: 'class' as const, name: 'tall-lh', baseline: 'mb-10' };
+    renderPanel(
+      resolvedSelection,
+      'mb-10 mt-5', // edited — diverges from baseline
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      true,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      classTarget
+    );
+    expect(screen.getByText('Saving…')).toBeInTheDocument();
   });
 
   it('renders the breakpoint dropdown showing the active breakpoint', () => {

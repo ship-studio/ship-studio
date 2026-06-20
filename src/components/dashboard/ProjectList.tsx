@@ -183,10 +183,11 @@ export function ProjectList({
   }, []);
 
   // Search and sort state
-  // NOTE: search filtering now flows through the Cmd+K palette; the
-  // state is kept here only because downstream grid/folder filters still
-  // key off an empty string. It's effectively a constant for now.
-  const [searchQuery] = useState('');
+  // NOTE: search filtering now flows through the Cmd+K palette; this is kept
+  // only because downstream grid/folder filters still key off a query string.
+  // It's a constant for now (no setter), so it's a plain const rather than
+  // dead useState.
+  const searchQuery: string = '';
   const [sortBy, setSortBy] = useState<SortOption>('last_opened');
 
   // Monotonic token so a superseded loadAll() (e.g. the list fetched for the
@@ -577,7 +578,7 @@ export function ProjectList({
               className="slack-cta-join"
               onClick={() =>
                 void openUrl(
-                  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-3ommmu2w4-jtYZzzc9T~9lsEeKQ4E2AQ'
+                  'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g'
                 )
               }
             >
@@ -648,6 +649,7 @@ export function ProjectList({
           onDeleteFolder={(folder) => setDeleteFolderConfirm(folder)}
           pinnedSet={pinnedSet}
           onTogglePin={onTogglePin}
+          onCreateProject={onCreateProject}
         />
 
         <AgentsPanel />
@@ -801,6 +803,7 @@ export function ProjectList({
           onClose={() => setShowSettings(false)}
           onCalendarHiddenChange={setCalendarHidden}
           onSlackCtaHiddenChange={setSlackCtaHidden}
+          onProjectsRootChanged={() => void loadProjects()}
         />
 
         {/* What's New Modal */}

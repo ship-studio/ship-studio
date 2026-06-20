@@ -91,21 +91,41 @@ fn empty_body() -> ProxyBody {
         .boxed()
 }
 
-/// Remove the `frame-ancestors` directive from a CSP header value so the page
-/// can render inside the preview iframe. Returns the value untouched when no
-/// directive matched, and `None` when nothing remains (drop the header).
-fn strip_frame_ancestors(value: &hyper::header::HeaderValue) -> Option<hyper::header::HeaderValue> {
+/// Sanitize a CSP header value for the HTTP preview iframe. Removes two
+/// directives that are incompatible with serving the previewed app over plain
+/// HTTP inside an iframe:
+/// - `frame-ancestors` — so the page can be framed inside the preview at all.
+/// - `upgrade-insecure-requests` — the preview is served over `http://localhost`,
+///   but this directive makes the browser rewrite every subresource request to
+///   `https://`. WebKit (which the preview's WKWebView and Safari use) honors it
+///   even on localhost, so CSS/images 404 over https and the page renders blank
+///   or unstyled; Chromium exempts localhost, so the bug only shows in the
+///   WebKit preview. Stripping it only affects the local preview, never the
+///   user's deployed site.
+///
+/// Returns the value untouched when neither directive is present, and `None`
+/// when nothing remains (drop the header).
+fn sanitize_csp_for_preview(
+    value: &hyper::header::HeaderValue,
+) -> Option<hyper::header::HeaderValue> {
     let Ok(s) = value.to_str() else {
         // Unparseable CSP — drop it rather than risk it blanking the iframe.
         return None;
     };
-    if !s.to_ascii_lowercase().contains("frame-ancestors") {
+    let lower = s.to_ascii_lowercase();
+    if !lower.contains("frame-ancestors") && !lower.contains("upgrade-insecure-requests") {
         return Some(value.clone());
     }
     let kept: Vec<&str> = s
         .split(';')
         .map(str::trim)
-        .filter(|d| !d.is_empty() && !d.to_ascii_lowercase().starts_with("frame-ancestors"))
+        .filter(|d| {
+            if d.is_empty() {
+                return false;
+            }
+            let dl = d.to_ascii_lowercase();
+            !dl.starts_with("frame-ancestors") && dl != "upgrade-insecure-requests"
+        })
         .collect();
     if kept.is_empty() {
         return None;
@@ -366,7 +386,7 @@ async fn proxy_http_request(
                 continue;
             }
             if key == hyper::header::CONTENT_SECURITY_POLICY {
-                if let Some(v) = strip_frame_ancestors(value) {
+                if let Some(v) = sanitize_csp_for_preview(value) {
                     response = response.header(key, v);
                 }
                 continue;
@@ -386,7 +406,7 @@ async fn proxy_http_request(
                 continue;
             }
             if key == hyper::header::CONTENT_SECURITY_POLICY {
-                if let Some(v) = strip_frame_ancestors(value) {
+                if let Some(v) = sanitize_csp_for_preview(value) {
                     response = response.header(key, v);
                 }
                 continue;
@@ -547,20 +567,20 @@ async fn handle_websocket_upgrade(
 
 #[cfg(test)]
 mod tests {
-    use super::strip_frame_ancestors;
+    use super::sanitize_csp_for_preview;
     use hyper::header::HeaderValue;
 
     #[test]
-    fn csp_without_frame_ancestors_passes_through() {
+    fn csp_without_stripped_directives_passes_through() {
         let v = HeaderValue::from_static("default-src 'self'; img-src *");
-        assert_eq!(strip_frame_ancestors(&v).unwrap(), v);
+        assert_eq!(sanitize_csp_for_preview(&v).unwrap(), v);
     }
 
     #[test]
     fn frame_ancestors_directive_is_removed() {
         let v = HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'; img-src *");
         assert_eq!(
-            strip_frame_ancestors(&v).unwrap(),
+            sanitize_csp_for_preview(&v).unwrap(),
             HeaderValue::from_static("default-src 'self'; img-src *")
         );
     }
@@ -568,12 +588,43 @@ mod tests {
     #[test]
     fn csp_that_is_only_frame_ancestors_is_dropped() {
         let v = HeaderValue::from_static("frame-ancestors 'none'");
-        assert!(strip_frame_ancestors(&v).is_none());
+        assert!(sanitize_csp_for_preview(&v).is_none());
     }
 
     #[test]
     fn frame_ancestors_match_is_case_insensitive() {
         let v = HeaderValue::from_static("Frame-Ancestors https://admin.shopify.com");
-        assert!(strip_frame_ancestors(&v).is_none());
+        assert!(sanitize_csp_for_preview(&v).is_none());
+    }
+
+    #[test]
+    fn upgrade_insecure_requests_directive_is_removed() {
+        // The preview is served over http://localhost; this directive makes WebKit
+        // rewrite subresources to https and blank them. It must be stripped while
+        // the rest of the policy is preserved.
+        let v = HeaderValue::from_static(
+            "default-src 'self'; img-src 'self'; upgrade-insecure-requests",
+        );
+        assert_eq!(
+            sanitize_csp_for_preview(&v).unwrap(),
+            HeaderValue::from_static("default-src 'self'; img-src 'self'")
+        );
+    }
+
+    #[test]
+    fn upgrade_insecure_requests_match_is_case_insensitive() {
+        let v = HeaderValue::from_static("Upgrade-Insecure-Requests");
+        assert!(sanitize_csp_for_preview(&v).is_none());
+    }
+
+    #[test]
+    fn frame_ancestors_and_upgrade_insecure_requests_removed_together() {
+        let v = HeaderValue::from_static(
+            "default-src 'self'; frame-ancestors 'none'; upgrade-insecure-requests; img-src *",
+        );
+        assert_eq!(
+            sanitize_csp_for_preview(&v).unwrap(),
+            HeaderValue::from_static("default-src 'self'; img-src *")
+        );
     }
 }

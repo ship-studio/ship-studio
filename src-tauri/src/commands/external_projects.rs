@@ -176,12 +176,14 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
     let canonical = dunce::canonicalize(&folder_path).map_err(|e| format!("Invalid path: {e}"))?;
     let canonical_str = canonical.to_string_lossy().to_string();
 
-    // Check if already inside ~/ShipStudio
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
-    if canonical.starts_with(&shipstudio_dir) {
+    // Reject folders that already live under a projects root (configured or
+    // default) — those are listed automatically and aren't "external".
+    if crate::utils::allowed_project_roots()
+        .iter()
+        .any(|root| canonical.starts_with(root))
+    {
         return Err(
-            "This project is already inside ~/ShipStudio. It will appear automatically."
+            "This project is already inside your projects folder. It will appear automatically."
                 .to_string()
                 .into(),
         );
@@ -324,10 +326,12 @@ pub async fn ensure_external_project_registered(
     let canonical =
         dunce::canonicalize(Path::new(&path)).map_err(|e| format!("Invalid path: {e}"))?;
 
-    // Skip if already inside ~/ShipStudio
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let shipstudio_dir = home.join("ShipStudio");
-    if canonical.starts_with(&shipstudio_dir) {
+    // Skip if already inside a projects root (configured or default) — those are
+    // already trusted by validate_project_path and listed automatically.
+    if crate::utils::allowed_project_roots()
+        .iter()
+        .any(|root| canonical.starts_with(root))
+    {
         return Ok(false);
     }
 

@@ -17,6 +17,7 @@ import { GitHubState } from '../../hooks/useIntegrationStatus';
 import { ProjectGitHubStatus, pushToGitHub, getGitHubOrgs } from '../../lib/github';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button } from '../primitives/Button';
+import { ModalFrame } from '../primitives/ModalFrame';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 /** Props for the GitHubButton component */
@@ -59,6 +60,11 @@ export function GitHubButton({
   const createRepoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { cliStatus, username } = githubState;
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    onModalClose?.();
+  };
 
   // Clear fallback timeout on unmount
   useEffect(() => {
@@ -166,142 +172,130 @@ export function GitHubButton({
       </button>
 
       {/* Create Repo Modal */}
-      {showCreateModal && (
-        <div
-          className="modal-overlay"
-          onClick={() => {
-            setShowCreateModal(false);
-            onModalClose?.();
-          }}
-        >
-          <div className="modal github-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Create GitHub Repository</h3>
-            <p>Create a new GitHub repository for this project.</p>
+      <ModalFrame
+        isOpen={showCreateModal}
+        onClose={closeCreateModal}
+        title="Create GitHub Repository"
+        className="github-modal"
+        dismissable={!isLoading}
+      >
+        <p>Create a new GitHub repository for this project.</p>
 
-            <div className="github-form">
-              <label>
-                Owner
-                <select
-                  className="owner-select"
-                  value={selectedOwner || username || ''}
-                  onChange={(e) => setSelectedOwner(e.target.value)}
-                >
-                  {username && <option value={username}>{username}</option>}
-                  {orgs.map((org) => (
-                    <option key={org} value={org}>
-                      {org}
-                    </option>
-                  ))}
-                </select>
-              </label>
+        <div className="github-form">
+          <label>
+            Owner
+            <select
+              className="owner-select"
+              value={selectedOwner || username || ''}
+              onChange={(e) => setSelectedOwner(e.target.value)}
+            >
+              {username && <option value={username}>{username}</option>}
+              {orgs.map((org) => (
+                <option key={org} value={org}>
+                  {org}
+                </option>
+              ))}
+            </select>
+          </label>
 
-              <label>
-                Repository name
-                <div className="repo-name-input">
-                  <span className="repo-prefix">{selectedOwner || username}/</span>
-                  <input
-                    type="text"
-                    value={repoName}
-                    onChange={(e) => setRepoName(e.target.value.replace(/[^a-zA-Z0-9-_]/g, '-'))}
-                    placeholder="my-project"
-                    autoFocus
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                  />
-                </div>
-              </label>
-
-              <label className="visibility-option">
-                <input
-                  type="radio"
-                  name="visibility"
-                  checked={isPrivate}
-                  onChange={() => setIsPrivate(true)}
-                />
-                <div>
-                  <strong>Private</strong>
-                  <span>Only you can see this repository</span>
-                </div>
-              </label>
-
-              <label className="visibility-option">
-                <input
-                  type="radio"
-                  name="visibility"
-                  checked={!isPrivate}
-                  onChange={() => setIsPrivate(false)}
-                />
-                <div>
-                  <strong>Public</strong>
-                  <span>Anyone can see this repository</span>
-                </div>
-              </label>
-
-              {error && <p className="github-error">{error}</p>}
+          <label>
+            Repository name
+            <div className="repo-name-input">
+              <span className="repo-prefix">{selectedOwner || username}/</span>
+              <input
+                type="text"
+                value={repoName}
+                onChange={(e) => setRepoName(e.target.value.replace(/[^a-zA-Z0-9-_]/g, '-'))}
+                placeholder="my-project"
+                autoFocus
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+              />
             </div>
+          </label>
 
-            <div className="modal-actions">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setShowCreateModal(false);
-                  onModalClose?.();
-                }}
-                disabled={isLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  if (!repoName.trim()) return;
-
-                  const handleCreate = async () => {
-                    setIsLoading(true);
-                    setIsCreatingRepo(true);
-                    setError(null);
-                    try {
-                      const owner = selectedOwner || username;
-                      const fullRepoName = `${owner}/${repoName}`;
-                      await pushToGitHub({
-                        projectPath,
-                        repoName: fullRepoName,
-                        isPrivate,
-                      });
-
-                      // Close modal immediately after GitHub repo is created
-                      setShowCreateModal(false);
-                      setIsLoading(false);
-                      onModalClose?.();
-
-                      // Refresh status - this will clear isCreatingRepo when status updates
-                      await onStatusChange();
-                      onToast?.('Repository created!', 'success');
-
-                      // Fallback: clear isCreatingRepo after a delay if status doesn't update
-                      createRepoTimeoutRef.current = setTimeout(() => {
-                        setIsCreatingRepo(false);
-                      }, 3000);
-                    } catch (e) {
-                      setError(String(e));
-                      onToast?.('Failed to create repository', 'error');
-                      setIsLoading(false);
-                      setIsCreatingRepo(false);
-                    }
-                  };
-
-                  void handleCreate();
-                }}
-                disabled={isLoading || !repoName.trim()}
-              >
-                {isLoading ? 'Creating...' : 'Create Repository'}
-              </Button>
+          <label className="visibility-option">
+            <input
+              type="radio"
+              name="visibility"
+              checked={isPrivate}
+              onChange={() => setIsPrivate(true)}
+            />
+            <div>
+              <strong>Private</strong>
+              <span>Only you can see this repository</span>
             </div>
-          </div>
+          </label>
+
+          <label className="visibility-option">
+            <input
+              type="radio"
+              name="visibility"
+              checked={!isPrivate}
+              onChange={() => setIsPrivate(false)}
+            />
+            <div>
+              <strong>Public</strong>
+              <span>Anyone can see this repository</span>
+            </div>
+          </label>
+
+          {error && <p className="github-error">{error}</p>}
         </div>
-      )}
+
+        <div className="modal-actions">
+          <Button variant="secondary" onClick={closeCreateModal} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              if (!repoName.trim()) return;
+
+              const handleCreate = async () => {
+                setIsLoading(true);
+                setIsCreatingRepo(true);
+                setError(null);
+                try {
+                  const owner = selectedOwner || username;
+                  const fullRepoName = `${owner}/${repoName}`;
+                  await pushToGitHub({
+                    projectPath,
+                    repoName: fullRepoName,
+                    isPrivate,
+                  });
+
+                  // Close modal immediately after GitHub repo is created
+                  setShowCreateModal(false);
+                  setIsLoading(false);
+                  onModalClose?.();
+
+                  // Refresh status - this will clear isCreatingRepo when status updates
+                  await onStatusChange();
+                  onToast?.('Repository created!', 'success');
+
+                  // Fallback: clear isCreatingRepo after a delay if status doesn't update
+                  createRepoTimeoutRef.current = setTimeout(() => {
+                    setIsCreatingRepo(false);
+                  }, 3000);
+                } catch (e) {
+                  setError(String(e));
+                  onToast?.('Failed to create repository', 'error');
+                  setIsLoading(false);
+                  setIsCreatingRepo(false);
+                }
+              };
+
+              void handleCreate();
+            }}
+            disabled={isLoading || !repoName.trim()}
+          >
+            {isLoading ? 'Creating...' : 'Create Repository'}
+          </Button>
+        </div>
+      </ModalFrame>
     </>
   );
 }

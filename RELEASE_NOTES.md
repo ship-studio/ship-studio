@@ -6,6 +6,28 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.9.0
+
+- **Custom classes** - A Webflow-style, Tailwind-native class system in the visual editor: create a reusable class from an element's styles, apply or remove classes, and edit a class once to update every element using it.
+
+
+## What's New in v0.8.2
+
+- **Preview reliability** - Live preview now opens reliably on slow-compiling dev servers (Next.js 16 / Turbopack) instead of getting stuck on "Stopped waiting". **Edit panel scroll** - The pinned visual editor panel now scrolls when its content is tall.
+
+
+## What's New in v0.8.1
+
+- **Start faster** - An empty dashboard now offers a one-click "Create your first project" instead of a blank screen
+- **Organized template gallery** - The create-project picker groups starters into Websites & web apps, Mobile apps, and Other, with a star marking the recommended pick
+- **Tidier workspace header** - The branch and your open tabs share a single row, and labels collapse gracefully on narrow windows
+- **See your agent working** - A subtle spinning dot on the sidebar project and its tabs shows when an agent is thinking, without watching the terminal
+- **Static-site preview** - Plain HTML/JS projects with a package.json can opt into instant static preview, with a one-click "Fix with AI" hand-off if it fails to load
+- **Smarter publishing** - Commit messages are auto-written from your actual changes instead of a generic placeholder
+- **Stash-aware branch switching** - The toast now tells you when your stashed changes were restored on switch
+- **Reliability** - Network commands (git, gh, agents) time out instead of hanging the UI, dev-server port conflicts auto-clear, and PR errors show real messages instead of "[object Object]"
+
+
 ## What's New in v0.8.0
 
 - **Shopify themes** - Build Online Store 2.0 themes: create from the new starter or import any theme repo, connect your store through a guided setup, and preview real Liquid rendered against your actual store with hot reload. Cmd+K commands build sections with AI and push your theme for review; visual edit mode works on .liquid sections

@@ -104,6 +104,7 @@ pub struct SessionListItem {
 /// and so the same id routes through write/attach/kill later.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
+#[tracing::instrument(skip_all, fields(session_id = %session_id, command = %command))]
 pub async fn pty_session_open(
     app: AppHandle,
     session_id: String,
@@ -257,6 +258,7 @@ pub async fn pty_session_open(
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(data))]
 pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), CommandError> {
     let session = {
         let map = REGISTRY
@@ -276,6 +278,7 @@ pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), Comman
 }
 
 #[tauri::command]
+#[tracing::instrument]
 pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<(), CommandError> {
     let session = {
         let map = REGISTRY
@@ -302,6 +305,7 @@ pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<()
 }
 
 #[tauri::command]
+#[tracing::instrument]
 pub fn pty_session_kill(session_id: String) -> Result<(), CommandError> {
     // Pop first so repeated kills are no-ops and the reader thread can exit
     // cleanly on its next read.
@@ -326,6 +330,7 @@ pub fn pty_session_kill(session_id: String) -> Result<(), CommandError> {
 }
 
 #[tauri::command]
+#[tracing::instrument]
 pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandError> {
     let session = {
         let map = REGISTRY
@@ -357,6 +362,7 @@ pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandErr
 }
 
 #[tauri::command]
+#[tracing::instrument]
 pub fn pty_session_list(
     project_path: Option<String>,
 ) -> Result<Vec<SessionListItem>, CommandError> {

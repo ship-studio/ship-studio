@@ -70,6 +70,7 @@ export function ModalFrame({
                 type="button"
                 className="modal-frame-close"
                 onClick={onClose}
+                title="Close dialog"
                 aria-label="Close dialog"
               >
                 <svg

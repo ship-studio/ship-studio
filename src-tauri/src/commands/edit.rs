@@ -429,6 +429,60 @@ fn resolve(occurrences: &[Occurrence], sig: &ElementSignature) -> Resolution {
     }
 }
 
+/// Collapse every run of whitespace to a single space (for matching DOM text,
+/// which is whitespace-collapsed, against multi-line JSX source).
+fn normalize_ws(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// When several byte-identical className literals match (a shared utility string
+/// on distinct elements), pin the one the user actually clicked using its text
+/// content. The clicked element's text is unique to its source location even when
+/// the className isn't, so reading each candidate's source and keeping the one
+/// whose body contains that text resolves "edit just this element" precisely.
+/// Returns a single `Resolved("text")` only on an unambiguous match — otherwise
+/// `None`, leaving the `Multi` result (edit-all / pick-one) intact.
+fn disambiguate_by_text(
+    root: &Path,
+    locations: &[Location],
+    class_name: &str,
+    text: &str,
+) -> Option<Resolution> {
+    let needle = normalize_ws(text);
+    // Too short to be distinctive (e.g. "More", "→") — don't risk a false pin.
+    if needle.chars().count() < 8 {
+        return None;
+    }
+    // Match on a bounded prefix: the source window may truncate a long paragraph.
+    let probe: String = needle.chars().take(60).collect();
+    let mut matched: Vec<&Location> = Vec::new();
+    for loc in locations {
+        let Ok(src) = std::fs::read_to_string(root.join(&loc.file)) else {
+            continue;
+        };
+        let lines: Vec<&str> = src.lines().collect();
+        let start = loc.line.saturating_sub(1);
+        if start >= lines.len() {
+            continue;
+        }
+        // Look from the className line through the element body (bounded look-ahead).
+        let end = (start + 30).min(lines.len());
+        if normalize_ws(&lines[start..end].join(" ")).contains(&probe) {
+            matched.push(loc);
+        }
+    }
+    match matched.as_slice() {
+        [loc] => Some(Resolution::Resolved {
+            file: loc.file.clone(),
+            line: loc.line,
+            column: loc.column,
+            class_name: class_name.to_string(),
+            confidence: "text".into(),
+        }),
+        _ => None,
+    }
+}
+
 /// Resolve a clicked element to its source className location.
 #[tauri::command]
 #[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
@@ -438,7 +492,22 @@ pub fn resolve_classname_source(
 ) -> Result<Resolution, CommandError> {
     let root = validate_project_path(&project_path)?;
     let occurrences = index_occurrences_cached(&root);
-    Ok(resolve(occurrences.as_slice(), &signature))
+    let resolution = resolve(occurrences.as_slice(), &signature);
+    // Last rung: a shared className resolved to Multi can often still be pinned to
+    // the clicked element by its (unique) text content — so "edit this element"
+    // and "create a class from it" touch only that element, not its lookalikes.
+    if let Resolution::Multi {
+        locations,
+        class_name,
+    } = &resolution
+    {
+        if let Some(text) = signature.text.as_deref() {
+            if let Some(pinned) = disambiguate_by_text(&root, locations, class_name, text) {
+                return Ok(pinned);
+            }
+        }
+    }
+    Ok(resolution)
 }
 
 /// Surgically replace one className literal's value, after verifying the current
@@ -2143,6 +2212,57 @@ mod tests {
             ancestor_classes: ancestors.iter().map(|s| s.to_string()).collect(),
             attr_src: None,
         }
+    }
+
+    #[test]
+    fn disambiguate_by_text_pins_the_clicked_instance() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("components")).unwrap();
+        // Two distinct paragraphs sharing one utility className but different text.
+        std::fs::write(
+            root.join("components/About.tsx"),
+            "export function About() {\n  return (\n    <p className=\"text-muted leading-relaxed\">\n      With over 65 years of proven performance in the market.\n    </p>\n  );\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("components/Services.tsx"),
+            "export function Services() {\n  return (\n    <p className=\"text-muted leading-relaxed\">\n      Custom cabinets built to last for decades.\n    </p>\n  );\n}\n",
+        )
+        .unwrap();
+        let locations = vec![
+            Location {
+                file: "components/About.tsx".into(),
+                line: 3,
+                column: 1,
+            },
+            Location {
+                file: "components/Services.tsx".into(),
+                line: 3,
+                column: 1,
+            },
+        ];
+        let cls = "text-muted leading-relaxed";
+
+        // The clicked element's text pins exactly one location.
+        match disambiguate_by_text(
+            root,
+            &locations,
+            cls,
+            "With over 65 years of proven performance in the market.",
+        ) {
+            Some(Resolution::Resolved {
+                file, confidence, ..
+            }) => {
+                assert_eq!(file, "components/About.tsx");
+                assert_eq!(confidence, "text");
+            }
+            other => panic!("expected Resolved(text), got {other:?}"),
+        }
+        // Text not present in any candidate → no pin (stays Multi).
+        assert!(disambiguate_by_text(root, &locations, cls, "Totally unrelated copy.").is_none());
+        // Too-short text → no pin (not distinctive enough).
+        assert!(disambiguate_by_text(root, &locations, cls, "Hi").is_none());
     }
 
     #[test]

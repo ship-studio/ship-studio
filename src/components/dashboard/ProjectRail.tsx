@@ -26,6 +26,7 @@ import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { getProjectThumbnail, listProjects } from '../../lib/project';
 import { logger } from '../../lib/logger';
+import { Button } from '../primitives/Button';
 
 interface ProjectRailProps {
   /** Joined pin + session rows from `usePinnedProjects`. */
@@ -433,8 +434,10 @@ export function ProjectRail({
           onClick={(e) => e.stopPropagation()}
           role="menu"
         >
-          <button
+          <Button
+            variant="ghost"
             className="project-rail-menu-item danger"
+            role="menuitem"
             onClick={() => {
               const path = contextMenu.projectPath;
               setContextMenu(null);
@@ -442,7 +445,7 @@ export function ProjectRail({
             }}
           >
             Unpin from sidebar
-          </button>
+          </Button>
         </div>
       )}
     </div>

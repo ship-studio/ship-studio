@@ -1,9 +1,13 @@
 //! # Settings Commands
 //!
-//! Persisted UI preferences (calendar visibility, etc.).
+//! Persisted UI preferences (calendar visibility, projects root, etc.).
 
 use crate::commands::setup::{read_app_state, write_app_state};
 use crate::errors::CommandError;
+use crate::utils::{invalidate_projects_root_cache, projects_root};
+use std::path::Path;
+use tauri::AppHandle;
+use tauri_plugin_dialog::DialogExt;
 
 /// Get whether the GitHub contribution calendar is hidden on the dashboard.
 #[tauri::command]
@@ -54,4 +58,89 @@ pub fn set_terminal_gpu_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
     state.terminal_gpu_enabled = Some(enabled);
     write_app_state(&state).map_err(CommandError::from)
+}
+
+/// Get the projects root directory (absolute path). Falls back to the default
+/// `~/ShipStudio` when no custom root is configured.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_projects_root() -> Result<String, CommandError> {
+    Ok(projects_root()?.to_string_lossy().to_string())
+}
+
+/// Whether a custom (non-default) projects root is currently configured.
+#[tauri::command]
+#[tracing::instrument]
+pub fn is_custom_projects_root() -> Result<bool, CommandError> {
+    let state = read_app_state();
+    Ok(state
+        .projects_root
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false))
+}
+
+/// Set (or clear) the projects root directory.
+///
+/// An empty string resets to the default `~/ShipStudio`. A non-empty value must
+/// be an existing, writable, absolute directory. The cache is invalidated so the
+/// change takes effect immediately.
+#[tauri::command]
+#[tracing::instrument]
+pub fn set_projects_root(path: String) -> Result<(), CommandError> {
+    let trimmed = path.trim();
+    let mut state = read_app_state();
+
+    if trimmed.is_empty() {
+        state.projects_root = None;
+    } else {
+        let pb = Path::new(trimmed);
+        if !pb.is_absolute() {
+            return Err("Projects folder must be an absolute path"
+                .to_string()
+                .into());
+        }
+        if !pb.is_dir() {
+            return Err(format!("Not a folder: {trimmed}").into());
+        }
+        // Guardrail: never allow the filesystem root as the projects folder.
+        if pb.parent().is_none() {
+            return Err("Refusing to use the filesystem root as the projects folder"
+                .to_string()
+                .into());
+        }
+        // Confirm the folder is writable (creating projects needs write access).
+        let probe = pb.join(".shipstudio-write-test");
+        std::fs::write(&probe, b"test").map_err(|e| format!("Folder isn't writable: {e}"))?;
+        let _ = std::fs::remove_file(&probe);
+
+        state.projects_root = Some(trimmed.to_string());
+    }
+
+    write_app_state(&state).map_err(CommandError::from)?;
+    invalidate_projects_root_cache();
+    Ok(())
+}
+
+/// Open a native folder picker for choosing the projects folder.
+/// Returns the selected absolute path, or `None` if the user cancelled.
+/// Does not persist anything — the frontend calls `set_projects_root` with the result.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub async fn pick_projects_root(app: AppHandle) -> Result<Option<String>, CommandError> {
+    let folder = app
+        .dialog()
+        .file()
+        .set_title("Choose Projects Folder")
+        .blocking_pick_folder();
+
+    match folder {
+        Some(path) => {
+            let pb = path
+                .into_path()
+                .map_err(|e| format!("Invalid folder path: {e}"))?;
+            Ok(Some(pb.to_string_lossy().to_string()))
+        }
+        None => Ok(None),
+    }
 }

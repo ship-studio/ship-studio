@@ -528,12 +528,11 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: ['auth', 'login', '--web', '--git-protocol', 'https'],
       },
       claude: {
-        // Windows requires manual installer download
+        // Official native installer for Windows (mirrors the macOS install.sh
+        // path). `irm | iex` downloads and runs the install script in-session;
+        // it is not subject to the .ps1 script execution policy.
         command: 'powershell',
-        args: [
-          '-Command',
-          'Write-Host "Please download Claude Code from https://claude.ai"; Start-Process "https://claude.ai"',
-        ],
+        args: ['-Command', 'irm https://claude.ai/install.ps1 | iex'],
       },
       claude_auth: {
         command: 'claude',
@@ -548,11 +547,10 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: [],
       },
       opencode: {
-        command: 'powershell',
-        args: [
-          '-Command',
-          'Write-Host "Please download Opencode from https://opencode.ai"; Start-Process "https://opencode.ai"',
-        ],
+        // No clean PowerShell one-liner installer exists for Windows; install
+        // via npm (Node is set up in step 1, same as Codex below).
+        command: 'npm',
+        args: ['install', '-g', 'opencode-ai'],
       },
       opencode_auth: {
         command: 'opencode',

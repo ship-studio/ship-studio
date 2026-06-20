@@ -12,6 +12,7 @@ use crate::utils::create_command;
 ///
 /// Uses SIGTERM first to allow graceful shutdown, then SIGKILL after a timeout.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn kill_pty(id: u32) -> Result<bool, CommandError> {
     let pid = {
         let registry = PTY_REGISTRY.lock().map_err(|e| e.to_string())?;
@@ -83,6 +84,7 @@ pub fn kill_window_pty_sync(window_label: &str) -> u32 {
 /// This is the preferred method for cleanup when switching projects in a window.
 /// It only kills PTYs belonging to the specified window, leaving other windows' PTYs intact.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn kill_window_pty(window_label: String) -> Result<u32, CommandError> {
     let pids_to_kill: Vec<(u32, u32)> = {
         let registry = PTY_REGISTRY.lock().map_err(|e| e.to_string())?;
@@ -190,6 +192,7 @@ pub fn get_project_pty_pids_internal(project_path: &str) -> Vec<u32> {
 ///
 /// Returns the number of PTYs killed.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn kill_project_pty(project_path: String) -> Result<u32, CommandError> {
     Ok(kill_project_pty_internal(&project_path))
 }
@@ -197,6 +200,7 @@ pub async fn kill_project_pty(project_path: String) -> Result<u32, CommandError>
 /// Return the PIDs of all PTYs associated with a project. Used for memory
 /// queries and process-running checks. Returns an empty vec if no PTYs match.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn get_project_pty_pids(project_path: String) -> Result<Vec<u32>, CommandError> {
     Ok(get_project_pty_pids_internal(&project_path))
 }
@@ -206,6 +210,7 @@ pub async fn get_project_pty_pids(project_path: String) -> Result<Vec<u32>, Comm
 /// WARNING: This kills PTYs across ALL windows. Use `kill_window_pty` instead
 /// for per-window cleanup. This should only be used during app shutdown.
 #[tauri::command]
+#[tracing::instrument]
 pub async fn kill_all_pty() -> Result<u32, CommandError> {
     let pids: Vec<(u32, u32)> = {
         let registry = PTY_REGISTRY.lock().map_err(|e| e.to_string())?;
@@ -244,6 +249,7 @@ pub async fn kill_all_pty() -> Result<u32, CommandError> {
 /// This kills any agent or next-server processes that have become orphaned
 /// (parent PID is 1, meaning their parent process died).
 #[tauri::command]
+#[tracing::instrument]
 pub async fn cleanup_orphaned_processes() -> Result<(), CommandError> {
     #[cfg(unix)]
     {
@@ -284,6 +290,7 @@ pub async fn cleanup_orphaned_processes() -> Result<(), CommandError> {
 
 /// Kill any process listening on a specific port
 #[tauri::command]
+#[tracing::instrument]
 pub async fn kill_port(port: u32) -> Result<(), CommandError> {
     #[cfg(unix)]
     {
