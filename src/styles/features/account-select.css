@@ -39,6 +39,24 @@
   color: var(--text-primary);
 }
 
+/* Non-intrusive explainer beneath the header: what workspaces are (and aren't). */
+.account-select-subtitle {
+  max-width: 720px;
+  margin: -8px 0 28px;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.account-select-subtitle-muted {
+  color: var(--text-muted);
+}
+
+.account-select-subtitle strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
 .account-select-loading {
   display: flex;
   align-items: center;
@@ -344,8 +362,30 @@
   text-overflow: ellipsis;
 }
 
+/* Vault rows pair a label with a one-line explanation, stacked, taking the
+   left side; the status/actions sit content-width on the right. */
+.account-cred-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-cred-info .account-cred-label {
+  flex: none;
+  white-space: normal;
+}
+
+.account-cred-description {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .account-cred-status {
-  flex: 1;
+  flex: 0 0 auto;
+  margin-left: auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;

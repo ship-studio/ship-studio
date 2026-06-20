@@ -31,6 +31,7 @@ import {
 } from '../../lib/settings';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { EditIcon } from '../icons';
+import { useActiveAccount } from '../../hooks/useActiveAccount';
 
 const errMsg = (err: unknown) => formatCommandError(asCommandError(err));
 
@@ -59,6 +60,9 @@ export function SettingsModal({
   onProjectsRootChanged,
 }: SettingsModalProps) {
   const { showToast } = useOptionalToast();
+  // Projects folder is per-workspace; reflect the active one in the label.
+  const { activeAccount, accounts } = useActiveAccount();
+  const multipleWorkspaces = accounts.length > 1;
 
   const [analyticsEnabled, setLocalAnalyticsEnabled] = useState(true);
   const [calendarVisible, setLocalCalendarVisible] = useState(true);
@@ -222,10 +226,22 @@ export function SettingsModal({
           <div className="settings-section">
             <div className="settings-row settings-row--stacked">
               <div className="settings-row-info">
-                <span className="settings-row-label">Projects folder</span>
+                <span className="settings-row-label">
+                  Projects folder
+                  {multipleWorkspaces && activeAccount && (
+                    <span className="settings-folder-workspace">
+                      <span
+                        className="settings-folder-workspace-dot"
+                        style={{ backgroundColor: activeAccount.color }}
+                      />
+                      {activeAccount.name}
+                    </span>
+                  )}
+                </span>
                 <span className="settings-row-description">
-                  Where Ship Studio lists and creates your projects. Point this at an existing dev
-                  directory to keep everything in one place.
+                  {multipleWorkspaces && activeAccount
+                    ? `Where the ${activeAccount.name} workspace lists and creates projects. Each workspace can use its own folder.`
+                    : 'Where Ship Studio lists and creates your projects. Point this at an existing dev directory to keep everything in one place.'}
                 </span>
                 <button
                   type="button"

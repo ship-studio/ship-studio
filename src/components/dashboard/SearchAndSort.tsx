@@ -24,6 +24,8 @@ export interface SearchAndSortProps {
   sortBy: SortOption;
   onSortChange: (option: SortOption) => void;
   onNewFolder: () => void;
+  /** Optional element rendered just after the title (e.g. a workspace chip). */
+  titleAccessory?: React.ReactNode;
 }
 
 export function SearchAndSort({
@@ -32,12 +34,16 @@ export function SearchAndSort({
   sortBy,
   onSortChange,
   onNewFolder,
+  titleAccessory,
 }: SearchAndSortProps) {
   return (
     <div className="dashboard-section-header">
-      <span className="dashboard-section-title">
-        {title} {totalCount > 0 && `(${totalCount})`}
-      </span>
+      <div className="dashboard-section-heading">
+        <span className="dashboard-section-title">
+          {title} {totalCount > 0 && `(${totalCount})`}
+        </span>
+        {titleAccessory}
+      </div>
       <div className="dashboard-section-controls">
         <Dropdown
           align="right"

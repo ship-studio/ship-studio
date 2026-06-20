@@ -23,6 +23,9 @@ export interface Account {
   isDefault: boolean;
   /** Unix timestamp (ms) when the workspace was created */
   createdAt: number;
+  /** Folder this workspace lists/creates projects in. Null/undefined → the
+   *  built-in default (`~/ShipStudio`). Each workspace can use its own folder. */
+  projectsRoot?: string | null;
 }
 
 /** Auth/credential status for a workspace (values stay in the keychain / CLI config). */
@@ -31,8 +34,6 @@ export interface AccountCredentialStatus {
   githubAuthEmail: string | null;
   hasAnthropicBaseUrl: boolean;
   hasVercelToken: boolean;
-  hasFigmaToken: boolean;
-  hasOpenaiApiKey: boolean;
   hasGitName: boolean;
   hasGitEmail: boolean;
 }
@@ -41,8 +42,6 @@ export interface AccountCredentialStatus {
 export type CredentialKey =
   | 'anthropic_base_url'
   | 'vercel_token'
-  | 'figma_token'
-  | 'openai_api_key'
   | 'git_name'
   | 'git_email';
 
@@ -50,19 +49,26 @@ export type CredentialKey =
 export const CREDENTIAL_LABELS: Record<CredentialKey, string> = {
   anthropic_base_url: 'Anthropic Base URL',
   vercel_token: 'Vercel Token',
-  figma_token: 'Figma Personal Access Token',
-  openai_api_key: 'OpenAI API Key',
   git_name: 'Git Name',
   git_email: 'Git Email',
 };
 
+/**
+ * One-line explanation of what each credential does, shown under its label so
+ * users know exactly where the value gets used. Each is injected as an
+ * environment variable into this workspace's terminals, git, and agent.
+ */
+export const CREDENTIAL_DESCRIPTIONS: Record<CredentialKey, string> = {
+  anthropic_base_url:
+    'Point Claude Code at a custom Anthropic endpoint (a proxy or gateway) instead of the default. Leave unset unless your org requires it.',
+  vercel_token:
+    'Lets this workspace publish to Vercel without an interactive login — use a token from a specific Vercel account or team.',
+  git_name: "Sets the author name on commits made in this workspace's projects.",
+  git_email: "Sets the author email on commits made in this workspace's projects.",
+};
+
 /** Credential keys that are sensitive (masked input). */
-export const SENSITIVE_KEYS = new Set<CredentialKey>([
-  'anthropic_base_url',
-  'vercel_token',
-  'figma_token',
-  'openai_api_key',
-]);
+export const SENSITIVE_KEYS = new Set<CredentialKey>(['anthropic_base_url', 'vercel_token']);
 
 /** Maps AccountCredentialStatus boolean field → CredentialKey. */
 export const STATUS_FIELD_TO_KEY: Record<
@@ -71,8 +77,6 @@ export const STATUS_FIELD_TO_KEY: Record<
 > = {
   hasAnthropicBaseUrl: 'anthropic_base_url',
   hasVercelToken: 'vercel_token',
-  hasFigmaToken: 'figma_token',
-  hasOpenaiApiKey: 'openai_api_key',
   hasGitName: 'git_name',
   hasGitEmail: 'git_email',
 };
@@ -155,6 +159,29 @@ export async function moveProjectToAccount(projectPath: string, accountId: strin
 
 export async function getProjectAccountId(projectPath: string): Promise<string> {
   return invoke<string>('get_project_account_id', { projectPath });
+}
+
+/** The built-in Default workspace id (matches DEFAULT_ACCOUNT_ID in the backend). */
+export const DEFAULT_ACCOUNT_ID = 'default';
+
+/**
+ * Tag a freshly created or imported project with the currently-active Workspace,
+ * so it appears in the workspace the user is working in. The Default workspace
+ * stays untagged (`account_id: null` — untagged always resolves to Default), so
+ * this only stamps a real, non-default workspace.
+ *
+ * Call this once, at creation/import time. Opening a project must never change
+ * its workspace. Best-effort: a failure here must not block opening the project.
+ */
+export async function assignActiveWorkspaceToNewProject(projectPath: string): Promise<void> {
+  try {
+    const activeId = await getActiveAccountId();
+    if (activeId && activeId !== DEFAULT_ACCOUNT_ID) {
+      await moveProjectToAccount(projectPath, activeId);
+    }
+  } catch {
+    // Non-fatal: the project still opens; it just lands in Default until moved.
+  }
 }
 
 /**

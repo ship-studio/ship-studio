@@ -793,6 +793,11 @@ pub struct Account {
     pub is_default: bool,
     /// Unix ms timestamp of creation
     pub created_at: u64,
+    /// Folder this workspace lists/creates projects in. `None` falls back to the
+    /// built-in default (`~/ShipStudio`), or — for the Default workspace — the
+    /// legacy top-level `AppState.projects_root` for backward compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects_root: Option<String>,
 }
 
 /// Credential/auth status for an account's isolated config, used to populate
@@ -804,8 +809,6 @@ pub struct AccountCredentialStatus {
     pub github_auth_email: Option<String>,
     pub has_anthropic_base_url: bool,
     pub has_vercel_token: bool,
-    pub has_figma_token: bool,
-    pub has_openai_api_key: bool,
     pub has_git_name: bool,
     pub has_git_email: bool,
 }

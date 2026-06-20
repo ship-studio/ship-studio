@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { SearchIcon, ChevronIcon, ResetIcon } from '../icons';
+import { SearchIcon, ChevronIcon, ResetIcon, LayersIcon } from '../icons';
 import { Button } from '../primitives/Button';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
@@ -266,6 +266,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             {
               id: 'workspace.switch',
               title: hasMultipleWorkspaces ? 'Switch workspace…' : 'New workspace…',
+              icon: <LayersIcon size={14} />,
               category: 'action' as const,
               keywords: ['workspace', 'account', 'switch', 'new workspace', 'profile', 'org'],
               run: () => onSwitchAccount(),

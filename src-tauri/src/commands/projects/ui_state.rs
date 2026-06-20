@@ -32,13 +32,15 @@ pub async fn mark_project_opened(project_path: String) -> Result<(), CommandErro
         .unwrap_or(0);
     metadata.last_opened = Some(now);
 
-    // Stamp the project with the Workspace (Account) it was first opened in,
-    // so the dashboard can scope project visibility per Workspace.
-    if metadata.account_id.is_none() {
-        if let Ok(active_account_id) = crate::commands::accounts::get_active_account_id() {
-            metadata.account_id = Some(active_account_id);
-        }
-    }
+    // IMPORTANT: opening a project must NEVER change its Workspace. A project is
+    // tagged with its Workspace at creation/import time (see the frontend
+    // creation funnels) or by an explicit "Move to workspace"; an untagged
+    // project is always treated as Default (see `effective_account_id`).
+    //
+    // This previously stamped the *active* account onto any untagged project on
+    // open, which silently moved legacy/Default projects into whichever
+    // Workspace happened to be active when you opened them — a data-integrity
+    // bug. Do not reintroduce it.
 
     if !shipstudio_dir.exists() {
         std::fs::create_dir_all(&shipstudio_dir)
@@ -379,6 +381,7 @@ mod effective_account_tests {
             color: "#000".to_string(),
             is_default: id == DEFAULT_ACCOUNT_ID,
             created_at: 0,
+            projects_root: None,
         }
     }
 

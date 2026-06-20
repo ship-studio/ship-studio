@@ -38,20 +38,11 @@ const KEYCHAIN_PREFIX: &str = "ship-studio-account-";
 const CRED_ENV_VARS: &[(&str, &str)] = &[
     ("anthropic_base_url", "ANTHROPIC_BASE_URL"),
     ("vercel_token", "VERCEL_TOKEN"),
-    ("figma_token", "FIGMA_PERSONAL_ACCESS_TOKEN"),
-    ("openai_api_key", "OPENAI_API_KEY"),
 ];
 
 /// All credential keys storable in the keychain (including git identity,
 /// which isn't injected via `CRED_ENV_VARS` but via `GIT_*` env vars).
-const ALL_CRED_KEYS: &[&str] = &[
-    "anthropic_base_url",
-    "vercel_token",
-    "figma_token",
-    "openai_api_key",
-    "git_name",
-    "git_email",
-];
+const ALL_CRED_KEYS: &[&str] = &["anthropic_base_url", "vercel_token", "git_name", "git_email"];
 
 /// Validates a frontend-supplied account id before it's joined into filesystem
 /// paths (`~/.ship-studio/accounts/<id>/`), keychain service names, or env vars.
@@ -169,6 +160,34 @@ fn account_config_root(account_id: &str) -> PathBuf {
         .join(account_id)
 }
 
+/// Create `dir` (and ancestors) and lock it down to owner-only (`0700`) on Unix.
+///
+/// Isolated workspace dirs hold real auth tokens (gh `hosts.yml`, Claude creds,
+/// codex auth). A bare `create_dir_all` leaves them at the default `0755`
+/// (world-readable/traversable); on a shared machine another local user could
+/// walk in. We also tighten the `~/.ship-studio/accounts/<id>` parent so the
+/// whole per-account subtree is private, not just the leaf.
+fn create_private_dir(dir: &std::path::Path) {
+    let _ = std::fs::create_dir_all(dir);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
+}
+
+/// Build a per-account config subdir (e.g. `claude`, `gh`), creating both it and
+/// the account root with owner-only permissions.
+fn private_account_subdir(account_id: &str, leaf: &str) -> PathBuf {
+    let root = account_config_root(account_id);
+    let dir = root.join(leaf);
+    create_private_dir(&dir);
+    // Also lock the account root itself (create_private_dir made its ancestors
+    // with default perms while creating the leaf).
+    create_private_dir(&root);
+    dir
+}
+
 /// Directory used as `CLAUDE_CONFIG_DIR` for this account, created on access.
 ///
 /// The Default account resolves to the real, global Claude config directory
@@ -182,9 +201,7 @@ pub fn claude_config_dir(account_id: &str) -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".claude"));
     }
-    let dir = account_config_root(account_id).join("claude");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    private_account_subdir(account_id, "claude")
 }
 
 /// Directory used as `GH_CONFIG_DIR` for this account, created on access.
@@ -204,9 +221,7 @@ pub fn gh_config_dir(account_id: &str) -> PathBuf {
             .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".config"));
         return config_home.join("gh");
     }
-    let dir = account_config_root(account_id).join("gh");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    private_account_subdir(account_id, "gh")
 }
 
 /// Directory used as `CODEX_HOME` for this account, created on access.
@@ -220,9 +235,7 @@ pub fn codex_home_dir(account_id: &str) -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".codex"));
     }
-    let dir = account_config_root(account_id).join("codex");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    private_account_subdir(account_id, "codex")
 }
 
 /// Directory used as `XDG_DATA_HOME` for this account, created on access.
@@ -242,9 +255,7 @@ pub fn opencode_data_home_dir(account_id: &str) -> PathBuf {
                     .join("share")
             });
     }
-    let dir = account_config_root(account_id).join("data");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    private_account_subdir(account_id, "data")
 }
 
 /// Resolves the directory that holds `agent`'s auth/config state for the
@@ -281,6 +292,7 @@ fn ensure_default_account(state: &mut crate::types::AppState) {
                 color: "#6b7280".to_string(),
                 is_default: true,
                 created_at: now_ms(),
+                projects_root: None,
             },
         );
     }
@@ -313,6 +325,20 @@ pub fn get_env_vars_for_project(project_path: &std::path::Path) -> HashMap<Strin
 /// Returns env vars to inject for a specific account: isolated Claude/GitHub
 /// config dirs, plus any credentials stored in the keychain for that account.
 pub fn get_env_vars_for_account(account_id: &str) -> HashMap<String, String> {
+    // Single chokepoint for every env-injection path (active account, project
+    // account, direct). The active-account id is read from app_state.json, which
+    // is a plain user-writable file that never re-validates on read — a tampered
+    // or recovered id could otherwise be joined into filesystem paths
+    // (create_dir_all) below. Refuse anything that isn't a well-formed id and
+    // fall back to the Default workspace so we never traverse outside the
+    // accounts root.
+    let account_id = if validate_account_id(account_id).is_ok() {
+        account_id
+    } else {
+        tracing::warn!(account_id = %account_id, "Invalid account id during env resolution; falling back to Default");
+        DEFAULT_ACCOUNT_ID
+    };
+
     let mut vars = HashMap::new();
 
     vars.insert(
@@ -353,17 +379,28 @@ pub fn get_env_vars_for_account(account_id: &str) -> HashMap<String, String> {
 }
 
 /// Parses `gh auth status` output for the logged-in github.com username.
+///
+/// `gh` changed the phrasing in ~v2.40: older builds print
+/// `Logged in to github.com as <user>` while newer ones print
+/// `Logged in to github.com account <user>`. We accept both so modern `gh`
+/// installs aren't reported as "Not connected".
 fn parse_gh_auth_status(success: bool, stdout: &str, stderr: &str) -> Option<String> {
     if !success {
         return None;
     }
     let combined = format!("{stdout}{stderr}");
-    const MARKER: &str = "Logged in to github.com as ";
+    const PREFIX: &str = "Logged in to github.com ";
     for line in combined.lines() {
         let trimmed = line.trim();
-        if let Some(idx) = trimmed.find(MARKER) {
-            let rest = &trimmed[idx + MARKER.len()..];
-            if let Some(username) = rest.split_whitespace().next() {
+        let Some(idx) = trimmed.find(PREFIX) else {
+            continue;
+        };
+        let rest = &trimmed[idx + PREFIX.len()..];
+        let mut words = rest.split_whitespace();
+        // The connector word is "as" (old) or "account" (new); the username
+        // follows it.
+        if matches!(words.next(), Some("as") | Some("account")) {
+            if let Some(username) = words.next() {
                 if !username.is_empty() {
                     return Some(username.to_string());
                 }
@@ -409,6 +446,7 @@ pub fn create_account(name: String, color: String) -> Result<Account, CommandErr
         color,
         is_default: false,
         created_at: now_ms(),
+        projects_root: None,
     };
     state.accounts.push(account.clone());
     write_app_state(&state)?;
@@ -519,6 +557,9 @@ pub fn set_active_account_id(id: String) -> Result<(), CommandError> {
     // The GitHub username is cached with a 10-min TTL; without busting it here a
     // workspace switch would keep reporting the previous workspace's identity.
     crate::commands::github::invalidate_github_username_cache();
+    // The projects folder is per-workspace, so switching changes which folder
+    // the dashboard scans — drop the cached active root.
+    crate::utils::invalidate_projects_root_cache();
     tracing::info!(id = %id, "Active account changed");
     Ok(())
 }
@@ -561,8 +602,6 @@ pub async fn get_account_credential_status(
         github_auth_email,
         has_anthropic_base_url: read_from_keychain(&id, "anthropic_base_url").is_some(),
         has_vercel_token: read_from_keychain(&id, "vercel_token").is_some(),
-        has_figma_token: read_from_keychain(&id, "figma_token").is_some(),
-        has_openai_api_key: read_from_keychain(&id, "openai_api_key").is_some(),
         has_git_name: read_from_keychain(&id, "git_name").is_some(),
         has_git_email: read_from_keychain(&id, "git_email").is_some(),
     })
@@ -598,20 +637,28 @@ pub fn get_account_env_vars(account_id: String) -> HashMap<String, String> {
     get_env_vars_for_account(&account_id)
 }
 
+/// Reject any credential key not on the allowlist. Both set and clear funnel
+/// through this so the frontend can't probe or delete arbitrary keychain items
+/// under this account's service name.
+fn validate_credential_key(key: &str) -> Result<(), CommandError> {
+    if ALL_CRED_KEYS.contains(&key) {
+        Ok(())
+    } else {
+        Err(CommandError::Validation {
+            field: "key".into(),
+            reason: format!("Unknown credential key '{key}'"),
+        })
+    }
+}
+
 /// Store a credential in the keychain for an account.
 ///
-/// Allowed keys: `anthropic_base_url`, `vercel_token`, `figma_token`,
-/// `openai_api_key`, `git_name`, `git_email`
+/// Allowed keys: `anthropic_base_url`, `vercel_token`, `git_name`, `git_email`
 #[tauri::command]
 #[tracing::instrument(skip(value))]
 pub fn set_account_credential(id: String, key: String, value: String) -> Result<(), CommandError> {
     validate_account_id(&id)?;
-    if !ALL_CRED_KEYS.contains(&key.as_str()) {
-        return Err(CommandError::Validation {
-            field: "key".into(),
-            reason: format!("Unknown credential key '{key}'"),
-        });
-    }
+    validate_credential_key(&key)?;
     if value.trim().is_empty() {
         return Err(CommandError::Validation {
             field: "value".into(),
@@ -626,6 +673,7 @@ pub fn set_account_credential(id: String, key: String, value: String) -> Result<
 #[tracing::instrument]
 pub fn clear_account_credential(id: String, key: String) -> Result<(), CommandError> {
     validate_account_id(&id)?;
+    validate_credential_key(&key)?;
     delete_from_keychain(&id, &key);
     Ok(())
 }
@@ -651,10 +699,18 @@ mod tests {
 
     #[test]
     fn parse_gh_auth_status_extracts_username() {
-        let stdout = "github.com\n  Logged in to github.com as octocat (oauth_token)\n";
+        // Old gh phrasing ("... as <user>").
+        let old = "github.com\n  Logged in to github.com as octocat (oauth_token)\n";
         assert_eq!(
-            parse_gh_auth_status(true, stdout, ""),
+            parse_gh_auth_status(true, old, ""),
             Some("octocat".to_string())
+        );
+
+        // New gh phrasing (~v2.40+: "... account <user>"), with the ✓ glyph.
+        let new = "github.com\n  ✓ Logged in to github.com account julianmemberstack (keyring)\n  - Active account: true\n";
+        assert_eq!(
+            parse_gh_auth_status(true, new, ""),
+            Some("julianmemberstack".to_string())
         );
     }
 

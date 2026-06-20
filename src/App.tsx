@@ -1146,10 +1146,10 @@ function AppContents({ initialProjectPath }: AppProps) {
             onGitHubConnect={handleGitHubConnectFromOverlay}
             showCreateModal={showCreateModal}
             onCloseCreateModal={handleCloseCreateModal}
-            onProjectCreated={handleProjectCreated}
+            onProjectCreated={(path) => void handleProjectCreated(path)}
             importView={importView}
             setImportView={setImportView}
-            onProjectImported={handleProjectImported}
+            onProjectImported={(path) => void handleProjectImported(path)}
             authTerminalConfig={authTerminalConfig}
             closeAuthTerminal={closeAuthTerminal}
             onAuthTerminalExit={handleAuthTerminalExitForProjects}
@@ -1162,6 +1162,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             cleanupStatus={cleanupStatus}
             pinnedSet={pinnedProjects.pinnedSet}
             onTogglePin={(path, pinned) => void handleTogglePin(path, pinned)}
+            onSwitchAccount={() => setView('account-select')}
           />
         </div>
         {/* .projects-with-rail */}

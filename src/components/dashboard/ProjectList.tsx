@@ -109,6 +109,8 @@ interface ProjectListProps {
   pinnedSet?: ReadonlySet<string>;
   /** Toggle pin state for a project. */
   onTogglePin?: (projectPath: string, pinned: boolean) => void;
+  /** Open the workspace switcher (shown as a chip beside "All Projects"). */
+  onSwitchAccount?: () => void;
 }
 
 export function ProjectList({
@@ -124,6 +126,7 @@ export function ProjectList({
   cleanupStatus,
   pinnedSet,
   onTogglePin,
+  onSwitchAccount,
 }: ProjectListProps) {
   const [projects, setProjects] = useState<ProjectWithThumbnail[]>([]);
   /** Hidden <input type="file"> reused across cards. The current upload
@@ -135,8 +138,9 @@ export function ProjectList({
   const [filedPaths, setFiledPaths] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   // Drives a reload whenever the active workspace changes (see the load effect).
-  const { activeAccount } = useActiveAccount();
+  const { activeAccount, accounts } = useActiveAccount();
   const activeAccountId = activeAccount?.id;
+  const hasMultipleWorkspaces = accounts.length > 1;
   const [deleteConfirm, setDeleteConfirm] = useState<DashboardProject | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [renameTarget, setRenameTarget] = useState<DashboardProject | null>(null);
@@ -625,6 +629,23 @@ export function ProjectList({
           sortBy={sortBy}
           onSortChange={setSortBy}
           onNewFolder={() => setShowNewFolderModal(true)}
+          titleAccessory={
+            !currentFolderId && hasMultipleWorkspaces && activeAccount && onSwitchAccount ? (
+              <button
+                type="button"
+                className="dashboard-workspace-chip"
+                onClick={onSwitchAccount}
+                title="Switch workspace"
+              >
+                <span
+                  className="dashboard-workspace-chip-dot"
+                  style={{ backgroundColor: activeAccount.color }}
+                />
+                <span className="dashboard-workspace-chip-name">{activeAccount.name}</span>
+                <ChevronRightIcon size={12} />
+              </button>
+            ) : undefined
+          }
         />
 
         <ProjectGridView

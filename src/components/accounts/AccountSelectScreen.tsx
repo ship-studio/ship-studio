@@ -94,6 +94,17 @@ export function AccountSelectScreen({ onContinue }: AccountSelectScreenProps) {
         </Button>
       </div>
 
+      <p className="account-select-subtitle">
+        Each workspace keeps its own Claude, GitHub, and Codex logins, git identity, and tokens, so
+        different clients or orgs stay completely separate. Sign in once per workspace and switch
+        anytime without logging out.
+        <span className="account-select-subtitle-muted">
+          {' '}
+          They isolate logins only — not your project files or app settings, and nothing syncs to
+          the cloud. Your <strong>Default</strong> workspace is your existing setup, untouched.
+        </span>
+      </p>
+
       {isLoading ? (
         <div className="account-select-loading">
           <Spinner size="lg" />

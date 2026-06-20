@@ -68,31 +68,50 @@ pub fn get_projects_root() -> Result<String, CommandError> {
     Ok(projects_root()?.to_string_lossy().to_string())
 }
 
-/// Whether a custom (non-default) projects root is currently configured.
+/// Whether the *active* workspace has a custom (non-default) projects folder set.
 #[tauri::command]
 #[tracing::instrument]
 pub fn is_custom_projects_root() -> Result<bool, CommandError> {
+    use crate::commands::accounts::DEFAULT_ACCOUNT_ID;
     let state = read_app_state();
-    Ok(state
-        .projects_root
+    let active_id = state
+        .active_account_id
         .as_deref()
+        .unwrap_or(DEFAULT_ACCOUNT_ID);
+
+    let on_account = state
+        .accounts
+        .iter()
+        .find(|a| a.id == active_id)
+        .and_then(|a| a.projects_root.as_deref())
         .map(|s| !s.trim().is_empty())
-        .unwrap_or(false))
+        .unwrap_or(false);
+
+    // The Default workspace also honors the legacy top-level setting.
+    let on_legacy_global = active_id == DEFAULT_ACCOUNT_ID
+        && state
+            .projects_root
+            .as_deref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+
+    Ok(on_account || on_legacy_global)
 }
 
-/// Set (or clear) the projects root directory.
+/// Set (or clear) the *active workspace's* projects folder.
 ///
-/// An empty string resets to the default `~/ShipStudio`. A non-empty value must
-/// be an existing, writable, absolute directory. The cache is invalidated so the
-/// change takes effect immediately.
+/// An empty string resets that workspace to the default `~/ShipStudio`. A
+/// non-empty value must be an existing, writable, absolute directory. The cache
+/// is invalidated so the change takes effect immediately.
 #[tauri::command]
 #[tracing::instrument]
 pub fn set_projects_root(path: String) -> Result<(), CommandError> {
+    use crate::commands::accounts::DEFAULT_ACCOUNT_ID;
     let trimmed = path.trim();
-    let mut state = read_app_state();
 
-    if trimmed.is_empty() {
-        state.projects_root = None;
+    // Validate the folder up front (before touching state).
+    let value: Option<String> = if trimmed.is_empty() {
+        None
     } else {
         let pb = Path::new(trimmed);
         if !pb.is_absolute() {
@@ -113,8 +132,22 @@ pub fn set_projects_root(path: String) -> Result<(), CommandError> {
         let probe = pb.join(".shipstudio-write-test");
         std::fs::write(&probe, b"test").map_err(|e| format!("Folder isn't writable: {e}"))?;
         let _ = std::fs::remove_file(&probe);
+        Some(trimmed.to_string())
+    };
 
-        state.projects_root = Some(trimmed.to_string());
+    let mut state = read_app_state();
+    let active_id = state
+        .active_account_id
+        .clone()
+        .unwrap_or_else(|| DEFAULT_ACCOUNT_ID.to_string());
+
+    if let Some(acc) = state.accounts.iter_mut().find(|a| a.id == active_id) {
+        acc.projects_root = value;
+    } else {
+        // No materialized account record yet (e.g. only the implicit Default) —
+        // store on the legacy top-level field, which serves as the Default
+        // workspace's folder and is read back first by the resolver.
+        state.projects_root = value;
     }
 
     write_app_state(&state).map_err(CommandError::from)?;

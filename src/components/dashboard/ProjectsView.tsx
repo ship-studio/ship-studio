@@ -59,6 +59,8 @@ interface ProjectsViewProps {
   pinnedSet?: ReadonlySet<string>;
   /** Toggle pin state for a project. */
   onTogglePin?: (projectPath: string, pinned: boolean) => void;
+  /** Open the workspace switcher (chip beside "All Projects"). */
+  onSwitchAccount?: () => void;
 }
 
 export const ProjectsView = memo(function ProjectsView({
@@ -88,6 +90,7 @@ export const ProjectsView = memo(function ProjectsView({
   cleanupStatus,
   pinnedSet,
   onTogglePin,
+  onSwitchAccount,
 }: ProjectsViewProps) {
   return (
     <>
@@ -107,6 +110,7 @@ export const ProjectsView = memo(function ProjectsView({
             cleanupStatus={cleanupStatus}
             pinnedSet={pinnedSet}
             onTogglePin={onTogglePin}
+            onSwitchAccount={onSwitchAccount}
           />
           {!projectsLoading && (
             <PluginSlot

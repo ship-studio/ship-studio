@@ -17,6 +17,7 @@ import {
   setAccountCredential,
   clearAccountCredential,
   CREDENTIAL_LABELS,
+  CREDENTIAL_DESCRIPTIONS,
   ACCOUNT_COLORS,
   STATUS_FIELD_TO_KEY,
   SENSITIVE_KEYS,
@@ -278,7 +279,12 @@ export function AccountSettingsModal({
                         </div>
                       ) : (
                         <>
-                          <span className="account-cred-label">{CREDENTIAL_LABELS[key]}</span>
+                          <div className="account-cred-info">
+                            <span className="account-cred-label">{CREDENTIAL_LABELS[key]}</span>
+                            <span className="account-cred-description">
+                              {CREDENTIAL_DESCRIPTIONS[key]}
+                            </span>
+                          </div>
                           <div className="account-cred-status">
                             <span className={`account-cred-badge ${isSet ? 'set' : 'unset'}`}>
                               {isSet ? 'Set' : 'Not set'}

@@ -53,6 +53,7 @@ import {
 } from '../lib/external-projects';
 import { registerProjectSession } from '../lib/projectSessions';
 import { sessionRegistry } from '../lib/sessionRegistry';
+import { assignActiveWorkspaceToNewProject } from '../lib/accounts';
 import { getDefaultAgentId } from '../lib/agent';
 import {
   setWindowTitle,
@@ -827,7 +828,7 @@ export function useProjectLifecycle({
     setShowCreateModal(true);
   };
 
-  const handleProjectCreated = (projectPath: string) => {
+  const handleProjectCreated = async (projectPath: string) => {
     setShowCreateModal(false);
     const projectName = projectPath.split('/').pop() || 'project';
     void trackEvent('project_created', {
@@ -835,6 +836,9 @@ export function useProjectLifecycle({
       source: 'new',
       $screen_name: 'Create Project',
     });
+    // Tag the new project with the active Workspace at creation (awaited so its
+    // terminals/git pick up the right credentials on first open).
+    await assignActiveWorkspaceToNewProject(projectPath);
     void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
   };
 
@@ -842,7 +846,7 @@ export function useProjectLifecycle({
     setImportView('picker');
   };
 
-  const handleProjectImported = (projectPath: string) => {
+  const handleProjectImported = async (projectPath: string) => {
     setImportView('none');
     const projectName = projectPath.split('/').pop() || 'project';
     void trackEvent('project_imported', {
@@ -850,6 +854,7 @@ export function useProjectLifecycle({
       source: 'github',
       $screen_name: 'Import Project',
     });
+    await assignActiveWorkspaceToNewProject(projectPath);
     void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
   };
 
@@ -864,6 +869,7 @@ export function useProjectLifecycle({
           source: 'local_folder',
           $screen_name: 'Import Project',
         });
+        await assignActiveWorkspaceToNewProject(path);
         void handleSelectProject({ name: projectName, path, thumbnail: null });
       }
     } catch (error) {

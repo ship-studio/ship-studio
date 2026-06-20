@@ -39,12 +39,16 @@ echo "Components (.tsx limit 1200):"
 # Bumped again for the visual editor's jump-to-code wiring (codeTarget state +
 # openInCode callback threaded to the Code tab). Bumped again for the Shopify
 # theme preview gate (the logic lives in useShopifyTheme/ShopifySetup; this is
-# just the render branch + hook call the orchestrator must own).
-check_file src/components/workspace/WorkspaceView.tsx 1570
-check_file src/components/dashboard/ProjectList.tsx 800
+# just the render branch + hook call the orchestrator must own). Bumped again
+# for Workspaces (per-workspace credential isolation): the orchestrators own the
+# active-workspace gating, account-select screen routing, and move-workspace
+# wiring. Extracting a TerminalPanes sub-component from WorkspaceView and an
+# account router from App.tsx remain on the roadmap as follow-ups.
+check_file src/components/workspace/WorkspaceView.tsx 1580
+check_file src/components/dashboard/ProjectList.tsx 880
 check_file src/components/plugins/PluginManager.tsx 700
 check_file src/components/dashboard/ImportProject.tsx 500
-check_file src/App.tsx 1250
+check_file src/App.tsx 1285
 echo
 echo "CSS (limit 1200 per file):"
 # The visual editor stylesheet carries every control's styling (box model,

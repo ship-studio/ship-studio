@@ -6,10 +6,65 @@
   margin-bottom: 16px;
 }
 
+.dashboard-section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
 .dashboard-section-title {
   font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+/* Workspace indicator beside "All Projects" — click to open the switcher.
+   A compact rounded-rect tag (not a full pill, which stretches into a lozenge). */
+.dashboard-workspace-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  height: 24px;
+  padding: 0 var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color var(--transition),
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.dashboard-workspace-chip:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.dashboard-workspace-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.dashboard-workspace-chip-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-workspace-chip svg {
+  margin-left: 1px;
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 
 .dashboard-section-controls {

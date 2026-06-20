@@ -556,15 +556,30 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // Inject per-workspace isolation vars (CLAUDE_CONFIG_DIR, GH_CONFIG_DIR,
         // CODEX_HOME, XDG_DATA_HOME, credential tokens) for THIS project's
         // workspace — not the globally active one — so each open project's agent
-        // uses its own Claude/GitHub auth. Falls back to the active account's
-        // env if the project's account can't be resolved.
+        // uses its own Claude/GitHub auth.
+        //
+        // Crucially: once we know the project's workspace, a failure to load ITS
+        // env must fall back to the GLOBAL defaults (empty env → ~/.claude etc.),
+        // never to the active workspace's env — otherwise a project tagged to
+        // workspace B could silently run with workspace A's credentials. The
+        // active-account env is only a valid fallback when the project has no
+        // workspace at all (legacy/untagged projects).
         const accountEnv = await invoke<string>('get_project_account_id', {
           projectPath,
         })
           .then((accountId) =>
-            invoke<Record<string, string>>('get_account_env_vars', { accountId })
+            invoke<Record<string, string>>('get_account_env_vars', { accountId }).catch(
+              (err: unknown) => {
+                logger.warn(
+                  '[Terminal] Failed to load workspace env; using global defaults (not the active workspace)',
+                  { accountId, error: String(err) }
+                );
+                return {} as Record<string, string>;
+              }
+            )
           )
           .catch(() =>
+            // Project has no resolvable workspace — fall back to the active one.
             invoke<Record<string, string>>('get_active_account_env_vars').catch(() => ({}))
           );
         Object.assign(env, accountEnv);

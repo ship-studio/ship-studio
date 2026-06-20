@@ -376,21 +376,48 @@ pub fn projects_root() -> Result<std::path::PathBuf, String> {
 }
 
 fn resolve_projects_root_uncached() -> Result<std::path::PathBuf, String> {
+    use crate::commands::accounts::DEFAULT_ACCOUNT_ID;
+    // The projects folder is per-workspace: resolve the *active* workspace's
+    // folder. Switching workspaces changes which folder the dashboard scans (the
+    // cache is invalidated on switch).
     let default = default_projects_root()?;
-    let configured = crate::commands::setup::read_app_state().projects_root;
-    match configured {
-        Some(p) if !p.trim().is_empty() => {
-            let pb = std::path::PathBuf::from(p);
-            // Only honor a configured root that still exists; otherwise fall
-            // back so a deleted/renamed folder doesn't strand the dashboard.
-            if pb.is_dir() {
-                Ok(pb)
-            } else {
-                Ok(default)
-            }
+    let state = crate::commands::setup::read_app_state();
+    let active_id = state
+        .active_account_id
+        .as_deref()
+        .unwrap_or(DEFAULT_ACCOUNT_ID);
+    Ok(account_root_in(&state, active_id, &default))
+}
+
+/// The effective projects folder for one workspace: its own configured folder
+/// if set and still present on disk; for the Default workspace the legacy
+/// top-level `projects_root` is honored next (backward compat with the global
+/// setting that predated per-workspace folders); otherwise `~/ShipStudio`.
+fn account_root_in(
+    state: &crate::types::AppState,
+    account_id: &str,
+    default: &std::path::Path,
+) -> std::path::PathBuf {
+    use crate::commands::accounts::DEFAULT_ACCOUNT_ID;
+    let existing_dir = |s: &str| -> Option<std::path::PathBuf> {
+        let t = s.trim();
+        if t.is_empty() {
+            return None;
         }
-        _ => Ok(default),
+        let pb = std::path::PathBuf::from(t);
+        pb.is_dir().then_some(pb)
+    };
+    if let Some(acc) = state.accounts.iter().find(|a| a.id == account_id) {
+        if let Some(pb) = acc.projects_root.as_deref().and_then(existing_dir) {
+            return pb;
+        }
     }
+    if account_id == DEFAULT_ACCOUNT_ID {
+        if let Some(pb) = state.projects_root.as_deref().and_then(existing_dir) {
+            return pb;
+        }
+    }
+    default.to_path_buf()
 }
 
 /// Drop the cached projects root. Call after persisting a new value so the next
@@ -407,18 +434,40 @@ pub fn invalidate_projects_root_cache() {
 /// canonicalized candidate in the containment checks below.
 pub(crate) fn allowed_project_roots() -> Vec<std::path::PathBuf> {
     let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    let default = default_projects_root().ok();
+    let state = crate::commands::setup::read_app_state();
+
+    // Every workspace's folder. A project can belong to any workspace, and you
+    // can work projects from several workspaces at once, so a path under *any*
+    // workspace's folder must validate — not just the active one's.
+    if let Some(d) = &default {
+        for acc in &state.accounts {
+            roots.push(account_root_in(&state, &acc.id, d));
+        }
+    }
+    // Active workspace (covers the no-accounts edge case), legacy global root,
+    // and the built-in default.
     if let Ok(r) = projects_root() {
         roots.push(r);
     }
-    if let Ok(d) = default_projects_root() {
-        if !roots.contains(&d) {
-            roots.push(d);
+    if let Some(p) = state.projects_root.as_deref() {
+        if !p.trim().is_empty() {
+            roots.push(std::path::PathBuf::from(p.trim()));
         }
     }
-    roots
-        .into_iter()
-        .map(|r| dunce::canonicalize(&r).unwrap_or(r))
-        .collect()
+    if let Some(d) = default {
+        roots.push(d);
+    }
+
+    // Canonicalize (so symlinked roots match the canonicalized candidate) + dedup.
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    for r in roots {
+        let c = dunce::canonicalize(&r).unwrap_or(r);
+        if !out.contains(&c) {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Validates that a project path is inside an allowed projects root (the

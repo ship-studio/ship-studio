@@ -25,6 +25,14 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.10.0', // v0.10.0
+    items: [
+      'Workspaces — keep separate Claude, GitHub, and Codex logins for different clients or orgs, fully isolated. Each workspace has its own credentials, so the agent working in one project never sees another client\'s auth. Your existing setup becomes the "Default" workspace and is left completely untouched',
+      "Per-project workspaces — assign any project to a workspace and its terminals, git, pull requests, and AI all use that workspace's logins automatically. Move a project between workspaces right from the dashboard",
+      'Credential vault — store per-workspace tokens (Vercel, Figma, OpenAI) and a git identity securely in the macOS Keychain; secret values never leave the backend',
+    ],
+  },
+  {
     version: '0.9.0', // v0.9.0
     items: [
       'Custom classes — a Webflow-style class system in the visual editor, native to Tailwind. Select an element, name a class, and its styles become a reusable rule; edit that class once and every element using it updates. Built on Tailwind @apply, so it stays in your source',

@@ -66,6 +66,25 @@
   align-items: stretch;
 }
 
+/* Small workspace chip next to the "Projects folder" label (multi-workspace). */
+.settings-folder-workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-left: var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.settings-folder-workspace-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
 /* The path field is itself the click target — a pencil sits on the right. */
 .settings-folder-field {
   display: flex;
