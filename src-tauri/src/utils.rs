@@ -77,11 +77,13 @@ fn build_extended_path() -> String {
         }
 
         if let Ok(program_files) = std::env::var("ProgramFiles") {
+            windows_paths.push(format!("{}\\GitHub CLI", program_files));
             windows_paths.push(format!("{}\\Git\\bin", program_files));
             windows_paths.push(format!("{}\\nodejs", program_files));
         }
 
         if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+            windows_paths.push(format!("{}\\GitHub CLI", program_files_x86));
             windows_paths.push(format!("{}\\Git\\bin", program_files_x86));
             windows_paths.push(format!("{}\\nodejs", program_files_x86));
         }
