@@ -17,15 +17,20 @@ use std::sync::LazyLock;
 use std::time::Duration;
 use tracing::{debug, warn};
 
-/// 10-minute TTL cache for `gh api user --jq .login`. The username rarely
-/// changes during a session; the uncached call adds ~200ms and hits the
-/// network, so caching is a meaningful perf win.
-static GITHUB_USERNAME_CACHE: LazyLock<TtlCache<(), String>> =
+/// 10-minute TTL cache for `gh api user --jq .login`, keyed by the workspace
+/// (account) id the lookup ran under. The username rarely changes during a
+/// session; the uncached call adds ~200ms and hits the network, so caching is a
+/// meaningful perf win. Keying by account id is essential: the same call
+/// resolves to a *different* GitHub identity per workspace, so a single
+/// unit-keyed cache would hand one workspace's login to another (the
+/// "Create Repo defaulted to the wrong owner" bug).
+static GITHUB_USERNAME_CACHE: LazyLock<TtlCache<String, String>> =
     LazyLock::new(|| TtlCache::new(Duration::from_secs(600)));
 
-/// Invalidate the cached GitHub username. Call after auth changes.
+/// Invalidate every cached GitHub username. Call after auth changes or a
+/// workspace switch — both can change which login any account resolves to.
 pub fn invalidate_github_username_cache() {
-    GITHUB_USERNAME_CACHE.invalidate(&());
+    GITHUB_USERNAME_CACHE.clear();
 }
 
 /// Default timeout for GitHub CLI commands (15 seconds)
@@ -141,14 +146,36 @@ pub async fn check_github_cli_status() -> GitHubCliStatus {
     }
 }
 
+/// Resolves the gh command + workspace (account) id for an optional project.
+/// With a project path, both are scoped to that *project's* workspace login (so
+/// the owner shown for a repo matches the account the repo will actually be
+/// created under); without one, they fall back to the globally-active
+/// workspace. The account id is returned so callers can key per-workspace
+/// caches — see [`GITHUB_USERNAME_CACHE`].
+fn gh_command_and_account(project_path: Option<&str>) -> (Command, String) {
+    match project_path {
+        Some(p) => {
+            let path = Path::new(p);
+            let account_id = crate::commands::projects::project_account_id_sync(path);
+            (get_gh_command_for_project(path), account_id)
+        }
+        None => {
+            let account_id = crate::commands::accounts::get_active_account_id()
+                .unwrap_or_else(|_| "default".to_string());
+            (get_gh_command(), account_id)
+        }
+    }
+}
+
 #[tauri::command]
 #[tracing::instrument]
-pub async fn get_github_username() -> Result<String, CommandError> {
-    if let Some(cached) = GITHUB_USERNAME_CACHE.get(&()) {
+pub async fn get_github_username(project_path: Option<String>) -> Result<String, CommandError> {
+    let (mut cmd, account_id) = gh_command_and_account(project_path.as_deref());
+
+    if let Some(cached) = GITHUB_USERNAME_CACHE.get(&account_id) {
         return Ok(cached);
     }
 
-    let mut cmd = get_gh_command();
     cmd.args(["api", "user", "--jq", ".login"]);
     let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
 
@@ -159,15 +186,16 @@ pub async fn get_github_username() -> Result<String, CommandError> {
     }
 
     let username = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    GITHUB_USERNAME_CACHE.insert((), username.clone());
+    GITHUB_USERNAME_CACHE.insert(account_id, username.clone());
     Ok(username)
 }
 
 #[tauri::command]
 #[tracing::instrument]
-pub async fn get_github_orgs() -> Result<Vec<String>, CommandError> {
-    // Get orgs where user can create repos
-    let mut cmd = get_gh_command();
+pub async fn get_github_orgs(project_path: Option<String>) -> Result<Vec<String>, CommandError> {
+    // Get orgs where user can create repos, scoped to the project's workspace
+    // login so org choices match the account the repo will be created under.
+    let (mut cmd, _account_id) = gh_command_and_account(project_path.as_deref());
     cmd.args(["api", "user/orgs", "--jq", ".[].login"]);
     let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
 
@@ -593,6 +621,11 @@ mod tests {
     use super::*;
     use crate::types::GitHubRepo;
 
+    /// Serializes the tests that touch the process-global GITHUB_USERNAME_CACHE.
+    /// `invalidate_github_username_cache` clears the whole cache, so without this
+    /// these tests race under cargo's default multi-threaded runner.
+    static CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn parse_github_repo_https_with_git_suffix() {
         assert_eq!(
@@ -735,15 +768,17 @@ mod tests {
     /// We prime the cache manually (no network), invalidate, and check miss.
     #[test]
     fn github_username_cache_invalidation_clears_entry() {
-        GITHUB_USERNAME_CACHE.insert((), "alice".to_string());
+        let _guard = CACHE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        invalidate_github_username_cache();
+        GITHUB_USERNAME_CACHE.insert("default".to_string(), "alice".to_string());
         assert_eq!(
-            GITHUB_USERNAME_CACHE.get(&()),
+            GITHUB_USERNAME_CACHE.get("default"),
             Some("alice".to_string()),
             "cache should be primed"
         );
         invalidate_github_username_cache();
         assert_eq!(
-            GITHUB_USERNAME_CACHE.get(&()),
+            GITHUB_USERNAME_CACHE.get("default"),
             None,
             "invalidate must clear the cached username"
         );
@@ -752,15 +787,37 @@ mod tests {
     /// Verify the cache survives repeated reads within TTL (stability check).
     #[test]
     fn github_username_cache_stable_across_reads() {
+        let _guard = CACHE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Clean slate before asserting.
         invalidate_github_username_cache();
-        GITHUB_USERNAME_CACHE.insert((), "bob".to_string());
-        let first = GITHUB_USERNAME_CACHE.get(&());
-        let second = GITHUB_USERNAME_CACHE.get(&());
+        GITHUB_USERNAME_CACHE.insert("default".to_string(), "bob".to_string());
+        let first = GITHUB_USERNAME_CACHE.get("default");
+        let second = GITHUB_USERNAME_CACHE.get("default");
         assert_eq!(first, second);
         assert_eq!(first.as_deref(), Some("bob"));
         // Cleanup so we don't pollute other tests (test-threads=1 means tests
         // run sequentially but global state still bleeds between cases).
+        invalidate_github_username_cache();
+    }
+
+    /// Regression: two workspaces resolve to two different GitHub logins, so the
+    /// cache must hold both independently. A single unit-keyed cache returned
+    /// one workspace's identity for the other (Create Repo wrong-owner bug).
+    #[test]
+    fn github_username_cache_is_keyed_per_workspace() {
+        let _guard = CACHE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        invalidate_github_username_cache();
+        GITHUB_USERNAME_CACHE.insert("default".to_string(), "adambwhitten".to_string());
+        GITHUB_USERNAME_CACHE.insert("circa".to_string(), "circa-brand-agency".to_string());
+        assert_eq!(
+            GITHUB_USERNAME_CACHE.get("default").as_deref(),
+            Some("adambwhitten")
+        );
+        assert_eq!(
+            GITHUB_USERNAME_CACHE.get("circa").as_deref(),
+            Some("circa-brand-agency"),
+            "each workspace must keep its own cached login"
+        );
         invalidate_github_username_cache();
     }
 

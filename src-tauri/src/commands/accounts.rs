@@ -220,6 +220,54 @@ pub fn clear_claude_token(account_id: &str) {
     delete_from_keychain(account_id, CLAUDE_EXPIRES_KEY);
 }
 
+/// Best-effort check that a freshly-captured Claude token actually
+/// authenticates, run once at connect time before we persist it.
+///
+/// It mirrors the exact request Claude Code makes — `POST /v1/messages` with the
+/// OAuth bearer + `oauth-2025-04-20` beta header — so a token that passes here is
+/// genuinely usable by the agent terminal (same endpoint, same scope). We send
+/// `max_tokens: 1` so a *valid* token costs a negligible one-token completion.
+///
+/// Returns `true` ONLY on a definitive auth rejection (HTTP 401) — the signature
+/// of a truncated/garbage capture or a revoked token. Network errors, timeouts,
+/// rate limits, and server errors all return `false`, so a transient blip never
+/// blocks a real login (we'd rather store a token and let normal use surface a
+/// problem than reject a good login offline).
+fn claude_token_is_rejected(token: &str) -> bool {
+    let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
+        return false;
+    };
+    rt.block_on(async {
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+        else {
+            return false;
+        };
+        let body = serde_json::json!({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 1,
+            "messages": [{ "role": "user", "content": "hi" }],
+        });
+        match client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("authorization", format!("Bearer {token}"))
+            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-beta", "oauth-2025-04-20")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(resp) => resp.status() == reqwest::StatusCode::UNAUTHORIZED,
+            Err(_) => false,
+        }
+    })
+}
+
 /// Current wall-clock time in unix seconds (0 if the clock is before the epoch).
 fn unix_now() -> u64 {
     SystemTime::now()
@@ -1001,8 +1049,22 @@ const TOKEN_MIN_LEN: usize = 20;
 /// What the user sees in the terminal where the token would have printed.
 const TOKEN_PLACEHOLDER: &[u8] = b"sk-ant-[redacted by Ship Studio]";
 
+/// Minimum column width for the `claude setup-token` PTY. The CLI renders its
+/// output (via Ink) wrapped to the terminal width, so a narrow terminal inserts
+/// a real newline into the middle of the ~108-char token — and the scraper,
+/// which stops at the first non-token byte, then captures only the pre-wrap
+/// fragment and stores a truncated, invalid token (the "shows connected but
+/// every call is 401" bug). We force the PTY wide enough that the token always
+/// prints on one line, regardless of how small the connect modal is. The
+/// on-screen terminal reflows for display, so widening costs nothing visible.
+const CLAUDE_CONNECT_MIN_COLS: u16 = 400;
+
 fn is_token_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.')
+    // Token charset is base64url (`-`/`_`), but accept standard base64 (`+`/`/`/`=`)
+    // too so a format change can never silently truncate capture at one of those
+    // bytes. The token's real boundary is whitespace / ESC / EOF, none of which
+    // are in this set.
+    b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'+' | b'/' | b'=')
 }
 
 /// First index of `needle` within `haystack`, if present.
@@ -1144,6 +1206,10 @@ pub fn claude_connect_start(
         }
     }
 
+    // Force a wide terminal so `claude setup-token` never wraps the token across
+    // a newline (which would truncate the scraped token — see
+    // CLAUDE_CONNECT_MIN_COLS). The frontend xterm reflows for display.
+    let cols = cols.max(CLAUDE_CONNECT_MIN_COLS);
     let pair = native_pty_system()
         .openpty(PtySize {
             rows,
@@ -1209,10 +1275,30 @@ pub fn claude_connect_start(
             let mut buf = [0u8; 4096];
             let mut carry: Vec<u8> = Vec::new();
             let store_and_signal = |token: String| {
+                // We've scraped a token; stop scanning regardless of outcome.
+                session.captured.store(true, Ordering::Relaxed);
+
+                // Validate before persisting. Storing a token that the API
+                // rejects is the exact trap that made a workspace read
+                // "connected" on the dashboard while every agent call returned
+                // 401 — so a rejected token is dropped, not saved.
+                if claude_token_is_rejected(&token) {
+                    tracing::warn!(
+                        account_id = %account_id,
+                        "captured Claude token was rejected by the API (401); not storing"
+                    );
+                    let msg = "\r\n\x1b[31mThat login didn't work — the API rejected the token. \
+                               Please start over and run the login again.\x1b[0m\r\n";
+                    emit_connect_data(&app, &session_id, msg.as_bytes());
+                    // No `claude-connect-captured`: the workspace stays
+                    // disconnected, and the connect modal's exit handler shows
+                    // its "Login didn't finish / Start over" affordance.
+                    return;
+                }
+
                 if let Err(e) = store_claude_token(&account_id, &token, email.as_deref()) {
                     tracing::warn!("failed to store captured Claude token: {e}");
                 }
-                session.captured.store(true, Ordering::Relaxed);
                 let _ = app.emit(
                     "claude-connect-captured",
                     serde_json::json!({ "sessionId": session_id }),
@@ -1318,6 +1404,10 @@ pub fn claude_connect_resize(session_id: String, cols: u16, rows: u16) -> Result
         .master
         .lock()
         .map_err(|e| format!("master lock poisoned: {e}"))?;
+    // Keep the floor from claude_connect_start: a later fit-resize from the
+    // (narrow) modal must not shrink the PTY back down and let the token wrap
+    // before it's printed and captured. See CLAUDE_CONNECT_MIN_COLS.
+    let cols = cols.max(CLAUDE_CONNECT_MIN_COLS);
     master
         .resize(PtySize {
             rows,
@@ -1764,6 +1854,23 @@ mod tests {
         // Surrounding text is preserved verbatim.
         assert!(shown.contains("Long-lived token created!"));
         assert!(shown.contains("Store it."));
+    }
+
+    #[test]
+    fn redact_captures_token_with_base64_chars() {
+        // Defensive: if the token format ever includes standard base64 (`+`/`/`/`=`)
+        // instead of base64url, the scan must not stop at one of those bytes and
+        // store a truncated token. The run still terminates at the trailing space.
+        let out = b"sk-ant-oat01-AbC+dEf/123=ghIJKlmnopQRstuvWXyz456 trailing";
+        let (emit, token) = redact_once(out);
+        assert_eq!(
+            token.as_deref(),
+            Some("sk-ant-oat01-AbC+dEf/123=ghIJKlmnopQRstuvWXyz456")
+        );
+        let shown = String::from_utf8_lossy(&emit);
+        assert!(!shown.contains("AbC+dEf"), "token leaked: {shown}");
+        assert!(shown.contains("sk-ant-[redacted by Ship Studio]"));
+        assert!(shown.contains("trailing"));
     }
 
     #[test]

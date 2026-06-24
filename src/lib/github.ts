@@ -42,19 +42,24 @@ export async function checkGitHubCliStatus(): Promise<GitHubCliStatus> {
 
 /**
  * Get the authenticated GitHub username.
+ * @param projectPath - Optional project path; when given, resolves the username
+ *   for that project's workspace login rather than the globally-active one, so
+ *   it matches the account a repo created from that project lands under.
  * @returns GitHub username
  * @throws If not authenticated
  */
-export async function getGitHubUsername(): Promise<string> {
-  return invoke<string>('get_github_username');
+export async function getGitHubUsername(projectPath?: string): Promise<string> {
+  return invoke<string>('get_github_username', { projectPath });
 }
 
 /**
  * Get list of GitHub organizations the user belongs to.
+ * @param projectPath - Optional project path; scopes the org list to that
+ *   project's workspace login (see {@link getGitHubUsername}).
  * @returns Array of organization names
  */
-export async function getGitHubOrgs(): Promise<string[]> {
-  return invoke<string[]>('get_github_orgs');
+export async function getGitHubOrgs(projectPath?: string): Promise<string[]> {
+  return invoke<string[]>('get_github_orgs', { projectPath });
 }
 
 /**

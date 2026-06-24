@@ -14,7 +14,12 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { GitHubState } from '../../hooks/useIntegrationStatus';
-import { ProjectGitHubStatus, pushToGitHub, getGitHubOrgs } from '../../lib/github';
+import {
+  ProjectGitHubStatus,
+  pushToGitHub,
+  getGitHubOrgs,
+  getGitHubUsername,
+} from '../../lib/github';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button } from '../primitives/Button';
 import { ModalFrame } from '../primitives/ModalFrame';
@@ -57,9 +62,17 @@ export function GitHubButton({
   const [error, setError] = useState<string | null>(null);
   const [orgs, setOrgs] = useState<string[]>([]);
   const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
+  // GitHub login for *this project's* workspace, which can differ from the
+  // globally-active workspace login carried by `githubState.username`. The
+  // repo is created under the project's workspace (push_to_github is
+  // project-scoped), so the owner we show must come from the same place — else
+  // the dropdown defaults to the active workspace's account (the wrong-owner bug).
+  const [projectUsername, setProjectUsername] = useState<string | null>(null);
   const createRepoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { cliStatus, username } = githubState;
+  const { cliStatus, username: activeUsername } = githubState;
+  // Prefer the project-scoped login; fall back to the active one until it loads.
+  const username = projectUsername ?? activeUsername;
 
   const closeCreateModal = () => {
     setShowCreateModal(false);
@@ -75,14 +88,34 @@ export function GitHubButton({
     };
   }, []);
 
-  // Fetch orgs when modal opens
+  // Fetch the owner (this project's workspace login) and its orgs when the
+  // modal opens. Both are scoped to `projectPath` so they match the account the
+  // repo will be created under, not whichever workspace is globally active.
   useEffect(() => {
-    if (showCreateModal && cliStatus.authenticated) {
-      void getGitHubOrgs()
-        .then(setOrgs)
-        .catch(() => setOrgs([]));
-    }
-  }, [showCreateModal, cliStatus.authenticated]);
+    if (!showCreateModal || !cliStatus.authenticated) return;
+    let cancelled = false;
+    void getGitHubUsername(projectPath)
+      .then((name) => {
+        if (cancelled) return;
+        setProjectUsername(name);
+        // Default the dropdown to the project's account unless the user already
+        // picked an owner this session.
+        setSelectedOwner((prev) => prev ?? name);
+      })
+      .catch(() => {
+        /* fall back to the active-workspace username already in state */
+      });
+    void getGitHubOrgs(projectPath)
+      .then((list) => {
+        if (!cancelled) setOrgs(list);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showCreateModal, cliStatus.authenticated, projectPath]);
 
   // Clear isCreatingRepo when status becomes connected
   // This synchronizes local loading state with external status - a valid pattern
@@ -161,7 +194,9 @@ export function GitHubButton({
         className="github-button github-create"
         onClick={() => {
           setRepoName(projectName);
-          setSelectedOwner(username); // Default to personal account
+          // Clear so the modal's effect can default the owner to this project's
+          // workspace login once it resolves (see the fetch effect above).
+          setSelectedOwner(null);
           setShowCreateModal(true);
           setError(null);
         }}
