@@ -12,6 +12,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 /** A Workspace for isolating Claude/GitHub config and credentials per org/client. */
 export interface Account {
@@ -34,6 +35,8 @@ export interface AccountCredentialStatus {
   codexAuthEmail: string | null;
   opencodeAuthEmail: string | null;
   githubAuthEmail: string | null;
+  /** Vercel identity verified with this workspace's token; null if unset/invalid. */
+  vercelUsername: string | null;
   hasAnthropicBaseUrl: boolean;
   hasVercelToken: boolean;
   hasGitName: boolean;
@@ -72,7 +75,11 @@ export const SENSITIVE_KEYS = new Set<CredentialKey>(['anthropic_base_url', 'ver
 export const STATUS_FIELD_TO_KEY: Record<
   Exclude<
     keyof AccountCredentialStatus,
-    'claudeAuthEmail' | 'codexAuthEmail' | 'opencodeAuthEmail' | 'githubAuthEmail'
+    | 'claudeAuthEmail'
+    | 'codexAuthEmail'
+    | 'opencodeAuthEmail'
+    | 'githubAuthEmail'
+    | 'vercelUsername'
   >,
   CredentialKey
 > = {
@@ -106,6 +113,30 @@ export const ACCOUNTS_CHANGED_EVENT = 'shipstudio:accounts-changed';
 
 function notifyAccountsChanged(): void {
   window.dispatchEvent(new Event(ACCOUNTS_CHANGED_EVENT));
+}
+
+/**
+ * Event fired when a workspace's *login credentials* change (a service
+ * connect/disconnect or a credential-vault edit) — as opposed to the workspace
+ * set/identity ({@link ACCOUNTS_CHANGED_EVENT}). Carries the affected workspace
+ * id so listeners can scope their reaction. Terminals capture the workspace's
+ * env once at PTY spawn and can't pick up a change live, so the terminal area
+ * uses this to surface a non-destructive "restart to apply" banner.
+ */
+export const ACCOUNT_CREDENTIALS_CHANGED_EVENT = 'shipstudio:account-credentials-changed';
+
+/** Payload for {@link ACCOUNT_CREDENTIALS_CHANGED_EVENT}. */
+export interface AccountCredentialsChangedDetail {
+  /** The workspace whose login env just changed. */
+  accountId: string;
+}
+
+export function notifyAccountCredentialsChanged(accountId: string): void {
+  window.dispatchEvent(
+    new CustomEvent<AccountCredentialsChangedDetail>(ACCOUNT_CREDENTIALS_CHANGED_EVENT, {
+      detail: { accountId },
+    })
+  );
 }
 
 export async function listAccounts(): Promise<Account[]> {
@@ -147,11 +178,96 @@ export async function setAccountCredential(
   key: CredentialKey,
   value: string
 ): Promise<void> {
-  return invoke('set_account_credential', { id, key, value });
+  await invoke('set_account_credential', { id, key, value });
+  notifyAccountCredentialsChanged(id);
 }
 
 export async function clearAccountCredential(id: string, key: CredentialKey): Promise<void> {
-  return invoke('clear_account_credential', { id, key });
+  await invoke('clear_account_credential', { id, key });
+  notifyAccountCredentialsChanged(id);
+}
+
+/**
+ * Config-dir login services that authenticate by writing into a workspace's
+ * isolated config dir (GH_CONFIG_DIR / CODEX_HOME / XDG_DATA_HOME). Unlike
+ * Claude (a global keychain entry needing token capture), these just run the
+ * CLI's own login under the workspace's env — so the connect PTY streams output
+ * verbatim and treats process exit as completion.
+ */
+export type WorkspaceConnectService = 'github' | 'codex' | 'opencode';
+
+/**
+ * Start a backend-owned PTY login for a workspace's GitHub/Codex/Opencode
+ * account. Mirrors {@link claudeConnectStart} but with no token scraping: the
+ * CLI writes its own credential files into the workspace's isolated config dir.
+ * Output streams as `workspace-connect-data`; completion is `workspace-connect-exit`.
+ * Rejected for the Default workspace (it uses the machine's native logins).
+ */
+export async function workspaceConnectStart(args: {
+  sessionId: string;
+  accountId: string;
+  service: WorkspaceConnectService;
+  cols: number;
+  rows: number;
+}): Promise<void> {
+  await invoke('workspace_connect_start', {
+    sessionId: args.sessionId,
+    id: args.accountId,
+    service: args.service,
+    cols: args.cols,
+    rows: args.rows,
+  });
+}
+
+/** Forward keystrokes to a workspace-connect PTY. */
+export async function workspaceConnectWrite(sessionId: string, data: string): Promise<void> {
+  const bytes = Array.from(new TextEncoder().encode(data));
+  await invoke('workspace_connect_write', { sessionId, data: bytes });
+}
+
+/** Resize a workspace-connect PTY to match the on-screen terminal. */
+export async function workspaceConnectResize(
+  sessionId: string,
+  cols: number,
+  rows: number
+): Promise<void> {
+  await invoke('workspace_connect_resize', { sessionId, cols, rows });
+}
+
+/** Kill a workspace-connect PTY and drop its backend registry entry. Idempotent. */
+export async function workspaceConnectClose(sessionId: string): Promise<void> {
+  await invoke('workspace_connect_close', { sessionId });
+}
+
+/** Subscribe to a workspace-connect session's terminal output (raw bytes). */
+export async function onWorkspaceConnectData(
+  sessionId: string,
+  handler: (bytes: Uint8Array) => void
+): Promise<UnlistenFn> {
+  return listen<{ sessionId: string; data: number[] }>('workspace-connect-data', (event) => {
+    if (event.payload.sessionId !== sessionId) return;
+    handler(new Uint8Array(event.payload.data));
+  });
+}
+
+/** Fires when a workspace-connect process exits (clean or not). */
+export async function onWorkspaceConnectExit(
+  sessionId: string,
+  handler: (exitCode: number) => void
+): Promise<UnlistenFn> {
+  return listen<{ sessionId: string; exitCode: number }>('workspace-connect-exit', (event) => {
+    if (event.payload.sessionId !== sessionId) return;
+    handler(event.payload.exitCode);
+  });
+}
+
+/** Sign a workspace out of a config-dir login (GitHub/Codex/Opencode). */
+export async function workspaceDisconnectService(
+  id: string,
+  service: WorkspaceConnectService
+): Promise<void> {
+  await invoke('workspace_disconnect_service', { id, service });
+  notifyAccountCredentialsChanged(id);
 }
 
 export async function moveProjectToAccount(projectPath: string, accountId: string): Promise<void> {

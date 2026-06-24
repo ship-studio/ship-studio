@@ -68,6 +68,11 @@ export interface SessionTerminalTab {
   exitCode?: number | null;
   /** Unix millis of the most recent status update for this tab. */
   lastActivityAt?: number;
+  /** True when this tab's PTY captured a now-outdated workspace login env at
+   *  spawn (a credential changed after it started). Non-destructive UI hint:
+   *  the terminal area shows a "restart to apply" banner. Cleared when the tab
+   *  is restarted (its sessionId changes) or the banner is dismissed. */
+  staleEnv?: boolean;
 }
 
 /**
@@ -333,6 +338,9 @@ class SessionRegistry {
         pid: t.pid ?? (agentChanged ? null : prev.pid),
         exitCode: t.exitCode ?? (agentChanged ? null : prev.exitCode),
         lastActivityAt: t.lastActivityAt ?? (agentChanged ? Date.now() : prev.lastActivityAt),
+        // A new sessionId means a fresh PTY that captured the *current* env, so
+        // staleness clears on restart / agent switch. Otherwise it carries over.
+        staleEnv: t.staleEnv ?? (agentChanged ? undefined : prev.staleEnv),
       };
     });
     session.activeTabIndex = Math.max(0, Math.min(activeTabIndex, tabs.length - 1));
@@ -440,6 +448,56 @@ class SessionRegistry {
         changed = true;
       }
       return next;
+    });
+    if (changed) this.notify(projectPath);
+  }
+
+  /**
+   * Flag a project's currently-running terminal tabs as having a stale login
+   * env — their PTY captured the workspace's credentials at spawn and can't
+   * pick up a change without a restart. Only running tabs are flagged: an
+   * exited tab re-reads fresh env on its next (Enter-to-)restart anyway.
+   * Non-destructive — it only drives a "restart to apply" banner.
+   */
+  markProjectTabsStale(projectPath: string): void {
+    const session = this.sessions.get(projectPath);
+    if (!session) return;
+    let changed = false;
+    session.terminalTabs = session.terminalTabs.map((tab) => {
+      const isRunning =
+        tab.status === undefined ||
+        tab.status === 'starting' ||
+        tab.status === 'running' ||
+        tab.status === 'thinking' ||
+        tab.status === 'waiting';
+      if (isRunning && !tab.staleEnv) {
+        changed = true;
+        return { ...tab, staleEnv: true };
+      }
+      return tab;
+    });
+    if (changed) this.notify(projectPath);
+  }
+
+  /** True when the project has at least one tab flagged with a stale env. */
+  hasStaleTabs(projectPath: string): boolean {
+    const session = this.sessions.get(projectPath);
+    if (!session) return false;
+    return session.terminalTabs.some((t) => t.staleEnv);
+  }
+
+  /** Clear the stale-env flag on every tab of a project (e.g. on banner
+   *  dismiss). Restarting a tab clears its own flag via {@link setTerminalTabs}. */
+  clearProjectStaleEnv(projectPath: string): void {
+    const session = this.sessions.get(projectPath);
+    if (!session) return;
+    let changed = false;
+    session.terminalTabs = session.terminalTabs.map((tab) => {
+      if (tab.staleEnv) {
+        changed = true;
+        return { ...tab, staleEnv: false };
+      }
+      return tab;
     });
     if (changed) this.notify(projectPath);
   }

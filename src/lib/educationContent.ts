@@ -56,10 +56,10 @@ export const educationContent: Record<string, EducationItem> = {
     description:
       'Customize your dashboard — show or hide the activity calendar and community banner, and manage analytics preferences.',
   },
-  'integration-bar': {
-    title: 'Integrations',
+  'machine-tools': {
+    title: 'Tools on this Mac',
     description:
-      'See which tools are connected and ready. Click to expand and check the status of your coding agent, GitHub, and other services.',
+      'The tools installed once on your machine and shared by every workspace — Homebrew, Node, Git, and the agent CLIs. Click to expand and check what is installed.',
   },
   'changelog-sidebar': {
     title: "What's New",

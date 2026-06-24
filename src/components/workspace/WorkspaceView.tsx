@@ -23,6 +23,7 @@ import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
 import { setTerminalState } from '../../lib/project';
 import { Terminal } from '../terminal/Terminal';
+import { StaleEnvBanner } from '../terminal/StaleEnvBanner';
 import { DevServerLogs } from '../terminal/DevServerLogs';
 import { Preview } from '../preview/Preview';
 import type { PreviewHandle, InspectTab } from '../preview/Preview';
@@ -106,6 +107,7 @@ interface TerminalProps {
   closeTerminalTab: (id: number) => void;
   focusActiveTerminal: () => void;
   switchTabAgent: (tabId: number, agentId: string) => void;
+  restartTerminalTab: (tabId: number, projectPath?: string) => void;
   getActiveTabAgent: () => AgentConfig;
   /** Side-by-side view: tab ids visible in panes, or null when off. */
   splitPaneTabIds: number[] | null;
@@ -394,6 +396,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     addTerminalTab,
     closeTerminalTab,
     focusActiveTerminal,
+    restartTerminalTab,
     getActiveTabAgent,
     splitPaneTabIds,
     splitPaneSizes,
@@ -1027,6 +1030,7 @@ export const WorkspaceView = memo(function WorkspaceView({
             onGoHome={onGoHome}
             autoAcceptMode={autoAcceptMode}
             handleTerminalExit={handleTerminalExit}
+            restartTerminalTab={restartTerminalTab}
             createTabStatusHandler={createTabStatusHandler}
             handleTabTitleChange={handleTabTitleChange}
           />
@@ -1177,6 +1181,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             />
                           </div>
                         </div>
+                        <StaleEnvBanner projectPath={currentProject.path} />
                         <div
                           className={`terminal-content${isSplitActive ? ' split' : ''}`}
                           data-education-id="claude-terminal"
@@ -1307,6 +1312,9 @@ export const WorkspaceView = memo(function WorkspaceView({
                                     sessionName={tab.sessionId}
                                     isActive={isVisible}
                                     shouldResume={tab.shouldResume}
+                                    onRequestRestart={() =>
+                                      restartTerminalTab(tab.id, session.projectPath)
+                                    }
                                   />
                                 </div>
                               );

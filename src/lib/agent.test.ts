@@ -99,25 +99,26 @@ describe('getActiveAgent', () => {
 // ============ ALL_AGENTS / ALL_TAB_OPTIONS ============
 
 describe('ALL_AGENTS', () => {
-  it('has exactly 3 entries', () => {
-    expect(ALL_AGENTS).toHaveLength(3);
+  it('has exactly 4 entries', () => {
+    expect(ALL_AGENTS).toHaveLength(4);
   });
 
-  it('contains CLAUDE_CODE, CODEX, and OPENCODE', () => {
-    expect(ALL_AGENTS.map((a) => a.id)).toEqual(['claude-code', 'codex', 'opencode']);
+  it('contains CLAUDE_CODE, CODEX, OPENCODE, and CURSOR', () => {
+    expect(ALL_AGENTS.map((a) => a.id)).toEqual(['claude-code', 'codex', 'opencode', 'cursor']);
   });
 });
 
 describe('ALL_TAB_OPTIONS', () => {
-  it('has exactly 4 entries (agents + terminal)', () => {
-    expect(ALL_TAB_OPTIONS).toHaveLength(4);
+  it('has exactly 5 entries (agents + terminal)', () => {
+    expect(ALL_TAB_OPTIONS).toHaveLength(5);
   });
 
-  it('contains CLAUDE_CODE, CODEX, OPENCODE, and TERMINAL', () => {
+  it('contains CLAUDE_CODE, CODEX, OPENCODE, CURSOR, and TERMINAL', () => {
     expect(ALL_TAB_OPTIONS.map((a) => a.id)).toEqual([
       'claude-code',
       'codex',
       'opencode',
+      'cursor',
       'terminal',
     ]);
   });

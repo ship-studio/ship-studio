@@ -189,6 +189,14 @@ export function isTailwindActive(projectPath: string): Promise<boolean> {
   return invoke<boolean>('is_tailwind_active', { projectPath });
 }
 
+/** Whether the project depends on React. Used to gate the editor for Vite
+ *  projects: the className→source resolver only indexes `.tsx`/`.jsx`, so a
+ *  Vite + Vue/Svelte project would otherwise show an edit button that can't
+ *  write back. Meta-frameworks (Next.js) are gated by project type instead. */
+export function projectUsesReact(projectPath: string): Promise<boolean> {
+  return invoke<boolean>('project_uses_react', { projectPath });
+}
+
 /** The set of breakpoint prefixes used to recognize variant tokens. */
 export function breakpointPrefixes(breakpoints: Breakpoint[]): Set<string> {
   return new Set(breakpoints.map((b) => b.prefix).filter((p): p is string => p !== null));

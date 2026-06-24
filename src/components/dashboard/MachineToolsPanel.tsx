@@ -1,26 +1,27 @@
 /**
- * IntegrationBar — required-integrations card at the bottom of the dashboard.
+ * MachineToolsPanel — machine-tier tools card on the dashboard.
  *
- * Styled as a shared .dashboard-card so it reads as part of the same stack
- * as the Coding Agents and Preferences cards. Collapsed by default — the
- * summary line ("All integrations connected" or "X/Y ready") sits inside
- * the card header, and the individual integration rows reveal on expand.
+ * The other half of the integration split (see {@link AgentsPanel}, the
+ * workspace-tier "Workspace accounts" card). This card lists only the tools
+ * that are installed **once on the machine and shared by every workspace** —
+ * Homebrew, Node, Git, and the CLI binaries — so the user can tell at a glance
+ * what's "global" versus what's a per-client login. It's purely informational:
+ * installing/updating these tools is owned by onboarding and, for the agent
+ * CLIs, the per-agent Install button in {@link AgentsPanel}.
  *
- * @module components/IntegrationBar
+ * Styled as a shared .dashboard-card so it reads as part of the same stack as
+ * the Workspace accounts and Preferences cards. Collapsed by default.
+ *
+ * @module components/dashboard/MachineToolsPanel
  */
 
 import { useState, useEffect } from 'react';
 import { CheckIcon, WarningIcon, ChevronIcon, ClaudeIcon, GitHubIcon } from '../icons';
 import { Spinner } from '../primitives/Spinner';
-import { getFullSetupStatus, SetupItem, SETUP_ITEM_ORDER } from '../../lib/setup';
+import { getFullSetupStatus, SetupItem, SETUP_ITEM_ORDER, MACHINE_ITEM_IDS } from '../../lib/setup';
 import { logger } from '../../lib/logger';
 
-interface IntegrationBarProps {
-  /** Callback to connect GitHub account */
-  onGitHubConnect?: () => void;
-}
-
-export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
+export function MachineToolsPanel() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [setupItems, setSetupItems] = useState<SetupItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,10 +31,10 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
       setIsLoading(true);
       try {
         const status = await getFullSetupStatus();
-        const sorted = [...status.items].sort((a, b) => {
-          return SETUP_ITEM_ORDER.indexOf(a.id) - SETUP_ITEM_ORDER.indexOf(b.id);
-        });
-        setSetupItems(sorted);
+        const machineItems = status.items
+          .filter((item) => MACHINE_ITEM_IDS.has(item.id))
+          .sort((a, b) => SETUP_ITEM_ORDER.indexOf(a.id) - SETUP_ITEM_ORDER.indexOf(b.id));
+        setSetupItems(machineItems);
       } catch (error) {
         logger.error('Failed to load setup status', {
           error: error instanceof Error ? error.message : String(error),
@@ -47,42 +48,37 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
 
   const readyCount = setupItems.filter((item) => item.status === 'ready').length;
   const totalCount = setupItems.length;
-  const allConnected = totalCount > 0 && readyCount === totalCount;
+  const allInstalled = totalCount > 0 && readyCount === totalCount;
 
   const getItemIcon = (itemId: string) => {
     switch (itemId) {
       case 'claude':
-      case 'claude_auth':
         return <ClaudeIcon />;
       case 'gh':
-      case 'gh_auth':
         return <GitHubIcon />;
       default:
         return <CheckIcon size={16} />;
     }
   };
 
+  // Machine tools have no login — "ready" means installed, otherwise it's just
+  // not installed yet (the version string doubles as the installed indicator).
   const getStatusText = (item: SetupItem) => {
     if (item.status === 'ready') {
-      return item.username || item.version || 'Ready';
+      return item.version || 'Installed';
     }
-    return item.status === 'not_installed' ? 'Not installed' : 'Not connected';
-  };
-
-  const getConnectHandler = (itemId: string) => {
-    if (itemId === 'gh_auth') return onGitHubConnect;
-    return undefined;
+    return 'Not installed';
   };
 
   const subtitle = isLoading
     ? 'Checking…'
-    : allConnected
-      ? 'All integrations connected'
-      : `${readyCount}/${totalCount} ready`;
+    : allInstalled
+      ? 'All tools installed'
+      : `${readyCount}/${totalCount} installed`;
 
   const statusIcon = isLoading ? (
     <Spinner size="sm" />
-  ) : allConnected ? (
+  ) : allInstalled ? (
     <CheckIcon size={14} className="integration-bar-status-icon success" />
   ) : (
     <WarningIcon size={14} className="integration-bar-status-icon warning" />
@@ -91,7 +87,7 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
   return (
     <section
       className={`dashboard-card integration-bar ${isExpanded ? 'is-expanded' : ''}`}
-      data-education-id="integration-bar"
+      data-education-id="machine-tools"
     >
       <button
         type="button"
@@ -100,10 +96,13 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
         aria-expanded={isExpanded}
       >
         <div>
-          <h3 className="dashboard-card-title">Integrations</h3>
+          <h3 className="dashboard-card-title">Tools on this Mac</h3>
           <p className="dashboard-card-subtitle integration-bar-subtitle">
             {statusIcon}
             <span>{subtitle}</span>
+            <span className="machine-tools-shared-hint">
+              · installed once, shared by every workspace
+            </span>
           </p>
         </div>
         <ChevronIcon
@@ -115,10 +114,7 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
       {isExpanded && (
         <div className="dashboard-card-rows">
           {setupItems.map((item) => {
-            const connectHandler = getConnectHandler(item.id);
-            const showConnectButton = item.status !== 'ready' && connectHandler;
             const isReady = item.status === 'ready';
-
             return (
               <div key={item.id} className="dashboard-card-row is-static">
                 <div className={`dashboard-card-row-icon ${isReady ? 'success' : ''}`}>
@@ -130,17 +126,6 @@ export function IntegrationBar({ onGitHubConnect }: IntegrationBarProps) {
                     {getStatusText(item)}
                   </span>
                 </div>
-                {showConnectButton && (
-                  <button
-                    className="integration-bar-item-connect"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      connectHandler();
-                    }}
-                  >
-                    Connect
-                  </button>
-                )}
               </div>
             );
           })}

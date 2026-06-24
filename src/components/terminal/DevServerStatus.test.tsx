@@ -20,12 +20,18 @@ function renderStatus(overrides: Partial<React.ComponentProps<typeof DevServerSt
 }
 
 describe('DevServerStatus', () => {
-  it('shows Stop + the attempt counter while loading', () => {
-    const props = renderStatus({ phase: 'loading' });
-    expect(screen.getByText('Attempt 24/60')).toBeInTheDocument();
+  it('shows Stop + the attempt counter once past warm-up', () => {
+    const props = renderStatus({ phase: 'loading', retryCount: 24 });
+    expect(screen.getByText('Still trying… (attempt 24 of 60)')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Stop'));
     expect(props.onStop).toHaveBeenCalledOnce();
     expect(screen.queryByText('Retry')).not.toBeInTheDocument();
+  });
+
+  it('shows a calm warm-up message early, before the raw attempt counter', () => {
+    renderStatus({ phase: 'loading', retryCount: 5 });
+    expect(screen.getByText('This can take a minute the first time…')).toBeInTheDocument();
+    expect(screen.queryByText(/attempt 5 of 60/)).not.toBeInTheDocument();
   });
 
   it('swaps Stop for Retry once stopped, without showing an attempt counter', () => {

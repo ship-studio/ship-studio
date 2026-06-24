@@ -114,6 +114,9 @@ export interface UseTerminalManagementReturn {
   focusActiveTerminal: () => void;
   pasteToActiveTerminal: (text: string) => void;
   switchTabAgent: (tabId: number, agentId: string) => void;
+  /** Relaunch a tab's agent with a fresh session (used after it exits).
+   *  Defaults to the current project; pass a path to target a background one. */
+  restartTerminalTab: (tabId: number, projectPath?: string) => void;
   getActiveTabAgent: () => AgentConfig;
   /** Seed a project's tabs from persisted state. Idempotent — no-op if
    *  the project already has tabs tracked (prevents clobbering running
@@ -375,6 +378,38 @@ export function useTerminalManagement(
     [bump]
   );
 
+  const restartTerminalTab = useCallback(
+    (tabId: number, projectPath?: string) => {
+      const path = projectPath ?? currentPathRef.current;
+      if (!path) return;
+      const s = statesRef.current.get(path);
+      if (!s) return;
+
+      // No-op while the agent is still running: restart only recovers a tab
+      // whose process has exited. This guards every entry point (in-terminal
+      // Enter, toolbar, palette) so a stray "Restart" can't kill a live agent
+      // and drop its conversation. A missing ref means nothing is mounted to
+      // kill, so we let the relaunch proceed.
+      const ref = terminalRefsMap.current.get(refKey(path, tabId));
+      if (ref && !ref.isExited()) return;
+
+      // Kill the (exited) PTY, then mint a fresh session id so the relaunch
+      // never collides with the prior conversation's id. Same agent — only the
+      // session changes. Bumping sessionEpoch forces a clean xterm remount,
+      // matching switchTabAgent.
+      if (ref) ref.kill();
+      terminalRefsMap.current.delete(refKey(path, tabId));
+
+      s.tabs = s.tabs.map((t) =>
+        t.id === tabId ? { ...t, sessionId: crypto.randomUUID(), shouldResume: false } : t
+      );
+      s.sessionEpoch += 1;
+      bump();
+      void trackEvent('terminal_tab_restarted', { $screen_name: 'Workspace' });
+    },
+    [bump]
+  );
+
   const getActiveTabAgent = useCallback((): AgentConfig => {
     const s = getCurrent();
     if (!s) return getAgentById(getDefaultAgentId());
@@ -569,6 +604,7 @@ export function useTerminalManagement(
     focusActiveTerminal,
     pasteToActiveTerminal,
     switchTabAgent,
+    restartTerminalTab,
     getActiveTabAgent,
     restoreTerminalTabs,
     ensureProjectSeeded,

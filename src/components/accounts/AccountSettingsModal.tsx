@@ -9,6 +9,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
+import { GitHubIcon, VercelIcon } from '../icons';
+import { useWorkspaceConnect, type ConnectServiceId } from '../../hooks/useWorkspaceConnect';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import {
   updateAccount,
@@ -71,6 +73,20 @@ export function AccountSettingsModal({
       setIsLoadingCreds(false);
     }
   }, []);
+
+  // The same shared connect layer the dashboard uses, so the two surfaces can
+  // never drift. Works for any workspace (not just the active one) — this is the
+  // only place to manage a *non-active* workspace's logins.
+  const {
+    connect: connectService,
+    disconnect: disconnectService,
+    modals: connectModals,
+  } = useWorkspaceConnect({
+    accountId: account.id,
+    accountName: account.name,
+    isDefault: account.isDefault,
+    onChanged: () => void loadCredStatus(account.id),
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -149,242 +165,298 @@ export function AccountSettingsModal({
     : [];
 
   return (
-    <ModalFrame
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Workspace Settings"
-      className="account-modal-frame"
-    >
-      <div className="account-detail">
-        <div className="account-detail-scroll">
-          {/* Name + color */}
-          <div>
-            <div className="account-section-title">Name</div>
-            <div className="account-header-row">
-              <input
-                className="account-name-input"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                disabled={account.isDefault}
-                placeholder="Workspace name"
-              />
+    <>
+      <ModalFrame
+        isOpen={isOpen}
+        onClose={onClose}
+        title="Workspace Settings"
+        className="account-modal-frame"
+      >
+        <div className="account-detail">
+          <div className="account-detail-scroll">
+            {/* Name + color */}
+            <div>
+              <div className="account-section-title">Name</div>
+              <div className="account-header-row">
+                <input
+                  className="account-name-input"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  disabled={account.isDefault}
+                  placeholder="Workspace name"
+                />
+              </div>
+              {!account.isDefault && (
+                <div style={{ marginTop: 'var(--spacing-sm)' }}>
+                  <div className="account-section-title">Color</div>
+                  <div className="account-color-picker">
+                    {ACCOUNT_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        className={`account-color-swatch ${c === editColor ? 'selected' : ''}`}
+                        style={{ background: c }}
+                        onClick={() => setEditColor(c)}
+                        title={c}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            {!account.isDefault && (
-              <div style={{ marginTop: 'var(--spacing-sm)' }}>
-                <div className="account-section-title">Color</div>
-                <div className="account-color-picker">
-                  {ACCOUNT_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      className={`account-color-swatch ${c === editColor ? 'selected' : ''}`}
-                      style={{ background: c }}
-                      onClick={() => setEditColor(c)}
-                      title={c}
-                    />
+
+            {/* Coding agents — status only; sign-in is managed from the dashboard's
+              Workspace accounts card (which also owns install / default state). */}
+            <div>
+              <div className="account-section-title">Coding agents</div>
+              {isLoadingCreds ? (
+                <Spinner size="sm" />
+              ) : (
+                <div className="account-cred-list">
+                  {(
+                    [
+                      { label: 'Claude Code', identity: credStatus?.claudeAuthEmail },
+                      { label: 'Codex', identity: credStatus?.codexAuthEmail },
+                      { label: 'Opencode', identity: credStatus?.opencodeAuthEmail },
+                    ] as const
+                  ).map((row) => (
+                    <div key={row.label} className="account-cred-row">
+                      <span className="account-cred-label">{row.label}</span>
+                      <div className="account-cred-status">
+                        <span className={`account-cred-badge ${row.identity ? 'set' : 'unset'}`}>
+                          {row.identity ? 'Connected' : 'Not connected'}
+                        </span>
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+              <p className="account-settings-hint">
+                Sign coding agents in from the dashboard’s <strong>Workspace accounts</strong> card.
+              </p>
+            </div>
 
-          {/* Connection status */}
-          <div>
-            <div className="account-section-title">Connections</div>
-            {isLoadingCreds ? (
-              <Spinner size="sm" />
-            ) : (
-              <div className="account-cred-list">
-                <div className="account-cred-row">
-                  <span className="account-cred-label">Claude Code</span>
-                  <div className="account-cred-status">
-                    <span
-                      className={`account-cred-badge ${credStatus?.claudeAuthEmail ? 'set' : 'unset'}`}
-                    >
-                      {credStatus?.claudeAuthEmail ? 'Connected' : 'Not connected'}
-                    </span>
-                  </div>
-                </div>
-                <div className="account-cred-row">
-                  <span className="account-cred-label">Codex</span>
-                  <div className="account-cred-status">
-                    <span
-                      className={`account-cred-badge ${credStatus?.codexAuthEmail ? 'set' : 'unset'}`}
-                    >
-                      {credStatus?.codexAuthEmail ? 'Connected' : 'Not connected'}
-                    </span>
-                  </div>
-                </div>
-                <div className="account-cred-row">
-                  <span className="account-cred-label">Opencode</span>
-                  <div className="account-cred-status">
-                    <span
-                      className={`account-cred-badge ${credStatus?.opencodeAuthEmail ? 'set' : 'unset'}`}
-                    >
-                      {credStatus?.opencodeAuthEmail ? 'Connected' : 'Not connected'}
-                    </span>
-                  </div>
-                </div>
-                <div className="account-cred-row">
-                  <span className="account-cred-label">GitHub</span>
-                  <div className="account-cred-status">
-                    <span
-                      className={`account-cred-badge ${credStatus?.githubAuthEmail ? 'set' : 'unset'}`}
-                    >
-                      {credStatus?.githubAuthEmail
-                        ? `Connected as ${credStatus.githubAuthEmail}`
-                        : 'Not connected'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-            <p className="account-settings-hint">
-              Run <code>claude</code> or <code>gh auth login</code> in a terminal for this workspace
-              to connect these accounts.
-            </p>
-          </div>
-
-          {/* Credential vault */}
-          <div>
-            <div className="account-section-title">Credential Vault</div>
-            {isLoadingCreds ? (
-              <Spinner size="sm" />
-            ) : (
-              <div className="account-cred-list">
-                {credRows.map(([statusField, key]) => {
-                  const isSet = credStatus ? credStatus[statusField] : false;
-                  const isEditing = editingCred?.key === key;
-                  const isSensitive = SENSITIVE_KEYS.has(key);
-                  const revealed = showValues.has(key);
-
-                  return (
-                    <div key={key} className={`account-cred-row${isEditing ? ' is-editing' : ''}`}>
-                      {isEditing ? (
-                        <div className="account-cred-input-row">
-                          <input
-                            className="account-cred-input"
-                            type={isSensitive && !revealed ? 'password' : 'text'}
-                            value={editingCred.value}
-                            onChange={(e) => setEditingCred({ key, value: e.target.value })}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') void handleSaveCred();
-                              if (e.key === 'Escape') setEditingCred(null);
-                            }}
-                            autoFocus
-                            placeholder={isSensitive ? '••••••••' : CREDENTIAL_LABELS[key]}
-                          />
-                          {isSensitive && (
-                            <button
-                              type="button"
-                              className="account-cred-reveal"
-                              onClick={() => toggleShowValue(key)}
-                              title={revealed ? 'Hide' : 'Show'}
-                            >
-                              {revealed ? 'Hide' : 'Show'}
-                            </button>
-                          )}
+            {/* Services — actionable via the same shared connect layer as the
+              dashboard, so the two surfaces stay in sync. */}
+            <div>
+              <div className="account-section-title">Services</div>
+              {isLoadingCreds ? (
+                <Spinner size="sm" />
+              ) : (
+                <div className="account-cred-list">
+                  {(
+                    [
+                      {
+                        id: 'github' as ConnectServiceId,
+                        label: 'GitHub',
+                        icon: <GitHubIcon size={16} />,
+                        identity: credStatus?.githubAuthEmail ?? null,
+                      },
+                      {
+                        id: 'vercel' as ConnectServiceId,
+                        label: 'Vercel',
+                        icon: <VercelIcon size={14} />,
+                        identity: credStatus?.vercelUsername ?? null,
+                      },
+                    ] as const
+                  ).map((svc) => {
+                    const connected = !!svc.identity;
+                    return (
+                      <div key={svc.id} className="account-cred-row">
+                        <span className="account-cred-label">
+                          {svc.icon} {svc.label}
+                        </span>
+                        <div className="account-cred-status">
+                          <span className={`account-cred-badge ${connected ? 'set' : 'unset'}`}>
+                            {connected ? `Connected as ${svc.identity}` : 'Not connected'}
+                          </span>
                           <div className="account-cred-actions">
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={() => void handleSaveCred()}
-                              disabled={!editingCred.value.trim() || isSavingCred}
-                            >
-                              {isSavingCred ? <Spinner size="sm" /> : 'Save'}
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => setEditingCred(null)}>
-                              Cancel
-                            </Button>
+                            {connected ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => connectService(svc.id)}
+                                >
+                                  {account.isDefault ? 'Sign in again' : 'Switch'}
+                                </Button>
+                                {!account.isDefault && (
+                                  <Button
+                                    variant="danger"
+                                    size="sm"
+                                    onClick={() => void disconnectService(svc.id)}
+                                  >
+                                    Disconnect
+                                  </Button>
+                                )}
+                              </>
+                            ) : (
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => connectService(svc.id)}
+                              >
+                                Connect
+                              </Button>
+                            )}
                           </div>
                         </div>
-                      ) : (
-                        <>
-                          <div className="account-cred-info">
-                            <span className="account-cred-label">{CREDENTIAL_LABELS[key]}</span>
-                            <span className="account-cred-description">
-                              {CREDENTIAL_DESCRIPTIONS[key]}
-                            </span>
-                          </div>
-                          <div className="account-cred-status">
-                            <span className={`account-cred-badge ${isSet ? 'set' : 'unset'}`}>
-                              {isSet ? 'Set' : 'Not set'}
-                            </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Credential vault */}
+            <div>
+              <div className="account-section-title">Credential Vault</div>
+              {isLoadingCreds ? (
+                <Spinner size="sm" />
+              ) : (
+                <div className="account-cred-list">
+                  {credRows.map(([statusField, key]) => {
+                    const isSet = credStatus ? credStatus[statusField] : false;
+                    const isEditing = editingCred?.key === key;
+                    const isSensitive = SENSITIVE_KEYS.has(key);
+                    const revealed = showValues.has(key);
+
+                    return (
+                      <div
+                        key={key}
+                        className={`account-cred-row${isEditing ? ' is-editing' : ''}`}
+                      >
+                        {isEditing ? (
+                          <div className="account-cred-input-row">
+                            <input
+                              className="account-cred-input"
+                              type={isSensitive && !revealed ? 'password' : 'text'}
+                              value={editingCred.value}
+                              onChange={(e) => setEditingCred({ key, value: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void handleSaveCred();
+                                if (e.key === 'Escape') setEditingCred(null);
+                              }}
+                              autoFocus
+                              placeholder={isSensitive ? '••••••••' : CREDENTIAL_LABELS[key]}
+                            />
+                            {isSensitive && (
+                              <button
+                                type="button"
+                                className="account-cred-reveal"
+                                onClick={() => toggleShowValue(key)}
+                                title={revealed ? 'Hide' : 'Show'}
+                              >
+                                {revealed ? 'Hide' : 'Show'}
+                              </button>
+                            )}
                             <div className="account-cred-actions">
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={() => void handleSaveCred()}
+                                disabled={!editingCred.value.trim() || isSavingCred}
+                              >
+                                {isSavingCred ? <Spinner size="sm" /> : 'Save'}
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setEditingCred({ key, value: '' })}
+                                onClick={() => setEditingCred(null)}
                               >
-                                {isSet ? 'Update' : 'Set'}
+                                Cancel
                               </Button>
-                              {isSet && (
-                                <Button
-                                  variant="danger"
-                                  size="sm"
-                                  onClick={() => void handleClearCred(key)}
-                                >
-                                  Clear
-                                </Button>
-                              )}
                             </div>
                           </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
+                        ) : (
+                          <>
+                            <div className="account-cred-info">
+                              <span className="account-cred-label">{CREDENTIAL_LABELS[key]}</span>
+                              <span className="account-cred-description">
+                                {CREDENTIAL_DESCRIPTIONS[key]}
+                              </span>
+                            </div>
+                            <div className="account-cred-status">
+                              <span className={`account-cred-badge ${isSet ? 'set' : 'unset'}`}>
+                                {isSet ? 'Set' : 'Not set'}
+                              </span>
+                              <div className="account-cred-actions">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setEditingCred({ key, value: '' })}
+                                >
+                                  {isSet ? 'Update' : 'Set'}
+                                </Button>
+                                {isSet && (
+                                  <Button
+                                    variant="danger"
+                                    size="sm"
+                                    onClick={() => void handleClearCred(key)}
+                                  >
+                                    Clear
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="account-detail-footer">
+            {account.isDefault ? (
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>
+                The Default workspace cannot be renamed or deleted.
+              </span>
+            ) : confirmingDelete ? (
+              <div className="account-delete-confirm">
+                <span className="account-delete-confirm-text">
+                  Delete “{account.name}”? Its stored credentials are removed and any projects in it
+                  move to Default — your files aren’t touched.
+                </span>
+                <div className="account-delete-confirm-actions">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setConfirmingDelete(false)}
+                    disabled={isDeleting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => void handleDelete()}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? <Spinner size="sm" /> : 'Delete'}
+                  </Button>
+                </div>
               </div>
+            ) : (
+              <>
+                <Button variant="danger" size="sm" onClick={() => setConfirmingDelete(true)}>
+                  Delete Workspace
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => void handleSave()}
+                  disabled={!editName.trim() || isSaving}
+                >
+                  {isSaving ? <Spinner size="sm" /> : 'Save Changes'}
+                </Button>
+              </>
             )}
           </div>
         </div>
-
-        <div className="account-detail-footer">
-          {account.isDefault ? (
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>
-              The Default workspace cannot be renamed or deleted.
-            </span>
-          ) : confirmingDelete ? (
-            <div className="account-delete-confirm">
-              <span className="account-delete-confirm-text">
-                Delete “{account.name}”? Its stored credentials are removed and any projects in it
-                move to Default — your files aren’t touched.
-              </span>
-              <div className="account-delete-confirm-actions">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirmingDelete(false)}
-                  disabled={isDeleting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={() => void handleDelete()}
-                  disabled={isDeleting}
-                >
-                  {isDeleting ? <Spinner size="sm" /> : 'Delete'}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <Button variant="danger" size="sm" onClick={() => setConfirmingDelete(true)}>
-                Delete Workspace
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => void handleSave()}
-                disabled={!editName.trim() || isSaving}
-              >
-                {isSaving ? <Spinner size="sm" /> : 'Save Changes'}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-    </ModalFrame>
+      </ModalFrame>
+      {connectModals}
+    </>
   );
 }

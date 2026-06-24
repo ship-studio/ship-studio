@@ -143,8 +143,8 @@ function EditorIntro() {
         <li>
           <IntroCheck />
           <span>
-            Works with any <strong>Next.js</strong> or <strong>Astro</strong> project that uses
-            Tailwind
+            Works with any <strong>Next.js</strong>, <strong>Astro</strong>, or{' '}
+            <strong>Vite (React)</strong> project that uses Tailwind
           </span>
         </li>
         <li>

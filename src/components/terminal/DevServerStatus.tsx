@@ -18,6 +18,11 @@ import { stripAnsi } from '../../lib/ansi';
  *  EADDRINUSE, small enough to stay readable in the cramped preview pane. */
 const LOG_TAIL_LINES = 60;
 
+/** Below this many attempts the wait is treated as normal first-time warm-up
+ *  (a reassuring message); only past it do we show the raw attempt counter,
+ *  which otherwise reads as "broken" to a non-developer well before it is. */
+const WARMUP_ATTEMPTS = 15;
+
 export type DevServerPhase = 'loading' | 'stopped' | 'error';
 
 interface DevServerStatusProps {
@@ -150,7 +155,9 @@ export function DevServerStatus({
 
       {phase === 'loading' && retryCount > 0 && (
         <p className="preview-status__attempt">
-          Attempt {retryCount}/{maxRetries}
+          {retryCount <= WARMUP_ATTEMPTS
+            ? 'This can take a minute the first time…'
+            : `Still trying… (attempt ${retryCount} of ${maxRetries})`}
         </p>
       )}
 

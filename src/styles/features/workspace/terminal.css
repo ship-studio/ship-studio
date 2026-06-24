@@ -637,3 +637,46 @@
   background: rgba(var(--warning-rgb), 0.2);
   color: var(--warning);
 }
+
+/* First-run hint shown over a fresh agent terminal until the user types. */
+.terminal-firstrun-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  /* Bottom-anchored; the card fills the pane width with equal margins
+     (the padding below), centering only once it hits its max width. */
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  /* Left padding is 0: the terminal content already has a left offset, so a
+     left pad here would double it and push the card right. */
+  padding: var(--spacing-md) var(--spacing-md) var(--spacing-md) 0;
+  pointer-events: none;
+}
+
+.terminal-firstrun-hint-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  /* Fill the (possibly split) pane, capping only on very wide panes. */
+  width: 100%;
+  max-width: var(--hint-card-max-w);
+  padding: var(--spacing-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  text-align: center;
+}
+
+.terminal-firstrun-hint-card strong {
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.terminal-firstrun-hint-card span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}

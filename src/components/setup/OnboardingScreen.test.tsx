@@ -135,7 +135,9 @@ describe('OnboardingScreen', () => {
     render(<OnboardingScreen onComplete={onComplete} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Set up version control and repository hosting')).toBeInTheDocument();
+      expect(
+        screen.getByText('Save your work safely and publish it online. Required.')
+      ).toBeInTheDocument();
     });
   });
 
@@ -155,7 +157,9 @@ describe('OnboardingScreen', () => {
     render(<OnboardingScreen onComplete={onComplete} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Set up version control and repository hosting')).toBeInTheDocument();
+      expect(
+        screen.getByText('Save your work safely and publish it online. Required.')
+      ).toBeInTheDocument();
     });
   });
 
@@ -500,7 +504,7 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
@@ -534,7 +538,7 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
@@ -587,7 +591,9 @@ describe('OnboardingScreen', () => {
 
       // Should land on hosting step
       await waitFor(() => {
-        expect(screen.getByText('Deploy your projects to the web')).toBeInTheDocument();
+        expect(
+          screen.getByText('Optional. Connect later to put your site on the web.')
+        ).toBeInTheDocument();
       });
 
       // Skip for Now should be visible
@@ -610,7 +616,7 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
@@ -627,7 +633,9 @@ describe('OnboardingScreen', () => {
         fireEvent.click(screen.getByText('Next'));
       });
 
-      expect(screen.getByText('Set up version control and repository hosting')).toBeInTheDocument();
+      expect(
+        screen.getByText('Save your work safely and publish it online. Required.')
+      ).toBeInTheDocument();
     });
   });
 
@@ -807,7 +815,7 @@ describe('OnboardingScreen', () => {
       // Auto-advances to step 2
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
@@ -825,7 +833,7 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
@@ -1090,6 +1098,46 @@ describe('OnboardingScreen', () => {
       });
     });
 
+    it('renders CommandError objects as a real message, not "[object Object]"', async () => {
+      // Regression: Tauri commands reject with a structured CommandError
+      // *object* (e.g. install_winget_packages on Windows), not an Error
+      // instance. The catch handler used to do `String(err)`, which rendered
+      // "[object Object]" in the UI (the literal symptom seen on Windows when
+      // Node.js install failed). It must format the CommandError instead.
+      const items = FRESH_INSTALL_ITEMS.map((i) =>
+        i.id === 'homebrew' ? { ...i, status: 'ready' as const, version: '4.2.0' } : i
+      );
+      const status = makeSetupStatus({ items, detectedAgents: [] });
+      mockInvoke('get_full_setup_status', status);
+
+      // The real shape rejected over the IPC boundary: a plain object, not an Error.
+      const commandError = {
+        type: 'Other',
+        message: 'Failed to install OpenJS.NodeJS: winget exited with status 1',
+      };
+      invokeResults.set('install_brew_packages', {
+        error: commandError as unknown as Error,
+      });
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quick Setup')).toBeInTheDocument();
+      });
+
+      const installButtons = screen.getAllByText('Install');
+      act(() => {
+        fireEvent.click(installButtons[0]);
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Failed to install OpenJS.NodeJS: winget exited with status 1')
+        ).toBeInTheDocument();
+      });
+      expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+    });
+
     it('empty error message falls back to default', async () => {
       const items = FRESH_INSTALL_ITEMS.map((i) =>
         i.id === 'homebrew' ? { ...i, status: 'ready' as const, version: '4.2.0' } : i
@@ -1135,7 +1183,7 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
@@ -1230,7 +1278,7 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
@@ -1531,7 +1579,7 @@ describe('OnboardingScreen', () => {
       });
 
       // Node depends on homebrew — with homebrew not installed, node should show "Waiting for..."
-      expect(screen.getByText('Waiting for Package Manager')).toBeInTheDocument();
+      expect(screen.getByText('Unlocks after Package Manager')).toBeInTheDocument();
     });
 
     it('node becomes installable after homebrew is installed', async () => {
@@ -1549,7 +1597,7 @@ describe('OnboardingScreen', () => {
       });
 
       // Node should NOT show "Waiting for..." anymore
-      expect(screen.queryByText('Waiting for Package Manager')).not.toBeInTheDocument();
+      expect(screen.queryByText('Unlocks after Package Manager')).not.toBeInTheDocument();
 
       // Node should have an Install button
       const installButtons = screen.getAllByText('Install');
@@ -1563,12 +1611,12 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
       // gh_auth depends on gh — with gh not installed, should show blocked
-      expect(screen.getByText('Waiting for GitHub CLI')).toBeInTheDocument();
+      expect(screen.getByText('Unlocks after GitHub CLI')).toBeInTheDocument();
     });
 
     it('claude_auth shows as blocked when claude is not installed (step 3)', async () => {
@@ -1581,7 +1629,7 @@ describe('OnboardingScreen', () => {
       });
 
       // claude_auth depends on claude — should show blocked
-      expect(screen.getByText('Waiting for Claude Code')).toBeInTheDocument();
+      expect(screen.getByText('Unlocks after Claude Code')).toBeInTheDocument();
     });
   });
 
@@ -1600,7 +1648,7 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 
@@ -1839,7 +1887,7 @@ describe('OnboardingScreen', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Set up version control and repository hosting')
+          screen.getByText('Save your work safely and publish it online. Required.')
         ).toBeInTheDocument();
       });
 

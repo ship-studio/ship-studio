@@ -234,14 +234,16 @@ describe('isAtLeastOneAgentReady', () => {
 // ============ AGENT_ITEM_IDS ============
 
 describe('AGENT_ITEM_IDS', () => {
-  it('contains all 6 agent item IDs', () => {
+  it('contains all 8 agent item IDs', () => {
     expect(AGENT_ITEM_IDS.has('claude')).toBe(true);
     expect(AGENT_ITEM_IDS.has('claude_auth')).toBe(true);
     expect(AGENT_ITEM_IDS.has('codex')).toBe(true);
     expect(AGENT_ITEM_IDS.has('codex_auth')).toBe(true);
     expect(AGENT_ITEM_IDS.has('opencode')).toBe(true);
     expect(AGENT_ITEM_IDS.has('opencode_auth')).toBe(true);
-    expect(AGENT_ITEM_IDS.size).toBe(6);
+    expect(AGENT_ITEM_IDS.has('cursor')).toBe(true);
+    expect(AGENT_ITEM_IDS.has('cursor_auth')).toBe(true);
+    expect(AGENT_ITEM_IDS.size).toBe(8);
   });
 
   it('does not contain non-agent items', () => {

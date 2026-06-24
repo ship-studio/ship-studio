@@ -91,6 +91,7 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | `browser_tools_cleared` | `tab` |
 | `browser_tools_dom_refreshed` | — |
 | `browser_tools_sent_to_agent` | `tab`, `entry_count` (null for elements), `had_data`, `char_count` |
+| `terminal_tab_restarted` | — (relaunched an exited agent tab with a fresh session; fired from the in-terminal Enter prompt, toolbar, or palette) |
 | `code_file_opened` | `file_extension` |
 | `code_tree_refreshed` | — |
 | `code_snippet_sent_to_agent` | `file_extension`, `language`, `line_count`, `char_count`, `had_question` |

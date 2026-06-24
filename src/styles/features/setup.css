@@ -405,6 +405,14 @@
   flex: 1;
 }
 
+.wizard-nav-hint {
+  margin-right: var(--spacing-md);
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: right;
+}
+
 .wizard-nav-back {
   padding: 8px 18px;
   font-size: var(--font-size-lg);
@@ -507,6 +515,12 @@
 .wizard-agent-card-name {
   font-size: 15px;
   font-weight: 600;
+}
+
+.wizard-agent-card-desc {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
 }
 
 .wizard-agent-card-badge {

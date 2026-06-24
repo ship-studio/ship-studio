@@ -138,9 +138,10 @@ function getActionButton(
     return null;
   }
 
-  // Blocked items show what they're waiting for
+  // Blocked items: frame as "becomes available", not "stuck". "Unlocks" reads
+  // correctly for both install items and connect/auth items (which don't install).
   if (item.status === 'blocked' && blockedBy && blockedBy.length > 0) {
-    return <span className="setup-item-blocked-text">Waiting for {blockedBy[0]}</span>;
+    return <span className="setup-item-blocked-text">Unlocks after {blockedBy[0]}</span>;
   }
 
   // In-progress items show the progress message

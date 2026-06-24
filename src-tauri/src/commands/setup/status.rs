@@ -37,6 +37,8 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
             ("codex_auth", "Codex Account", Some("codex")),
             ("opencode", "Opencode", None),
             ("opencode_auth", "Opencode Account", Some("opencode")),
+            ("cursor", "Cursor", None),
+            ("cursor_auth", "Cursor Account", Some("cursor")),
             ("vercel", "Vercel CLI", None),
             ("vercel_auth", "Vercel Account", Some("vercel")),
         ];
@@ -359,14 +361,19 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         });
 
         // Agent Auth
-        let agent_auth = if binary_ready {
+        let agent_auth = if !binary_ready {
+            false
+        } else if let Some(authed) =
+            crate::commands::setup::agents::agent_command_auth_status(agent)
+        {
+            // Keychain-based agents (Cursor): ask the CLI, not the filesystem.
+            authed
+        } else {
             let agent_dir = agent_auth_dir(&active_account_id, agent);
             agent.auth_indicators.iter().any(|indicator| {
                 let path = agent_dir.join(indicator);
                 path.exists()
             })
-        } else {
-            false
         };
         items.push(SetupItemInfo {
             id: agent.setup_item_ids.1.to_string(),
@@ -389,14 +396,20 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         // Workspace that hasn't signed into any agent yet would force the
         // user back into the onboarding wizard. Check the Default account's
         // (real, global) auth dir for this purpose.
-        let agent_auth_global = if binary_ready {
+        let agent_auth_global = if !binary_ready {
+            false
+        } else if let Some(authed) =
+            crate::commands::setup::agents::agent_command_auth_status(agent)
+        {
+            // Cursor's keychain login is already global (no per-account dir), so
+            // the CLI status check is the same answer for every account.
+            authed
+        } else {
             let agent_dir = agent_auth_dir(crate::commands::accounts::DEFAULT_ACCOUNT_ID, agent);
             agent
                 .auth_indicators
                 .iter()
                 .any(|indicator| agent_dir.join(indicator).exists())
-        } else {
-            false
         };
 
         if binary_ready && agent_auth_global {

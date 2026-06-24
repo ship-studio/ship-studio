@@ -61,7 +61,9 @@ pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), CommandE
         return Ok(());
     }
 
-    let brew = get_brew_command().ok_or("Homebrew not found")?;
+    let brew = get_brew_command().ok_or(
+        "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.",
+    )?;
 
     let output = create_command(&brew)
         .args(["install", "node"])
@@ -95,7 +97,9 @@ pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), CommandEr
         return Ok(());
     }
 
-    let brew = get_brew_command().ok_or("Homebrew not found")?;
+    let brew = get_brew_command().ok_or(
+        "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.",
+    )?;
 
     let output = create_command(&brew)
         .args(["install", "git"])
@@ -129,7 +133,9 @@ pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), CommandErr
         return Ok(());
     }
 
-    let brew = get_brew_command().ok_or("Homebrew not found")?;
+    let brew = get_brew_command().ok_or(
+        "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.",
+    )?;
 
     let output = create_command(&brew)
         .args(["install", "gh"])
@@ -180,7 +186,9 @@ pub async fn install_brew_packages(
         return Ok(());
     }
 
-    let brew = get_brew_command().ok_or("Homebrew not found")?;
+    let brew = get_brew_command().ok_or(
+        "Homebrew is needed to install this. Install Homebrew from the Package Manager step first, then try again.",
+    )?;
 
     let brew_packages: Vec<&str> = packages.iter().map(|p| p.as_str()).collect();
 
@@ -203,6 +211,34 @@ pub async fn install_brew_packages(
     }
 
     Ok(())
+}
+
+/// Pull a human-readable error line out of winget's output.
+///
+/// winget renders download progress with carriage returns (`\r`) rather than
+/// newlines, so a naive `lines().next()` returns the entire progress animation
+/// as one giant line (the "[object Object]"-era wall of progress bars). Here we
+/// normalize CR→LF, drop blank and progress-only segments (block-bar glyphs and
+/// bare size/percent readouts), and return the last meaningful line — which on
+/// a failed install is the actual error (e.g. "failed when searching source:
+/// msstore").
+#[cfg(windows)]
+fn extract_winget_error(stderr: &str, stdout: &str) -> String {
+    let is_progress_only = |l: &str| {
+        l.chars().all(|c| {
+            c.is_ascii_digit() || matches!(c, '%' | '.' | ' ' | '/' | '█' | '▒' | '░' | '-')
+        }) || l.contains('█')
+            || l.contains('▒')
+            || l.contains('░')
+    };
+    format!("{stderr}\n{stdout}")
+        .replace('\r', "\n")
+        .lines()
+        .map(str::trim)
+        .filter(|&l| !l.is_empty() && !is_progress_only(l))
+        .last()
+        .unwrap_or("Unknown error")
+        .to_string()
 }
 
 /// Batch install multiple packages via Winget (Windows only).
@@ -264,7 +300,18 @@ pub async fn install_winget_packages(
                 "--id",
                 package,
                 "--exact",
+                // Scope the search to the community `winget` source. Without
+                // this, winget also searches `msstore`, which needs Store
+                // sign-in and fails in this silent/headless context with
+                // "failed when searching source: msstore" — sinking the whole
+                // install even though the package lives in the winget source.
+                // All packages we install (OpenJS.NodeJS, Git.Git, GitHub.cli)
+                // are in the winget source, so this is safe.
+                "--source",
+                "winget",
                 "--silent",
+                // Never block on an interactive prompt in a headless install.
+                "--disable-interactivity",
                 "--accept-package-agreements",
                 "--accept-source-agreements",
             ])
@@ -279,10 +326,7 @@ pub async fn install_winget_packages(
                 return Err((format!(
                     "Failed to install {}: {}",
                     package,
-                    stderr
-                        .lines()
-                        .next()
-                        .unwrap_or(&stdout.lines().next().unwrap_or("Unknown error"))
+                    extract_winget_error(&stderr, &stdout)
                 ))
                 .into());
             }

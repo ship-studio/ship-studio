@@ -809,6 +809,9 @@ pub struct AccountCredentialStatus {
     pub codex_auth_email: Option<String>,
     pub opencode_auth_email: Option<String>,
     pub github_auth_email: Option<String>,
+    /// Vercel identity (`vercel whoami`) verified with this workspace's injected
+    /// `VERCEL_TOKEN`. `None` when no token is set or the token is invalid.
+    pub vercel_username: Option<String>,
     pub has_anthropic_base_url: bool,
     pub has_vercel_token: bool,
     pub has_git_name: bool,

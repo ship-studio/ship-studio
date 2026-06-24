@@ -35,6 +35,44 @@
   color: var(--text-muted);
 }
 
+/* Workspace badge in the header — names the workspace these logins belong to,
+   the single clearest "which account am I looking at?" cue. A compact tag, not
+   a stretched pill. */
+.agents-panel-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 1px var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-weight: 500;
+  vertical-align: baseline;
+}
+
+.agents-panel-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+/* Subheader splitting the card into "Coding agents" and "Services" tiers. */
+.agents-section-title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: var(--spacing-md) 0 var(--spacing-sm);
+}
+
+/* First subheader sits right under the header — trim its top gap. */
+.agents-panel-header + .agents-section-title {
+  margin-top: 0;
+}
+
 .agents-panel-list {
   display: flex;
   flex-direction: column;
@@ -399,4 +437,105 @@ button.dashboard-card-row {
 .dashboard-card-row-chevron {
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+/* ── Auth connection-state strokes ─────────────────────────────────────────
+   Green = connected & valid, red = needs attention (expired/needs reconnect).
+   A never-connected card keeps the plain neutral border (no class). These come
+   after .is-default so connection state wins the border color when both apply;
+   red (needs-reconnect) always trumps green. */
+.agents-panel-row.is-connected {
+  border-color: var(--success);
+}
+
+.agents-panel-row.needs-reconnect {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+/* Inline Reconnect button — red-tinted to read as "needs attention" without the
+   full weight of a destructive (delete) action. */
+.agents-reconnect-btn {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.agents-reconnect-btn:hover:not(:disabled) {
+  background: var(--error-light);
+}
+
+/* ── Connect modals (shared: Claude token, GitHub/Codex/Opencode PTY, Vercel
+   token) — one visual language so the surfaces never drift. ────────────── */
+.connect-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+}
+
+.connect-modal-body p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
+.connect-modal-body strong {
+  color: var(--text-primary);
+}
+
+.connect-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+
+.connect-modal-field input {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+}
+
+.connect-modal-field input:focus {
+  outline: none;
+  border-color: var(--action);
+}
+
+.connect-modal-muted {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.connect-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
+
+/* Terminal phase — fills the (terminal-sized) modal: instructions on top, the
+   embedded backend-PTY terminal taking the remaining height. */
+.connect-modal-terminal-phase {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+}
+
+.connect-modal-instructions {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
+.connect-modal-instructions strong {
+  color: var(--text-primary);
 }

@@ -71,13 +71,15 @@ const ALL_ITEMS: &[&str] = &[
     "codex_auth",
     "opencode",
     "opencode_auth",
+    "cursor",
+    "cursor_auth",
     "vercel",
     "vercel_auth",
 ];
 
 /// Tool items (not auth)
 const TOOL_ITEMS: &[&str] = &[
-    "homebrew", "node", "git", "gh", "claude", "codex", "opencode", "vercel",
+    "homebrew", "node", "git", "gh", "claude", "codex", "opencode", "cursor", "vercel",
 ];
 
 // ============ App State Persistence (shared helpers) ============
@@ -196,7 +198,7 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
         // Vercel installed and authed (for testing hosting step)
         "vercel-ready" => vec!["vercel", "vercel_auth"],
 
-        // Only Codex installed (no Claude, no Opencode)
+        // Only Codex installed (no Claude, no Opencode, no Cursor)
         "codex-only" => ALL_ITEMS
             .iter()
             .filter(|&&item| {
@@ -204,15 +206,22 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
                     && item != "claude_auth"
                     && item != "opencode"
                     && item != "opencode_auth"
+                    && item != "cursor"
+                    && item != "cursor_auth"
             })
             .copied()
             .collect(),
 
-        // Only Opencode installed (no Claude, no Codex)
+        // Only Opencode installed (no Claude, no Codex, no Cursor)
         "opencode-only" => ALL_ITEMS
             .iter()
             .filter(|&&item| {
-                item != "claude" && item != "claude_auth" && item != "codex" && item != "codex_auth"
+                item != "claude"
+                    && item != "claude_auth"
+                    && item != "codex"
+                    && item != "codex_auth"
+                    && item != "cursor"
+                    && item != "cursor_auth"
             })
             .copied()
             .collect(),
@@ -361,22 +370,25 @@ mod tests {
     }
 
     #[test]
-    fn all_items_contains_13_items_including_all_agents_and_vercel() {
-        assert_eq!(ALL_ITEMS.len(), 13);
+    fn all_items_contains_15_items_including_all_agents_and_vercel() {
+        assert_eq!(ALL_ITEMS.len(), 15);
         assert!(ALL_ITEMS.contains(&"codex"));
         assert!(ALL_ITEMS.contains(&"codex_auth"));
         assert!(ALL_ITEMS.contains(&"opencode"));
         assert!(ALL_ITEMS.contains(&"opencode_auth"));
+        assert!(ALL_ITEMS.contains(&"cursor"));
+        assert!(ALL_ITEMS.contains(&"cursor_auth"));
         assert!(ALL_ITEMS.contains(&"vercel"));
         assert!(ALL_ITEMS.contains(&"vercel_auth"));
     }
 
     #[test]
-    fn tool_items_contains_8_items_including_all_agents_and_vercel() {
-        assert_eq!(TOOL_ITEMS.len(), 8);
+    fn tool_items_contains_9_items_including_all_agents_and_vercel() {
+        assert_eq!(TOOL_ITEMS.len(), 9);
         assert!(TOOL_ITEMS.contains(&"codex"));
         assert!(TOOL_ITEMS.contains(&"claude"));
         assert!(TOOL_ITEMS.contains(&"opencode"));
+        assert!(TOOL_ITEMS.contains(&"cursor"));
         assert!(TOOL_ITEMS.contains(&"vercel"));
     }
 

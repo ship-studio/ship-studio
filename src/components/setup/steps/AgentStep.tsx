@@ -17,6 +17,14 @@ import {
 } from '../../../lib/setup';
 import { ALL_AGENTS } from '../../../lib/agent';
 
+/** One-line plain descriptions so "Codex"/"Opencode" aren't opaque brand names. */
+const AGENT_DESCRIPTIONS: Record<string, string> = {
+  claude: "Anthropic's coding agent",
+  codex: "OpenAI's coding agent",
+  opencode: 'Open-source coding agent',
+  cursor: "Cursor's coding agent",
+};
+
 interface AgentStepProps {
   items: SetupItemType[];
   onItemAction: (itemId: string) => void;
@@ -98,6 +106,9 @@ export function AgentStep({
                 </div>
               )}
             </div>
+            {AGENT_DESCRIPTIONS[pair.binaryId] && (
+              <p className="wizard-agent-card-desc">{AGENT_DESCRIPTIONS[pair.binaryId]}</p>
+            )}
 
             <div className="wizard-agent-card-items">
               {[binaryItem, authItem].map((item) => {

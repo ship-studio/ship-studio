@@ -136,6 +136,11 @@ pub async fn check_claude_auth_status(agent_id: Option<String>) -> bool {
         return false;
     }
 
+    // Keychain-based agents (Cursor): ask the CLI rather than checking files.
+    if let Some(authed) = crate::commands::setup::agents::agent_command_auth_status(agent) {
+        return authed;
+    }
+
     let active_account_id = get_active_account_id().unwrap_or_else(|_| "default".to_string());
     let agent_dir = agent_auth_dir(&active_account_id, agent);
     agent.auth_indicators.iter().any(|indicator| {

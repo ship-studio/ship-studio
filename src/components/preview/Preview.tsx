@@ -43,7 +43,12 @@ import { useVisualEditor } from '../../hooks/useVisualEditor';
 import { useCssEditor } from '../../hooks/useCssEditor';
 import { CssEditorPanel } from '../edit/CssEditorPanel';
 import { useBreakpoints } from '../../hooks/useBreakpoints';
-import { BASE_BREAKPOINT, isTailwindActive, type Breakpoint as TwBreakpoint } from '../../lib/edit';
+import {
+  BASE_BREAKPOINT,
+  isTailwindActive,
+  projectUsesReact,
+  type Breakpoint as TwBreakpoint,
+} from '../../lib/edit';
 import { VisualEditorPanel } from '../edit/VisualEditorPanel';
 import { ElementTreePanel } from '../edit/ElementTreePanel';
 import { useElementTree } from '../../hooks/useElementTree';
@@ -456,8 +461,29 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   // `@import "tailwindcss"` without the Vite/PostCSS plugin produces dead classes.
   // Gate on a backend check so projects without Tailwind never show the edit button.
   const [tailwindActive, setTailwindActive] = useState(false);
+  // Vite is React-flavored? The className→source resolver only indexes
+  // `.tsx`/`.jsx`, so a Vite + Vue/Svelte project would get an edit button that
+  // can never write back. Gate Vite on React; meta-frameworks below are gated by
+  // type. False until the backend check resolves (so the button never flashes).
+  const [viteUsesReact, setViteUsesReact] = useState(false);
+  useEffect(() => {
+    if (projectType !== 'vite' || !projectPath) {
+      setViteUsesReact(false);
+      return;
+    }
+    let cancelled = false;
+    projectUsesReact(projectPath)
+      .then((isReact) => !cancelled && setViteUsesReact(isReact))
+      .catch(() => !cancelled && setViteUsesReact(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectType, projectPath]);
   const editorFramework =
-    projectType === 'nextjs' || projectType === 'astro' || projectType === 'shopifytheme';
+    projectType === 'nextjs' ||
+    projectType === 'astro' ||
+    projectType === 'shopifytheme' ||
+    (projectType === 'vite' && viteUsesReact);
   useEffect(() => {
     if (!projectPath || !editorFramework) {
       setTailwindActive(false);
@@ -472,10 +498,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     };
   }, [projectPath, editorFramework]);
 
-  // Visual editor supports className/class string resolution for React (Next.js),
-  // Astro, and Shopify Liquid templates — all resolve the same way in the Rust
-  // backend. The Tailwind gate keeps plain-CSS themes from showing an edit
-  // button whose class writes would never compile.
+  // Visual editor supports className/class string resolution for React (Next.js
+  // and Vite), Astro, and Shopify Liquid templates — all resolve the same way in
+  // the Rust backend. The Tailwind gate keeps plain-CSS themes from showing an
+  // edit button whose class writes would never compile.
   const editorEnabled = conn.serverReady && editorFramework && tailwindActive;
 
   // Locale config reported by the locale switcher (null when the project has
@@ -522,7 +548,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     resize.viewportWidth > 0 &&
     resize.viewportWidth < activeBreakpoint.minPx;
 
-  // Visual editor (Next.js + Astro). Inert until the user toggles edit mode.
+  // Visual editor (Next.js, Vite/React, Astro). Inert until the user toggles edit mode.
   const editor = useVisualEditor({
     iframeRef,
     projectPath,
@@ -796,8 +822,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               <strong>Visual editing</strong>
               <span>
                 Click elements in the preview to edit their styles — no code. Works with Next.js,
-                Astro, and Shopify projects styled with Tailwind, and with Astro or plain HTML/CSS
-                projects styled with regular CSS.
+                Astro, Vite (React), and Shopify projects styled with Tailwind, and with Astro or
+                plain HTML/CSS projects styled with regular CSS.
               </span>
             </span>
           </span>

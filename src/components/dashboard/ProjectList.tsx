@@ -43,7 +43,7 @@ import {
 } from '../../lib/folders';
 import { DashboardHeader } from './DashboardHeader';
 import { AgentsPanel } from './AgentsPanel';
-import { IntegrationBar } from './IntegrationBar';
+import { MachineToolsPanel } from './MachineToolsPanel';
 import { NewFolderModal } from './NewFolderModal';
 import { ProjectGridView } from './ProjectGridView';
 import { RenameProjectModal } from './RenameProjectModal';
@@ -96,8 +96,6 @@ interface ProjectListProps {
   isGitHubAuthenticated?: boolean;
   /** Callback when user tries to import without GitHub auth */
   onGitHubConnectForImport?: () => void;
-  /** Callback to connect GitHub account */
-  onGitHubConnect?: () => void;
   /** GitHub username for contribution calendar */
   githubUsername?: string | null;
   /** Whether the initial auth check has completed */
@@ -120,7 +118,6 @@ export function ProjectList({
   onImportProject,
   isGitHubAuthenticated = true,
   onGitHubConnectForImport,
-  onGitHubConnect,
   githubUsername,
   isAuthCheckDone = false,
   onLoadingChange,
@@ -737,7 +734,7 @@ export function ProjectList({
           </div>
         </section>
 
-        <IntegrationBar onGitHubConnect={onGitHubConnect} />
+        <MachineToolsPanel />
 
         {/* Physical bottom spacer — guarantees the Integrations card never
             butts up against the scroll edge, regardless of how the outer

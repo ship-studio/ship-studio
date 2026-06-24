@@ -9,6 +9,7 @@
  * - Claude Code + auth
  * - Codex + auth
  * - Opencode + auth
+ * - Cursor + auth
  *
  * @module lib/setup
  */
@@ -98,9 +99,55 @@ export const OPTIONAL_ITEMS = new Set([
   'codex_auth',
   'opencode',
   'opencode_auth',
+  'cursor',
+  'cursor_auth',
   'vercel',
   'vercel_auth',
 ]);
+
+/**
+ * Tier classification for a setup item.
+ *
+ * The app conflated two very different things in one flat list: tools that are
+ * installed once on the machine and shared by every workspace, and logins that
+ * are isolated per workspace. Splitting them is purely a frontend concern — the
+ * id taxonomy already encodes the tier (the five `*_auth` ids are the logins),
+ * so we classify here rather than widening the backend SetupItemInfo.
+ *
+ *  - `machine`   — Homebrew, Node, Git, and the CLI binaries. Installed once.
+ *  - `workspace` — the five logins (gh / claude / codex / opencode / vercel),
+ *                  isolated per workspace via `get_env_vars_for_account`.
+ */
+export type SetupTier = 'machine' | 'workspace';
+
+/** The five per-workspace logins (the `*_auth` items). Everything else is machine-tier. */
+export const WORKSPACE_LOGIN_ITEM_IDS = new Set([
+  'gh_auth',
+  'claude_auth',
+  'codex_auth',
+  'opencode_auth',
+  'cursor_auth',
+  'vercel_auth',
+]);
+
+/** Machine-tier items: runtimes + CLI binaries installed once and shared by every workspace. */
+export const MACHINE_ITEM_IDS = new Set([
+  'homebrew',
+  'node',
+  'npm_fix',
+  'git',
+  'gh',
+  'claude',
+  'codex',
+  'opencode',
+  'cursor',
+  'vercel',
+]);
+
+/** Classify a setup item id as machine- or workspace-tier. */
+export function tierOf(itemId: string): SetupTier {
+  return WORKSPACE_LOGIN_ITEM_IDS.has(itemId) ? 'workspace' : 'machine';
+}
 
 /** Quick setup check result (fast Tier-1 check) */
 interface QuickSetupCheck {
@@ -125,6 +172,8 @@ export function getSetupDependencies(): Record<string, string[]> {
     codex_auth: ['codex'],
     opencode: [], // Uses its own installer
     opencode_auth: ['opencode'],
+    cursor: [], // Uses its own installer
+    cursor_auth: ['cursor'],
     vercel: [], // Uses npm global install
     vercel_auth: ['vercel'],
   };
@@ -147,6 +196,8 @@ export const SETUP_ITEM_ORDER = [
   'codex_auth',
   'opencode',
   'opencode_auth',
+  'cursor',
+  'cursor_auth',
   'vercel',
   'vercel_auth',
 ];
@@ -165,6 +216,8 @@ export const SETUP_FRIENDLY_NAMES: Record<string, string> = {
   codex_auth: 'Codex Account',
   opencode: 'Opencode',
   opencode_auth: 'Opencode Account',
+  cursor: 'Cursor',
+  cursor_auth: 'Cursor Account',
   vercel: 'Vercel CLI',
   vercel_auth: 'Vercel Account',
 };
@@ -183,6 +236,8 @@ export const SETUP_PROGRESS_MESSAGES: Record<string, string> = {
   codex_auth: 'Connecting to Codex...',
   opencode: 'Installing Opencode...',
   opencode_auth: 'Connecting to Opencode...',
+  cursor: 'Installing Cursor...',
+  cursor_auth: 'Connecting to Cursor...',
   vercel: 'Installing Vercel CLI...',
   vercel_auth: 'Connecting to Vercel...',
 };
@@ -201,6 +256,8 @@ export const SETUP_TIME_ESTIMATES: Record<string, string> = {
   codex_auth: '~15 sec',
   opencode: '~15 sec',
   opencode_auth: '~15 sec',
+  cursor: '~10 sec',
+  cursor_auth: '~15 sec',
   vercel: '~10 sec',
   vercel_auth: '~15 sec',
 };
@@ -212,6 +269,7 @@ export const AGENT_ITEM_PAIRS = [
   { binaryId: 'claude', authId: 'claude_auth' },
   { binaryId: 'codex', authId: 'codex_auth' },
   { binaryId: 'opencode', authId: 'opencode_auth' },
+  { binaryId: 'cursor', authId: 'cursor_auth' },
 ] as const;
 
 /** Agent item IDs (all binary + auth IDs) */
@@ -228,6 +286,7 @@ export const AGENT_DOC_LINKS: { binaryId: string; name: string; url: string }[] 
   { binaryId: 'claude', name: 'Claude Code', url: 'https://code.claude.com/docs/en/setup' },
   { binaryId: 'codex', name: 'Codex', url: 'https://github.com/openai/codex' },
   { binaryId: 'opencode', name: 'opencode', url: 'https://opencode.ai/docs/' },
+  { binaryId: 'cursor', name: 'Cursor CLI', url: 'https://cursor.com/docs/cli/overview' },
 ];
 
 /**
@@ -317,7 +376,7 @@ export const WIZARD_STEPS: WizardStepDef[] = [
   {
     id: 'git-github',
     title: 'Git & GitHub',
-    subtitle: 'Set up version control and repository hosting',
+    subtitle: 'Save your work safely and publish it online. Required.',
     itemIds: ['git', 'gh', 'gh_auth'],
     skippable: false,
   },
@@ -325,13 +384,22 @@ export const WIZARD_STEPS: WizardStepDef[] = [
     id: 'agent',
     title: 'AI Agent',
     subtitle: 'Install at least one AI coding assistant',
-    itemIds: ['claude', 'claude_auth', 'codex', 'codex_auth', 'opencode', 'opencode_auth'],
+    itemIds: [
+      'claude',
+      'claude_auth',
+      'codex',
+      'codex_auth',
+      'opencode',
+      'opencode_auth',
+      'cursor',
+      'cursor_auth',
+    ],
     skippable: false,
   },
   {
     id: 'hosting',
     title: 'Hosting Provider',
-    subtitle: 'Deploy your projects to the web',
+    subtitle: 'Optional. Connect later to put your site on the web.',
     itemIds: ['vercel', 'vercel_auth'],
     skippable: true,
   },
@@ -567,6 +635,16 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         command: 'opencode',
         args: ['auth', 'login'],
       },
+      cursor: {
+        // Official Windows installer (downloads + runs the install script
+        // in-session; not subject to the .ps1 execution policy).
+        command: 'powershell',
+        args: ['-Command', "irm 'https://cursor.com/install?win32=true' | iex"],
+      },
+      cursor_auth: {
+        command: 'cursor-agent',
+        args: ['login'],
+      },
       vercel: {
         command: 'npm',
         args: ['install', '-g', 'vercel'],
@@ -638,6 +716,14 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         command: 'opencode',
         args: ['auth', 'login'],
       },
+      cursor: {
+        command: '/bin/bash',
+        args: ['-c', 'curl https://cursor.com/install -fsS | bash'],
+      },
+      cursor_auth: {
+        command: 'cursor-agent',
+        args: ['login'],
+      },
       vercel: {
         command: '/bin/bash',
         args: ['-c', 'npm install -g vercel'],
@@ -664,6 +750,8 @@ export const USES_TERMINAL = new Set([
   'codex_auth',
   'opencode',
   'opencode_auth',
+  'cursor',
+  'cursor_auth',
   'vercel',
   'vercel_auth',
 ]);

@@ -255,6 +255,12 @@
   gap: var(--spacing-xs);
 }
 
+/* Inline clarification that machine tools are global, not per-workspace. Muted
+   so it reads as a quiet aside next to the X/Y count. */
+.machine-tools-shared-hint {
+  color: var(--text-muted);
+}
+
 .integration-bar-status-icon.success {
   color: var(--success);
 }

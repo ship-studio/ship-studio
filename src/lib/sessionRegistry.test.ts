@@ -197,3 +197,78 @@ describe('SessionRegistry — snapshots', () => {
     expect(sessionRegistry.snapshot('/tmp/missing')).toBeUndefined();
   });
 });
+
+describe('SessionRegistry — stale login env', () => {
+  const PATH = '/tmp/stale';
+
+  function seedTabs(statuses: Array<import('./sessionRegistry').TabStatus | undefined>) {
+    sessionRegistry.getOrCreate(PATH);
+    sessionRegistry.setTerminalTabs(
+      PATH,
+      statuses.map((status, i) => ({
+        id: i + 1,
+        agentId: 'claude-code',
+        sessionId: `s${i + 1}`,
+        status,
+      })),
+      0
+    );
+  }
+
+  it('flags only running tabs and leaves exited/crashed tabs alone', () => {
+    seedTabs(['running', 'exited', 'crashed', 'thinking', undefined]);
+    sessionRegistry.markProjectTabsStale(PATH);
+
+    const tabs = sessionRegistry.snapshot(PATH)!.terminalTabs;
+    expect(tabs.find((t) => t.id === 1)!.staleEnv).toBe(true); // running
+    expect(tabs.find((t) => t.id === 2)!.staleEnv).toBeFalsy(); // exited
+    expect(tabs.find((t) => t.id === 3)!.staleEnv).toBeFalsy(); // crashed
+    expect(tabs.find((t) => t.id === 4)!.staleEnv).toBe(true); // thinking
+    expect(tabs.find((t) => t.id === 5)!.staleEnv).toBe(true); // unknown == starting
+    expect(sessionRegistry.hasStaleTabs(PATH)).toBe(true);
+  });
+
+  it('is a no-op for an unknown project', () => {
+    expect(() => sessionRegistry.markProjectTabsStale('/tmp/nope')).not.toThrow();
+    expect(sessionRegistry.hasStaleTabs('/tmp/nope')).toBe(false);
+  });
+
+  it('clearProjectStaleEnv resets every flagged tab', () => {
+    seedTabs(['running', 'running']);
+    sessionRegistry.markProjectTabsStale(PATH);
+    expect(sessionRegistry.hasStaleTabs(PATH)).toBe(true);
+
+    sessionRegistry.clearProjectStaleEnv(PATH);
+    expect(sessionRegistry.hasStaleTabs(PATH)).toBe(false);
+  });
+
+  it('clears a tab’s stale flag when it is restarted (sessionId changes)', () => {
+    seedTabs(['running']);
+    sessionRegistry.markProjectTabsStale(PATH);
+    expect(sessionRegistry.hasStaleTabs(PATH)).toBe(true);
+
+    // A restart mints a fresh sessionId for the same tab id — a new PTY that
+    // captured the current env, so staleness must clear.
+    sessionRegistry.setTerminalTabs(
+      PATH,
+      [{ id: 1, agentId: 'claude-code', sessionId: 's-restarted', status: 'starting' }],
+      0
+    );
+    expect(sessionRegistry.hasStaleTabs(PATH)).toBe(false);
+  });
+
+  it('notifies subscribers when staleness changes, not when it does not', () => {
+    seedTabs(['running']);
+    const calls: Array<string | null> = [];
+    const unsub = sessionRegistry.subscribe((changedPath) => calls.push(changedPath));
+
+    sessionRegistry.markProjectTabsStale(PATH);
+    expect(calls).toEqual([PATH]);
+
+    // Already stale — second call changes nothing, so no extra notify.
+    sessionRegistry.markProjectTabsStale(PATH);
+    expect(calls).toEqual([PATH]);
+
+    unsub();
+  });
+});

@@ -103,7 +103,6 @@ export const ProjectsView = memo(function ProjectsView({
             onImportProject={onImportProject}
             isGitHubAuthenticated={isGitHubAuthenticated}
             onGitHubConnectForImport={() => void onGitHubConnect()}
-            onGitHubConnect={onGitHubConnect}
             githubUsername={githubUsername}
             isAuthCheckDone={isAuthCheckDone}
             onLoadingChange={onLoadingChange}

@@ -43,6 +43,7 @@ import {
 } from '../../lib/setup';
 import { initDefaultAgent } from '../../lib/agent';
 import { checkGitHubCliStatus } from '../../lib/github';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { SlackIcon } from '../icons';
 
@@ -344,7 +345,10 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         setActiveItemId(null);
       } catch (err) {
         logger.warn(`Failed to process ${itemId}`);
-        const errorMessage = err instanceof Error ? err.message : String(err);
+        // Tauri commands reject with a structured CommandError object (not an
+        // Error instance), so `String(err)` would render "[object Object]".
+        // Route through the shared helpers to get a real user-facing message.
+        const errorMessage = formatCommandError(asCommandError(err));
         const cleanedMessage = errorMessage.replace(/\[[\w_]+\]\s*/g, '').trim();
 
         if (PKG_MGR_PACKAGES.has(itemId)) {
@@ -480,6 +484,27 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     return isWizardStepComplete(currentStep, items);
   }, [currentStep, items, activeItemId, terminalConfig, selectedAgentId]);
 
+  // Plain-language reason the Next button is disabled, so the user isn't left
+  // staring at a greyed-out button with no idea what's still required.
+  const nextBlockedReason = useMemo(() => {
+    if (isNextEnabled) return null;
+    if (activeItemId || terminalConfig) return null; // an action is mid-flight
+    if (currentStep === 'agent') {
+      if (!isAtLeastOneAgentReady(items)) return 'Connect at least one AI agent to continue';
+      if (getReadyAgentPairs(items).length > 1 && !selectedAgentId) {
+        return 'Choose your default agent to continue';
+      }
+    }
+    const stepDef = WIZARD_STEPS.find((s) => s.id === currentStep);
+    const blocker = stepDef?.itemIds
+      .map((id) => items.find((it) => it.id === id))
+      .find((it) => it !== undefined && it.status !== 'ready');
+    if (blocker) {
+      return `Finish setting up ${SETUP_FRIENDLY_NAMES[blocker.id] || blocker.id} to continue`;
+    }
+    return null;
+  }, [isNextEnabled, activeItemId, terminalConfig, currentStep, items, selectedAgentId]);
+
   // Get current step definition
   const currentStepDef = WIZARD_STEPS.find((s) => s.id === currentStep)!;
   const currentStepIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
@@ -599,6 +624,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             </button>
           )}
           <div className="wizard-nav-spacer" />
+          {nextBlockedReason && <span className="wizard-nav-hint">{nextBlockedReason}</span>}
           <button
             className="wizard-nav-next"
             onClick={() => void handleNext()}

@@ -81,6 +81,21 @@ export const OPENCODE: AgentConfig = {
   installHint: 'Make sure Opencode is installed: curl -fsSL https://opencode.ai/install | bash',
 };
 
+/** Cursor CLI (`cursor-agent`) agent configuration. */
+export const CURSOR: AgentConfig = {
+  id: 'cursor',
+  displayName: 'Cursor',
+  binaryName: 'cursor-agent',
+  processName: 'cursor-agent',
+  autoAcceptFlag: '--force',
+  supportsSkills: false,
+  supportsMcp: false,
+  supportsStatusDetection: false,
+  loadingMessage: 'Starting Cursor...',
+  notFoundMessage: 'Error starting Cursor',
+  installHint: 'Make sure Cursor CLI is installed: curl https://cursor.com/install -fsS | bash',
+};
+
 /** Raw terminal (shell) configuration — not an AI agent. */
 export const TERMINAL: AgentConfig = {
   id: 'terminal',
@@ -97,10 +112,10 @@ export const TERMINAL: AgentConfig = {
 };
 
 /** All available agents (AI coding assistants). */
-export const ALL_AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE];
+export const ALL_AGENTS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE, CURSOR];
 
 /** All options available in the tab dropdown (agents + terminal). */
-export const ALL_TAB_OPTIONS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE, TERMINAL];
+export const ALL_TAB_OPTIONS: AgentConfig[] = [CLAUDE_CODE, CODEX, OPENCODE, CURSOR, TERMINAL];
 
 /** In-memory cache for the default agent ID. Null means unset (falls back to Claude Code). */
 let defaultAgentId: string | null = null;

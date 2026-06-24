@@ -59,6 +59,70 @@ pub fn get_extended_path() -> String {
     result
 }
 
+/// Query the user's login shell for its PATH so we detect tools installed by
+/// any version manager (nvm, volta, fnm, asdf, …) exactly the way their terminal
+/// sees them. A macOS app launched from Finder does NOT inherit this PATH.
+/// Bounded by a short timeout so a slow shell rc can't hang detection; returns
+/// None on any failure.
+#[cfg(not(windows))]
+fn get_login_shell_path() -> Option<String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+    // -l (login) + -i (interactive) so the shell sources the rc files that set up
+    // version managers (nvm/fnm/asdf typically live in the interactive rc). A
+    // unique marker isolates the PATH from any banner/prompt a chatty rc prints;
+    // stdin is /dev/null so a prompting rc can't block on input. spawn() (not
+    // output()) keeps a handle so a slow rc can be killed, not just abandoned.
+    let mut child = create_command(&shell)
+        .args(["-lic", "echo \"__SHIPSTUDIO_PATH__${PATH}\""])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    // Read stdout on a worker thread so the wait is bounded. Take the handle so
+    // killing the child closes the pipe, which unblocks the reader and lets the
+    // thread exit (no leaked thread).
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut stdout = stdout;
+        let mut buf = String::new();
+        let _ = stdout.read_to_string(&mut buf);
+        let _ = tx.send(buf);
+    });
+
+    let result = match rx.recv_timeout(Duration::from_secs(3)) {
+        Ok(buf) => buf
+            .lines()
+            .rev()
+            .find_map(|line| line.trim().strip_prefix("__SHIPSTUDIO_PATH__"))
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty()),
+        Err(_) => None,
+    };
+
+    // Always terminate + reap the child so a slow/interactive rc can't leave the
+    // shell process lingering. kill() is a harmless no-op if it already exited.
+    let _ = child.kill();
+    let _ = child.wait();
+
+    result
+}
+
 /// Computes the extended PATH (uncached). Called by `get_extended_path()`.
 fn build_extended_path() -> String {
     let current_path = std::env::var("PATH").unwrap_or_default();
@@ -188,6 +252,26 @@ fn build_extended_path() -> String {
         }
     }
 
+    // Merge the user's login-shell PATH FIRST (covers nvm/volta/fnm/asdf/custom
+    // that a Finder-launched bundle wouldn't otherwise see). It must take
+    // precedence over the hard-coded fallbacks below so the active version-
+    // manager binary the user's terminal resolves wins over a stale system copy
+    // in /usr/local/bin etc. Non-Windows only.
+    #[cfg(not(windows))]
+    if let Some(shell_path) = get_login_shell_path() {
+        let shell_dirs: Vec<String> = shell_path
+            .split(':')
+            .filter(|dir| !dir.is_empty())
+            .map(|dir| dir.to_string())
+            .collect();
+        // Drop the fallbacks that the shell PATH already covers, then prepend
+        // the shell dirs so they are searched first.
+        paths.retain(|p| !shell_dirs.contains(p));
+        let mut merged = shell_dirs;
+        merged.append(&mut paths);
+        paths = merged;
+    }
+
     // Append existing PATH
     if !current_path.is_empty() {
         paths.push(current_path);
@@ -203,6 +287,27 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
     // First try which (works in dev and if PATH is set)
     if let Ok(path) = which::which(cmd) {
         return Some(path);
+    }
+
+    // Then search the extended PATH — which now includes the user's login-shell
+    // PATH, so we find tools installed by any version manager their terminal
+    // sees, even though a bundled app didn't inherit that PATH.
+    let separator = get_path_separator();
+    for dir in get_extended_path().split(separator) {
+        if dir.is_empty() {
+            continue;
+        }
+        let candidate = std::path::Path::new(dir).join(cmd);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        #[cfg(windows)]
+        for ext in ["exe", "cmd"] {
+            let win = std::path::Path::new(dir).join(format!("{cmd}.{ext}"));
+            if win.is_file() {
+                return Some(win);
+            }
+        }
     }
 
     #[cfg(windows)]
@@ -885,6 +990,16 @@ mod tests {
         fn test_nonexistent_command() {
             let result = find_executable("this-command-definitely-does-not-exist-12345");
             assert!(result.is_none());
+        }
+
+        /// The login-shell PATH query must never panic and, when it returns a
+        /// value, that value must be non-empty — regardless of the host shell.
+        #[test]
+        #[cfg(not(windows))]
+        fn test_get_login_shell_path_is_safe() {
+            if let Some(path) = get_login_shell_path() {
+                assert!(!path.is_empty());
+            }
         }
     }
 

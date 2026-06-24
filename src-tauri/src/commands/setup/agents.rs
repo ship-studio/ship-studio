@@ -4,7 +4,9 @@
 //! installed/auth status, signing out, uninstalling.
 
 use crate::agent::{get_agent_by_id, ALL_AGENTS};
-use crate::commands::accounts::{agent_auth_dir, get_active_account_id};
+use crate::commands::accounts::{
+    agent_auth_dir, get_active_account_id, resolve_claude_identity, ClaudeConnState,
+};
 use crate::commands::claude::find_binary_by_name;
 use crate::errors::CommandError;
 use crate::utils::create_command;
@@ -20,9 +22,36 @@ pub struct AgentStatus {
     pub installed: bool,
     pub version: Option<String>,
     pub authed: bool,
+    /// The signed-in account's email, when known (currently only Claude Code,
+    /// resolved per active workspace). `None` for agents we can't identify.
+    pub auth_email: Option<String>,
+    /// True when the agent was connected but its credential has expired and the
+    /// user must reconnect — drives the red stroke + inline Reconnect on the card.
+    /// Never true for the "never connected" state (that keeps the neutral UI).
+    pub needs_reconnect: bool,
     pub is_default: bool,
     pub install_supported: bool,
     pub uninstall_supported: bool,
+}
+
+/// Determine an agent's sign-in state by asking its own CLI, for agents whose
+/// credential lives outside the filesystem (e.g. Cursor keeps its token in the
+/// system keychain, so no auth-indicator file is reliable). Runs the agent's
+/// `auth_status_args` and looks for `auth_status_ready_substr` in the output.
+///
+/// Returns `None` for agents that use file-based auth indicators — the caller
+/// then falls back to checking `auth_indicators` on disk.
+pub fn agent_command_auth_status(agent: &crate::agent::AgentConfig) -> Option<bool> {
+    let args = agent.auth_status_args?;
+    let needle = agent.auth_status_ready_substr?;
+    let binary = find_binary_by_name(agent.binary_name)?;
+    let output = create_command(&binary).args(args).output().ok()?;
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    Some(combined.contains(needle))
 }
 
 /// Return the status of every known agent in a single call.
@@ -34,6 +63,11 @@ pub async fn get_agents_status() -> Vec<AgentStatus> {
         .default_agent_id
         .unwrap_or_else(|| "claude-code".to_string());
     let active_account_id = get_active_account_id().unwrap_or_else(|_| "default".to_string());
+
+    // Claude's auth can't be inferred from config files (its macOS login is a
+    // global keychain entry that ignores CLAUDE_CONFIG_DIR), so resolve the real
+    // per-workspace identity once up front and fold it into the Claude row below.
+    let claude_identity = resolve_claude_identity(&active_account_id).await;
 
     ALL_AGENTS
         .iter()
@@ -55,14 +89,26 @@ pub async fn get_agents_status() -> Vec<AgentStatus> {
                     })
             });
 
-            let authed = if !installed {
-                false
+            let is_claude = agent.id == "claude-code";
+            let (authed, auth_email, needs_reconnect) = if is_claude {
+                // Real per-workspace identity, not file existence.
+                (
+                    claude_identity.state != ClaudeConnState::NotConnected,
+                    claude_identity.email.clone(),
+                    claude_identity.state == ClaudeConnState::NeedsReconnect,
+                )
+            } else if !installed {
+                (false, None, false)
+            } else if let Some(authed) = agent_command_auth_status(agent) {
+                // Keychain-based agents (Cursor): ask the CLI, not the filesystem.
+                (authed, None, false)
             } else {
                 let dir = agent_auth_dir(&active_account_id, agent);
-                agent
+                let authed = agent
                     .auth_indicators
                     .iter()
-                    .any(|indicator| dir.join(indicator).exists())
+                    .any(|indicator| dir.join(indicator).exists());
+                (authed, None, false)
             };
 
             #[cfg(windows)]
@@ -82,6 +128,8 @@ pub async fn get_agents_status() -> Vec<AgentStatus> {
                 installed,
                 version,
                 authed,
+                auth_email,
+                needs_reconnect,
                 is_default: agent.id == default_id,
                 install_supported,
                 uninstall_supported,
@@ -100,6 +148,19 @@ pub async fn sign_out_agent(agent_id: String) -> Result<(), CommandError> {
     // Reject unknown IDs: get_agent_by_id falls back to CLAUDE_CODE, so explicitly check.
     if agent.id != agent_id {
         return Err((format!("Unknown agent: {agent_id}")).into());
+    }
+
+    // Keychain-based agents (Cursor) can't be signed out by deleting files —
+    // their token lives in the system keychain. Use the CLI's own logout.
+    if let Some(args) = agent.logout_args {
+        if let Some(binary) = find_binary_by_name(agent.binary_name) {
+            let _ = create_command(&binary).args(args).output();
+        }
+        tracing::info!(
+            agent_id = agent_id.as_str(),
+            "Agent signed out via CLI logout"
+        );
+        return Ok(());
     }
 
     let active_account_id = get_active_account_id().unwrap_or_else(|_| "default".to_string());
@@ -311,6 +372,8 @@ mod tests {
             installed: true,
             version: Some("1.2.3".to_string()),
             authed: true,
+            auth_email: Some("user@example.com".to_string()),
+            needs_reconnect: false,
             is_default: true,
             install_supported: true,
             uninstall_supported: true,
@@ -322,5 +385,7 @@ mod tests {
         assert!(json.contains("\"isDefault\":true"));
         assert!(json.contains("\"installSupported\":true"));
         assert!(json.contains("\"uninstallSupported\":true"));
+        assert!(json.contains("\"authEmail\":\"user@example.com\""));
+        assert!(json.contains("\"needsReconnect\":false"));
     }
 }

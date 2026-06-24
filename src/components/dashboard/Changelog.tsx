@@ -25,6 +25,17 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.12.0', // v0.12.0
+    items: [
+      'Cursor CLI agent — Cursor joins Claude Code, Codex, and Opencode as a built-in AI agent. Install it during setup, sign in, run it in your workspace terminal, and pick it as your default agent',
+      'Visual editor now works with Vite — point-and-click style editing works on Vite + React + Tailwind projects, not just Next.js, Astro, and Shopify',
+      'Restart an agent terminal — if your coding agent exits, restart it right in place instead of opening a new tab',
+      'First-run terminal hint — a fresh agent terminal shows a short hint about what to do, until you start typing',
+      'Smoother onboarding — clearer setup wizard copy and more accurate tool detection, plus a fix so Node.js installs reliably during setup on Windows',
+      'Fixes — a macOS 12 launch crash, GitHub showing as disconnected when a second account had an invalid token, and the Cmd+K "port" search now opens Project settings',
+    ],
+  },
+  {
     version: '0.11.2', // v0.11.2
     items: [
       "Creating a branch with unsaved work no longer errors out — if you have uncommitted changes, you now get a clear choice: commit them on your current branch first, or stash them aside, then the new branch is created and switched to. Git errors throughout the Branches tab also show a real message now instead of '[object Object]'",

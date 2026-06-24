@@ -86,13 +86,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security list-keychain -d user -s $KEYCHAIN_PATH
 
-      - name: Write Apple API key file
-        env:
-          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
-        run: |
-          mkdir -p $RUNNER_TEMP/apple-keys
-          echo "$APPLE_API_KEY_CONTENT" | base64 --decode > $RUNNER_TEMP/apple-keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
-
       - name: Install frontend dependencies
         run: pnpm install
 
@@ -108,9 +101,13 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
           APPLE_SIGNING_IDENTITY: "Developer ID Application"
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ runner.temp }}/apple-keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
+          # Notarization intentionally disabled: it requires an in-effect Apple
+          # Developer agreement (was returning HTTP 403 and blocking every
+          # release). The app is still Developer ID code-signed, which preserves
+          # silent in-place auto-updates for existing users. New users install
+          # via the one-command installer (scripts/install.sh), which strips the
+          # Gatekeeper quarantine flag — so notarization isn't needed. To
+          # re-enable, restore the APPLE_API_* env vars + the API-key step above.
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Ship Studio v__VERSION__'
@@ -259,8 +256,15 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASES_PAT }}
         run: |
           mkdir -p carry-forward
-          WIN_TAG=$(gh release list --repo ship-studio/releases --limit 50 \
-            --json tagName --jq '[.[] | select(.tagName | endswith("-win"))][0].tagName // empty')
+          # Pick the newest PUBLISHED -win release. `gh release list` returns
+          # drafts first, so the old `[0]` grabbed an ancient draft (v0.6.0-win),
+          # which is why every macOS release shipped a stale 0.6.0 Windows
+          # manifest and broke Windows auto-update. Exclude drafts and take the
+          # most recently published -win tag.
+          WIN_TAG=$(gh release list --repo ship-studio/releases --limit 100 \
+            --json tagName,isDraft,publishedAt \
+            --jq '[.[] | select(.isDraft == false) | select(.tagName | endswith("-win"))]
+                  | sort_by(.publishedAt) | last | .tagName // empty')
           if [ -z "$WIN_TAG" ]; then
             echo "::warning::No -win release found; skipping Windows carry-forward"
             exit 0

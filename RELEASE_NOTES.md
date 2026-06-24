@@ -6,6 +6,16 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.12.0
+
+- **Cursor CLI agent** - Cursor joins Claude Code, Codex, and Opencode as a built-in AI agent. Install it during setup, sign in, run `cursor-agent` in your workspace terminal, and set it as your default agent.
+- **Visual editor now works with Vite** - Point-and-click style editing works on Vite + React + Tailwind projects, not just Next.js, Astro, and Shopify.
+- **Restart an agent terminal** - If your coding agent exits, restart it right in place instead of opening a new tab.
+- **First-run terminal hint** - A fresh agent terminal shows a short hint about what to do, until you start typing.
+- **Smoother onboarding** - Clearer setup wizard copy and more accurate tool detection. On Windows, Node.js now installs reliably during setup.
+- **Fixes** - A macOS 12 launch crash, GitHub showing as disconnected when a second account had an invalid token, and the Cmd+K "port" search now points to Project settings.
+
+
 ## What's New in v0.11.2
 
 - **Create a branch with unsaved work** - Creating a branch while you have uncommitted changes no longer errors out. You now get a choice: commit them on your current branch first, or stash them aside — then the new branch is created and switched to.

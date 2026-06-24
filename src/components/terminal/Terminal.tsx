@@ -52,6 +52,12 @@ import '@xterm/xterm/css/xterm.css';
 /** Agent status based on terminal title */
 export type AgentStatus = 'thinking' | 'waiting' | 'idle';
 
+/** Set once the user sends their first input to any agent terminal. */
+const FIRST_AGENT_INPUT_KEY = 'shipstudio.sentFirstAgentMessage';
+/** In-process broadcast so every mounted terminal (split panes / tabs) clears
+ *  its first-run hint the moment the user types into ANY of them. */
+const FIRST_AGENT_INPUT_EVENT = 'shipstudio:first-agent-input';
+
 /** Props for the Terminal component */
 interface TerminalProps {
   /** Agent configuration to use for this terminal */
@@ -76,6 +82,10 @@ interface TerminalProps {
   isActive?: boolean;
   /** Whether to resume a previous session with this name */
   shouldResume?: boolean;
+  /** Relaunch this tab's agent after it has exited. The parent mints a
+   *  fresh session and remounts — keeps session-id semantics clean instead
+   *  of reusing an id whose conversation file already exists. */
+  onRequestRestart?: () => void;
 }
 
 /**
@@ -91,6 +101,10 @@ export interface TerminalHandle {
   paste: (data: string) => void;
   /** Kill the PTY process */
   kill: () => void;
+  /** Whether the agent process has exited and the tab is showing the
+   *  "press Enter to restart" prompt. The parent uses this to no-op a
+   *  restart request while the agent is still running. */
+  isExited: () => boolean;
   /** Re-fit the terminal to its container (call after display changes) */
   fit: () => void;
 }
@@ -107,6 +121,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     sessionName,
     isActive = true,
     shouldResume,
+    onRequestRestart,
   },
   ref
 ) {
@@ -118,8 +133,33 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   // Track Unlisten handles from the PTY session events so we can unsubscribe
   // them on unmount without killing the backend PTY.
   const ptyDisposablesRef = useRef<Array<{ dispose(): void }>>([]);
+  // True once the agent process has exited and the tab is showing the
+  // "press Enter to restart" prompt. While set, keystrokes don't go to the
+  // (dead) PTY — Enter relaunches the agent instead.
+  const exitedRef = useRef(false);
+  // Guards a held Enter from dispatching multiple restarts before the tab
+  // remounts: only the first Enter after exit relaunches, the rest are swallowed.
+  const restartRequestedRef = useRef(false);
   const [isReady, setIsReady] = useState(false);
   const [isFocused, setIsFocused] = useState(false); // Start unfocused to show overlay until user clicks
+
+  // First-run hint: show "this is your AI builder, type here" over the terminal
+  // until the user sends their first input, then never again (global flag, so it
+  // covers every agent terminal / tab / project, not just this one).
+  const [showFirstRunHint, setShowFirstRunHint] = useState(
+    () => localStorage.getItem(FIRST_AGENT_INPUT_KEY) !== '1'
+  );
+  const firstInputDoneRef = useRef(!showFirstRunHint);
+  // Clear this instance's hint when any sibling terminal reports first input.
+  useEffect(() => {
+    if (firstInputDoneRef.current) return;
+    const onFirstInput = () => {
+      firstInputDoneRef.current = true;
+      setShowFirstRunHint(false);
+    };
+    window.addEventListener(FIRST_AGENT_INPUT_EVENT, onFirstInput);
+    return () => window.removeEventListener(FIRST_AGENT_INPUT_EVENT, onFirstInput);
+  }, []);
 
   // Mirror `isActive` to a ref so non-effect closures (input handler,
   // resize observer) can read it without re-creating.
@@ -132,13 +172,15 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const onSpawnRef = useRef(onSpawn);
   const onStatusChangeRef = useRef(onStatusChange);
   const onTitleChangeRef = useRef(onTitleChange);
+  const onRequestRestartRef = useRef(onRequestRestart);
   const lastStatusRef = useRef<AgentStatus>('idle');
   useEffect(() => {
     onExitRef.current = onExit;
     onSpawnRef.current = onSpawn;
     onStatusChangeRef.current = onStatusChange;
     onTitleChangeRef.current = onTitleChange;
-  }, [onExit, onSpawn, onStatusChange, onTitleChange]);
+    onRequestRestartRef.current = onRequestRestart;
+  }, [onExit, onSpawn, onStatusChange, onTitleChange, onRequestRestart]);
 
   // Auto-accept is a spawn-time flag (CLI arg) — it can't be toggled on a
   // live PTY. Keep it in a ref so a later change to the scalar doesn't
@@ -786,21 +828,47 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
               if (isResumeFail()) {
                 retryFreshSession();
               } else {
-                terminalRef.current?.write('\r\n[Process exited]\r\n');
+                offerRestart();
                 onExitRef.current?.(exitCode);
               }
             }, 200);
             return;
           }
 
-          terminalRef.current?.write('\r\n[Process exited]\r\n');
+          offerRestart();
           onExitRef.current?.(exitCode);
         });
         pushDisposable(unlistenExit);
 
+        // Dismiss the first-run hint on the user's first real keystroke — and
+        // broadcast so sibling terminals (split panes / tabs) clear theirs too.
+        // We gate on onKey (genuine keyboard input) rather than onData, because
+        // onData also fires for xterm's automatic replies to the program's
+        // terminal-capability queries (Device Attributes / cursor-position
+        // reports an agent's TUI sends on startup). Using onData would dismiss
+        // the hint a frame after it appears — before the user could read it.
+        const firstKeyDisposable = term.onKey(() => {
+          if (firstInputDoneRef.current) return;
+          firstInputDoneRef.current = true;
+          localStorage.setItem(FIRST_AGENT_INPUT_KEY, '1');
+          setShowFirstRunHint(false);
+          window.dispatchEvent(new Event(FIRST_AGENT_INPUT_EVENT));
+        });
+        ptyDisposablesRef.current.push(firstKeyDisposable);
+
         // Handle terminal input -> PTY. Resolves the session id lazily
         // from the ref so re-attach doesn't need a new listener.
         const inputDisposable = term.onData((data) => {
+          // After the agent exits the PTY is dead — don't pipe keystrokes
+          // into it. Enter relaunches; everything else is ignored so a
+          // stray keypress can't look like it's being swallowed silently.
+          if (exitedRef.current) {
+            if (data.includes('\r') && !restartRequestedRef.current) {
+              restartRequestedRef.current = true;
+              onRequestRestartRef.current?.();
+            }
+            return;
+          }
           const sid = ptyRef.current?.sessionId;
           if (sid) void writePtySession(sid, data);
           // When user sends input to an agent without title-based status detection,
@@ -864,6 +932,18 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           term.write(`\x1b[33m${agent.installHint}\x1b[0m\r\n`);
         }
       }
+    };
+
+    // Print "[Process exited]" plus an inline hint that the tab can be
+    // relaunched. The actual relaunch is parent-driven (fresh session), so
+    // the user can toggle Auto-accept (--dangerously-skip-permissions) and
+    // then restart into it without closing the tab.
+    const offerRestart = () => {
+      exitedRef.current = true;
+      restartRequestedRef.current = false;
+      terminalRef.current?.write(
+        `\r\n\x1b[2m[Process exited] — press \x1b[0m\x1b[1mEnter\x1b[0m\x1b[2m to restart ${agent.displayName}\x1b[0m\r\n`
+      );
     };
 
     // Show a loading message while agent starts up
@@ -951,6 +1031,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         if (sid) void killPtySession(sid);
         cleanup();
       },
+      isExited: () => exitedRef.current,
       fit: () => {
         if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
           fitAddonRef.current.fit();
@@ -1008,6 +1089,20 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           cursor: 'text',
         }}
       />
+      {/* First-run instruction so a non-developer knows this is a chat box, not
+          a scary console. pointer-events:none lets the click-to-focus below it
+          still work; it clears on the first keystroke. */}
+      {isReady && showFirstRunHint && (
+        <div className="terminal-firstrun-hint">
+          <div className="terminal-firstrun-hint-card" role="note">
+            <strong>This is your agent</strong>
+            <span>
+              Whether you use Claude Code, Codex, Opencode, or something else, your agent runs right
+              here. Tell it what you want to build in plain English, then press Enter.
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

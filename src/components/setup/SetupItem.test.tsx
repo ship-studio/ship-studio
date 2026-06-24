@@ -135,7 +135,7 @@ describe('SetupItem', () => {
     const item = makeItem({ status: 'blocked' });
     render(<SetupItem item={item} blockedBy={['Package Manager']} />);
 
-    expect(screen.getByText('Waiting for Package Manager')).toBeInTheDocument();
+    expect(screen.getByText('Unlocks after Package Manager')).toBeInTheDocument();
   });
 
   // ============ Button disabled states ============

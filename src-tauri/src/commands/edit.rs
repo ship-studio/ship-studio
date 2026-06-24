@@ -1953,6 +1953,33 @@ fn tailwind_active_at(root: &Path) -> bool {
     false
 }
 
+/// Whether the project depends on React. The visual editor resolves a clicked
+/// element back to a `className` literal in `.tsx`/`.jsx` source, so a Vite
+/// project only earns the editor when it's React-flavored: Vue (`.vue`) and
+/// Svelte (`.svelte`) keep their class strings in files the resolver never
+/// indexes, so enabling them would surface an edit button that can't write back.
+/// Meta-frameworks (Next.js) are gated by project type instead and don't need
+/// this. React Native is detected before Vite, so a `ProjectType::Vite` project
+/// matching here is genuinely a React web app.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub fn project_uses_react(project_path: String) -> Result<bool, CommandError> {
+    let root = validate_project_path(&project_path)?;
+    Ok(project_uses_react_at(&root))
+}
+
+/// Core of [`project_uses_react`], split out (no path validation) for unit testing.
+fn project_uses_react_at(root: &Path) -> bool {
+    let Ok(contents) = std::fs::read_to_string(root.join("package.json")) else {
+        return false;
+    };
+    // Match the `"react":` dependency key specifically. This excludes substrings
+    // like `"react-dom":`, `"@types/react":`, and `"@vitejs/plugin-react":` (none
+    // contain the exact quote-`react`-quote-colon sequence), so a Vue/Svelte Vite
+    // project that merely has a react-adjacent devDep won't be mistaken for React.
+    contents.contains("\"react\":")
+}
+
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn detect_breakpoints(project_path: String) -> Result<Vec<Breakpoint>, CommandError> {
@@ -3302,6 +3329,39 @@ const items = [];
         std::fs::create_dir_all(&c).unwrap();
         std::fs::write(c.join("tailwind.config.js"), "module.exports = {{}}").unwrap();
         assert!(chk(&c), "tailwind.config.js present → active");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn project_uses_react_matches_only_the_react_dependency() {
+        let dir = std::env::temp_dir().join(format!("ss-react-{}", std::process::id()));
+        let chk = project_uses_react_at;
+
+        // No package.json at all → not React.
+        let none = dir.join("none");
+        std::fs::create_dir_all(&none).unwrap();
+        assert!(!chk(&none), "no package.json → not react");
+
+        // A React Vite app declares the `react` dependency.
+        let react = dir.join("react");
+        std::fs::create_dir_all(&react).unwrap();
+        std::fs::write(
+            react.join("package.json"),
+            r#"{ "dependencies": { "react": "^18.2.0", "react-dom": "^18.2.0" } }"#,
+        )
+        .unwrap();
+        assert!(chk(&react), "react dependency present → react");
+
+        // A Vue Vite app has react-adjacent devDeps but no `react` dependency.
+        let vue = dir.join("vue");
+        std::fs::create_dir_all(&vue).unwrap();
+        std::fs::write(
+            vue.join("package.json"),
+            r#"{ "dependencies": { "vue": "^3.4.0" }, "devDependencies": { "@types/react": "^18.0.0" } }"#,
+        )
+        .unwrap();
+        assert!(!chk(&vue), "vue app with @types/react devDep → not react");
 
         std::fs::remove_dir_all(&dir).ok();
     }

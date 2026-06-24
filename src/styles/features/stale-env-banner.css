@@ -1,0 +1,23 @@
+/* Stale login-env banner — sits between the terminal tab bar and the terminal
+   content. Warning-tinted, compact, non-blocking. */
+
+.stale-env-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: rgba(var(--warning-rgb), 0.1);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.stale-env-banner-icon {
+  flex-shrink: 0;
+  color: var(--warning);
+}
+
+.stale-env-banner-text {
+  flex: 1;
+  line-height: 1.4;
+}

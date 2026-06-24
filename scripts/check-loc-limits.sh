@@ -43,12 +43,14 @@ echo "Components (.tsx limit 1200):"
 # for Workspaces (per-workspace credential isolation): the orchestrators own the
 # active-workspace gating, account-select screen routing, and move-workspace
 # wiring. Extracting a TerminalPanes sub-component from WorkspaceView and an
-# account router from App.tsx remain on the roadmap as follow-ups.
-check_file src/components/workspace/WorkspaceView.tsx 1580
+# account router from App.tsx remain on the roadmap as follow-ups. Bumped again
+# for the agent-restart wiring (restartTerminalTab threaded to each Terminal +
+# the Agent Settings menu item) — small, on top of the Workspaces baseline.
+check_file src/components/workspace/WorkspaceView.tsx 1600
 check_file src/components/dashboard/ProjectList.tsx 900
 check_file src/components/plugins/PluginManager.tsx 700
 check_file src/components/dashboard/ImportProject.tsx 500
-check_file src/App.tsx 1285
+check_file src/App.tsx 1290
 echo
 echo "CSS (limit 1200 per file):"
 # The visual editor stylesheet carries every control's styling (box model,

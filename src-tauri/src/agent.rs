@@ -47,6 +47,17 @@ pub struct AgentConfig {
     pub setup_item_ids: (&'static str, &'static str),
     /// Setup display names: (binary_name, auth_name)
     pub setup_display_names: (&'static str, &'static str),
+    /// Args that print sign-in status (e.g. ["status"]), for agents whose
+    /// credential lives outside the filesystem (system keychain) so the
+    /// `auth_indicators` file check is unreliable. `None` → use file indicators.
+    pub auth_status_args: Option<&'static [&'static str]>,
+    /// Substring in `auth_status_args` output that means "signed in"
+    /// (e.g. "Logged in as"). Only consulted when `auth_status_args` is set.
+    pub auth_status_ready_substr: Option<&'static str>,
+    /// Args that sign the agent out via the CLI (e.g. ["logout"]). Set for
+    /// agents whose token isn't a file we can delete. `None` → remove the
+    /// `auth_indicators` files instead.
+    pub logout_args: Option<&'static [&'static str]>,
 }
 
 /// Claude Code agent configuration.
@@ -73,6 +84,9 @@ pub const CLAUDE_CODE: AgentConfig = AgentConfig {
     uninstall_command_windows: Some("npm uninstall -g @anthropic-ai/claude-code"),
     setup_item_ids: ("claude", "claude_auth"),
     setup_display_names: ("Claude Code", "Claude Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
 };
 
 /// Codex agent configuration.
@@ -95,6 +109,9 @@ pub const CODEX: AgentConfig = AgentConfig {
     uninstall_command_windows: Some("npm uninstall -g @openai/codex"),
     setup_item_ids: ("codex", "codex_auth"),
     setup_display_names: ("Codex", "Codex Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
 };
 
 /// Opencode agent configuration.
@@ -121,10 +138,48 @@ pub const OPENCODE: AgentConfig = AgentConfig {
     uninstall_command_windows: Some("npm uninstall -g opencode-ai"),
     setup_item_ids: ("opencode", "opencode_auth"),
     setup_display_names: ("Opencode", "Opencode Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Cursor CLI (`cursor-agent`) agent configuration.
+///
+/// Unlike the others, Cursor stores its credential in the system keychain (the
+/// only file it writes under `~/.cursor` is UI state), and it respects only
+/// `HOME` — there is no config-dir env var to redirect per workspace. So Cursor
+/// uses a single global login (auth detected via `cursor-agent status`, signed
+/// out via `cursor-agent logout`) rather than the per-workspace file isolation
+/// the other agents get.
+pub const CURSOR: AgentConfig = AgentConfig {
+    id: "cursor",
+    display_name: "Cursor",
+    binary_name: "cursor-agent",
+    process_name: "cursor-agent",
+    version_flag: "--version",
+    print_mode_flags: &["-p", "--print"],
+    auto_accept_flag: Some("--force"),
+    auth_trigger_args: &["login"],
+    auth_config_dir: ".cursor",
+    // Auth is keychain-based; detection goes through `auth_status_args` below.
+    auth_indicators: &[],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("curl https://cursor.com/install -fsS | bash"),
+    install_message_windows: Some("irm 'https://cursor.com/install?win32=true' | iex"),
+    uninstall_command_unix: Some(
+        "rm -f \"$HOME/.local/bin/cursor-agent\" \"$HOME/.local/bin/agent\" 2>/dev/null; rm -rf \"$HOME/.local/share/cursor-agent\" 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: None,
+    setup_item_ids: ("cursor", "cursor_auth"),
+    setup_display_names: ("Cursor", "Cursor Account"),
+    auth_status_args: Some(&["status"]),
+    auth_status_ready_substr: Some("Logged in as"),
+    logout_args: Some(&["logout"]),
 };
 
 /// All available agent configurations.
-pub const ALL_AGENTS: &[&AgentConfig] = &[&CLAUDE_CODE, &CODEX, &OPENCODE];
+pub const ALL_AGENTS: &[&AgentConfig] = &[&CLAUDE_CODE, &CODEX, &OPENCODE, &CURSOR];
 
 /// In-memory cache for the default agent ID. `None` means unset (falls back to Claude Code).
 static DEFAULT_AGENT_ID: RwLock<Option<String>> = RwLock::new(None);
@@ -160,6 +215,7 @@ pub fn get_agent_by_id(id: &str) -> &'static AgentConfig {
     match id {
         "codex" => &CODEX,
         "opencode" => &OPENCODE,
+        "cursor" => &CURSOR,
         _ => &CLAUDE_CODE,
     }
 }
@@ -194,8 +250,8 @@ mod tests {
     }
 
     #[test]
-    fn all_agents_has_length_3() {
-        assert_eq!(ALL_AGENTS.len(), 3);
+    fn all_agents_has_length_4() {
+        assert_eq!(ALL_AGENTS.len(), 4);
     }
 
     #[test]
@@ -203,6 +259,38 @@ mod tests {
         let agent = get_agent_by_id("opencode");
         assert_eq!(agent.id, "opencode");
         assert_eq!(agent.display_name, "Opencode");
+    }
+
+    #[test]
+    fn get_agent_by_id_cursor() {
+        let agent = get_agent_by_id("cursor");
+        assert_eq!(agent.id, "cursor");
+        assert_eq!(agent.display_name, "Cursor");
+        assert_eq!(agent.binary_name, "cursor-agent");
+    }
+
+    #[test]
+    fn cursor_uses_command_based_auth() {
+        // Cursor's token is in the keychain, so it must declare a status command
+        // and a logout command rather than relying on file indicators.
+        assert!(CURSOR.auth_status_args.is_some());
+        assert!(CURSOR.auth_status_ready_substr.is_some());
+        assert!(CURSOR.logout_args.is_some());
+        assert!(CURSOR.auth_indicators.is_empty());
+    }
+
+    #[test]
+    fn file_based_agents_have_no_status_command() {
+        // The keychain path must stay opt-in: the file-indicator agents must not
+        // accidentally declare a status command (which would change detection).
+        for agent in [&CLAUDE_CODE, &CODEX, &OPENCODE] {
+            assert!(
+                agent.auth_status_args.is_none(),
+                "{} should use file-based auth",
+                agent.id
+            );
+            assert!(agent.logout_args.is_none());
+        }
     }
 
     #[test]
