@@ -152,17 +152,20 @@ pub async fn check_github_cli_status() -> GitHubCliStatus {
 /// created under); without one, they fall back to the globally-active
 /// workspace. The account id is returned so callers can key per-workspace
 /// caches — see [`GITHUB_USERNAME_CACHE`].
-fn gh_command_and_account(project_path: Option<&str>) -> (Command, String) {
+fn gh_command_and_account(project_path: Option<&str>) -> Result<(Command, String), CommandError> {
     match project_path {
         Some(p) => {
-            let path = Path::new(p);
-            let account_id = crate::commands::projects::project_account_id_sync(path);
-            (get_gh_command_for_project(path), account_id)
+            // Validate the caller-supplied path (rejects traversal / out-of-sandbox
+            // paths, allows registered external projects) before we read its
+            // workspace config — parity with the other project-scoped commands.
+            let path = validate_project_path(p).map_err(CommandError::from)?;
+            let account_id = crate::commands::projects::project_account_id_sync(&path);
+            Ok((get_gh_command_for_project(&path), account_id))
         }
         None => {
             let account_id = crate::commands::accounts::get_active_account_id()
                 .unwrap_or_else(|_| "default".to_string());
-            (get_gh_command(), account_id)
+            Ok((get_gh_command(), account_id))
         }
     }
 }
@@ -170,7 +173,7 @@ fn gh_command_and_account(project_path: Option<&str>) -> (Command, String) {
 #[tauri::command]
 #[tracing::instrument]
 pub async fn get_github_username(project_path: Option<String>) -> Result<String, CommandError> {
-    let (mut cmd, account_id) = gh_command_and_account(project_path.as_deref());
+    let (mut cmd, account_id) = gh_command_and_account(project_path.as_deref())?;
 
     if let Some(cached) = GITHUB_USERNAME_CACHE.get(&account_id) {
         return Ok(cached);
@@ -195,7 +198,7 @@ pub async fn get_github_username(project_path: Option<String>) -> Result<String,
 pub async fn get_github_orgs(project_path: Option<String>) -> Result<Vec<String>, CommandError> {
     // Get orgs where user can create repos, scoped to the project's workspace
     // login so org choices match the account the repo will be created under.
-    let (mut cmd, _account_id) = gh_command_and_account(project_path.as_deref());
+    let (mut cmd, _account_id) = gh_command_and_account(project_path.as_deref())?;
     cmd.args(["api", "user/orgs", "--jq", ".[].login"]);
     let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
 

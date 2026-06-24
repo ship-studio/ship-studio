@@ -1661,6 +1661,7 @@ pub fn workspace_connect_start(
     {
         let app = app.clone();
         let session_id = session_id.clone();
+        let is_github = matches!(svc, ConnectService::Github);
         std::thread::spawn(move || {
             let code = match child.wait() {
                 Ok(status) if status.success() => 0,
@@ -1669,6 +1670,12 @@ pub fn workspace_connect_start(
             };
             if let Ok(mut map) = CONNECT_REGISTRY.lock() {
                 map.remove(&session_id);
+            }
+            // A GitHub login just finished — the identity for this workspace may
+            // have changed without an active-account switch, so drop any cached
+            // username (keyed per-workspace) to avoid showing a stale owner.
+            if is_github {
+                crate::commands::github::invalidate_github_username_cache();
             }
             let _ = app.emit(
                 "workspace-connect-exit",
@@ -1787,6 +1794,11 @@ pub fn workspace_disconnect_service(id: String, service: String) -> Result<(), C
     }
     // Best-effort: failures (e.g. "not logged in") are fine.
     let _ = command.output();
+    // Logging out changes this workspace's GitHub identity — drop any cached
+    // username so a subsequent lookup doesn't return the signed-out account.
+    if matches!(svc, ConnectService::Github) {
+        crate::commands::github::invalidate_github_username_cache();
+    }
     Ok(())
 }
 
