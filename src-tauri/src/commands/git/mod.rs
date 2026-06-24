@@ -37,38 +37,34 @@ const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
 /// account (or 403). The `gh`- and PR-based paths already scope themselves via
 /// `get_gh_command_for_project`; this is the matching scope for raw `git`.
 ///
-/// We inject the project's workspace env (notably `GH_CONFIG_DIR`) and, for an
-/// isolated (non-default) workspace, force git to resolve credentials through
-/// that workspace's `gh` login — reading the same `GH_CONFIG_DIR` — so the
-/// operation authenticates as the workspace's account. The default workspace
-/// keeps the machine's native credential resolution untouched, exactly as the
-/// rest of the per-workspace env injection does.
+/// We inject the project's workspace env (notably `GH_CONFIG_DIR`) and route
+/// credential resolution through `gh` for *every* workspace, so the app never
+/// depends on the user having configured git themselves (`gh auth setup-git`).
+/// `gh` reads the `GH_CONFIG_DIR` we inject: for an isolated workspace that's
+/// its scoped login; for the Default workspace none is injected, so `gh` falls
+/// back to the machine's native login — the same identity every other GitHub
+/// feature in the app already uses. If `gh` isn't installed we skip the override
+/// and fall back to git's native credential resolution.
 pub(crate) async fn run_git_net(
     args: &[&str],
     cwd: &std::path::Path,
     label: &str,
 ) -> Result<std::process::Output, CommandError> {
     let workspace_env = crate::commands::accounts::get_env_vars_for_project(cwd);
-    // Only isolated workspaces inject GH_CONFIG_DIR; its presence is our signal
-    // that this project's GitHub auth lives in a workspace-specific gh config.
-    let isolated = workspace_env.contains_key("GH_CONFIG_DIR");
 
     let mut cmd = create_command("git");
 
-    // For an isolated workspace, route HTTPS credential resolution through that
-    // workspace's gh login (which reads the GH_CONFIG_DIR injected below). The
-    // empty `credential.helper=` first clears any inherited helper (e.g.
-    // osxkeychain) so a globally-cached credential can't shadow the workspace
-    // token. These are git *global* options, so they must precede the
-    // subcommand in `args`.
-    if isolated {
-        if let Some(gh) = find_executable("gh") {
-            cmd.arg("-c").arg("credential.helper=");
-            cmd.arg("-c").arg(format!(
-                "credential.helper=!{} auth git-credential",
-                gh.display()
-            ));
-        }
+    // Force HTTPS credential resolution through gh (which reads the GH_CONFIG_DIR
+    // injected below) for every workspace. The empty `credential.helper=` first
+    // clears any inherited helper (e.g. osxkeychain) so a globally-cached
+    // credential can't shadow gh. These are git *global* options, so they must
+    // precede the subcommand in `args`.
+    if let Some(gh) = find_executable("gh") {
+        cmd.arg("-c").arg("credential.helper=");
+        cmd.arg("-c").arg(format!(
+            "credential.helper=!{} auth git-credential",
+            gh.display()
+        ));
     }
 
     cmd.args(args)
