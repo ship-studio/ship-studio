@@ -19,9 +19,69 @@ pub use status::*;
 pub use sync::*;
 
 use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::PrerequisiteCheck;
-use crate::utils::{create_command, find_executable, validate_project_path};
+use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
 use tracing::{debug, error, info, instrument};
+
+/// Default timeout for git network operations (fetch / pull / push). 60s is
+/// generous but protects the UI/worker against an indefinitely-hanging remote.
+const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
+
+/// Run a git command that touches the network (fetch / pull / push), scoped to
+/// the workspace the project at `cwd` belongs to.
+///
+/// Git over HTTPS authenticates through a credential helper, which by default
+/// resolves to the machine's *global* GitHub login — so a push/fetch for a
+/// project in a non-default workspace would otherwise go out as the wrong
+/// account (or 403). The `gh`- and PR-based paths already scope themselves via
+/// `get_gh_command_for_project`; this is the matching scope for raw `git`.
+///
+/// We inject the project's workspace env (notably `GH_CONFIG_DIR`) and, for an
+/// isolated (non-default) workspace, force git to resolve credentials through
+/// that workspace's `gh` login — reading the same `GH_CONFIG_DIR` — so the
+/// operation authenticates as the workspace's account. The default workspace
+/// keeps the machine's native credential resolution untouched, exactly as the
+/// rest of the per-workspace env injection does.
+pub(crate) async fn run_git_net(
+    args: &[&str],
+    cwd: &std::path::Path,
+    label: &str,
+) -> Result<std::process::Output, CommandError> {
+    let workspace_env = crate::commands::accounts::get_env_vars_for_project(cwd);
+    // Only isolated workspaces inject GH_CONFIG_DIR; its presence is our signal
+    // that this project's GitHub auth lives in a workspace-specific gh config.
+    let isolated = workspace_env.contains_key("GH_CONFIG_DIR");
+
+    let mut cmd = create_command("git");
+
+    // For an isolated workspace, route HTTPS credential resolution through that
+    // workspace's gh login (which reads the GH_CONFIG_DIR injected below). The
+    // empty `credential.helper=` first clears any inherited helper (e.g.
+    // osxkeychain) so a globally-cached credential can't shadow the workspace
+    // token. These are git *global* options, so they must precede the
+    // subcommand in `args`.
+    if isolated {
+        if let Some(gh) = find_executable("gh") {
+            cmd.arg("-c").arg("credential.helper=");
+            cmd.arg("-c").arg(format!(
+                "credential.helper=!{} auth git-credential",
+                gh.display()
+            ));
+        }
+    }
+
+    cmd.args(args)
+        .current_dir(cwd)
+        .env("PATH", get_extended_path())
+        // Never block on an interactive credential prompt: a GUI-spawned git has
+        // no usable tty, so a prompt would hang the worker. Fail fast instead.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .envs(workspace_env);
+
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
+}
 
 // ============ Git Helper Functions ============
 

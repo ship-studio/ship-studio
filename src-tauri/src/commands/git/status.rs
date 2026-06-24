@@ -2,25 +2,13 @@
 
 use crate::cache::GIT_CACHE;
 use crate::errors::CommandError;
-use crate::external_command::run_with_timeout;
 use crate::types::{BranchStatus, ChangedFile};
 use crate::utils::{create_command, validate_project_path};
-use std::path::Path;
 use tracing::warn;
 
-/// Timeout for git network operations (fetch). Keeps UI snappy if the remote hangs.
-const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
-
-async fn run_git_net(
-    args: &[&str],
-    cwd: &Path,
-    label: &str,
-) -> Result<std::process::Output, CommandError> {
-    let mut cmd = create_command("git");
-    cmd.args(args).current_dir(cwd);
-    let tokio_cmd = tokio::process::Command::from(cmd);
-    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
-}
+// Network git ops (fetch) go through the workspace-scoped helper in the parent
+// module, so they authenticate as the project's workspace GitHub login.
+use super::run_git_net;
 
 use super::git_has_uncommitted_changes;
 
