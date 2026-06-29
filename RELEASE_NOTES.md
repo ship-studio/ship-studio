@@ -6,6 +6,16 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.13.0
+
+- **A rebuilt CSS editor for non-Tailwind projects** - Click any element and see its full cascade as editable cards — like browser devtools, but every change writes straight to your real CSS. Edit every rule that styles the element, in cascade order, with overridden properties shown struck through.
+- **Modern CSS, visually** - Add new selectors, nest rules, and scope styles with @media, @container, @supports, @layer and @scope — all live-previewed and saved to source. Works on vanilla CSS and Astro `<style>` blocks.
+- **Smart Tab-to-fill** - As you build a rule, press Tab to accept the most likely next declaration (flex companions, the text-truncation trio, transition defaults…) — using your own design tokens when you have them.
+- **Variables, animations, and element settings** - Edit your project's CSS custom properties and @keyframes from dedicated panels, and change an element's tag, classes, and attributes from a Settings tab.
+- **Remove a project without deleting your files** - Removing a project takes it off the dashboard but leaves everything on disk, so you can re-import it anytime.
+- **Git uses the right account per workspace** - Push, pull, fetch, and publish now run as the GitHub account linked to each workspace, so projects on different accounts no longer act as the wrong user.
+
+
 ## What's New in v0.12.0
 
 - **Cursor CLI agent** - Cursor joins Claude Code, Codex, and Opencode as a built-in AI agent. Install it during setup, sign in, run `cursor-agent` in your workspace terminal, and set it as your default agent.

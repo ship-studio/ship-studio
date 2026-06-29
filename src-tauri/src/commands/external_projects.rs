@@ -123,9 +123,9 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
         None => return Ok(None), // User cancelled
     };
 
-    // Validate project has package.json or HTML files
-    let is_valid_project = folder_path.join("package.json").exists()
-        || crate::commands::projects::has_html_files(&folder_path);
+    // Use the same predicate as dashboard discovery so removed projects can be
+    // restored even when they were blank, git-only, or Ship Studio metadata-only.
+    let is_valid_project = crate::commands::projects::is_valid_project(&folder_path);
 
     if !is_valid_project {
         // Check one level deep for a nested project
@@ -142,9 +142,7 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
                     {
                         continue;
                     }
-                    if sub.join("package.json").exists()
-                        || crate::commands::projects::has_html_files(&sub)
-                    {
+                    if crate::commands::projects::is_valid_project(&sub) {
                         if let Some(name) = entry.file_name().to_str() {
                             nested_projects.push(name.to_string());
                         }
@@ -182,6 +180,10 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
         .iter()
         .any(|root| canonical.starts_with(root))
     {
+        if crate::commands::projects::restore_removed_project(&canonical)? {
+            return Ok(Some(canonical_str));
+        }
+
         return Err(
             "This project is already inside your projects folder. It will appear automatically."
                 .to_string()

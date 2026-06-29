@@ -4,32 +4,15 @@
 
 use crate::commands::ai::resolve_commit_message;
 use crate::commands::git::git_stage_and_commit;
+// Network git ops (pull/push) go through the workspace-scoped helper so a
+// publish authenticates as the project's workspace GitHub login, matching the
+// gh-based repo-create path.
+use crate::commands::git::run_git_net;
 use crate::commands::github::ensure_git_identity;
 use crate::errors::CommandError;
-use crate::external_command::run_with_timeout;
 use crate::types::PublishResult;
 use crate::utils::{create_command, validate_project_path};
-use std::path::Path;
 use tracing::{debug, error, info, instrument, warn};
-
-/// Timeout for network-facing git operations (pull/push). Matches
-/// `git/branches.rs::GIT_NETWORK_TIMEOUT_SECS` — a hung remote must not freeze
-/// the publish command forever.
-const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
-
-/// Run a network-facing git command (pull/push) with a timeout. Mirrors
-/// `git/branches.rs::run_git_net`: local ops stay on blocking `create_command`,
-/// only the remote-touching ones route through `run_with_timeout`.
-async fn run_git_net(
-    args: &[&str],
-    cwd: &Path,
-    label: &str,
-) -> Result<std::process::Output, CommandError> {
-    let mut cmd = create_command("git");
-    cmd.args(args).current_dir(cwd);
-    let tokio_cmd = tokio::process::Command::from(cmd);
-    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
-}
 
 #[tauri::command]
 #[instrument(name = "publish_to_github", skip(project_path, commit_message), fields(project = %project_path))]
@@ -341,7 +324,7 @@ pub async fn publish_branch(
 
 #[cfg(test)]
 mod tests {
-    use super::run_git_net;
+    use crate::commands::git::run_git_net;
     use std::path::Path;
 
     /// The network git helper must actually execute git through the timeout path

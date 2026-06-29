@@ -40,6 +40,7 @@ import { BrowserTools } from './BrowserTools';
 import { HealthTabPanel, type HealthTabPanelRef } from '../code/HealthTabPanel';
 import { BrowserDropdown } from './BrowserDropdown';
 import { useVisualEditor } from '../../hooks/useVisualEditor';
+import { useTextEditing } from '../../hooks/useTextEditing';
 import { useCssCascadeEditor } from '../../hooks/useCssCascadeEditor';
 import { useElementSettings } from '../../hooks/useElementSettings';
 import { useCssVariables } from '../../hooks/useCssVariables';
@@ -617,6 +618,15 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       ? 'css'
       : null;
   const activeEditMode = editor.editMode || cssEditor.editMode;
+  // Inline text editing (double-click copy) is shared by both styling editors —
+  // mounted once here, active whenever either editor's edit mode is on, so it
+  // works for vanilla-CSS/Astro projects (cssEditor) as well as Tailwind.
+  const textEditing = useTextEditing({
+    iframeRef,
+    projectPath,
+    enabled: activeEditMode,
+    onToast,
+  });
   const toggleActiveEditor =
     editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode;
 
@@ -1288,10 +1298,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               selection={editor.selection}
               projectPath={projectPath}
               currentClass={editor.currentClass}
-              textResolution={editor.textResolution}
+              textResolution={textEditing.textResolution}
               imageResolution={editor.imageResolution}
               onReplaceImage={editor.replaceImage}
-              textBlockedNonce={editor.textBlockedNonce}
+              textBlockedNonce={textEditing.textBlockedNonce}
               breakpoints={breakpoints}
               activeBreakpoint={activeBreakpoint}
               breakpointTooWide={breakpointTooWide}

@@ -25,6 +25,17 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.13.0', // v0.13.0
+    items: [
+      'A rebuilt CSS editor for non-Tailwind projects — click any element and see its full cascade as editable cards, like browser devtools, but every change writes straight to your real CSS in cascade order, with overridden properties struck through',
+      'Modern CSS, visually — add selectors, nest rules, and scope styles with @media, @container, @supports, @layer and @scope, all live-previewed and saved to source (vanilla CSS and Astro <style> blocks)',
+      'Smart Tab-to-fill — press Tab to accept the most likely next declaration as you build a rule, using your own design tokens when you have them',
+      "Variables, animations, and element settings — edit CSS custom properties and @keyframes from dedicated panels, and change an element's tag, classes, and attributes from a Settings tab",
+      'Remove a project without deleting your files — removing a project takes it off the dashboard but leaves everything on disk, so you can re-import it anytime',
+      'Git uses the right account per workspace — push, pull, fetch, and publish now run as the GitHub account linked to each workspace',
+    ],
+  },
+  {
     version: '0.12.0', // v0.12.0
     items: [
       'Cursor CLI agent — Cursor joins Claude Code, Codex, and Opencode as a built-in AI agent. Install it during setup, sign in, run it in your workspace terminal, and pick it as your default agent',

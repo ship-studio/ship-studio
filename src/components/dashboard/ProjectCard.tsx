@@ -21,7 +21,7 @@ interface ProjectCardProps {
   thumbnailData: string | null;
   /** Callback when the card is clicked to open the project */
   onSelect: () => void;
-  /** Callback when delete button is clicked */
+  /** Callback when deleting project files from disk is clicked */
   onDelete: () => void;
   /** Callback when main branch warning is toggled */
   onToggleMainBranchWarning: (hidden: boolean) => void;
@@ -37,12 +37,12 @@ interface ProjectCardProps {
   onUploadThumbnail?: () => void;
   /** Whether this is an external project */
   isExternal?: boolean;
-  /** Callback when remove from list is clicked (for external projects) */
+  /** Callback when remove from Ship Studio is clicked */
   onRemove?: () => void;
   /** Whether the project is currently pinned to the rail. */
   isPinned?: boolean;
   /** Toggle pin state. Receives the desired new state. */
-  onTogglePin?: (pinned: boolean) => void;
+  onTogglePin?: (pinned: boolean) => void | Promise<void>;
 }
 
 export const ProjectCard = memo(function ProjectCard({

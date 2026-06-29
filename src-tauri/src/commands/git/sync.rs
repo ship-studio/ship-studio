@@ -2,30 +2,12 @@
 
 use crate::cache::GIT_CACHE;
 use crate::errors::CommandError;
-use crate::external_command::run_with_timeout;
 use crate::utils::{create_command, validate_project_path};
-use std::path::Path;
 
 use super::git_stage_and_commit;
-
-/// Default timeout for git network operations (fetch/pull/push). 60s is
-/// generous but protects against indefinite hangs when a remote is unreachable.
-const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
-
-/// Run a network-facing git command with a timeout. Returns stringified errors
-/// to match existing callers. `label` is used for tracing and timeout messages.
-async fn run_git_with_timeout(
-    args: &[&str],
-    cwd: &Path,
-    label: &str,
-) -> Result<std::process::Output, String> {
-    let mut cmd = create_command("git");
-    cmd.args(args).current_dir(cwd);
-    let tokio_cmd = tokio::process::Command::from(cmd);
-    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS)
-        .await
-        .map_err(|e| e.to_string())
-}
+// Network git ops (fetch, pull, merge) go through the workspace-scoped helper in
+// the parent module so they authenticate as the project's workspace login.
+use super::run_git_net;
 
 /// Fetch all branches from remotes
 #[tauri::command]
@@ -33,7 +15,7 @@ async fn run_git_with_timeout(
 pub async fn fetch_all_branches(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
-    let output = run_git_with_timeout(
+    let output = run_git_net(
         &["fetch", "--all", "--prune"],
         &validated_path,
         "fetch --all",
@@ -54,8 +36,7 @@ pub async fn fetch_all_branches(project_path: String) -> Result<(), CommandError
 pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
-    let output =
-        run_git_with_timeout(&["pull", "--ff-only"], &validated_path, "pull --ff-only").await?;
+    let output = run_git_net(&["pull", "--ff-only"], &validated_path, "pull --ff-only").await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -78,13 +59,13 @@ pub async fn pull_and_merge(
     let validated_path = validate_project_path(&project_path)?;
 
     // First fetch to ensure we have latest refs. Ignore failure (best-effort).
-    let _ = run_git_with_timeout(&["fetch", "origin"], &validated_path, "fetch origin").await;
+    let _ = run_git_net(&["fetch", "origin"], &validated_path, "fetch origin").await;
 
     let output = if let Some(branch) = merge_branch {
         let merge_ref = format!("origin/{branch}");
-        run_git_with_timeout(&["merge", &merge_ref], &validated_path, "merge").await?
+        run_git_net(&["merge", &merge_ref], &validated_path, "merge").await?
     } else {
-        run_git_with_timeout(
+        run_git_net(
             &["pull", "--no-rebase"],
             &validated_path,
             "pull --no-rebase",

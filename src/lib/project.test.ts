@@ -19,6 +19,7 @@ import {
   ensureGitignoreHasShipstudio,
   getProjectThumbnail,
   deleteProject,
+  removeProjectFromApp,
   exportProjectAsTemplate,
   openProjectInNewWindow,
   getCustomDevCommand,
@@ -242,6 +243,25 @@ describe('lib/project', () => {
     it('propagates errors from invoke', async () => {
       vi.mocked(core.invoke).mockRejectedValue(new Error('permission denied'));
       await expect(deleteProject('/abs/project')).rejects.toThrow('permission denied');
+    });
+  });
+
+  // ============ removeProjectFromApp ============
+
+  describe('removeProjectFromApp', () => {
+    it('invokes "remove_project_from_app" with path', async () => {
+      vi.mocked(core.invoke).mockResolvedValue(undefined);
+
+      await removeProjectFromApp('/abs/project');
+
+      expect(core.invoke).toHaveBeenCalledWith('remove_project_from_app', {
+        path: '/abs/project',
+      });
+    });
+
+    it('propagates errors from invoke', async () => {
+      vi.mocked(core.invoke).mockRejectedValue(new Error('not found'));
+      await expect(removeProjectFromApp('/abs/project')).rejects.toThrow('not found');
     });
   });
 

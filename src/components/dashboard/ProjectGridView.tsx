@@ -31,7 +31,7 @@ export interface ProjectGridViewProps {
   onOpenMoveWorkspaceModal: (project: DashboardProject) => void;
   onExportAsTemplate: (projectPath: string) => void;
   onUploadThumbnail: (project: DashboardProject) => void;
-  onRemoveExternal: (project: DashboardProject) => void;
+  onRemoveProject: (project: DashboardProject) => void;
 
   onOpenFolder: (folderId: string) => void;
   onRenameFolder: (folder: FolderInfo) => void;
@@ -40,7 +40,7 @@ export interface ProjectGridViewProps {
   /** Set of currently pinned project paths (for menu state). */
   pinnedSet?: ReadonlySet<string>;
   /** Toggle pin state for a project. */
-  onTogglePin?: (projectPath: string, pinned: boolean) => void;
+  onTogglePin?: (projectPath: string, pinned: boolean) => void | Promise<void>;
   /** Start the create-project flow (drives the zero-projects empty-state CTA). */
   onCreateProject?: () => void;
 }
@@ -59,7 +59,7 @@ export function ProjectGridView({
   onOpenMoveWorkspaceModal,
   onExportAsTemplate,
   onUploadThumbnail,
-  onRemoveExternal,
+  onRemoveProject,
   onOpenFolder,
   onRenameFolder,
   onDeleteFolder,
@@ -122,7 +122,7 @@ export function ProjectGridView({
           onExportAsTemplate={() => onExportAsTemplate(project.path)}
           onUploadThumbnail={() => onUploadThumbnail(project)}
           isExternal={project.is_external}
-          onRemove={project.is_external ? () => onRemoveExternal(project) : undefined}
+          onRemove={() => onRemoveProject(project)}
           isPinned={pinnedSet?.has(project.path) ?? false}
           onTogglePin={onTogglePin ? (pinned) => onTogglePin(project.path, pinned) : undefined}
         />

@@ -22,10 +22,10 @@ import {
   getProjectThumbnail,
   uploadProjectThumbnail,
   deleteProject,
+  removeProjectFromApp,
   renameProject,
   exportProjectAsTemplate,
 } from '../../lib/project';
-import { unregisterExternalProject } from '../../lib/external-projects';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { trackEvent, trackError } from '../../lib/analytics';
@@ -52,8 +52,7 @@ import { FolderBreadcrumb } from './FolderBreadcrumb';
 import { MoveFolderModal } from './MoveFolderModal';
 import { MoveWorkspaceModal } from './MoveWorkspaceModal';
 import { SettingsModal } from './SettingsModal';
-import { ModalFrame } from '../primitives/ModalFrame';
-import { Button } from '../primitives/Button';
+import { ProjectActionConfirmModal } from './ProjectActionConfirmModal';
 import { Spinner } from '../primitives/Spinner';
 import { GitHubCalendar } from './GitHubCalendar';
 import { useModal } from '../../contexts/ModalContext';
@@ -107,7 +106,7 @@ interface ProjectListProps {
   /** Set of currently pinned project paths. */
   pinnedSet?: ReadonlySet<string>;
   /** Toggle pin state for a project. */
-  onTogglePin?: (projectPath: string, pinned: boolean) => void;
+  onTogglePin?: (projectPath: string, pinned: boolean) => void | Promise<void>;
   /** Open the workspace switcher (shown as a chip beside "All Projects"). */
   onSwitchAccount?: () => void;
 }
@@ -141,7 +140,9 @@ export function ProjectList({
   const activeAccountId = activeAccount?.id;
   const hasMultipleWorkspaces = accounts.length > 1;
   const [deleteConfirm, setDeleteConfirm] = useState<DashboardProject | null>(null);
+  const [removeConfirm, setRemoveConfirm] = useState<DashboardProject | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [renameTarget, setRenameTarget] = useState<DashboardProject | null>(null);
 
   // Folder navigation state
@@ -436,15 +437,28 @@ export function ProjectList({
     }
   };
 
-  const handleRemoveExternal = async (project: DashboardProject) => {
+  const handleRemoveFromApp = async (project: DashboardProject) => {
+    setRemoving(true);
     try {
-      await unregisterExternalProject(project.path);
+      await removeProjectFromApp(project.path);
+      if (pinnedSet?.has(project.path)) {
+        await onTogglePin?.(project.path, false);
+      }
+      void trackEvent('project_removed_from_app', {
+        is_external: project.is_external,
+        $screen_name: 'Dashboard',
+      });
+      setRemoveConfirm(null);
       await loadAll();
+      showToast(`${project.name} was removed from Ship Studio`, 'success');
     } catch (error) {
-      logger.error('Failed to remove external project', {
+      trackError('project_remove_from_app', error, 'Dashboard');
+      logger.error('Failed to remove project from Ship Studio', {
         error: error instanceof Error ? error.message : String(error),
       });
-      alert('Failed to remove project: ' + String(error));
+      showToast(`Failed to remove project: ${formatCommandError(asCommandError(error))}`, 'error');
+    } finally {
+      setRemoving(false);
     }
   };
 
@@ -671,7 +685,7 @@ export function ProjectList({
           onOpenMoveWorkspaceModal={(project) => void handleOpenMoveWorkspaceModal(project)}
           onExportAsTemplate={(path) => void handleExportAsTemplate(path)}
           onUploadThumbnail={(project) => handleUploadThumbnail(project)}
-          onRemoveExternal={(project) => void handleRemoveExternal(project)}
+          onRemoveProject={(project) => setRemoveConfirm(project)}
           onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
           onRenameFolder={(folder) => setRenamingFolder(folder)}
           onDeleteFolder={(folder) => setDeleteFolderConfirm(folder)}
@@ -803,25 +817,58 @@ export function ProjectList({
 
         {/* Delete Project Confirmation Modal */}
         {deleteConfirm && (
-          <DeleteConfirmModal
-            title="Delete Project?"
-            name={deleteConfirm.name}
-            hint="This will delete the local copy from your computer. If this project is connected to GitHub, your code will remain there and you can reimport it at any time."
-            deleting={deleting}
+          <ProjectActionConfirmModal
+            title="Delete Files From Computer?"
+            body={
+              <>
+                Permanently delete <strong>{deleteConfirm.name}</strong> from this computer?
+              </>
+            }
+            hint="This removes the local project folder and its files. Use Remove from Ship Studio if you only want to hide it from the app."
+            loading={deleting}
+            confirmLabel="Delete files"
+            loadingLabel="Deleting..."
+            confirmVariant="danger"
             onCancel={() => setDeleteConfirm(null)}
-            onDelete={() => void handleDelete(deleteConfirm)}
+            onConfirm={() => void handleDelete(deleteConfirm)}
+          />
+        )}
+
+        {/* Remove Project Confirmation Modal */}
+        {removeConfirm && (
+          <ProjectActionConfirmModal
+            title="Remove From Ship Studio?"
+            body={
+              <>
+                Remove <strong>{removeConfirm.name}</strong> from Ship Studio?
+              </>
+            }
+            hint="Your project folder and files will stay on this computer. You can add it back later with Import Project, Local Folder."
+            loading={removing}
+            confirmLabel="Remove from Ship Studio"
+            loadingLabel="Removing..."
+            confirmVariant="primary"
+            onCancel={() => setRemoveConfirm(null)}
+            onConfirm={() => void handleRemoveFromApp(removeConfirm)}
           />
         )}
 
         {/* Delete Folder Confirmation Modal */}
         {deleteFolderConfirm && (
-          <DeleteConfirmModal
+          <ProjectActionConfirmModal
             title="Delete Folder?"
-            name={deleteFolderConfirm.name}
+            body={
+              <>
+                Delete the folder <strong>{deleteFolderConfirm.name}</strong>?
+              </>
+            }
             hint="Projects in this folder will not be deleted. They will appear at the root level."
-            deleting={deletingFolder}
+            loading={deletingFolder}
+            confirmLabel="Delete"
+            loadingLabel="Deleting..."
+            confirmVariant="danger"
             onCancel={() => setDeleteFolderConfirm(null)}
-            onDelete={() => void handleDeleteFolder(deleteFolderConfirm)}
+            onConfirm={() => void handleDeleteFolder(deleteFolderConfirm)}
           />
         )}
 
@@ -838,41 +885,5 @@ export function ProjectList({
         {/* ChangelogModal is mounted globally in <AppGlobalModals>. */}
       </div>
     </div>
-  );
-}
-
-/** Shared delete-confirmation dialog for projects and folders. */
-function DeleteConfirmModal({
-  title,
-  name,
-  hint,
-  deleting,
-  onCancel,
-  onDelete,
-}: {
-  title: string;
-  name: string;
-  hint: string;
-  deleting: boolean;
-  onCancel: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <ModalFrame isOpen onClose={onCancel} title={title} showCloseButton={false}>
-      <div style={{ padding: 'var(--spacing-xl)' }}>
-        <p>
-          Are you sure you want to delete <strong>{name}</strong>?
-        </p>
-        <p className="hint">{hint}</p>
-        <div className="modal-actions">
-          <Button variant="secondary" onClick={onCancel} disabled={deleting}>
-            Cancel
-          </Button>
-          <Button variant="danger" onClick={onDelete} disabled={deleting}>
-            {deleting ? 'Deleting...' : 'Delete'}
-          </Button>
-        </div>
-      </div>
-    </ModalFrame>
   );
 }

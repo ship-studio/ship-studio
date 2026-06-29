@@ -4,7 +4,7 @@
  * Provides options for:
  * - Toggling main branch warning
  * - Moving to folder / exporting as template
- * - Deleting the project
+ * - Removing the project from Ship Studio or deleting local files
  *
  * @module components/ProjectCardMenu
  */
@@ -38,17 +38,17 @@ interface ProjectCardMenuProps {
   /** Callback to upload a custom thumbnail image. When set, shows the
    *  "Upload new thumbnail" item; the parent owns the file picker. */
   onUploadThumbnail?: () => void;
-  /** Callback when delete is clicked */
+  /** Callback when deleting files from disk is clicked */
   onDelete: () => void;
-  /** Whether this is an external project (shows "Remove from list" instead of delete) */
+  /** Whether this is an external project */
   isExternal?: boolean;
-  /** Callback when remove from list is clicked (for external projects) */
+  /** Callback when remove from Ship Studio is clicked */
   onRemove?: () => void;
   /** Whether the project is currently pinned to the rail. Optional — when
    *  omitted, the pin/unpin row is hidden entirely (legacy callers). */
   isPinned?: boolean;
   /** Toggle pin state. Receives the desired new state. */
-  onTogglePin?: (pinned: boolean) => void;
+  onTogglePin?: (pinned: boolean) => void | Promise<void>;
 }
 
 export function ProjectCardMenu({
@@ -124,19 +124,22 @@ export function ProjectCardMenu({
                 {isPinned ? '○' : '●'}
               </span>
             }
-            onSelect={() => onTogglePin(!isPinned)}
+            onSelect={() => {
+              void onTogglePin(!isPinned);
+            }}
           >
             <span>{isPinned ? 'Unpin from sidebar' : 'Pin to sidebar'}</span>
           </DropdownItem>
         )}
         <DropdownDivider />
-        {isExternal && onRemove ? (
-          <DropdownItem variant="danger" icon={<CloseIcon size={14} />} onSelect={onRemove}>
-            <span>Remove from list</span>
+        {onRemove && (
+          <DropdownItem icon={<CloseIcon size={14} />} onSelect={onRemove}>
+            <span>Remove from Ship Studio</span>
           </DropdownItem>
-        ) : (
+        )}
+        {!isExternal && (
           <DropdownItem variant="danger" icon={<TrashIcon size={14} />} onSelect={onDelete}>
-            <span>Delete project</span>
+            <span>Delete files from computer</span>
           </DropdownItem>
         )}
       </Dropdown>

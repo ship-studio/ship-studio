@@ -14,7 +14,6 @@
 
 import { useState, useEffect } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { readTextFile } from '@tauri-apps/plugin-fs';
 import { trackError } from '../../lib/analytics';
 import {
   getGitHubUsername,
@@ -25,8 +24,8 @@ import {
   GitHubRepo,
 } from '../../lib/github';
 import {
-  listProjects,
   ensureShipStudioDir,
+  projectPathExists,
   spawnPty,
   ensureGitignoreHasShipstudio,
   detectWorkspaces,
@@ -245,14 +244,21 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       return;
     }
 
+    let shipstudioDir: string;
+    try {
+      shipstudioDir = await ensureShipStudioDir();
+    } catch (err) {
+      trackError('project_import', err, 'Dashboard');
+      setError(getFriendlyError(err));
+      return;
+    }
+
     // Auto-suffix on collision so re-importing a monorepo for a different
     // workspace doesn't error out (`sugar-shark`, `sugar-shark-2`, ...).
     let safeName = baseName;
+    let counter = 2;
     try {
-      const existingProjects = await listProjects();
-      const existingNames = new Set(existingProjects.map((p) => p.name.toLowerCase()));
-      let counter = 2;
-      while (existingNames.has(safeName.toLowerCase())) {
+      while (await projectPathExists(`${shipstudioDir}/${safeName}`)) {
         safeName = `${baseName}-${counter}`;
         counter += 1;
         if (counter > 50) {
@@ -260,8 +266,10 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
           return;
         }
       }
-    } catch {
-      // If we can't check, proceed with the base name
+    } catch (err) {
+      trackError('project_import', err, 'Dashboard');
+      setError(getFriendlyError(err));
+      return;
     }
 
     setIsImporting(true);
@@ -272,8 +280,6 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     setAwaitingWorkspacePick(false);
 
     try {
-      // Ensure ShipStudio directory exists
-      const shipstudioDir = await ensureShipStudioDir();
       const projectPath = `${shipstudioDir}/${safeName}`;
 
       // Clone repository using gh CLI (uses GitHub CLI authentication)
@@ -333,12 +339,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       // `npm install` exits ENOENT when there's no package.json, killing the
       // import after a successful clone — skip the install step instead, the
       // same way the zip-template path does.
-      let hasPackageJson = true;
-      try {
-        await readTextFile(`${projectPath}/package.json`);
-      } catch {
-        hasPackageJson = false;
-      }
+      const hasPackageJson = await projectPathExists(`${projectPath}/package.json`);
 
       if (hasPackageJson) {
         setCurrentStep('install');
