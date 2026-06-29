@@ -82,6 +82,17 @@ export async function ensureShipStudioDir(): Promise<string> {
 }
 
 /**
+ * Whether a file or folder already exists at `path` inside an allowed projects
+ * root. Backend-validated — the Tauri `fs` plugin scope doesn't whitelist
+ * arbitrary `~/ShipStudio` paths for `exists`, and this also covers custom
+ * project roots. Used by the import flow's name-collision check.
+ * @param path - Absolute path to probe (inside the projects root)
+ */
+export async function projectPathExists(path: string): Promise<boolean> {
+  return invoke<boolean>('project_path_exists', { path });
+}
+
+/**
  * Spawn a pseudo-terminal process via the backend.
  * Used for running commands like git clone and npm install with progress events.
  * @param options - PTY options including cwd, command, args, and terminal size

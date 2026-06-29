@@ -14,7 +14,7 @@
 
 import { useState, useEffect } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { exists, readTextFile } from '@tauri-apps/plugin-fs';
+import { readTextFile } from '@tauri-apps/plugin-fs';
 import { trackError } from '../../lib/analytics';
 import {
   getGitHubUsername,
@@ -26,6 +26,7 @@ import {
 } from '../../lib/github';
 import {
   ensureShipStudioDir,
+  projectPathExists,
   spawnPty,
   ensureGitignoreHasShipstudio,
   detectWorkspaces,
@@ -258,7 +259,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     let safeName = baseName;
     let counter = 2;
     try {
-      while (await exists(`${shipstudioDir}/${safeName}`)) {
+      while (await projectPathExists(`${shipstudioDir}/${safeName}`)) {
         safeName = `${baseName}-${counter}`;
         counter += 1;
         if (counter > 50) {

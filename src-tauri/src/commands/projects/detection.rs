@@ -6,7 +6,7 @@
 use crate::cache::TtlCache;
 use crate::errors::CommandError;
 use crate::types::{PageInfo, ProjectType};
-use crate::utils::{resolve_workspace_path, validate_project_path};
+use crate::utils::{resolve_workspace_path, validate_project_file_path, validate_project_path};
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
@@ -342,6 +342,28 @@ pub async fn detect_project_type_command(
     let project = validate_project_path(&project_path)?;
     let workspace = resolve_workspace_path(&project);
     Ok(detect_project_type(&workspace))
+}
+
+/// Whether a file or directory already exists at `path`, restricted to paths
+/// inside an allowed projects root.
+///
+/// The import flow uses this to auto-suffix a colliding project name
+/// (`repo`, `repo-2`, …). It must see folders that physically exist on disk even
+/// when they aren't registered projects (e.g. a non-destructively removed
+/// project whose folder lingers), so it probes the filesystem rather than the
+/// project list.
+///
+/// Runs in the backend on purpose: the Tauri `fs` plugin scope only whitelists
+/// `$HOME/.nvm/**` for `exists`, so a frontend `exists()` on a `~/ShipStudio`
+/// path is rejected with "forbidden path". Validating here also covers custom
+/// project roots, which a static fs-plugin scope cannot express. Containment is
+/// enforced via `validate_project_file_path` (canonicalizes the parent, rejects
+/// `..`/symlink escapes) without requiring the target itself to exist yet.
+#[tauri::command]
+#[tracing::instrument]
+pub fn project_path_exists(path: String) -> Result<bool, CommandError> {
+    let resolved = validate_project_file_path(&path).map_err(CommandError::from)?;
+    Ok(resolved.exists())
 }
 
 /// Scan Next.js pages (app/ directory with page.tsx/js/jsx files)
