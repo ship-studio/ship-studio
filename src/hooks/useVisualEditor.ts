@@ -5,29 +5,30 @@
  *
  * Lifecycle: toggle on → post `ss:activate` (re-posted on every iframe `load`,
  * since the script re-initializes inert on each HMR reload) → an `ss:select`
- * click resolves to source via the backend (class resolution, plus parallel
- * text/image resolutions guarded by a staleness token) → edits (`applyToken`,
+ * click resolves to source via the backend (class resolution, plus a parallel
+ * image resolution guarded by a staleness token) → edits (`applyToken`,
  * `setBoxSide`, `stepSpacing`, `reset`) twMerge the live class and post
  * `ss:mutate` with breakpoint-scoped preview rules (instant DOM feedback, no
  * write) → `commit` writes the merged className back to source and advances
- * the drift baseline so consecutive edits keep working. Text and image edits
- * (`ss:textCommit`, `replaceImage`) write immediately on confirm.
+ * the drift baseline so consecutive edits keep working. Image edits
+ * (`replaceImage`) write immediately on confirm. Inline TEXT editing lives in
+ * the shared `useTextEditing` hook (mounted alongside this one in Preview.tsx).
  *
- * Exposes `editMode`, `selection`, `currentClass`, text/image resolutions,
+ * Exposes `editMode`, `selection`, `currentClass`, image resolution,
  * `multiTarget`, auto-save, and the edit/commit callbacks — consumed by
  * Preview.tsx, which threads them into VisualEditorPanel.
  *
  * Boundaries: lib/edit wrappers (`resolveClassnameSource`, `applyClassnameEdit
- * [Multi]`, `resolveTextSource`/`applyTextEdit`, `resolveImageSource`/
- * `applySrcEdit`, `findComponentUsage`) over the Rust edit backend; the iframe
- * `ss:*` message protocol; localStorage for the auto-save opt-in.
+ * [Multi]`, `resolveImageSource`/`applySrcEdit`, `findComponentUsage`) over the
+ * Rust edit backend; the iframe `ss:*` message protocol; localStorage for the
+ * auto-save opt-in.
  *
  * Gotchas: incoming messages are trusted only when `e.source` is the preview
  * iframe's contentWindow — the iframe hosts untrusted project content, and a
- * forged `ss:textCommit` would otherwise write to the user's files. Every
+ * forged `ss:mutate` would otherwise drive edits on the user's behalf. Every
  * write arms `ss:suppressReload` BEFORE touching disk: Astro's full reload can
  * beat the post-write `ss:commit`, briefly reverting the preview. Live values
- * (`currentClass`, text/image targets) are mirrored into refs so the commit
+ * (`currentClass`, image target) are mirrored into refs so the commit
  * callbacks read fresh state without re-subscribing the message handler.
  */
 
@@ -37,8 +38,6 @@ import {
   resolveClassnameSource,
   applyClassnameEdit,
   applyClassnameEditMulti,
-  resolveTextSource,
-  applyTextEdit,
   resolveImageSource,
   applySrcEdit,
   findComponentUsage,
@@ -63,7 +62,6 @@ import {
   type ResetSpec,
   type ElementSignature,
   type Resolution,
-  type TextResolution,
   type ImageResolution,
   type UsageReport,
 } from '../lib/edit';
@@ -211,26 +209,12 @@ export function useVisualEditor({
     setMultiTargetState(t);
   }, []);
 
-  // Inline text editing: the resolved text target for the current selection (null
-  // when the element's text isn't a plain editable literal). Mirrored into a ref so
-  // the ss:textCommit handler reads the latest without re-subscribing. `text` is the
-  // source baseline used as the drift guard on write-back.
-  const [textResolution, setTextResolution] = useState<TextResolution | null>(null);
-  // Bumps each time a double-click lands on dynamic text the iframe bounced out of
-  // — drives a one-shot pulse on the DynamicTextHelp hand-off so the user notices it.
-  const [textBlockedNonce, setTextBlockedNonce] = useState(0);
-  const textTargetRef = useRef<{ file: string; line: number; column: number; text: string } | null>(
-    null
-  );
-  const setTextTarget = useCallback((res: TextResolution | null) => {
-    textTargetRef.current =
-      res?.status === 'resolved'
-        ? { file: res.file, line: res.line, column: res.column, text: res.text }
-        : null;
-    setTextResolution(res);
-  }, []);
-  // The signature of the current selection, mirrored for on-demand text resolution if
-  // a commit arrives before the (async) select-time resolve has landed.
+  // Inline text editing lives in the shared `useTextEditing` hook (mounted once in
+  // Preview.tsx, active for either styling editor) — it owns the ss:textInfo gating
+  // and ss:textCommit write-back. This hook keeps only the class/image concerns.
+
+  // The signature of the current selection, mirrored so the class commit/structural
+  // gestures read the live source-className baseline without re-subscribing.
   const selectedSigRef = useRef<ElementSignature | null>(null);
 
   // Image src editing: the resolved src target for the current selection (null when
@@ -328,67 +312,11 @@ export function useVisualEditor({
         signature?: ElementSignature;
         count?: number;
         leafText?: boolean;
-        text?: string;
       } | null;
       if (!d) return;
 
-      // The element turned out not to be editable (dynamic text) — the iframe bounced
-      // out of the optimistic edit. No toast: the panel shows the "copy a request for
-      // your agent" hand-off (DynamicTextHelp) for the still-selected element.
-      if (d.type === 'ss:textBlocked') {
-        setTextBlockedNonce((n) => n + 1);
-        return;
-      }
-
-      // Inline text edit was confirmed in the iframe — write the new text to source.
-      if (d.type === 'ss:textCommit' && typeof d.text === 'string') {
-        const next = d.text;
-        const sig = selectedSigRef.current;
-        // Arm reload suppression before writing (same reasoning as a class commit).
-        post({ type: 'ss:suppressReload' });
-        void (async () => {
-          try {
-            // The select-time resolve may not have landed yet (fast double-click →
-            // type → commit); resolve on demand so the edit is never dropped silently.
-            let target = textTargetRef.current;
-            if (!target) {
-              if (!sig) throw new Error('Lost track of this element — reselect it and try again.');
-              const res = await resolveTextSource(projectPath, sig);
-              if (res.status !== 'resolved')
-                throw new Error(res.reason || 'This text isn’t editable.');
-              target = { file: res.file, line: res.line, column: res.column, text: res.text };
-              textTargetRef.current = target;
-            }
-            if (next === target.text) {
-              post({ type: 'ss:commit' }); // unchanged — just re-baseline, no write
-              return;
-            }
-            await applyTextEdit(
-              projectPath,
-              target.file,
-              target.line,
-              target.column,
-              target.text,
-              next
-            );
-            // Advance the drift baseline so consecutive text edits keep working.
-            target.text = next;
-            setTextResolution((prev) =>
-              prev?.status === 'resolved' ? { ...prev, text: next } : prev
-            );
-            post({ type: 'ss:commit' });
-            recordCommit('visual_text_saved');
-            onToast?.('Saved to source', 'success');
-          } catch (err) {
-            logger.error('[VisualEditor] text write-back failed', { error: String(err) });
-            onToast?.(String(err), 'error');
-            // Couldn't save — put the original text back in the preview.
-            post({ type: 'ss:textRevert' });
-          }
-        })();
-        return;
-      }
-
+      // Text-edit messages (ss:textBlocked / ss:textCommit) are handled by the
+      // shared useTextEditing hook, not here.
       if (d.type !== 'ss:select' || !d.signature) return;
       const sig = d.signature;
       const instanceCount = d.count ?? 1;
@@ -408,7 +336,6 @@ export function useVisualEditor({
       post({ type: 'ss:clearClassPreview' });
       setMultiTarget('all'); // a fresh selection defaults to editing all occurrences
       setUsage(null);
-      setTextTarget(null); // optimistic; iframe allows editing until told otherwise
       setImageTarget(null);
       const usageToken = ++usageTokenRef.current;
       void (async () => {
@@ -441,24 +368,6 @@ export function useVisualEditor({
           });
         }
       })();
-      // Text-editability runs in parallel: only for single-text-node leaves. The
-      // iframe gates inline editing on the verdict we post back (ss:textInfo).
-      if (leafText) {
-        void (async () => {
-          try {
-            const textRes = await resolveTextSource(projectPath, sig);
-            // Ignore if the selection changed underneath us.
-            if (usageTokenRef.current !== usageToken) return;
-            setTextTarget(textRes);
-            post({ type: 'ss:textInfo', editable: textRes.status === 'resolved' });
-          } catch {
-            if (usageTokenRef.current === usageToken)
-              post({ type: 'ss:textInfo', editable: false });
-          }
-        })();
-      } else {
-        post({ type: 'ss:textInfo', editable: false });
-      }
       // Image src resolution runs in parallel for <img> elements — drives the
       // panel's Image section (current asset + Replace).
       if (sig.tagName === 'img') {
@@ -488,10 +397,8 @@ export function useVisualEditor({
     iframeRef,
     setLiveClass,
     setMultiTarget,
-    setTextTarget,
     setImageTarget,
     setEditTarget,
-    recordCommit,
   ]);
 
   // Load the project's custom classes when edit mode opens; refresh helper lets
@@ -512,6 +419,7 @@ export function useVisualEditor({
 
   useEffect(() => {
     if (!editMode) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: load custom classes + entry-CSS check on edit-mode open
     void refreshCustomClasses();
     void detectTailwindSetup(projectPath)
       .then((setup) => setClassEntryReady(setup.entryCss != null))
@@ -910,14 +818,13 @@ export function useVisualEditor({
       if (prev) {
         setSelection(null);
         setLiveClass('');
-        setTextTarget(null);
         setImageTarget(null);
         setEditTarget({ kind: 'element' });
         selectedSigRef.current = null;
       }
       return !prev;
     });
-  }, [setLiveClass, setTextTarget, setImageTarget, setEditTarget]);
+  }, [setLiveClass, setImageTarget, setEditTarget]);
 
   return {
     editMode,
@@ -925,14 +832,10 @@ export function useVisualEditor({
     selection,
     currentClass,
     usage,
-    /** Text-editability of the current selection (drives the panel's hint). */
-    textResolution,
     /** Image-src editability of the current selection (drives the Image section). */
     imageResolution,
     /** Write a new src to source and swap the preview (immediate save). */
     replaceImage,
-    /** Bumps when a double-click hits dynamic text — pulses the hand-off block. */
-    textBlockedNonce,
     multiTarget,
     setMultiTarget,
     autoSave,
