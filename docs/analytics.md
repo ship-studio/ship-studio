@@ -93,6 +93,7 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | `browser_tools_sent_to_agent` | `tab`, `entry_count` (null for elements), `had_data`, `char_count` |
 | `terminal_tab_restarted` | — (relaunched an exited agent tab with a fresh session; fired from the in-terminal Enter prompt, toolbar, or palette) |
 | `code_file_opened` | `file_extension` |
+| `code_file_saved` | `file_extension` (a file edited in-app and written to disk via the Code tab editor) |
 | `code_tree_refreshed` | — |
 | `code_snippet_sent_to_agent` | `file_extension`, `language`, `line_count`, `char_count`, `had_question` |
 | `code_snippet_copied` | `file_extension`, `line_count` |

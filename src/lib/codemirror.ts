@@ -3,13 +3,14 @@
  * the visual editor's HTML/CSS box (`CodeOverlayEditor`) and the Code tab's
  * file editor (`CodeFileEditor`).
  *
- * Keeps one github-dark token palette and one chrome theme so both editors
- * match the Code tab's Shiki rendering — don't fork these per editor.
+ * Keeps one github-dark token palette and one chrome theme shared by both
+ * editors — don't fork these per editor.
  *
  * @module lib/codemirror
  */
 
 import type { Extension } from '@codemirror/state';
+import { Prec } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
@@ -97,6 +98,60 @@ export const ssEditorTheme = EditorView.theme(
 );
 
 export const ghDarkExtension: Extension = syntaxHighlighting(ghDarkHighlight);
+
+/**
+ * Render syntax-error tokens as ordinary text instead of red. The Code tab is a
+ * viewer first; flagging every malformed/in-progress file with red error tokens
+ * is noisy, so we suppress it. Layered at high precedence so it overrides
+ * ghDarkHighlight's `t.invalid` rule for the Code tab only.
+ */
+export const neutralizeInvalidHighlight: Extension = Prec.high(
+  syntaxHighlighting(HighlightStyle.define([{ tag: t.invalid, color: 'var(--text-primary)' }]))
+);
+
+/**
+ * Metrics for the Code tab's full-file editor (used in both read and edit mode):
+ * a comfortable 16px, a transparent surface, and the JetBrains Mono stack.
+ * Without this the editor would render in the denser `--font-size-xs` / 1.6
+ * line-height of `ssEditorTheme`. Layered AFTER `ssEditorTheme`; deliberately
+ * NOT applied to the visual editor's overlay editor, which keeps the compact
+ * metrics.
+ */
+export const codeTabEditorTheme = EditorView.theme({
+  // Larger, readable code text on a transparent surface so the code area shows
+  // the panel background.
+  '&': {
+    fontSize: 'var(--font-size-xl)',
+    backgroundColor: 'transparent',
+  },
+  '.cm-scroller': {
+    fontFamily: 'var(--font-mono, monospace)',
+    lineHeight: '24px',
+  },
+  '.cm-content': { paddingTop: '12px' },
+  // Clearly visible, contiguous selection (drawSelection paints full-line-height
+  // rects). Brighter than the shared theme's faint white tint, and it stays
+  // visible when the editor isn't focused (read-only select-to-agent mode).
+  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
+    backgroundColor: 'rgba(var(--info-rgb), 0.35)',
+  },
+  // Match the viewer's code column: 12px left pad so text starts at the same x.
+  '.cm-line': { paddingLeft: '12px' },
+  // Mirror the viewer's gutter exactly: a bg-secondary column with a right
+  // divider, numbers right-aligned 12px from the divider in text-muted — so the
+  // code doesn't shift horizontally when toggling Edit on/off.
+  '.cm-gutters': {
+    backgroundColor: 'var(--bg-secondary)',
+    color: 'var(--text-muted)',
+    borderRight: '1px solid var(--border)',
+  },
+  '.cm-lineNumbers .cm-gutterElement': {
+    minWidth: '52px',
+    padding: '0 12px 0 0',
+    boxSizing: 'border-box',
+  },
+  '.cm-activeLineGutter': { backgroundColor: 'transparent' },
+});
 
 /**
  * Map a Shiki language id (as returned by `read_project_file`) to a CodeMirror

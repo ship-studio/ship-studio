@@ -13,11 +13,31 @@ import {
   readProjectFile,
   saveProjectFile,
   buildFileTree,
+  fileExtensionForAnalytics,
   type FileTreeNode,
   type FileContent,
 } from '../lib/code';
 import { logger } from '../lib/logger';
+import { trackEvent } from '../lib/analytics';
 import { useAsyncState } from './useAsyncState';
+
+/**
+ * Global, persisted opt-in for Code-tab editing. When on, opening an editable
+ * file drops straight into the editor (no per-file Edit click); when off the
+ * Code tab is read-only. Stored app-wide (not per project) so the choice
+ * survives project switches and restarts — mirrors the visual editor's
+ * localStorage-persisted toggle.
+ */
+const CODE_EDIT_MODE_KEY = 'shipstudio:code-edit-mode';
+
+/**
+ * A pending action that would discard the current edit buffer and so needs a
+ * discard confirmation first: switching to `path`, or turning Edit mode off.
+ */
+export type PendingFileAction = { kind: 'switch'; path: string } | { kind: 'disable-edit' } | null;
+
+/** Outcome of a save attempt: written, nothing-to-write, or failed. */
+export type SaveResult = 'saved' | 'noop' | 'error';
 
 interface UseFileTreeResult {
   tree: FileTreeNode[];
@@ -37,11 +57,20 @@ interface UseFileTreeResult {
   isDirty: boolean;
   isSaving: boolean;
   saveError: string | null;
-  beginEdit: () => void;
   cancelEdit: () => void;
   updateDraft: (value: string) => void;
-  /** Persist the draft; resolves true on success, false on failure. */
-  saveFile: () => Promise<boolean>;
+  /** Persist the draft. Resolves 'saved', 'noop' (nothing to write), or 'error'. */
+  saveFile: () => Promise<SaveResult>;
+  /** Global, persisted "Code tab is editable" opt-in. */
+  editModeEnabled: boolean;
+  /** Toggle global edit mode (confirms first if it would drop unsaved edits). */
+  setEditMode: (enabled: boolean) => void;
+  /** A discard confirmation the UI must surface, or null. */
+  pendingAction: PendingFileAction;
+  /** Proceed with the pending action (discards the buffer). */
+  confirmPendingAction: () => void;
+  /** Dismiss the pending action, keeping the current buffer. */
+  cancelPendingAction: () => void;
 }
 
 export function useFileTree(projectPath: string): UseFileTreeResult {
@@ -115,6 +144,12 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     isDirtyRef.current = isDirty;
   }, [isDirty]);
 
+  // A discard-confirmation the UI must show before an action that would drop the
+  // dirty buffer (switching files, or turning Edit mode off). Driven by an in-app
+  // modal rather than window.confirm, which Tauri's webview overrides to return a
+  // thenable — `!confirm(...)` is always false there, so it never blocks.
+  const [pendingAction, setPendingAction] = useState<PendingFileAction>(null);
+
   const exitEdit = useCallback(() => {
     setIsEditing(false);
     setDraft('');
@@ -149,21 +184,33 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     });
   }, []);
 
+  // Load a file into the viewer, discarding any current edit buffer. The
+  // unsaved-changes guard lives in the callers, not here.
+  const loadFileIntoViewer = useCallback(
+    async (path: string) => {
+      exitEdit();
+      setSelectedFilePath(path);
+      // Clear stale content up front so the editor unmounts during the load and
+      // remounts fresh on the new file. Without this the editor (keyed by path)
+      // would remount over the PREVIOUS file's still-present buffer, and a
+      // jump-to-code reveal would fire once against that stale content.
+      setFileContent(null);
+      await executeLoadFileAndClear(projectPath, path);
+    },
+    [projectPath, executeLoadFileAndClear, exitEdit, setFileContent]
+  );
+
   const selectFile = useCallback(
     async (path: string) => {
       if (path === selectedFileRef.current) return;
-      // Guard against silently dropping unsaved edits when switching files.
-      if (
-        isDirtyRef.current &&
-        !window.confirm('You have unsaved changes. Discard them and switch files?')
-      ) {
+      // Unsaved edits → confirm before discarding (via the in-app modal).
+      if (isDirtyRef.current) {
+        setPendingAction({ kind: 'switch', path });
         return;
       }
-      exitEdit();
-      setSelectedFilePath(path);
-      await executeLoadFileAndClear(projectPath, path);
+      await loadFileIntoViewer(path);
     },
-    [projectPath, executeLoadFileAndClear, exitEdit]
+    [loadFileIntoViewer]
   );
 
   const refreshTree = useCallback(() => {
@@ -177,28 +224,96 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     setIsEditing(true);
   }, [fileContent]);
 
-  const saveFile = useCallback(async (): Promise<boolean> => {
+  // Global, persisted edit-mode opt-in (app-wide, not per project).
+  const [editModeEnabled, setEditModeEnabled] = useState(() => {
+    try {
+      return localStorage.getItem(CODE_EDIT_MODE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const applyEditMode = useCallback(
+    (enabled: boolean) => {
+      setEditModeEnabled(enabled);
+      try {
+        localStorage.setItem(CODE_EDIT_MODE_KEY, enabled ? '1' : '0');
+      } catch {
+        /* localStorage unavailable — the toggle just won't persist */
+      }
+      if (!enabled) exitEdit();
+    },
+    [exitEdit]
+  );
+
+  const setEditMode = useCallback(
+    (enabled: boolean) => {
+      // Turning off while a buffer is dirty would drop the edits — confirm first.
+      if (!enabled && isDirtyRef.current) {
+        setPendingAction({ kind: 'disable-edit' });
+        return;
+      }
+      applyEditMode(enabled);
+    },
+    [applyEditMode]
+  );
+
+  // Resolve the pending discard-confirmation: carry out the action the user was
+  // blocked on (it discards the buffer), or just dismiss it.
+  const confirmPendingAction = useCallback(() => {
+    const action = pendingAction;
+    setPendingAction(null);
+    if (!action) return;
+    if (action.kind === 'switch') {
+      void loadFileIntoViewer(action.path);
+    } else {
+      applyEditMode(false);
+    }
+  }, [pendingAction, loadFileIntoViewer, applyEditMode]);
+
+  const cancelPendingAction = useCallback(() => setPendingAction(null), []);
+
+  // With global edit mode on, open editable files straight into the editor and
+  // re-enter after each file switch. cancelEdit() flips isEditing off, so this
+  // also re-seeds a fresh draft — i.e. Revert-to-saved. Skips binary/truncated
+  // files (beginEdit guards those too), which stay read-only.
+  useEffect(() => {
+    if (
+      editModeEnabled &&
+      !isEditing &&
+      fileContent != null &&
+      !fileContent.isBinary &&
+      !fileContent.isTruncated
+    ) {
+      beginEdit();
+    }
+  }, [editModeEnabled, isEditing, fileContent, beginEdit]);
+
+  const saveFile = useCallback(async (): Promise<SaveResult> => {
     const path = selectedFileRef.current;
-    if (!path || !isEditing) return false;
+    // Nothing to write — viewing a file, or a clean buffer (also gates ⌘S).
+    // Returns 'noop' (not 'error') so callers don't surface a false failure toast.
+    if (!path || !isEditing || fileContent == null || draft === fileContent.content) {
+      return 'noop';
+    }
     setIsSaving(true);
     setSaveError(null);
     try {
       await saveProjectFile(projectPath, path, draft);
+      void trackEvent('code_file_saved', { file_extension: fileExtensionForAnalytics(path) });
       // Commit the buffer into fileContent so the read view reflects the save
       // and the dirty flag clears, without a round-trip re-read.
-      if (fileContent) {
-        setFileContent({
-          ...fileContent,
-          content: draft,
-          size: new TextEncoder().encode(draft).length,
-        });
-      }
-      return true;
+      setFileContent({
+        ...fileContent,
+        content: draft,
+        size: new TextEncoder().encode(draft).length,
+      });
+      return 'saved';
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error('Failed to save file', { path, error: msg });
       setSaveError(msg);
-      return false;
+      return 'error';
     } finally {
       setIsSaving(false);
     }
@@ -221,9 +336,13 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     isDirty,
     isSaving,
     saveError,
-    beginEdit,
     cancelEdit: exitEdit,
     updateDraft: setDraft,
     saveFile,
+    editModeEnabled,
+    setEditMode,
+    pendingAction,
+    confirmPendingAction,
+    cancelPendingAction,
   };
 }
