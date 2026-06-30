@@ -99,6 +99,9 @@ export function CodeViewer({
   const [question, setQuestion] = useState('');
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  // ⌘S bypasses the disabled Save button, so guard against overlapping saves
+  // whose disk writes could finish out of order and leave a stale draft.
+  const saveInFlightRef = useRef(false);
 
   const dismissPopover = useCallback(() => {
     setSelectionInfo(null);
@@ -192,11 +195,16 @@ export function CodeViewer({
   }, [selectionInfo, filePath, fileContent?.language, question, onToast, onSendToAgent]);
 
   const handleSave = useCallback(async () => {
-    if (!onSave) return;
-    const result = await onSave();
-    // 'noop' (read mode / clean buffer) is silent — only a real save toasts.
-    if (result === 'saved') showToast('Saved', 'success');
-    else if (result === 'error') showToast('Failed to save file', 'error');
+    if (!onSave || saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    try {
+      const result = await onSave();
+      // 'noop' (read mode / clean buffer) is silent — only a real save toasts.
+      if (result === 'saved') showToast('Saved', 'success');
+      else if (result === 'error') showToast('Failed to save file', 'error');
+    } finally {
+      saveInFlightRef.current = false;
+    }
   }, [onSave, showToast]);
 
   // No file selected

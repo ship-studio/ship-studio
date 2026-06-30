@@ -156,14 +156,23 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     setSaveError(null);
   }, []);
 
-  // Reset state when project changes
+  // Reset state when project changes. Also drop any pending discard modal — a
+  // stale 'switch' confirmation would otherwise run against the new project.
   useEffect(() => {
     setSelectedFilePath(null);
     setFileContent(null);
     resetFile();
     setExpandedPaths(new Set());
+    setPendingAction(null);
     exitEdit();
   }, [projectPath, setFileContent, resetFile, exitEdit]);
+
+  // Mirror the active project so an in-flight save can detect a switch and skip
+  // committing its (now stale) buffer into the new viewer.
+  const projectPathRef = useRef(projectPath);
+  useEffect(() => {
+    projectPathRef.current = projectPath;
+  }, [projectPath]);
 
   const loadTree = useCallback(() => executeLoadTree(projectPath), [executeLoadTree, projectPath]);
 
@@ -291,6 +300,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
 
   const saveFile = useCallback(async (): Promise<SaveResult> => {
     const path = selectedFileRef.current;
+    const savingProjectPath = projectPath;
     // Nothing to write — viewing a file, or a clean buffer (also gates ⌘S).
     // Returns 'noop' (not 'error') so callers don't surface a false failure toast.
     if (!path || !isEditing || fileContent == null || draft === fileContent.content) {
@@ -299,8 +309,14 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     setIsSaving(true);
     setSaveError(null);
     try {
-      await saveProjectFile(projectPath, path, draft);
+      await saveProjectFile(savingProjectPath, path, draft);
       void trackEvent('code_file_saved', { file_extension: fileExtensionForAnalytics(path) });
+      // The user may have switched project/file while the write was in flight —
+      // committing the old buffer would corrupt the new viewer state. The bytes
+      // are safely on disk; just skip the in-memory commit.
+      if (projectPathRef.current !== savingProjectPath || selectedFileRef.current !== path) {
+        return 'saved';
+      }
       // Commit the buffer into fileContent so the read view reflects the save
       // and the dirty flag clears, without a round-trip re-read.
       setFileContent({

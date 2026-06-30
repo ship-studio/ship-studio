@@ -120,9 +120,10 @@ export function CodeFileEditor({
         keymap.of([
           {
             key: 'Mod-s',
-            preventDefault: true,
             run: () => {
-              onSaveRef.current?.();
+              // Save only in edit mode; let the keystroke fall through in read-only.
+              if (!editableRef.current || !onSaveRef.current) return false;
+              onSaveRef.current();
               return true;
             },
           },

@@ -213,7 +213,9 @@ pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileCont
 /// and brand-new paths are intentionally out of scope — the editor only saves
 /// files it first opened via [`read_project_file`].
 #[tauri::command]
-#[tracing::instrument(fields(project = %project_path, file = %file_path))]
+// skip_all so the file `content` argument is never captured into the span/logs;
+// only the safe path fields are recorded.
+#[tracing::instrument(skip_all, fields(project = %project_path, file = %file_path))]
 pub fn save_project_file(
     project_path: &str,
     file_path: &str,
