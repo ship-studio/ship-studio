@@ -6,6 +6,9 @@ import { sessionRegistry } from '../lib/sessionRegistry';
 import { checkForUpdate } from '../lib/updater';
 import { checkIdeAvailability, openInIde, openInFinder } from '../lib/ide';
 import { logger } from '../lib/logger';
+import { kbd } from '../lib/shortcuts';
+import { basename } from '../lib/paths';
+import { fileManagerName } from '../lib/setup';
 import {
   CodeIcon,
   CursorIcon,
@@ -114,7 +117,7 @@ export function useAppCommands({
     try {
       await openInFinder(currentProject.path);
     } catch (err) {
-      showToast('Could not reveal in Finder', 'error');
+      showToast(`Could not reveal in ${fileManagerName()}`, 'error');
       logger.warn('[useAppCommands] openInFinder failed', { error: String(err) });
     }
   }, [currentProject, showToast]);
@@ -191,8 +194,8 @@ export function useAppCommands({
 
     const pinnedEntries = pinnedPaths.map((path, i) => ({
       path,
-      name: path.split('/').pop() ?? path,
-      shortcut: i < 9 ? `⌘${i + 1}` : undefined,
+      name: basename(path),
+      shortcut: i < 9 ? kbd('mod', String(i + 1)) : undefined,
     }));
     const recentEntries = recent.map((p) => ({
       path: p.path,
@@ -201,7 +204,7 @@ export function useAppCommands({
     }));
     const externalEntries = externalActive.map((path) => ({
       path,
-      name: path.split('/').pop() ?? path,
+      name: basename(path),
       shortcut: undefined,
     }));
 
@@ -308,11 +311,12 @@ export function useAppCommands({
       },
       {
         id: 'ide.finder',
-        title: 'Reveal in Finder',
+        title: `Reveal in ${fileManagerName()}`,
         icon: <FolderIcon size={14} />,
         category: 'action' as const,
         when: 'project' as const,
-        keywords: ['finder', 'show', 'open folder'],
+        // Keep 'finder'/'explorer'/'files' all searchable regardless of platform.
+        keywords: ['finder', 'explorer', 'files', 'show', 'open folder', 'reveal'],
         run: () => void runFinder(),
       },
       {
@@ -438,7 +442,7 @@ export function useAppCommands({
         title: 'Help & keyboard shortcuts',
         icon: <SettingsIcon size={14} />,
         category: 'settings',
-        shortcut: '⌘/',
+        shortcut: kbd('mod', '/'),
         run: () => openModal('help'),
       },
     ],

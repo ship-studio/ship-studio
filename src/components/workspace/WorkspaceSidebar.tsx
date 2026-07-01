@@ -19,6 +19,8 @@ import type { TerminalTab } from '../../hooks/useTerminalManagement';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useCommands } from '../../commands/useCommands';
+import { kbd } from '../../lib/shortcuts';
+import { basename } from '../../lib/paths';
 import '../../styles/features/account-select.css';
 import {
   sessionRegistry,
@@ -447,7 +449,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       if (pinnedPaths.has(snap.projectPath)) continue;
       rows.push({
         projectPath: snap.projectPath,
-        fallbackName: snap.projectPath.split('/').pop() ?? 'Project',
+        fallbackName: basename(snap.projectPath) || 'Project',
         status: snap.status,
         agentStatus: snap.lastAgentStatus,
         unreadCount: snap.unreadCount,
@@ -472,7 +474,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     currentProjectPath && !currentIsKnown
       ? {
           projectPath: currentProjectPath,
-          fallbackName: currentProjectName ?? currentProjectPath.split('/').pop() ?? 'Project',
+          fallbackName: currentProjectName ?? (basename(currentProjectPath) || 'Project'),
           status: 'active',
           agentStatus: 'idle',
           unreadCount: 0,
@@ -544,7 +546,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 addOptions={atMaxTabs ? undefined : AGENT_ADD_OPTIONS}
                 onAdd={atMaxTabs ? undefined : (agentId) => onAddTab(agentId)}
                 addLabel="Add agent tab"
-                addShortcut="⌘T"
+                addShortcut={kbd('mod', 'T')}
                 addFooterLabel={atMaxTabs ? undefined : 'Add new agent'}
                 items={filteredAgents}
                 emptyHint={filter ? 'No matches' : 'No agents running'}
@@ -627,7 +629,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       >
         <SearchIcon size={12} />
         <span className="workspace-sidebar-filter-placeholder">Search</span>
-        <span className="workspace-sidebar-filter-shortcut">⌘K</span>
+        <span className="workspace-sidebar-filter-shortcut">{kbd('mod', 'K')}</span>
       </button>
 
       <div className="workspace-sidebar-scroll">
@@ -877,9 +879,9 @@ function ProjectGroup({
         <span
           className={`sidebar-project-initials ${shortcutNumber !== null ? 'is-shortcut' : ''}`}
           aria-hidden="true"
-          title={shortcutNumber !== null ? `⌘${shortcutNumber}` : undefined}
+          title={shortcutNumber !== null ? kbd('mod', String(shortcutNumber)) : undefined}
         >
-          {shortcutNumber !== null ? `⌘${shortcutNumber}` : initials}
+          {shortcutNumber !== null ? kbd('mod', String(shortcutNumber)) : initials}
         </span>
         <span className="sidebar-project-name" title={row.fallbackName}>
           {row.fallbackName}

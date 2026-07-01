@@ -15,6 +15,7 @@ import { useCallback } from 'react';
 import type { Project } from '../lib/project';
 import { usePinnedProjects, type UsePinnedProjectsReturn } from './usePinnedProjects';
 import { logger } from '../lib/logger';
+import { basename } from '../lib/paths';
 
 export interface UseProjectRailParams {
   /** Path of the project the workspace is currently showing, or `null`. */
@@ -70,7 +71,7 @@ export function useProjectRail({
       // Clicking a pin cold-starts the project today (it's a launcher,
       // not background sessions). Phase 2d–2f will swap this for
       // in-place activation when the session is already alive.
-      const projectName = projectPath.split('/').pop() ?? 'project';
+      const projectName = basename(projectPath) || 'project';
       void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
     },
     [handleSelectProject]
@@ -87,7 +88,7 @@ export function useProjectRail({
     (projectPath: string) => {
       void (async () => {
         await handleTogglePin(projectPath, true);
-        const projectName = projectPath.split('/').pop() ?? 'project';
+        const projectName = basename(projectPath) || 'project';
         void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
       })();
     },

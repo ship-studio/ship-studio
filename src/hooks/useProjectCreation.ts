@@ -38,6 +38,7 @@ import { trackError } from '../lib/analytics';
 import { getWindowLabel } from '../lib/window';
 import { checkNpmCachePermissions } from '../lib/setup';
 import { installPlugin, VERCEL_PLUGIN_REPO } from '../lib/plugins';
+import { basename } from '../lib/paths';
 
 // ---------------------------------------------------------------------------
 // Types & Constants
@@ -235,7 +236,7 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
           if (event.payload.paths && event.payload.paths.length > 0) {
             const path = event.payload.paths[0];
             if (path.endsWith('.zip')) {
-              const fileName = path.split('/').pop() || 'template.zip';
+              const fileName = basename(path) || 'template.zip';
               setZipPath(path);
               setZipFileName(fileName);
               setZipFile(null); // Clear browser File object
