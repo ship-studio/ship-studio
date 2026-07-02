@@ -57,7 +57,7 @@ fn attrs_for_ext(ext: &str) -> &'static [&'static str] {
 }
 
 /// Same as [`attrs_for_ext`] but from a path/filename (uses the trailing extension).
-fn attrs_for_path(file: &str) -> &'static [&'static str] {
+pub(crate) fn attrs_for_path(file: &str) -> &'static [&'static str] {
     let ext = file.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     attrs_for_ext(&ext)
 }
@@ -138,15 +138,15 @@ struct Occurrence {
 
 /// A located className literal within a single file, with byte range for surgical edits.
 #[derive(Debug, Clone)]
-struct Span {
-    value: String,
+pub(crate) struct Span {
+    pub(crate) value: String,
     /// Byte offset of the first character inside the quotes.
-    value_start: usize,
+    pub(crate) value_start: usize,
     /// Byte offset just past the last character inside the quotes.
-    value_end: usize,
-    line: usize,
-    column: usize,
-    tag: String,
+    pub(crate) value_end: usize,
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) tag: String,
 }
 
 /// Bytes that can extend an attribute/identifier name. Includes `-` so a needle
@@ -174,7 +174,7 @@ fn find_classname_spans(src: &str) -> Vec<Span> {
 /// Scanning `class` and `className` over the same source never double-counts: the
 /// `=`-after-the-name check rejects the `class` prefix of a `className=` attribute
 /// (the next char is `N`, not `=`), so each literal is found by exactly one needle.
-fn find_attr_spans(src: &str, attrs: &[&str]) -> Vec<Span> {
+pub(crate) fn find_attr_spans(src: &str, attrs: &[&str]) -> Vec<Span> {
     let bytes = src.as_bytes();
     let mut spans = Vec::new();
     let skip_ws = |mut k: usize| {
@@ -289,6 +289,15 @@ static INDEX_CACHE: std::sync::LazyLock<
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 const INDEX_TTL: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// True when `token` appears as a whitespace-separated token in any indexed
+/// class literal — the source half of the generated-class collision check
+/// (see `edit_structure::generate_class`; stylesheets are the other half).
+pub(crate) fn class_token_in_index(root: &Path, token: &str) -> bool {
+    index_occurrences_cached(root)
+        .iter()
+        .any(|o| o.class_name.split_whitespace().any(|t| t == token))
+}
+
 /// The className index for `root`, from cache when fresh, else freshly built + stored.
 fn index_occurrences_cached(root: &Path) -> std::sync::Arc<Vec<Occurrence>> {
     let key = root.to_path_buf();
@@ -307,7 +316,7 @@ fn index_occurrences_cached(root: &Path) -> std::sync::Arc<Vec<Occurrence>> {
 }
 
 /// Drop the cached indexes for `root` after a write so the next resolve sees source.
-fn invalidate_index_cache(root: &Path) {
+pub(crate) fn invalidate_index_cache(root: &Path) {
     if let Ok(mut cache) = INDEX_CACHE.lock() {
         cache.remove(root);
     }
@@ -2266,7 +2275,7 @@ const VOID_ELEMENTS: &[&str] = &[
 
 /// The element's source byte span `[open '<', close '>' + 1)` given a byte
 /// offset known to sit inside its opening tag (e.g. the `class` attribute value).
-fn element_span(src: &str, inside_open_tag: usize) -> Option<(usize, usize)> {
+pub(crate) fn element_span(src: &str, inside_open_tag: usize) -> Option<(usize, usize)> {
     let bytes = src.as_bytes();
     let n = bytes.len();
     if inside_open_tag >= n {
@@ -2368,7 +2377,7 @@ fn element_span(src: &str, inside_open_tag: usize) -> Option<(usize, usize)> {
 }
 
 /// First `>` at/after `from` that isn't inside a quoted attribute value.
-fn scan_to_gt(bytes: &[u8], from: usize) -> Option<usize> {
+pub(crate) fn scan_to_gt(bytes: &[u8], from: usize) -> Option<usize> {
     let mut k = from;
     let mut quote = 0u8;
     while k < bytes.len() {
@@ -2396,8 +2405,9 @@ pub struct ElementHtml {
 }
 
 /// Resolve an element to the source markup span, file, and contents, plus the
-/// byte span — shared by resolve/apply so both derive the span identically.
-fn locate_element(
+/// byte span — shared by resolve/apply (and `edit_structure`'s insert/
+/// duplicate/delete) so every caller derives the span identically.
+pub(crate) fn locate_element(
     project_path: &str,
     signature: ElementSignature,
 ) -> Result<(String, std::path::PathBuf, String, usize, usize, usize), CommandError> {

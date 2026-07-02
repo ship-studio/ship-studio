@@ -41,6 +41,8 @@ import { HealthTabPanel, type HealthTabPanelRef } from '../code/HealthTabPanel';
 import { BrowserDropdown } from './BrowserDropdown';
 import { useVisualEditor } from '../../hooks/useVisualEditor';
 import { useTextEditing } from '../../hooks/useTextEditing';
+import { useElementStructure } from '../../hooks/useElementStructure';
+import { ElementToolbar } from '../edit/ElementToolbar';
 import { useCssCascadeEditor } from '../../hooks/useCssCascadeEditor';
 import { useElementSettings } from '../../hooks/useElementSettings';
 import { useCssVariables } from '../../hooks/useCssVariables';
@@ -627,6 +629,17 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     enabled: activeEditMode,
     onToast,
   });
+  // Structural edits (insert / duplicate / delete) — shared by both styling
+  // editors the same way text editing is; drives the canvas toolbar and the
+  // element tree's context menu.
+  const structure = useElementStructure({
+    iframeRef,
+    projectPath,
+    enabled: activeEditMode,
+    onToast,
+  });
+  // Imperative opener for the toolbar's insert palette (Cmd+K "Insert element…").
+  const openInsertMenuRef = useRef<(() => void) | null>(null);
   const toggleActiveEditor =
     editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode;
 
@@ -686,6 +699,69 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           ]
         : [],
     [cssEditorEnabled, cssEditorOn, cssToggleEditMode, openCssEditor, onToast]
+  );
+
+  // ── Cmd+K commands for structural editing. Registered only while an edit mode
+  // is on; each needs a canvas selection to act on (toast otherwise, so the
+  // command never fails silently).
+  const structureSelection = structure.selection;
+  const structureInsertOpen = useCallback(() => {
+    if (!structureSelection) {
+      onToast('Select an element on the canvas first', 'error');
+      return;
+    }
+    openInsertMenuRef.current?.();
+  }, [structureSelection, onToast]);
+  useCommands(
+    () =>
+      activeEditMode
+        ? [
+            {
+              id: 'edit.insertElement',
+              title: 'Insert element…',
+              category: 'action' as const,
+              when: 'project' as const,
+              keywords: ['add', 'element', 'div', 'insert', 'new', 'paragraph', 'section'],
+              run: structureInsertOpen,
+            },
+            {
+              id: 'edit.duplicateElement',
+              title: 'Duplicate selected element',
+              category: 'action' as const,
+              when: 'project' as const,
+              keywords: ['duplicate', 'copy', 'element', 'clone'],
+              run: () => {
+                if (!structureSelection) {
+                  onToast('Select an element on the canvas first', 'error');
+                  return;
+                }
+                void structure.duplicate();
+              },
+            },
+            {
+              id: 'edit.deleteElement',
+              title: 'Delete selected element',
+              category: 'action' as const,
+              when: 'project' as const,
+              keywords: ['delete', 'remove', 'element'],
+              run: () => {
+                if (!structureSelection) {
+                  onToast('Select an element on the canvas first', 'error');
+                  return;
+                }
+                void structure.remove();
+              },
+            },
+          ]
+        : [],
+    [
+      activeEditMode,
+      structureSelection,
+      structure.duplicate,
+      structure.remove,
+      structureInsertOpen,
+      onToast,
+    ]
   );
 
   // Element tree (navigator) — left column in fullscreen edit mode, like
@@ -1179,6 +1255,19 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               className="preview-iframe"
               title="Preview"
             />
+            {/* Structural-edit toolbar, tracking the canvas selection box */}
+            {activeEditMode && (
+              <ElementToolbar
+                selection={structure.selection}
+                bounds={iframeSize}
+                busy={structure.busy}
+                hidden={structure.textEditing}
+                onInsert={(position, kind) => void structure.insert(position, kind)}
+                onDuplicate={() => void structure.duplicate()}
+                onDelete={() => void structure.remove()}
+                openMenuRef={openInsertMenuRef}
+              />
+            )}
             {/* Branch switching overlay */}
             {isBranchSwitching && (
               <div className="preview-branch-switching-overlay">
@@ -1285,6 +1374,12 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             null
           }
           onViewChange={(v) => setTreeCodeView(v === 'code')}
+          structure={{
+            selectAndRun: structure.selectAndRun,
+            insert: (position, kind) => void structure.insert(position, kind),
+            duplicate: () => void structure.duplicate(),
+            remove: () => void structure.remove(),
+          }}
         />
       )}
       {editor.editMode &&

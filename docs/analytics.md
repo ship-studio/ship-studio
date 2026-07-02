@@ -104,6 +104,9 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | `visual_style_saved` | `is_autosave`, `is_multi` (one event per element class write committed to source) |
 | `visual_text_saved` | — (inline text edit written to source) |
 | `visual_image_saved` | — (image `src` replaced in source) |
+| `visual_element_inserted` | — (new element committed to source via the insert palette) |
+| `visual_element_duplicated` | — (element duplicated in source) |
+| `visual_element_deleted` | — (element removed from source) |
 | `visual_prep_started` | `mode` (`css`) — opened the "Prepare for visual editing" agent prompt |
 | `visual_view_switched` | `mode` (`css`), `view` (`visual`/`code`) — toggled the structured controls vs raw-CSS view |
 | `visual_class_added` / `visual_class_removed` | `mode` (`css`) — added/removed a class on the element via the class bar |

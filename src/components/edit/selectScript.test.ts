@@ -550,3 +550,27 @@ it('removes the live rule on ss:deleteRulePreview', () => {
   expect((sheet.cssRules[0] as CSSStyleRule).selectorText).toBe('.keep');
   send({ type: 'ss:deactivate' });
 });
+
+it('posts ss:selRect on scroll while selected (host toolbar tracking)', async () => {
+  document.body.innerHTML = '<div class="wrap"><p class="para">Hi</p></div>';
+  send({ type: 'ss:activate' });
+  const selected = nextSelect();
+  document.querySelector('.para')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await selected;
+
+  const rectMsg = new Promise<{ rect: Record<string, number> }>((res) => {
+    const handler = (e: MessageEvent) => {
+      if ((e.data as { type?: string })?.type === 'ss:selRect') {
+        window.removeEventListener('message', handler);
+        res(e.data as { rect: Record<string, number> });
+      }
+    };
+    window.addEventListener('message', handler);
+  });
+  window.dispatchEvent(new Event('scroll'));
+  const { rect } = await rectMsg;
+  for (const key of ['top', 'left', 'width', 'height'] as const) {
+    expect(typeof rect[key]).toBe('number');
+  }
+  send({ type: 'ss:deactivate' });
+});

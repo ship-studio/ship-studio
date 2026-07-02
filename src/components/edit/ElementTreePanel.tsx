@@ -1,16 +1,30 @@
 /**
- * Element tree panel — a read-only, Webflow-style navigator for the preview.
+ * Element tree panel — a Webflow-style navigator for the preview.
  *
  * Shows the rendered DOM as a collapsible tree; clicking a row selects the
  * element through the same path as clicking it on the canvas, so the visual
- * editor panel picks it up. No editing or renaming here by design.
+ * editor panel picks it up. Structural edits (insert / duplicate / delete)
+ * live in the row context menu; each action selects its row first
+ * (`selectAndRun`) so it operates on the element the user aimed at.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRightIcon } from '../icons';
 import { ElementHtmlEditor } from './ElementHtmlEditor';
+import { ElementTreeContextMenu } from './ElementTreeContextMenu';
+import { InsertMenu } from './InsertMenu';
 import type { ElementTreeNode } from '../../hooks/useElementTree';
 import type { ElementSignature } from '../../lib/edit';
+import { VOID_ELEMENTS, type ElementKind, type InsertPosition } from '../../lib/edit-structure';
+
+/** The structural-edit actions the panel's context menu drives
+ *  (from `useElementStructure`). */
+export interface TreeStructureActions {
+  selectAndRun: (nodeId: number, action: () => void) => void;
+  insert: (position: InsertPosition, kind: ElementKind) => void;
+  duplicate: () => void;
+  remove: () => void;
+}
 
 interface Props {
   tree: ElementTreeNode | null;
@@ -24,6 +38,8 @@ interface Props {
   /** Notified when the Visual/Code view toggles, so the parent can widen the
    *  panel for editing markup. */
   onViewChange?: (view: 'visual' | 'code') => void;
+  /** When provided, rows get an insert/duplicate/delete context menu. */
+  structure?: TreeStructureActions;
 }
 
 /** Rows at depth < this start expanded so the tree isn't a single chevron. */
@@ -61,9 +77,22 @@ export function ElementTreePanel({
   projectPath,
   selectedSignature,
   onViewChange,
+  structure,
 }: Props) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const [view, setView] = useState<'visual' | 'code'>('visual');
+  // Context menu + insert palette, both anchored to the right-clicked row.
+  const [ctxMenu, setCtxMenu] = useState<{
+    nodeId: number;
+    tag: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [insertFor, setInsertFor] = useState<{
+    nodeId: number;
+    tag: string;
+    anchor: { left: number; top: number; bottom: number };
+  } | null>(null);
   const selectView = (next: 'visual' | 'code') => {
     setView(next);
     onViewChange?.(next);
@@ -135,6 +164,14 @@ export function ElementTreePanel({
           style={{ paddingLeft: depth * 14 + 6 }}
           data-tree-id={node.id}
           onClick={() => onSelect(node.id)}
+          onContextMenu={
+            structure &&
+            ((e) => {
+              e.preventDefault();
+              onSelect(node.id); // select first, so the canvas shows the target
+              setCtxMenu({ nodeId: node.id, tag: node.tag, x: e.clientX, y: e.clientY });
+            })
+          }
           onMouseEnter={() => onHover(node.id)}
           onMouseLeave={() => onHover(null)}
         >
@@ -212,6 +249,37 @@ export function ElementTreePanel({
             <div className="ss-tree-panel__empty">Select an element to edit its HTML.</div>
           )}
         </div>
+      )}
+      {structure && (
+        <>
+          <ElementTreeContextMenu
+            pos={ctxMenu ? { x: ctxMenu.x, y: ctxMenu.y } : null}
+            onInsert={() => {
+              if (!ctxMenu) return;
+              setInsertFor({
+                nodeId: ctxMenu.nodeId,
+                tag: ctxMenu.tag,
+                anchor: { left: ctxMenu.x, top: ctxMenu.y, bottom: ctxMenu.y },
+              });
+            }}
+            onDuplicate={() => {
+              if (ctxMenu) structure.selectAndRun(ctxMenu.nodeId, structure.duplicate);
+            }}
+            onDelete={() => {
+              if (ctxMenu) structure.selectAndRun(ctxMenu.nodeId, structure.remove);
+            }}
+            onClose={() => setCtxMenu(null)}
+          />
+          <InsertMenu
+            anchor={insertFor?.anchor ?? null}
+            insideDisabled={insertFor ? VOID_ELEMENTS.has(insertFor.tag) : false}
+            onInsert={(position, kind) => {
+              if (!insertFor) return;
+              structure.selectAndRun(insertFor.nodeId, () => structure.insert(position, kind));
+            }}
+            onClose={() => setInsertFor(null)}
+          />
+        </>
       )}
     </div>
   );

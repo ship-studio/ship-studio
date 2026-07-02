@@ -489,7 +489,11 @@ function treeSend(){treeById={};var budget={n:0};var root=treeBuild(document.bod
 function treeIsSsNode(n){return n.nodeType===1&&(n.getAttribute('data-ss-overlay')||(n.id&&n.id.indexOf('ss-')===0));}
 function treeDirty(){if(!treeOn)return;if(treeTimer)clearTimeout(treeTimer);treeTimer=setTimeout(function(){if(treeOn)window.parent.postMessage({type:'ss:treeDirty'},'*');},300);}
 function treeEnsureObserver(){if(treeObserver)return;treeObserver=new MutationObserver(function(ms){for(var i=0;i<ms.length;i++){var m=ms[i],j;for(j=0;j<m.addedNodes.length;j++)if(!treeIsSsNode(m.addedNodes[j])){treeDirty();return;}for(j=0;j<m.removedNodes.length;j++)if(!treeIsSsNode(m.removedNodes[j])){treeDirty();return;}}});treeObserver.observe(document.body,{childList:true,subtree:true});}
-function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active)placeSet();}
+/* While something is selected, keep the host informed of the primary box's viewport
+   rect (rAF-throttled) so the host-side element toolbar tracks scroll/resize. */
+var selRectRaf=0;
+function postSelRect(){if(selRectRaf)return;selRectRaf=requestAnimationFrame(function(){selRectRaf=0;if(!active||!selPrimary||!selPrimary.isConnected)return;var r=selPrimary.getBoundingClientRect();window.parent.postMessage({type:'ss:selRect',rect:{top:r.top,left:r.left,width:r.width,height:r.height}},'*');});}
+function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active){placeSet();postSelRect();}}
 window.addEventListener('message',function(e){
 /* Only accept commands from the embedding app (our parent window) or same-window
    synthetic events (our own code / tests, where source is null). A foreign page loaded

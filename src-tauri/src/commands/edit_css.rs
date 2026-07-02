@@ -2007,6 +2007,18 @@ fn class_names_in(selector: &str) -> Vec<String> {
     out
 }
 
+/// True when `class` is defined by any rule in the project's stylesheets — the
+/// stylesheet half of the generated-class collision check
+/// (see `edit_structure::generate_class`; the class-literal index is the other half).
+pub(crate) fn css_class_exists(root: &Path, class: &str) -> bool {
+    cached_sheets(root).iter().any(|sheet| {
+        sheet
+            .rules
+            .iter()
+            .any(|rule| class_names_in(&rule.selector).iter().any(|c| c == class))
+    })
+}
+
 /// All class names defined across the project's stylesheets, sorted & unique.
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
