@@ -131,8 +131,17 @@ describe('AgentConfig fields', () => {
     expect(CLAUDE_CODE.binaryName).toBe('claude');
     expect(CLAUDE_CODE.processName).toBe('claude');
     expect(CLAUDE_CODE.autoAcceptFlag).toBe('--dangerously-skip-permissions');
+    expect(CLAUDE_CODE.additionalDirFlag).toBe('--add-dir');
     expect(CLAUDE_CODE.supportsSkills).toBe(true);
     expect(CLAUDE_CODE.supportsStatusDetection).toBe(true);
+  });
+
+  it('only Claude Code exposes an additional-directory flag (others null)', () => {
+    // Attached libraries ride in via this flag; agents without an equivalent
+    // must be null so the launch wiring treats them as a no-op.
+    expect(CODEX.additionalDirFlag).toBeNull();
+    expect(OPENCODE.additionalDirFlag).toBeNull();
+    expect(TERMINAL.additionalDirFlag).toBeNull();
   });
 
   it('CODEX has correct specific values', () => {

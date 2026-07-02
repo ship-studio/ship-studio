@@ -664,6 +664,11 @@ pub fn run() {
             commands::external_projects::unregister_external_project,
             commands::external_projects::is_project_external,
             commands::external_projects::ensure_external_project_registered,
+            // Attached Libraries
+            commands::attached_libraries::list_attached_libraries,
+            commands::attached_libraries::attached_library_dirs,
+            commands::attached_libraries::add_attached_library,
+            commands::attached_libraries::remove_attached_library,
             // Monorepo
             commands::monorepo::detect_workspaces,
             // Folders

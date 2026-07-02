@@ -27,6 +27,7 @@ export type ModalId =
   | 'projectSettings'
   | 'notificationSettings'
   | 'settings'
+  | 'attachedLibraries'
   | 'changelog'
   | 'submitReview'
   | 'newFolder'

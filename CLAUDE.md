@@ -62,6 +62,7 @@ Single-file domains:
 - `ai.rs` - AI-powered PR title/description generation via the agent CLI
 - `analytics.rs` - PostHog event tracking (API key stays in Rust; see `docs/analytics.md`)
 - `assets.rs` - Assets panel file management (configurable root, default `/public`)
+- `attached_libraries.rs` - Attached libraries registry (local folders surfaced to every agent session via the agent's additional-dir flag, e.g. Claude Code `--add-dir`)
 - `claude.rs` - Claude Code binary detection and version checking
 - `code.rs` - Code mode (in-app file browsing/editing)
 - `conflicts.rs` - Merge conflict detection, parsing, and resolution
@@ -119,6 +120,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `ai.ts` - AI generation wrapper for PR descriptions
 - `analytics.ts` - PostHog event wrapper (every event documented in `docs/analytics.md`)
 - `assets.ts` - Asset management (list, upload, delete; configurable assets root)
+- `attached-libraries.ts` - Attached libraries (list/add/remove; `attachedLibraryDirs` feeds the terminal's `--add-dir` wiring)
 - `backups.ts` / `snapshots.ts` - Snapshot create/restore (rewind)
 - `branches.ts` - Branch operations and PR status management
 - `claude.ts` - Claude Code detection and availability checking

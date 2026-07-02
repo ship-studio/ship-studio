@@ -47,6 +47,7 @@ import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
 import { logger } from '../../lib/logger';
 import { getTerminalGpuEnabled } from '../../lib/settings';
+import { attachedLibraryDirs } from '../../lib/attached-libraries';
 import type { AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
@@ -645,6 +646,27 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // Read from the ref so the setup effect doesn't depend on the scalar.
         if (autoAcceptModeRef.current && agent.autoAcceptFlag) {
           agentArgs.push(agent.autoAcceptFlag);
+        }
+
+        // Attached libraries: ride the user's registered cross-project library
+        // folders into this session via the agent's additional-directory flag
+        // (Claude Code: `--add-dir`). Their skills load and files are readable,
+        // but their CLAUDE.md is not loaded, so they can't override the project.
+        // Only agents that expose such a flag opt in; the rest are a no-op.
+        // Best-effort: a failure to read the registry must never block the
+        // agent from starting, so we log and continue.
+        if (agent.additionalDirFlag) {
+          try {
+            const libraryDirs = await attachedLibraryDirs();
+            for (const dir of libraryDirs) {
+              agentArgs.push(agent.additionalDirFlag, dir);
+            }
+          } catch (err) {
+            logger.warn('[Terminal] Failed to load attached libraries', {
+              agent: agent.id,
+              error: String(err),
+            });
+          }
         }
 
         // On Windows, agent may be a .cmd script - must run through cmd.exe

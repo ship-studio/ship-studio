@@ -565,6 +565,30 @@ pub struct ExternalProject {
     pub registered_at: u64,
 }
 
+// ============ Attached Libraries ============
+
+/// Current schema version for the attached libraries config.
+pub const ATTACHED_LIBRARIES_CONFIG_SCHEMA_VERSION: u32 = 1;
+
+/// Configuration for attached libraries stored in
+/// ~/ShipStudio/.shipstudio/attached-libraries.json
+#[derive(Serialize, Deserialize, Default)]
+pub struct AttachedLibrariesConfig {
+    pub schema_version: u32,
+    pub libraries: Vec<AttachedLibrary>,
+}
+
+/// A local directory the user attaches to every agent session. Its skills load
+/// and its files become readable via the agent's additional-directory flag
+/// (e.g. Claude Code's `--add-dir`); its CLAUDE.md is deliberately not loaded,
+/// so an attached library can't override the project's own instructions.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct AttachedLibrary {
+    pub path: String,
+    /// Unix timestamp (ms) when the directory was attached
+    pub added_at: u64,
+}
+
 // ============ Assets ============
 
 /// Asset file/folder in the /public directory

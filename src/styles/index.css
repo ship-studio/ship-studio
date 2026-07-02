@@ -64,6 +64,7 @@
 @import './features/plugins.css';
 @import './features/changelog.css';
 @import './features/settings.css';
+@import './features/attached-libraries.css';
 @import './features/support-panel.css';
 @import './features/project-rail.css';
 @import './features/shopify.css';
