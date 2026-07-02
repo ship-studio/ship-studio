@@ -1,0 +1,221 @@
+/* Branch graph visual — label gutter + SVG rails, elbows, and PR arrows. */
+
+.branch-graph {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.branch-graph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.branch-graph-title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.branch-graph-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.branch-graph-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition);
+}
+
+.branch-graph-refresh:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.branch-graph-refresh:disabled {
+  cursor: default;
+}
+
+.branch-graph-refresh.spinning svg {
+  animation: spin 0.8s linear infinite;
+}
+
+.branch-graph-default-base {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+}
+
+.branch-graph-default-base-select {
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  outline: none;
+}
+
+.branch-graph-default-base-select:focus {
+  border-color: var(--action);
+}
+
+.branch-graph-loading,
+.branch-graph-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 14px;
+  color: var(--text-muted);
+  font-size: var(--font-size-base);
+}
+
+/* Body: SVG graphics layer with the HTML label gutter overlaid on top */
+.branch-graph-body {
+  position: relative;
+  width: 100%;
+}
+
+.branch-graph-svg {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* Label gutter */
+.branch-graph-row-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.branch-graph-row-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-graph-row-name.is-current {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.branch-graph-row-label:hover .branch-graph-row-name {
+  color: var(--text-primary);
+}
+
+.branch-graph-row-here {
+  color: var(--action);
+}
+
+.branch-graph-row-meta {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-graph-row-local {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Rails */
+.branch-graph-rail {
+  stroke: var(--action);
+  stroke-width: 2.5;
+  fill: none;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.branch-graph-rail.is-default {
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.branch-graph-rail.is-current {
+  stroke: var(--action);
+  stroke-width: 3.5;
+  opacity: 1;
+}
+
+/* Fork elbows */
+.branch-graph-elbow {
+  stroke: var(--action);
+  stroke-width: 2.5;
+  fill: none;
+  opacity: 0.6;
+}
+
+/* Nodes */
+.branch-graph-node {
+  fill: var(--action);
+  stroke: var(--bg-secondary);
+  stroke-width: 2;
+}
+
+.branch-graph-node.is-current {
+  fill: var(--action);
+}
+
+/* PR marker + arrow — solid green chips pop against the thinner rails */
+.branch-graph-pr {
+  cursor: pointer;
+}
+
+.branch-graph-pr-arrow {
+  stroke: var(--action);
+  stroke-width: 2;
+  fill: none;
+}
+
+.branch-graph-arrowhead {
+  fill: var(--action);
+}
+
+.branch-graph-pr-chip {
+  fill: var(--action);
+  stroke: none;
+}
+
+.branch-graph-pr:hover .branch-graph-pr-chip {
+  fill: var(--action-hover);
+}
+
+.branch-graph-pr-text {
+  fill: var(--action-text);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-anchor: middle;
+}

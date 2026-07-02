@@ -40,6 +40,7 @@ const defaultBranch: import('../lib/branches').BranchInfo = {
   lastCommitAuthor: 'Test',
   aheadOfMain: 0,
   behindOfMain: 0,
+  pushed: true,
 };
 
 function createParams(overrides?: Partial<UseBranchManagementParams>): UseBranchManagementParams {

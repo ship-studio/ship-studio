@@ -378,7 +378,15 @@ export function WorkspaceModals({
           projectPath={projectPath}
           branchName={showSubmitReview}
           baseBranches={branches
-            .filter((b) => b.isDefault || b.name === 'staging')
+            // Any branch can be a merge target except the PR's own source branch.
+            // Order default/staging first so they remain sensible defaults.
+            .filter((b) => b.name !== showSubmitReview)
+            .slice()
+            .sort(
+              (a, b) =>
+                Number(b.isDefault) - Number(a.isDefault) ||
+                Number(b.name === 'staging') - Number(a.name === 'staging')
+            )
             .map((b) => b.name)}
           aiAvailable={integrations.claude.cliStatus.installed}
           onSuccess={onSubmitReviewSuccess}

@@ -14,11 +14,17 @@ import {
   mergePullRequest,
   switchBranch,
   deleteBranch,
+  getDefaultBaseBranch,
 } from '../../lib/branches';
 import { generatePRDescription } from '../../lib/ai';
 import { commitChanges } from '../../lib/git';
 import { trackEvent, trackError } from '../../lib/analytics';
-import { asCommandError, formatCommandError, isMergeConflictError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  humanizeGitError,
+  isMergeConflictError,
+} from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
@@ -84,14 +90,26 @@ export function SubmitReviewModal({
 }: SubmitReviewModalProps) {
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
-  const [title, setTitle] = useState(formatBranchAsTitle(branchName));
-  const [description, setDescription] = useState('');
   const [baseBranch, setBaseBranch] = useState(baseBranches[0] || 'main');
+
+  // Default the merge target to the project's configured default base branch
+  // (e.g. "develop") when it's an available target, so teams merging into
+  // develop rather than main don't have to re-pick every time.
+  useEffect(() => {
+    void getDefaultBaseBranch(projectPath)
+      .then((configured) => {
+        if (configured && baseBranches.includes(configured)) {
+          setBaseBranch(configured);
+        }
+      })
+      .catch(() => {}); // Ignore; falls back to baseBranches[0]
+    // Only re-run when the target list identity changes for this project.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, baseBranches.join(',')]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [needsCommit, setNeedsCommit] = useState(false);
+  // Progress label shown on the submit button as it works through its steps.
+  const [progressLabel, setProgressLabel] = useState('Create Pull Request');
   const [error, setError] = useState<string | null>(null);
-  const [usedAiGeneration, setUsedAiGeneration] = useState(false);
   const [phase, setPhase] = useState<Phase>('edit');
   const [createdPr, setCreatedPr] = useState<{ url: string; number: number } | null>(null);
   const [isMerging, setIsMerging] = useState(false);
@@ -103,86 +121,51 @@ export function SubmitReviewModal({
     void trackEvent('submit_review_opened', { $screen_name: 'Workspace' });
   }, [branchName]);
 
-  const handleGenerate = async () => {
-    setIsGenerating(true);
-    setError(null);
-    setNeedsCommit(false);
-
-    try {
-      const result = await generatePRDescription(projectPath, baseBranch);
-      setTitle(result.title);
-      setDescription(result.description);
-      setUsedAiGeneration(true);
-      void trackEvent('ai_pr_description_generated', { $screen_name: 'Submit Review' });
-    } catch (e) {
-      const message = formatCommandError(asCommandError(e));
-      if (message.includes('No changes found')) {
-        setNeedsCommit(true);
-      } else {
-        trackError('ai_pr_generation', e, 'Submit Review');
-        setError(`AI generation failed: ${message}`);
-        onToast?.('Failed to generate PR description', 'error');
-      }
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleCommitAndGenerate = async () => {
-    setIsGenerating(true);
-    setError(null);
-    setNeedsCommit(false);
-
-    try {
-      const committed = await commitChanges(projectPath, 'Updates from Ship Studio');
-      if (!committed) {
-        setError('No changes to commit.');
-        setIsGenerating(false);
-        return;
-      }
-
-      const result = await generatePRDescription(projectPath, baseBranch);
-      setTitle(result.title);
-      setDescription(result.description);
-      setUsedAiGeneration(true);
-      void trackEvent('ai_pr_description_generated', {
-        committed_first: true,
-        $screen_name: 'Submit Review',
-      });
-    } catch (e) {
-      const message = formatCommandError(asCommandError(e));
-      trackError('ai_pr_commit_and_generate', e, 'Submit Review');
-      setError(`Failed: ${message}`);
-      onToast?.('Failed to generate PR description', 'error');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   const handleSubmit = async () => {
-    if (!title.trim()) {
-      setError('Title is required');
-      return;
-    }
-
     setIsSubmitting(true);
     setError(null);
 
-    const trimmedTitle = title.trim();
-    const trimmedDescription = description.trim();
+    let usedAi = false;
+    let prTitle = formatBranchAsTitle(branchName);
+    let prDescription = '';
 
     try {
+      // 1. Commit any pending changes so they land in the PR (best-effort; a
+      //    clean tree just returns false).
+      setProgressLabel('Saving your changes...');
+      try {
+        await commitChanges(projectPath, 'Updates from Ship Studio');
+      } catch (e) {
+        logger.warn('[SubmitReview] Auto-commit failed; continuing', { error: e });
+      }
+
+      // 2. Read the diff and write a title + summary. Falls back to a
+      //    branch-name title if AI isn't available or fails; never blocks the PR.
+      if (aiAvailable) {
+        setProgressLabel('Writing a summary of your changes...');
+        try {
+          const result = await generatePRDescription(projectPath, baseBranch);
+          if (result.title?.trim()) prTitle = result.title.trim();
+          prDescription = result.description ?? '';
+          usedAi = true;
+        } catch (e) {
+          logger.warn('[SubmitReview] AI summary failed; using branch-name title', { error: e });
+        }
+      }
+
+      // 3. Open the pull request.
+      setProgressLabel('Opening pull request...');
       const prUrl = await createPullRequest(
         projectPath,
-        trimmedTitle,
-        trimmedDescription || null,
+        prTitle,
+        prDescription || null,
         baseBranch
       );
       void trackEvent('pr_created', {
         base_branch: baseBranch,
-        used_ai: usedAiGeneration,
-        title_length: trimmedTitle.length,
-        description_length: trimmedDescription.length,
+        used_ai: usedAi,
+        title_length: prTitle.length,
+        description_length: prDescription.length,
         $screen_name: 'Workspace',
       });
       onSuccess(prUrl);
@@ -201,12 +184,12 @@ export function SubmitReviewModal({
         onClose();
       }
     } catch (e) {
-      const message = formatCommandError(asCommandError(e));
       trackError('pr_create', e, 'Submit Review');
-      setError(message);
+      setError(humanizeGitError(e, { branch: branchName, base: baseBranch }));
       onToast?.('Failed to create pull request', 'error');
     } finally {
       setIsSubmitting(false);
+      setProgressLabel('Create Pull Request');
     }
   };
 
@@ -230,9 +213,9 @@ export function SubmitReviewModal({
         setPhase('conflict');
         setError(null);
       } else {
-        const message = formatCommandError(asCommandError(e));
+        const message = humanizeGitError(e, { branch: branchName, base: baseBranch });
         setError(message);
-        onToast?.(`Failed to merge: ${message}`, 'error');
+        onToast?.(message, 'error');
       }
     } finally {
       setIsMerging(false);
@@ -291,7 +274,7 @@ export function SubmitReviewModal({
     }
   };
 
-  const isBusy = isSubmitting || isGenerating || isMerging || isCleaningUp;
+  const isBusy = isSubmitting || isMerging || isCleaningUp;
 
   if (phase === 'created' && createdPr) {
     return (
@@ -307,17 +290,14 @@ export function SubmitReviewModal({
             Your pull request was created. Want to merge <strong>{branchName}</strong> into{' '}
             <strong>{baseBranch}</strong> now?
           </p>
-          <a
+          <button
+            type="button"
             className="post-merge-link"
-            href={createdPr.url}
-            onClick={(e) => {
-              e.preventDefault();
-              void openUrl(createdPr.url);
-            }}
+            onClick={() => void openUrl(createdPr.url)}
           >
             <GitHubIcon size={14} />
             View on GitHub
-          </a>
+          </button>
           {error && <div className="submit-review-error">{error}</div>}
         </div>
         <div className="post-merge-footer">
@@ -350,8 +330,8 @@ export function SubmitReviewModal({
       >
         <div className="post-merge-body">
           <p>
-            <strong>{branchName}</strong> can't be cleanly merged into <strong>{baseBranch}</strong>{' '}
-            — the base branch has changes that conflict with yours.
+            <strong>{branchName}</strong> can't be cleanly merged into <strong>{baseBranch}</strong>
+            . The base branch has changes that conflict with yours.
           </p>
           <p className="submit-review-conflict-question">
             {canAskAgent
@@ -413,65 +393,10 @@ export function SubmitReviewModal({
       onClose={onClose}
       dismissable={!isBusy}
       className="submit-review-content"
-      title={
-        <div className="submit-review-title-row submit-review-title-row-spread">
-          <span>Submit for Review</span>
-          {aiAvailable && (
-            <button
-              className="submit-review-generate-btn"
-              onClick={() => void handleGenerate()}
-              disabled={isBusy}
-              title="Generate title and description from your code changes using AI"
-            >
-              {isGenerating ? (
-                <>
-                  <Spinner size="sm" />
-                  Generating with AI...
-                </>
-              ) : (
-                <>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.4V11h3a4 4 0 0 1 4 4v1a2 2 0 0 1-2 2h-1v2a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-2H5a2 2 0 0 1-2-2v-1a4 4 0 0 1 4-4h3V9.4A4 4 0 0 1 8 6a4 4 0 0 1 4-4z" />
-                  </svg>
-                  Generate with AI
-                </>
-              )}
-            </button>
-          )}
-        </div>
-      }
+      title="Submit for Review"
     >
       <>
         <div className="submit-review-body">
-          {needsCommit && (
-            <div className="submit-review-commit-prompt">
-              <p>Your changes need to be committed before AI can analyze them.</p>
-              <button
-                className="submit-review-commit-btn"
-                onClick={() => void handleCommitAndGenerate()}
-                disabled={isBusy}
-              >
-                {isGenerating ? (
-                  <>
-                    <Spinner size="sm" />
-                    Committing & generating...
-                  </>
-                ) : (
-                  'Commit & Generate'
-                )}
-              </button>
-            </div>
-          )}
-
           <div className="submit-review-field">
             <label className="submit-review-label">Branch</label>
             <div className="publish-branch-info">
@@ -495,51 +420,30 @@ export function SubmitReviewModal({
             </select>
           </div>
 
-          <div className="submit-review-field">
-            <label className="submit-review-label">Title</label>
-            <input
-              type="text"
-              className="submit-review-input"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What did you change?"
-              autoFocus
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              disabled={isGenerating}
-            />
-          </div>
-
-          <div className="submit-review-field">
-            <label className="submit-review-label">Description (optional)</label>
-            <textarea
-              className="submit-review-textarea"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add any additional context..."
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              disabled={isGenerating}
-            />
-          </div>
-
-          {error && <div className="submit-review-error">{error}</div>}
+          {error ? (
+            <div className="submit-review-error">{error}</div>
+          ) : (
+            <p className="submit-review-explainer">
+              When you create this, Ship Studio saves your changes, writes a short summary of them,
+              and opens a pull request into <strong>{baseBranch}</strong> for your team to review
+              and merge.
+            </p>
+          )}
         </div>
 
         <div className="submit-review-footer">
           <Button variant="secondary" onClick={onClose} disabled={isBusy}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            onClick={() => void handleSubmit()}
-            disabled={isBusy || !title.trim()}
-          >
-            {isSubmitting ? 'Creating...' : 'Create Pull Request'}
+          <Button variant="primary" onClick={() => void handleSubmit()} disabled={isBusy}>
+            {isSubmitting ? (
+              <>
+                <Spinner size="sm" />
+                {progressLabel}
+              </>
+            ) : (
+              'Create Pull Request'
+            )}
           </Button>
         </div>
       </>

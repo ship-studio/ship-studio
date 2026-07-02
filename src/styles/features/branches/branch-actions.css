@@ -362,6 +362,11 @@
   margin-top: var(--spacing-md);
   transition: color var(--transition);
   cursor: pointer;
+  /* Rendered as a <button> so external links can't navigate the app window. */
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
 }
 
 .post-merge-link:hover {
@@ -752,6 +757,29 @@ select.submit-review-input {
 
 .submit-review-textarea:focus {
   border-color: var(--info);
+}
+
+/* Plain-language "here's what happens" line above the submit button. */
+.submit-review-explainer {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* Same shape as the explainer, but flagged as an error. */
+.submit-review-error {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  background: rgba(var(--error-rgb), 0.1);
+  border: 1px solid rgba(var(--error-rgb), 0.3);
+  border-radius: var(--radius);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--error-light);
 }
 
 .submit-review-footer {

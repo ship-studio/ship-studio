@@ -236,6 +236,17 @@ pub struct ProjectMetadata {
     /// built-in "Default" account.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    /// Default base branch new branches are cut from and PRs merge into for this
+    /// project. Lets teams whose trunk is e.g. `develop` (with `main` reserved
+    /// for a formal release process) branch from and merge into the right place.
+    /// `None` = fall back to the repo's default branch (main/master).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_base_branch: Option<String>,
+    /// Records where each branch was cut from (branch name → base branch), set at
+    /// creation time. Powers the branch-graph visual's fork lineage; branches
+    /// created outside Ship Studio fall back to a `git merge-base` heuristic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_lineage: Option<std::collections::HashMap<String, String>>,
     /// Keys this app version doesn't know about, preserved verbatim across
     /// read-modify-write cycles — an older build must never silently drop
     /// fields written by a newer one.
@@ -268,6 +279,8 @@ impl Default for ProjectMetadata {
             assets_root: None,
             shopify_store: None,
             account_id: None,
+            default_base_branch: None,
+            branch_lineage: None,
             extra: serde_json::Map::new(),
         }
     }
@@ -418,6 +431,30 @@ pub struct BranchInfo {
     pub last_commit_author: String,
     pub ahead_of_main: i32,
     pub behind_main: i32,
+    /// True when this branch exists on the remote (`origin/<name>`), i.e. it has
+    /// been published to GitHub. False for local-only branches.
+    pub pushed: bool,
+}
+
+/// A node in the branch-graph visual: a branch plus the branch it was cut from.
+#[derive(Serialize)]
+pub struct BranchGraphNode {
+    pub name: String,
+    /// The branch this one was forked from (`None` for a root branch like main).
+    /// Resolved from recorded lineage, then a `git merge-base` heuristic, then
+    /// the project's default base branch.
+    pub base: Option<String>,
+    pub is_current: bool,
+    pub is_default: bool,
+    /// True when only a remote tracking ref exists locally (no local branch yet).
+    pub is_remote: bool,
+    /// Commits this branch is ahead of its `base` (0 when base is unknown).
+    pub ahead: i32,
+    /// Commits this branch is behind its `base` (0 when base is unknown).
+    pub behind: i32,
+    pub last_commit_date: u64,
+    /// True when this branch exists on the remote (published to GitHub).
+    pub pushed: bool,
 }
 
 /// Result of switching branches

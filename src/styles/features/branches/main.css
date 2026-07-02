@@ -77,6 +77,25 @@
   font-weight: 500;
 }
 
+/* Sync state: is this branch on GitHub or only local? */
+.branch-sync-badge {
+  font-size: var(--font-size-xs);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.branch-sync-badge.synced {
+  background: rgba(var(--action-rgb), 0.15);
+  color: var(--action);
+}
+
+.branch-sync-badge.local {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
 .branch-changes-dot {
   width: 6px;
   height: 6px;

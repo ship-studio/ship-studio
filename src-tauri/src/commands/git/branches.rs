@@ -71,6 +71,18 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut seen_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Names that have a remote-tracking ref (origin/<name>) — i.e. published to
+    // GitHub. Collected across all lines so a local branch knows whether its
+    // remote counterpart exists.
+    let mut remote_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for line in stdout.lines() {
+        let raw = line.split('|').next().unwrap_or("").trim();
+        if let Some(name) = raw.strip_prefix("origin/") {
+            if !name.is_empty() && name != "HEAD" {
+                remote_names.insert(name.to_string());
+            }
+        }
+    }
 
     // First pass: collect branch metadata without ahead/behind
     struct BranchData {
@@ -131,6 +143,9 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
         .into_iter()
         .map(|b| {
             let (ahead, behind) = ahead_behind.get(&b.name).copied().unwrap_or((0, 0));
+            // Published if it's a remote branch itself, or a local branch with a
+            // matching origin/<name> ref.
+            let pushed = b.is_remote || remote_names.contains(&b.name);
             BranchInfo {
                 is_default: b.name == "main" || b.name == "master",
                 name: b.name,
@@ -140,6 +155,7 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
                 last_commit_author: b.last_commit_author,
                 ahead_of_main: ahead,
                 behind_main: behind,
+                pushed,
             }
         })
         .collect();
@@ -400,6 +416,13 @@ pub async fn create_branch(
     let is_from_current =
         from_branch == current_branch || from_branch == format!("origin/{current_branch}");
 
+    // Capture the plain base name (strip any `origin/` prefix) before the checkout
+    // logic below moves `from_branch` — used to record fork lineage afterward.
+    let base_name = from_branch
+        .strip_prefix("origin/")
+        .unwrap_or(&from_branch)
+        .to_string();
+
     if is_from_current {
         // Create branch from current HEAD (preserves local changes)
         let output = create_command("git")
@@ -413,13 +436,34 @@ pub async fn create_branch(
             return Err((stderr.to_string()).into());
         }
     } else {
-        // Creating from a different branch - fetch and use origin
-        let _ = run_git_net(&["fetch", "origin"], &validated_path, "fetch origin").await;
+        // Creating from a branch other than the one checked out. Prefer a LOCAL
+        // branch of that name and only fall back to the remote-tracking ref when
+        // no local branch exists (e.g. a teammate's branch we've only fetched).
+        // The old code always used `origin/<name>`, which failed for local-only
+        // branches once users could branch from any branch (not just always-
+        // pushed main): `origin/<name> is not a commit`.
+        let plain = from_branch
+            .strip_prefix("origin/")
+            .unwrap_or(&from_branch)
+            .to_string();
+        let explicit_remote = from_branch.starts_with("origin/");
 
-        let base_ref = if from_branch.starts_with("origin/") {
-            from_branch
+        let local_exists = !explicit_remote
+            && create_command("git")
+                .args(["show-ref", "--verify", "--quiet"])
+                .arg(format!("refs/heads/{plain}"))
+                .current_dir(&validated_path)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+        let base_ref = if local_exists {
+            // Branch off the local tip; no network needed (may be unpushed).
+            plain.clone()
         } else {
-            format!("origin/{from_branch}")
+            // Only the remote has it — fetch, then use the tracking ref.
+            let _ = run_git_net(&["fetch", "origin"], &validated_path, "fetch origin").await;
+            format!("origin/{plain}")
         };
 
         let output = create_command("git")
@@ -435,6 +479,17 @@ pub async fn create_branch(
         }
     }
 
+    // Record where this branch was cut from so the branch-graph visual can draw
+    // its fork lineage.
+    let mut metadata = load_project_metadata(&validated_path);
+    metadata
+        .branch_lineage
+        .get_or_insert_with(std::collections::HashMap::new)
+        .insert(branch_name.clone(), base_name);
+    if let Err(e) = save_project_metadata(&validated_path, &metadata) {
+        warn!(error = %e, "Failed to persist branch lineage");
+    }
+
     // Invalidate branch cache after creating a new branch
     GIT_CACHE.invalidate(&project_path);
     if let Ok(mut map) = LAST_FETCH.lock() {
@@ -442,6 +497,50 @@ pub async fn create_branch(
     }
 
     info!("Branch created successfully");
+    Ok(())
+}
+
+/// Publish a single branch to GitHub without opening a PR: `git push -u origin
+/// <branch>`. Pushes the named local branch (which need not be checked out) and
+/// sets its upstream. Used by the per-branch "Publish" action.
+#[tauri::command]
+#[instrument(name = "push_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
+pub async fn push_branch(project_path: String, branch_name: String) -> Result<(), CommandError> {
+    let validated_path = validate_project_path(&project_path)?;
+
+    // Reject names git couldn't safely take as a ref argument.
+    if branch_name.is_empty()
+        || branch_name.contains(' ')
+        || branch_name.contains("..")
+        || branch_name.starts_with('-')
+    {
+        return Err(("Invalid branch name".to_string()).into());
+    }
+
+    info!("Publishing branch to GitHub");
+    let output = run_git_net(
+        &["push", "-u", "origin", &branch_name],
+        &validated_path,
+        "push branch",
+    )
+    .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // An already-published, unchanged branch is a success, not an error.
+        if !stderr.contains("Everything up-to-date") {
+            error!(error = %stderr, "Failed to publish branch");
+            return Err((stderr.to_string()).into());
+        }
+    }
+
+    // Branch now has a remote counterpart — refresh cached branch data.
+    GIT_CACHE.invalidate(&project_path);
+    if let Ok(mut map) = LAST_FETCH.lock() {
+        map.remove(&project_path);
+    }
+
+    info!("Branch published successfully");
     Ok(())
 }
 

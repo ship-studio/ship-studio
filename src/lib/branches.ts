@@ -31,6 +31,8 @@ export interface BranchInfo {
   aheadOfMain: number;
   /** Number of commits behind main */
   behindOfMain: number;
+  /** Whether the branch exists on GitHub (origin/<name>) vs local-only */
+  pushed: boolean;
 }
 
 /** Result of switching branches */
@@ -71,6 +73,7 @@ export async function listBranches(projectPath: string): Promise<BranchInfo[]> {
       last_commit_author: string;
       ahead_of_main: number;
       behind_main: number;
+      pushed: boolean;
     }>
   >('list_branches', { projectPath });
 
@@ -84,6 +87,7 @@ export async function listBranches(projectPath: string): Promise<BranchInfo[]> {
     lastCommitAuthor: b.last_commit_author,
     aheadOfMain: b.ahead_of_main,
     behindOfMain: b.behind_main,
+    pushed: b.pushed,
   }));
 }
 
@@ -138,7 +142,7 @@ export async function discardChanges(projectPath: string): Promise<void> {
  * Create a new branch from a base branch.
  * @param projectPath - Absolute path to the project directory
  * @param branchName - Name for the new branch
- * @param fromBranch - Base branch to create from (e.g., "main")
+ * @param fromBranch - Base branch to create from (e.g., "main" or "develop")
  */
 export async function createBranch(
   projectPath: string,
@@ -146,6 +150,93 @@ export async function createBranch(
   fromBranch: string
 ): Promise<void> {
   return invoke('create_branch', { projectPath, branchName, fromBranch });
+}
+
+/** A branch and its fork parent, for the branch-graph visual. */
+export interface BranchGraphNode {
+  /** Branch name (without origin/ prefix) */
+  name: string;
+  /** Branch this one was forked from; null for a root branch (e.g. main). */
+  base: string | null;
+  /** Whether this is the currently checked out branch */
+  isCurrent: boolean;
+  /** Whether this is the project's default/base branch */
+  isDefault: boolean;
+  /** Whether this branch only exists on remote */
+  isRemote: boolean;
+  /** Commits this branch is ahead of its base */
+  ahead: number;
+  /** Commits this branch is behind its base */
+  behind: number;
+  /** Unix timestamp (ms) of last commit */
+  lastCommitDate: number;
+  /** Whether the branch exists on GitHub (origin/<name>) vs local-only */
+  pushed: boolean;
+}
+
+/**
+ * Build the branch-graph node list (branches + fork lineage + ahead/behind).
+ * Local git only — no network. PR arrows are overlaid by the caller from its
+ * existing (workspace-scoped) open-PR list.
+ * @param projectPath - Absolute path to the project directory
+ */
+export async function getBranchGraph(projectPath: string): Promise<BranchGraphNode[]> {
+  const result = await invoke<
+    Array<{
+      name: string;
+      base: string | null;
+      is_current: boolean;
+      is_default: boolean;
+      is_remote: boolean;
+      ahead: number;
+      behind: number;
+      last_commit_date: number;
+      pushed: boolean;
+    }>
+  >('get_branch_graph', { projectPath });
+
+  return result.map((n) => ({
+    name: n.name,
+    base: n.base,
+    isCurrent: n.is_current,
+    isDefault: n.is_default,
+    isRemote: n.is_remote,
+    ahead: n.ahead,
+    behind: n.behind,
+    lastCommitDate: n.last_commit_date,
+    pushed: n.pushed,
+  }));
+}
+
+/**
+ * Publish a single branch to GitHub without opening a PR (`git push -u origin`).
+ * @param projectPath - Absolute path to the project directory
+ * @param branchName - Local branch to push
+ */
+export async function pushBranch(projectPath: string, branchName: string): Promise<void> {
+  return invoke('push_branch', { projectPath, branchName });
+}
+
+/**
+ * Get the project's default base branch — the branch new branches are cut from
+ * and PRs merge into by default. Falls back to the repo's conventional default
+ * (main/master) when unset. May be null if none can be determined.
+ * @param projectPath - Absolute path to the project directory
+ */
+export async function getDefaultBaseBranch(projectPath: string): Promise<string | null> {
+  return invoke<string | null>('get_default_base_branch', { projectPath });
+}
+
+/**
+ * Set (or clear, with null) the project's default base branch.
+ * @param projectPath - Absolute path to the project directory
+ * @param branch - Branch name, or null to clear back to the repo default
+ */
+export async function setDefaultBaseBranch(
+  projectPath: string,
+  branch: string | null
+): Promise<void> {
+  return invoke('set_default_base_branch', { projectPath, branch });
 }
 
 /**

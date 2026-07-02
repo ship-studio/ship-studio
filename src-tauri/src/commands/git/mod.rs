@@ -9,11 +9,13 @@
 //! - `stash` — stash management, backups, restore
 
 mod branches;
+mod graph;
 mod stash;
 mod status;
 mod sync;
 
 pub use branches::*;
+pub use graph::*;
 pub use stash::*;
 pub use status::*;
 pub use sync::*;

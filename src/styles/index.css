@@ -52,6 +52,7 @@
 @import './features/branches/main.css';
 @import './features/branches/pr-list.css';
 @import './features/branches/branch-actions.css';
+@import './features/branches/branch-graph.css';
 @import './features/conflicts.css';
 @import './features/health.css';
 @import './features/health-tab.css';

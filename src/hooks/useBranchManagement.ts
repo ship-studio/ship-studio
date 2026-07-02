@@ -150,6 +150,30 @@ export function useBranchManagement({
     return () => document.removeEventListener('visibilitychange', handler);
   }, []);
 
+  // Refresh the full branch list when the window/tab regains focus, so git
+  // changes made outside the app (returning from a browser, GitHub, another
+  // app) show up without a manual refresh. Throttled to avoid spamming on rapid
+  // focus/blur. (Same-window changes, e.g. the agent terminal, don't fire focus
+  // — the graph's refresh button covers those.)
+  const lastFocusRefresh = useRef(0);
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      if (document.hidden) return;
+      const path = currentProject?.path;
+      if (!path) return;
+      const now = Date.now();
+      if (now - lastFocusRefresh.current < 3000) return;
+      lastFocusRefresh.current = now;
+      void fetchBranchInfo(path);
+    };
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnFocus);
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnFocus);
+    };
+  }, [currentProject, fetchBranchInfo]);
+
   // Periodically check git status when a project is open and window is focused
   const projectPath = currentProject?.path ?? null;
   usePolling(

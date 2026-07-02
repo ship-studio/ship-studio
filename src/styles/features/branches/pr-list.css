@@ -39,8 +39,8 @@
 
 .branches-new-branch-btn:hover {
   background: var(--bg-tertiary);
-  border-color: var(--info);
-  color: var(--info);
+  border-color: var(--action);
+  color: var(--action);
 }
 
 .branches-new-branch-form {
@@ -61,7 +61,7 @@
 }
 
 .branches-new-branch-input-wrapper:focus-within {
-  border-color: var(--info);
+  border-color: var(--action);
 }
 
 .branches-new-branch-prefix {
@@ -91,6 +91,37 @@
   color: var(--text-muted);
 }
 
+.branches-new-branch-base {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: var(--font-size-base);
+  color: var(--text-muted);
+}
+
+.branches-new-branch-base-label {
+  white-space: nowrap;
+  user-select: none;
+}
+
+.branches-new-branch-base-select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  outline: none;
+}
+
+.branches-new-branch-base-select:focus {
+  border-color: var(--action);
+}
+
 .branches-new-branch-footer {
   display: flex;
   justify-content: space-between;
@@ -112,7 +143,7 @@
   height: 14px;
   margin: 0;
   cursor: pointer;
-  accent-color: var(--info);
+  accent-color: var(--action);
 }
 
 .branches-new-branch-checkbox:hover {
@@ -142,8 +173,21 @@
 }
 
 .branch-card.current {
-  border-color: var(--info);
-  background: rgba(var(--info-rgb), 0.05);
+  border-color: var(--action);
+  background: rgba(var(--action-rgb), 0.05);
+}
+
+/* Non-current cards switch to their branch when clicked. */
+.branch-card.clickable {
+  cursor: pointer;
+  transition:
+    border-color var(--transition),
+    background var(--transition);
+}
+
+.branch-card.clickable:hover {
+  border-color: var(--action);
+  background: rgba(var(--action-rgb), 0.05);
 }
 
 .branch-card-info {
@@ -177,7 +221,7 @@
 
 .branch-card-current-label {
   font-size: var(--font-size-sm);
-  color: var(--info);
+  color: var(--action);
   font-weight: 500;
 }
 
@@ -202,8 +246,8 @@
 }
 
 .branch-card-badge.ahead {
-  background: rgba(var(--info-rgb), 0.1);
-  color: var(--info);
+  background: rgba(var(--action-rgb), 0.1);
+  color: var(--action);
 }
 
 .branch-card-badge.behind {
@@ -213,8 +257,39 @@
 
 .branch-card-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+/* Grey trashcan delete — quiet by default, turns danger-red on hover. */
+.branch-card-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition),
+    border-color var(--transition);
+}
+
+.branch-card-delete-btn:hover:not(:disabled) {
+  color: var(--error);
+  background: rgba(var(--error-rgb), 0.1);
+  border-color: rgba(var(--error-rgb), 0.3);
+}
+
+.branch-card-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* Text actions on branch/PR cards now use the <Button> primitive; this class

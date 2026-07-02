@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { SearchIcon } from '../icons';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Spinner } from '../primitives/Spinner';
@@ -438,11 +439,10 @@ export function SkillsModal({
           <span className="skills-footer-hint">
             Press <span className="help-shortcut">Esc</span> to close
           </span>
-          <a
-            href="https://skills.sh"
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
             className="skills-footer-link"
+            onClick={() => void openUrl('https://skills.sh')}
           >
             <svg
               width={10}
@@ -454,7 +454,7 @@ export function SkillsModal({
               <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
             </svg>
             Powered by skills.sh
-          </a>
+          </button>
         </div>
       </>
     </ModalFrame>

@@ -35,6 +35,8 @@ export interface BranchPRTabContainerProps {
   fetchBranchInfo: (projectPath: string) => Promise<void>;
   handleResolveConflicts: (headBranch?: string, baseBranch?: string) => Promise<void>;
   handleGitHubConnect: () => void;
+  /** Paste a prompt into the agent terminal (for merge-conflict hand-off). */
+  onSendToAgent: (prompt: string) => void;
 }
 
 export function BranchPRTabContainer({
@@ -53,6 +55,7 @@ export function BranchPRTabContainer({
   fetchBranchInfo,
   handleResolveConflicts,
   handleGitHubConnect,
+  onSendToAgent,
 }: BranchPRTabContainerProps) {
   const showBranchesPane =
     workspaceTab === 'branches' ||
@@ -76,6 +79,7 @@ export function BranchPRTabContainer({
             onSubmitForReview={(branchName) => setShowSubmitReview(branchName)}
             onViewPR={() => setWorkspaceTab('prs')}
             onRefresh={() => void fetchBranchInfo(projectPath)}
+            onSendToAgent={onSendToAgent}
           />
         ) : (
           <div style={{ position: 'relative', flex: 1 }}>

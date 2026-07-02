@@ -510,6 +510,12 @@
   color: var(--text-muted);
   text-decoration: none;
   transition: color var(--transition);
+  /* Rendered as a <button> so the link opens the system browser, not in-app. */
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 .skills-footer-link:hover {

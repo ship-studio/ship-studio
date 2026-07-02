@@ -17,12 +17,13 @@ vi.mock('../../lib/branches', () => ({
   mergePullRequest: vi.fn(),
   switchBranch: vi.fn(),
   deleteBranch: vi.fn(),
+  getDefaultBaseBranch: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('../../lib/ai', () => ({ generatePRDescription: vi.fn() }));
 vi.mock('../../lib/git', () => ({ commitChanges: vi.fn() }));
 vi.mock('../../lib/analytics', () => ({ trackEvent: vi.fn(), trackError: vi.fn() }));
 
-import { createPullRequest } from '../../lib/branches';
+import { createPullRequest, getDefaultBaseBranch } from '../../lib/branches';
 
 describe('SubmitReviewModal — PR create error display', () => {
   const props = {
@@ -36,6 +37,8 @@ describe('SubmitReviewModal — PR create error display', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default-base lookup runs on mount; keep it resolved so the effect no-ops.
+    vi.mocked(getDefaultBaseBranch).mockResolvedValue(null);
   });
 
   it('renders a formatted CommandError, never "[object Object]"', async () => {
@@ -51,11 +54,9 @@ describe('SubmitReviewModal — PR create error display', () => {
     render(<SubmitReviewModal {...props} />);
     fireEvent.click(screen.getByRole('button', { name: /create pull request/i }));
 
-    // The real stderr is surfaced…
-    expect(
-      await screen.findByText(/a pull request for branch .* already exists/i)
-    ).toBeInTheDocument();
-    // …and the old broken output is gone.
+    // A readable, humanized message is surfaced (existing PR case)...
+    expect(await screen.findByText(/already an open pull request/i)).toBeInTheDocument();
+    // ...and the old broken output is gone.
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
   });
 
@@ -65,7 +66,8 @@ describe('SubmitReviewModal — PR create error display', () => {
     render(<SubmitReviewModal {...props} />);
     fireEvent.click(screen.getByRole('button', { name: /create pull request/i }));
 
-    expect(await screen.findByText(/gh: not authenticated/i)).toBeInTheDocument();
+    // Humanized auth message, never "[object Object]".
+    expect(await screen.findByText(/didn't accept the connection/i)).toBeInTheDocument();
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument();
   });
 });

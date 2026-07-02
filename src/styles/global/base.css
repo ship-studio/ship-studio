@@ -84,6 +84,7 @@
    * Keep each in sync with its solid token above. */
   --success-rgb: 78, 205, 196;
   --success-light-rgb: 34, 197, 94;
+  --action-rgb: 84, 227, 110;
   --warning-rgb: 245, 158, 11;
   --warning-light-rgb: 251, 191, 36;
   --error-rgb: 244, 71, 71;
