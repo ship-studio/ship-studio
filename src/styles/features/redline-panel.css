@@ -1,0 +1,212 @@
+/* Redline row styles — the numbered-change-request row, badge, inline label
+   editor, and source line. These classes are consumed by RequestChangeSection,
+   the "Request a change" section rendered inside the visual editor panel body
+   (.ss-edit-panel). The `ss-redline-panel__*` prefix is the shared row
+   vocabulary for a pending change-request row. */
+
+/* Fixed marker/icon dimensions for the redline rows — component sizes (not values
+   on the spacing scale), tokenized per the feature-local-token convention so the
+   stylesheet stays literal-free. */
+:root {
+  --rl-badge-size: 18px;
+  --rl-action-size: 22px;
+  --rl-action-gap: 2px;
+}
+
+.ss-redline-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+/* ── Row ─────────────────────────────────────────────────────────────────── */
+.ss-redline-panel__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+.ss-redline-panel__row:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+
+/* Numbered marker badge — mirrors the burned-in screenshot markers. */
+.ss-redline-panel__badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--rl-badge-size);
+  height: var(--rl-badge-size);
+  margin-top: 1px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--action-text);
+  background: var(--accent);
+  border-radius: 50%;
+}
+/* Text edits get the action hue so they read as a different kind of request. */
+.ss-redline-panel__badge--text {
+  color: var(--action-text);
+  background: var(--action);
+}
+
+.ss-redline-panel__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  cursor: pointer;
+  text-align: left;
+}
+.ss-redline-panel__main:focus-visible {
+  outline: none;
+}
+
+/* Inline label editor (free-form change requests). */
+.ss-redline-panel__label {
+  display: block;
+  width: 100%;
+  padding: 0;
+  font-size: var(--font-size-md);
+  text-align: left;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: text;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.ss-redline-panel__label:hover {
+  background: none;
+  color: var(--text-bright);
+}
+.ss-redline-panel__label--empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ss-redline-panel__label-input {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--action);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+.ss-redline-panel__label-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Text-edit old → new pair. */
+.ss-redline-panel__textedit {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-base);
+}
+.ss-redline-panel__text-old {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.ss-redline-panel__text-arrow {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+.ss-redline-panel__text-new {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+/* Source line. */
+.ss-redline-panel__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs) var(--spacing-sm);
+}
+.ss-redline-panel__source {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* Row actions — icon-only ≤28px chrome (raw <button> is allowed here). */
+.ss-redline-panel__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--rl-action-gap);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.ss-redline-panel__row:hover .ss-redline-panel__actions,
+.ss-redline-panel__row:focus-within .ss-redline-panel__actions {
+  opacity: 1;
+}
+.ss-redline-panel__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--rl-action-size);
+  height: var(--rl-action-size);
+  padding: 0;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition);
+}
+.ss-redline-panel__action:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+.ss-redline-panel__action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ss-redline-panel__action--delete:hover:not(:disabled) {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+
+/* Discard is the primary per-row affordance in the request list, so unlike the
+   hover-revealed default it stays visible. (The only surviving class from the
+   retired commit tray — kept because RequestChangeSection's row uses it.) */
+.ss-commit-tray__row-actions {
+  opacity: 1;
+}
+
+/* "N requests on this element" chip under the Request-a-change textarea. */
+.ss-redline-request-chip {
+  align-self: flex-start;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}

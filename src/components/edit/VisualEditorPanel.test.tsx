@@ -8,9 +8,24 @@ import {
   type UsageReport,
 } from '../../lib/edit';
 import type { Selection } from '../../hooks/useVisualEditor';
+import type { RedlineLocator } from '../../lib/redline';
 
 const BREAKPOINTS: Breakpoint[] = [BASE_BREAKPOINT, ...DEFAULT_BREAKPOINTS];
 const MD = BREAKPOINTS.find((b) => b.name === 'md')!;
+
+/** A neutral locator — every Selection now carries one from the ss:select
+ *  payload. Fields don't matter for the panel's render, only that it type-checks. */
+const LOCATOR: RedlineLocator = {
+  tag: 'div',
+  id: null,
+  classList: [],
+  role: null,
+  ariaLabel: null,
+  textSnippet: null,
+  dataAttributes: {},
+  ancestorClasses: [],
+  nearbyLandmark: null,
+};
 
 const resolvedSelection: Selection = {
   signature: { className: 'p-3', tagName: 'div', ancestorClasses: [] },
@@ -23,6 +38,7 @@ const resolvedSelection: Selection = {
     confidence: 'unique',
   },
   instanceCount: 1,
+  locator: LOCATOR,
 };
 
 function renderPanel(
@@ -81,6 +97,7 @@ const multiSelection: Selection = {
     ],
   },
   instanceCount: 2,
+  locator: LOCATOR,
 };
 
 describe('VisualEditorPanel', () => {
@@ -111,6 +128,7 @@ describe('VisualEditorPanel', () => {
       signature: { className: 'x', tagName: 'div', ancestorClasses: [] },
       resolution: { status: 'read_only', reason: 'Dynamic classes.' },
       instanceCount: 1,
+      locator: LOCATOR,
     });
     expect(screen.getByText('Dynamic classes.')).toBeInTheDocument();
     expect(screen.queryByTestId('spacing-box')).not.toBeInTheDocument();
@@ -492,6 +510,7 @@ describe('VisualEditorPanel', () => {
       reason: 'These classes aren’t a static string in source (dynamic or generated).',
     },
     instanceCount: 1,
+    locator: LOCATOR,
   };
 
   it('shows the Image section with Replace for a resolved image src', () => {

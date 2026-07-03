@@ -45,6 +45,10 @@ import type {
 } from '../../lib/edit';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import type { Selection } from '../../hooks/useVisualEditor';
+import { RequestChangeSection } from './RequestChangeSection';
+import type { RedlineAnnotation } from '../../lib/redline';
+
+const NOOP = () => {};
 
 const SLACK_INVITE_URL =
   'https://join.slack.com/t/shipstudiocommunity/shared_invite/zt-41vbyaoo0-_pZWNPyMdvMoF6neuDYw7g';
@@ -300,6 +304,24 @@ interface Props {
    *  floating over the canvas. Positioning comes from the container's grid. */
   pinned?: boolean;
   onTogglePin?: () => void;
+  /** ── Redline change-requests ──────────────────────────────────────────────
+   *  The "Request a change" section captures free-form notes against the current
+   *  selection and ships them to the agent as one batch. All optional so the
+   *  panel renders standalone (e.g. in tests) without the redline wiring. */
+  /** Record a change request for the current selection. */
+  onAddRequest?: (label: string) => void;
+  /** Every change request captured so far, awaiting the batched send. */
+  pendingRequests?: RedlineAnnotation[];
+  /** Commit a new label for a request row. */
+  onEditRequestLabel?: (id: string, text: string) => void;
+  /** Drop one change request (removes its badge in the preview). */
+  onDiscardRequest?: (id: string) => void;
+  /** Scroll/flash the request's badge in the preview. */
+  onFocusRequest?: (id: string) => void;
+  /** Ship every pending request to the agent (screenshot + markdown). */
+  onSendRequests?: () => void;
+  /** True while the send is in flight — disables the action. */
+  sending?: boolean;
 }
 
 const PANEL_WIDTH = 264;
@@ -345,6 +367,13 @@ export function VisualEditorPanel({
   onClose,
   pinned = false,
   onTogglePin,
+  onAddRequest = NOOP,
+  pendingRequests = [],
+  onEditRequestLabel = NOOP,
+  onDiscardRequest = NOOP,
+  onFocusRequest = NOOP,
+  onSendRequests = NOOP,
+  sending = false,
 }: Props) {
   const resolution = selection?.resolution ?? null;
   // Images get an Image section (current asset + Replace) on top of style controls.
@@ -551,6 +580,22 @@ export function VisualEditorPanel({
             onReplace={onReplaceImage}
           />
         )}
+
+        {/* Request a change — a self-contained requests manager, shown for the
+            whole edit mode (NOT gated on a selection). The direct style/text/image
+            controls cover what the editor can write itself; this captures
+            everything else as free-form notes and ships them to the agent on its
+            own "Send" button. `canAdd` gates the add-box on a live selection. */}
+        <RequestChangeSection
+          onAddRequest={onAddRequest}
+          canAdd={!!selection}
+          pendingRequests={pendingRequests}
+          onEditRequestLabel={onEditRequestLabel}
+          onDiscardRequest={onDiscardRequest}
+          onFocusRequest={onFocusRequest}
+          onSendRequests={onSendRequests}
+          sending={sending}
+        />
 
         {controlsVisible && (
           <>

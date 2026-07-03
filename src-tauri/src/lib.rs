@@ -467,6 +467,7 @@ pub fn run() {
             commands::ide::upload_project_thumbnail,
             commands::ide::get_screenshot_base64,
             commands::ide::crop_and_save_screenshot,
+            commands::ide::crop_screenshot_bytes,
             commands::ide::compare_screenshots,
             commands::ide::stitch_screenshots,
             // Analytics
@@ -565,6 +566,9 @@ pub fn run() {
             commands::pull_requests::merge_pull_request,
             commands::pull_requests::checkout_pull_request,
             commands::pull_requests::close_pull_request,
+            // Redline change requests
+            commands::redline::write_redline_export,
+            commands::redline::install_redline_command,
             // Merge conflict resolution
             commands::conflicts::get_conflict_info,
             commands::conflicts::resolve_conflict,

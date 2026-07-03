@@ -125,6 +125,47 @@ export function usePreviewCapture({
     [projectPath, captureWindowScreenshot, isCapturing]
   );
 
+  // Capture the current viewport (iframe bounds) and return the cropped PNG as bytes.
+  // Mirrors captureForClaude's window-screenshot + iframe-rect math (DPR + macOS
+  // title-bar offset), but invokes crop_screenshot_bytes — which crops in memory and
+  // returns the PNG as a Vec<u8> (serialized to a JS number[]) instead of saving a file.
+  // No projectPath is needed because nothing is written to disk. Used by the redline
+  // export to embed a real screenshot of the preview (with its numbered badges).
+  const captureViewportBytes = useCallback(async (): Promise<number[] | null> => {
+    if (isCapturing) {
+      return null;
+    }
+
+    setIsCapturing(true);
+    try {
+      if (!iframeWrapperRef.current) return null;
+
+      const tempPath = await captureWindowScreenshot();
+      if (!tempPath) return null;
+
+      const rect = iframeWrapperRef.current.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      // Account for macOS title bar in window screenshot
+      const TITLE_BAR_HEIGHT = 31;
+
+      const bytes = await invoke<number[]>('crop_screenshot_bytes', {
+        sourcePath: tempPath,
+        x: Math.round(rect.left * dpr),
+        y: Math.round((rect.top + TITLE_BAR_HEIGHT) * dpr),
+        width: Math.round(rect.width * dpr),
+        height: Math.round(rect.height * dpr),
+      });
+      return bytes;
+    } catch (error) {
+      logger.error('[Preview] Viewport bytes capture failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    } finally {
+      setIsCapturing(false);
+    }
+  }, [captureWindowScreenshot, isCapturing]);
+
   // Full-page capture using Playwright (scrolls page to trigger lazy content, then captures)
   // Uses currentPage (tracked via proxy) so it captures the actual visible page,
   // even if the user navigated via in-iframe links.
@@ -300,6 +341,7 @@ export function usePreviewCapture({
   return {
     isCapturing,
     captureForClaude,
+    captureViewportBytes,
     captureFullPage,
     selectionStart,
     selectionEnd,

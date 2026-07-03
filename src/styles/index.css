@@ -28,6 +28,7 @@
 @import './features/visual-editor-image.css';
 @import './features/visual-editor-classes.css';
 @import './features/visual-editor-css-mode.css';
+@import './features/redline-panel.css';
 @import './features/css-cascade.css';
 @import './features/css-globals.css';
 @import './features/css-predict.css';

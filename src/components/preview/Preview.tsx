@@ -40,6 +40,8 @@ import { BrowserTools } from './BrowserTools';
 import { HealthTabPanel, type HealthTabPanelRef } from '../code/HealthTabPanel';
 import { BrowserDropdown } from './BrowserDropdown';
 import { useVisualEditor } from '../../hooks/useVisualEditor';
+import { useRedline } from '../../hooks/useRedline';
+import { useRedlineCommands } from '../../commands/useRedlineCommands';
 import { useTextEditing } from '../../hooks/useTextEditing';
 import { useCssCascadeEditor } from '../../hooks/useCssCascadeEditor';
 import { useElementSettings } from '../../hooks/useElementSettings';
@@ -572,6 +574,79 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     activeBreakpoint,
     breakpoints,
     onToast,
+  });
+
+  // Change requests for the selected element (the "Request a change" half of the
+  // edit mode). HOST-driven: this hook doesn't activate an in-iframe overlay — it
+  // owns the request queue + export and posts numbered badges. Tied to the same
+  // edit-mode flag as direct edits, so one toggle drives both. A clean absolute URL
+  // for the current page (no cache-buster query) drives the export slug and the
+  // recorded URL; the route doubles as the human page title.
+  const redlinePageUrl = `${conn.baseUrl}${conn.currentPage === '/' ? '' : conn.currentPage}`;
+  const redline = useRedline({
+    iframeRef,
+    enabled: editor.editMode,
+    projectPath,
+    pageUrl: redlinePageUrl,
+    pageTitle: conn.currentPage,
+    onSendToClaude: onSendToClaude ?? (() => {}),
+    // Real screenshot of the preview (with the numbered badges, which are live
+    // DOM in the iframe) embedded in the .redline export. Mirrors the viewport
+    // crop math but returns the PNG as bytes instead of writing a file.
+    captureRedlinePng: capture.captureViewportBytes,
+    showToast: onToast,
+  });
+
+  // Re-entry guard against a rapid second click or a Cmd+K trigger while a send
+  // is in flight, so requests can't double-send.
+  const sendingRef = useRef(false);
+  // onSendRequests: ship every pending request to the agent. sendToAgent
+  // self-captures the screenshot, writes the per-project .redline export, and
+  // self-clears the queue (+ on-page badges) on success — so this is just a
+  // guarded await. Its own `redline.sending` flag drives the section's button.
+  const onSendRequests = useCallback(async () => {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    try {
+      await redline.sendToAgent();
+    } catch (e) {
+      onToast(String(e), 'error');
+    } finally {
+      sendingRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onToast is recreated each render; redline.sendToAgent is stable
+  }, [redline.sendToAgent]);
+
+  // Record a change request for the currently-selected element. Maps the editor's
+  // resolution to the redline source location (resolved ⇒ {file,line,column} +
+  // confidence; otherwise null so the agent relocates it from the locator). Guarded
+  // against a null selection by the caller (the Add button only shows for a selection).
+  const onAddRequest = useCallback(
+    (label: string) => {
+      const sel = editor.selection;
+      if (!sel) return;
+      const res = sel.resolution;
+      const resolvedLocation =
+        res?.status === 'resolved' ? { file: res.file, line: res.line, column: res.column } : null;
+      redline.addRequestForSelection({
+        signature: sel.signature,
+        locator: sel.locator,
+        resolvedLocation,
+        confidence: res?.status === 'resolved' ? res.confidence : undefined,
+        rect: sel.signature.rect ?? { top: 0, left: 0, width: 0, height: 0 },
+        label,
+      });
+    },
+    [editor.selection, redline]
+  );
+
+  useRedlineCommands({
+    toggleEditMode: editor.toggleEditMode,
+    sendRequests: () => {
+      void onSendRequests();
+    },
+    editMode: editor.editMode,
+    hasRequests: redline.requests.length > 0,
   });
 
   // Code-first CSS editor — a SEPARATE feature for vanilla-CSS projects (Astro
@@ -1333,6 +1408,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onClose={editor.toggleEditMode}
               pinned={editorPinned}
               onTogglePin={toggleEditorPinned}
+              onAddRequest={onAddRequest}
+              pendingRequests={redline.requests}
+              onDiscardRequest={redline.remove}
+              onFocusRequest={redline.focus}
+              onEditRequestLabel={redline.updateLabel}
+              onSendRequests={() => void onSendRequests()}
+              sending={redline.sending}
             />
           );
           // Pinned: wrap in a relative "dock" grid cell and absolutely-position

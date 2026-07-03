@@ -73,6 +73,7 @@ import {
   classifyApplyTokens,
   type CustomClass,
 } from '../lib/customClasses';
+import type { RedlineLocator } from '../lib/redline';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
@@ -121,7 +122,25 @@ export interface Selection {
   /** How many elements on the page share these exact classes (same source ⇒ a
    *  save updates all of them). 1 for a unique element. */
   instanceCount: number;
+  /** Redundant DOM locator from the `ss:select` payload — the redline
+   *  change-request feature reads this when capturing a request for the
+   *  current selection. */
+  locator: RedlineLocator;
 }
+
+/** A neutral locator for the rare case the iframe omits one (defensive — the
+ *  `ss:select` payload always carries it once the select script is up to date). */
+const EMPTY_LOCATOR: RedlineLocator = {
+  tag: '',
+  id: null,
+  classList: [],
+  role: null,
+  ariaLabel: null,
+  textSnippet: null,
+  dataAttributes: {},
+  ancestorClasses: [],
+  nearbyLandmark: null,
+};
 
 export function useVisualEditor({
   iframeRef,
@@ -313,6 +332,8 @@ export function useVisualEditor({
         signature?: ElementSignature;
         count?: number;
         leafText?: boolean;
+        text?: string;
+        locator?: RedlineLocator;
       } | null;
       if (!d) return;
 
@@ -322,8 +343,9 @@ export function useVisualEditor({
       const sig = d.signature;
       const instanceCount = d.count ?? 1;
       const leafText = !!d.leafText;
+      const locator = d.locator ?? EMPTY_LOCATOR;
       selectedSigRef.current = sig;
-      setSelection({ signature: sig, resolution: null, instanceCount });
+      setSelection({ signature: sig, resolution: null, instanceCount, locator });
       setLiveClass(sig.className);
       // Engagement: an element was selected for editing. `tagName` is a plain
       // HTML tag (no PII); className is deliberately NOT sent.
@@ -342,7 +364,7 @@ export function useVisualEditor({
       void (async () => {
         try {
           const resolution = await resolveClassnameSource(projectPath, sig);
-          setSelection({ signature: sig, resolution, instanceCount });
+          setSelection({ signature: sig, resolution, instanceCount, locator });
           // Best-effort scope hint: where else this component is rendered.
           if (resolution.status === 'resolved') {
             try {
@@ -366,6 +388,7 @@ export function useVisualEditor({
               reason: 'Could not resolve this element to source.',
             },
             instanceCount,
+            locator,
           });
         }
       })();

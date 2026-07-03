@@ -44,6 +44,15 @@ var txtEditing=false,txtEl=null,txtRealEl=null,txtOrig='',txtOrigHtml='',txtPrev
 /* Cap on the text we report for content-search resolution — generous enough for real
    headings/paragraphs; longer text falls back to class-anchored resolution. */
 var SS_TEXT_CAP=2000;
+/* ── Numbered annotation badges (host-driven) ─────────────────────────────────
+   In the unified selection model the host owns annotation lifecycle: a "Request a
+   change" note is created against the CURRENTLY-SELECTED element, and the host posts
+   ss:annotate:set/remove/clear/focus/renumber to drive the on-page badge. There is no
+   separate redline activation flag and no in-iframe picking/composing — badges only
+   mirror host state. rlMarkers maps annotation id -> {el, box, number} so
+   focus/remove/retrack can find a marker by id. */
+var rlMarkers={};
+var RL_BADGE_COLOR='rgba(225,29,72,.96)';
 function mk(c){var d=document.createElement('div');d.style.cssText='position:fixed;pointer-events:none;z-index:2147483646;border:2px solid '+c+';box-sizing:border-box;border-radius:2px';d.setAttribute('data-ss-overlay','1');document.body.appendChild(d);return d;}
 function ensureHover(){if(!hoverBox)hoverBox=mk('rgba(96,165,250,.8)');}
 function ensureSel(n){while(selBoxes.length<n)selBoxes.push(mk(SEL_SIBLING_COLOR));}
@@ -448,7 +457,7 @@ function updateFmtBar(){
 }
 function onDbl(e){if(!active||txtEditing)return;var el=textTarget(e.target);if(!el||!txtEditable)return;e.preventDefault();e.stopPropagation();startText(el,e.clientX,e.clientY);}
 function onMove(e){if(!active||txtEditing)return;ensureHover();var t=pickTarget(e.target);if(t&&selectedSet.indexOf(t)!==-1)t=null;place(hoverBox,t);}
-function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:treeIdFor(el)},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:treeIdFor(el)},'*');}catch(e){}}}
+function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:treeIdFor(el),locator:buildLocator(el)},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:treeIdFor(el)},'*');}catch(e){}}}
 /* Re-find a previously-selected element by its signature after an HMR reload (the
    DOM is fresh, so the old handle is gone). Best-effort: match the tag, require the
    original classes to still be present (the user may have ADDED some), and score by
@@ -489,7 +498,7 @@ function treeSend(){treeById={};var budget={n:0};var root=treeBuild(document.bod
 function treeIsSsNode(n){return n.nodeType===1&&(n.getAttribute('data-ss-overlay')||(n.id&&n.id.indexOf('ss-')===0));}
 function treeDirty(){if(!treeOn)return;if(treeTimer)clearTimeout(treeTimer);treeTimer=setTimeout(function(){if(treeOn)window.parent.postMessage({type:'ss:treeDirty'},'*');},300);}
 function treeEnsureObserver(){if(treeObserver)return;treeObserver=new MutationObserver(function(ms){for(var i=0;i<ms.length;i++){var m=ms[i],j;for(j=0;j<m.addedNodes.length;j++)if(!treeIsSsNode(m.addedNodes[j])){treeDirty();return;}for(j=0;j<m.removedNodes.length;j++)if(!treeIsSsNode(m.removedNodes[j])){treeDirty();return;}}});treeObserver.observe(document.body,{childList:true,subtree:true});}
-function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active)placeSet();}
+function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active)placeSet();rlRetrack();}
 window.addEventListener('message',function(e){
 /* Only accept commands from the embedding app (our parent window) or same-window
    synthetic events (our own code / tests, where source is null). A foreign page loaded
@@ -547,6 +556,18 @@ else if(d.type==='ss:requestTree'){treeOn=true;treeEnsureObserver();treeSend();}
 else if(d.type==='ss:treeOff'){treeOn=false;}
 else if(d.type==='ss:selectNode'){var tn=treeById[d.id];if(tn&&tn.isConnected&&active&&!txtEditing){try{tn.scrollIntoView({block:'nearest'});}catch(err){}selectEl(tn);}}
 else if(d.type==='ss:hoverNode'){if(!active)return;var th=d.id!=null?treeById[d.id]:null;ensureHover();place(hoverBox,th&&th.isConnected?th:null);}
+/* ── Annotation badges (host-driven) ─────────────────────────────────────────
+   The host creates a "Request a change" note against the CURRENTLY-SELECTED element
+   and drives the badge with these messages — there is no in-iframe picking/composing. */
+/* Draw a numbered badge on the currently-selected element (selPrimary). Re-issuing the
+   same id replaces its badge so a re-numbered annotation re-pins cleanly. */
+else if(d.type==='ss:annotate:set'){var ael=selPrimary;if(ael&&ael.isConnected){var old=rlMarkers[d.id];if(old&&old.box&&old.box.parentNode)old.box.parentNode.removeChild(old.box);var abox=rlMakeBadge(d.number);rlMarkers[d.id]={el:ael,box:abox,number:d.number};rlPlaceBadge(abox,ael);}}
+else if(d.type==='ss:annotate:remove'){var arm=rlMarkers[d.id];if(arm){if(arm.box&&arm.box.parentNode)arm.box.parentNode.removeChild(arm.box);delete rlMarkers[d.id];}}
+else if(d.type==='ss:annotate:clear'){for(var aid in rlMarkers){var am=rlMarkers[aid];if(am&&am.box&&am.box.parentNode)am.box.parentNode.removeChild(am.box);}rlMarkers={};}
+else if(d.type==='ss:annotate:focus'){var afm=rlMarkers[d.id];if(afm&&afm.el&&afm.el.isConnected){try{afm.el.scrollIntoView({block:'center',behavior:'smooth'});}catch(err){}rlRetrack();}}
+/* Re-sync badge numbers after the host renumbers (remove/reorder): update each existing
+   badge's text in place so the on-page markers match the markdown/screenshot order. */
+else if(d.type==='ss:annotate:renumber'){if(d.entries){for(var ri2=0;ri2<d.entries.length;ri2++){var ren=d.entries[ri2],rem=rlMarkers[ren.id];if(rem&&rem.box){rem.box.textContent=String(ren.number);rem.number=ren.number;}}}}
 /* Re-select the element matching the given signature (after an HMR reload) so the
    panel re-reads its current source — keeps read/write instant after edits. */
 else if(d.type==='ss:reselect'){if(!active)return;var rel=findBySignature(d.signature);if(rel)selectEl(rel);}});
@@ -574,6 +595,29 @@ document.addEventListener('paste',function(e){if(!txtEditing)return;e.preventDef
 /* Keep the blue editing box sized to the element, and reposition the format bubble. */
 document.addEventListener('input',function(){if(txtEditing){place(hoverBox,txtEl);updateFmtBar();}},true);
 document.addEventListener('selectionchange',function(){if(txtEditing)updateFmtBar();});
+/* ── Redline: locator + landmark helpers ─────────────────────────────────────
+   buildLocator(el) is the resilient, framework-agnostic description the agent uses
+   to find the element later. It deliberately overlaps with sig() (same ancestor-class
+   capture) but adds role/aria/data/landmark context sig() doesn't carry. */
+function rlImplicitRole(el){if(!el||el.nodeType!==1)return null;var t=(el.tagName||'').toLowerCase();if(t==='a')return el.hasAttribute('href')?'link':null;if(t==='button')return 'button';if(/^h[1-6]$/.test(t))return 'heading';if(t==='nav')return 'navigation';if(t==='img')return 'img';return null;}
+/* Same ancestor-class walk sig() uses (classed parents, up to 8, stopping at body). */
+function rlAncestorClasses(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}return anc;}
+/* Resolve an aria-labelledby reference to its concatenated label text. */
+function rlLabelledBy(el){var ids=el.getAttribute('aria-labelledby');if(!ids)return null;var parts=ids.split(/\s+/),out=[];for(var i=0;i<parts.length;i++){if(!parts[i])continue;var t=document.getElementById(parts[i]);if(t){var s=(t.innerText||t.textContent||'').replace(/\s+/g,' ').trim();if(s)out.push(s);}}return out.length?out.join(' '):null;}
+/* Accessible-ish name: explicit aria-label, else labelledby, else title, else (img) alt. */
+function rlAriaLabel(el){var a=el.getAttribute('aria-label');if(a&&a.trim())return a.trim();var lb=rlLabelledBy(el);if(lb)return lb;var ti=el.getAttribute('title');if(ti&&ti.trim())return ti.trim();if(el.tagName==='IMG'){var alt=el.getAttribute('alt');if(alt&&alt.trim())return alt.trim();}return null;}
+/* The closest landmark ancestor, described by tag + its aria-label/implicit role. */
+function rlNearbyLandmark(el){var lm=el.closest&&el.closest('nav,header,main,footer,aside,section,form,[role]');if(!lm)return null;var tag=(lm.tagName||'').toLowerCase(),lbl=rlAriaLabel(lm),role=lm.getAttribute('role')||rlImplicitRole(lm),desc=tag;if(role)desc+=' ('+role+')';if(lbl)desc+=': '+lbl;return desc;}
+function rlDataAttrs(el){var out={};for(var i=0;i<el.attributes.length;i++){var a=el.attributes[i];if(a.name.indexOf('data-')===0){if(a.name==='data-ss-overlay'||a.name==='data-ss-sel'||a.name==='data-ss-editing'||a.name==='data-ss-rl')continue;out[a.name]=a.value;}}return out;}
+function buildLocator(el){var txt=(el.textContent||'').replace(/\s+/g,' ').trim();return{tag:(el.tagName||'').toLowerCase(),id:el.id||null,classList:[].slice.call(el.classList),role:el.getAttribute('role')||rlImplicitRole(el),ariaLabel:rlAriaLabel(el),textSnippet:txt?txt.slice(0,120):null,dataAttributes:rlDataAttrs(el),ancestorClasses:rlAncestorClasses(el),nearbyLandmark:rlNearbyLandmark(el)};}
+/* ── Redline: numbered badge markers ─────────────────────────────────────────
+   A circular badge pinned to an element's top-left corner. Same fixed-overlay +
+   data-ss-overlay convention as the edit boxes, so it retracks on scroll/resize and
+   the tree observer ignores it. z-index matches the edit overlays (2147483646). */
+function rlMakeBadge(number){var d=document.createElement('div');d.setAttribute('data-ss-overlay','1');d.setAttribute('data-ss-rl','1');d.style.cssText='position:fixed;pointer-events:none;z-index:2147483646;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:'+RL_BADGE_COLOR+';color:#fff;font:600 12px/1 -apple-system,system-ui,sans-serif;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.4)';d.textContent=String(number);document.body.appendChild(d);return d;}
+/* Pin the badge to the element's top-left corner (nudged so it straddles the edge). */
+function rlPlaceBadge(box,el){if(!box)return;if(!el||!el.isConnected){box.style.display='none';return;}var r=el.getBoundingClientRect();box.style.display='flex';box.style.top=Math.max(0,r.top-10)+'px';box.style.left=Math.max(0,r.left-6)+'px';}
+function rlRetrack(){for(var id in rlMarkers){var m=rlMarkers[id];if(m)rlPlaceBadge(m.box,m.el);}}
 window.addEventListener('scroll',reposition,true);
 window.addEventListener('resize',reposition,true);
 })()</script>
