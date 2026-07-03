@@ -11,6 +11,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { CloseIcon, SearchIcon } from '../icons';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import {
   listPlugins,
   installPlugin,
@@ -256,7 +257,7 @@ export function PluginManager({
       logger.error('Failed to install plugin', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
       setInstallingId(null);
     }
   };
@@ -283,7 +284,7 @@ export function PluginManager({
       logger.error('Failed to install plugin from URL', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
     } finally {
       setIsInstallingUrl(false);
     }
@@ -310,7 +311,7 @@ export function PluginManager({
       logger.error('Failed to link dev plugin', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
     } finally {
       setIsLinkingDev(false);
     }

@@ -21,6 +21,7 @@ import {
 import { getChangedFiles, ChangedFile } from '../lib/git';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { trackEvent } from '../lib/analytics';
 import type { PreviewHandle } from '../components/preview/Preview';
 import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
@@ -249,7 +250,7 @@ export function useBranchManagement({
             void fetchBranchInfo(currentProject.path);
             return;
           } catch (e) {
-            const errorMsg = e instanceof Error ? e.message : String(e);
+            const errorMsg = formatCommandError(asCommandError(e));
             if (errorMsg.includes('MERGE_CONFLICT')) {
               // Conflicts created locally - show the UI
               setShowConflictResolution(true);
@@ -258,7 +259,7 @@ export function useBranchManagement({
             }
           }
         } catch (e) {
-          const errorMsg = e instanceof Error ? e.message : String(e);
+          const errorMsg = formatCommandError(asCommandError(e));
           showToast(`Error: ${errorMsg}`, 'error');
         }
       } else {

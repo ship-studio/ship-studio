@@ -8,17 +8,20 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
 import {
   listAssets,
   uploadAsset,
   deleteAsset,
   renameAsset,
   createAssetFolder,
+  exportAsset,
   getAssetsRoot,
   setAssetsRoot,
   DEFAULT_ASSETS_ROOT,
   type Asset,
 } from '../lib/assets';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { trackEvent, trackError, trackSearch } from '../lib/analytics';
 import { logger } from '../lib/logger';
 
@@ -293,6 +296,27 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
     }
   };
 
+  // Handle download: pick a destination via the native save dialog, then copy
+  // the asset there. The dialog already confirms replacement of an existing
+  // file, so the export runs with overwrite enabled.
+  const handleDownload = async (asset: Asset) => {
+    try {
+      const destination = await save({
+        defaultPath: asset.name,
+        title: `Download ${asset.name}`,
+      });
+      if (!destination) return; // user cancelled
+      const saved = await exportAsset(projectPath, asset.path, destination, true);
+      void trackEvent('asset_downloaded', { $screen_name: 'Workspace' });
+      onToast?.(`Saved to ${saved}`, 'success');
+    } catch (e) {
+      trackError('asset_download', e, 'Workspace');
+      const msg = formatCommandError(asCommandError(e));
+      setError(msg);
+      onToast?.(msg, 'error');
+    }
+  };
+
   // Navigate into folder
   const navigateToFolder = (asset: Asset) => {
     if (asset.isDirectory) {
@@ -385,6 +409,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
     handleRename,
     handleCreateFolder,
     handleCopyPath,
+    handleDownload,
     navigateToFolder,
     handleDragEnter,
     handleDragLeave,

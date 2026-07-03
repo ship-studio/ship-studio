@@ -34,6 +34,7 @@ import {
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { loadNerdFonts } from '../../lib/fonts';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import '@xterm/xterm/css/xterm.css';
 
 interface BuildTerminalProps {
@@ -200,7 +201,9 @@ export function BuildTerminal({
           logger.error('[BuildTerminal] failed to start build session', {
             error: err instanceof Error ? err.message : String(err),
           });
-          term.write(`\r\n\x1b[31mFailed to start build: ${String(err)}\x1b[0m\r\n`);
+          term.write(
+            `\r\n\x1b[31mFailed to start build: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
+          );
         }
       }
     })();

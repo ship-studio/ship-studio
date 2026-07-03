@@ -19,6 +19,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { loadNerdFonts } from '../../lib/fonts';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import {
   claudeConnectStart,
   claudeConnectWrite,
@@ -150,7 +151,9 @@ export function ClaudeConnectTerminal({
         });
       } catch (err) {
         logger.warn('[ClaudeConnectTerminal] failed to start connect', { error: String(err) });
-        term.write(`\r\n\x1b[31mCouldn't start Claude login: ${String(err)}\x1b[0m\r\n`);
+        term.write(
+          `\r\n\x1b[31mCouldn't start Claude login: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
+        );
         return;
       }
 

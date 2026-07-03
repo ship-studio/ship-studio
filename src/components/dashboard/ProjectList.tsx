@@ -383,7 +383,7 @@ export function ProjectList({
       logger.error('Failed to toggle main branch warning', {
         error: error instanceof Error ? error.message : String(error),
       });
-      alert('Failed to update main branch warning: ' + String(error));
+      alert('Failed to update main branch warning: ' + formatCommandError(asCommandError(error)));
     }
   };
 
@@ -417,7 +417,7 @@ export function ProjectList({
       logger.error('Failed to upload thumbnail', {
         error: error instanceof Error ? error.message : String(error),
       });
-      alert('Failed to upload thumbnail: ' + String(error));
+      alert('Failed to upload thumbnail: ' + formatCommandError(asCommandError(error)));
     }
   };
 
@@ -433,7 +433,7 @@ export function ProjectList({
       logger.error('Failed to export template', {
         error: error instanceof Error ? error.message : String(error),
       });
-      alert('Failed to export template: ' + String(error));
+      alert('Failed to export template: ' + formatCommandError(asCommandError(error)));
     }
   };
 
@@ -485,7 +485,7 @@ export function ProjectList({
       logger.error('Failed to delete folder', {
         error: error instanceof Error ? error.message : String(error),
       });
-      alert('Failed to delete folder: ' + String(error));
+      alert('Failed to delete folder: ' + formatCommandError(asCommandError(error)));
     } finally {
       setDeletingFolder(false);
     }

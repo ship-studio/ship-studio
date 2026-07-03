@@ -18,6 +18,7 @@ import { readDir, exists } from '@tauri-apps/plugin-fs';
 import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import '@xterm/xterm/css/xterm.css';
 
 /** Props for the OnboardingTerminal component */
@@ -299,7 +300,9 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         term.focus();
       } catch (err) {
         logger.warn(`Failed to spawn ${command}`);
-        term.write(`\x1b[31mError starting command: ${String(err)}\x1b[0m\r\n`);
+        term.write(
+          `\x1b[31mError starting command: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
+        );
         // Notify parent of failure
         setTimeout(() => onExitRef.current(1), 1000);
       }

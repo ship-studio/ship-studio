@@ -21,7 +21,7 @@
 use crate::commands::projects::detect_project_type;
 use crate::errors::CommandError;
 use crate::types::ProjectType;
-use crate::utils::validate_project_path;
+use crate::utils::{validate_project_path, validate_workspace_path};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -1914,7 +1914,10 @@ fn apply_v3_screens(config: &str, map: &mut std::collections::BTreeMap<String, u
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn is_tailwind_active(project_path: String) -> Result<bool, CommandError> {
-    let root = validate_project_path(&project_path)?;
+    // Resolve the workspace first: in a monorepo the Tailwind/PostCSS config lives
+    // in the chosen app subfolder, not the repo root, so detecting against the root
+    // would hide the visual editor for those projects (#83).
+    let root = validate_workspace_path(&project_path)?;
     Ok(tailwind_active_at(&root))
 }
 
@@ -1973,7 +1976,9 @@ fn tailwind_active_at(root: &Path) -> bool {
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn project_uses_react(project_path: String) -> Result<bool, CommandError> {
-    let root = validate_project_path(&project_path)?;
+    // Read package.json from the resolved workspace, not the repo root, so a
+    // monorepo's React app in a subfolder is recognized (#83).
+    let root = validate_workspace_path(&project_path)?;
     Ok(project_uses_react_at(&root))
 }
 
@@ -1992,7 +1997,9 @@ fn project_uses_react_at(root: &Path) -> bool {
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn detect_breakpoints(project_path: String) -> Result<Vec<Breakpoint>, CommandError> {
-    let root = validate_project_path(&project_path)?;
+    // Scan the resolved workspace's CSS/config, not the repo root, so a monorepo
+    // app's custom breakpoints are picked up (#83).
+    let root = validate_workspace_path(&project_path)?;
     let mut map: std::collections::BTreeMap<String, u32> = DEFAULT_BREAKPOINTS
         .iter()
         .map(|(n, px)| (n.to_string(), *px))
@@ -3339,6 +3346,53 @@ const items = [];
         std::fs::create_dir_all(&c).unwrap();
         std::fs::write(c.join("tailwind.config.js"), "module.exports = {{}}").unwrap();
         assert!(chk(&c), "tailwind.config.js present → active");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn tailwind_detection_resolves_monorepo_workspace_subpath() {
+        // Regression for #83: a monorepo whose web app (with Tailwind wired in)
+        // lives in a subfolder must still light up the visual editor. Detection
+        // against the repo root sees no config; it must run against the resolved
+        // `workspace_subpath`, the way the command now does via validate_workspace_path.
+        use crate::types::ProjectMetadata;
+        use crate::utils::resolve_workspace_path;
+
+        let dir = std::env::temp_dir().join(format!("ss-tw-mono-{}", std::process::id()));
+        let app = dir.join("website");
+        std::fs::create_dir_all(&app).unwrap();
+
+        // Tailwind v4 wired only inside the subfolder (PostCSS plugin, no root config).
+        std::fs::write(
+            app.join("postcss.config.mjs"),
+            "export default { plugins: { '@tailwindcss/postcss': {} } };",
+        )
+        .unwrap();
+
+        // .shipstudio/project.json points the workspace at the subfolder.
+        let ss = dir.join(".shipstudio");
+        std::fs::create_dir_all(&ss).unwrap();
+        let meta = ProjectMetadata {
+            workspace_subpath: Some("website".to_string()),
+            ..ProjectMetadata::default()
+        };
+        std::fs::write(
+            ss.join("project.json"),
+            serde_json::to_string(&meta).unwrap(),
+        )
+        .unwrap();
+
+        // The bug: detection against the repo root is blind to the subfolder config.
+        assert!(
+            !tailwind_active_at(&dir),
+            "repo root carries no Tailwind config"
+        );
+        // The fix: resolving the workspace first finds it.
+        assert!(
+            tailwind_active_at(&resolve_workspace_path(&dir)),
+            "resolved workspace subfolder has Tailwind wired in"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

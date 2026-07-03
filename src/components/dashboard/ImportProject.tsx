@@ -42,6 +42,7 @@ import {
   type WorkspacePick,
 } from '../import-project/steps/Step3WorkspacePicker';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { Spinner } from '../primitives/Spinner';
 
 /** Props for the ImportProject component */
@@ -116,7 +117,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       setRepos(repoList);
     } catch (e) {
       trackError('github_repos_load', e, 'Dashboard');
-      setError(`Failed to load repositories: ${String(e)}`);
+      setError(`Failed to load repositories: ${formatCommandError(asCommandError(e))}`);
     } finally {
       setLoadingRepos(false);
     }

@@ -27,6 +27,7 @@ import {
   type AccountCredentialStatus,
   type CredentialKey,
 } from '../../lib/accounts';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import '../../styles/features/account-select.css';
 
 interface EditingCred {
@@ -105,7 +106,7 @@ export function AccountSettingsModal({
       onUpdated(updated);
       showToast('Workspace updated', 'success');
     } catch (e) {
-      showToast(`Failed to update: ${String(e)}`, 'error');
+      showToast(`Failed to update: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -121,7 +122,7 @@ export function AccountSettingsModal({
       onDeleted(account.id);
       showToast('Workspace deleted', 'success');
     } catch (e) {
-      showToast(`Failed to delete: ${String(e)}`, 'error');
+      showToast(`Failed to delete: ${formatCommandError(asCommandError(e))}`, 'error');
       setIsDeleting(false);
     }
   };
@@ -135,7 +136,7 @@ export function AccountSettingsModal({
       await loadCredStatus(account.id);
       showToast('Credential saved', 'success');
     } catch (e) {
-      showToast(`Failed to save: ${String(e)}`, 'error');
+      showToast(`Failed to save: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setIsSavingCred(false);
     }
@@ -147,7 +148,7 @@ export function AccountSettingsModal({
       await loadCredStatus(account.id);
       showToast('Credential removed', 'success');
     } catch (e) {
-      showToast(`Failed to clear: ${String(e)}`, 'error');
+      showToast(`Failed to clear: ${formatCommandError(asCommandError(e))}`, 'error');
     }
   };
 

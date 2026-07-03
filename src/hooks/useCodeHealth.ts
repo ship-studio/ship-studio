@@ -18,6 +18,7 @@ import {
   getFixPrompt,
 } from '../lib/health';
 import { logger } from '../lib/logger';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 export type CheckStatus = 'idle' | 'running' | 'pass' | 'fail' | 'missing';
 
@@ -197,7 +198,7 @@ export function useCodeHealth({
           return 'fail';
         }
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
+        const message = formatCommandError(asCommandError(e));
         emitOutput(`\x1b[31m✕\x1b[0m ${CATEGORY_LABELS[category]} error: ${message}\r\n`);
         setCheckStates((prev) => ({
           ...prev,

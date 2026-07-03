@@ -7,6 +7,7 @@
  * - Rename and delete assets
  * - Create new folders
  * - Copy asset paths for use in code
+ * - Download assets to disk via a native save dialog
  *
  * The modal body is exported separately as `AssetsModal` with explicit
  * open/close props plus an optional pick mode, so other features (the visual
@@ -27,6 +28,7 @@ import { useModal } from '../../contexts/ModalContext';
 import {
   CloseIcon,
   CopyIcon,
+  DownloadIcon,
   TrashIcon,
   EditIcon,
   UploadIcon,
@@ -150,6 +152,7 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
     handleRename,
     handleCreateFolder,
     handleCopyPath,
+    handleDownload,
     navigateToFolder,
     handleDragEnter,
     handleDragLeave,
@@ -494,6 +497,18 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
                       )}
                     </div>
                     <div className="assets-item-actions">
+                      {!asset.isDirectory && (
+                        <button
+                          className="assets-action-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDownload(asset);
+                          }}
+                          title="Download"
+                        >
+                          <DownloadIcon size={12} />
+                        </button>
+                      )}
                       <button
                         className="assets-action-btn"
                         onClick={(e) => {
@@ -579,6 +594,18 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
                       )}
                     </div>
                     <div className="assets-grid-actions">
+                      {!asset.isDirectory && (
+                        <button
+                          className="assets-action-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDownload(asset);
+                          }}
+                          title="Download"
+                        >
+                          <DownloadIcon size={12} />
+                        </button>
+                      )}
                       <button
                         className="assets-action-btn"
                         onClick={(e) => {
