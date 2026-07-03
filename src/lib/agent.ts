@@ -143,6 +143,29 @@ export function getAgentById(id: string): AgentConfig {
 }
 
 /**
+ * Resolve the actual PTY command + args to spawn for a given agent.
+ *
+ * On Windows, most agents are `.cmd` batch scripts that CreateProcessW can't
+ * exec directly, so they're wrapped through `cmd.exe /C <binary> <args>`.
+ * The raw "Terminal" tab is the exception: its `binaryName` ('/bin/zsh') is
+ * a Unix shell path that only makes sense on macOS/Linux, so on Windows it
+ * must launch cmd.exe directly as the shell itself, unwrapped.
+ */
+export function getSpawnCommand(
+  agent: AgentConfig,
+  agentArgs: string[],
+  isWin: boolean
+): { command: string; args: string[] } {
+  if (!isWin) {
+    return { command: agent.binaryName, args: agentArgs };
+  }
+  if (agent.id === TERMINAL.id) {
+    return { command: 'cmd.exe', args: [] };
+  }
+  return { command: 'cmd.exe', args: ['/C', agent.binaryName, ...agentArgs] };
+}
+
+/**
  * Returns the currently active (default) agent configuration.
  *
  * Reads from the in-memory cache. Falls back to CLAUDE_CODE if unset.

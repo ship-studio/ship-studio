@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   getAgentById,
+  getSpawnCommand,
   initDefaultAgent,
   getDefaultAgentId,
   getActiveAgent,
@@ -168,5 +169,35 @@ describe('AgentConfig fields', () => {
       expect(agent.notFoundMessage).toBeTruthy();
       expect(agent.installHint).toBeTruthy();
     }
+  });
+});
+
+// ============ getSpawnCommand ============
+
+describe('getSpawnCommand', () => {
+  it('on macOS/Linux, spawns the agent binary directly with its args', () => {
+    const result = getSpawnCommand(CLAUDE_CODE, ['--resume', 'abc'], false);
+    expect(result).toEqual({ command: 'claude', args: ['--resume', 'abc'] });
+  });
+
+  it('on macOS/Linux, spawns the terminal shell directly', () => {
+    const result = getSpawnCommand(TERMINAL, [], false);
+    expect(result).toEqual({ command: '/bin/zsh', args: [] });
+  });
+
+  it('on Windows, wraps a regular agent through cmd.exe /C', () => {
+    const result = getSpawnCommand(CLAUDE_CODE, ['--resume', 'abc'], true);
+    expect(result).toEqual({ command: 'cmd.exe', args: ['/C', 'claude', '--resume', 'abc'] });
+  });
+
+  it('on Windows, wraps Codex through cmd.exe /C', () => {
+    const result = getSpawnCommand(CODEX, ['--yolo'], true);
+    expect(result).toEqual({ command: 'cmd.exe', args: ['/C', 'codex', '--yolo'] });
+  });
+
+  it('on Windows, launches cmd.exe directly for the raw Terminal tab (regression: previously ran `cmd.exe /C /bin/zsh`, which cmd.exe cannot resolve)', () => {
+    const result = getSpawnCommand(TERMINAL, [], true);
+    expect(result).toEqual({ command: 'cmd.exe', args: [] });
+    expect(result.args).not.toContain('/bin/zsh');
   });
 });

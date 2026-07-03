@@ -47,7 +47,7 @@ import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
 import { logger } from '../../lib/logger';
 import { getTerminalGpuEnabled } from '../../lib/settings';
-import type { AgentConfig } from '../../lib/agent';
+import { getSpawnCommand, type AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
 /** Agent status based on terminal title */
@@ -647,9 +647,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           agentArgs.push(agent.autoAcceptFlag);
         }
 
-        // On Windows, agent may be a .cmd script - must run through cmd.exe
-        const spawnCmd = isWin ? 'cmd.exe' : agent.binaryName;
-        const spawnArgs = isWin ? ['/C', agent.binaryName, ...agentArgs] : agentArgs;
+        // On Windows, agent may be a .cmd script - must run through cmd.exe.
+        // See getSpawnCommand for the raw "Terminal" tab exception.
+        const { command: spawnCmd, args: spawnArgs } = getSpawnCommand(agent, agentArgs, isWin);
 
         // The backend session id is the tab's sessionName UUID — it survives
         // component unmount/remount and project switches, so attach is
