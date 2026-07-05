@@ -13,6 +13,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { setAccountCredential } from '../../lib/accounts';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 const VERCEL_TOKENS_URL = 'https://vercel.com/account/tokens';
@@ -40,7 +41,7 @@ export function VercelTokenModal({
       await setAccountCredential(accountId, 'vercel_token', trimmed);
       onSaved();
     } catch (err) {
-      showToast(`Couldn't save Vercel token: ${String(err)}`, 'error');
+      showToast(`Couldn't save Vercel token: ${formatCommandError(asCommandError(err))}`, 'error');
     } finally {
       setSaving(false);
     }

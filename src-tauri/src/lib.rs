@@ -656,6 +656,7 @@ pub fn run() {
             commands::assets::delete_asset,
             commands::assets::rename_asset,
             commands::assets::create_asset_folder,
+            commands::assets::export_asset,
             // Code Health
             commands::health::detect_health_scripts,
             commands::health::run_health_script,

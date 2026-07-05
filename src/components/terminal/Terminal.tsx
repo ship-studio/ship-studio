@@ -47,7 +47,9 @@ import { getShellPath, getSystemEnv } from '../../lib/project';
 import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { getTerminalGpuEnabled } from '../../lib/settings';
+import { decideStartupTimeoutAction } from './startupWatchdog';
 import type { AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
@@ -530,6 +532,14 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // per project open. Gating on disk-presence turns a ~1s miss into a
     // ~5ms file-exists check.
     let attemptResume = false;
+    // One automatic respawn per mount for the spawned-but-silent case
+    // (issue #158). Distinct from `maxRetries` (the spawn call threw) and
+    // the resume-failed retry (the process exited) — this covers a PTY
+    // that opened fine but never wrote a byte.
+    let autoRespawnUsed = false;
+    // Latest startup-watchdog / respawn-delay timers, cleared on unmount.
+    let startupTimer: ReturnType<typeof setTimeout> | null = null;
+    let respawnTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Open (or re-attach to) the backend PTY session for this tab.
     // `retryCount` is used by the resume-failed-then-retry-fresh path.
@@ -708,22 +718,64 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           onExitRef.current?.(attach.exitCode ?? -1);
         }
 
-        // Startup timeout: if no output is received within 10s, the agent
-        // likely failed to launch (binary not found, permission error, etc.).
-        // Show an error instead of hanging on "Starting..." forever.
+        // Startup watchdog: if no output is received within 10s, the agent
+        // likely failed to launch (binary not found, permission error, or a
+        // wedged first spawn — issue #158). The manual fix users found is
+        // "create a new agent tab", i.e. a fresh PTY — so kill the silent
+        // session and respawn once with the same config. Only if the
+        // respawn is also silent do we surface the error text.
         let receivedOutput = false;
         const startupTimeout = setTimeout(() => {
-          if (!receivedOutput && mounted) {
-            logger.error('[Terminal] Startup timeout - no output after 10s', {
+          const action = decideStartupTimeoutAction({ receivedOutput, mounted, autoRespawnUsed });
+          if (action === 'none') return;
+
+          if (action === 'respawn') {
+            autoRespawnUsed = true;
+            logger.warn('[Terminal] No output after 10s - killing silent PTY and respawning', {
               agent: agent.id,
               binary: agent.binaryName,
+              sessionId: backendSessionId,
             });
             terminalRef.current?.write(
-              `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
-                `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
+              `\r\n\x1b[33mNo output — restarting ${agent.displayName}…\x1b[0m\r\n`
             );
+            // Unsubscribe from the silent session BEFORE killing it so the
+            // kill-induced exit event can't trigger the "[Process exited]"
+            // prompt or the resume-retry path.
+            for (const d of ptyDisposablesRef.current) {
+              try {
+                d.dispose();
+              } catch {
+                /* ignore */
+              }
+            }
+            ptyDisposablesRef.current = [];
+            ptyRef.current = null;
+            void killPtySession(backendSessionId)
+              .catch(() => {
+                /* already dead — open will spawn fresh either way */
+              })
+              .then(() => {
+                // Grace period so the killed PTY's exit event (same session
+                // id) is delivered before the respawned run subscribes —
+                // otherwise it would look like the new process exiting.
+                respawnTimer = setTimeout(() => {
+                  if (mounted) void setupPty(0);
+                }, 500);
+              });
+            return;
           }
+
+          logger.error('[Terminal] Startup timeout - no output after 10s', {
+            agent: agent.id,
+            binary: agent.binaryName,
+          });
+          terminalRef.current?.write(
+            `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
+              `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
+          );
         }, 10_000);
+        startupTimer = startupTimeout;
 
         // Buffer early output to detect resume failures on exit
         let outputBuffer = '';
@@ -954,7 +1006,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           );
           setTimeout(() => void setupPty(retryCount + 1), 1000);
         } else {
-          term.write(`\x1b[31m${agent.notFoundMessage}: ${String(err)}\x1b[0m\r\n`);
+          term.write(
+            `\x1b[31m${agent.notFoundMessage}: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
+          );
           term.write(`\x1b[33m${agent.installHint}\x1b[0m\r\n`);
         }
       }
@@ -999,6 +1053,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       mounted = false;
       resizeObserver.disconnect();
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      if (startupTimer) clearTimeout(startupTimer);
+      if (respawnTimer) clearTimeout(respawnTimer);
       if (textarea) {
         textarea.removeEventListener('focus', onTextareaFocus);
         textarea.removeEventListener('blur', onTextareaBlur);

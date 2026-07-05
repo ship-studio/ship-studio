@@ -10,6 +10,7 @@ import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { createAccount, ACCOUNT_COLORS, type Account } from '../../lib/accounts';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface NewAccountModalProps {
   isOpen: boolean;
@@ -37,7 +38,7 @@ export function NewAccountModal({ isOpen, onClose, onCreated }: NewAccountModalP
       onCreated(created);
       handleClose();
     } catch (e) {
-      showToast(`Failed to create workspace: ${String(e)}`, 'error');
+      showToast(`Failed to create workspace: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setIsSaving(false);
     }

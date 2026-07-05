@@ -12,6 +12,7 @@ import {
 } from '../../lib/support';
 import type { WidgetMessage } from '../../lib/support';
 import { trackEvent } from '../../lib/analytics';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface ConversationViewProps {
   ticketId: string;
@@ -54,7 +55,7 @@ export function ConversationView({ ticketId }: ConversationViewProps) {
       })
       .catch((e) => {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(formatCommandError(asCommandError(e)));
           setLoading(false);
         }
       });
@@ -80,7 +81,7 @@ export function ConversationView({ ticketId }: ConversationViewProps) {
       void trackEvent('support_ticket_replied', { $screen_name: 'Support' });
       setTimeout(scrollToBottom, 50);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatCommandError(asCommandError(e)));
     } finally {
       setSending(false);
     }

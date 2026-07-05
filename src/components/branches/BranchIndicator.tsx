@@ -21,6 +21,7 @@ import { ChangedFile, ChangeStatus } from '../../lib/git';
 import { discardChanges } from '../../lib/branches';
 import { DiffModal } from './DiffModal';
 import { useOptionalToast } from '../../contexts/ToastContext';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface BranchIndicatorProps {
   /** Current branch name */
@@ -113,7 +114,7 @@ export function BranchIndicator({
       onDiscard?.();
       setShowDropdown(false);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = formatCommandError(asCommandError(e));
       onToast?.(`Failed to discard changes: ${message}`, 'error');
     } finally {
       setIsDiscarding(false);

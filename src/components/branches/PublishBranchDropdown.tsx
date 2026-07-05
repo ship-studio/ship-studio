@@ -16,6 +16,7 @@ import { useClickOutside } from '../../hooks/useClickOutside';
 import { logger } from '../../lib/logger';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { useOptionalToast } from '../../contexts/ToastContext';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 // Module-scoped so the metric spans dropdown re-mounts. Per-project would be
 // better but cross-project publish cadence is also useful and far simpler.
@@ -164,7 +165,7 @@ export function PublishBranchDropdown({
       onStatusChange();
       setPublishState({ status: 'success' });
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = formatCommandError(asCommandError(e));
       let errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic' = 'generic';
 
       if (message.includes('MERGE_CONFLICT')) {

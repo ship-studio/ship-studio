@@ -145,6 +145,25 @@ export async function renameAsset(
 }
 
 /**
+ * Export (download) an asset: copy it out of the assets folder to an absolute
+ * destination path on disk (typically chosen via a native save dialog).
+ * @param projectPath - Path to the project
+ * @param assetPath - Relative path of the asset within the assets folder
+ * @param destination - Absolute path to write the copy to
+ * @param overwrite - Replace an existing file at the destination (the save
+ *   dialog has already asked the user to confirm)
+ * @returns The destination path that was written
+ */
+export async function exportAsset(
+  projectPath: string,
+  assetPath: string,
+  destination: string,
+  overwrite = false
+): Promise<string> {
+  return invoke<string>('export_asset', { projectPath, assetPath, destination, overwrite });
+}
+
+/**
  * Create a folder in /public
  * @param projectPath - Path to the project
  * @param folderPath - Path for the new folder within /public

@@ -24,6 +24,7 @@ import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { useOptionalToast } from '../../contexts/ToastContext';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface PullRequestsTabProps {
   /** Project path for PR operations */
@@ -126,7 +127,7 @@ export function PullRequestsTab({
       setPostMergeInfo({ branchName: headRef, baseBranch: baseRef });
     } catch (e) {
       trackError('pr_merge', e, 'Workspace');
-      onToast?.(`Failed to merge: ${String(e)}`, 'error');
+      onToast?.(`Failed to merge: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setMergingPr(null);
     }
@@ -156,7 +157,7 @@ export function PullRequestsTab({
       }
     } catch (e) {
       trackError('pr_post_merge_cleanup', e, 'Workspace');
-      onToast?.(`Cleanup failed: ${String(e)}`, 'error');
+      onToast?.(`Cleanup failed: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setIsCleaningUp(false);
       setPostMergeInfo(null);
@@ -173,7 +174,7 @@ export function PullRequestsTab({
       onToast?.(`Checked out branch ${headRef}`, 'success');
     } catch (e) {
       trackError('pr_checkout', e, 'Workspace');
-      onToast?.(`Failed to checkout: ${String(e)}`, 'error');
+      onToast?.(`Failed to checkout: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setCheckingOutPr(null);
     }
@@ -189,7 +190,7 @@ export function PullRequestsTab({
       onRefresh();
     } catch (e) {
       trackError('pr_close', e, 'Workspace');
-      onToast?.(`Failed to close PR: ${String(e)}`, 'error');
+      onToast?.(`Failed to close PR: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setClosingPr(null);
     }

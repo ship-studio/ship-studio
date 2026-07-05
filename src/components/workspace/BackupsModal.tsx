@@ -17,6 +17,7 @@ import { useAsyncState } from '../../hooks/useAsyncState';
 import { EmptyState } from '../primitives/EmptyState';
 import { Spinner } from '../primitives/Spinner';
 import { useModal } from '../../contexts/ModalContext';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface BackupsModalProps {
   projectPath: string;
@@ -81,7 +82,7 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
       setModalState({ type: 'success', result });
       onRestore?.();
     } catch (err) {
-      setError(String(err));
+      setError(formatCommandError(asCommandError(err)));
       setModalState({ type: 'list' });
     }
   };

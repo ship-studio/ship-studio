@@ -425,6 +425,91 @@ pub async fn create_asset_folder(
     Ok(())
 }
 
+/// Core of `export_asset`, factored out so it can be unit-tested against a
+/// temp directory (the command wrapper requires a real ShipStudio project
+/// path). Copies `asset_path` (relative to `root_dir`) to `destination`.
+fn export_asset_to(
+    root_dir: &Path,
+    asset_path: &str,
+    destination: &str,
+    overwrite: bool,
+) -> Result<String, CommandError> {
+    let source = validate_asset_path(root_dir, asset_path)?;
+
+    if !source.is_file() {
+        return Err(CommandError::Validation {
+            field: "asset_path".to_string(),
+            reason: "Only files can be downloaded".to_string(),
+        });
+    }
+
+    let dest = PathBuf::from(destination);
+    if !dest.is_absolute() {
+        return Err(CommandError::Validation {
+            field: "destination".to_string(),
+            reason: "Destination must be an absolute path".to_string(),
+        });
+    }
+
+    if dest.exists() {
+        // Never silently replace a file: the caller must opt in (the native
+        // save dialog has already asked the user to confirm replacement).
+        if !overwrite {
+            return Err(CommandError::Validation {
+                field: "destination".to_string(),
+                reason: "A file already exists at the destination".to_string(),
+            });
+        }
+        if dest.is_dir() {
+            return Err(CommandError::Validation {
+                field: "destination".to_string(),
+                reason: "Destination is a folder".to_string(),
+            });
+        }
+        // Copying a file onto itself truncates it — refuse instead.
+        let canonical_dest =
+            dunce::canonicalize(&dest).map_err(|e| format!("Invalid destination: {e}"))?;
+        if canonical_dest == source {
+            return Err(CommandError::Validation {
+                field: "destination".to_string(),
+                reason: "Destination is the same file as the asset".to_string(),
+            });
+        }
+    } else {
+        let parent = dest
+            .parent()
+            .ok_or("Invalid destination: no parent directory")?;
+        if !parent.exists() {
+            return Err(CommandError::Validation {
+                field: "destination".to_string(),
+                reason: "Destination folder does not exist".to_string(),
+            });
+        }
+    }
+
+    fs::copy(&source, &dest).map_err(|e| format!("Failed to export asset: {e}"))?;
+
+    Ok(dest.to_string_lossy().to_string())
+}
+
+/// Export (download) an asset: copy it out of the project's assets folder to a
+/// caller-supplied absolute destination path (chosen via a native save dialog).
+/// Returns the destination path that was written.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path))]
+pub async fn export_asset(
+    project_path: String,
+    asset_path: String,
+    destination: String,
+    overwrite: bool,
+) -> Result<String, CommandError> {
+    let repo_root = validate_project_path(&project_path)?;
+    let project = resolve_workspace_path(&repo_root);
+    let root_dir = assets_root_dir(&repo_root, &project);
+
+    export_asset_to(&root_dir, &asset_path, &destination, overwrite)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,5 +580,75 @@ mod tests {
 
         let dir = assets_root_dir(tmp.path(), tmp.path());
         assert_eq!(dir, tmp.path().join("public"));
+    }
+
+    /// Temp assets root containing `logo.png`, plus an empty output dir.
+    fn export_fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("public");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("logo.png"), b"png-bytes").unwrap();
+        let out = tmp.path().join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        (tmp, root, out)
+    }
+
+    #[test]
+    fn export_asset_copies_file_to_destination() {
+        let (_tmp, root, out) = export_fixture();
+        let dest = out.join("logo.png");
+
+        let written = export_asset_to(&root, "logo.png", &dest.to_string_lossy(), false).unwrap();
+
+        assert_eq!(written, dest.to_string_lossy());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"png-bytes");
+        // Source is untouched.
+        assert_eq!(std::fs::read(root.join("logo.png")).unwrap(), b"png-bytes");
+    }
+
+    #[test]
+    fn export_asset_rejects_path_traversal() {
+        let (tmp, root, out) = export_fixture();
+        std::fs::write(tmp.path().join("secret.txt"), b"secret").unwrap();
+        let dest = out.join("secret.txt");
+
+        let err = export_asset_to(&root, "../secret.txt", &dest.to_string_lossy(), false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("traversal"), "unexpected error: {err}");
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn export_asset_refuses_existing_destination_without_overwrite() {
+        let (_tmp, root, out) = export_fixture();
+        let dest = out.join("logo.png");
+        std::fs::write(&dest, b"pre-existing").unwrap();
+
+        let err = export_asset_to(&root, "logo.png", &dest.to_string_lossy(), false).unwrap_err();
+        assert!(matches!(err, CommandError::Validation { .. }));
+        // Untouched without overwrite…
+        assert_eq!(std::fs::read(&dest).unwrap(), b"pre-existing");
+
+        // …replaced with overwrite.
+        export_asset_to(&root, "logo.png", &dest.to_string_lossy(), true).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"png-bytes");
+    }
+
+    #[test]
+    fn export_asset_rejects_relative_destination() {
+        let (_tmp, root, _out) = export_fixture();
+        let err = export_asset_to(&root, "logo.png", "relative/logo.png", false).unwrap_err();
+        assert!(matches!(err, CommandError::Validation { .. }));
+    }
+
+    #[test]
+    fn export_asset_rejects_directories() {
+        let (_tmp, root, out) = export_fixture();
+        std::fs::create_dir_all(root.join("images")).unwrap();
+        let dest = out.join("images");
+
+        let err = export_asset_to(&root, "images", &dest.to_string_lossy(), false).unwrap_err();
+        assert!(matches!(err, CommandError::Validation { .. }));
     }
 }

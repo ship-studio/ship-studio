@@ -30,6 +30,7 @@ import {
   type WorkspaceConnectService,
 } from '../lib/accounts';
 import { useOptionalToast } from '../contexts/ToastContext';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 /** Every login this hook can connect. (`vercel` is token-based, the rest are PTY.) */
 export type ConnectServiceId = WorkspaceConnectService | 'vercel';
@@ -106,7 +107,10 @@ export function useWorkspaceConnect({
         showToast(`Disconnected ${SERVICE_LABEL[service]}`, 'success');
         onChanged?.();
       } catch (err) {
-        showToast(`Couldn't disconnect ${SERVICE_LABEL[service]}: ${String(err)}`, 'error');
+        showToast(
+          `Couldn't disconnect ${SERVICE_LABEL[service]}: ${formatCommandError(asCommandError(err))}`,
+          'error'
+        );
       }
     },
     [accountId, showToast, onChanged]

@@ -771,6 +771,20 @@ pub fn resolve_workspace_path(project_root: &std::path::Path) -> std::path::Path
     resolved
 }
 
+/// Validate `project_path` as an allowed project root, then resolve it to the
+/// active workspace subfolder (`workspace_subpath` in `.shipstudio/project.json`).
+///
+/// Identical to [`validate_project_path`] for single-app projects (no subpath →
+/// the root is returned unchanged). Commands that should operate on the
+/// *rendered app* rather than the repo root — Tailwind/framework detection for
+/// the visual-editor gate — must use this so a monorepo whose app lives in a
+/// subfolder is detected against that subfolder. Mirrors what
+/// `detect_project_type_command` already does for project-type detection.
+pub fn validate_workspace_path(project_path: &str) -> Result<std::path::PathBuf, String> {
+    let root = validate_project_path(project_path)?;
+    Ok(resolve_workspace_path(&root))
+}
+
 /// Check if Homebrew is installed
 pub fn check_homebrew() -> (bool, Option<String>) {
     let paths = [
