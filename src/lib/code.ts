@@ -86,6 +86,83 @@ export async function readProjectFile(projectPath: string, filePath: string): Pr
   };
 }
 
+/**
+ * How to resolve a name collision when moving/importing into a folder. `'error'`
+ * surfaces the collision so the caller can prompt the user; `'replace'` and
+ * `'rename'` resolve it. "Skip" is a frontend-only choice (just don't call, or
+ * omit that source from an import) — there is no `'skip'` backend value.
+ */
+export type ConflictResolution = 'error' | 'replace' | 'rename';
+
+/**
+ * Move/relocate a file or directory within the project tree. Git-aware
+ * (preserves tracking for tracked sources via `git mv`). Paths are
+ * project-relative; `toDirRel === ''` is the project root. With
+ * `onConflict: 'error'` (default) a name collision rejects with a `Validation`
+ * error tagged `field: 'destination'` — the caller catches that to prompt
+ * Rename/Replace/Skip. (A separate `field: 'symlink'` Validation error means a
+ * hard refusal to overwrite a symlink, NOT a re-promptable collision.) Returns
+ * the new project-relative path.
+ */
+export async function moveProjectEntry(
+  projectPath: string,
+  fromRel: string,
+  toDirRel: string,
+  onConflict: ConflictResolution = 'error'
+): Promise<string> {
+  return invoke<string>('move_project_entry', {
+    projectPath,
+    fromRel,
+    toDirRel,
+    onConflict,
+  });
+}
+
+/** Per-source result of an import (mirrors the Rust `ImportOutcome`). */
+export interface ImportOutcome {
+  /** The input source path, echoed back for correlation. */
+  source: string;
+  /** `'imported'` — copied in; `'conflict'` — name already taken (not written). */
+  status: 'imported' | 'conflict';
+  /** New project-relative path; present only when `status === 'imported'`. */
+  newRel: string | null;
+  /** Whether the source is a directory. */
+  isDir: boolean;
+}
+
+/**
+ * Import (copy) files/folders from arbitrary OS locations into a project folder
+ * — the backend for dragging from Finder onto the tree. `sources` are absolute
+ * OS paths; `toDirRel` is project-relative (`''` = root). With the default
+ * `onConflict: 'error'`, colliding sources come back as `status: 'conflict'`
+ * (nothing written) rather than throwing, so the caller can prompt the user per
+ * file and re-import the unresolved ones with `'replace'`/`'rename'` (or omit
+ * them = Skip). Returns one outcome per source, in input order.
+ */
+export async function importPathsToProject(
+  projectPath: string,
+  sources: string[],
+  toDirRel: string,
+  onConflict: ConflictResolution = 'error'
+): Promise<ImportOutcome[]> {
+  return invoke<ImportOutcome[]>('import_paths_to_project', {
+    projectPath,
+    sources,
+    toDirRel,
+    onConflict,
+  });
+}
+
+/**
+ * Delete a file or directory from the project. The entry is moved to the OS
+ * Trash / Recycle Bin (recoverable), not permanently unlinked. `rel` is
+ * project-relative; deleting the project root, traversal paths, and missing
+ * entries are rejected by the backend with a `Validation` error.
+ */
+export async function deleteProjectEntry(projectPath: string, rel: string): Promise<void> {
+  await invoke('delete_project_entry', { projectPath, rel });
+}
+
 /** Overwrite a project file with new content (Code tab inline editor). */
 export async function saveProjectFile(
   projectPath: string,

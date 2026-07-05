@@ -644,6 +644,9 @@ pub fn run() {
             // Code Browser
             commands::code::list_project_files,
             commands::code::read_project_file,
+            commands::code::move_project_entry,
+            commands::code::import_paths_to_project,
+            commands::code::delete_project_entry,
             commands::code::save_project_file,
             // Assets
             commands::assets::get_assets_root,

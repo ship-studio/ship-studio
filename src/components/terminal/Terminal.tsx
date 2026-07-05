@@ -15,6 +15,8 @@
 import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
+import { osDropZoneAt } from '../../lib/osDrop';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -40,7 +42,6 @@ interface SessionHandle {
   pid: number | null;
 }
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { getShellPath, getSystemEnv } from '../../lib/project';
 import { loadNerdFonts } from '../../lib/fonts';
@@ -310,33 +311,43 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     let mounted = true;
 
     const setupDropListener = async () => {
-      // Listen for the tauri://drag-drop event
-      const unlistenFn = await listen<{ paths: string[]; position: { x: number; y: number } }>(
-        'tauri://drag-drop',
-        (event) => {
-          // Debounce - ignore duplicate events within 500ms
-          const now = Date.now();
-          if (now - lastDropTimeRef.current < 500) {
-            return;
-          }
-          lastDropTimeRef.current = now;
+      // Listen for OS file drops via the typed webview drag-drop event. (Using
+      // onDragDropEvent rather than the raw `tauri://drag-drop` listen() gives a
+      // wrapped flat PhysicalPosition — the raw payload nests it as
+      // `{ Physical: { x, y } }`, which the hit-test below can't read.)
+      const unlistenFn = await getCurrentWebview().onDragDropEvent((event) => {
+        if (event.payload.type !== 'drop') return;
 
-          const pty = ptyRef.current;
-          const term = terminalRef.current;
-
-          if (pty && term && event.payload.paths && event.payload.paths.length > 0) {
-            // Quote paths that contain spaces
-            const quotedPaths = event.payload.paths
-              .map((p) => (p.includes(' ') ? `"${p}"` : p))
-              .join(' ');
-
-            // Focus terminal and paste the path
-            term.focus();
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-            (term as any).paste(quotedPaths);
-          }
+        // If the drop landed on a region that owns its OS drops (e.g. the code
+        // file tree, which imports the files), don't also paste the path into the
+        // terminal — let that region handle it. Checked BEFORE the debounce so a
+        // tree-owned drop doesn't burn the terminal's debounce window.
+        if (osDropZoneAt(event.payload.position)) {
+          return;
         }
-      );
+
+        // Debounce duplicate drop events within 500ms (only for drops we handle).
+        const now = Date.now();
+        if (now - lastDropTimeRef.current < 500) {
+          return;
+        }
+        lastDropTimeRef.current = now;
+
+        const pty = ptyRef.current;
+        const term = terminalRef.current;
+
+        if (pty && term && event.payload.paths.length > 0) {
+          // Quote paths that contain spaces
+          const quotedPaths = event.payload.paths
+            .map((p) => (p.includes(' ') ? `"${p}"` : p))
+            .join(' ');
+
+          // Focus terminal and paste the path
+          term.focus();
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+          (term as any).paste(quotedPaths);
+        }
+      });
 
       // If component unmounted while awaiting, clean up immediately
       if (!mounted) {

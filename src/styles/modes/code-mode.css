@@ -1,5 +1,12 @@
 /* Code browser styles */
 
+/* File-tree highlight outlines — feature-local one-offs, off the global scale. */
+:root {
+  --cm-outline-w: 1px;
+  --cm-outline-offset: -1px;
+  --cm-root-outline-offset: -2px;
+}
+
 .code-tab {
   display: flex;
   flex: 1;
@@ -204,6 +211,71 @@
 .file-tree-name {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Drag-and-drop (in-tree move) */
+.file-tree-item.dragging {
+  opacity: 0.45;
+}
+
+.file-tree-item.drop-target {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: var(--cm-outline-w) solid var(--accent);
+  outline-offset: var(--cm-outline-offset);
+}
+
+/* Row whose right-click context menu is currently open. */
+.file-tree-item.context-target {
+  background: var(--bg-tertiary);
+  outline: var(--cm-outline-w) solid var(--border);
+  outline-offset: var(--cm-outline-offset);
+}
+
+.code-tab-sidebar-content.root-drop-target {
+  outline: var(--cm-outline-w) dashed var(--accent);
+  outline-offset: var(--cm-root-outline-offset);
+  border-radius: var(--radius-sm);
+}
+
+.code-tab-importing {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* Name-collision prompt (ConflictPromptModal) */
+.conflict-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.conflict-prompt-text {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.conflict-prompt-text strong {
+  color: var(--text-primary);
+}
+
+.conflict-prompt-applyall {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.conflict-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
 }
 
 /* Code Viewer */
@@ -453,4 +525,45 @@
 
 .code-selection-copy:hover {
   background: var(--action-hover);
+}
+
+/* Right-click context menu for file-tree entries. */
+.file-tree-context-menu {
+  position: fixed;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: var(--spacing-xs);
+  z-index: var(--z-tooltip);
+  min-width: 160px;
+}
+
+.file-tree-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.file-tree-context-menu-item:hover {
+  background: var(--bg-primary);
+}
+
+.file-tree-context-menu-item.danger {
+  color: var(--error);
+}
+
+.file-tree-context-menu-item.danger:hover {
+  background: var(--error);
+  color: var(--text-bright);
 }
