@@ -6,7 +6,8 @@
 use super::{is_mock_installed, is_mock_mode, mock_install, AUTH_PIDS};
 use crate::agent::{get_active_agent, get_agent_by_id};
 use crate::commands::accounts::{
-    agent_auth_dir, get_active_account_id, get_env_vars_for_active_account,
+    agent_auth_dir, claude_cli_auth_status, get_active_account_id, get_env_vars_for_active_account,
+    resolve_claude_identity, ClaudeConnState, DEFAULT_ACCOUNT_ID,
 };
 use crate::commands::claude::find_binary_by_name;
 use crate::errors::CommandError;
@@ -142,6 +143,29 @@ pub async fn check_claude_auth_status(agent_id: Option<String>) -> bool {
     }
 
     let active_account_id = get_active_account_id().unwrap_or_else(|_| "default".to_string());
+
+    // Claude: use the same source of truth as the dashboard's Agents panel
+    // (`resolve_claude_identity`) instead of file indicators. Files like
+    // `~/.claude/settings.json` survive a sign-out, so the old existence check
+    // reported "authenticated" while the dashboard's `claude auth status`
+    // check said "not connected" — a disagreement that left users stuck
+    // (issue #159). File indicators remain only as the fallback for when the
+    // CLI can't answer (e.g. an older binary without `auth status`).
+    if agent.id == "claude-code" {
+        if active_account_id != DEFAULT_ACCOUNT_ID {
+            // Isolated workspaces are vault-driven, exactly like the dashboard.
+            // NeedsReconnect (expired token) counts as not authenticated so the
+            // wizard prompts a reconnect instead of green-lighting a dead token.
+            let identity = resolve_claude_identity(&active_account_id).await;
+            return identity.state == ClaudeConnState::Connected;
+        }
+        // Default workspace: the CLI's native keychain login is the truth.
+        if let Some((logged_in, _email)) = claude_cli_auth_status().await {
+            return logged_in;
+        }
+        // CLI couldn't answer — fall through to the file-indicator fallback.
+    }
+
     let agent_dir = agent_auth_dir(&active_account_id, agent);
     agent.auth_indicators.iter().any(|indicator| {
         let path = agent_dir.join(indicator);

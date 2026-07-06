@@ -26,8 +26,7 @@ import { createWebLinksAddon } from '../../lib/terminalLinks';
 import {
   openPtySession,
   attachPtySession,
-  detachPtySession,
-  writePtySession,
+  writePtySessionLogged,
   resizePtySession,
   onPtySessionData,
   onPtySessionExit,
@@ -159,7 +158,7 @@ export function BuildTerminal({
 
     // User keystrokes → PTY (this is what makes prompts answerable).
     const inputDisposable = term.onData((data) => {
-      void writePtySession(sessionId, data);
+      writePtySessionLogged(sessionId, data);
     });
     disposers.push(() => inputDisposable.dispose());
 

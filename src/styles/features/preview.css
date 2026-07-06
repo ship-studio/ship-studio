@@ -1,3 +1,8 @@
+:root {
+  /* Readable line-length cap for overlay body copy (blank-iframe watchdog). */
+  --preview-error-copy-max-width: 460px;
+}
+
 /* Preview. Uses grid rather than column-flex because ancestor heights
    in the chain above .preview-pane are indefinite at layout time —
    percentage flex-basis on the logs panel was resolving to auto
@@ -557,6 +562,47 @@
   z-index: var(--z-dropdown);
   color: var(--text-muted);
   font-size: var(--font-size-lg);
+}
+
+/* Blank-iframe watchdog overlay — the dev server is healthy but the page never
+   proved it rendered inside the embedded iframe (GitHub issue 179: e.g. an auth
+   redirect loop aborts the subframe load and WebKit renders it empty). */
+.preview-iframe-error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  z-index: var(--z-dropdown);
+  padding: var(--spacing-xl);
+  text-align: center;
+}
+
+.preview-iframe-error-overlay h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.preview-iframe-error-overlay p {
+  margin: 0;
+  max-width: var(--preview-error-copy-max-width);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  line-height: 1.6;
+}
+
+.preview-iframe-error-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
 }
 
 /* Preview Viewport */

@@ -11,6 +11,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { ColorPicker } from './ColorPicker';
 import { colorSwatch, parseNumericValue, formatNumericValue } from '../../lib/cssProperties';
 
@@ -84,6 +85,26 @@ export function EditPopover({ anchor, initial, options, placeholder, onCommit, o
 
   // Escape cancels; click-away commits the current value. Clicks inside the popover
   // or its portaled sub-menus (the color format dropdown) don't dismiss.
+  // The popover is only mounted while open, so `open` is simply `true` here.
+  useDismissOnOutsidePointer(
+    true,
+    popRef,
+    () => {
+      onCommit(textRef.current);
+      onClose();
+    },
+    {
+      event: 'mousedown',
+      isOutside: (target) => {
+        const t = target as HTMLElement;
+        if (popRef.current?.contains(t)) return false;
+        // Clicking the anchor again is a toggle — let its own onClick close us.
+        if (anchor?.contains(t)) return false;
+        if (t.closest?.('.ss-enum__menu, .ss-color-popover')) return false;
+        return true;
+      },
+    }
+  );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -91,22 +112,9 @@ export function EditPopover({ anchor, initial, options, placeholder, onCommit, o
         onClose();
       }
     };
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (popRef.current?.contains(t)) return;
-      // Clicking the anchor again is a toggle — let its own onClick close us.
-      if (anchor?.contains(t)) return;
-      if (t.closest?.('.ss-enum__menu, .ss-color-popover')) return;
-      onCommit(textRef.current);
-      onClose();
-    };
     document.addEventListener('keydown', onKey, true);
-    document.addEventListener('mousedown', onDown, true);
-    return () => {
-      document.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('mousedown', onDown, true);
-    };
-  }, [onClose, onCommit, anchor]);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
 
   if (!pos) return null;
   return createPortal(

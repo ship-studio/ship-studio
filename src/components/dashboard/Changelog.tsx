@@ -26,6 +26,22 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.13.2', // v0.13.2
+    items: [
+      'Terminals no longer get stuck at "Starting…" — fixed the startup race that made agents look dead (Windows especially), and onboarding terminals now auto-retry and show a real error instead of hanging',
+      "Windows: Ctrl+V pastes instantly (it could take 30 seconds or never land), and you can paste a screenshot straight into the agent terminal — it's saved and handed to your agent as a file",
+      'Dropping a file into a terminal lands in that terminal only — no longer typed into every open agent across all your projects',
+      "Windows: full-page screenshots fixed — capture silently produced only the visible area; if it ever falls back now, you'll see a notice",
+      'Visual editor dropdowns stay open — on newer macOS versions they could close the instant you opened them',
+      'Plugins fail loudly, not silently — real error messages on click, a crashing plugin is disabled for the session instead of uninstalled from disk, accurate counts, and no more Install-button loop',
+      "Setup installs show the real error instead of 'Command failed. Click to try again', and Windows finds Node installed via nvm-windows, fnm, or Volta",
+      "Blank preview explains itself — if your site can't render in the preview (e.g. Clerk development keys causing a redirect loop), you get an explanation and a suggested fix instead of an empty pane",
+      'No more infinite spinner or black window at launch — startup steps time out with a retry, and a fallback screen appears if the app cannot boot; also restored bundle compatibility with macOS 12',
+      'Claude sign-in fixes — an expired login no longer blocks signing back in, and failed sign-ins show what actually went wrong',
+      'Windows compatibility pass — file tree and assets panel no longer collapse, shortcut hints show Ctrl instead of ⌘, and project names display correctly',
+    ],
+  },
+  {
     version: '0.13.1', // v0.13.1
     items: [
       'Edit code right in the app — the Code tab now has an Edit toggle that turns it into a live editor: type and save with ⌘S, while read-only mode stays for selecting code and sending it to your agent. The toggle is remembered across projects and sessions',

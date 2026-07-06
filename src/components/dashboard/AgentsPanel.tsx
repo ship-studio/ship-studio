@@ -279,29 +279,21 @@ export function AgentsPanel() {
 
   const isWorkspaceActive = !!activeAccount && !activeAccount.isDefault;
 
-  // Keep showToast in a ref so refresh() has a stable identity — otherwise
-  // the mount effect re-fires on every render (useOptionalToast returns a
-  // fresh object each render when there's no ToastProvider), causing a
-  // storm of refetches that makes the default pill flicker.
-  const showToastRef = useRef(showToast);
-  useEffect(() => {
-    showToastRef.current = showToast;
-  }, [showToast]);
-
+  // `showToast` is referentially stable: the app-root <ToastProvider> keeps
+  // it in a useCallback, and outside a provider `useOptionalToast` returns a
+  // module-level no-op singleton. So it's safe in dep arrays and refresh()
+  // keeps a stable identity (no refetch storms on re-render).
   const refresh = useCallback(async () => {
     try {
       const data = await getAgentsStatus();
       setAgents(data);
     } catch (err) {
       logger.warn('Failed to load agent status');
-      showToastRef.current(
-        `Failed to load agents: ${formatCommandError(asCommandError(err))}`,
-        'error'
-      );
+      showToast(`Failed to load agents: ${formatCommandError(asCommandError(err))}`, 'error');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     void refresh();

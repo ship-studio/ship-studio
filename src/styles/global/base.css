@@ -306,6 +306,30 @@ body.compact-mode-active html {
   width: auto;
 }
 
+/* Boot watchdog — replaces the loading spinner when the app is still stuck
+   on the loading view after BOOT_WATCHDOG_MS (see BootLoadingScreen.tsx). */
+.boot-watchdog {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+  max-width: 420px;
+  padding: 0 var(--spacing-lg);
+  text-align: center;
+}
+
+.boot-watchdog p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+}
+
+.boot-watchdog .boot-watchdog-hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
 /* Spinner */
 /* Shared keyframes — keyframe names are GLOBAL in CSS. Define shared ones
    here only; a feature-file duplicate silently overrides every consumer

@@ -1,6 +1,6 @@
 [package]
 name = "ship-studio"
-version = "0.13.1"
+version = "0.13.2"
 description = "Ship Studio — a desktop app for shipping web projects with AI coding agents."
 authors = ["Julian Galluzzo", "Ship Studio contributors"]
 license = "MIT"
@@ -70,6 +70,9 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 thiserror = "1"
+# Native clipboard read for Windows terminal paste (WebView2 gates keyboard
+# paste behind an async permission wait — see commands/clipboard.rs).
+arboard = "3"
 
 [dev-dependencies]
 tempfile = "3"

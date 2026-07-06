@@ -9,6 +9,11 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useClickOutside } from './useClickOutside';
+import {
+  decideIframeWatchdogArm,
+  isPreviewProofOfLife,
+  IFRAME_BLANK_TIMEOUT_MS,
+} from './previewIframeWatchdog';
 import { logger } from '../lib/logger';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
@@ -80,6 +85,10 @@ export function usePreviewConnection({
   const [pageSearch, setPageSearch] = useState('');
   const [proxyPort, setProxyPort] = useState<number | null>(null);
   const [cacheBuster, setCacheBuster] = useState(() => Date.now());
+  // The iframe never proved it rendered a document (issue #179): the server is
+  // healthy top-level, but the subframe load aborted — e.g. an auth-middleware
+  // redirect loop — and WebKit renders an empty frame with no error anywhere.
+  const [iframeBlank, setIframeBlank] = useState(false);
 
   const devServerUrl = `http://localhost:${port}`;
   const baseUrl = proxyPort ? `http://localhost:${proxyPort}` : devServerUrl;
@@ -107,6 +116,33 @@ export function usePreviewConnection({
   const readyProbeControllerRef = useRef<AbortController | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // Blank-iframe watchdog: has the current navigation proven life yet, and the
+  // pending "no proof arrived" timer. Refs (not state) so the message handler
+  // and timer callbacks always see the live values without re-subscribing.
+  const iframeAliveRef = useRef(false);
+  const iframeWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearIframeWatchdogTimer = useCallback(() => {
+    if (iframeWatchdogTimerRef.current) {
+      clearTimeout(iframeWatchdogTimerRef.current);
+      iframeWatchdogTimerRef.current = null;
+    }
+  }, []);
+
+  // (Re)start the blank-iframe timer. Fires only if no proof-of-life message
+  // arrived in the meantime — a late-but-healthy page clears itself.
+  const startIframeWatchdogTimer = useCallback(() => {
+    clearIframeWatchdogTimer();
+    iframeWatchdogTimerRef.current = setTimeout(() => {
+      iframeWatchdogTimerRef.current = null;
+      if (!iframeAliveRef.current) {
+        logger.warn('[Preview] Iframe never proved it rendered — flagging blank pane', {
+          timeoutMs: IFRAME_BLANK_TIMEOUT_MS,
+        });
+        setIframeBlank(true);
+      }
+    }, IFRAME_BLANK_TIMEOUT_MS);
+  }, [clearIframeWatchdogTimer]);
 
   // Reset state when project or port changes
   useEffect(() => {
@@ -121,6 +157,8 @@ export function usePreviewConnection({
     setShowPageDropdown(false);
     setPageSearch('');
     setCacheBuster(Date.now());
+    setIframeBlank(false);
+    iframeAliveRef.current = false;
 
     const timer = setTimeout(() => setRetryCount(0), 1500);
     return () => clearTimeout(timer);
@@ -246,6 +284,42 @@ export function usePreviewConnection({
     };
   }, [serverReady, port]);
 
+  // Arm the blank-iframe watchdog on every explicit navigation: initial proxy
+  // URL, refresh, and page select all change `currentUrl` (cache buster), which
+  // replaces the iframe's document — so the previous proof-of-life no longer
+  // stands. Skipped (and cleared) while the server isn't ready or the URL
+  // bypasses the injecting proxy, where no page could ever prove life.
+  useEffect(() => {
+    const action = decideIframeWatchdogArm('navigation', {
+      serverReady,
+      proxyActive: proxyPort !== null,
+      aliveSinceNavigation: false,
+    });
+    if (action === 'skip') {
+      setIframeBlank(false);
+      return;
+    }
+    logger.debug('[Preview] Arming blank-iframe watchdog', { url: currentUrl });
+    iframeAliveRef.current = false;
+    setIframeBlank(false);
+    startIframeWatchdogTimer();
+    return clearIframeWatchdogTimer;
+  }, [currentUrl, serverReady, proxyPort, startIframeWatchdogTimer, clearIframeWatchdogTimer]);
+
+  // Give each document hop a fresh window: the iframe's `load` event fires per
+  // document (redirect chains, about:blank bounces during refresh). Injected
+  // scripts post their proof at parse time — before `load` — so a hop that
+  // already proved life must NOT re-arm (it would be falsely flagged blank).
+  const handleIframeLoad = useCallback(() => {
+    const action = decideIframeWatchdogArm('load', {
+      serverReady,
+      proxyActive: proxyPort !== null,
+      aliveSinceNavigation: iframeAliveRef.current,
+    });
+    if (action === 'skip') return;
+    startIframeWatchdogTimer();
+  }, [serverReady, proxyPort, startIframeWatchdogTimer]);
+
   // Listen for navigation and error events from the injected proxy scripts.
   //
   // SECURITY: these messages originate from the preview iframe, which renders
@@ -274,6 +348,15 @@ export function usePreviewConnection({
     ) => {
       if (!allowedOrigins.has(event.origin)) return;
       const data = event.data;
+      // Any injected-script message (shipstudio:* or the visual editor's ss:*)
+      // proves the iframe parsed and ran a real document — feed the blank-pane
+      // watchdog. Also self-heals: a page that finishes late (slow on-demand
+      // compile) clears an already-shown blank overlay.
+      if (data && isPreviewProofOfLife(data.type)) {
+        iframeAliveRef.current = true;
+        clearIframeWatchdogTimer();
+        setIframeBlank(false);
+      }
       if (data && data.type === 'shipstudio:navigate' && typeof data.pathname === 'string') {
         const pathname: string = data.pathname || '/';
         setCurrentPage((prev) => (prev === pathname ? prev : pathname));
@@ -297,7 +380,7 @@ export function usePreviewConnection({
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onSendToClaude, onToast, port, proxyPort]);
+  }, [onSendToClaude, onToast, port, proxyPort, clearIframeWatchdogTimer]);
 
   // Auto-reload for static HTML projects when files change on disk
   useEffect(() => {
@@ -518,6 +601,7 @@ export function usePreviewConnection({
     retryCount,
     serverReady,
     isStopped,
+    iframeBlank,
 
     // URL state
     baseUrl,
@@ -543,5 +627,6 @@ export function usePreviewConnection({
     handlePageSelect,
     handleRetry,
     stopConnecting,
+    handleIframeLoad,
   };
 }

@@ -15,6 +15,8 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { logger } from './logger';
+import { asCommandError, formatCommandError } from './errors';
 
 export interface OpenPtySessionArgs {
   /** Stable id for this PTY session. Usually the tab's `sessionId` UUID
@@ -87,11 +89,27 @@ export async function openPtySession(args: OpenPtySessionArgs): Promise<OpenPtyS
   });
 }
 
-/** Write bytes to a session's PTY. */
+/** Write bytes to a session's PTY. Rejects on failure — awaiting callers
+ *  see the error. Fire-and-forget input paths (keystrokes) should use
+ *  {@link writePtySessionLogged} instead so failures don't vanish. */
 export async function writePtySession(sessionId: string, data: string): Promise<void> {
   const encoder = new TextEncoder();
   const bytes = Array.from(encoder.encode(data));
   await invoke('pty_session_write', { sessionId, data: bytes });
+}
+
+/** Fire-and-forget variant of {@link writePtySession} for input paths where
+ *  nothing awaits the write (keystrokes, injected prompts). A rejected
+ *  write means the input was silently dropped (#167) — log it so there's a
+ *  trace. Deliberately no toast: one per lost keystroke would spam. */
+export function writePtySessionLogged(sessionId: string, data: string): void {
+  writePtySession(sessionId, data).catch((err: unknown) => {
+    logger.warn('[ptySession] write failed — input dropped', {
+      sessionId,
+      length: data.length,
+      error: formatCommandError(asCommandError(err)),
+    });
+  });
 }
 
 /** Resize the PTY backing a session. */

@@ -61,6 +61,7 @@ import { CompactIcon, ExpandIcon, PanelLeftIcon, ResetIcon, UndoIcon, RedoIcon }
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { pathLocale, switchPathLocale } from '../../lib/i18n';
+import { kbd } from '../../lib/shortcuts';
 import { useCommands } from '../../commands/useCommands';
 import { logger } from '../../lib/logger';
 import type { ProjectType } from '../../lib/static-server';
@@ -780,6 +781,61 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     ]
   );
 
+  // Agent handoff for preview failures — always-available recovery whenever a
+  // Claude terminal is wired up. Two flavors: the server never came up
+  // ('server-down', shown by DevServerStatus), and the server is healthy but
+  // the page never rendered inside the embedded iframe ('blank-iframe', shown
+  // by the watchdog overlay — issue #179, e.g. a Clerk dev-keys redirect loop).
+  const handleFixWithAgent = useMemo(() => {
+    if (!onSendToClaude) return undefined;
+    return (reason: 'server-down' | 'blank-iframe') => {
+      const logs = isStaticProject
+        ? ''
+        : stripAnsi(devServerOutput).split('\n').slice(-200).join('\n').trim();
+      let prompt: string;
+      if (reason === 'blank-iframe') {
+        prompt =
+          `My project's dev server on http://localhost:${port} is up and responding, but ` +
+          `the page renders BLANK inside Ship Studio's embedded preview iframe. It may ` +
+          `still load fine in a regular browser tab — the failure is specific to being ` +
+          `framed.\n\n` +
+          (logs ? `Recent dev-server output:\n\n\`\`\`\n${logs}\n\`\`\`\n\n` : '') +
+          `Likely causes to check, in order:\n` +
+          `1. An auth-middleware redirect loop. Clerk DEVELOPMENT keys are the classic ` +
+          `case: clerkMiddleware bounces the first visit through ` +
+          `<your-app>.clerk.accounts.dev to set a handshake cookie; embedded previews ` +
+          `block that third-party cookie, so the page redirects until the browser aborts ` +
+          `("too many HTTP redirects") and the frame stays empty. Fix by scoping the ` +
+          `middleware matcher to only the routes that need auth, or by using a ` +
+          `production auth instance.\n` +
+          `2. A client-side crash before first paint (check the code that runs on load).\n` +
+          `3. A Content-Security-Policy or framing restriction the app adds itself.\n\n` +
+          `Please find the cause and fix it so the page renders inside an iframe.`;
+      } else if (isStaticProject) {
+        prompt =
+          `My site preview isn't loading. Ship Studio is serving this project as static ` +
+          `files on http://localhost:${port} but nothing shows up. Please check the project ` +
+          `has an index.html at its root (and any files it references) so the preview renders.`;
+      } else {
+        prompt =
+          `My dev server isn't coming up — Ship Studio is waiting on ` +
+          `http://localhost:${port} but it never responds.\n\n` +
+          (logs
+            ? `Recent dev-server output:\n\n\`\`\`\n${logs}\n\`\`\`\n\n`
+            : `There's no dev-server output yet.\n\n`) +
+          `Please work out why it won't start — a busy port, a crash, a missing ` +
+          `dependency, or a wrong or missing dev script — and fix it so it serves on ` +
+          `port ${port}.`;
+      }
+      onSendToClaude(prompt);
+      void trackEvent('preview_fix_with_agent', {
+        has_logs: !!logs,
+        is_static: isStaticProject,
+        reason,
+      });
+    };
+  }, [onSendToClaude, isStaticProject, devServerOutput, port]);
+
   if (needsInstall) {
     return (
       <div className="preview-install-prompt">
@@ -811,34 +867,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   }
 
   if (conn.isLoading || conn.isStopped || conn.hasError) {
-    // Keep the agent handoff available as the always-present recovery whenever a
-    // Claude terminal is wired up — for static projects too (a different prompt,
-    // since they have no server log to attach).
-    const handleFixWithAgent = onSendToClaude
-      ? () => {
-          const logs = isStaticProject
-            ? ''
-            : stripAnsi(devServerOutput).split('\n').slice(-200).join('\n').trim();
-          const prompt = isStaticProject
-            ? `My site preview isn't loading. Ship Studio is serving this project as static ` +
-              `files on http://localhost:${port} but nothing shows up. Please check the project ` +
-              `has an index.html at its root (and any files it references) so the preview renders.`
-            : `My dev server isn't coming up — Ship Studio is waiting on ` +
-              `http://localhost:${port} but it never responds.\n\n` +
-              (logs
-                ? `Recent dev-server output:\n\n\`\`\`\n${logs}\n\`\`\`\n\n`
-                : `There's no dev-server output yet.\n\n`) +
-              `Please work out why it won't start — a busy port, a crash, a missing ` +
-              `dependency, or a wrong or missing dev script — and fix it so it serves on ` +
-              `port ${port}.`;
-          onSendToClaude(prompt);
-          void trackEvent('preview_fix_with_agent', {
-            has_logs: !!logs,
-            is_static: isStaticProject,
-          });
-        }
-      : undefined;
-
     return (
       <DevServerStatus
         phase={conn.isStopped ? 'stopped' : conn.hasError ? 'error' : 'loading'}
@@ -849,7 +877,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         devServerOutput={devServerOutput}
         onStop={conn.stopConnecting}
         onRetry={conn.handleRetry}
-        onFixWithAgent={handleFixWithAgent}
+        onFixWithAgent={handleFixWithAgent && (() => handleFixWithAgent('server-down'))}
         onInput={onDevServerInput}
       />
     );
@@ -1047,7 +1075,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             className="preview-fullscreen-btn"
             onClick={onUndo}
             disabled={!canUndo}
-            title={undoTitle ?? 'Undo last change (⌘Z)'}
+            title={undoTitle ?? `Undo last change (${kbd('mod', 'Z')})`}
             aria-label="Undo"
           >
             <UndoIcon size={14} />
@@ -1059,7 +1087,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             className="preview-fullscreen-btn"
             onClick={onRedo}
             disabled={!canRedo}
-            title={redoTitle ?? 'Redo (⌘⇧Z)'}
+            title={redoTitle ?? `Redo (${kbd('mod', 'shift', 'Z')})`}
             aria-label="Redo"
           >
             <RedoIcon size={14} />
@@ -1178,7 +1206,39 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               src={conn.serverReady ? conn.currentUrl : 'about:blank'}
               className="preview-iframe"
               title="Preview"
+              onLoad={conn.handleIframeLoad}
             />
+            {/* Blank-iframe watchdog overlay: the server is healthy top-level but
+                the page never proved it rendered inside the embedded iframe —
+                e.g. an auth redirect loop aborted the subframe load (issue #179). */}
+            {conn.iframeBlank && !isBranchSwitching && !isDevServerRestarting && (
+              <div
+                className="preview-iframe-error-overlay"
+                data-education-id="preview-iframe-error"
+              >
+                <h3>The page isn't rendering in the preview</h3>
+                <p>
+                  The dev server is up, but this page never painted inside the embedded preview.
+                  That usually means it failed in the iframe — commonly an auth-middleware redirect
+                  loop (e.g. Clerk development keys) — even though it may load fine in a normal
+                  browser.
+                </p>
+                <div className="preview-iframe-error-actions">
+                  <Button variant="secondary" size="sm" onClick={conn.handleRefresh}>
+                    Retry
+                  </Button>
+                  {handleFixWithAgent && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleFixWithAgent('blank-iframe')}
+                    >
+                      Fix with agent
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
             {/* Branch switching overlay */}
             {isBranchSwitching && (
               <div className="preview-branch-switching-overlay">

@@ -184,11 +184,19 @@ pub fn strip_html_tags(html: &str) -> String {
     result
 }
 
-/// Build a self-contained error overlay (HTML/CSS/JS) for 5xx responses.
-/// Forces body visible (overrides Next.js FOUC prevention), shows a styled error panel,
-/// and sends a postMessage to the parent so Ship Studio can log the error.
-pub fn build_error_overlay(status_code: u16, error_message: &str) -> String {
-    let escaped_message = error_message
+/// Shared overlay panel builder. `title` is the header line next to the status
+/// badge, `intro` is an optional pre-escaped explanatory paragraph rendered
+/// above the monospace message block, `message` is the raw error/reason string
+/// (escaped here, and wired to the Copy / Send-to-Claude buttons), and `hint`
+/// is the muted footer line inside the body.
+fn build_overlay_panel(
+    status_code: u16,
+    title: &str,
+    intro: Option<&str>,
+    message: &str,
+    hint: &str,
+) -> String {
+    let escaped_message = message
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -196,11 +204,17 @@ pub fn build_error_overlay(status_code: u16, error_message: &str) -> String {
         .replace('\'', "&#39;")
         .replace('\n', "<br>");
 
-    let js_escaped = error_message
-        .replace('\\', "\\\\")
-        .replace('\'', "\\'")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r");
+    // Embed the message as a JSON string literal (valid JS), then escape `<`
+    // so a payload containing `</script>` or `<!--` can't terminate the
+    // script element — the HTML parser ends script data on `</script>`
+    // regardless of JS string boundaries.
+    let js_escaped = serde_json::to_string(message)
+        .unwrap_or_else(|_| String::from("\"\""))
+        .replace('<', "\\u003c");
+
+    let intro_html = intro
+        .map(|i| format!(r#"<div class="__ss-err-intro">{i}</div>"#))
+        .unwrap_or_default();
 
     format!(
         r#"<style>
@@ -211,6 +225,7 @@ body{{display:block!important;visibility:visible!important;opacity:1!important}}
 .__ss-err-badge{{background:#f44747;color:#fff;font-size:12px;font-weight:700;padding:3px 8px;border-radius:4px}}
 .__ss-err-title{{font-size:14px;font-weight:600;color:#ccc}}
 .__ss-err-body{{padding:20px;max-height:400px;overflow-y:auto}}
+.__ss-err-intro{{font-size:13px;line-height:1.6;color:#9d9d9d;margin-bottom:14px}}
 .__ss-err-msg{{font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:13px;line-height:1.6;color:#d4d4d4;white-space:pre-wrap;word-break:break-word;background:#1e1e1e;padding:16px;border-radius:8px;border:1px solid #3c3c3c}}
 .__ss-err-hint{{margin-top:16px;font-size:12px;color:#6d6d6d;text-align:center}}
 .__ss-err-footer{{display:flex;gap:8px;padding:16px 20px;border-top:1px solid #3c3c3c;justify-content:flex-end}}
@@ -220,12 +235,12 @@ body{{display:block!important;visibility:visible!important;opacity:1!important}}
 .__ss-err-btn--primary:hover{{background:#C4684A}}
 </style>
 <div class="__ss-err-overlay"><div class="__ss-err-panel">
-<div class="__ss-err-header"><span class="__ss-err-badge">{status_code}</span><span class="__ss-err-title">Dev Server Error</span></div>
-<div class="__ss-err-body"><div class="__ss-err-msg">{escaped_message}</div><div class="__ss-err-hint">Check the terminal for full error details</div></div>
+<div class="__ss-err-header"><span class="__ss-err-badge">{status_code}</span><span class="__ss-err-title">{title}</span></div>
+<div class="__ss-err-body">{intro_html}<div class="__ss-err-msg">{escaped_message}</div><div class="__ss-err-hint">{hint}</div></div>
 <div class="__ss-err-footer"><button class="__ss-err-btn" id="__ss-err-copy"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Error</button><button class="__ss-err-btn __ss-err-btn--primary" id="__ss-err-send">Send to Claude</button></div>
 </div></div>
 <script>(function(){{
-var msg='{js_escaped}';
+var msg={js_escaped};
 window.parent.postMessage({{type:'shipstudio:error',status:{status_code},message:msg}},'*');
 document.getElementById('__ss-err-copy').onclick=function(){{
 window.parent.postMessage({{type:'shipstudio:copy-error',message:msg}},'*');
@@ -235,6 +250,47 @@ document.getElementById('__ss-err-send').onclick=function(){{
 window.parent.postMessage({{type:'shipstudio:send-error-to-claude',message:msg}},'*')
 }};
 }})()</script>"#,
+    )
+}
+
+/// Build a self-contained error overlay (HTML/CSS/JS) for 5xx responses.
+/// Forces body visible (overrides Next.js FOUC prevention), shows a styled error panel,
+/// and sends a postMessage to the parent so Ship Studio can log the error.
+pub fn build_error_overlay(status_code: u16, error_message: &str) -> String {
+    build_overlay_panel(
+        status_code,
+        "Dev Server Error",
+        None,
+        error_message,
+        "Check the terminal for full error details",
+    )
+}
+
+/// Explanation shown on the auth-redirect-loop interstitial. Pre-escaped HTML.
+const AUTH_REDIRECT_INTRO: &str = "The dev server is running, but this page's auth middleware \
+kept redirecting the preview until it gave up. Embedded previews (like any cross-site iframe) \
+block third-party auth cookies, so the sign-in handshake can never finish. Clerk \
+<b>development keys</b> are the most common cause &mdash; they bounce the first visit through \
+<code>&lt;your-app&gt;.clerk.accounts.dev</code> to set a handshake cookie. To fix it, scope \
+<code>clerkMiddleware</code> (or your auth middleware) to only the routes that need protection, \
+or use a production Clerk instance. The site itself is fine &mdash; it loads normally in a \
+regular browser tab, where the cookie is first-party.";
+
+/// Build a complete standalone HTML page shown instead of forwarding an
+/// auth-handshake redirect that would loop the preview iframe until WebKit
+/// aborts it (issue #179). Served with a 200 status so WebKit actually renders
+/// it. Includes the nav script so the parent's blank-pane watchdog sees the
+/// page as alive and the Copy / Send-to-Claude buttons keep working.
+pub fn build_auth_redirect_interstitial(status_code: u16, reason: &str) -> String {
+    let overlay = build_overlay_panel(
+        status_code,
+        "This page couldn't load in the preview — it redirected too many times.",
+        Some(AUTH_REDIRECT_INTRO),
+        reason,
+        "Open the site in a normal browser tab and it will load fine.",
+    );
+    format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Preview blocked: redirect loop</title></head><body>{overlay}{NAV_SCRIPT}</body></html>"
     )
 }
 
@@ -400,5 +456,71 @@ mod tests {
         assert!(overlay.contains("&lt;Foo&gt;"));
         assert!(overlay.contains("&amp;"));
         assert!(overlay.contains("&quot;bar&quot;"));
+    }
+
+    #[test]
+    fn test_overlay_script_payload_cannot_break_out() {
+        // A message containing `</script>` must not terminate the overlay's
+        // script element — the HTML parser ends script data on `</script>`
+        // regardless of JS string boundaries.
+        let payload = "boom </script><script>alert(1)</script><!-- `${x}`";
+        let overlay = build_error_overlay(500, payload);
+        assert!(!overlay.contains("</script><script>alert(1)"));
+        assert!(!overlay.contains("<!--"));
+        // The message is embedded as a JSON string literal with `<` escaped —
+        // still the exact payload after JS parsing, but inert to the HTML parser.
+        assert!(overlay.contains(
+            "var msg=\"boom \\u003c/script>\\u003cscript>alert(1)\\u003c/script>\\u003c!-- `${x}`\";"
+        ));
+        // Exactly one real script element: ours.
+        assert_eq!(overlay.matches("</script>").count(), 1);
+    }
+
+    #[test]
+    fn test_error_overlay_keeps_dev_server_title_and_no_intro() {
+        // The generalized panel builder must not change the 5xx overlay.
+        let overlay = build_error_overlay(500, "boom");
+        assert!(overlay.contains("Dev Server Error"));
+        assert!(!overlay.contains(r#"<div class="__ss-err-intro">"#));
+    }
+
+    #[test]
+    fn test_auth_redirect_interstitial_contents() {
+        let reason = "HTTP 307 redirect to https://foo.clerk.accounts.dev/v1/handshake";
+        let page = build_auth_redirect_interstitial(307, reason);
+
+        // Standalone document with the redirect status in the badge.
+        assert!(page.starts_with("<!doctype html>"));
+        assert!(page.contains(r#"<span class="__ss-err-badge">307</span>"#));
+
+        // Names the failure and the Clerk-specific cause + fixes.
+        assert!(page.contains("redirected too many times"));
+        assert!(page.contains("clerkMiddleware"));
+        assert!(page.contains("clerk.accounts.dev"));
+        assert!(page.contains("normal browser tab"));
+
+        // Raw reason lands in the copyable monospace block.
+        assert!(page.contains("__ss-err-msg"));
+        assert!(page.contains("HTTP 307 redirect to https://foo.clerk.accounts.dev/v1/handshake"));
+
+        // Copy / Send-to-Claude buttons keep working.
+        assert!(page.contains("__ss-err-copy"));
+        assert!(page.contains("__ss-err-send"));
+        assert!(page.contains("shipstudio:copy-error"));
+        assert!(page.contains("shipstudio:send-error-to-claude"));
+
+        // The nav script rides along so the blank-pane watchdog sees the
+        // interstitial as a live page (and the app can log the error).
+        assert!(page.contains("shipstudio:alive"));
+        assert!(page.contains("shipstudio:navigate"));
+        assert!(page.contains("shipstudio:error"));
+    }
+
+    #[test]
+    fn nav_script_posts_alive_on_parse() {
+        // Part of the blank-pane watchdog contract: every injected page proves
+        // life immediately on parse, independent of navigation semantics.
+        assert!(NAV_SCRIPT.contains("shipstudio:alive"));
+        assert!(NAV_SCRIPT.contains("shipstudio:navigate"));
     }
 }

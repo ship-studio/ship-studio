@@ -2,7 +2,9 @@
  * PluginSlot renders plugin components in designated UI locations.
  *
  * Each plugin slot wraps its plugins in a PluginContext.Provider
- * and an error boundary to isolate crashes.
+ * and an error boundary to isolate crashes. Crashed plugins render a
+ * compact inline error chip (never silently disappear) and are disabled
+ * for the session only — never uninstalled from disk.
  *
  * @module components/PluginSlot
  */
@@ -16,14 +18,11 @@ import {
   type PluginAppActions,
   type PluginThemeData,
 } from '../../contexts/PluginContext';
-import {
-  execPluginShell,
-  readPluginStorage,
-  writePluginStorage,
-  uninstallPlugin,
-} from '../../lib/plugins';
+import { execPluginShell, readPluginStorage, writePluginStorage } from '../../lib/plugins';
 import { markPluginCrashed, isPluginCrashed } from '../../lib/plugin-loader';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { invoke } from '@tauri-apps/api/core';
+import { WarningIcon } from '../icons';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 
 interface PluginSlotProps {
@@ -37,6 +36,32 @@ interface PluginSlotProps {
   actions: PluginAppActions;
   /** Theme data for consistent styling */
   theme: PluginThemeData;
+}
+
+/**
+ * Compact inline indicator shown where a crashed plugin would have rendered.
+ * Keeps the plugin visible (so counts still add up) without being loud —
+ * a muted warning glyph plus, outside compact slots, the plugin name.
+ * The full error lives in the title tooltip.
+ */
+export function PluginErrorChip({
+  pluginName,
+  compact = false,
+  detail,
+}: {
+  pluginName: string;
+  compact?: boolean;
+  detail?: string;
+}) {
+  const title = detail
+    ? `"${pluginName}" failed: ${detail}`
+    : `"${pluginName}" crashed — disabled for this session. Re-enable from Plugins.`;
+  return (
+    <span className="plugin-error-chip" title={title} aria-label={`${pluginName} unavailable`}>
+      <WarningIcon size={12} />
+      {!compact && <span className="plugin-error-chip-name">{pluginName}</span>}
+    </span>
+  );
 }
 
 /** Error boundary state */
@@ -78,7 +103,15 @@ class PluginIsolationBoundary extends Component<ErrorBoundaryProps, ErrorBoundar
   }
 
   render() {
-    if (this.state.hasError) return null;
+    if (this.state.hasError) {
+      return (
+        <PluginErrorChip
+          pluginName={this.props.pluginName}
+          compact={this.props.compact}
+          detail={this.state.error?.message}
+        />
+      );
+    }
     return this.props.children;
   }
 }
@@ -100,14 +133,32 @@ class PluginErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 
   render() {
-    if (this.state.hasError) return null;
+    if (this.state.hasError) {
+      return (
+        <PluginErrorChip
+          pluginName={this.props.pluginName}
+          compact={this.props.compact}
+          detail={this.state.error?.message}
+        />
+      );
+    }
     return this.props.children;
   }
 }
 
-/** Build a PluginContextValue for a specific plugin */
-function buildContext(
+/**
+ * Build a PluginContextValue for a specific plugin.
+ *
+ * Every async capability (shell.exec, storage.*, invoke.call) is wrapped so
+ * a rejection surfaces as an error toast (with the plugin name) before
+ * re-throwing — plugins that handle their own errors still can, but a plugin
+ * that ignores the rejection no longer fails silently.
+ *
+ * Exported for tests.
+ */
+export function buildContext(
   pluginId: string,
+  pluginName: string,
   project: PluginProjectData | null,
   actions: PluginAppActions,
   theme: PluginThemeData,
@@ -116,26 +167,31 @@ function buildContext(
   const projectPath = project?.path || '';
   const allowedCommands = new Set(requiredCommands);
 
+  /** Toast the rejection (naming the plugin), then re-throw for the caller. */
+  const report = (e: unknown): never => {
+    actions.showToast(`Plugin "${pluginName}": ${formatCommandError(asCommandError(e))}`, 'error');
+    throw e;
+  };
+
   return {
     pluginId,
     project,
     actions,
     shell: {
       exec: (command: string, args: string[], options?: { timeout?: number }) =>
-        execPluginShell(pluginId, projectPath, command, args, options?.timeout),
+        execPluginShell(pluginId, projectPath, command, args, options?.timeout).catch(report),
     },
     storage: {
-      read: () => readPluginStorage(pluginId, projectPath),
-      write: (data: Record<string, unknown>) => writePluginStorage(pluginId, projectPath, data),
+      read: () => readPluginStorage(pluginId, projectPath).catch(report),
+      write: (data: Record<string, unknown>) =>
+        writePluginStorage(pluginId, projectPath, data).catch(report),
     },
     invoke: {
       call: <T = unknown,>(command: string, args?: Record<string, unknown>): Promise<T> => {
-        if (!allowedCommands.has(command)) {
-          return Promise.reject(
-            new Error(`Plugin "${pluginId}" is not allowed to call "${command}"`)
-          );
-        }
-        return invoke<T>(command, args);
+        const result: Promise<T> = allowedCommands.has(command)
+          ? invoke<T>(command, args)
+          : Promise.reject(new Error(`Plugin "${pluginId}" is not allowed to call "${command}"`));
+        return result.catch(report);
       },
     },
     theme,
@@ -154,14 +210,18 @@ function buildContext(
 function SafePluginWrapper({
   Component: PluginComponent,
   pluginId,
+  pluginName,
+  compact,
   onCrash,
 }: {
   Component: ComponentType;
   pluginId: string;
+  pluginName: string;
+  compact: boolean;
   onCrash?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [crashed, setCrashed] = useState(false);
+  const [crashError, setCrashError] = useState<Error | null>(null);
 
   useEffect(() => {
     function handleError(event: ErrorEvent) {
@@ -169,7 +229,7 @@ function SafePluginWrapper({
       event.preventDefault();
       event.stopImmediatePropagation();
       console.error(`Plugin "${pluginId}" error caught by safety wrapper:`, event.error);
-      setCrashed(true);
+      setCrashError(event.error instanceof Error ? event.error : new Error(event.message));
       onCrash?.();
     }
 
@@ -177,7 +237,11 @@ function SafePluginWrapper({
     return () => window.removeEventListener('error', handleError);
   }, [pluginId, onCrash]);
 
-  if (crashed) return null;
+  if (crashError) {
+    return (
+      <PluginErrorChip pluginName={pluginName} compact={compact} detail={crashError.message} />
+    );
+  }
 
   return (
     <div ref={containerRef} style={{ display: 'contents' }}>
@@ -197,14 +261,18 @@ export function PluginSlot({ name, plugins, project, actions, theme }: PluginSlo
         const pluginId = plugin.info.manifest.id;
         const pluginName = plugin.info.manifest.name;
 
-        // Skip plugins that already crashed this session
-        if (isPluginCrashed(pluginId)) return null;
+        // Plugins that already crashed this session render an inert chip
+        // instead of vanishing — visible counts stay honest.
+        if (isPluginCrashed(pluginId)) {
+          return <PluginErrorChip key={pluginId} pluginName={pluginName} compact={compact} />;
+        }
 
         const SlotComponent = plugin.module.slots[name];
         if (!SlotComponent) return null;
 
         const ctx = buildContext(
           pluginId,
+          pluginName,
           project,
           actions,
           theme,
@@ -219,17 +287,17 @@ export function PluginSlot({ name, plugins, project, actions, theme }: PluginSlo
         exposePluginContext(ctx);
 
         const handleCrash = () => {
-          // 1. Block immediately so next render skips this plugin
+          // Both boundaries (and the safety wrapper) can fire for the same
+          // crash — only mark + toast once.
+          if (isPluginCrashed(pluginId)) return;
+          // Block immediately so next render swaps in the error chip. This is
+          // session-only on purpose: a transient error must not permanently
+          // disable (let alone delete) the plugin.
           markPluginCrashed(pluginId);
-          // 2. Toast the user
-          actions.showToast(`"${pluginName}" crashed and was removed.`, 'error');
-          // 3. Uninstall from disk (async, best-effort)
-          const projectPath = project?.path;
-          if (projectPath) {
-            void uninstallPlugin(projectPath, pluginId).catch((e) =>
-              console.error(`Failed to auto-remove plugin "${pluginId}":`, e)
-            );
-          }
+          actions.showToast(
+            `"${pluginName}" crashed — disabled for this session. Re-enable from Plugins.`,
+            'error'
+          );
         };
 
         return (
@@ -250,6 +318,8 @@ export function PluginSlot({ name, plugins, project, actions, theme }: PluginSlo
                 <SafePluginWrapper
                   Component={SlotComponent}
                   pluginId={pluginId}
+                  pluginName={pluginName}
+                  compact={compact}
                   onCrash={handleCrash}
                 />
               </PluginErrorBoundary>

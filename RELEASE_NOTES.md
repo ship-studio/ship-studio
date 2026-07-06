@@ -6,6 +6,22 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.13.2
+
+- **Terminals no longer get stuck at "Starting…"** - Fixed the root cause: the terminal's first output could be lost in a startup race, making agents look dead (Windows especially, occasionally macOS). Onboarding terminals also auto-retry a wedged start and show a real error instead of hanging forever. Thanks to Sam Cotterill for the community fix.
+- **Windows: paste works properly** - Ctrl+V pastes instantly (it could take 30 seconds or never land), and you can now paste a screenshot straight into the agent terminal — it's saved and handed to your agent as a file.
+- **Dropping a file lands in one terminal, not all of them** - Dragging a file or image into a terminal no longer types its path into every open agent across all your projects.
+- **Windows: full-page screenshots fixed** - Full-page capture silently produced only the visible area; it now works, and if capture ever falls back you'll see a notice instead of nothing.
+- **Visual editor dropdowns stay open** - On newer macOS versions, dropdowns in the edit panel could close the instant you opened them.
+- **Plugins fail loudly, not silently** - Clicking a plugin that errors now shows the real message, a crashing plugin is disabled for the session instead of being uninstalled from disk, plugin counts are accurate, and the Install button no longer loops after a plugin renames itself.
+- **Setup installs show the real error** - Failed installs surface the actual terminal output (not "Command failed. Click to try again"), and Windows now finds Node installed via nvm-windows, fnm, or Volta.
+- **Blank preview explains itself** - If your site doesn't render in the preview (for example Clerk development keys causing a redirect loop), you now get an explanation and a suggested fix instead of an empty pane.
+- **No more infinite spinner or black window at launch** - Every startup step now times out with a retry option, and if the app can't boot at all you get an actionable screen instead of a black void. Also restored bundle compatibility with macOS 12.
+- **Claude sign-in fixes** - An expired login no longer blocks signing back in, and failed sign-ins show what actually went wrong.
+- **Windows compatibility pass** - File tree and assets panel no longer collapse, shortcut hints show Ctrl instead of ⌘, project names display correctly, and Android SDK detection works.
+- **Clearer errors everywhere** - The last "[object Object]" messages (env editor, project import, project creation) now show real errors.
+
+
 ## What's New in v0.13.1
 
 - **Edit code in the app** - The Code tab now has an Edit toggle for live editing (⌘S to save); read-only mode stays for selecting code to send to your agent. Remembered across projects and sessions.

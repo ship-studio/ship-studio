@@ -41,7 +41,7 @@ import {
 } from '../../lib/mobile';
 import { usePolling } from '../../hooks/usePolling';
 import { checkDependenciesInstalled } from '../../lib/project';
-import { attachPtySession, writePtySession } from '../../lib/ptySession';
+import { attachPtySession, writePtySessionLogged } from '../../lib/ptySession';
 import { getWindowLabel } from '../../lib/window';
 import { ResetIcon, ChevronIcon } from '../icons';
 import { Button } from '../primitives/Button';
@@ -362,7 +362,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
   // `react-native run-ios`) and `flutter run` all reload on an 'r' keystroke. We
   // write it straight to the build PTY the app is running in.
   const reloadApp = useCallback(() => {
-    void writePtySession(buildSessionId(projectPath), 'r');
+    writePtySessionLogged(buildSessionId(projectPath), 'r');
   }, [projectPath]);
 
   // Settle the build verdict. 'launched' is ground truth — the app is actually on

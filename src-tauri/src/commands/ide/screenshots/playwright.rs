@@ -1,7 +1,8 @@
 //! Playwright-based screenshot capture: environment setup, full-page, and viewport captures.
 
+use super::node_tool_command;
 use crate::errors::CommandError;
-use crate::utils::{create_command, validate_project_path};
+use crate::utils::validate_project_path;
 
 /// Get or create a shared Playwright environment directory.
 /// Installs Playwright and Chromium once, reused for all screenshots.
@@ -32,7 +33,7 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
 
     // Install playwright
     tracing::info!("Installing Playwright (this may take a moment on first run)...");
-    let install_output = create_command("npm")
+    let install_output = node_tool_command("npm")
         .args(["install", "playwright"])
         .current_dir(&playwright_dir)
         .output()
@@ -45,7 +46,7 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
 
     // Install Chromium browser
     tracing::info!("Installing Chromium browser...");
-    let browser_output = create_command("npx")
+    let browser_output = node_tool_command("npx")
         .args(["playwright", "install", "chromium"])
         .current_dir(&playwright_dir)
         .output()
@@ -170,7 +171,7 @@ const {{ chromium }} = require('playwright');
 
     // Run the script from the playwright environment directory
     // This ensures require('playwright') can find the module
-    let output = create_command("node")
+    let output = node_tool_command("node")
         .arg(&script_path)
         .current_dir(&playwright_env)
         .output()
@@ -276,7 +277,7 @@ const {{ chromium }} = require('playwright');
         .map_err(|e| format!("Failed to write capture script: {e}"))?;
 
     // Run the script
-    let output = create_command("node")
+    let output = node_tool_command("node")
         .arg(&script_path)
         .current_dir(&playwright_env)
         .output()
