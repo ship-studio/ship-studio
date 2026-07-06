@@ -74,3 +74,41 @@ export function extractTerminalError(tail: string): string | null {
 export function isNodeMissingError(tail: string): boolean {
   return NODE_MISSING_PATTERN.test(stripAnsi(tail));
 }
+
+/**
+ * Identity-capturing shapes of "the CLI believes it's signed in":
+ * - "Logged in as julian@example.com" (claude / codex)
+ * - "✓ Logged in to github.com account juliangalluzzo (keyring)" and
+ *   "Logged in to github.com as juliangalluzzo" (gh, old and new phrasing)
+ */
+const LOGGED_IN_AS_PATTERNS = [
+  /\blogged in as\s+['"]?([^\s'"]+)/i,
+  /\blogged in to \S+ (?:account |as )['"]?([^\s()'"]+)/i,
+];
+
+/** "You are already logged in" and friends — no identity attached. */
+const ALREADY_LOGGED_IN_PATTERN = /\balready logged in\b/i;
+
+/**
+ * Detect the "CLI says it's already signed in" signature in an auth command's
+ * output tail. When an auth flow fails *while* the CLI insists it has a login
+ * (e.g. a partial sign-out desynced the CLI from Ship Studio's status check —
+ * issue #159), a generic "authentication not completed" message hides the real
+ * situation; callers use this to name the identity the CLI reported instead.
+ *
+ * Returns `null` when nothing matches; otherwise `{ identity }` where
+ * `identity` is the captured user/email if the output named one.
+ */
+export function detectAlreadyLoggedIn(tail: string): { identity: string | null } | null {
+  const text = toVisibleLines(tail).join('\n');
+  for (const pattern of LOGGED_IN_AS_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match) {
+      // Emails contain dots, so the capture is greedy about punctuation —
+      // trim a trailing sentence period/comma ("Logged in as a@b.com.").
+      const identity = match[1].replace(/[.,;:!]+$/, '');
+      return { identity: identity.length > 0 ? identity : null };
+    }
+  }
+  return ALREADY_LOGGED_IN_PATTERN.test(text) ? { identity: null } : null;
+}
