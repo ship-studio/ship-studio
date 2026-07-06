@@ -130,9 +130,9 @@ async fn get_uncommitted_count(project_path: &Path) -> Option<u32> {
 /// order.
 async fn scan_git_info(paths: Vec<PathBuf>) -> Vec<(Option<String>, Option<u32>)> {
     stream::iter(paths)
-        .map(|path| async move {
-            tokio::join!(get_git_branch(&path), get_uncommitted_count(&path))
-        })
+        .map(
+            |path| async move { tokio::join!(get_git_branch(&path), get_uncommitted_count(&path)) },
+        )
         .buffered(GIT_SCAN_CONCURRENCY)
         .collect()
         .await
@@ -1494,7 +1494,9 @@ mod tests {
         // Neither project is a git repo — both must degrade gracefully
         // rather than erroring or being dropped.
         assert_eq!(info.len(), 2);
-        assert!(info.iter().all(|(branch, count)| branch.is_none() && count.is_none()));
+        assert!(info
+            .iter()
+            .all(|(branch, count)| branch.is_none() && count.is_none()));
     }
 
     #[test]
