@@ -66,6 +66,7 @@ import { isMobileProjectType, type ProjectType } from '../../lib/static-server';
 import { ShopifySetup } from '../shopify/ShopifySetup';
 import { useShopifyTheme } from '../../hooks/useShopifyTheme';
 import { isMac } from '../../lib/setup';
+import { kbd } from '../../lib/shortcuts';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
 import type { TerminalHandle } from '../terminal/Terminal';
 import type { Toast, ToastType } from '../../hooks/useToasts';
@@ -748,8 +749,10 @@ export const WorkspaceView = memo(function WorkspaceView({
       : enabled
         ? hint
         : idle;
-  const undoTitle = snapTitle('Undo', canUndo, 'Undo last change (⌘Z)', 'Nothing to undo yet');
-  const redoTitle = snapTitle('Redo', canRedo, 'Redo (⌘⇧Z)', 'Nothing to redo');
+  const undoHint = `Undo last change (${kbd('mod', 'Z')})`;
+  const redoHint = `Redo (${kbd('mod', 'shift', 'Z')})`;
+  const undoTitle = snapTitle('Undo', canUndo, undoHint, 'Nothing to undo yet');
+  const redoTitle = snapTitle('Redo', canRedo, redoHint, 'Nothing to redo');
 
   // Cmd+Z / Cmd+Shift+Z. We let native text-undo handle inputs and
   // contentEditable so a user editing a PR title still gets character-level
@@ -1355,7 +1358,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             className="toolbar-icon-btn"
                             onClick={() => void handleCaptureScreenshot()}
                             disabled={isCapturing || isCropMode}
-                            title="Screenshot preview for Claude (⌘⇧S)"
+                            title={`Screenshot preview for Claude (${kbd('mod', 'shift', 'S')})`}
                             data-education-id="screenshot-button"
                           >
                             {isCapturing ? (
@@ -1365,13 +1368,13 @@ export const WorkspaceView = memo(function WorkspaceView({
                             )}
                             <span className="capture-label-full">Full Screenshot</span>
                             <span className="capture-label-short">Full</span>
-                            <span className="capture-shortcut">&#8984;&#8679;S</span>
+                            <span className="capture-shortcut">{kbd('mod', 'shift', 'S')}</span>
                           </button>
                           <button
                             className={`toolbar-icon-btn ${isCropMode ? 'is-open' : ''}`}
                             onClick={() => setIsCropMode(!isCropMode)}
                             disabled={isCapturing || isCropCapturing}
-                            title="Crop screenshot for Claude (⌘⇧C)"
+                            title={`Crop screenshot for Claude (${kbd('mod', 'shift', 'C')})`}
                             data-education-id="crop-button"
                           >
                             {isCropCapturing ? (
@@ -1381,7 +1384,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             )}
                             <span className="capture-label-full">Crop Screenshot</span>
                             <span className="capture-label-short">Crop</span>
-                            <span className="capture-shortcut">&#8984;&#8679;C</span>
+                            <span className="capture-shortcut">{kbd('mod', 'shift', 'C')}</span>
                           </button>
                         </div>
                       )}

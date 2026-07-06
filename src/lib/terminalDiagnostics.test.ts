@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { extractTerminalError, isNodeMissingError } from './terminalDiagnostics';
+import {
+  detectAlreadyLoggedIn,
+  extractTerminalError,
+  isNodeMissingError,
+} from './terminalDiagnostics';
 
 describe('extractTerminalError', () => {
   it('returns null for an empty tail', () => {
@@ -90,5 +94,47 @@ describe('isNodeMissingError', () => {
     expect(isNodeMissingError('npm ERR! code EACCES')).toBe(false);
     expect(isNodeMissingError("gh: command 'foo' not found")).toBe(false);
     expect(isNodeMissingError('')).toBe(false);
+  });
+});
+
+describe('detectAlreadyLoggedIn', () => {
+  it('captures the identity from "Logged in as <email>" (claude/codex style)', () => {
+    expect(detectAlreadyLoggedIn('Logged in as julian@example.com\n')).toEqual({
+      identity: 'julian@example.com',
+    });
+  });
+
+  it('captures the identity from the gh "account" phrasing', () => {
+    expect(
+      detectAlreadyLoggedIn('✓ Logged in to github.com account juliangalluzzo (keyring)\n')
+    ).toEqual({ identity: 'juliangalluzzo' });
+  });
+
+  it('captures the identity from the older gh "as" phrasing', () => {
+    expect(detectAlreadyLoggedIn('Logged in to github.com as juliangalluzzo\n')).toEqual({
+      identity: 'juliangalluzzo',
+    });
+  });
+
+  it('detects "already logged in" without a named identity', () => {
+    expect(detectAlreadyLoggedIn('You are already logged in.\n')).toEqual({ identity: null });
+  });
+
+  it('prefers the named identity when both signatures appear', () => {
+    expect(detectAlreadyLoggedIn('Already logged in as a@b.com. Nothing to do.\n')).toEqual({
+      identity: 'a@b.com',
+    });
+  });
+
+  it('sees through ANSI-colored output', () => {
+    expect(detectAlreadyLoggedIn('\x1b[32mLogged in as\x1b[0m a@b.com\n')).toEqual({
+      identity: 'a@b.com',
+    });
+  });
+
+  it('does not fire on "not logged in" or unrelated output', () => {
+    expect(detectAlreadyLoggedIn('You are not logged in. Run /login to sign in.\n')).toBeNull();
+    expect(detectAlreadyLoggedIn('error: OAuth token exchange failed\n')).toBeNull();
+    expect(detectAlreadyLoggedIn('')).toBeNull();
   });
 });

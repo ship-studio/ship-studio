@@ -13,6 +13,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { useOptionalToast } from '../contexts/ToastContext';
+import { isMac } from '../lib/setup';
 
 interface UsePreviewCaptureParams {
   /** Absolute path to the project directory */
@@ -89,8 +90,11 @@ export function usePreviewCapture({
 
         const rect = iframeWrapperRef.current.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        // Account for macOS title bar in window screenshot
-        const TITLE_BAR_HEIGHT = 31;
+        // Account for the macOS overlay title bar in the window screenshot. Only
+        // macOS uses an overlay title bar (`TitleBarStyle::Overlay`); Windows/Linux
+        // use native decorations outside the captured webview, so no offset.
+        // NOTE: the non-mac path is unverified on a real Windows capture.
+        const TITLE_BAR_HEIGHT = isMac() ? 31 : 0;
 
         const finalPath = await invoke<string>('crop_and_save_screenshot', {
           projectPath,
@@ -188,8 +192,11 @@ export function usePreviewCapture({
         // Get the iframe's position relative to the window
         const iframeRect = iframeWrapperRef.current.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        // Account for macOS title bar in window screenshot
-        const TITLE_BAR_HEIGHT = 31;
+        // Account for the macOS overlay title bar in the window screenshot. Only
+        // macOS uses an overlay title bar (`TitleBarStyle::Overlay`); Windows/Linux
+        // use native decorations outside the captured webview, so no offset.
+        // NOTE: the non-mac path is unverified on a real Windows capture.
+        const TITLE_BAR_HEIGHT = isMac() ? 31 : 0;
 
         // Calculate absolute position of the selection within the window
         const absoluteX = Math.round((iframeRect.left + regionX) * dpr);
