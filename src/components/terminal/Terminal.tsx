@@ -45,6 +45,7 @@ import { homeDir } from '@tauri-apps/api/path';
 import { getShellPath, getSystemEnv } from '../../lib/project';
 import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
+import { isPasteChord, readClipboardText, stageClipboardImage } from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { getTerminalGpuEnabled } from '../../lib/settings';
@@ -975,6 +976,53 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             // Prevent both keydown and keypress from being processed
             event.preventDefault();
             event.stopPropagation();
+            return false;
+          }
+          // Windows-only: Ctrl+V paste via the native clipboard. WebView2
+          // gates keyboard-initiated textarea paste behind an async clipboard
+          // permission wait (~30s or never — issue #157), so we read the
+          // clipboard natively and feed xterm directly. Also enables pasting
+          // a clipboard image (screenshot): it's staged to a temp PNG and the
+          // quoted path is pasted, like drag-drop. macOS is deliberately NOT
+          // intercepted: Cmd+V default paste works there, and Ctrl+V must
+          // keep sending 0x16 to the PTY — Claude Code uses it for its own
+          // image paste.
+          if (isWindows() && isPasteChord(event)) {
+            event.preventDefault();
+            event.stopPropagation();
+            void (async () => {
+              try {
+                const text = await readClipboardText();
+                if (text) {
+                  term.focus();
+                  term.paste(text);
+                  return;
+                }
+                const imagePath = await stageClipboardImage();
+                if (imagePath) {
+                  // Quote paths that contain spaces (same as drag-drop above);
+                  // trailing space separates the path from what's typed next.
+                  const quotedPath = imagePath.includes(' ') ? `"${imagePath}"` : imagePath;
+                  term.focus();
+                  term.paste(`${quotedPath} `);
+                }
+              } catch (err) {
+                logger.warn('[Terminal] Native clipboard paste failed', {
+                  error: String(err),
+                });
+                // Best-effort fallback to the browser clipboard (may be slow
+                // on WebView2, but better than dropping the paste entirely).
+                try {
+                  const fallback = await navigator.clipboard.readText();
+                  if (fallback) {
+                    term.focus();
+                    term.paste(fallback);
+                  }
+                } catch {
+                  // Never throw from a key handler.
+                }
+              }
+            })();
             return false;
           }
           return true; // Allow all other keys

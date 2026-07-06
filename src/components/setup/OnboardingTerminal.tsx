@@ -17,6 +17,7 @@ import { getSystemEnv } from '../../lib/project';
 import { readDir, exists } from '@tauri-apps/plugin-fs';
 import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
+import { isPasteChord, readClipboardText } from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import '@xterm/xterm/css/xterm.css';
@@ -292,6 +293,38 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
               term.clearSelection();
               return false; // Prevent sending to PTY
             }
+          }
+          // Windows-only: Ctrl+V paste (auth codes) via the native clipboard.
+          // WebView2 gates keyboard-initiated textarea paste behind an async
+          // clipboard permission wait (~30s or never — issue #157). macOS is
+          // deliberately not intercepted (Cmd+V default paste works there).
+          if (isWindows() && isPasteChord(event)) {
+            event.preventDefault();
+            event.stopPropagation();
+            void (async () => {
+              try {
+                const text = await readClipboardText();
+                if (text) {
+                  term.focus();
+                  term.paste(text);
+                }
+              } catch (err) {
+                logger.warn('[OnboardingTerminal] Native clipboard paste failed', {
+                  error: String(err),
+                });
+                // Best-effort fallback to the browser clipboard.
+                try {
+                  const fallback = await navigator.clipboard.readText();
+                  if (fallback) {
+                    term.focus();
+                    term.paste(fallback);
+                  }
+                } catch {
+                  // Never throw from a key handler.
+                }
+              }
+            })();
+            return false;
           }
           return true; // Allow all other keys
         });
