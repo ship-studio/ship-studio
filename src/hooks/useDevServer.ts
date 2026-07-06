@@ -78,6 +78,7 @@ import {
   shopifyThemeDevCommand,
 } from '../lib/shopify';
 import { logger } from '../lib/logger';
+import { withTimeoutFallback } from '../lib/withTimeout';
 import { trackEvent } from '../lib/analytics';
 import { getWindowLabel } from '../lib/window';
 import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
@@ -819,18 +820,12 @@ export function useDevServer(currentProjectPath: string | null) {
 
       const cwd = await resolveDevServerCwd(projectPath);
 
-      const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
-        return Promise.race([
-          promise,
-          new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-        ]);
-      };
       const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
       const stopAndRestart = async (customCmd?: string) => {
         if (s.handle) {
           try {
-            await withTimeout(s.handle.stop(), 5000, undefined);
+            await withTimeoutFallback(s.handle.stop(), 5000, undefined);
           } catch (e) {
             logger.warn('Error stopping dev server, continuing with restart', { error: e });
           }
@@ -842,7 +837,7 @@ export function useDevServer(currentProjectPath: string | null) {
         s.healthVersion = 0;
         bump();
         await delay(500);
-        s.handle = await withTimeout(
+        s.handle = await withTimeoutFallback(
           startDevServer(
             cwd,
             effectivePort,
@@ -879,7 +874,11 @@ export function useDevServer(currentProjectPath: string | null) {
             return;
           }
           try {
-            await withTimeout(invoke('kill_port', { port: effectivePort }), 5000, undefined);
+            await withTimeoutFallback(
+              invoke('kill_port', { port: effectivePort }),
+              5000,
+              undefined
+            );
           } catch {
             /* Ignore if nothing to kill */
           }
@@ -903,12 +902,20 @@ export function useDevServer(currentProjectPath: string | null) {
           bump();
         } else {
           try {
-            await withTimeout(invoke('kill_port', { port: effectivePort }), 5000, undefined);
+            await withTimeoutFallback(
+              invoke('kill_port', { port: effectivePort }),
+              5000,
+              undefined
+            );
           } catch {
             /* Ignore if nothing to kill */
           }
           try {
-            await withTimeout(invoke('clear_project_cache', { projectPath }), 10000, undefined);
+            await withTimeoutFallback(
+              invoke('clear_project_cache', { projectPath }),
+              10000,
+              undefined
+            );
           } catch {
             /* Non-critical */
           }

@@ -61,6 +61,7 @@ import { ModalProvider, useModal } from './contexts/ModalContext';
 import { AgentBridgeProvider } from './contexts/AgentBridgeContext';
 import { CommandPaletteHost } from './components/CommandPalette/CommandPaletteHost';
 import { AppGlobalModals } from './components/AppGlobalModals';
+import { BootLoadingScreen } from './components/BootLoadingScreen';
 import {
   PaletteContextProvider,
   useOpenPalette,
@@ -76,11 +77,15 @@ import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifec
 import type { AppView } from './lib/types';
 import './styles/index.css';
 
-// Initialize logger
-logger.init();
-
-// Track app launch
-void trackEvent('app_launched', { $screen_name: 'Dashboard' });
+// Boot-path guard: a throw at module scope would leave a black window (#173),
+// because this runs before ErrorBoundary exists. Logger/analytics are
+// nice-to-have — they must never prevent React from mounting.
+try {
+  logger.init();
+  void trackEvent('app_launched', { $screen_name: 'Dashboard' });
+} catch (err) {
+  console.error('[Ship Studio] Module-scope init failed', err);
+}
 
 /** Props for the App component */
 interface AppProps {
@@ -1047,10 +1052,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   if (view === 'loading') {
     return (
       <>
-        <div className="app loading">
-          <img src="/ship_studio_full_noshadow.svg" alt="Ship Studio" className="app-logo" />
-          {loadingSpinner}
-        </div>
+        <BootLoadingScreen />
         {quitConfirmModal}
       </>
     );

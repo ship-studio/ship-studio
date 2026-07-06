@@ -26,6 +26,14 @@ export default defineConfig(async () => ({
 
   build: {
     chunkSizeWarningLimit: 1000,
+    // Pin the transpile floor to what Vite 7 implicitly targets today
+    // ('baseline-widely-available', which resolves to the list below as of
+    // vite 7.3.1). Without an explicit target, a future Vite/dep bump could
+    // silently raise the floor and ship syntax that older WebKit can't parse
+    // — the bundle throws before React mounts and users see a black window
+    // (issue #173). Raising this list is a product decision tied to the
+    // minimum supported macOS version, not a routine dependency chore.
+    target: ["chrome107", "edge107", "firefox104", "safari16"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

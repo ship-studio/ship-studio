@@ -128,6 +128,31 @@ describe('OnboardingScreen', () => {
     expect(screen.getByText('Checking setup status...')).toBeInTheDocument();
   });
 
+  it('shows timeout error with Retry when the setup status check hangs', async () => {
+    vi.useFakeTimers();
+
+    const { invoke } = await import('@tauri-apps/api/core');
+    // Hang the initial get_full_setup_status forever — the withTimeout wrapper
+    // must convert this into the error + Retry UI instead of an eternal spinner.
+    (invoke as ReturnType<typeof vi.fn>).mockImplementationOnce(() => new Promise(() => {}));
+
+    render(<OnboardingScreen onComplete={onComplete} />);
+    expect(screen.getByText('Checking setup status...')).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(
+      screen.getByText(
+        'Setup check timed out — click Retry. If this persists, restart Ship Studio.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
   // ============ Fresh install → starts at step 1 ============
 
   it('shows wizard on step 1 for fresh install', async () => {

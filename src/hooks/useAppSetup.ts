@@ -22,7 +22,18 @@ import { initDefaultAgent } from '../lib/agent';
 import { getWindowLabel } from '../lib/window';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
+import { withTimeout } from '../lib/withTimeout';
 import type { AppView } from '../lib/types';
+
+/**
+ * Boot gates must never hang: each startup await below is capped so a stuck
+ * Tauri invoke (e.g. a CLI probe wedged on a broken PATH or network mount)
+ * becomes a rejection that routes to onboarding instead of an eternal
+ * spinner (#173). Timeouts are generous — these normally settle in <1s.
+ */
+const BOOT_GATE_TIMEOUT_MS = 15_000;
+/** CLI status refresh spawns gh/agent subprocesses — give it a bit longer. */
+const CLI_REFRESH_TIMEOUT_MS = 20_000;
 
 export interface UseAppSetupParams {
   view: AppView;
@@ -80,7 +91,11 @@ export function useAppSetup({
     setView('loading');
     try {
       // Hydrate default agent cache from backend
-      const defaultAgent = await fetchDefaultAgentId();
+      const defaultAgent = await withTimeout(
+        fetchDefaultAgentId(),
+        BOOT_GATE_TIMEOUT_MS,
+        'Default agent lookup'
+      );
       initDefaultAgent(defaultAgent);
 
       // Always boot straight into the projects view — and, because the active
@@ -93,7 +108,11 @@ export function useAppSetup({
 
       // Fast path: if setup was previously completed, try quick check first
       if (!forceFullCheck) {
-        const quickCheck = await quickSetupCheck();
+        const quickCheck = await withTimeout(
+          quickSetupCheck(),
+          BOOT_GATE_TIMEOUT_MS,
+          'Quick setup check'
+        );
         if (quickCheck.setupCompleteCached && quickCheck.allPresent) {
           // Setup was completed before and all binaries still exist
           // Show projects/account picker immediately, verify auth in background
@@ -107,10 +126,14 @@ export function useAppSetup({
       }
 
       // Slow path: full setup check (first launch or something missing)
-      const setupStatus = await getFullSetupStatus();
+      const setupStatus = await withTimeout(
+        getFullSetupStatus(),
+        BOOT_GATE_TIMEOUT_MS,
+        'Full setup status'
+      );
 
       // Check and set all CLI states atomically
-      await refreshAllCliStatuses();
+      await withTimeout(refreshAllCliStatuses(), CLI_REFRESH_TIMEOUT_MS, 'CLI status refresh');
 
       // Use full setup status to determine if onboarding is needed
       if (setupStatus.allReady) {
