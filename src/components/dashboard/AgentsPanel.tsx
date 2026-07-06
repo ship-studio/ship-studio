@@ -40,6 +40,7 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { useWorkspaceConnect } from '../../hooks/useWorkspaceConnect';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { extractTerminalError } from '../../lib/terminalDiagnostics';
 import {
   CheckIcon,
   ClaudeIcon,
@@ -498,7 +499,7 @@ export function AgentsPanel() {
   }, [openTerminal]);
 
   const handleTerminalExit = useCallback(
-    (exitCode: number | null) => {
+    (exitCode: number | null, outputTail = '') => {
       setTerminalTask(null);
       // Auth/install files (and newly-installed binaries) can land a beat after
       // the child process exits. Refresh immediately and then retry a few times
@@ -506,7 +507,10 @@ export function AgentsPanel() {
       void refresh();
       [600, 1500, 3000].forEach((delay) => setTimeout(() => void refresh(), delay));
       if (exitCode !== null && exitCode !== 0) {
-        logger.info('Agent terminal exited with non-zero code', { exitCode });
+        logger.info('Agent terminal exited with non-zero code', {
+          exitCode,
+          error: extractTerminalError(outputTail) ?? undefined,
+        });
       }
     },
     [refresh]
