@@ -22,6 +22,7 @@ import { initDefaultAgent } from '../lib/agent';
 import { getWindowLabel } from '../lib/window';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
+import { basename } from '../lib/paths';
 import { withTimeout } from '../lib/withTimeout';
 import type { AppView } from '../lib/types';
 
@@ -209,7 +210,7 @@ export function useAppSetup({
           });
 
           // Restore UI state without restarting dev server
-          const projectName = storedProjectPath.split('/').pop() || 'Project';
+          const projectName = basename(storedProjectPath) || 'Project';
           setCurrentProject({
             name: projectName,
             path: storedProjectPath,
@@ -267,7 +268,7 @@ export function useAppSetup({
       // Store the project path for HMR recovery (before any async work)
       sessionStorage.setItem(storageKey, initialProjectPath);
 
-      const projectName = initialProjectPath.split('/').pop() || 'Project';
+      const projectName = basename(initialProjectPath) || 'Project';
       const project: Project = {
         name: projectName,
         path: initialProjectPath,

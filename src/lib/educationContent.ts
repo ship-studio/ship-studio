@@ -12,6 +12,8 @@
  * @module lib/educationContent
  */
 
+import { kbd } from './shortcuts';
+
 export interface EducationItem {
   /** Short title displayed in the tooltip header */
   title: string;
@@ -28,8 +30,7 @@ export const educationContent: Record<string, EducationItem> = {
 
   'search-projects': {
     title: 'Search Projects',
-    description:
-      'Quickly find any project by name. Press ⌘K to jump straight to search from anywhere on this screen.',
+    description: `Quickly find any project by name. Press ${kbd('mod', 'K')} to jump straight to search from anywhere on this screen.`,
   },
   'import-button': {
     title: 'Import Project',

@@ -61,6 +61,7 @@ import { CompactIcon, ExpandIcon, PanelLeftIcon, ResetIcon, UndoIcon, RedoIcon }
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { pathLocale, switchPathLocale } from '../../lib/i18n';
+import { kbd } from '../../lib/shortcuts';
 import { useCommands } from '../../commands/useCommands';
 import { logger } from '../../lib/logger';
 import type { ProjectType } from '../../lib/static-server';
@@ -1047,7 +1048,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             className="preview-fullscreen-btn"
             onClick={onUndo}
             disabled={!canUndo}
-            title={undoTitle ?? 'Undo last change (⌘Z)'}
+            title={undoTitle ?? `Undo last change (${kbd('mod', 'Z')})`}
             aria-label="Undo"
           >
             <UndoIcon size={14} />
@@ -1059,7 +1060,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             className="preview-fullscreen-btn"
             onClick={onRedo}
             disabled={!canRedo}
-            title={redoTitle ?? 'Redo (⌘⇧Z)'}
+            title={redoTitle ?? `Redo (${kbd('mod', 'shift', 'Z')})`}
             aria-label="Redo"
           >
             <RedoIcon size={14} />

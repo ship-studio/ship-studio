@@ -665,6 +665,27 @@ pub(crate) fn allowed_project_roots() -> Vec<std::path::PathBuf> {
     out
 }
 
+/// Normalize path separators to forward slashes for the frontend.
+///
+/// On Windows, `Path::to_string_lossy()` yields backslash separators
+/// (`src\App.tsx`), but the frontend splits every path on `/` (file-tree
+/// nesting, asset breadcrumbs, basename extraction). Converting at the backend
+/// boundary keeps one path shape across platforms; Windows path joins accept
+/// `/` on the way back, so reads/writes still resolve.
+///
+/// Windows-only by construction: on Unix `\` is a legal filename character, so
+/// rewriting it there could corrupt real names — this is a pure no-op off
+/// Windows.
+#[cfg(windows)]
+pub fn normalize_separators(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+#[cfg(not(windows))]
+pub fn normalize_separators(path: &str) -> String {
+    path.to_string()
+}
+
 /// Validates that a project path is inside an allowed projects root (the
 /// configured root or the default `~/ShipStudio`) or is a registered external
 /// project. Prevents path traversal where the frontend could pass arbitrary paths.
@@ -976,6 +997,34 @@ fn format_relative_time_from_now(timestamp_ms: u64, now_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod normalize_separators {
+        use super::*;
+
+        // On Windows, backslash separators become forward slashes so the
+        // frontend's `/`-based path logic works.
+        #[cfg(windows)]
+        #[test]
+        fn converts_backslashes_on_windows() {
+            assert_eq!(
+                normalize_separators(r"src\components\App.tsx"),
+                "src/components/App.tsx"
+            );
+            assert_eq!(normalize_separators("already/forward"), "already/forward");
+        }
+
+        // Off Windows it must be a pure no-op: `\` is a legal filename character
+        // on Unix and rewriting it would corrupt real names.
+        #[cfg(not(windows))]
+        #[test]
+        fn is_a_noop_off_windows() {
+            assert_eq!(
+                normalize_separators("src/components/App.tsx"),
+                "src/components/App.tsx"
+            );
+            assert_eq!(normalize_separators(r"weird\name"), r"weird\name");
+        }
+    }
 
     mod format_relative_time {
         use super::*;

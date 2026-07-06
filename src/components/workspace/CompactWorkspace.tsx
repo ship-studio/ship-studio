@@ -23,6 +23,8 @@ import type { TerminalHandle, AgentStatus } from '../terminal/Terminal';
 import { PlusIcon } from '../icons';
 import { CompactTopbar } from './CompactTopbar';
 import { getAgentById } from '../../lib/agent';
+import { kbd } from '../../lib/shortcuts';
+import { basename } from '../../lib/paths';
 import { sessionRegistry } from '../../lib/sessionRegistry';
 import type { Project } from '../../lib/project';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
@@ -124,9 +126,7 @@ export function CompactWorkspace({
   // Fall back to the directory basename so there's always a visible label,
   // even if a project somehow lands here without a populated `name`.
   const projectLabel =
-    (currentProject.name?.trim() ?? '') ||
-    currentProject.path.split('/').filter(Boolean).pop() ||
-    'Project';
+    (currentProject.name?.trim() ?? '') || basename(currentProject.path) || 'Project';
 
   return (
     <div className="compact-workspace">
@@ -185,7 +185,7 @@ export function CompactWorkspace({
             className="compact-tab-add"
             onClick={onAddTab}
             aria-label="New terminal tab"
-            title="New terminal tab (⌘T)"
+            title={`New terminal tab (${kbd('mod', 'T')})`}
           >
             <PlusIcon size={12} />
           </button>
