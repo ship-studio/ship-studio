@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { LayerDot } from './LayerDot';
 import { type Breakpoint } from '../../lib/edit';
 
@@ -29,20 +30,18 @@ export function ResettableLabel({ label, definedAt, active, onReset }: Props) {
   const btnRef = useRef<HTMLButtonElement>(null);
 
   // Dismiss the floating Reset on outside click / Escape / scroll.
+  useDismissOnOutsidePointer(pop !== null, popRef, () => setPop(null), {
+    isOutside: (t) => !popRef.current?.contains(t) && !btnRef.current?.contains(t),
+  });
   useEffect(() => {
     if (!pop) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (popRef.current?.contains(t) || btnRef.current?.contains(t)) return;
-      setPop(null);
-    };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setPop(null);
-    document.addEventListener('pointerdown', onDown, true);
+    const onScroll = () => setPop(null);
     document.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', () => setPop(null), true);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
-      document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, [pop]);
 

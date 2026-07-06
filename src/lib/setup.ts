@@ -43,6 +43,22 @@ export const isWindows = () => platform() === 'windows';
  *  depends on Xcode/simctl and hasn't been validated on Windows). */
 export const isMac = () => platform() === 'macos';
 
+/**
+ * The OS's file-manager name, for "Reveal in …" / "Open in …" labels. macOS
+ * calls it Finder, Windows calls it File Explorer, most Linux DEs call it Files.
+ * Keeps user-facing copy honest instead of saying "Finder" on every platform.
+ */
+export const fileManagerName = (): string => {
+  switch (platform()) {
+    case 'macos':
+      return 'Finder';
+    case 'windows':
+      return 'File Explorer';
+    default:
+      return 'Files';
+  }
+};
+
 /** Status of a single setup item */
 export type SetupItemStatus =
   | 'ready'

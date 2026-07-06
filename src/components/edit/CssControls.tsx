@@ -20,6 +20,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { Button } from '../primitives/Button';
 import { EnumDropdown } from './EnumDropdown';
 import { ColorPicker } from './ColorPicker';
@@ -62,20 +63,16 @@ function ResettableCcLabel({
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLButtonElement>(null);
 
+  useDismissOnOutsidePointer(pop !== null, popRef, () => setPop(null), {
+    isOutside: (t) => !popRef.current?.contains(t) && !btnRef.current?.contains(t),
+  });
   useEffect(() => {
     if (!pop) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (popRef.current?.contains(t) || btnRef.current?.contains(t)) return;
-      setPop(null);
-    };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setPop(null);
     const onScroll = () => setPop(null);
-    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey);
     window.addEventListener('scroll', onScroll, true);
     return () => {
-      document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('scroll', onScroll, true);
     };
@@ -324,20 +321,14 @@ function ColorControl({
     };
   }, [open, reposition]);
 
+  useDismissOnOutsidePointer(open, popRef, close, {
+    isOutside: (t) => !triggerRef.current?.contains(t) && !popRef.current?.contains(t),
+  });
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t) || popRef.current?.contains(t)) return;
-      close();
-    };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
-    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open, close]);
 
   const commitText = () => {

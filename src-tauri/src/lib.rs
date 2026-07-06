@@ -702,6 +702,9 @@ pub fn run() {
             commands::window::start_window_drag,
             commands::window::focus_window,
             commands::window::set_window_title,
+            // Clipboard (Windows terminal paste)
+            commands::clipboard::read_clipboard_text,
+            commands::clipboard::stage_clipboard_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
