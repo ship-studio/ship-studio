@@ -204,11 +204,13 @@ fn build_overlay_panel(
         .replace('\'', "&#39;")
         .replace('\n', "<br>");
 
-    let js_escaped = message
-        .replace('\\', "\\\\")
-        .replace('\'', "\\'")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r");
+    // Embed the message as a JSON string literal (valid JS), then escape `<`
+    // so a payload containing `</script>` or `<!--` can't terminate the
+    // script element — the HTML parser ends script data on `</script>`
+    // regardless of JS string boundaries.
+    let js_escaped = serde_json::to_string(message)
+        .unwrap_or_else(|_| String::from("\"\""))
+        .replace('<', "\\u003c");
 
     let intro_html = intro
         .map(|i| format!(r#"<div class="__ss-err-intro">{i}</div>"#))
@@ -238,7 +240,7 @@ body{{display:block!important;visibility:visible!important;opacity:1!important}}
 <div class="__ss-err-footer"><button class="__ss-err-btn" id="__ss-err-copy"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Error</button><button class="__ss-err-btn __ss-err-btn--primary" id="__ss-err-send">Send to Claude</button></div>
 </div></div>
 <script>(function(){{
-var msg='{js_escaped}';
+var msg={js_escaped};
 window.parent.postMessage({{type:'shipstudio:error',status:{status_code},message:msg}},'*');
 document.getElementById('__ss-err-copy').onclick=function(){{
 window.parent.postMessage({{type:'shipstudio:copy-error',message:msg}},'*');
@@ -454,6 +456,24 @@ mod tests {
         assert!(overlay.contains("&lt;Foo&gt;"));
         assert!(overlay.contains("&amp;"));
         assert!(overlay.contains("&quot;bar&quot;"));
+    }
+
+    #[test]
+    fn test_overlay_script_payload_cannot_break_out() {
+        // A message containing `</script>` must not terminate the overlay's
+        // script element — the HTML parser ends script data on `</script>`
+        // regardless of JS string boundaries.
+        let payload = "boom </script><script>alert(1)</script><!-- `${x}`";
+        let overlay = build_error_overlay(500, payload);
+        assert!(!overlay.contains("</script><script>alert(1)"));
+        assert!(!overlay.contains("<!--"));
+        // The message is embedded as a JSON string literal with `<` escaped —
+        // still the exact payload after JS parsing, but inert to the HTML parser.
+        assert!(overlay.contains(
+            "var msg=\"boom \\u003c/script>\\u003cscript>alert(1)\\u003c/script>\\u003c!-- `${x}`\";"
+        ));
+        // Exactly one real script element: ours.
+        assert_eq!(overlay.matches("</script>").count(), 1);
     }
 
     #[test]

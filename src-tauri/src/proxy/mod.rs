@@ -193,6 +193,51 @@ fn is_auth_redirect_loop(status: StatusCode, location: Option<&str>, request_uri
     }
 }
 
+/// True when the request is a document navigation (a page loading in the
+/// iframe) rather than a fetch/XHR/subresource load. Interstitials must only
+/// replace navigations — swapping an API response's redirect for 200 HTML
+/// would change the resource contract for in-page code.
+///
+/// Chrome and WebKit send `Sec-Fetch-Dest` (`document` top-level, `iframe` /
+/// `frame` for framed navigations — the preview's own case). When the header
+/// is absent (older engines), fall back to the `Accept` header: navigations
+/// ask for `text/html`, `fetch()` defaults to `*/*` and API calls ask for
+/// JSON.
+fn is_document_navigation(sec_fetch_dest: Option<&str>, accept: Option<&str>) -> bool {
+    if let Some(dest) = sec_fetch_dest {
+        let dest = dest.trim();
+        return dest.eq_ignore_ascii_case("document")
+            || dest.eq_ignore_ascii_case("iframe")
+            || dest.eq_ignore_ascii_case("frame");
+    }
+    accept.is_some_and(|a| a.contains("text/html"))
+}
+
+/// Replace every `__clerk_handshake` query-param value with `<redacted>`.
+/// The value is a JWT-like handshake token — it must not land in logs or in
+/// the interstitial's Copy / Send-to-Claude payload. Host and path stay
+/// intact so the reason string remains diagnosable.
+fn redact_handshake_values(input: &str) -> String {
+    const PARAM: &str = "__clerk_handshake=";
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(idx) = rest.find(PARAM) {
+        let value_start = idx + PARAM.len();
+        out.push_str(&rest[..value_start]);
+        out.push_str("<redacted>");
+        let tail = &rest[value_start..];
+        // A token value ends at the next query delimiter — or at whitespace /
+        // a closing paren, because the reason string embeds URIs in prose
+        // ("redirect to <url> (requested <uri>)").
+        let value_end = tail
+            .find(|c: char| c == '&' || c == '#' || c == ')' || c.is_whitespace())
+            .unwrap_or(tail.len());
+        rest = &tail[value_end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// A running proxy instance.
 struct ProxyInstance {
     _proxy_port: u16,
@@ -371,6 +416,16 @@ async fn proxy_http_request(
     // and rewrite Host header to target port so dev servers don't reject it.
     let (parts, body) = req.into_parts();
     let request_uri = parts.uri.to_string();
+    let is_document_nav = is_document_navigation(
+        parts
+            .headers
+            .get("sec-fetch-dest")
+            .and_then(|v| v.to_str().ok()),
+        parts
+            .headers
+            .get(hyper::header::ACCEPT)
+            .and_then(|v| v.to_str().ok()),
+    );
     let mut builder = Request::builder()
         .method(parts.method)
         .uri(parts.uri.clone())
@@ -398,18 +453,21 @@ async fn proxy_http_request(
     // Forwarding the redirect would bounce the iframe through a third-party
     // auth host until WebKit aborts and renders an empty subframe (issue
     // #179) — instead, synthesize a 200 interstitial that names the cause.
-    if resp.status().is_redirection() {
+    // Only document navigations are intercepted: a fetch/XHR that hits the
+    // same middleware keeps its redirect so in-page code sees the real
+    // resource contract, not surprise HTML.
+    if is_document_nav && resp.status().is_redirection() {
         let location = resp
             .headers()
             .get(hyper::header::LOCATION)
             .and_then(|v| v.to_str().ok());
         if is_auth_redirect_loop(resp.status(), location, &request_uri) {
-            let reason = format!(
+            let reason = redact_handshake_values(&format!(
                 "HTTP {} redirect to {} (requested {})",
                 resp.status().as_u16(),
                 location.unwrap_or("(no Location header)"),
                 request_uri
-            );
+            ));
             tracing::warn!(
                 "[Proxy] Auth redirect loop intercepted, serving interstitial: {}",
                 reason
@@ -657,7 +715,10 @@ async fn handle_websocket_upgrade(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_auth_redirect_loop, sanitize_csp_for_preview};
+    use super::{
+        is_auth_redirect_loop, is_document_navigation, redact_handshake_values,
+        sanitize_csp_for_preview,
+    };
     use hyper::header::HeaderValue;
     use hyper::StatusCode;
 
@@ -808,5 +869,67 @@ mod tests {
     #[test]
     fn missing_location_header_is_not_a_loop() {
         assert!(!is_auth_redirect_loop(StatusCode::FOUND, None, "/"));
+    }
+
+    // ── is_document_navigation ──────────────────────────────────────────────
+
+    #[test]
+    fn top_level_and_iframe_navigations_are_documents() {
+        assert!(is_document_navigation(Some("document"), Some("text/html")));
+        assert!(is_document_navigation(Some("iframe"), None));
+        assert!(is_document_navigation(Some("frame"), None));
+    }
+
+    #[test]
+    fn fetch_and_subresources_are_not_documents() {
+        // fetch()/XHR send Sec-Fetch-Dest: empty — the Accept fallback must
+        // NOT apply when the header is present and says non-document.
+        assert!(!is_document_navigation(Some("empty"), Some("text/html")));
+        assert!(!is_document_navigation(Some("script"), Some("*/*")));
+        assert!(!is_document_navigation(Some("image"), None));
+    }
+
+    #[test]
+    fn accept_header_fallback_when_sec_fetch_dest_absent() {
+        // Older engines without Sec-Fetch-Dest: navigations ask for text/html.
+        assert!(is_document_navigation(
+            None,
+            Some("text/html,application/xhtml+xml,*/*;q=0.8")
+        ));
+        // API calls ask for JSON (or */*) — pass the redirect through.
+        assert!(!is_document_navigation(None, Some("application/json")));
+        assert!(!is_document_navigation(None, Some("*/*")));
+        assert!(!is_document_navigation(None, None));
+    }
+
+    // ── redact_handshake_values ─────────────────────────────────────────────
+
+    #[test]
+    fn redacts_handshake_token_keeping_host_and_path() {
+        let reason = "HTTP 307 redirect to https://app.example.com/?__clerk_handshake=eyJhbGciOiJSUzI1NiJ9.payload.sig&_cb=1 (requested /)";
+        let redacted = redact_handshake_values(reason);
+        assert_eq!(
+            redacted,
+            "HTTP 307 redirect to https://app.example.com/?__clerk_handshake=<redacted>&_cb=1 (requested /)"
+        );
+    }
+
+    #[test]
+    fn redacts_multiple_occurrences_and_end_of_string() {
+        let redacted = redact_handshake_values(
+            "/?__clerk_handshake=tok1 (requested /cb?__clerk_handshake=tok2)",
+        );
+        assert!(!redacted.contains("tok1"));
+        assert!(!redacted.contains("tok2"));
+        assert_eq!(
+            redacted,
+            "/?__clerk_handshake=<redacted> (requested /cb?__clerk_handshake=<redacted>)"
+        );
+    }
+
+    #[test]
+    fn redaction_leaves_strings_without_the_param_unchanged() {
+        let s = "HTTP 307 redirect to https://my-app.clerk.accounts.dev/v1/client/handshake?redirect_url=x (requested /)";
+        assert_eq!(redact_handshake_values(s), s);
     }
 }

@@ -1,3 +1,8 @@
+:root {
+  /* Readable line-length cap for overlay body copy (blank-iframe watchdog). */
+  --preview-error-copy-max-width: 460px;
+}
+
 /* Preview. Uses grid rather than column-flex because ancestor heights
    in the chain above .preview-pane are indefinite at layout time —
    percentage flex-basis on the logs panel was resolving to auto
@@ -588,7 +593,7 @@
 
 .preview-iframe-error-overlay p {
   margin: 0;
-  max-width: 460px;
+  max-width: var(--preview-error-copy-max-width);
   color: var(--text-muted);
   font-size: var(--font-size-md);
   line-height: 1.6;
