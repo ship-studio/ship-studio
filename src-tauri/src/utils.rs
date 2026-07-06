@@ -123,6 +123,43 @@ fn get_login_shell_path() -> Option<String> {
     result
 }
 
+/// Parses the `path:` entry from an nvm-windows `settings.txt`. That entry is
+/// the symlink directory (e.g. `C:\Program Files\nodejs`) nvm-windows points
+/// at the currently-selected Node version. Conservative: returns None unless a
+/// non-empty `path:` line is present.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_nvm_windows_symlink(settings: &str) -> Option<String> {
+    settings.lines().find_map(|line| {
+        let trimmed = line.trim();
+        let value = trimmed
+            .strip_prefix("path:")
+            .or_else(|| trimmed.strip_prefix("Path:"))?
+            .trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    })
+}
+
+/// Returns the most recently modified subdirectory of `dir`, if any. Used to
+/// pick the newest fnm multishell link (fnm creates one per shell session).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn most_recent_subdir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .max_by_key(|entry| {
+            entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        })
+        .map(|entry| entry.path())
+}
+
 /// Computes the extended PATH (uncached). Called by `get_extended_path()`.
 fn build_extended_path() -> String {
     let current_path = std::env::var("PATH").unwrap_or_default();
@@ -134,10 +171,53 @@ fn build_extended_path() -> String {
         // Add Windows-specific paths
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
             windows_paths.push(format!("{}\\Microsoft\\WindowsApps", local_app_data));
+
+            // Version-manager Node installs (issue #164): a GUI-launched app
+            // never sees the PATH entries these managers add in the user's
+            // shell profile, so node/npm from volta/fnm looked "not installed".
+            let volta_bin = format!("{}\\Volta\\bin", local_app_data);
+            if std::path::Path::new(&volta_bin).exists() {
+                windows_paths.push(volta_bin);
+            }
+
+            // fnm exposes node via per-shell symlink dirs under
+            // fnm_multishells; use the most recently created one. Fall back to
+            // the fnm install dir itself so at least `fnm` resolves.
+            let multishells = std::path::PathBuf::from(&local_app_data).join("fnm_multishells");
+            if let Some(latest) = most_recent_subdir(&multishells) {
+                windows_paths.push(latest.to_string_lossy().to_string());
+            } else {
+                let fnm_dir = format!("{}\\fnm", local_app_data);
+                if std::path::Path::new(&fnm_dir).exists() {
+                    windows_paths.push(fnm_dir);
+                }
+            }
+
+            // Node's per-user installer target (no-admin installs).
+            let user_nodejs = format!("{}\\Programs\\nodejs", local_app_data);
+            if std::path::Path::new(&user_nodejs).exists() {
+                windows_paths.push(user_nodejs);
+            }
         }
 
         if let Ok(app_data) = std::env::var("APPDATA") {
             windows_paths.push(format!("{}\\npm", app_data));
+
+            // nvm-windows: settings.txt's `path:` entry names the symlink dir
+            // that holds the currently-selected Node version. Parsing is
+            // conservative — if the file is missing or has no `path:` line we
+            // only add the nvm root itself (where nvm.exe lives).
+            let nvm_root = std::path::PathBuf::from(&app_data).join("nvm");
+            if nvm_root.exists() {
+                if let Ok(settings) = std::fs::read_to_string(nvm_root.join("settings.txt")) {
+                    if let Some(symlink) = parse_nvm_windows_symlink(&settings) {
+                        if std::path::Path::new(&symlink).exists() {
+                            windows_paths.push(symlink);
+                        }
+                    }
+                }
+                windows_paths.push(nvm_root.to_string_lossy().to_string());
+            }
         }
 
         if let Ok(program_files) = std::env::var("ProgramFiles") {
@@ -792,6 +872,20 @@ pub fn resolve_workspace_path(project_root: &std::path::Path) -> std::path::Path
     resolved
 }
 
+/// Validate `project_path` as an allowed project root, then resolve it to the
+/// active workspace subfolder (`workspace_subpath` in `.shipstudio/project.json`).
+///
+/// Identical to [`validate_project_path`] for single-app projects (no subpath →
+/// the root is returned unchanged). Commands that should operate on the
+/// *rendered app* rather than the repo root — Tailwind/framework detection for
+/// the visual-editor gate — must use this so a monorepo whose app lives in a
+/// subfolder is detected against that subfolder. Mirrors what
+/// `detect_project_type_command` already does for project-type detection.
+pub fn validate_workspace_path(project_path: &str) -> Result<std::path::PathBuf, String> {
+    let root = validate_project_path(project_path)?;
+    Ok(resolve_workspace_path(&root))
+}
+
 /// Check if Homebrew is installed
 pub fn check_homebrew() -> (bool, Option<String>) {
     let paths = [
@@ -990,6 +1084,83 @@ mod tests {
             let now = 1000000u64;
             // Future timestamps should show "just now" (saturating subtraction)
             assert_eq!(format_relative_time_from_now(now + 60_000, now), "just now");
+        }
+    }
+
+    mod parse_nvm_windows_symlink {
+        use super::*;
+
+        #[test]
+        fn test_parses_typical_settings_file() {
+            let settings = "root: C:\\Users\\me\\AppData\\Roaming\\nvm\r\npath: C:\\Program Files\\nodejs\r\narch: 64\r\nproxy: none\r\n";
+            assert_eq!(
+                parse_nvm_windows_symlink(settings),
+                Some("C:\\Program Files\\nodejs".to_string())
+            );
+        }
+
+        #[test]
+        fn test_ignores_root_and_other_keys() {
+            // `root:` must not be mistaken for `path:`
+            let settings = "root: C:\\nvm\narch: 64\n";
+            assert_eq!(parse_nvm_windows_symlink(settings), None);
+        }
+
+        #[test]
+        fn test_handles_capitalized_key_and_extra_whitespace() {
+            let settings = "  Path:   C:\\nodejs-current  \n";
+            assert_eq!(
+                parse_nvm_windows_symlink(settings),
+                Some("C:\\nodejs-current".to_string())
+            );
+        }
+
+        #[test]
+        fn test_empty_value_returns_none() {
+            assert_eq!(parse_nvm_windows_symlink("path:\n"), None);
+            assert_eq!(parse_nvm_windows_symlink("path:   \n"), None);
+        }
+
+        #[test]
+        fn test_empty_file_returns_none() {
+            assert_eq!(parse_nvm_windows_symlink(""), None);
+        }
+    }
+
+    mod most_recent_subdir {
+        use super::*;
+
+        #[test]
+        fn test_missing_dir_returns_none() {
+            let dir = tempfile::tempdir().unwrap();
+            let missing = dir.path().join("does-not-exist");
+            assert_eq!(most_recent_subdir(&missing), None);
+        }
+
+        #[test]
+        fn test_empty_dir_returns_none() {
+            let dir = tempfile::tempdir().unwrap();
+            assert_eq!(most_recent_subdir(dir.path()), None);
+        }
+
+        #[test]
+        fn test_ignores_plain_files() {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("a-file.txt"), "x").unwrap();
+            assert_eq!(most_recent_subdir(dir.path()), None);
+        }
+
+        #[test]
+        fn test_returns_newest_subdir() {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::create_dir(dir.path().join("older")).unwrap();
+            // Ensure a measurable mtime gap on filesystems with coarse timestamps
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::fs::create_dir(dir.path().join("newer")).unwrap();
+            std::fs::write(dir.path().join("noise.txt"), "x").unwrap();
+
+            let result = most_recent_subdir(dir.path()).unwrap();
+            assert_eq!(result, dir.path().join("newer"));
         }
     }
 

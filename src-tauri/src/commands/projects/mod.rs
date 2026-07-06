@@ -28,34 +28,92 @@ pub use templates::*;
 pub use ui_state::*;
 pub use window_registry::*;
 
-use super::git::get_current_branch_sync;
 use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::{DashboardProject, PageInfo, ProjectInfo, ProjectMetadata, ProjectType};
 use crate::utils::{create_command, validate_project_path};
+use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 // ============ Helper Functions ============
 
-/// Helper to get git branch for a project.
-/// Delegates to `git::get_current_branch_sync` to avoid duplication.
-fn get_git_branch(project_path: &std::path::Path) -> Option<String> {
-    get_current_branch_sync(project_path)
+/// Hard ceiling for each per-project git call during dashboard scans. Local
+/// git commands normally finish in milliseconds; anything slower (repo on a
+/// stale network mount, wedged index lock, …) must not stall the dashboard —
+/// the project degrades to "no git info" instead (issue #168).
+const GIT_SCAN_TIMEOUT_SECS: u64 = 3;
+
+/// How many projects have their git metadata scanned concurrently. Bounded so
+/// a dashboard with hundreds of projects doesn't fork an unbounded number of
+/// git processes at once.
+const GIT_SCAN_CONCURRENCY: usize = 16;
+
+/// Run a short, time-bounded scan command and return its output, degrading to
+/// `None` on spawn failure or timeout. The child is killed on timeout so a
+/// hung git process is never left orphaned.
+///
+/// `program` is a parameter (rather than hardcoding `git`) so tests can
+/// exercise the timeout path with a script that sleeps.
+async fn run_scan_command(
+    program: &str,
+    args: &[&str],
+    cwd: &Path,
+    timeout_secs: u64,
+) -> Option<std::process::Output> {
+    let mut cmd = create_command(program);
+    cmd.args(args).current_dir(cwd);
+    let mut tokio_cmd = tokio::process::Command::from(cmd);
+    // Reap the child when the timeout drops the future — otherwise a hung git
+    // would keep running (and holding locks) in the background.
+    tokio_cmd.kill_on_drop(true);
+    run_with_timeout(
+        tokio_cmd,
+        format!("{program} {} (dashboard scan)", args.join(" ")),
+        timeout_secs,
+    )
+    .await
+    .ok()
 }
 
-/// Helper to count uncommitted changes (tracked files only)
-fn get_uncommitted_count(project_path: &std::path::Path) -> Option<u32> {
+/// Helper to get git branch for a project (time-bounded; `None` on timeout).
+async fn get_git_branch(project_path: &Path) -> Option<String> {
+    let output = run_scan_command(
+        "git",
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+        project_path,
+        GIT_SCAN_TIMEOUT_SECS,
+    )
+    .await?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch == "HEAD" || branch.is_empty() {
+        return None;
+    }
+
+    Some(branch)
+}
+
+/// Helper to count uncommitted changes (tracked files only; time-bounded,
+/// `None` on timeout).
+async fn get_uncommitted_count(project_path: &Path) -> Option<u32> {
     let git_dir = project_path.join(".git");
     if !git_dir.exists() {
         return None;
     }
 
     // Use -uno to ignore untracked files like .DS_Store
-    let output = create_command("git")
-        .args(["status", "--porcelain", "-uno"])
-        .current_dir(project_path)
-        .output()
-        .ok()?;
+    let output = run_scan_command(
+        "git",
+        &["status", "--porcelain", "-uno"],
+        project_path,
+        GIT_SCAN_TIMEOUT_SECS,
+    )
+    .await?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -63,6 +121,33 @@ fn get_uncommitted_count(project_path: &std::path::Path) -> Option<u32> {
         return Some(count);
     }
     None
+}
+
+/// Collects git metadata (current branch + uncommitted count) for many
+/// projects concurrently. Each git call is bounded by
+/// [`GIT_SCAN_TIMEOUT_SECS`]; a slow or hung repo degrades to `(None, None)`
+/// instead of blocking the whole dashboard. Results are returned in input
+/// order.
+async fn scan_git_info(paths: Vec<PathBuf>) -> Vec<(Option<String>, Option<u32>)> {
+    stream::iter(paths)
+        .map(
+            |path| async move { tokio::join!(get_git_branch(&path), get_uncommitted_count(&path)) },
+        )
+        .buffered(GIT_SCAN_CONCURRENCY)
+        .collect()
+        .await
+}
+
+/// Issue #162: a project silently missing from the dashboard is
+/// indistinguishable from data loss to users. Every filter that hides a
+/// directory from the project list must log through here so the exclusion
+/// shows up loudly in the logs (logging only — no behavior change).
+fn warn_project_excluded(path: &Path, reason: &str) {
+    tracing::warn!(
+        path = %path.display(),
+        reason,
+        "project directory excluded from dashboard list"
+    );
 }
 
 /// Sync helper for ensuring .shipstudio/ is in gitignore
@@ -303,6 +388,7 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
         if is_valid_project(&path) {
             let canonical = canonical_or_original(&path);
             if removed_projects.contains_path(&canonical) {
+                warn_project_excluded(&path, "listed in removed-projects.json registry");
                 continue;
             }
 
@@ -323,6 +409,10 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
             };
 
             if !project_visible_for_account(metadata.as_ref(), &active_account_id, &accounts) {
+                warn_project_excluded(
+                    &path,
+                    "belongs to a different workspace (account visibility filter)",
+                );
                 continue;
             }
 
@@ -334,6 +424,8 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
                 thumbnail,
                 last_opened,
             });
+        } else if path.is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
+            warn_project_excluded(&path, "not recognized as a project (no project markers)");
         }
     }
 
@@ -366,6 +458,10 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
                 };
 
                 if !project_visible_for_account(metadata.as_ref(), &active_account_id, &accounts) {
+                    warn_project_excluded(
+                        ext_path,
+                        "external project belongs to a different workspace (account visibility filter)",
+                    );
                     continue;
                 }
 
@@ -377,6 +473,11 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
                     thumbnail,
                     last_opened,
                 });
+            } else {
+                warn_project_excluded(
+                    ext_path,
+                    "registered external project is missing or not recognized as a project",
+                );
             }
         }
     }
@@ -407,7 +508,11 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
         return Ok(Vec::new());
     }
 
+    // First pass: cheap filesystem-only collection. Git metadata is filled in
+    // afterwards, concurrently and time-bounded, so one slow/hung repo can't
+    // stall the whole dashboard (issue #168).
     let mut projects = Vec::new();
+    let mut scan_paths: Vec<PathBuf> = Vec::new();
     let entries = std::fs::read_dir(&shipstudio_dir).map_err(|e| e.to_string())?;
 
     for entry in entries {
@@ -416,6 +521,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
         if is_valid_project(&path) {
             let canonical = canonical_or_original(&path);
             if removed_projects.contains_path(&canonical) {
+                warn_project_excluded(&path, "listed in removed-projects.json registry");
                 continue;
             }
 
@@ -436,6 +542,10 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
             };
 
             if !project_visible_for_account(metadata.as_ref(), &active_account_id, &accounts) {
+                warn_project_excluded(
+                    &path,
+                    "belongs to a different workspace (account visibility filter)",
+                );
                 continue;
             }
 
@@ -448,22 +558,22 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
             // Ensure .shipstudio/ is gitignored
             let _ = ensure_gitignore_has_shipstudio_sync(&path);
 
-            // Get git info
-            let git_branch = get_git_branch(&path);
-            let uncommitted_count = get_uncommitted_count(&path);
-
             projects.push(DashboardProject {
                 name: entry.file_name().to_string_lossy().to_string(),
                 path: path.to_string_lossy().to_string(),
                 thumbnail,
                 last_opened,
-                git_branch,
-                uncommitted_count,
+                // Filled in by the concurrent git scan below.
+                git_branch: None,
+                uncommitted_count: None,
                 auto_accept_mode,
                 hide_main_branch_warning,
                 is_external: false,
                 workspace_subpath,
             });
+            scan_paths.push(path);
+        } else if path.is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
+            warn_project_excluded(&path, "not recognized as a project (no project markers)");
         }
     }
 
@@ -496,6 +606,10 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                 };
 
                 if !project_visible_for_account(metadata.as_ref(), &active_account_id, &accounts) {
+                    warn_project_excluded(
+                        &path,
+                        "external project belongs to a different workspace (account visibility filter)",
+                    );
                     continue;
                 }
 
@@ -508,23 +622,36 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                 // Ensure .shipstudio/ is gitignored
                 let _ = ensure_gitignore_has_shipstudio_sync(&path);
 
-                let git_branch = get_git_branch(&path);
-                let uncommitted_count = get_uncommitted_count(&path);
-
                 projects.push(DashboardProject {
                     name,
                     path: path.to_string_lossy().to_string(),
                     thumbnail,
                     last_opened,
-                    git_branch,
-                    uncommitted_count,
+                    // Filled in by the concurrent git scan below.
+                    git_branch: None,
+                    uncommitted_count: None,
                     auto_accept_mode,
                     hide_main_branch_warning,
                     is_external: true,
                     workspace_subpath,
                 });
+                scan_paths.push(path);
+            } else {
+                warn_project_excluded(
+                    &path,
+                    "registered external project is missing or not recognized as a project",
+                );
             }
         }
+    }
+
+    // Second pass: concurrent, time-bounded git scans (one entry per project,
+    // in the same order projects were pushed above). A repo that errors or
+    // times out simply keeps `git_branch: None` / `uncommitted_count: None`.
+    let git_info = scan_git_info(scan_paths).await;
+    for (project, (git_branch, uncommitted_count)) in projects.iter_mut().zip(git_info) {
+        project.git_branch = git_branch;
+        project.uncommitted_count = uncommitted_count;
     }
 
     projects.sort_by(|a, b| match (a.last_opened, b.last_opened) {
@@ -1323,6 +1450,53 @@ mod tests {
 
         let config = load_removed_projects_config().unwrap();
         assert_eq!(config.projects.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn scan_command_times_out_and_degrades_to_none() {
+        // A "git" that hangs: the scan must give up after the timeout and
+        // yield None instead of blocking (issue #168).
+        let tmp = tempfile::tempdir().unwrap();
+        let script = tmp.path().join("hung-git.sh");
+        std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let started = std::time::Instant::now();
+        let output = run_scan_command(script.to_str().unwrap(), &[], tmp.path(), 1).await;
+
+        assert!(output.is_none(), "hung command must degrade to None");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "timeout must bound the call well below the script's sleep"
+        );
+    }
+
+    #[tokio::test]
+    async fn git_scan_helpers_degrade_to_none_outside_a_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(get_git_branch(tmp.path()).await, None);
+        assert_eq!(get_uncommitted_count(tmp.path()).await, None);
+    }
+
+    #[tokio::test]
+    async fn scan_git_info_returns_one_entry_per_path_in_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        make_project(tmp.path(), "alpha");
+        make_project(tmp.path(), "beta");
+        let paths = vec![tmp.path().join("alpha"), tmp.path().join("beta")];
+
+        let info = scan_git_info(paths).await;
+
+        // Neither project is a git repo — both must degrade gracefully
+        // rather than erroring or being dropped.
+        assert_eq!(info.len(), 2);
+        assert!(info
+            .iter()
+            .all(|(branch, count)| branch.is_none() && count.is_none()));
     }
 
     #[test]

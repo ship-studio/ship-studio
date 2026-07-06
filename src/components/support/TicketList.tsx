@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { listTickets, formatRelativeTime } from '../../lib/support';
 import type { Conversation } from '../../lib/support';
 import type { SupportView } from './SupportPanel';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface TicketListProps {
   onNavigate: (view: SupportView) => void;
@@ -25,7 +26,7 @@ export function TicketList({ onNavigate }: TicketListProps) {
         if (!cancelled) setTickets(result);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setError(formatCommandError(asCommandError(e)));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

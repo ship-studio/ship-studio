@@ -18,6 +18,7 @@ import {
   type FileContent,
 } from '../lib/code';
 import { logger } from '../lib/logger';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { trackEvent } from '../lib/analytics';
 import { useAsyncState } from './useAsyncState';
 
@@ -326,7 +327,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       });
       return 'saved';
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = formatCommandError(asCommandError(err));
       logger.error('Failed to save file', { path, error: msg });
       setSaveError(msg);
       return 'error';

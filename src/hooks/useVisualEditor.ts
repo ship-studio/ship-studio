@@ -75,6 +75,7 @@ import {
 } from '../lib/customClasses';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 /**
  * What the style controls currently edit:
@@ -357,7 +358,7 @@ export function useVisualEditor({
           }
         } catch (err) {
           logger.error('[VisualEditor] resolve failed', { error: String(err) });
-          onToast?.(String(err), 'error');
+          onToast?.(formatCommandError(asCommandError(err)), 'error');
           setSelection({
             signature: sig,
             resolution: {
@@ -536,7 +537,7 @@ export function useVisualEditor({
           if (!opts?.silent) onToast?.('Class saved', 'success');
         } catch (err) {
           logger.error('[VisualEditor] class write-back failed', { error: String(err) });
-          onToast?.(String(err), 'error');
+          onToast?.(formatCommandError(asCommandError(err)), 'error');
         }
         return;
       }
@@ -584,7 +585,7 @@ export function useVisualEditor({
         if (!opts?.silent) onToast?.('Saved to source', 'success');
       } catch (err) {
         logger.error('[VisualEditor] write-back failed', { error: String(err) });
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [selection, projectPath, onToast, post, setEditTarget, recordCommit]
@@ -651,7 +652,7 @@ export function useVisualEditor({
         await writeElementClass([...current, name].join(' '));
         recordCommit('custom_class_applied');
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [currentElementClass, writeElementClass, onToast, recordCommit]
@@ -673,7 +674,7 @@ export function useVisualEditor({
         if (ok && wasEditing) editElement();
         recordCommit('custom_class_unapplied');
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [currentElementClass, writeElementClass, editElement, onToast, recordCommit]
@@ -715,7 +716,7 @@ export function useVisualEditor({
           onToast?.(`Kept ${[...unsafe].join(', ')} on the element (not a utility).`, 'success');
         }
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [
@@ -769,7 +770,7 @@ export function useVisualEditor({
         onToast?.('Image replaced', 'success');
       } catch (err) {
         logger.error('[VisualEditor] image write-back failed', { error: String(err) });
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
         throw err;
       }
     },

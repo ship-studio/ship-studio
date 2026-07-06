@@ -7,6 +7,7 @@
 
 import { useState, useCallback } from 'react';
 import { installPlugin, listPlugins, VERCEL_PLUGIN_REPO } from '../lib/plugins';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { invoke } from '@tauri-apps/api/core';
 
 interface PluginTerminalState {
@@ -108,7 +109,7 @@ export function usePluginState() {
         setPluginSuggestion(null);
         onSuccess(`${name} plugin installed`);
       } catch (err) {
-        onError(`Failed to install plugin: ${err instanceof Error ? err.message : String(err)}`);
+        onError(`Failed to install plugin: ${formatCommandError(asCommandError(err))}`);
       } finally {
         setPluginSuggestionInstalling(false);
       }

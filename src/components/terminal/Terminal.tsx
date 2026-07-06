@@ -26,6 +26,7 @@ import {
   killPtySession,
   onPtySessionData,
   onPtySessionExit,
+  createAttachGate,
 } from '../../lib/ptySession';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { useAgentBridge } from '../../contexts/AgentBridgeContext';
@@ -46,7 +47,9 @@ import { getShellPath, getSystemEnv } from '../../lib/project';
 import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { getTerminalGpuEnabled } from '../../lib/settings';
+import { decideStartupTimeoutAction } from './startupWatchdog';
 import type { AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
@@ -519,6 +522,14 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // per project open. Gating on disk-presence turns a ~1s miss into a
     // ~5ms file-exists check.
     let attemptResume = false;
+    // One automatic respawn per mount for the spawned-but-silent case
+    // (issue #158). Distinct from `maxRetries` (the spawn call threw) and
+    // the resume-failed retry (the process exited) — this covers a PTY
+    // that opened fine but never wrote a byte.
+    let autoRespawnUsed = false;
+    // Latest startup-watchdog / respawn-delay timers, cleared on unmount.
+    let startupTimer: ReturnType<typeof setTimeout> | null = null;
+    let respawnTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Open (or re-attach to) the backend PTY session for this tab.
     // `retryCount` is used by the resume-failed-then-retry-fresh path.
@@ -655,17 +666,22 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // component unmount/remount and project switches, so attach is
         // idempotent. `openPtySession` is a no-op if the session is already
         // alive; it evicts-and-respawns if a previous run exited (retry
-        // path below). `attachPtySession` returns the ring-buffer tail for
-        // xterm to replay before the live stream takes over.
+        // path below). `attachPtySession` (called after subscribing, below)
+        // returns the ring-buffer tail for xterm to replay plus the offset
+        // the live stream is de-duplicated against.
         const backendSessionId = sessionName || `tab-${Date.now()}`;
+        // Clamp dimensions: the zero-guard above gives up after 3s and can
+        // reach this point with cols/rows ≤ 1, and a 0-size ConPTY produces
+        // no output at all on Windows (issue #156). The backend clamps too;
+        // this keeps xterm and the PTY in agreement.
         const opened = await openPtySession({
           sessionId: backendSessionId,
           command: spawnCmd,
           args: spawnArgs,
           cwd: projectPath,
           env,
-          cols: term.cols,
-          rows: term.rows,
+          cols: Math.max(term.cols, 2),
+          rows: Math.max(term.rows, 2),
           projectPath,
           tabSessionId: sessionName ?? null,
         });
@@ -684,35 +700,22 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         });
         onSpawnRef.current?.(opened.pid);
 
-        const attach = await attachPtySession(backendSessionId);
-        if (!mounted) return;
-        if (attach.buffer.length > 0) {
-          // Replay ring-buffer tail so a newly-attached xterm shows prior
-          // output (critical for project switches back to a background tab).
-          terminalRef.current?.write(attach.buffer);
-        }
-        if (!attach.alive) {
-          // Session already exited between open and attach. Treat as a
-          // normal exit so the retry-on-resume-fail path can kick in.
-          onExitRef.current?.(attach.exitCode ?? -1);
-        }
+        // Subscribe BEFORE attaching. Tauri drops events that fire with no
+        // registered listener, so the old attach-then-subscribe order lost
+        // any chunk emitted between the attach snapshot and the
+        // subscription going live — for a single-paint TUI (Codex) that
+        // could be its only paint, leaving the tab stuck on the loading
+        // message forever (issue #156). With subscribe-first, every byte is
+        // either in the snapshot or delivered as an event; the offset gate
+        // below drops the overlap exactly.
 
-        // Startup timeout: if no output is received within 10s, the agent
-        // likely failed to launch (binary not found, permission error, etc.).
-        // Show an error instead of hanging on "Starting..." forever.
+        // Set once any live PTY event arrives for this spawn — the process
+        // demonstrably produced output even if the chunk itself is dropped
+        // as snapshot-covered. (The replayed attach snapshot does NOT count
+        // as output, matching the pre-gate behavior.)
         let receivedOutput = false;
-        const startupTimeout = setTimeout(() => {
-          if (!receivedOutput && mounted) {
-            logger.error('[Terminal] Startup timeout - no output after 10s', {
-              agent: agent.id,
-              binary: agent.binaryName,
-            });
-            terminalRef.current?.write(
-              `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
-                `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
-            );
-          }
-        }, 10_000);
+        // Startup watchdog handle — armed after the snapshot replay below.
+        let startupTimeout: ReturnType<typeof setTimeout> | null = null;
 
         // Buffer early output to detect resume failures on exit
         let outputBuffer = '';
@@ -727,49 +730,51 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           terminalRef.current?.write(normalized);
         };
 
-        // Handle PTY output -> terminal
         // Store disposables so cleanup() can remove IPC listeners and prevent CPU leak.
-        // For agents without title-based detection, add idle-detection:
-        // when output stops flowing for 1.5s after "thinking" state, transition to "waiting".
         const pushDisposable = (unlisten: UnlistenFn) => {
           ptyDisposablesRef.current.push({ dispose: () => unlisten() });
         };
 
-        if (!agent.supportsStatusDetection) {
-          let idleTimer: ReturnType<typeof setTimeout> | null = null;
-          const unlistenData = await onPtySessionData(backendSessionId, (bytes) => {
-            receivedOutput = true;
-            if (outputBuffer.length < 2000) {
-              outputBuffer += new TextDecoder().decode(bytes);
-            }
-            clearTimeout(startupTimeout);
-            writeToTerminal(bytes);
-            if (lastStatusRef.current === 'thinking') {
-              if (idleTimer) clearTimeout(idleTimer);
-              idleTimer = setTimeout(() => {
-                if (lastStatusRef.current === 'thinking') {
-                  lastStatusRef.current = 'waiting';
-                  onStatusChangeRef.current?.('waiting', '');
-                }
-              }, 1500);
-            }
-          });
-          pushDisposable(unlistenData);
-        } else {
-          const unlistenData = await onPtySessionData(backendSessionId, (bytes) => {
-            receivedOutput = true;
-            if (outputBuffer.length < 2000) {
-              outputBuffer += new TextDecoder().decode(bytes);
-            }
-            clearTimeout(startupTimeout);
-            writeToTerminal(bytes);
-          });
-          pushDisposable(unlistenData);
-        }
+        // Gate: queues live chunks until the attach snapshot is written,
+        // then flushes only the chunks the snapshot doesn't already cover.
+        // For agents without title-based detection it also drives
+        // idle-detection: when output stops flowing for 1.5s after
+        // "thinking", transition to "waiting".
+        let idleTimer: ReturnType<typeof setTimeout> | null = null;
+        const gate = createAttachGate((bytes) => {
+          if (outputBuffer.length < 2000) {
+            outputBuffer += new TextDecoder().decode(bytes);
+          }
+          writeToTerminal(bytes);
+          if (!agent.supportsStatusDetection && lastStatusRef.current === 'thinking') {
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+              if (lastStatusRef.current === 'thinking') {
+                lastStatusRef.current = 'waiting';
+                onStatusChangeRef.current?.('waiting', '');
+              }
+            }, 1500);
+          }
+        });
 
-        // Handle PTY exit — subscribe to the backend event stream.
-        const unlistenExit = await onPtySessionExit(backendSessionId, (exitCode) => {
-          clearTimeout(startupTimeout);
+        // Handle PTY output -> terminal (through the gate).
+        const unlistenData = await onPtySessionData(backendSessionId, (bytes, offset) => {
+          receivedOutput = true;
+          if (startupTimeout) clearTimeout(startupTimeout);
+          gate.push(offset, bytes);
+        });
+        pushDisposable(unlistenData);
+
+        // Handle PTY exit — subscribe to the backend event stream. An exit
+        // that fires before the snapshot replay is parked so the
+        // "[Process exited]" prompt can't render above the scrollback it
+        // belongs after.
+        let gateOpen = false;
+        let pendingExit: number | null = null;
+        let exitEventSeen = false;
+
+        const handleExit = (exitCode: number) => {
+          if (startupTimeout) clearTimeout(startupTimeout);
           logger.info('[Terminal] PTY process exited', {
             agent: agent.id,
             exitCode,
@@ -852,8 +857,98 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
           offerRestart();
           onExitRef.current?.(exitCode);
+        };
+
+        const unlistenExit = await onPtySessionExit(backendSessionId, (exitCode) => {
+          exitEventSeen = true;
+          if (!gateOpen) {
+            pendingExit = exitCode;
+            return;
+          }
+          handleExit(exitCode);
         });
         pushDisposable(unlistenExit);
+
+        const attach = await attachPtySession(backendSessionId);
+        if (!mounted) return;
+        if (attach.buffer.length > 0) {
+          // Replay ring-buffer tail so a newly-attached xterm shows prior
+          // output (critical for project switches back to a background tab).
+          terminalRef.current?.write(attach.buffer);
+        }
+        // Open the gate: flush queued live chunks, dropping the ones the
+        // snapshot already covers (offset < endOffset).
+        gateOpen = true;
+        gate.open(attach.endOffset);
+
+        // Startup watchdog: if no output is received within 10s, the agent
+        // likely failed to launch (binary not found, permission error, or a
+        // wedged first spawn — issue #158). The manual fix users found is
+        // "create a new agent tab", i.e. a fresh PTY — so kill the silent
+        // session and respawn once with the same config. Only if the
+        // respawn is also silent do we surface the error text.
+        startupTimeout = setTimeout(() => {
+          const action = decideStartupTimeoutAction({ receivedOutput, mounted, autoRespawnUsed });
+          if (action === 'none') return;
+
+          if (action === 'respawn') {
+            autoRespawnUsed = true;
+            logger.warn('[Terminal] No output after 10s - killing silent PTY and respawning', {
+              agent: agent.id,
+              binary: agent.binaryName,
+              sessionId: backendSessionId,
+            });
+            terminalRef.current?.write(
+              `\r\n\x1b[33mNo output — restarting ${agent.displayName}…\x1b[0m\r\n`
+            );
+            // Unsubscribe from the silent session BEFORE killing it so the
+            // kill-induced exit event can't trigger the "[Process exited]"
+            // prompt or the resume-retry path.
+            for (const d of ptyDisposablesRef.current) {
+              try {
+                d.dispose();
+              } catch {
+                /* ignore */
+              }
+            }
+            ptyDisposablesRef.current = [];
+            ptyRef.current = null;
+            void killPtySession(backendSessionId)
+              .catch(() => {
+                /* already dead — open will spawn fresh either way */
+              })
+              .then(() => {
+                // Grace period so the killed PTY's exit event (same session
+                // id) is delivered before the respawned run subscribes —
+                // otherwise it would look like the new process exiting.
+                respawnTimer = setTimeout(() => {
+                  if (mounted) void setupPty(0);
+                }, 500);
+              });
+            return;
+          }
+
+          logger.error('[Terminal] Startup timeout - no output after 10s', {
+            agent: agent.id,
+            binary: agent.binaryName,
+          });
+          terminalRef.current?.write(
+            `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
+              `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
+          );
+        }, 10_000);
+        startupTimer = startupTimeout;
+
+        if (pendingExit !== null) {
+          // The process exited while the snapshot was in flight — run the
+          // full exit path now that the scrollback is on screen.
+          handleExit(pendingExit);
+        } else if (!attach.alive && !exitEventSeen) {
+          // Session already exited before we subscribed (the exit event
+          // predates this attach cycle and was dropped by Tauri). Treat as
+          // a normal exit so the retry-on-resume-fail path can kick in.
+          onExitRef.current?.(attach.exitCode ?? -1);
+        }
 
         // Dismiss the first-run hint on the user's first real keystroke — and
         // broadcast so sibling terminals (split panes / tabs) clear theirs too.
@@ -943,7 +1038,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           );
           setTimeout(() => void setupPty(retryCount + 1), 1000);
         } else {
-          term.write(`\x1b[31m${agent.notFoundMessage}: ${String(err)}\x1b[0m\r\n`);
+          term.write(
+            `\x1b[31m${agent.notFoundMessage}: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
+          );
           term.write(`\x1b[33m${agent.installHint}\x1b[0m\r\n`);
         }
       }
@@ -988,6 +1085,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       mounted = false;
       resizeObserver.disconnect();
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      if (startupTimer) clearTimeout(startupTimer);
+      if (respawnTimer) clearTimeout(respawnTimer);
       if (textarea) {
         textarea.removeEventListener('focus', onTextareaFocus);
         textarea.removeEventListener('blur', onTextareaBlur);

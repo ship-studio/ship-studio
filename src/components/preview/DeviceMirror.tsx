@@ -48,6 +48,7 @@ import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { BuildTerminal } from '../terminal/BuildTerminal';
 import { AndroidMirrorStage } from './AndroidMirrorStage';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface DeviceMirrorProps {
   /** Project name, for guidance copy. */
@@ -286,7 +287,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
         logger.error('[DeviceMirror] failed', {
           error: err instanceof Error ? err.message : String(err),
         });
-        setErrorMsg(err instanceof Error ? err.message : String(err));
+        setErrorMsg(formatCommandError(asCommandError(err)));
         setStatus('error');
       }
     };

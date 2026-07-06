@@ -15,6 +15,7 @@ import { Spinner } from '../primitives/Spinner';
 import { type McpServer, listMcpServers, addMcpServer, removeMcpServer } from '../../lib/mcp';
 import { trackEvent, trackSearch } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useModal } from '../../contexts/ModalContext';
 
 type Tab = 'connected' | 'add';
@@ -118,7 +119,7 @@ export function McpModal({
       logger.error('Failed to add MCP server', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setAddError(err instanceof Error ? err.message : String(err));
+      setAddError(formatCommandError(asCommandError(err)));
     } finally {
       setIsAdding(false);
     }

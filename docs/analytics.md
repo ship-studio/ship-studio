@@ -184,6 +184,7 @@ To get an aggregate "any modal opened" count in PostHog, use a regex match on ev
 | `setup_step_skipped` | `step_id`, `step_index`, `reason: 'already_complete'` |
 | `setup_step_navigated_back` | `from_step`, `to_step` |
 | `setup_action_clicked` | `item_id`, `action` (`install`/`connect`), `step_id` |
+| `setup_action_failed` | `item_id`, `exit_code`, `error_excerpt` (extracted from terminal output, capped 200) |
 | `onboarding_completed` | `agents`, `entry_path` |
 | `default_agent_selected` | `agent_id`, `agent_count` |
 

@@ -30,13 +30,67 @@ use tauri::{AppHandle, Emitter};
 /// without becoming a memory burden across dozens of background sessions.
 const RING_BUFFER_MAX: usize = 128 * 1024;
 
+/// Minimum PTY dimension. Windows ConPTY wedges (produces no output, or
+/// hangs the client) when created or resized at 0 rows/cols — which the
+/// frontend can request when it spawns before xterm has measured its
+/// container. Clamp to a small sane floor; the real size follows via resize.
+const MIN_PTY_DIMENSION: u16 = 2;
+
+/// Clamp a requested PTY size to the minimum ConPTY tolerates.
+fn clamp_pty_size(rows: u16, cols: u16) -> (u16, u16) {
+    (rows.max(MIN_PTY_DIMENSION), cols.max(MIN_PTY_DIMENSION))
+}
+
+/// Ring buffer + cumulative-offset accounting, guarded by ONE mutex so that
+/// appending a chunk and advancing the offset are atomic with respect to an
+/// attach snapshot.
+///
+/// `total_offset` counts every byte ever read from the PTY — ring trimming
+/// does NOT decrease it. Each emitted `pty-session-data` event carries the
+/// chunk's start offset, and `pty_session_attach` returns `total_offset` at
+/// snapshot time as `end_offset`. Because append + offset increment happen
+/// under the same lock as the snapshot, an event chunk either lies entirely
+/// before the snapshot (`offset + len <= end_offset`) or entirely at/after
+/// it (`offset >= end_offset`) — it can never straddle the boundary. That's
+/// what lets the frontend subscribe *before* attaching and drop exactly the
+/// chunks the snapshot already covers.
+struct SessionBuffer {
+    ring: VecDeque<u8>,
+    total_offset: u64,
+}
+
+impl SessionBuffer {
+    fn new() -> Self {
+        Self {
+            ring: VecDeque::with_capacity(8192),
+            total_offset: 0,
+        }
+    }
+
+    /// Append a chunk, returning its start offset (the cumulative byte
+    /// count before this chunk).
+    fn append(&mut self, bytes: &[u8]) -> u64 {
+        let start = self.total_offset;
+        append_to_ring(&mut self.ring, bytes);
+        self.total_offset = start.saturating_add(bytes.len() as u64);
+        // No-straddle invariant: the offset advances by exactly the chunk
+        // length in the same critical section as the ring append, so any
+        // snapshot end_offset (also read under this mutex) coincides with a
+        // chunk boundary — never the middle of a chunk. Also: we can never
+        // retain more bytes than were ever produced.
+        debug_assert_eq!(self.total_offset, start + bytes.len() as u64);
+        debug_assert!(self.ring.len() as u64 <= self.total_offset);
+        start
+    }
+}
+
 struct Session {
     pid: u32,
     project_path: Option<String>,
     tab_session_id: Option<String>,
     alive: AtomicBool,
     exit_code: Mutex<Option<i32>>,
-    buffer: Mutex<VecDeque<u8>>,
+    buffer: Mutex<SessionBuffer>,
     writer: Mutex<Box<dyn std::io::Write + Send>>,
     child_killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     master: Mutex<Box<dyn portable_pty::MasterPty + Send>>,
@@ -52,6 +106,22 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Windows system vars that cmd.exe / ConPTY / Node require. Mirrors the
+/// critical subset of `get_system_env` in `commands/pty/mod.rs` — injected
+/// server-side in `pty_session_open` so a frontend env map that lost them
+/// (the PTY env replaces, not merges, the parent env) can't produce a
+/// wedged, output-less session.
+#[cfg_attr(not(windows), allow(dead_code))]
+const CRITICAL_WINDOWS_ENV_VARS: [&str; 5] =
+    ["SystemRoot", "COMSPEC", "PATHEXT", "windir", "SYSTEMDRIVE"];
+
+/// Case-insensitive key lookup — Windows env var names are case-insensitive,
+/// and the frontend may send e.g. `SYSTEMROOT` where we check `SystemRoot`.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn env_has_key(env: &BTreeMap<String, String>, key: &str) -> bool {
+    env.keys().any(|k| k.eq_ignore_ascii_case(key))
 }
 
 fn append_to_ring(ring: &mut VecDeque<u8>, bytes: &[u8]) {
@@ -78,14 +148,19 @@ pub struct OpenSessionResult {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AttachResult {
     /// Recent output bytes (the ring buffer tail) — xterm should write these
-    /// immediately to restore the visible scrollback before subscribing to
-    /// the live data event stream.
+    /// immediately to restore the visible scrollback.
     pub buffer: Vec<u8>,
     pub pid: u32,
     pub alive: bool,
     pub exit_code: Option<i32>,
+    /// Cumulative byte offset at snapshot time (total bytes ever read from
+    /// the PTY, independent of ring trimming). Live `pty-session-data`
+    /// events whose `offset` is `< end_offset` are already contained in
+    /// `buffer` and must be dropped by the subscriber.
+    pub end_offset: u64,
 }
 
 #[derive(Serialize)]
@@ -135,6 +210,7 @@ pub async fn pty_session_open(
         }
     }
 
+    let (rows, cols) = clamp_pty_size(rows, cols);
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -163,6 +239,20 @@ pub async fn pty_session_open(
         cmd.env(std::ffi::OsString::from(k), std::ffi::OsString::from(v));
     }
 
+    // Windows safety net: the provided env REPLACES the parent environment,
+    // so if the frontend's map is missing critical system vars, cmd.exe /
+    // ConPTY / Node fail in silent, confusing ways (a PTY that never
+    // produces a byte). Backfill them from the app's own environment when
+    // absent — the frontend-supplied values still win when present.
+    #[cfg(windows)]
+    for key in CRITICAL_WINDOWS_ENV_VARS {
+        if !env_has_key(&env, key) {
+            if let Ok(val) = std::env::var(key) {
+                cmd.env(std::ffi::OsString::from(key), std::ffi::OsString::from(val));
+            }
+        }
+    }
+
     // Inject the project's Workspace credentials/config dirs SERVER-SIDE, so
     // secret token values (Vercel/Figma/OpenAI/Anthropic-base-url) never have to
     // cross the IPC boundary into the webview's JS. The backend wins over any
@@ -189,7 +279,7 @@ pub async fn pty_session_open(
         tab_session_id: tab_session_id.clone(),
         alive: AtomicBool::new(true),
         exit_code: Mutex::new(None),
-        buffer: Mutex::new(VecDeque::with_capacity(8192)),
+        buffer: Mutex::new(SessionBuffer::new()),
         writer: Mutex::new(writer),
         child_killer: Mutex::new(child_killer),
         master: Mutex::new(pair.master),
@@ -215,14 +305,23 @@ pub async fn pty_session_open(
                     Err(_) => break,
                 };
                 let chunk = &buf[..n];
-                if let Ok(mut ring) = session_for_reader.buffer.lock() {
-                    append_to_ring(&mut ring, chunk);
-                }
+                // Capture the chunk's start offset under the SAME lock that
+                // appends it to the ring — this atomicity is what guarantees
+                // an attach snapshot's end_offset always lands on a chunk
+                // boundary (see `SessionBuffer`).
+                let Ok(chunk_start_offset) = session_for_reader
+                    .buffer
+                    .lock()
+                    .map(|mut b| b.append(chunk))
+                else {
+                    break; // poisoned — registry is unusable for this session
+                };
                 let _ = app_for_reader.emit(
                     "pty-session-data",
                     serde_json::json!({
                         "sessionId": session_id_for_reader,
                         "data": chunk,
+                        "offset": chunk_start_offset,
                     }),
                 );
             }
@@ -302,6 +401,7 @@ pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<()
     let Some(session) = session else {
         return Err("unknown session".to_string().into());
     };
+    let (rows, cols) = clamp_pty_size(rows, cols);
     let master = session
         .master
         .lock()
@@ -354,12 +454,15 @@ pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandErr
     let Some(session) = session else {
         return Err("unknown session".to_string().into());
     };
-    let buffer: Vec<u8> = {
-        let ring = session
+    // Snapshot bytes AND end offset under one lock acquisition: the pair
+    // must be consistent for the frontend's offset filter to be exact.
+    let (buffer, end_offset): (Vec<u8>, u64) = {
+        let b = session
             .buffer
             .lock()
             .map_err(|e| format!("buffer lock poisoned: {e}"))?;
-        ring.iter().copied().collect()
+        debug_assert!(b.ring.len() as u64 <= b.total_offset);
+        (b.ring.iter().copied().collect(), b.total_offset)
     };
     let alive = session.alive.load(Ordering::Relaxed);
     let exit_code = *session
@@ -371,6 +474,7 @@ pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandErr
         pid: session.pid,
         alive,
         exit_code,
+        end_offset,
     })
 }
 
@@ -438,5 +542,103 @@ mod tests {
         append_to_ring(&mut ring, &huge);
         assert_eq!(ring.len(), RING_BUFFER_MAX);
         assert!(ring.iter().all(|&b| b == b'q'));
+    }
+
+    #[test]
+    fn offset_accounting_across_appends() {
+        let mut buf = SessionBuffer::new();
+        assert_eq!(buf.append(b"hello"), 0);
+        assert_eq!(buf.append(b" world"), 5);
+        assert_eq!(buf.append(b""), 11);
+        assert_eq!(buf.append(b"!"), 11);
+        assert_eq!(buf.total_offset, 12);
+        let out: Vec<u8> = buf.ring.iter().copied().collect();
+        assert_eq!(&out, b"hello world!");
+    }
+
+    #[test]
+    fn offset_keeps_counting_past_ring_trim() {
+        let mut buf = SessionBuffer::new();
+        let big = vec![b'a'; RING_BUFFER_MAX];
+        assert_eq!(buf.append(&big), 0);
+        // This append trims the ring's front, but offsets are cumulative:
+        // they count bytes ever produced, not bytes retained.
+        assert_eq!(buf.append(b"XYZ"), RING_BUFFER_MAX as u64);
+        assert_eq!(buf.total_offset, RING_BUFFER_MAX as u64 + 3);
+        assert_eq!(buf.ring.len(), RING_BUFFER_MAX);
+
+        // Oversized single write: ring keeps only the tail; offset counts it all.
+        let huge = vec![b'q'; RING_BUFFER_MAX + 5000];
+        let start = buf.append(&huge);
+        assert_eq!(start, RING_BUFFER_MAX as u64 + 3);
+        assert_eq!(buf.total_offset, start + huge.len() as u64);
+        assert_eq!(buf.ring.len(), RING_BUFFER_MAX);
+    }
+
+    #[test]
+    fn attach_end_offset_matches_snapshot_even_after_trim() {
+        let mut buf = SessionBuffer::new();
+        let big = vec![b'z'; RING_BUFFER_MAX + 100];
+        buf.append(&big);
+        buf.append(b"tail");
+        // What pty_session_attach snapshots under the lock:
+        let snapshot: Vec<u8> = buf.ring.iter().copied().collect();
+        let end_offset = buf.total_offset;
+        assert_eq!(end_offset, big.len() as u64 + 4);
+        assert_eq!(snapshot.len(), RING_BUFFER_MAX);
+        // The snapshot always covers exactly the bytes with offsets in
+        // [end_offset - snapshot.len(), end_offset) — the math holds even
+        // though the ring dropped older bytes.
+        assert!(snapshot.len() as u64 <= end_offset);
+        assert_eq!(&snapshot[snapshot.len() - 4..], b"tail");
+    }
+
+    #[test]
+    fn snapshot_end_offset_never_straddles_a_chunk() {
+        // Simulate the reader thread appending chunks while attaches take
+        // snapshots at every possible interleaving point. Since append and
+        // snapshot both run under the buffer mutex, the only observable
+        // end_offsets are the total_offset values between appends — assert
+        // none of them falls strictly inside any chunk's [start, start+len).
+        let chunks: [&[u8]; 4] = [b"first", b"", b"second-chunk", b"x"];
+        let mut buf = SessionBuffer::new();
+        let mut chunk_ranges: Vec<(u64, u64)> = Vec::new();
+        let mut snapshot_points = vec![buf.total_offset];
+        for chunk in chunks {
+            let start = buf.append(chunk);
+            chunk_ranges.push((start, start + chunk.len() as u64));
+            snapshot_points.push(buf.total_offset);
+        }
+        for &end_offset in &snapshot_points {
+            for &(start, end) in &chunk_ranges {
+                let straddles = end_offset > start && end_offset < end;
+                assert!(
+                    !straddles,
+                    "end_offset {end_offset} straddles chunk [{start}, {end})"
+                );
+                // The frontend's filter is total: each chunk is either fully
+                // covered by the snapshot or fully after it.
+                assert!(end <= end_offset || start >= end_offset);
+            }
+        }
+    }
+
+    #[test]
+    fn clamp_pty_size_floors_zero_and_one() {
+        assert_eq!(clamp_pty_size(0, 0), (2, 2));
+        assert_eq!(clamp_pty_size(1, 0), (2, 2));
+        assert_eq!(clamp_pty_size(0, 120), (2, 120));
+        assert_eq!(clamp_pty_size(24, 1), (24, 2));
+        assert_eq!(clamp_pty_size(24, 80), (24, 80));
+        assert_eq!(clamp_pty_size(u16::MAX, u16::MAX), (u16::MAX, u16::MAX));
+    }
+
+    #[test]
+    fn env_has_key_is_case_insensitive() {
+        let mut env = BTreeMap::new();
+        env.insert("SYSTEMROOT".to_string(), "C:\\Windows".to_string());
+        assert!(env_has_key(&env, "SystemRoot"));
+        assert!(env_has_key(&env, "systemroot"));
+        assert!(!env_has_key(&env, "COMSPEC"));
     }
 }

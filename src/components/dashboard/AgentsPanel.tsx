@@ -39,6 +39,8 @@ import { Spinner } from '../primitives/Spinner';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useWorkspaceConnect } from '../../hooks/useWorkspaceConnect';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { extractTerminalError } from '../../lib/terminalDiagnostics';
 import {
   CheckIcon,
   ClaudeIcon,
@@ -292,7 +294,10 @@ export function AgentsPanel() {
       setAgents(data);
     } catch (err) {
       logger.warn('Failed to load agent status');
-      showToastRef.current(`Failed to load agents: ${String(err)}`, 'error');
+      showToastRef.current(
+        `Failed to load agents: ${formatCommandError(asCommandError(err))}`,
+        'error'
+      );
     } finally {
       setLoading(false);
     }
@@ -397,7 +402,7 @@ export function AgentsPanel() {
         // the new default without intermediate states.
         setAgents((current) => current.map((a) => ({ ...a, isDefault: a.id === agentId })));
       } catch (err) {
-        showToast(`Failed to set default: ${String(err)}`, 'error');
+        showToast(`Failed to set default: ${formatCommandError(asCommandError(err))}`, 'error');
       } finally {
         setBusy(null);
       }
@@ -421,7 +426,7 @@ export function AgentsPanel() {
         showToast(`Signed out of ${agent.displayName}`, 'success');
         await refresh();
       } catch (err) {
-        showToast(`Sign out failed: ${String(err)}`, 'error');
+        showToast(`Sign out failed: ${formatCommandError(asCommandError(err))}`, 'error');
       } finally {
         setBusy(null);
       }
@@ -462,7 +467,7 @@ export function AgentsPanel() {
         showToast(`Uninstalled ${displayName}`, 'success');
         await refresh();
       } catch (err) {
-        showToast(`Uninstall failed: ${String(err)}`, 'error');
+        showToast(`Uninstall failed: ${formatCommandError(asCommandError(err))}`, 'error');
       } finally {
         setBusy(null);
       }
@@ -494,7 +499,7 @@ export function AgentsPanel() {
   }, [openTerminal]);
 
   const handleTerminalExit = useCallback(
-    (exitCode: number | null) => {
+    (exitCode: number | null, outputTail = '') => {
       setTerminalTask(null);
       // Auth/install files (and newly-installed binaries) can land a beat after
       // the child process exits. Refresh immediately and then retry a few times
@@ -502,7 +507,10 @@ export function AgentsPanel() {
       void refresh();
       [600, 1500, 3000].forEach((delay) => setTimeout(() => void refresh(), delay));
       if (exitCode !== null && exitCode !== 0) {
-        logger.info('Agent terminal exited with non-zero code', { exitCode });
+        logger.info('Agent terminal exited with non-zero code', {
+          exitCode,
+          error: extractTerminalError(outputTail) ?? undefined,
+        });
       }
     },
     [refresh]

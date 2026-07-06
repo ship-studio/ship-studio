@@ -44,6 +44,7 @@ import {
 import { initDefaultAgent } from '../../lib/agent';
 import { checkGitHubCliStatus } from '../../lib/github';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { extractTerminalError, isNodeMissingError } from '../../lib/terminalDiagnostics';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { SlackIcon } from '../icons';
 
@@ -202,7 +203,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
   // Handle terminal exit - process exit codes and check auth status
   const handleTerminalExit = useCallback(
-    async (exitCode: number | null) => {
+    async (exitCode: number | null, outputTail = '') => {
       const itemId = terminalConfig?.itemId;
       if (!itemId) return;
 
@@ -238,11 +239,22 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       } else {
         setTerminalExitCode(exitCode);
 
-        let errorMessage = 'Command failed. Click to try again.';
+        // Surface the actual failure from the terminal output instead of a
+        // generic message (issue #164 — installs failed with zero diagnostics).
+        const extractedError = extractTerminalError(outputTail);
+        let errorMessage = extractedError ?? 'Command failed. Click to try again.';
         if (itemId === 'homebrew') {
           errorMessage =
             'Installation failed. Your macOS account may need administrator privileges.';
+        } else if (isNodeMissingError(outputTail)) {
+          errorMessage =
+            "Node.js/npm wasn't found. Complete the Node.js step first, or restart Ship Studio if you just installed it.";
         }
+        void trackEvent('setup_action_failed', {
+          item_id: itemId,
+          exit_code: exitCode,
+          error_excerpt: extractedError ?? undefined,
+        });
         updateItemStatus(itemId, {
           status: 'error',
           errorMessage,
@@ -649,7 +661,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
               <OnboardingTerminal
                 command={terminalConfig.command}
                 args={terminalConfig.args}
-                onExit={(exitCode) => void handleTerminalExit(exitCode)}
+                onExit={(exitCode, outputTail) => void handleTerminalExit(exitCode, outputTail)}
               />
               <div className="onboarding-terminal-hint">
                 <strong>If you're asked for a password</strong>, type it and press Enter. It stays

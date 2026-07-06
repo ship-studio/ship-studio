@@ -13,6 +13,7 @@ import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { WarningIcon } from '../icons';
 import { trackEvent, trackError } from '../../lib/analytics';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { installVersion } from '../../lib/updater';
 import { Button } from '../primitives/Button';
 
@@ -637,7 +638,7 @@ export function Changelog({ className = '' }: ChangelogProps) {
     } catch (err: unknown) {
       trackError('version_rewind', err, 'Dashboard');
       setRewindStage('error');
-      setRewindError(err instanceof Error ? err.message : String(err));
+      setRewindError(formatCommandError(asCommandError(err)));
     }
   }, [rewindVersion]);
 

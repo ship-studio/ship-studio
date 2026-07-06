@@ -38,6 +38,7 @@ import {
 } from '../lib/edit';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 interface Params {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
@@ -151,7 +152,7 @@ export function useTextEditing({ iframeRef, projectPath, enabled, onToast }: Par
             onToast?.('Saved to source', 'success');
           } catch (err) {
             logger.error('[TextEditing] text write-back failed', { error: String(err) });
-            onToast?.(String(err), 'error');
+            onToast?.(formatCommandError(asCommandError(err)), 'error');
             // Couldn't save — put the original text back in the preview.
             post({ type: 'ss:textRevert' });
           }

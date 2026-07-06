@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 export interface UseAsyncStateReturn<T, Args extends unknown[]> {
   data: T | null;
@@ -72,14 +73,10 @@ export function useAsyncState<T, Args extends unknown[] = []>(
       }
       return result;
     } catch (e) {
-      const err =
-        e instanceof Error
-          ? e
-          : new Error(
-              typeof e === 'object' && e !== null && 'message' in e
-                ? String((e as { message: unknown }).message)
-                : String(e)
-            );
+      // A rejected Tauri command is a `CommandError` object, not an Error —
+      // route it through the formatter so variants without a `message` field
+      // (Process, Timeout, …) render properly instead of "[object Object]".
+      const err = e instanceof Error ? e : new Error(formatCommandError(asCommandError(e)));
       if (mountedRef.current) {
         setError(err);
         onErrorRef.current?.(err);

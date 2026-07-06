@@ -11,6 +11,7 @@ import { trackEvent } from '../../lib/analytics';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentBranch } from '../../lib/branches';
 import { detectProjectType } from '../../lib/static-server';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 const TICKET_TYPES = [
   { id: 'bug', icon: '🐛', label: 'Bug' },
@@ -124,7 +125,7 @@ export function NewTicketForm({
 
       onSuccess(conversation);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(formatCommandError(asCommandError(e)));
       setSubmitting(false);
     }
   };

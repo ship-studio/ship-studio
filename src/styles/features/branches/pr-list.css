@@ -91,6 +91,19 @@
   color: var(--text-muted);
 }
 
+/* Shown when the typed name gets sanitized (e.g. "adjust h2" → "adjust-h2") */
+.branches-new-branch-hint {
+  margin: calc(-1 * var(--spacing-sm)) 0 var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.branches-new-branch-hint-name {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
 .branches-new-branch-footer {
   display: flex;
   justify-content: space-between;

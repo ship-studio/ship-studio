@@ -30,6 +30,17 @@ struct Session {
 
 type PtyHandler = u32;
 
+/// Minimum PTY dimension. Windows ConPTY wedges (produces no output, or
+/// hangs the client) when created or resized at 0 rows/cols — which a
+/// caller can request when it spawns before its terminal widget has been
+/// measured. Clamp to a small sane floor; the real size follows via resize.
+const MIN_PTY_DIMENSION: u16 = 2;
+
+/// Clamp a requested PTY size to the minimum ConPTY tolerates.
+fn clamp_pty_size(rows: u16, cols: u16) -> (u16, u16) {
+    (rows.max(MIN_PTY_DIMENSION), cols.max(MIN_PTY_DIMENSION))
+}
+
 #[tauri::command]
 async fn spawn<R: Runtime>(
     file: String,
@@ -53,6 +64,7 @@ async fn spawn<R: Runtime>(
     let _ = flow_control_pause;
     let _ = flow_control_resume;
 
+    let (rows, cols) = clamp_pty_size(rows, cols);
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -152,6 +164,7 @@ async fn resize(
     rows: u16,
     state: tauri::State<'_, PluginState>,
 ) -> Result<(), String> {
+    let (rows, cols) = clamp_pty_size(rows, cols);
     let session = state
         .sessions
         .read()
@@ -219,6 +232,21 @@ async fn exitstatus(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Re
     })
     .await
     .map_err(|e: tokio::task::JoinError| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_pty_size;
+
+    #[test]
+    fn clamp_pty_size_floors_zero_and_one() {
+        assert_eq!(clamp_pty_size(0, 0), (2, 2));
+        assert_eq!(clamp_pty_size(1, 0), (2, 2));
+        assert_eq!(clamp_pty_size(0, 120), (2, 120));
+        assert_eq!(clamp_pty_size(24, 1), (24, 2));
+        assert_eq!(clamp_pty_size(24, 80), (24, 80));
+        assert_eq!(clamp_pty_size(u16::MAX, u16::MAX), (u16::MAX, u16::MAX));
+    }
 }
 
 /// Initializes the plugin.
