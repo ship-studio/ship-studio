@@ -17,9 +17,20 @@ import { getSystemEnv } from '../../lib/project';
 import { readDir, exists } from '@tauri-apps/plugin-fs';
 import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
+import { isPasteChord, readClipboardText } from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import '@xterm/xterm/css/xterm.css';
+
+/**
+ * Maximum characters of raw PTY output retained for exit diagnostics.
+ * Enough to hold the tail of an npm/installer failure without growing
+ * unboundedly during long-running commands.
+ */
+const OUTPUT_TAIL_MAX_CHARS = 8192;
+
+/** Decodes PTY byte chunks for the diagnostics tail (output may be binary). */
+const OUTPUT_DECODER = new TextDecoder();
 
 /** Props for the OnboardingTerminal component */
 interface OnboardingTerminalProps {
@@ -29,8 +40,12 @@ interface OnboardingTerminalProps {
   args: string[];
   /** Working directory (defaults to home) */
   cwd?: string;
-  /** Callback fired when the process exits */
-  onExit: (exitCode: number | null) => void;
+  /**
+   * Callback fired when the process exits. `outputTail` is the last
+   * ~{@link OUTPUT_TAIL_MAX_CHARS} characters of raw output so callers can
+   * surface the actual error on failure (see lib/terminalDiagnostics).
+   */
+  onExit: (exitCode: number | null, outputTail: string) => void;
 }
 
 export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTerminalProps) {
@@ -38,6 +53,8 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyRef = useRef<IPty | null>(null);
+  // Bounded tail of raw PTY output, handed to onExit for failure diagnostics.
+  const outputTailRef = useRef('');
   const [isReady, setIsReady] = useState(false);
 
   // Use ref for onExit to prevent effect re-runs when callback reference changes
@@ -182,6 +199,14 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             `${programFiles}\\GitHub CLI`,
             `${programFiles}\\Git\\cmd`,
             `${programFiles}\\nodejs`,
+            // Version-manager Node installs — volta/fnm/nvm-windows users may
+            // have no %ProgramFiles%\nodejs, and their shell-profile PATH edits
+            // are invisible to a GUI-launched app. Without these, npm-based
+            // installs fail with "'npm' is not recognized" (issue #164).
+            // Nonexistent dirs on PATH are harmless.
+            `${localAppData}\\Volta\\bin`,
+            `${localAppData}\\fnm`,
+            `${localAppData}\\Programs\\nodejs`,
           ];
 
           const systemPath = systemEnv['PATH'] || '';
@@ -268,11 +293,12 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         }
 
         ptyRef.current = pty;
+        outputTailRef.current = '';
 
         // First byte from this PTY cancels the startup watchdog below.
         let receivedOutput = false;
 
-        // Handle PTY output -> terminal
+        // Handle PTY output -> terminal, keeping a bounded tail for diagnostics
         const dataDisposable = pty.onData((data) => {
           if (!receivedOutput) {
             receivedOutput = true;
@@ -282,6 +308,12 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             }
           }
           terminalRef.current?.write(data);
+          const text = typeof data === 'string' ? data : OUTPUT_DECODER.decode(data);
+          const combined = outputTailRef.current + text;
+          outputTailRef.current =
+            combined.length > OUTPUT_TAIL_MAX_CHARS
+              ? combined.slice(-OUTPUT_TAIL_MAX_CHARS)
+              : combined;
         });
 
         // Handle PTY exit
@@ -290,7 +322,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             clearTimeout(startupTimer);
             startupTimer = null;
           }
-          onExitRef.current(exitCode);
+          onExitRef.current(exitCode, outputTailRef.current);
         });
 
         // Startup watchdog: a first PTY spawn can wedge and emit nothing
@@ -339,11 +371,10 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         term.focus();
       } catch (err) {
         logger.warn(`Failed to spawn ${command}`);
-        term.write(
-          `\x1b[31mError starting command: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
-        );
-        // Notify parent of failure
-        setTimeout(() => onExitRef.current(1), 1000);
+        const message = `Error starting command: ${formatCommandError(asCommandError(err))}`;
+        term.write(`\x1b[31m${message}\x1b[0m\r\n`);
+        // Notify parent of failure, passing the spawn error as the tail
+        setTimeout(() => onExitRef.current(1, message), 1000);
       }
     };
 
@@ -366,6 +397,38 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
           term.clearSelection();
           return false; // Prevent sending to PTY
         }
+      }
+      // Windows-only: Ctrl+V paste (auth codes) via the native clipboard.
+      // WebView2 gates keyboard-initiated textarea paste behind an async
+      // clipboard permission wait (~30s or never — issue #157). macOS is
+      // deliberately not intercepted (Cmd+V default paste works there).
+      if (isWindows() && isPasteChord(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        void (async () => {
+          try {
+            const text = await readClipboardText();
+            if (text) {
+              term.focus();
+              term.paste(text);
+            }
+          } catch (err) {
+            logger.warn('[OnboardingTerminal] Native clipboard paste failed', {
+              error: String(err),
+            });
+            // Best-effort fallback to the browser clipboard.
+            try {
+              const fallback = await navigator.clipboard.readText();
+              if (fallback) {
+                term.focus();
+                term.paste(fallback);
+              }
+            } catch {
+              // Never throw from a key handler.
+            }
+          }
+        })();
+        return false;
       }
       return true; // Allow all other keys
     });

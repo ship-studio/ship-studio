@@ -42,7 +42,7 @@ import {
   type WorkspacePick,
 } from '../import-project/steps/Step3WorkspacePicker';
 import { logger } from '../../lib/logger';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { asCommandError, formatCommandError, friendlyProcessError } from '../../lib/errors';
 import { Spinner } from '../primitives/Spinner';
 
 /** Props for the ImportProject component */
@@ -164,23 +164,6 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     });
   };
 
-  /** Map PTY exit codes to user-friendly error messages */
-  const getFriendlyError = (err: unknown): string => {
-    const msg = String(err);
-    const codeMatch = msg.match(/Process exited with code (\d+)/);
-    if (codeMatch) {
-      const code = parseInt(codeMatch[1]);
-      if (code === 243) {
-        return "npm couldn't access its cache directory (~/.npm). This usually happens when npm was previously run with sudo.\n\nTo fix, open a terminal and run:\nsudo chown -R $(whoami) ~/.npm";
-      }
-      if (code === 128) {
-        return "Git authentication failed. Make sure you're signed into GitHub.";
-      }
-    }
-    // Strip the "Error: " prefix that comes from Error.toString()
-    return msg.replace(/^Error:\s*/, '');
-  };
-
   /** Run package manager install via PTY, with a pre-check for permissions */
   const runPackageInstall = async (projectPath: string, packageManager: string) => {
     // Pre-check: verify npm cache is writable (relevant for npm/npx, and sometimes pnpm/yarn too)
@@ -224,7 +207,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       onComplete(importedProjectPath);
     } catch (err) {
       trackError('project_install_retry', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err));
     }
   };
 
@@ -250,7 +233,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       shipstudioDir = await ensureShipStudioDir();
     } catch (err) {
       trackError('project_import', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err));
       return;
     }
 
@@ -269,7 +252,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       }
     } catch (err) {
       trackError('project_import', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err));
       return;
     }
 
@@ -329,7 +312,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       await finishImport(projectPath);
     } catch (err) {
       trackError('project_import', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err));
     }
   };
 
@@ -358,7 +341,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       onComplete(projectPath);
     } catch (err) {
       trackError('project_import', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err));
     }
   };
 
@@ -371,7 +354,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       await setWorkspaceSubpath(importedProjectPath, subpath);
     } catch (err) {
       trackError('project_import_workspace_save', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err));
       return;
     }
     setAwaitingWorkspacePick(false);
