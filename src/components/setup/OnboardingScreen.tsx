@@ -44,6 +44,11 @@ import {
 import { initDefaultAgent } from '../../lib/agent';
 import { checkGitHubCliStatus } from '../../lib/github';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import {
+  detectAlreadyLoggedIn,
+  extractTerminalError,
+  isNodeMissingError,
+} from '../../lib/terminalDiagnostics';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { SlackIcon } from '../icons';
 
@@ -64,6 +69,42 @@ interface TerminalConfig {
   itemId: string;
   command: string;
   args: string[];
+}
+
+/** Friendly tool names for auth items, used in already-signed-in messages. */
+const AUTH_TOOL_LABELS: Record<string, string> = {
+  claude_auth: 'Claude',
+  codex_auth: 'Codex',
+  opencode_auth: 'Opencode',
+  gh_auth: 'GitHub',
+};
+
+/**
+ * Message for the "CLI insists it's already signed in, but our status check
+ * disagrees" case — e.g. a partial sign-out desynced `claude auth status`
+ * from the checklist (issue #159). A generic "authentication not completed"
+ * would be dishonest here; name the identity the CLI reported and point at
+ * the real fix instead.
+ */
+function alreadySignedInMessage(itemId: string, identity: string | null): string {
+  const tool = AUTH_TOOL_LABELS[itemId] ?? 'The CLI';
+  const who = identity ? ` as ${identity}` : '';
+  const fix =
+    itemId === 'gh_auth'
+      ? 'sign out by running `gh auth logout` in a terminal first'
+      : 'sign out from the Agents panel first';
+  return `${tool} reports you're already signed in${who} — if this looks wrong, ${fix}.`;
+}
+
+/**
+ * Honest error for an auth item whose post-terminal verification failed:
+ * prefer the already-signed-in special case, then whatever the terminal
+ * actually said, over the generic message.
+ */
+function authFailureMessage(itemId: string, outputTail: string): string {
+  const already = detectAlreadyLoggedIn(outputTail);
+  if (already) return alreadySignedInMessage(itemId, already.identity);
+  return extractTerminalError(outputTail) ?? 'Authentication not completed. Click to try again.';
 }
 
 interface OnboardingScreenProps {
@@ -202,7 +243,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
   // Handle terminal exit - process exit codes and check auth status
   const handleTerminalExit = useCallback(
-    async (exitCode: number | null) => {
+    async (exitCode: number | null, outputTail = '') => {
       const itemId = terminalConfig?.itemId;
       if (!itemId) return;
 
@@ -216,7 +257,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           if (!status.authenticated) {
             updateItemStatus(itemId, {
               status: 'error',
-              errorMessage: 'Authentication not completed. Click to try again.',
+              errorMessage: authFailureMessage(itemId, outputTail),
             });
             setActiveItemId(null);
             return;
@@ -226,7 +267,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           if (!isAuthed) {
             updateItemStatus(itemId, {
               status: 'error',
-              errorMessage: 'Authentication not completed. Click to try again.',
+              errorMessage: authFailureMessage(itemId, outputTail),
             });
             setActiveItemId(null);
             return;
@@ -238,11 +279,27 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       } else {
         setTerminalExitCode(exitCode);
 
-        let errorMessage = 'Command failed. Click to try again.';
+        // Surface the actual failure from the terminal output instead of a
+        // generic message (issue #164 — installs failed with zero diagnostics).
+        const extractedError = extractTerminalError(outputTail);
+        const alreadySignedIn = itemId.endsWith('_auth') ? detectAlreadyLoggedIn(outputTail) : null;
+        let errorMessage = extractedError ?? 'Command failed. Click to try again.';
         if (itemId === 'homebrew') {
           errorMessage =
             'Installation failed. Your macOS account may need administrator privileges.';
+        } else if (isNodeMissingError(outputTail)) {
+          errorMessage =
+            "Node.js/npm wasn't found. Complete the Node.js step first, or restart Ship Studio if you just installed it.";
+        } else if (alreadySignedIn) {
+          // Auth flow failed while the CLI insists it already has a login —
+          // surface the disagreement instead of a misleading command error.
+          errorMessage = alreadySignedInMessage(itemId, alreadySignedIn.identity);
         }
+        void trackEvent('setup_action_failed', {
+          item_id: itemId,
+          exit_code: exitCode,
+          error_excerpt: extractedError ?? undefined,
+        });
         updateItemStatus(itemId, {
           status: 'error',
           errorMessage,
@@ -649,7 +706,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
               <OnboardingTerminal
                 command={terminalConfig.command}
                 args={terminalConfig.args}
-                onExit={(exitCode) => void handleTerminalExit(exitCode)}
+                onExit={(exitCode, outputTail) => void handleTerminalExit(exitCode, outputTail)}
               />
               <div className="onboarding-terminal-hint">
                 <strong>If you're asked for a password</strong>, type it and press Enter. It stays

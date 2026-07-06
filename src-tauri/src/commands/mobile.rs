@@ -386,8 +386,8 @@ pub fn reap_orphaned_serve_sim() {
 // ============ Android (emulator + adb) ============
 
 /// Locate the Android SDK root: `$ANDROID_HOME`, then `$ANDROID_SDK_ROOT`, then the
-/// macOS default (`~/Library/Android/sdk`). `None` means Android tooling isn't
-/// installed — callers surface that as a clear "set up Android" error.
+/// per-OS Android Studio default. `None` means Android tooling isn't installed —
+/// callers surface that as a clear "set up Android" error.
 fn android_sdk_root() -> Option<std::path::PathBuf> {
     for var in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
         if let Ok(p) = std::env::var(var) {
@@ -397,7 +397,20 @@ fn android_sdk_root() -> Option<std::path::PathBuf> {
             }
         }
     }
-    let default = dirs::home_dir()?.join("Library/Android/sdk");
+    // Android Studio's default install location differs per OS. Without the
+    // Windows/Linux branches the SDK never resolved off macOS, so Android
+    // preview was never offered on Windows even with the SDK installed.
+    let home = dirs::home_dir()?;
+    let default = if cfg!(target_os = "windows") {
+        // %LOCALAPPDATA%\Android\Sdk
+        dirs::data_local_dir()
+            .unwrap_or_else(|| home.join("AppData/Local"))
+            .join("Android/Sdk")
+    } else if cfg!(target_os = "macos") {
+        home.join("Library/Android/sdk")
+    } else {
+        home.join("Android/Sdk")
+    };
     default.is_dir().then_some(default)
 }
 
@@ -692,6 +705,14 @@ async fn ios_simulator_available() -> bool {
 
 /// Whether this machine can actually preview iOS: the CLT AND a simulator to run on.
 async fn ios_tooling_available() -> bool {
+    // iOS preview depends on Xcode/`xcrun simctl`, which only exist on macOS.
+    // Short-circuit off macOS so we never spawn `xcode-select`/`xcrun` (they'd
+    // just fail and log noise). A runtime OS check (rather than `#[cfg]`) keeps
+    // the helper calls in the compiled source on every OS — no dead-code
+    // warnings on the Windows build.
+    if std::env::consts::OS != "macos" {
+        return false;
+    }
     xcode_clt_installed().await && ios_simulator_available().await
 }
 

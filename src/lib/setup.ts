@@ -43,6 +43,22 @@ export const isWindows = () => platform() === 'windows';
  *  depends on Xcode/simctl and hasn't been validated on Windows). */
 export const isMac = () => platform() === 'macos';
 
+/**
+ * The OS's file-manager name, for "Reveal in …" / "Open in …" labels. macOS
+ * calls it Finder, Windows calls it File Explorer, most Linux DEs call it Files.
+ * Keeps user-facing copy honest instead of saying "Finder" on every platform.
+ */
+export const fileManagerName = (): string => {
+  switch (platform()) {
+    case 'macos':
+      return 'Finder';
+    case 'windows':
+      return 'File Explorer';
+    default:
+      return 'Files';
+  }
+};
+
 /** Status of a single setup item */
 export type SetupItemStatus =
   | 'ready'
@@ -618,8 +634,10 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: [],
       },
       codex: {
+        // --force clears EEXIST failures from stale/partial global installs,
+        // which npm otherwise reports opaquely (issue #164).
         command: 'npm',
-        args: ['install', '-g', '@openai/codex'],
+        args: ['install', '-g', '@openai/codex', '--force'],
       },
       codex_auth: {
         command: 'codex',
@@ -628,8 +646,9 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
       opencode: {
         // No clean PowerShell one-liner installer exists for Windows; install
         // via npm (Node is set up in step 1, same as Codex below).
+        // --force clears EEXIST failures from stale/partial global installs.
         command: 'npm',
-        args: ['install', '-g', 'opencode-ai'],
+        args: ['install', '-g', 'opencode-ai', '--force'],
       },
       opencode_auth: {
         command: 'opencode',
@@ -646,8 +665,9 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: ['login'],
       },
       vercel: {
+        // --force clears EEXIST failures from stale/partial global installs.
         command: 'npm',
-        args: ['install', '-g', 'vercel'],
+        args: ['install', '-g', 'vercel', '--force'],
       },
       vercel_auth: {
         command: 'vercel',

@@ -46,10 +46,12 @@ echo "Components (.tsx limit 1200):"
 # account router from App.tsx remain on the roadmap as follow-ups. Bumped again
 # for the agent-restart wiring (restartTerminalTab threaded to each Terminal +
 # the Agent Settings menu item) — small, on top of the Workspaces baseline.
+# Bumped by a hair for the Windows-compat pass: platform-aware shortcut labels
+# (kbd() import + two undo/redo hint lines). TerminalPanes extraction still owed.
 # Bumped again (small) for plugin failure surfacing (#165): pluginFailures and
 # the hosting-plugin count threaded into PluginsDropdown, usePlugins onError
 # wired to showToast. Pure wiring; the logic lives in usePlugins/PluginsDropdown.
-check_file src/components/workspace/WorkspaceView.tsx 1610
+check_file src/components/workspace/WorkspaceView.tsx 1615
 check_file src/components/dashboard/ProjectList.tsx 900
 check_file src/components/plugins/PluginManager.tsx 700
 check_file src/components/dashboard/ImportProject.tsx 500

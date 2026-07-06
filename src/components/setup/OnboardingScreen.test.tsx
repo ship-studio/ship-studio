@@ -55,7 +55,7 @@ vi.mock('./OnboardingTerminal', () => ({
   }: {
     command: string;
     args: string[];
-    onExit: (code: number | null) => void;
+    onExit: (code: number | null, outputTail?: string) => void;
   }) => (
     <div data-testid="mock-terminal">
       <button data-testid="terminal-exit-0" onClick={() => onExit(0)}>
@@ -69,6 +69,41 @@ vi.mock('./OnboardingTerminal', () => ({
       </button>
       <button data-testid="terminal-exit-127" onClick={() => onExit(127)}>
         Exit 127
+      </button>
+      <button
+        data-testid="terminal-exit-1-npm-err"
+        onClick={() => onExit(1, 'npm ERR! code EEXIST\nnpm ERR! EEXIST: file already exists\n')}
+      >
+        Exit 1 (npm ERR!)
+      </button>
+      <button
+        data-testid="terminal-exit-1-npm-missing"
+        onClick={() =>
+          onExit(
+            1,
+            "'npm' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+          )
+        }
+      >
+        Exit 1 (npm missing)
+      </button>
+      <button
+        data-testid="terminal-exit-0-already-logged-in"
+        onClick={() => onExit(0, 'Already logged in as julian@example.com\n')}
+      >
+        Exit 0 (already logged in)
+      </button>
+      <button
+        data-testid="terminal-exit-0-auth-error"
+        onClick={() => onExit(0, 'Error: OAuth token exchange failed\n')}
+      >
+        Exit 0 (auth error in tail)
+      </button>
+      <button
+        data-testid="terminal-exit-1-gh-already-logged-in"
+        onClick={() => onExit(1, '✓ Logged in to github.com account juliangalluzzo (keyring)\n')}
+      >
+        Exit 1 (gh already logged in)
       </button>
     </div>
   ),
@@ -338,6 +373,74 @@ describe('OnboardingScreen', () => {
 
     expect(screen.getByText('Close')).toBeInTheDocument();
     expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+  });
+
+  it('terminal failure surfaces the extracted error from the output tail', async () => {
+    // Step 3: installButtons[0] is Claude (a terminal item without a
+    // special-cased error message, unlike homebrew on step 1)
+    mockInvoke('get_full_setup_status', HAS_BASE_NO_AGENTS_STATUS);
+
+    render(<OnboardingScreen onComplete={onComplete} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+    });
+
+    const installButtons = screen.getAllByText('Install');
+    act(() => {
+      fireEvent.click(installButtons[0]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('terminal-exit-1-npm-err'));
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByText('Close'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('npm ERR! EEXIST: file already exists')).toBeInTheDocument();
+    });
+  });
+
+  it('terminal failure with npm-not-recognized shows the actionable Node.js message', async () => {
+    mockInvoke('get_full_setup_status', HAS_BASE_NO_AGENTS_STATUS);
+
+    render(<OnboardingScreen onComplete={onComplete} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+    });
+
+    const installButtons = screen.getAllByText('Install');
+    act(() => {
+      fireEvent.click(installButtons[0]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('terminal-exit-1-npm-missing'));
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByText('Close'));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Node.js/npm wasn't found. Complete the Node.js step first, or restart Ship Studio if you just installed it."
+        )
+      ).toBeInTheDocument();
+    });
   });
 
   it('terminal cancel closes terminal', async () => {
@@ -1260,6 +1363,135 @@ describe('OnboardingScreen', () => {
       await waitFor(() => {
         expect(
           screen.getByText('Authentication not completed. Click to try again.')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('claude_auth failure surfaces the extracted error from the output tail', async () => {
+      // Verification fails AND the tail names the real cause — show the cause,
+      // not the generic "Authentication not completed" (issue #159).
+      const items = HAS_BASE_NO_AGENTS_ITEMS.map((i) => {
+        if (i.id === 'claude') return { ...i, status: 'ready' as const, version: '1.0.0' };
+        return i;
+      });
+      const status = makeSetupStatus({
+        items,
+        optionalAuths: { githubAuthenticated: true },
+        detectedAgents: [],
+      });
+      mockInvoke('get_full_setup_status', status);
+      mockInvoke('check_claude_auth_status', false);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Connect')[0]);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-0-auth-error'));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Error: OAuth token exchange failed')).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByText('Authentication not completed. Click to try again.')
+      ).not.toBeInTheDocument();
+    });
+
+    it('claude_auth failure when the CLI says already-logged-in names the identity', async () => {
+      // The #159 desync: the CLI insists it has a login, but the status check
+      // disagrees. Tell the user what the CLI reported and where to fix it.
+      const items = HAS_BASE_NO_AGENTS_ITEMS.map((i) => {
+        if (i.id === 'claude') return { ...i, status: 'ready' as const, version: '1.0.0' };
+        return i;
+      });
+      const status = makeSetupStatus({
+        items,
+        optionalAuths: { githubAuthenticated: true },
+        detectedAgents: [],
+      });
+      mockInvoke('get_full_setup_status', status);
+      mockInvoke('check_claude_auth_status', false);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Connect')[0]);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-0-already-logged-in'));
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            "Claude reports you're already signed in as julian@example.com — if this looks wrong, sign out from the Agents panel first."
+          )
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('gh_auth nonzero exit with already-logged-in tail names the gh identity', async () => {
+      const items = STEP1_COMPLETE_ITEMS.map((i) => {
+        if (i.id === 'git') return { ...i, status: 'ready' as const, version: '2.43.0' };
+        if (i.id === 'gh') return { ...i, status: 'ready' as const, version: '2.40.0' };
+        return i;
+      });
+      const status = makeSetupStatus({ items, detectedAgents: [] });
+      mockInvoke('get_full_setup_status', status);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Save your work safely and publish it online. Required.')
+        ).toBeInTheDocument();
+      });
+
+      // Pre-check: not authenticated → terminal opens
+      mockCheckGitHubCliStatus.mockResolvedValueOnce({ installed: true, authenticated: false });
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Connect')[0]);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      });
+
+      // gh exits nonzero while insisting a login already exists
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-1-gh-already-logged-in'));
+      });
+
+      act(() => {
+        fireEvent.click(screen.getByText('Close'));
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            "GitHub reports you're already signed in as juliangalluzzo — if this looks wrong, sign out by running `gh auth logout` in a terminal first."
+          )
         ).toBeInTheDocument();
       });
     });

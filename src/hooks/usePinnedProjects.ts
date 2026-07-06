@@ -35,6 +35,7 @@ import {
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getProjectId } from '../lib/projectIdentity';
+import { basename } from '../lib/paths';
 
 /** A pinned project as the rail wants to render it. */
 export interface PinnedProjectRow {
@@ -156,7 +157,7 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
       setPinnedPaths(updated);
       void trackEvent('project_pinned', {
         project_id: getProjectId(projectPath),
-        project_name: projectPath.split('/').pop() ?? projectPath,
+        project_name: basename(projectPath),
         pin_count: updated.length,
       });
     } catch (err) {
@@ -174,7 +175,7 @@ export function usePinnedProjects(currentProjectPath: string | null): UsePinnedP
       setPinnedPaths(updated);
       void trackEvent('project_unpinned', {
         project_id: getProjectId(projectPath),
-        project_name: projectPath.split('/').pop() ?? projectPath,
+        project_name: basename(projectPath),
         pin_count: updated.length,
       });
     } catch (err) {

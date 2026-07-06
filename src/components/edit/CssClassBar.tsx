@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { CSS_BREAKPOINTS } from '../../lib/cssControls';
 
 /** Breakpoint switcher — picks which `@media (min-width)` layer edits target. */
@@ -69,17 +70,12 @@ function ClassCombobox({
     .slice(0, 50);
   const canCreate = q !== '' && !allClasses.includes(q) && !taken.has(q);
 
+  // The combobox is only mounted while open, so `open` is simply `true` here.
+  useDismissOnOutsidePointer(true, popRef, onClose);
   useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      if (!popRef.current?.contains(e.target as Node)) onClose();
-    };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   const left = Math.min(anchor.left, window.innerWidth - 240);

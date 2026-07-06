@@ -4,7 +4,7 @@
 //! Provides a read-only file browser that respects .gitignore.
 
 use crate::errors::CommandError;
-use crate::utils::validate_project_path;
+use crate::utils::{normalize_separators, validate_project_path};
 use ignore::WalkBuilder;
 use serde::Serialize;
 use std::path::Path;
@@ -94,7 +94,12 @@ pub fn list_project_files(project_path: &str) -> Result<Vec<FileEntry>, CommandE
             Err(_) => continue,
         };
 
-        let relative_str = relative.to_string_lossy().to_string();
+        // Emit forward slashes on every OS. On Windows `to_string_lossy()` yields
+        // backslash separators (`src\App.tsx`), but the frontend's tree builder
+        // and every path consumer split on `/`. Normalizing here keeps one path
+        // shape across platforms; Windows path joins accept `/` on the way back,
+        // so reads/saves still resolve. No-op on macOS/Linux.
+        let relative_str = normalize_separators(&relative.to_string_lossy());
 
         // Skip entries in always-skipped directories
         if should_skip_path(relative) {
