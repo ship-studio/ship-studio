@@ -250,6 +250,10 @@ export function HelpModal({ projectPath }: HelpModalProps) {
                 Status dot shows Claude state: thinking, waiting, or idle
               </div>
               <div className="help-tip">Use numbered tabs to run multiple Claude sessions</div>
+              <div className="help-tip">
+                Blank preview but the site works in your browser? Auth middleware (e.g. Clerk dev
+                keys) can redirect-loop inside the embedded preview — scope it to protected routes
+              </div>
             </div>
           </div>
 

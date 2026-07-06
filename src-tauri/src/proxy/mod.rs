@@ -31,7 +31,13 @@ const MAX_BODY_SIZE: usize = 50 * 1024 * 1024;
 /// Script injected into HTML responses to report navigation events to the parent window.
 /// Monkey-patches history.pushState/replaceState and listens for popstate to catch all
 /// client-side navigation in frameworks like Next.js, React Router, etc.
-const NAV_SCRIPT: &str = r#"<script>(function(){var n=function(){window.parent.postMessage({type:'shipstudio:navigate',pathname:location.pathname},'*')};var p=history.pushState;var r=history.replaceState;history.pushState=function(){p.apply(this,arguments);n()};history.replaceState=function(){r.apply(this,arguments);n()};window.addEventListener('popstate',n);n()})()</script>"#;
+///
+/// Also posts `shipstudio:alive` unconditionally on parse — the parent's blank-pane
+/// watchdog treats it as proof the iframe actually rendered an injected document.
+/// A subframe load that WebKit aborts (e.g. an auth redirect loop, issue #179)
+/// renders empty and never runs this script, so the watchdog fires and the app
+/// can surface the failure instead of showing a silent blank pane.
+const NAV_SCRIPT: &str = r#"<script>(function(){window.parent.postMessage({type:'shipstudio:alive'},'*');var n=function(){window.parent.postMessage({type:'shipstudio:navigate',pathname:location.pathname},'*')};var p=history.pushState;var r=history.replaceState;history.pushState=function(){p.apply(this,arguments);n()};history.replaceState=function(){r.apply(this,arguments);n()};window.addEventListener('popstate',n);n()})()</script>"#;
 
 /// Visual-editor selection layer, injected into every preview HTML response but
 /// **inert until** the parent posts `ss:activate`. When active it outlines the
@@ -131,6 +137,60 @@ fn sanitize_csp_for_preview(
         return None;
     }
     hyper::header::HeaderValue::from_str(&kept.join("; ")).ok()
+}
+
+/// Host of an absolute URL (lowercased, port and userinfo stripped).
+/// Returns `None` for relative locations (`/en`, `foo/bar`) — those never
+/// leave the proxy, so they're not candidates for loop interception.
+fn absolute_url_host(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .or_else(|| url.strip_prefix("//"))?;
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    let host = host.split(':').next().unwrap_or(host);
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_ascii_lowercase())
+    }
+}
+
+/// Detect a redirect that would trap the preview iframe in an auth-handshake
+/// loop (issue #179). Clerk development instances bounce the first navigation
+/// through `<slug>.clerk.accounts.dev` to set a handshake cookie; the preview
+/// loads the site as a cross-site iframe, WebKit refuses the third-party
+/// cookie, and the middleware redirects until WebKit aborts with "too many
+/// HTTP redirects" — an empty subframe and a blank pane.
+///
+/// Matches only when the response is a redirection AND either:
+/// - the `Location` host is a Clerk dev-instance host (`*.clerk.accounts.dev`), or
+/// - the location / request URI carries Clerk's `__clerk_handshake` param
+///   (the bounce-back leg of the same loop — the handshake cookie can never
+///   be accepted inside the embedded preview, so this leg always re-loops).
+///
+/// Ordinary redirects pass through untouched: relative locations (trailing
+/// slash, locale redirects) have no host, and external non-Clerk hosts don't
+/// match either arm.
+fn is_auth_redirect_loop(status: StatusCode, location: Option<&str>, request_uri: &str) -> bool {
+    if !status.is_redirection() {
+        return false;
+    }
+    if request_uri.contains("__clerk_handshake") {
+        return true;
+    }
+    let Some(location) = location else {
+        return false;
+    };
+    if location.contains("__clerk_handshake") {
+        return true;
+    }
+    match absolute_url_host(location) {
+        Some(host) => host == "clerk.accounts.dev" || host.ends_with(".clerk.accounts.dev"),
+        None => false,
+    }
 }
 
 /// A running proxy instance.
@@ -310,6 +370,7 @@ async fn proxy_http_request(
     // Build forwarded request - strip Accept-Encoding to avoid gzip for HTML,
     // and rewrite Host header to target port so dev servers don't reject it.
     let (parts, body) = req.into_parts();
+    let request_uri = parts.uri.to_string();
     let mut builder = Request::builder()
         .method(parts.method)
         .uri(parts.uri.clone())
@@ -332,6 +393,35 @@ async fn proxy_http_request(
 
     // Send request and get response
     let resp = sender.send_request(forwarded_req).await?;
+
+    // Intercept auth-handshake redirect loops before they leave the proxy.
+    // Forwarding the redirect would bounce the iframe through a third-party
+    // auth host until WebKit aborts and renders an empty subframe (issue
+    // #179) — instead, synthesize a 200 interstitial that names the cause.
+    if resp.status().is_redirection() {
+        let location = resp
+            .headers()
+            .get(hyper::header::LOCATION)
+            .and_then(|v| v.to_str().ok());
+        if is_auth_redirect_loop(resp.status(), location, &request_uri) {
+            let reason = format!(
+                "HTTP {} redirect to {} (requested {})",
+                resp.status().as_u16(),
+                location.unwrap_or("(no Location header)"),
+                request_uri
+            );
+            tracing::warn!(
+                "[Proxy] Auth redirect loop intercepted, serving interstitial: {}",
+                reason
+            );
+            let page = build_auth_redirect_interstitial(resp.status().as_u16(), &reason);
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(hyper::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                .header(hyper::header::CACHE_CONTROL, "no-store")
+                .body(full_body(Bytes::from(page)))?);
+        }
+    }
 
     // Check if response is HTML (needs injection)
     let is_html = resp
@@ -567,8 +657,9 @@ async fn handle_websocket_upgrade(
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_csp_for_preview;
+    use super::{is_auth_redirect_loop, sanitize_csp_for_preview};
     use hyper::header::HeaderValue;
+    use hyper::StatusCode;
 
     #[test]
     fn csp_without_stripped_directives_passes_through() {
@@ -626,5 +717,96 @@ mod tests {
             sanitize_csp_for_preview(&v).unwrap(),
             HeaderValue::from_static("default-src 'self'; img-src *")
         );
+    }
+
+    // ── is_auth_redirect_loop (issue #179) ──────────────────────────────────
+
+    #[test]
+    fn redirect_to_clerk_dev_host_is_a_loop() {
+        // Clerk dev instances bounce the first navigation through
+        // <slug>.clerk.accounts.dev — the exact shape from the bug report.
+        assert!(is_auth_redirect_loop(
+            StatusCode::TEMPORARY_REDIRECT,
+            Some("https://foo-bar-42.clerk.accounts.dev/v1/client/handshake?redirect_url=http%3A%2F%2Flocalhost%3A3000%2F"),
+            "/",
+        ));
+        // Bare apex host counts too.
+        assert!(is_auth_redirect_loop(
+            StatusCode::FOUND,
+            Some("https://clerk.accounts.dev/v1/handshake"),
+            "/",
+        ));
+    }
+
+    #[test]
+    fn handshake_param_in_location_is_a_loop() {
+        // The bounce-back leg: a local redirect carrying the handshake token.
+        assert!(is_auth_redirect_loop(
+            StatusCode::TEMPORARY_REDIRECT,
+            Some("/?__clerk_handshake=eyJhbGciOiJSUzI1NiJ9"),
+            "/",
+        ));
+    }
+
+    #[test]
+    fn handshake_param_on_request_uri_is_a_loop() {
+        // The iframe already carries the handshake param and the middleware
+        // redirects again — the cookie was refused, so this always re-loops.
+        assert!(is_auth_redirect_loop(
+            StatusCode::TEMPORARY_REDIRECT,
+            Some("/dashboard"),
+            "/?__clerk_handshake=eyJhbGciOiJSUzI1NiJ9&_cb=123",
+        ));
+    }
+
+    #[test]
+    fn ordinary_local_redirects_pass_through() {
+        // Next.js trailing-slash normalization.
+        assert!(!is_auth_redirect_loop(
+            StatusCode::PERMANENT_REDIRECT,
+            Some("/docs"),
+            "/docs/",
+        ));
+        // Locale redirect.
+        assert!(!is_auth_redirect_loop(StatusCode::FOUND, Some("/en"), "/",));
+    }
+
+    #[test]
+    fn external_non_clerk_redirect_passes_through() {
+        assert!(!is_auth_redirect_loop(
+            StatusCode::FOUND,
+            Some("https://accounts.google.com/o/oauth2/v2/auth?client_id=x"),
+            "/login",
+        ));
+    }
+
+    #[test]
+    fn non_redirect_status_never_matches() {
+        assert!(!is_auth_redirect_loop(
+            StatusCode::OK,
+            Some("https://foo.clerk.accounts.dev/v1/handshake"),
+            "/",
+        ));
+    }
+
+    #[test]
+    fn clerk_lookalikes_do_not_match() {
+        // A relative path that merely contains the host string is not external.
+        assert!(!is_auth_redirect_loop(
+            StatusCode::FOUND,
+            Some("/foo.clerk.accounts.dev"),
+            "/",
+        ));
+        // A suffix-lookalike host must not match the `ends_with` check.
+        assert!(!is_auth_redirect_loop(
+            StatusCode::FOUND,
+            Some("https://evilclerk.accounts.dev.example.com/"),
+            "/",
+        ));
+    }
+
+    #[test]
+    fn missing_location_header_is_not_a_loop() {
+        assert!(!is_auth_redirect_loop(StatusCode::FOUND, None, "/"));
     }
 }

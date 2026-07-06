@@ -85,7 +85,7 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | `screenshot_captured` | `mode` (`viewport`/`fullpage`), `success`, `fell_back` |
 | `preview_refreshed` | `trigger: 'user'` |
 | `preview_page_selected` | `route_pattern` (id segments → `:id`, capped 200), `depth` |
-| `preview_fix_with_agent` | `has_logs`, `is_static` |
+| `preview_fix_with_agent` | `has_logs`, `is_static`, `reason` (`server-down`/`blank-iframe`) |
 | `logs_sent_to_agent` | `source` (`full_buffer`/`selection`), `char_count`, `line_count`, `had_question` |
 | `browser_tools_subtab_switched` | `from_tab`, `to_tab` |
 | `browser_tools_cleared` | `tab` |
