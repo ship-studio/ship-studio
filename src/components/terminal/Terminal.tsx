@@ -21,7 +21,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import {
   openPtySession,
   attachPtySession,
-  writePtySession,
+  writePtySessionLogged,
   resizePtySession,
   killPtySession,
   onPtySessionData,
@@ -47,6 +47,7 @@ import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { isPointInRect, physicalToLogical } from '../../lib/dropTarget';
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { decideStartupTimeoutAction } from './startupWatchdog';
 import type { AgentConfig } from '../../lib/agent';
@@ -178,7 +179,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     if (!isActive || !isReady) return;
     const writer = (data: string) => {
       const sid = ptyRef.current?.sessionId;
-      if (sid) void writePtySession(sid, data);
+      if (sid) writePtySessionLogged(sid, data);
     };
     registerAgent(writer);
     return () => unregisterAgent(writer);
@@ -310,10 +311,29 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     let mounted = true;
 
     const setupDropListener = async () => {
-      // Listen for the tauri://drag-drop event
+      // Listen for the tauri://drag-drop event. It's window-global and every
+      // mounted Terminal registers one — including hidden tabs and background
+      // projects (kept mounted with `visibility: hidden` so their PTYs stay
+      // alive, see WorkspaceView) — so route the drop by position: only the
+      // visible pane under the cursor accepts it. Without this, one drop
+      // pastes the path into every open agent's PTY (issue #167).
       const unlistenFn = await listen<{ paths: string[]; position: { x: number; y: number } }>(
         'tauri://drag-drop',
         (event) => {
+          const container = containerRef.current;
+          // offsetParent is null for display:none subtrees; their rects are
+          // zero/stale and must never match.
+          if (!container || container.offsetParent === null) return;
+          // Hidden-but-mounted panes are absolutely positioned with
+          // `visibility: hidden`, so their rects still overlap the visible
+          // pane — computed visibility is the discriminator.
+          if (getComputedStyle(container).visibility !== 'visible') return;
+          // The payload position is in physical (device) pixels; DOM rects
+          // are logical CSS pixels — convert before hit-testing. In a split,
+          // this naturally routes the drop to the pane under the cursor.
+          const point = physicalToLogical(event.payload.position, window.devicePixelRatio);
+          if (!isPointInRect(point, container.getBoundingClientRect())) return;
+
           // Debounce - ignore duplicate events within 500ms
           const now = Date.now();
           if (now - lastDropTimeRef.current < 500) {
@@ -937,7 +957,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             return;
           }
           const sid = ptyRef.current?.sessionId;
-          if (sid) void writePtySession(sid, data);
+          if (sid) writePtySessionLogged(sid, data);
           // When user sends input to an agent without title-based status detection,
           // assume it transitions to "thinking" (processing the request).
           if (!agent.supportsStatusDetection && data.includes('\r')) {
@@ -970,7 +990,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
               // Send a literal newline character (Ctrl+J / Line Feed)
               // This tells Claude Code to continue on a new line without submitting
               const sid = ptyRef.current?.sessionId;
-              if (sid) void writePtySession(sid, '\n');
+              if (sid) writePtySessionLogged(sid, '\n');
             }
             // Prevent both keydown and keypress from being processed
             event.preventDefault();
@@ -1085,7 +1105,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       },
       write: (data: string) => {
         const sid = ptyRef.current?.sessionId;
-        if (sid) void writePtySession(sid, data);
+        if (sid) writePtySessionLogged(sid, data);
       },
       paste: (data: string) => {
         if (terminalRef.current) {
