@@ -370,12 +370,15 @@ function AppContents({ initialProjectPath }: AppProps) {
     showToast,
   });
 
-  // Plugin system
+  // Plugin system — lifecycle-hook failures (onActivate/onDeactivate) toast via onError
   const {
     plugins: loadedPlugins,
+    failures: pluginFailures,
     getSlotPlugins,
     reloadPlugins,
-  } = usePlugins(currentProject?.path ?? null);
+  } = usePlugins(currentProject?.path ?? null, {
+    onError: (name, msg) => showToast(`Plugin "${name}": ${msg}`, 'error'),
+  });
 
   // Project lifecycle (selection, creation, import, publish, compact mode, etc.)
   const {
@@ -937,10 +940,11 @@ function AppContents({ initialProjectPath }: AppProps) {
   const pluginsProps = useMemo(
     () => ({
       loadedPlugins,
+      pluginFailures,
       getSlotPlugins,
       reloadPlugins,
     }),
-    [loadedPlugins, getSlotPlugins, reloadPlugins]
+    [loadedPlugins, pluginFailures, getSlotPlugins, reloadPlugins]
   );
 
   // Stable wrappers for async callbacks passed to ProjectsView (prevents memo-busting)
