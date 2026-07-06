@@ -140,6 +140,11 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
     // Track if this effect instance is still mounted (handles StrictMode/HMR)
     let mounted = true;
+    // Startup watchdog state (see the watchdog block below). `autoRespawnUsed`
+    // persists across respawn attempts; `startupTimer` is cleared on first
+    // output, on exit, and on unmount.
+    let autoRespawnUsed = false;
+    let startupTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Setup PTY connection using tauri-pty
     const setupPty = async () => {
@@ -264,37 +269,71 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
         ptyRef.current = pty;
 
+        // First byte from this PTY cancels the startup watchdog below.
+        let receivedOutput = false;
+
         // Handle PTY output -> terminal
-        pty.onData((data) => {
+        const dataDisposable = pty.onData((data) => {
+          if (!receivedOutput) {
+            receivedOutput = true;
+            if (startupTimer) {
+              clearTimeout(startupTimer);
+              startupTimer = null;
+            }
+          }
           terminalRef.current?.write(data);
         });
 
         // Handle PTY exit
-        pty.onExit(({ exitCode }) => {
+        const exitDisposable = pty.onExit(({ exitCode }) => {
+          if (startupTimer) {
+            clearTimeout(startupTimer);
+            startupTimer = null;
+          }
           onExitRef.current(exitCode);
         });
 
-        // Handle terminal input -> PTY
-        term.onData((data) => {
-          ptyRef.current?.write(data);
-        });
-
-        // Intercept Ctrl+C: copy selection to clipboard instead of sending SIGINT
-        term.attachCustomKeyEventHandler((event) => {
-          if (event.key === 'c' && event.ctrlKey && !event.shiftKey && !event.altKey) {
-            const selection = term.getSelection();
-            if (selection) {
-              navigator.clipboard.writeText(selection).catch((err: unknown) => {
-                logger.warn('[OnboardingTerminal] Failed to copy selection to clipboard', {
-                  error: String(err),
-                });
-              });
-              term.clearSelection();
-              return false; // Prevent sending to PTY
+        // Startup watchdog: a first PTY spawn can wedge and emit nothing
+        // (Windows ConPTY especially, and occasionally macOS) — the main agent
+        // terminal recovers from this by respawning (Terminal.tsx), but this
+        // onboarding terminal previously just sat at "Starting…" forever with
+        // no feedback (issues #156, #164). If no output arrives within 10s,
+        // kill the silent PTY and respawn once; if the respawn is also silent,
+        // surface an actionable message instead of hanging.
+        if (startupTimer) clearTimeout(startupTimer);
+        startupTimer = setTimeout(() => {
+          if (!mounted || receivedOutput) return;
+          if (!autoRespawnUsed) {
+            autoRespawnUsed = true;
+            logger.warn('[OnboardingTerminal] No output after 10s — respawning', { command });
+            terminalRef.current?.write('\r\n\x1b[33mNo output — restarting…\x1b[0m\r\n');
+            // Dispose this PTY's handlers BEFORE killing it, so the kill-induced
+            // exit event can't clear the respawn timer or notify the parent that
+            // the flow exited (mirrors the guard in Terminal.tsx).
+            try {
+              dataDisposable.dispose();
+              exitDisposable.dispose();
+            } catch {
+              // Already disposed — ignore
             }
+            try {
+              ptyRef.current?.kill();
+            } catch {
+              // Already dead — the respawn will start fresh either way
+            }
+            ptyRef.current = null;
+            // Brief grace period so the killed PTY tears down before respawn.
+            startupTimer = setTimeout(() => {
+              if (mounted) void setupPty();
+            }, 500);
+            return;
           }
-          return true; // Allow all other keys
-        });
+          logger.error('[OnboardingTerminal] Still no output after respawn', { command });
+          terminalRef.current?.write(
+            `\r\n\x1b[31m${command} did not respond.\x1b[0m\r\n` +
+              `\x1b[33mMake sure "${command}" is installed and on your PATH, then close this window and try again.\x1b[0m\r\n`
+          );
+        }, 10_000);
 
         // Focus the terminal
         term.focus();
@@ -307,6 +346,29 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         setTimeout(() => onExitRef.current(1), 1000);
       }
     };
+
+    // Wire terminal input -> PTY once. It targets `ptyRef.current`, so it keeps
+    // working across a watchdog respawn without double-registering handlers.
+    term.onData((data) => {
+      ptyRef.current?.write(data);
+    });
+
+    // Intercept Ctrl+C: copy selection to clipboard instead of sending SIGINT
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.key === 'c' && event.ctrlKey && !event.shiftKey && !event.altKey) {
+        const selection = term.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection).catch((err: unknown) => {
+            logger.warn('[OnboardingTerminal] Failed to copy selection to clipboard', {
+              error: String(err),
+            });
+          });
+          term.clearSelection();
+          return false; // Prevent sending to PTY
+        }
+      }
+      return true; // Allow all other keys
+    });
 
     // Show a loading message while the command starts up
     term.write('\r\n  \x1b[2mStarting...\x1b[0m');
@@ -325,6 +387,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
     return () => {
       mounted = false;
+      if (startupTimer) clearTimeout(startupTimer);
       resizeObserver.disconnect();
       cleanup();
     };
