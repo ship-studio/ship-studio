@@ -89,6 +89,7 @@ struct Session {
     project_path: Option<String>,
     tab_session_id: Option<String>,
     alive: AtomicBool,
+    attached: AtomicBool,
     exit_code: Mutex<Option<i32>>,
     buffer: Mutex<SessionBuffer>,
     writer: Mutex<Box<dyn std::io::Write + Send>>,
@@ -139,6 +140,23 @@ fn append_to_ring(ring: &mut VecDeque<u8>, bytes: &[u8]) {
         ring.pop_front();
     }
     ring.extend(bytes.iter().copied());
+}
+
+fn handle_dsr_intercept(
+    chunk: &[u8],
+    attached: &AtomicBool,
+    writer: &Mutex<Box<dyn std::io::Write + Send>>,
+) {
+    // Intercept DSR (Device Status Report) cursor position query and reply immediately
+    // if NO frontend is currently attached to the session.
+    // ConPTY queries the cursor position on startup. If the host doesn't reply, it stalls.
+    // If a frontend is attached, we let the frontend's xterm answer it instead to avoid double-replying.
+    if chunk.windows(4).any(|w| w == b"\x1b[6n") && !attached.load(Ordering::Relaxed) {
+        if let Ok(mut w) = writer.lock() {
+            let _ = w.write_all(b"\x1b[1;1R");
+            let _ = w.flush();
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -278,6 +296,7 @@ pub async fn pty_session_open(
         project_path: project_path.clone(),
         tab_session_id: tab_session_id.clone(),
         alive: AtomicBool::new(true),
+        attached: AtomicBool::new(false),
         exit_code: Mutex::new(None),
         buffer: Mutex::new(SessionBuffer::new()),
         writer: Mutex::new(writer),
@@ -305,6 +324,13 @@ pub async fn pty_session_open(
                     Err(_) => break,
                 };
                 let chunk = &buf[..n];
+
+                handle_dsr_intercept(
+                    chunk,
+                    &session_for_reader.attached,
+                    &session_for_reader.writer,
+                );
+
                 // Capture the chunk's start offset under the SAME lock that
                 // appends it to the ring — this atomicity is what guarantees
                 // an attach snapshot's end_offset always lands on a chunk
@@ -454,6 +480,7 @@ pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandErr
     let Some(session) = session else {
         return Err("unknown session".to_string().into());
     };
+    session.attached.store(true, Ordering::Relaxed);
     // Snapshot bytes AND end offset under one lock acquisition: the pair
     // must be consistent for the frontend's offset filter to be exact.
     let (buffer, end_offset): (Vec<u8>, u64) = {
@@ -476,6 +503,21 @@ pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandErr
         exit_code,
         end_offset,
     })
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub fn pty_session_detach(session_id: String) -> Result<(), CommandError> {
+    let session = {
+        let map = REGISTRY
+            .lock()
+            .map_err(|e| format!("pty registry poisoned: {e}"))?;
+        map.get(&session_id).cloned()
+    };
+    if let Some(session) = session {
+        session.attached.store(false, Ordering::Relaxed);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -640,5 +682,64 @@ mod tests {
         assert!(env_has_key(&env, "SystemRoot"));
         assert!(env_has_key(&env, "systemroot"));
         assert!(!env_has_key(&env, "COMSPEC"));
+    }
+
+    #[test]
+    fn test_handle_dsr_intercept_respects_attached_gate() -> Result<(), String> {
+        struct DummyWriter {
+            data: Arc<Mutex<Vec<u8>>>,
+        }
+        impl std::io::Write for DummyWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                let mut d = self
+                    .data
+                    .lock()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                d.extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let writer: Box<dyn std::io::Write + Send> = Box::new(DummyWriter {
+            data: written.clone(),
+        });
+        let writer_mutex = Mutex::new(writer);
+
+        let attached = AtomicBool::new(false);
+
+        // Case 1: DSR query received and attached is false -> should auto-reply
+        handle_dsr_intercept(b"foo\x1b[6nbar", &attached, &writer_mutex);
+        {
+            let data = written.lock().map_err(|e| e.to_string())?;
+            assert_eq!(*data, b"\x1b[1;1R");
+        }
+
+        // Clear written buffer
+        {
+            let mut data = written.lock().map_err(|e| e.to_string())?;
+            data.clear();
+        }
+
+        // Case 2: DSR query received but attached is true -> should NOT auto-reply
+        attached.store(true, Ordering::Relaxed);
+        handle_dsr_intercept(b"foo\x1b[6nbar", &attached, &writer_mutex);
+        {
+            let data = written.lock().map_err(|e| e.to_string())?;
+            assert!(data.is_empty());
+        }
+
+        // Case 3: No DSR query received, attached is false -> should NOT reply
+        attached.store(false, Ordering::Relaxed);
+        handle_dsr_intercept(b"foobar", &attached, &writer_mutex);
+        {
+            let data = written.lock().map_err(|e| e.to_string())?;
+            assert!(data.is_empty());
+        }
+
+        Ok(())
     }
 }

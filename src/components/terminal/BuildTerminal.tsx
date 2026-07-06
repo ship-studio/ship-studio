@@ -26,6 +26,7 @@ import { createWebLinksAddon } from '../../lib/terminalLinks';
 import {
   openPtySession,
   attachPtySession,
+  detachPtySession,
   writePtySession,
   resizePtySession,
   onPtySessionData,
@@ -247,6 +248,7 @@ export function BuildTerminal({
     return () => {
       cancelled = true;
       resizeObserver.disconnect();
+      void detachPtySession(sessionId);
       for (const dispose of disposers) {
         try {
           dispose();

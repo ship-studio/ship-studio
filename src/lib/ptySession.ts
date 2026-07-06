@@ -129,6 +129,11 @@ export async function attachPtySession(sessionId: string): Promise<AttachPtySess
   };
 }
 
+/** Notify the backend that the frontend has detached from this session. */
+export async function detachPtySession(sessionId: string): Promise<void> {
+  await invoke('pty_session_detach', { sessionId });
+}
+
 /** Enumerate known sessions, optionally filtered by project path. */
 export async function listPtySessions(projectPath?: string | null): Promise<PtySessionListItem[]> {
   return invoke<PtySessionListItem[]>('pty_session_list', {
