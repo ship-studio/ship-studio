@@ -11,7 +11,7 @@
  * ## State Architecture
  *
  * State has been extracted into custom hooks for better organization:
- * - `useToasts` - Toast notification state
+ * - `ToastProvider` / `useToast` - Toast notification state (app-root context)
  * - `useTerminalManagement` - Terminal tabs and session state
  * - `useIntegrationStatus` - GitHub/Claude integration state
  * - `useScreenshotManagement` - Screenshot capture, crop, and thumbnail state
@@ -26,7 +26,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useToasts } from './hooks/useToasts';
 import { useTerminalManagement } from './hooks/useTerminalManagement';
 import { usePlugins } from './hooks/usePlugins';
 import { useIntegrationStatus } from './hooks/useIntegrationStatus';
@@ -56,7 +55,7 @@ import { MonorepoPickerModal } from './components/dashboard/MonorepoPickerModal'
 import { ModalFrame } from './components/primitives/ModalFrame';
 import { Button } from './components/primitives/Button';
 import { Spinner } from './components/primitives/Spinner';
-import { ToastContext } from './contexts/ToastContext';
+import { ToastProvider, useToast } from './contexts/ToastContext';
 import { ModalProvider, useModal } from './contexts/ModalContext';
 import { AgentBridgeProvider } from './contexts/AgentBridgeContext';
 import { CommandPaletteHost } from './components/CommandPalette/CommandPaletteHost';
@@ -95,15 +94,17 @@ interface AppProps {
  */
 function App({ initialProjectPath }: AppProps) {
   return (
-    <ModalProvider>
-      <PaletteContextProvider>
-        <AgentBridgeProvider>
-          <AppContents initialProjectPath={initialProjectPath} />
-          <CommandPaletteHost />
-          <AppGlobalModals />
-        </AgentBridgeProvider>
-      </PaletteContextProvider>
-    </ModalProvider>
+    <ToastProvider>
+      <ModalProvider>
+        <PaletteContextProvider>
+          <AgentBridgeProvider>
+            <AppContents initialProjectPath={initialProjectPath} />
+            <CommandPaletteHost />
+            <AppGlobalModals />
+          </AgentBridgeProvider>
+        </PaletteContextProvider>
+      </ModalProvider>
+    </ToastProvider>
   );
 }
 
@@ -339,8 +340,12 @@ function AppContents({ initialProjectPath }: AppProps) {
   // even on non-workspace views (loading / onboarding / projects).
   const helpModal = useModal('help');
 
-  // Toast notifications
-  const { toasts, showToast, dismissToast } = useToasts();
+  // Toast notifications — state lives in the app-root <ToastProvider>, so
+  // `useOptionalToast()` consumers anywhere in the tree share this stack.
+  // `toastsProps` is the memoized context value, still prop-drilled into
+  // WorkspaceView during the transition off `onToast` prop chains.
+  const toastsProps = useToast();
+  const { toasts, showToast, dismissToast } = toastsProps;
 
   // Branch management (state, polling, conflict handlers)
   const {
@@ -882,15 +887,6 @@ function AppContents({ initialProjectPath }: AppProps) {
     [isEducationMode, setIsEducationMode, closeEducation]
   );
 
-  const toastsProps = useMemo(
-    () => ({
-      toasts,
-      showToast,
-      dismissToast,
-    }),
-    [toasts, showToast, dismissToast]
-  );
-
   const branchMgmtProps = useMemo(
     () => ({
       currentBranch,
@@ -1084,7 +1080,7 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   if (view === 'account-select') {
     return (
-      <ToastContext.Provider value={toastsProps}>
+      <>
         <div className="app">
           <AccountSelectScreen onContinue={() => setView('projects')} />
         </div>
@@ -1104,13 +1100,13 @@ function AppContents({ initialProjectPath }: AppProps) {
           </div>
         )}
         {quitConfirmModal}
-      </ToastContext.Provider>
+      </>
     );
   }
 
   if (view === 'projects') {
     return (
-      <ToastContext.Provider value={toastsProps}>
+      <>
         <div className={`projects-with-rail${isCompact ? ' is-compact' : ''}`} key="view-projects">
           {!isCompact && (
             <WorkspaceSidebar
@@ -1198,7 +1194,7 @@ function AppContents({ initialProjectPath }: AppProps) {
           </div>
         )}
         {quitConfirmModal}
-      </ToastContext.Provider>
+      </>
     );
   }
 
@@ -1251,7 +1247,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     );
   }
   return (
-    <ToastContext.Provider value={toastsProps}>
+    <>
       <WorkspaceView
         currentProject={currentProject}
         previewRef={previewRef}
@@ -1280,7 +1276,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         isProjectDevServerRunning={isServerRunning}
       />
       {quitConfirmModal}
-    </ToastContext.Provider>
+    </>
   );
 }
 
