@@ -75,7 +75,7 @@ import type { AgentStatus } from '../terminal/Terminal';
 import type { IntegrationState, AuthTerminalConfig } from '../../hooks/useIntegrationStatus';
 import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
 import type { ChangedFile } from '../../lib/git';
-import type { LoadedPlugin } from '../../hooks/usePlugins';
+import type { LoadedPlugin, PluginFailure } from '../../hooks/usePlugins';
 import type { PluginThemeData } from '../../contexts/PluginContext';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useModal } from '../../contexts/ModalContext';
@@ -266,6 +266,7 @@ interface BranchProps {
 
 interface PluginProps {
   loadedPlugins: LoadedPlugin[];
+  pluginFailures: PluginFailure[];
   getSlotPlugins: (slotName: string) => LoadedPlugin[];
   reloadPlugins: () => Promise<void>;
 }
@@ -563,7 +564,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     handleConflictsResolved,
   } = branchMgmt;
 
-  const { loadedPlugins, getSlotPlugins, reloadPlugins } = plugins;
+  const { loadedPlugins, pluginFailures, getSlotPlugins, reloadPlugins } = plugins;
 
   const {
     autoAcceptMode,
@@ -978,6 +979,10 @@ export const WorkspaceView = memo(function WorkspaceView({
     headerExtras: (
       <PluginsDropdown
         plugins={loadedPlugins.filter((p) => !HOSTING_PLUGIN_IDS.includes(p.info.manifest.id))}
+        failures={pluginFailures}
+        hostingPluginCount={
+          loadedPlugins.filter((p) => HOSTING_PLUGIN_IDS.includes(p.info.manifest.id)).length
+        }
         pluginProject={pluginProject}
         pluginActions={pluginActions}
         pluginTheme={pluginTheme}

@@ -44,6 +44,7 @@ import {
 import { initDefaultAgent } from '../../lib/agent';
 import { checkGitHubCliStatus } from '../../lib/github';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { withTimeout, TimeoutError } from '../../lib/withTimeout';
 import {
   detectAlreadyLoggedIn,
   extractTerminalError,
@@ -53,6 +54,13 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { SlackIcon } from '../icons';
 
 type OnboardingState = 'loading' | 'wizard' | 'complete';
+
+/**
+ * Cap on the setup-status check. The backend probes several binaries; if one
+ * hangs the user would otherwise stare at "Checking setup status..." forever
+ * (#173) — the timeout routes a hang into the existing error + Retry UI.
+ */
+const SETUP_STATUS_TIMEOUT_MS = 15_000;
 
 // Module-scoped so React 18 StrictMode's mount→unmount→remount in dev doesn't
 // re-fire `setup_started` after the first launch of this app session. Each
@@ -166,13 +174,21 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   // Fetch initial status and determine starting step
   const fetchStatus = useCallback(async () => {
     try {
-      const status: FullSetupStatus = await getFullSetupStatus();
+      const status: FullSetupStatus = await withTimeout(
+        getFullSetupStatus(),
+        SETUP_STATUS_TIMEOUT_MS,
+        'Setup status check'
+      );
       setItems(status.items);
       setError(null);
       return status;
-    } catch {
-      logger.warn('Failed to fetch setup status');
-      setError('Failed to check setup status. Please try again.');
+    } catch (err) {
+      logger.warn('Failed to fetch setup status', { error: err });
+      setError(
+        err instanceof TimeoutError
+          ? 'Setup check timed out — click Retry. If this persists, restart Ship Studio.'
+          : 'Failed to check setup status. Please try again.'
+      );
       setState('wizard');
       return null;
     }
