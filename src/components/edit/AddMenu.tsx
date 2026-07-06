@@ -13,6 +13,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { PlusIcon } from '../icons/utility';
 import { suggestProperties } from '../../lib/cssProperties';
 import {
@@ -216,16 +217,10 @@ export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false
     };
   }, [open, anchor]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (popRef.current?.contains(t) || btnRef.current?.contains(t)) return;
-      close();
-    };
-    document.addEventListener('mousedown', onDown, true);
-    return () => document.removeEventListener('mousedown', onDown, true);
-  }, [open]);
+  useDismissOnOutsidePointer(open, popRef, close, {
+    event: 'mousedown',
+    isOutside: (t) => !popRef.current?.contains(t) && !btnRef.current?.contains(t),
+  });
 
   const label = mode === 'keyframes' ? 'Add step' : mode === 'props' ? 'Add property' : 'Add';
   const placeholder =
