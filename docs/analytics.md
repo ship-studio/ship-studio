@@ -82,7 +82,7 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 
 | Event | Properties |
 |---|---|
-| `screenshot_captured` | `mode` (`viewport`/`fullpage`), `success`, `fell_back` |
+| `screenshot_captured` | `mode` (`viewport`/`fullpage`), `success`, `fell_back`, `fallback_success` (fullpage only, present when `fell_back` — whether the viewport fallback produced a file) |
 | `preview_refreshed` | `trigger: 'user'` |
 | `preview_page_selected` | `route_pattern` (id segments → `:id`, capped 200), `depth` |
 | `preview_fix_with_agent` | `has_logs`, `is_static` |

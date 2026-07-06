@@ -12,6 +12,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
+import { useOptionalToast } from '../contexts/ToastContext';
 
 interface UsePreviewCaptureParams {
   /** Absolute path to the project directory */
@@ -40,6 +41,7 @@ export function usePreviewCapture({
   onCropCancel,
 }: UsePreviewCaptureParams) {
   const [isCapturing, setIsCapturing] = useState(false);
+  const { showToast } = useOptionalToast();
 
   // Crop selection state
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
@@ -148,17 +150,24 @@ export function usePreviewCapture({
       logger.error('[Preview] Full page capture failed', {
         error: error instanceof Error ? error.message : String(error),
       });
+      // Don't fall back silently — the user asked for a full-page capture and
+      // is about to receive a viewport-only image instead.
+      showToast("Full-page capture isn't available — captured the visible area instead.", 'error');
+      // Fall back to viewport capture; suppress its own tracking event so this
+      // single fullpage event carries the whole story (including whether the
+      // fallback actually produced a file).
+      const fallbackPath = await captureForClaude({ silent: true });
       void trackEvent('screenshot_captured', {
         mode: 'fullpage',
         success: false,
         fell_back: true,
+        fallback_success: fallbackPath !== null,
       });
-      // Fall back to viewport capture; suppress its own tracking event.
-      return captureForClaude({ silent: true });
+      return fallbackPath;
     } finally {
       setIsCapturing(false);
     }
-  }, [isCapturing, projectPath, baseUrl, currentPage, captureForClaude]);
+  }, [isCapturing, projectPath, baseUrl, currentPage, captureForClaude, showToast]);
 
   // Capture a specific region of the preview
   const captureRegion = useCallback(
