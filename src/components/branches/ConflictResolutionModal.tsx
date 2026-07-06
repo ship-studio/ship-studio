@@ -17,6 +17,7 @@ import {
 } from '../../lib/conflicts';
 import { WarningIcon, CopyIcon, ChevronIcon, InfoIcon } from '../icons';
 import { trackEvent, trackError } from '../../lib/analytics';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
@@ -138,7 +139,7 @@ export function ConflictResolutionModal({
         }
       } catch (e) {
         trackError('conflict_resolve', e, 'Conflict Resolution');
-        onToast?.(e instanceof Error ? e.message : 'Failed to resolve conflict', 'error');
+        onToast?.(formatCommandError(asCommandError(e)) || 'Failed to resolve conflict', 'error');
       } finally {
         setIsApplying(false);
       }
@@ -170,7 +171,7 @@ export function ConflictResolutionModal({
       onClose();
     } catch (e) {
       trackError('merge_abort', e, 'Conflict Resolution');
-      onToast?.(e instanceof Error ? e.message : 'Failed to abort merge', 'error');
+      onToast?.(formatCommandError(asCommandError(e)) || 'Failed to abort merge', 'error');
     } finally {
       setIsApplying(false);
     }

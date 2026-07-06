@@ -1,0 +1,94 @@
+import { describe, it, expect } from 'vitest';
+import { extractTerminalError, isNodeMissingError } from './terminalDiagnostics';
+
+describe('extractTerminalError', () => {
+  it('returns null for an empty tail', () => {
+    expect(extractTerminalError('')).toBeNull();
+  });
+
+  it('returns null for whitespace/ANSI-only output', () => {
+    expect(extractTerminalError('  \r\n\x1b[2K\r\n   ')).toBeNull();
+  });
+
+  it("extracts the Windows 'npm is not recognized' line", () => {
+    const tail =
+      "'npm' is not recognized as an internal or external command,\r\n" +
+      'operable program or batch file.\r\n';
+    expect(extractTerminalError(tail)).toBe(
+      "'npm' is not recognized as an internal or external command,"
+    );
+  });
+
+  it('extracts the meaningful npm ERR! line, not the debug-log pointer', () => {
+    const tail = [
+      'npm ERR! code EEXIST',
+      'npm ERR! path C:\\Users\\me\\AppData\\Roaming\\npm\\vercel',
+      'npm ERR! EEXIST: file already exists, unlink C:\\Users\\me\\AppData\\Roaming\\npm\\vercel',
+      'npm ERR! A complete log of this run can be found in:',
+      'npm ERR!     C:\\Users\\me\\AppData\\Local\\npm-cache\\_logs\\2026-07-02.log',
+    ].join('\r\n');
+    expect(extractTerminalError(tail)).toBe(
+      'npm ERR! EEXIST: file already exists, unlink C:\\Users\\me\\AppData\\Roaming\\npm\\vercel'
+    );
+  });
+
+  it('strips ANSI codes from the extracted line', () => {
+    const tail = 'installing...\n\x1b[31mnpm ERR!\x1b[0m code EACCES\n';
+    expect(extractTerminalError(tail)).toBe('npm ERR! code EACCES');
+  });
+
+  it('collapses carriage-return progress redraws to the final segment', () => {
+    const tail = 'Downloading 10%\rDownloading 55%\rDownloading 100%\nerror: failed to fetch\n';
+    expect(extractTerminalError(tail)).toBe('error: failed to fetch');
+  });
+
+  it('falls back to the last non-empty line when nothing looks like an error', () => {
+    const tail = 'step one done\nstep two done\nexiting with status 7\n';
+    expect(extractTerminalError(tail)).toBe('exiting with status 7');
+  });
+
+  it('prefers the last error-ish line over later non-error lines', () => {
+    const tail = 'error: could not connect to registry\ncleaning up temp files\n';
+    expect(extractTerminalError(tail)).toBe('error: could not connect to registry');
+  });
+
+  it('caps very long lines at 200 characters', () => {
+    const longLine = `npm ERR! ${'x'.repeat(400)}`;
+    const result = extractTerminalError(longLine);
+    expect(result).not.toBeNull();
+    expect(result?.length).toBe(200);
+    expect(result?.endsWith('…')).toBe(true);
+  });
+});
+
+describe('isNodeMissingError', () => {
+  it('detects the cmd.exe not-recognized message for npm', () => {
+    expect(
+      isNodeMissingError(
+        "'npm' is not recognized as an internal or external command,\r\noperable program or batch file."
+      )
+    ).toBe(true);
+  });
+
+  it('detects the PowerShell not-recognized message', () => {
+    expect(
+      isNodeMissingError(
+        "npm : The term 'npm' is not recognized as the name of a cmdlet, function, script file, or operable program."
+      )
+    ).toBe(true);
+  });
+
+  it('detects the Unix command-not-found message for node', () => {
+    expect(isNodeMissingError('/bin/bash: node: command not found')).toBe(true);
+  });
+
+  it('sees through ANSI-colored output', () => {
+    expect(isNodeMissingError("\x1b[91m'node' is not recognized\x1b[0m")).toBe(true);
+  });
+
+  it('does not fire on unrelated failures', () => {
+    expect(isNodeMissingError('npm ERR! code EACCES')).toBe(false);
+    expect(isNodeMissingError("gh: command 'foo' not found")).toBe(false);
+    expect(isNodeMissingError('')).toBe(false);
+  });
+});

@@ -618,8 +618,10 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: [],
       },
       codex: {
+        // --force clears EEXIST failures from stale/partial global installs,
+        // which npm otherwise reports opaquely (issue #164).
         command: 'npm',
-        args: ['install', '-g', '@openai/codex'],
+        args: ['install', '-g', '@openai/codex', '--force'],
       },
       codex_auth: {
         command: 'codex',
@@ -628,8 +630,9 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
       opencode: {
         // No clean PowerShell one-liner installer exists for Windows; install
         // via npm (Node is set up in step 1, same as Codex below).
+        // --force clears EEXIST failures from stale/partial global installs.
         command: 'npm',
-        args: ['install', '-g', 'opencode-ai'],
+        args: ['install', '-g', 'opencode-ai', '--force'],
       },
       opencode_auth: {
         command: 'opencode',
@@ -646,8 +649,9 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: ['login'],
       },
       vercel: {
+        // --force clears EEXIST failures from stale/partial global installs.
         command: 'npm',
-        args: ['install', '-g', 'vercel'],
+        args: ['install', '-g', 'vercel', '--force'],
       },
       vercel_auth: {
         command: 'vercel',

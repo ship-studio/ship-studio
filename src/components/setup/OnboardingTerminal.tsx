@@ -22,6 +22,16 @@ import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import '@xterm/xterm/css/xterm.css';
 
+/**
+ * Maximum characters of raw PTY output retained for exit diagnostics.
+ * Enough to hold the tail of an npm/installer failure without growing
+ * unboundedly during long-running commands.
+ */
+const OUTPUT_TAIL_MAX_CHARS = 8192;
+
+/** Decodes PTY byte chunks for the diagnostics tail (output may be binary). */
+const OUTPUT_DECODER = new TextDecoder();
+
 /** Props for the OnboardingTerminal component */
 interface OnboardingTerminalProps {
   /** Command to run (e.g., "gh", "bash") */
@@ -30,8 +40,12 @@ interface OnboardingTerminalProps {
   args: string[];
   /** Working directory (defaults to home) */
   cwd?: string;
-  /** Callback fired when the process exits */
-  onExit: (exitCode: number | null) => void;
+  /**
+   * Callback fired when the process exits. `outputTail` is the last
+   * ~{@link OUTPUT_TAIL_MAX_CHARS} characters of raw output so callers can
+   * surface the actual error on failure (see lib/terminalDiagnostics).
+   */
+  onExit: (exitCode: number | null, outputTail: string) => void;
 }
 
 export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTerminalProps) {
@@ -39,6 +53,8 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const ptyRef = useRef<IPty | null>(null);
+  // Bounded tail of raw PTY output, handed to onExit for failure diagnostics.
+  const outputTailRef = useRef('');
   const [isReady, setIsReady] = useState(false);
 
   // Use ref for onExit to prevent effect re-runs when callback reference changes
@@ -178,6 +194,14 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             `${programFiles}\\GitHub CLI`,
             `${programFiles}\\Git\\cmd`,
             `${programFiles}\\nodejs`,
+            // Version-manager Node installs — volta/fnm/nvm-windows users may
+            // have no %ProgramFiles%\nodejs, and their shell-profile PATH edits
+            // are invisible to a GUI-launched app. Without these, npm-based
+            // installs fail with "'npm' is not recognized" (issue #164).
+            // Nonexistent dirs on PATH are harmless.
+            `${localAppData}\\Volta\\bin`,
+            `${localAppData}\\fnm`,
+            `${localAppData}\\Programs\\nodejs`,
           ];
 
           const systemPath = systemEnv['PATH'] || '';
@@ -264,15 +288,22 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         }
 
         ptyRef.current = pty;
+        outputTailRef.current = '';
 
-        // Handle PTY output -> terminal
+        // Handle PTY output -> terminal, keeping a bounded tail for diagnostics
         pty.onData((data) => {
           terminalRef.current?.write(data);
+          const text = typeof data === 'string' ? data : OUTPUT_DECODER.decode(data);
+          const combined = outputTailRef.current + text;
+          outputTailRef.current =
+            combined.length > OUTPUT_TAIL_MAX_CHARS
+              ? combined.slice(-OUTPUT_TAIL_MAX_CHARS)
+              : combined;
         });
 
         // Handle PTY exit
         pty.onExit(({ exitCode }) => {
-          onExitRef.current(exitCode);
+          onExitRef.current(exitCode, outputTailRef.current);
         });
 
         // Handle terminal input -> PTY
@@ -333,11 +364,10 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         term.focus();
       } catch (err) {
         logger.warn(`Failed to spawn ${command}`);
-        term.write(
-          `\x1b[31mError starting command: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
-        );
-        // Notify parent of failure
-        setTimeout(() => onExitRef.current(1), 1000);
+        const message = `Error starting command: ${formatCommandError(asCommandError(err))}`;
+        term.write(`\x1b[31m${message}\x1b[0m\r\n`);
+        // Notify parent of failure, passing the spawn error as the tail
+        setTimeout(() => onExitRef.current(1, message), 1000);
       }
     };
 

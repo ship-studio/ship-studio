@@ -105,7 +105,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       onToast?.(`Assets folder set to ${saved}`, 'success');
     } catch (e) {
       trackError('assets_root_change', e, 'Workspace');
-      const msg = e instanceof Error ? e.message : 'Failed to change assets folder';
+      const msg = formatCommandError(asCommandError(e)) || 'Failed to change assets folder';
       setError(msg);
       onToast?.(msg, 'error');
     }
@@ -172,7 +172,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       );
     } catch (e) {
       trackError('asset_upload', e, 'Workspace');
-      const msg = e instanceof Error ? e.message : 'Failed to upload';
+      const msg = formatCommandError(asCommandError(e)) || 'Failed to upload';
       setError(msg);
       onToast?.(msg, 'error');
     } finally {
@@ -203,7 +203,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
         onToast?.(`Deleted ${asset.name}`, 'success');
       } catch (e) {
         trackError('asset_delete', e, 'Workspace');
-        const msg = e instanceof Error ? e.message : 'Failed to delete';
+        const msg = formatCommandError(asCommandError(e)) || 'Failed to delete';
         setError(msg);
         onToast?.(msg, 'error');
       } finally {
@@ -248,7 +248,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       onToast?.(`Renamed to ${renameValue.trim()}`, 'success');
     } catch (e) {
       trackError('asset_rename', e, 'Workspace');
-      const msg = e instanceof Error ? e.message : 'Failed to rename';
+      const msg = formatCommandError(asCommandError(e)) || 'Failed to rename';
       setError(msg);
       onToast?.(msg, 'error');
     } finally {
@@ -271,7 +271,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       onToast?.(`Created folder ${newFolderName.trim()}`, 'success');
     } catch (e) {
       trackError('asset_folder_create', e, 'Workspace');
-      const msg = e instanceof Error ? e.message : 'Failed to create folder';
+      const msg = formatCommandError(asCommandError(e)) || 'Failed to create folder';
       setError(msg);
       onToast?.(msg, 'error');
     } finally {

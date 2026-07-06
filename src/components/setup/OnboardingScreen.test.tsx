@@ -55,7 +55,7 @@ vi.mock('./OnboardingTerminal', () => ({
   }: {
     command: string;
     args: string[];
-    onExit: (code: number | null) => void;
+    onExit: (code: number | null, outputTail?: string) => void;
   }) => (
     <div data-testid="mock-terminal">
       <button data-testid="terminal-exit-0" onClick={() => onExit(0)}>
@@ -69,6 +69,23 @@ vi.mock('./OnboardingTerminal', () => ({
       </button>
       <button data-testid="terminal-exit-127" onClick={() => onExit(127)}>
         Exit 127
+      </button>
+      <button
+        data-testid="terminal-exit-1-npm-err"
+        onClick={() => onExit(1, 'npm ERR! code EEXIST\nnpm ERR! EEXIST: file already exists\n')}
+      >
+        Exit 1 (npm ERR!)
+      </button>
+      <button
+        data-testid="terminal-exit-1-npm-missing"
+        onClick={() =>
+          onExit(
+            1,
+            "'npm' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+          )
+        }
+      >
+        Exit 1 (npm missing)
       </button>
     </div>
   ),
@@ -338,6 +355,74 @@ describe('OnboardingScreen', () => {
 
     expect(screen.getByText('Close')).toBeInTheDocument();
     expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+  });
+
+  it('terminal failure surfaces the extracted error from the output tail', async () => {
+    // Step 3: installButtons[0] is Claude (a terminal item without a
+    // special-cased error message, unlike homebrew on step 1)
+    mockInvoke('get_full_setup_status', HAS_BASE_NO_AGENTS_STATUS);
+
+    render(<OnboardingScreen onComplete={onComplete} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+    });
+
+    const installButtons = screen.getAllByText('Install');
+    act(() => {
+      fireEvent.click(installButtons[0]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('terminal-exit-1-npm-err'));
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByText('Close'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('npm ERR! EEXIST: file already exists')).toBeInTheDocument();
+    });
+  });
+
+  it('terminal failure with npm-not-recognized shows the actionable Node.js message', async () => {
+    mockInvoke('get_full_setup_status', HAS_BASE_NO_AGENTS_STATUS);
+
+    render(<OnboardingScreen onComplete={onComplete} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+    });
+
+    const installButtons = screen.getAllByText('Install');
+    act(() => {
+      fireEvent.click(installButtons[0]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('terminal-exit-1-npm-missing'));
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByText('Close'));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Node.js/npm wasn't found. Complete the Node.js step first, or restart Ship Studio if you just installed it."
+        )
+      ).toBeInTheDocument();
+    });
   });
 
   it('terminal cancel closes terminal', async () => {

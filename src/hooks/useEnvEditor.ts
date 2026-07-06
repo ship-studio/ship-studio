@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { trackEvent, trackError } from '../lib/analytics';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { logger } from '../lib/logger';
 
 /** Represents an environment file in the project */
@@ -438,7 +439,7 @@ export function useEnvEditor({
       onToast?.(`Created ${fileName}`, 'success');
     } catch (e) {
       trackError('env_file_create', e, 'Workspace');
-      setError(e as string);
+      setError(formatCommandError(asCommandError(e)));
       onToast?.(`Failed to create ${fileName}`, 'error');
     }
   };

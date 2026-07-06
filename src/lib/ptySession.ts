@@ -36,12 +36,16 @@ export interface OpenPtySessionResult {
 }
 
 export interface AttachPtySessionResult {
-  /** Buffered output (raw bytes). xterm should `write()` this before
-   *  subscribing to live data so the replay + live feed don't overlap. */
+  /** Buffered output (raw bytes). xterm should `write()` this to restore
+   *  the visible scrollback. */
   buffer: Uint8Array;
   pid: number;
   alive: boolean;
   exitCode: number | null;
+  /** Cumulative byte offset at snapshot time (total bytes the PTY ever
+   *  produced). Live data events with `offset < endOffset` are already
+   *  contained in `buffer` and must be dropped — see `createAttachGate`. */
+  endOffset: number;
 }
 
 export interface PtySessionListItem {
@@ -57,6 +61,10 @@ export interface PtySessionListItem {
 interface DataEventPayload {
   sessionId: string;
   data: number[];
+  /** Cumulative byte offset of this chunk's first byte (total bytes the
+   *  PTY produced before it). Compare against an attach snapshot's
+   *  `endOffset` to drop chunks the snapshot already covers. */
+  offset: number;
 }
 
 interface ExitEventPayload {
@@ -101,19 +109,23 @@ export async function killPtySession(sessionId: string): Promise<void> {
 }
 
 /** Fetch the session's buffered tail + liveness. Called on mount to replay
- *  recent output before subscribing to the live data stream. */
+ *  recent output. Subscribe to the live data stream BEFORE calling this and
+ *  gate the events with `createAttachGate(...)` + the returned `endOffset`
+ *  so no chunk emitted around the snapshot is lost or double-written. */
 export async function attachPtySession(sessionId: string): Promise<AttachPtySessionResult> {
   const raw = await invoke<{
     buffer: number[];
     pid: number;
     alive: boolean;
     exitCode: number | null;
+    endOffset: number;
   }>('pty_session_attach', { sessionId });
   return {
     buffer: new Uint8Array(raw.buffer),
     pid: raw.pid,
     alive: raw.alive,
     exitCode: raw.exitCode,
+    endOffset: raw.endOffset,
   };
 }
 
@@ -127,15 +139,16 @@ export async function listPtySessions(projectPath?: string | null): Promise<PtyS
 /**
  * Subscribe to live data chunks for a specific session. Returns an async
  * unlisten fn. The callback receives raw bytes — hand them to xterm's
- * `write(Uint8Array)`.
+ * `write(Uint8Array)` — plus the chunk's cumulative start offset for
+ * de-duplication against an attach snapshot (see `createAttachGate`).
  */
 export async function onPtySessionData(
   sessionId: string,
-  handler: (bytes: Uint8Array) => void
+  handler: (bytes: Uint8Array, offset: number) => void
 ): Promise<UnlistenFn> {
   return listen<DataEventPayload>('pty-session-data', (event) => {
     if (event.payload.sessionId !== sessionId) return;
-    handler(new Uint8Array(event.payload.data));
+    handler(new Uint8Array(event.payload.data), event.payload.offset);
   });
 }
 
@@ -152,4 +165,50 @@ export async function onPtySessionExit(
     if (event.payload.sessionId !== sessionId) return;
     handler(event.payload.exitCode);
   });
+}
+
+/**
+ * De-duplication gate for the subscribe-first attach protocol.
+ *
+ * Tauri drops events that fire while no listener is registered, so a
+ * component must subscribe to `onPtySessionData` BEFORE calling
+ * `attachPtySession` — otherwise a chunk emitted between the snapshot and
+ * the subscription is lost forever (a single-paint TUI then looks dead:
+ * issue #156). Subscribing first inverts the problem into duplication:
+ * chunks that arrive before/around the snapshot may already be inside the
+ * snapshot buffer. This gate resolves it exactly, using the backend's
+ * cumulative byte offsets:
+ *
+ * - `push(offset, bytes)` — feed every live event through. Before the
+ *   snapshot end is known, chunks are queued. Afterwards, a chunk is
+ *   delivered iff `offset >= endOffset` (the backend guarantees a chunk
+ *   never straddles the snapshot boundary).
+ * - `open(endOffset)` — call after writing the snapshot. Flushes the queue
+ *   in arrival order, dropping chunks the snapshot already covers.
+ */
+export interface AttachGate {
+  push(offset: number, bytes: Uint8Array): void;
+  open(endOffset: number): void;
+}
+
+export function createAttachGate(deliver: (bytes: Uint8Array) => void): AttachGate {
+  let snapshotEnd: number | null = null;
+  const pending: Array<{ offset: number; bytes: Uint8Array }> = [];
+  return {
+    push(offset: number, bytes: Uint8Array): void {
+      if (snapshotEnd === null) {
+        pending.push({ offset, bytes });
+        return;
+      }
+      if (offset >= snapshotEnd) deliver(bytes);
+    },
+    open(endOffset: number): void {
+      if (snapshotEnd !== null) return; // already open — ignore
+      snapshotEnd = endOffset;
+      for (const chunk of pending) {
+        if (chunk.offset >= endOffset) deliver(chunk.bytes);
+      }
+      pending.length = 0;
+    },
+  };
 }
