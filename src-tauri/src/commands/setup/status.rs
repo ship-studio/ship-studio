@@ -10,6 +10,7 @@ use crate::commands::accounts::{
 };
 use crate::commands::claude::find_binary_by_name;
 use crate::commands::github::get_gh_command;
+use crate::errors::CommandError;
 use crate::types::{FullSetupStatus, OptionalAuths, SetupItemInfo, SetupItemStatus};
 use crate::utils::{create_command, find_executable};
 
@@ -602,5 +603,89 @@ pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
     crate::types::QuickSetupCheck {
         all_present,
         setup_complete_cached: true,
+    }
+}
+
+/// A CLI binary resolved on the backend's extended PATH.
+///
+/// Returned by [`resolve_cli_path`] so the frontend can (a) fail fast with a
+/// clear message when a binary is missing instead of spawning a PTY that
+/// silently produces nothing, and (b) add the binary's directory to the PTY's
+/// PATH so the spawn sees the same binary the status checks saw. The install
+/// status checks (`find_executable`) search the user's login-shell PATH plus
+/// common install locations — the frontend's hand-built PTY PATH is a subset,
+/// so "installed ✓ but Connect hangs" was possible whenever a tool lived in a
+/// nonstandard prefix (MacPorts, custom Homebrew, portable installs).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedCli {
+    /// Absolute path to the resolved binary.
+    pub path: String,
+    /// Directory containing the binary — for appending to a PTY PATH.
+    pub dir: String,
+}
+
+/// Resolve a CLI binary name to an absolute path using the same discovery the
+/// setup status checks use. Returns `Ok(None)` when the binary genuinely
+/// isn't installed anywhere we know how to look.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn resolve_cli_path(name: String) -> Result<Option<ResolvedCli>, CommandError> {
+    // Bare command names only — reject separators/metacharacters so this can
+    // never be used to probe arbitrary filesystem paths from the frontend.
+    let valid = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if !valid {
+        return Err(CommandError::Validation {
+            field: "name".to_string(),
+            reason: "must be a bare command name".to_string(),
+        });
+    }
+
+    Ok(find_executable(&name).map(|path| {
+        let dir = path
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        ResolvedCli {
+            path: path.to_string_lossy().to_string(),
+            dir,
+        }
+    }))
+}
+
+#[cfg(test)]
+mod resolve_cli_tests {
+    use super::resolve_cli_path;
+
+    #[tokio::test]
+    async fn resolves_a_ubiquitous_binary() {
+        // `ls` exists on every Unix; `cmd` on every Windows.
+        let name = if cfg!(windows) { "cmd" } else { "ls" };
+        let resolved = resolve_cli_path(name.to_string()).await.unwrap();
+        let resolved = resolved.expect("binary should resolve");
+        assert!(!resolved.path.is_empty());
+        assert!(!resolved.dir.is_empty());
+    }
+
+    #[tokio::test]
+    async fn returns_none_for_missing_binary() {
+        let resolved = resolve_cli_path("definitely-not-a-real-cli-98765".to_string())
+            .await
+            .unwrap();
+        assert!(resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn rejects_paths_and_metacharacters() {
+        for bad in ["/bin/ls", "..\\cmd", "a b", "x;y", "", "ls\n"] {
+            assert!(
+                resolve_cli_path(bad.to_string()).await.is_err(),
+                "should reject {bad:?}"
+            );
+        }
     }
 }

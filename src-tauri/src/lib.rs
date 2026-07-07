@@ -619,6 +619,7 @@ pub fn run() {
             commands::templates::download_template_zip,
             // Setup/Onboarding
             commands::setup::get_full_setup_status,
+            commands::setup::resolve_cli_path,
             commands::setup::install_homebrew,
             commands::setup::install_node_via_brew,
             commands::setup::install_git_via_brew,

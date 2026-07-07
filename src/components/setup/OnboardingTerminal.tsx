@@ -11,12 +11,12 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { spawn, IPty } from 'tauri-pty';
+import { spawnOnboardingPty, OnboardingPty } from '../../lib/onboardingPty';
 import { homeDir } from '@tauri-apps/api/path';
-import { getSystemEnv } from '../../lib/project';
+import { getSystemEnv, getShellPath } from '../../lib/project';
 import { readDir, exists } from '@tauri-apps/plugin-fs';
 import { loadNerdFonts } from '../../lib/fonts';
-import { isWindows } from '../../lib/setup';
+import { isWindows, resolveCliPath, ResolvedCli } from '../../lib/setup';
 import { isPasteChord, readClipboardText } from '../../lib/clipboard';
 import { createPtyChunkDecoder, toPtyBytes, type PtyChunk } from '../../lib/terminalDiagnostics';
 import { logger } from '../../lib/logger';
@@ -50,7 +50,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const ptyRef = useRef<IPty | null>(null);
+  const ptyRef = useRef<OnboardingPty | null>(null);
   // Bounded tail of raw PTY output, handed to onExit for failure diagnostics.
   const outputTailRef = useRef('');
   const [isReady, setIsReady] = useState(false);
@@ -181,6 +181,20 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         let spawnCmd: string;
         let spawnArgs: string[];
 
+        // The backend's extended PATH is the authority: it queries the user's
+        // login shell and knows version-manager layouts (asdf/volta/fnm/nvm,
+        // incl. the Windows fnm_multishells + nvm-windows symlink dirs). The
+        // hand-built lists below stay as a fallback/supplement, but without
+        // this the install/auth status checks (which use the backend PATH)
+        // could say "installed ✓" for a binary this PTY then can't see.
+        const backendPath = await getShellPath().catch((err: unknown) => {
+          logger.warn('[OnboardingTerminal] getShellPath failed — using fallback PATH', {
+            error: String(err),
+          });
+          return '';
+        });
+        if (!mounted) return;
+
         if (isWin) {
           // Windows: get system env vars from backend and build Windows-compatible env
           const systemEnv = await getSystemEnv();
@@ -208,7 +222,9 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
           ];
 
           const systemPath = systemEnv['PATH'] || '';
-          const fullPath = `${extraPaths.join(';')};${systemPath}`;
+          const fullPath = [extraPaths.join(';'), systemPath, backendPath]
+            .filter((part) => part.length > 0)
+            .join(';');
 
           env = {
             ...systemEnv,
@@ -249,7 +265,9 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
           }
 
           const systemPaths = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
-          const fullPath = `${userPaths.join(':')}:${systemPaths}`;
+          const fullPath = [userPaths.join(':'), systemPaths, backendPath]
+            .filter((part) => part.length > 0)
+            .join(':');
 
           // Onboarding always runs in the Default workspace, which maps to the
           // global config dirs the CLIs use by default (~/.claude, ~/.config/gh,
@@ -274,10 +292,55 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         env.INIT_CWD = homePath;
         env.PNPM_SCRIPT_SRC_DIR = homePath;
 
-        // Spawn PTY using tauri-pty
-        // Must pass all essential env vars since env replaces (not merges with) parent environment
-        // eslint-disable-next-line @typescript-eslint/await-thenable
-        const pty = await spawn(spawnCmd, spawnArgs, {
+        // Fail fast on a missing binary. Bare command names are resolved on
+        // the backend (same discovery the status checks use); a definitive
+        // "not installed" gets an instant, plain-English message instead of a
+        // PTY that spawns nothing and hangs. Resolution errors fail OPEN —
+        // the spawn proceeds and the watchdog below stays the backstop.
+        const isBareName = !command.includes('/') && !command.includes('\\');
+        if (isBareName) {
+          let resolved: ResolvedCli | null | undefined;
+          try {
+            resolved = await resolveCliPath(command);
+          } catch (err) {
+            logger.warn('[OnboardingTerminal] resolveCliPath failed — spawning anyway', {
+              command,
+              error: String(err),
+            });
+            resolved = undefined;
+          }
+          if (!mounted) return;
+          if (resolved === null) {
+            const message = `${command}: not found — it doesn't appear to be installed on this computer.`;
+            logger.warn('[OnboardingTerminal] Binary not found — skipping spawn', { command });
+            terminalRef.current?.write(
+              `\r\n\x1b[31m${message}\x1b[0m\r\n` +
+                `\x1b[33mClose this window and install ${command} first — the setup checklist can do that for you.\x1b[0m\r\n`
+            );
+            setTimeout(() => onExitRef.current(1, message), 1000);
+            return;
+          }
+          if (resolved) {
+            // Make the PTY see the exact binary the status checks found,
+            // even when it lives in a prefix the PATH above doesn't cover.
+            const pathSep = isWin ? ';' : ':';
+            if (!env.PATH.split(pathSep).includes(resolved.dir)) {
+              env.PATH = `${env.PATH}${pathSep}${resolved.dir}`;
+            }
+            if (!isWin) {
+              // Spawn the resolved absolute path — deterministic, no PATH
+              // shadowing. (Windows keeps the cmd.exe /C wrapper: .cmd shims
+              // need it, and quoting paths with spaces through cmd is riskier
+              // than the PATH append above.)
+              spawnCmd = resolved.path;
+            }
+          }
+        }
+
+        // Spawn the PTY. This rejects with the backend's real error (e.g.
+        // "Failed to start `gh`: No such file or directory") — caught below.
+        // The env replaces (not merges with) the parent environment.
+        const pty = await spawnOnboardingPty(spawnCmd, spawnArgs, {
           cwd: homePath,
           cols: term.cols,
           rows: term.rows,
@@ -301,12 +364,11 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         const decodeChunk = createPtyChunkDecoder();
 
         // Handle PTY output -> terminal, keeping a bounded tail for
-        // diagnostics. CRITICAL: a throw in this listener propagates into
-        // tauri-pty's internal read loop and permanently kills it — the
-        // terminal freezes after the first chunk (the v0.13.2 frozen
-        // connect/install terminal bug). Chunks arrive as plain number
-        // arrays over IPC despite the `string` typing, so everything below
-        // must normalize and must not throw.
+        // diagnostics. Chunks arrive as plain number arrays over IPC, so
+        // everything below must normalize. The client tolerates listener
+        // throws (unlike tauri-pty, where one throw froze the terminal — the
+        // v0.13.2 bug), but stay defensive: diagnostics must never cost
+        // output.
         const dataDisposable = pty.onData((data: PtyChunk) => {
           if (!receivedOutput) {
             receivedOutput = true;
@@ -338,6 +400,15 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             startupTimer = null;
           }
           onExitRef.current(exitCode, outputTailRef.current);
+        });
+
+        // Output stream died mid-session (rare, post-retries). Say so
+        // instead of freezing silently — the process may still be running.
+        pty.onStreamError(() => {
+          terminalRef.current?.write(
+            '\r\n\x1b[33mOutput stream interrupted — the command may still be running. ' +
+              'If nothing else appears, close this window and try again.\x1b[0m\r\n'
+          );
         });
 
         // Startup watchdog: a first PTY spawn can wedge and emit nothing

@@ -476,6 +476,26 @@ export async function getFullSetupStatus(): Promise<FullSetupStatus> {
   return invoke<FullSetupStatus>('get_full_setup_status');
 }
 
+/** A CLI binary resolved on the backend's extended PATH. */
+export interface ResolvedCli {
+  /** Absolute path to the binary. */
+  path: string;
+  /** Directory containing the binary — for appending to a PTY PATH. */
+  dir: string;
+}
+
+/**
+ * Resolve a bare CLI name (e.g. "gh", "vercel") to an absolute path using the
+ * same discovery the setup status checks use (login-shell PATH + common
+ * install locations). Returns `null` when the binary isn't installed.
+ * Terminal spawns use this to fail fast with a clear message instead of
+ * launching a PTY that silently produces nothing, and to make the PTY see the
+ * exact binary the status checks saw.
+ */
+export async function resolveCliPath(name: string): Promise<ResolvedCli | null> {
+  return invoke<ResolvedCli | null>('resolve_cli_path', { name });
+}
+
 /**
  * Start GitHub authentication flow (opens browser).
  * Returns a message to display to the user.
