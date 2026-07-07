@@ -559,6 +559,8 @@ pub fn run() {
             commands::publishing::publish_to_staging,
             commands::publishing::publish_to_production,
             commands::publishing::publish_branch,
+            // Vercel
+            commands::vercel::get_vercel_production_domain,
             // Pull requests
             commands::pull_requests::list_pull_requests,
             commands::pull_requests::create_pull_request,

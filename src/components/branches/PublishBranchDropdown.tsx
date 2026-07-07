@@ -8,8 +8,10 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { ProjectGitHubStatus } from '../../lib/github';
 import { publishBranch } from '../../lib/branches';
+import { getVercelProductionDomain, liveSiteHost, type VercelDomainInfo } from '../../lib/vercel';
 import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon } from '../icons';
 import { Spinner } from '../primitives/Spinner';
 import { useClickOutside } from '../../hooks/useClickOutside';
@@ -86,11 +88,56 @@ export function PublishBranchDropdown({
   const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
   const [isOpen, setIsOpen] = useState(false);
   const [publishState, setPublishState] = useState<PublishState>({ status: 'idle' });
+  const [vercelDomain, setVercelDomain] = useState<VercelDomainInfo | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const hasGitHubRepo =
     projectGithubStatus?.status === 'connected' && projectGithubStatus?.github_repo;
   const isMainBranch = currentBranch === 'main' || currentBranch === 'master';
+  const githubRepo =
+    projectGithubStatus?.status === 'connected' ? (projectGithubStatus.github_repo ?? null) : null;
+
+  // The production custom domain is static Vercel project config (not tied to a
+  // deploy completing), so we can fetch + show it as soon as the dropdown opens
+  // on the main branch. We look the project up by its GitHub repo. Silent on
+  // failure — it's an optional enhancement, never a constructed URL (the backend
+  // returns null when there's nothing real).
+  useEffect(() => {
+    if (!isOpen || !isMainBranch || !githubRepo) return;
+    let cancelled = false;
+    void getVercelProductionDomain(projectPath, githubRepo)
+      .then((d) => {
+        if (!cancelled) setVercelDomain(d);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, isMainBranch, githubRepo, projectPath]);
+
+  const liveHost = liveSiteHost(vercelDomain);
+  const liveDomainLink = liveHost ? (
+    <div className="publish-live-domain-row">
+      <span className="publish-live-domain-label">Live at</span>
+      <button
+        type="button"
+        className="publish-live-domain"
+        onClick={() => void openUrl(`https://${liveHost}`)}
+        title={`Open https://${liveHost}`}
+      >
+        {liveHost}
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M7 17 17 7M17 7H8M17 7v9"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
+  ) : null;
 
   // Track previous forceOpen value to detect true→false transitions
   const prevForceOpenRef = useRef<boolean | undefined>(undefined);
@@ -261,6 +308,7 @@ export function PublishBranchDropdown({
                 <SuccessIcon />
                 <span>{isMainBranch ? 'Published!' : 'Changes synced'}</span>
               </div>
+              {liveDomainLink}
               {!isMainBranch && (
                 <div className="publish-branch-hint">
                   This change has been synced to the <strong>{currentBranch}</strong> branch.
@@ -353,6 +401,8 @@ export function PublishBranchDropdown({
                   </div>
                 )}
 
+                {liveDomainLink}
+
                 {!isMainBranch && (
                   <div className="publish-branch-description">
                     This will save your work to GitHub so others can see it.
@@ -382,6 +432,7 @@ export function PublishBranchDropdown({
                 <SuccessIcon />
                 <span>All changes synced</span>
               </div>
+              {liveDomainLink}
               <div className="publish-actions publish-actions-center">
                 <button className="publish-done" onClick={handleDone}>
                   Done
