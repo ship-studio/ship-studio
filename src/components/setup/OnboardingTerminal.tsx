@@ -18,6 +18,7 @@ import { readDir, exists } from '@tauri-apps/plugin-fs';
 import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows } from '../../lib/setup';
 import { isPasteChord, readClipboardText } from '../../lib/clipboard';
+import { createPtyChunkDecoder, toPtyBytes, type PtyChunk } from '../../lib/terminalDiagnostics';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import '@xterm/xterm/css/xterm.css';
@@ -28,9 +29,6 @@ import '@xterm/xterm/css/xterm.css';
  * unboundedly during long-running commands.
  */
 const OUTPUT_TAIL_MAX_CHARS = 8192;
-
-/** Decodes PTY byte chunks for the diagnostics tail (output may be binary). */
-const OUTPUT_DECODER = new TextDecoder();
 
 /** Props for the OnboardingTerminal component */
 interface OnboardingTerminalProps {
@@ -298,8 +296,18 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         // First byte from this PTY cancels the startup watchdog below.
         let receivedOutput = false;
 
-        // Handle PTY output -> terminal, keeping a bounded tail for diagnostics
-        const dataDisposable = pty.onData((data) => {
+        // Streaming decoder for the diagnostics tail — one per PTY so
+        // multi-byte characters split across chunks decode correctly.
+        const decodeChunk = createPtyChunkDecoder();
+
+        // Handle PTY output -> terminal, keeping a bounded tail for
+        // diagnostics. CRITICAL: a throw in this listener propagates into
+        // tauri-pty's internal read loop and permanently kills it — the
+        // terminal freezes after the first chunk (the v0.13.2 frozen
+        // connect/install terminal bug). Chunks arrive as plain number
+        // arrays over IPC despite the `string` typing, so everything below
+        // must normalize and must not throw.
+        const dataDisposable = pty.onData((data: PtyChunk) => {
           if (!receivedOutput) {
             receivedOutput = true;
             if (startupTimer) {
@@ -307,13 +315,20 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
               startupTimer = null;
             }
           }
-          terminalRef.current?.write(data);
-          const text = typeof data === 'string' ? data : OUTPUT_DECODER.decode(data);
-          const combined = outputTailRef.current + text;
-          outputTailRef.current =
-            combined.length > OUTPUT_TAIL_MAX_CHARS
-              ? combined.slice(-OUTPUT_TAIL_MAX_CHARS)
-              : combined;
+          try {
+            const chunk = typeof data === 'string' ? data : toPtyBytes(data);
+            terminalRef.current?.write(chunk);
+            const combined = outputTailRef.current + decodeChunk(data);
+            outputTailRef.current =
+              combined.length > OUTPUT_TAIL_MAX_CHARS
+                ? combined.slice(-OUTPUT_TAIL_MAX_CHARS)
+                : combined;
+          } catch (err) {
+            // Never let rendering/diagnostics break the read loop.
+            logger.warn('[OnboardingTerminal] Failed to process PTY chunk', {
+              error: String(err),
+            });
+          }
         });
 
         // Handle PTY exit

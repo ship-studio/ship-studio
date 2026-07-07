@@ -12,6 +12,42 @@
 
 import { stripAnsi } from './ansi';
 
+/**
+ * Raw PTY chunk shapes seen at runtime. tauri-pty's types claim `string`, but
+ * the plugin's `read` command returns `Vec<u8>`, which Tauri's JSON IPC
+ * delivers as a **plain number array** — not a Uint8Array. Passing that
+ * array straight to `TextDecoder.decode()` throws a TypeError, and a throw
+ * inside an onData listener propagates into tauri-pty's internal read loop
+ * and kills it — the terminal freezes after the first chunk (the v0.13.2
+ * frozen connect/install terminal regression).
+ */
+export type PtyChunk = string | Uint8Array | ArrayBuffer | number[];
+
+/** Normalize any raw PTY chunk shape to Uint8Array (strings pass through). */
+export function toPtyBytes(data: Exclude<PtyChunk, string>): Uint8Array {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  return new Uint8Array(data);
+}
+
+/**
+ * Create a streaming PTY chunk decoder. Returns a function that converts any
+ * chunk shape to text, preserving multi-byte characters split across chunk
+ * boundaries, and never throws — diagnostics must never be able to break the
+ * output stream (a throw here is exactly what froze terminals in v0.13.2).
+ */
+export function createPtyChunkDecoder(): (data: PtyChunk) => string {
+  const decoder = new TextDecoder();
+  return (data: PtyChunk): string => {
+    if (typeof data === 'string') return data;
+    try {
+      return decoder.decode(toPtyBytes(data), { stream: true });
+    } catch {
+      return '';
+    }
+  };
+}
+
 /** Lines that look like they describe the failure. */
 const ERROR_LINE_PATTERN = /error|not recognized|not found|EACCES|EPERM|EEXIST|ENOENT|npm ERR!/i;
 

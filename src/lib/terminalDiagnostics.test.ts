@@ -1,9 +1,58 @@
 import { describe, it, expect } from 'vitest';
 import {
+  createPtyChunkDecoder,
   detectAlreadyLoggedIn,
   extractTerminalError,
   isNodeMissingError,
+  toPtyBytes,
 } from './terminalDiagnostics';
+
+const utf8 = (s: string): number[] => Array.from(new TextEncoder().encode(s));
+
+describe('toPtyBytes', () => {
+  it('passes Uint8Array through unchanged', () => {
+    const input = new Uint8Array([104, 105]);
+    expect(toPtyBytes(input)).toBe(input);
+  });
+
+  it('wraps a plain number array (the real Tauri IPC shape for Vec<u8>)', () => {
+    const result = toPtyBytes([104, 105]);
+    expect(result).toBeInstanceOf(Uint8Array);
+    expect(Array.from(result)).toEqual([104, 105]);
+  });
+
+  it('wraps an ArrayBuffer', () => {
+    const result = toPtyBytes(new Uint8Array([104, 105]).buffer);
+    expect(Array.from(result)).toEqual([104, 105]);
+  });
+});
+
+describe('createPtyChunkDecoder', () => {
+  it('decodes plain number arrays without throwing (v0.13.2 frozen-terminal regression)', () => {
+    const decode = createPtyChunkDecoder();
+    // TextDecoder.decode() throws a TypeError on plain arrays — the old code
+    // did exactly that inside onData, killing tauri-pty's read loop.
+    expect(decode(utf8('Checking for `sudo` access...'))).toBe('Checking for `sudo` access...');
+  });
+
+  it('passes strings through', () => {
+    const decode = createPtyChunkDecoder();
+    expect(decode('hello')).toBe('hello');
+  });
+
+  it('preserves multi-byte characters split across chunk boundaries', () => {
+    const decode = createPtyChunkDecoder();
+    const encoded = utf8('✓ done');
+    // '✓' is 3 bytes — split it mid-character across two chunks.
+    expect(decode(encoded.slice(0, 2)) + decode(encoded.slice(2))).toBe('✓ done');
+  });
+
+  it('never throws, even on garbage input', () => {
+    const decode = createPtyChunkDecoder();
+    expect(() => decode({} as never)).not.toThrow();
+    expect(decode({} as never)).toBe('');
+  });
+});
 
 describe('extractTerminalError', () => {
   it('returns null for an empty tail', () => {
