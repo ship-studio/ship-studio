@@ -77,16 +77,23 @@ function getDefaultTemplate(): Template {
     const found = TEMPLATES.find((t) => t.id === stored);
     if (found) return found;
   }
-  return TEMPLATES[0]; // Next.js
+  return TEMPLATES[0]; // Next.js (Tailwind)
 }
 
 /** Available project templates */
 export const TEMPLATES: Template[] = [
   {
     id: 'nextjs-basic',
-    name: 'Next.js',
+    name: 'Next.js (Tailwind)',
     description: 'The most flexible, especially for web apps. A great default if unsure.',
     repo: 'https://github.com/ship-studio/static-marketing-site-starter',
+    category: 'web',
+  },
+  {
+    id: 'nextjs-plain-css',
+    name: 'Next.js (Vanilla)',
+    description: 'Styled with vanilla CSS — best for people who write their own styles.',
+    repo: 'https://github.com/ship-studio/nextjs-plain-css-starter',
     category: 'web',
   },
   {
