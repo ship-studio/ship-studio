@@ -394,6 +394,7 @@ export function WorkspaceModals({
           projectPath={projectPath}
           onClose={onCloseConflictResolution}
           onResolved={onConflictsResolved}
+          onSendToAgent={onSendToClaude}
         />
       )}
 

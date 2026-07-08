@@ -2,8 +2,8 @@
  * Hook for git branch state and operations.
  *
  * Manages: current branch, branch list, pull requests, uncommitted changes,
- * branch switching, conflict resolution, periodic git status polling,
- * and publish error handling.
+ * branch switching, pulling latest from the remote, conflict resolution,
+ * periodic git status polling, and publish error handling.
  *
  * @module hooks/useBranchManagement
  */
@@ -22,7 +22,7 @@ import { getChangedFiles, ChangedFile } from '../lib/git';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { asCommandError, formatCommandError } from '../lib/errors';
-import { trackEvent } from '../lib/analytics';
+import { trackEvent, trackError } from '../lib/analytics';
 import type { PreviewHandle } from '../components/preview/Preview';
 import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
 import { usePolling } from './usePolling';
@@ -58,6 +58,9 @@ export function useBranchManagement({
 
   // Conflict resolution modal state
   const [showConflictResolution, setShowConflictResolution] = useState(false);
+
+  // Pull-latest state (the small sync button beside the branch indicator)
+  const [isPulling, setIsPulling] = useState(false);
 
   // Fetch branch info for a project
   const fetchBranchInfo = useCallback(async (projectPath: string) => {
@@ -205,6 +208,50 @@ export function useBranchManagement({
     [currentProject, fetchBranchInfo]
   );
 
+  // Pull the latest changes from GitHub (standard `git pull`, merge strategy).
+  // Conflicts route into the same resolution flow PR conflicts use.
+  const handlePullLatest = useCallback(async () => {
+    if (!currentProject || isPulling) return;
+    setIsPulling(true);
+    try {
+      const summary = await pullAndMerge(currentProject.path);
+      const upToDate = /already up to date/i.test(summary);
+      void trackEvent('git_pulled', {
+        result: upToDate ? 'up_to_date' : 'pulled',
+        $screen_name: 'Workspace',
+      });
+      if (upToDate) {
+        showToast('Already up to date with GitHub', 'success');
+      } else {
+        showToast('Pulled the latest changes from GitHub', 'success');
+        // New files just landed — give the dev server a moment, then refresh
+        // the preview (same rhythm as a branch switch).
+        branchSwitchTimers.current.push(setTimeout(() => previewRef.current?.refresh(), 300));
+      }
+      await checkGitStatus(currentProject.path);
+      void fetchBranchInfo(currentProject.path);
+    } catch (e) {
+      const message = formatCommandError(asCommandError(e));
+      if (message.includes('MERGE_CONFLICT')) {
+        void trackEvent('git_pulled', { result: 'merge_conflict', $screen_name: 'Workspace' });
+        logger.warn('Pull produced merge conflicts', { message });
+        setShowConflictResolution(true);
+      } else if (/no tracking information|no such ref was fetched/i.test(message)) {
+        showToast(
+          `This branch isn't on GitHub yet, so there's nothing to pull — push it first. (git said: ${message})`,
+          'error'
+        );
+      } else {
+        logger.error('Pull failed', { message });
+        trackError('git_pull', e, 'Workspace');
+        showToast(`Pull failed: ${message}`, 'error');
+      }
+    } finally {
+      setIsPulling(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- previewRef is a stable ref
+  }, [currentProject, isPulling, showToast, checkGitStatus, fetchBranchInfo]);
+
   // Handle publish error
   const handlePublishError = useCallback(
     (error: string, errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic') => {
@@ -301,6 +348,7 @@ export function useBranchManagement({
     showSubmitReview,
     setShowSubmitReview,
     isBranchSwitching,
+    isPulling,
     gitError,
     setGitError,
     showConflictResolution,
@@ -310,6 +358,7 @@ export function useBranchManagement({
     fetchBranchInfo,
     checkGitStatus,
     handleBranchSwitch,
+    handlePullLatest,
     handlePublishError,
     handleResolveConflicts,
     handleConflictsResolved,

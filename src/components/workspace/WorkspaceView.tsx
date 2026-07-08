@@ -243,6 +243,7 @@ interface BranchProps {
   showSubmitReview: string | null;
   setShowSubmitReview: (branch: string | null) => void;
   isBranchSwitching: boolean;
+  isPulling: boolean;
   gitError: {
     errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic';
     message: string;
@@ -260,6 +261,7 @@ interface BranchProps {
   fetchBranchInfo: (projectPath: string) => Promise<void>;
   checkGitStatus: (projectPath: string) => Promise<void>;
   handleBranchSwitch: (branchName: string) => Promise<void>;
+  handlePullLatest: () => Promise<void>;
   handlePublishError: (
     error: string,
     errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic'
@@ -557,6 +559,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     showSubmitReview,
     setShowSubmitReview,
     isBranchSwitching,
+    isPulling,
     gitError,
     setGitError,
     showConflictResolution,
@@ -564,6 +567,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     fetchBranchInfo,
     checkGitStatus,
     handleBranchSwitch,
+    handlePullLatest,
     handlePublishError,
     handleResolveConflicts,
     handleConflictsResolved,
@@ -728,6 +732,9 @@ export const WorkspaceView = memo(function WorkspaceView({
     setWorkspaceTab,
     setShowSubmitReview,
     handleResolveConflicts: () => void handleResolveConflicts(),
+    openPushDropdown: () => setForcePublishOpen(true),
+    handlePullLatest: () => void handlePullLatest(),
+    isGitHubConnected: integrations.projectGithub?.status === 'connected',
   });
 
   // Shopify themes: preview gate state + palette commands.
@@ -905,6 +912,8 @@ export const WorkspaceView = memo(function WorkspaceView({
           void checkGitStatus(currentProject.path);
         }}
         onSave={() => setForcePublishOpen(true)}
+        onPullLatest={() => void handlePullLatest()}
+        isPulling={isPulling}
       />
     ) : null;
 

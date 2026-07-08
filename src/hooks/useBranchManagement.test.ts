@@ -299,6 +299,102 @@ describe('useBranchManagement', () => {
     });
   });
 
+  describe('handlePullLatest', () => {
+    it('toasts a distinct message when already up to date', async () => {
+      vi.mocked(branches.pullAndMerge).mockResolvedValue('Already up to date.');
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handlePullLatest();
+      });
+
+      expect(branches.pullAndMerge).toHaveBeenCalledWith('/test/path');
+      expect(params.showToast).toHaveBeenCalledWith('Already up to date with GitHub', 'success');
+    });
+
+    it('toasts success and schedules a preview refresh when changes were pulled', async () => {
+      vi.mocked(branches.pullAndMerge).mockResolvedValue(
+        'Updating abc123..def456\nFast-forward\n 2 files changed'
+      );
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handlePullLatest();
+      });
+
+      expect(params.showToast).toHaveBeenCalledWith(
+        'Pulled the latest changes from GitHub',
+        'success'
+      );
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(params.previewRef.current?.refresh).toHaveBeenCalled();
+    });
+
+    it('opens the conflict resolver when the pull hits merge conflicts', async () => {
+      vi.mocked(branches.pullAndMerge).mockRejectedValue(
+        new Error('MERGE_CONFLICT:CONFLICT (content): Merge conflict in src/app.ts')
+      );
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handlePullLatest();
+      });
+
+      expect(result.current.showConflictResolution).toBe(true);
+    });
+
+    it('explains when the branch has no upstream, keeping the git detail', async () => {
+      vi.mocked(branches.pullAndMerge).mockRejectedValue(
+        new Error('Failed to merge: There is no tracking information for the current branch.')
+      );
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handlePullLatest();
+      });
+
+      const [message, type] = vi.mocked(params.showToast).mock.calls[0];
+      expect(type).toBe('error');
+      expect(message).toContain("isn't on GitHub yet");
+      expect(message).toContain('no tracking information');
+      expect(result.current.showConflictResolution).toBe(false);
+    });
+
+    it('surfaces other failures verbatim with a Pull failed prefix', async () => {
+      vi.mocked(branches.pullAndMerge).mockRejectedValue(
+        new Error('Failed to merge: unable to access remote')
+      );
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handlePullLatest();
+      });
+
+      const [message, type] = vi.mocked(params.showToast).mock.calls[0];
+      expect(type).toBe('error');
+      expect(message).toContain('Pull failed:');
+      expect(message).toContain('unable to access remote');
+    });
+
+    it('does nothing without a project', async () => {
+      const params = createParams({ currentProject: null });
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handlePullLatest();
+      });
+
+      expect(branches.pullAndMerge).not.toHaveBeenCalled();
+    });
+  });
+
   describe('clearBranchState', () => {
     it('resets all branch state', async () => {
       const params = createParams();

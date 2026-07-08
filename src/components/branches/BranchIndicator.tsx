@@ -6,6 +6,7 @@
  * - Branch name
  * - "Live" badge if on main branch
  * - "Unsaved" badge if there are uncommitted changes
+ * - A small pull button (git pull) when `onPullLatest` is provided
  *
  * When hovering over "Unsaved" badge, shows a dropdown with the list
  * of changed files.
@@ -16,7 +17,8 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { BranchIcon, ChevronIcon, FileIcon, TrashIcon } from '../icons';
+import { BranchIcon, ChevronIcon, FileIcon, SyncIcon, TrashIcon } from '../icons';
+import { Spinner } from '../primitives/Spinner';
 import { ChangedFile, ChangeStatus } from '../../lib/git';
 import { discardChanges } from '../../lib/branches';
 import { DiffModal } from './DiffModal';
@@ -38,8 +40,12 @@ interface BranchIndicatorProps {
   onClick: () => void;
   /** Callback when changes are discarded */
   onDiscard?: () => void;
-  /** Callback when Save button is clicked - should open publish dropdown */
+  /** Callback when Push button is clicked - should open the push dropdown */
   onSave?: () => void;
+  /** Callback for the small pull button (git pull). Omit to hide the button. */
+  onPullLatest?: () => void;
+  /** Whether a pull is currently in flight (shows a spinner on the pull button) */
+  isPulling?: boolean;
   /** Whether the project has a preview to return to — web iframe or device
    *  mirror (defaults to true). Gates the "back to preview" affordance. */
   hasPreview?: boolean;
@@ -54,6 +60,8 @@ export function BranchIndicator({
   onClick,
   onDiscard,
   onSave,
+  onPullLatest,
+  isPulling = false,
   hasPreview = true,
 }: BranchIndicatorProps) {
   const { showToast } = useOptionalToast();
@@ -186,6 +194,21 @@ export function BranchIndicator({
         {hasUncommittedChanges && <span className="branch-unsaved-badge">Unsaved</span>}
       </button>
 
+      {onPullLatest && (
+        <button
+          className="branch-pull-button"
+          title="Pull the latest changes from GitHub"
+          aria-label="Pull the latest changes from GitHub"
+          disabled={isPulling}
+          onClick={(e) => {
+            e.stopPropagation();
+            onPullLatest();
+          }}
+        >
+          {isPulling ? <Spinner size="sm" /> : <SyncIcon size={13} />}
+        </button>
+      )}
+
       {showDropdown && changedFiles.length > 0 && (
         <div className="branch-changes-dropdown">
           <div className="branch-changes-header">
@@ -214,7 +237,7 @@ export function BranchIndicator({
           </div>
           <div className="branch-changes-footer">
             <button className="branch-changes-save-btn" onClick={handleSave}>
-              Save
+              Push
             </button>
             <button
               className={`branch-changes-discard-btn ${confirmDiscard ? 'confirming' : ''}`}

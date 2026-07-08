@@ -126,6 +126,7 @@ property), `bulk` (count, from the Code view's save), or `created_rule`.
 | `branch_switched` | — |
 | `branch_deleted` | — |
 | `branch_published` | `is_main`, `branch`, `time_since_last_publish_seconds` |
+| `git_pulled` | `result` (`pulled` / `up_to_date` / `merge_conflict`) |
 | `pr_created` | `base_branch`, `used_ai`, `title_length`, `description_length` |
 | `pr_merged` | `head_ref`, `base_ref` |
 | `pr_closed` | — |

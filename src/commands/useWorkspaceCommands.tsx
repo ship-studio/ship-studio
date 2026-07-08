@@ -1,5 +1,5 @@
 import { useCommands } from './useCommands';
-import { BranchIcon, PlusIcon } from '../components/icons';
+import { BranchIcon, PlusIcon, SyncIcon, UploadIcon } from '../components/icons';
 
 /**
  * Workspace-scoped palette commands (Branches, PR flows).
@@ -18,6 +18,12 @@ export interface UseWorkspaceCommandsParams {
   setWorkspaceTab: (tab: 'preview' | 'code' | 'branches' | 'prs') => void;
   setShowSubmitReview: (branch: string | null) => void;
   handleResolveConflicts: () => void | Promise<void>;
+  /** Opens the header Push dropdown */
+  openPushDropdown: () => void;
+  /** Pulls the latest changes from GitHub (routes conflicts to the resolver) */
+  handlePullLatest: () => void;
+  /** Push/pull commands only make sense with a connected GitHub repo */
+  isGitHubConnected: boolean;
 }
 
 const PullRequestGlyph = () => (
@@ -63,9 +69,31 @@ export function useWorkspaceCommands({
   setWorkspaceTab,
   setShowSubmitReview,
   handleResolveConflicts,
+  openPushDropdown,
+  handlePullLatest,
+  isGitHubConnected,
 }: UseWorkspaceCommandsParams) {
   useCommands(
     () => [
+      {
+        id: 'git.push',
+        title: 'Push to GitHub',
+        subtitle: hasUncommittedChanges ? 'Commits your changes, then pushes' : undefined,
+        icon: <UploadIcon size={14} />,
+        category: 'branch',
+        when: ({ kind }) => kind === 'project' && isGitHubConnected,
+        keywords: ['publish', 'sync', 'upload', 'commit', 'git'],
+        run: openPushDropdown,
+      },
+      {
+        id: 'git.pull',
+        title: 'Pull latest from GitHub',
+        icon: <SyncIcon size={14} />,
+        category: 'branch',
+        when: ({ kind }) => kind === 'project' && isGitHubConnected,
+        keywords: ['sync', 'fetch', 'update', 'download', 'git'],
+        run: handlePullLatest,
+      },
       {
         id: 'branch.switch',
         title: 'Switch branch…',
@@ -129,6 +157,9 @@ export function useWorkspaceCommands({
       setWorkspaceTab,
       setShowSubmitReview,
       handleResolveConflicts,
+      openPushDropdown,
+      handlePullLatest,
+      isGitHubConnected,
     ]
   );
 }

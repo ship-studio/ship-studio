@@ -1,8 +1,10 @@
 /**
- * Simplified publish dropdown for branch-based workflow.
+ * The header Push dropdown.
  *
- * Publishes the current branch to origin. Shows different messaging
- * for main branch (production) vs feature branches.
+ * Commits any uncommitted changes and pushes the current branch to origin.
+ * The trigger button always reads "Push" — standard git terminology — while
+ * the dropdown body carries the main-branch context (pushing to main updates
+ * the live site) vs feature-branch context (create a PR to go live).
  *
  * @module components/PublishBranchDropdown
  */
@@ -164,7 +166,7 @@ export function PublishBranchDropdown({
         $screen_name: 'Workspace',
       });
       lastPublishAt = now;
-      onToast?.(isMainBranch ? 'Pushed to GitHub!' : 'Changes synced to GitHub!', 'success');
+      onToast?.('Pushed to GitHub!', 'success');
       onStatusChange();
       setPublishState({ status: 'success' });
     } catch (e) {
@@ -182,7 +184,7 @@ export function PublishBranchDropdown({
       logger.error('Publish failed', { branch: currentBranch, errorType, message });
       trackError('git_push', e, 'Workspace');
       setPublishState({ status: 'error', message, errorType });
-      onToast?.(`${isMainBranch ? 'Publish' : 'Sync'} failed: ${message}`, 'error');
+      onToast?.(`Push failed: ${message}`, 'error');
 
       // Notify parent about the error for GitErrorHandler
       if (onPublishError) {
@@ -207,9 +209,9 @@ export function PublishBranchDropdown({
           className="publish-button publish-checking"
           data-education-id="publish-button"
           disabled
-          title="Checking status..."
+          title="Checking GitHub status..."
         >
-          Checking...
+          Push
           <ChevronIcon />
         </button>
       </div>
@@ -226,7 +228,7 @@ export function PublishBranchDropdown({
           disabled
           title="Create a GitHub repository first"
         >
-          Publish
+          Push
           <ChevronIcon />
         </button>
       </div>
@@ -243,15 +245,7 @@ export function PublishBranchDropdown({
         data-education-id="publish-button"
         onClick={() => setIsOpen(!isOpen)}
       >
-        {isPublishing
-          ? isMainBranch
-            ? 'Publishing...'
-            : 'Syncing...'
-          : !canSync
-            ? 'Synced'
-            : isMainBranch
-              ? 'Publish'
-              : 'Sync'}
+        {isPublishing ? 'Pushing...' : 'Push'}
         <ChevronIcon />
       </button>
 
@@ -262,11 +256,11 @@ export function PublishBranchDropdown({
             <>
               <div className="publish-success">
                 <SuccessIcon />
-                <span>{isMainBranch ? 'Published!' : 'Changes synced'}</span>
+                <span>Pushed!</span>
               </div>
               {!isMainBranch && (
                 <div className="publish-branch-hint">
-                  This change has been synced to the <strong>{currentBranch}</strong> branch.
+                  Your changes are on the <strong>{currentBranch}</strong> branch on GitHub.
                   {onCreatePR && (
                     <>
                       {' '}
@@ -298,7 +292,7 @@ export function PublishBranchDropdown({
             <>
               <div className="publish-error-header">
                 <ErrorIcon />
-                <span>{isMainBranch ? 'Failed to publish' : 'Failed to sync'}</span>
+                <span>Push failed</span>
               </div>
               <div className="publish-error-message">
                 {publishState.errorType === 'push_rejected'
@@ -326,7 +320,7 @@ export function PublishBranchDropdown({
             <>
               <div className="publish-in-progress-header">
                 <Spinner />
-                <span>{isMainBranch ? 'Publishing to production...' : 'Syncing changes...'}</span>
+                <span>Pushing to GitHub...</span>
               </div>
               <div className="publish-actions">
                 <button className="publish-close" onClick={() => setIsOpen(false)}>
@@ -340,7 +334,7 @@ export function PublishBranchDropdown({
           {publishState.status === 'idle' && canSync && (
             <>
               <div className="publish-branch-header">
-                <h3>{isMainBranch ? 'Publish to Production' : 'Sync your changes'}</h3>
+                <h3>Push to GitHub</h3>
               </div>
 
               <div className="publish-branch-body">
@@ -358,7 +352,8 @@ export function PublishBranchDropdown({
 
                 {!isMainBranch && (
                   <div className="publish-branch-description">
-                    This will save your work to GitHub so others can see it.
+                    Commits your changes and pushes the <strong>{currentBranch}</strong> branch to
+                    GitHub.
                   </div>
                 )}
               </div>
@@ -372,7 +367,7 @@ export function PublishBranchDropdown({
                   onClick={() => void handlePublish()}
                   disabled={isPublishing}
                 >
-                  {isMainBranch ? 'Go Live' : 'Sync'}
+                  Push
                 </button>
               </div>
             </>
@@ -383,7 +378,7 @@ export function PublishBranchDropdown({
             <>
               <div className="publish-success">
                 <SuccessIcon />
-                <span>All changes synced</span>
+                <span>Nothing to push — GitHub is up to date</span>
               </div>
               <div className="publish-actions publish-actions-center">
                 <button className="publish-done" onClick={handleDone}>

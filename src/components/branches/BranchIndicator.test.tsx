@@ -139,4 +139,53 @@ describe('BranchIndicator', () => {
     expect(screen.getByText('-')).toBeInTheDocument(); // deleted
     expect(screen.getByText('R')).toBeInTheDocument(); // renamed
   });
+
+  describe('pull button', () => {
+    it('is hidden when onPullLatest is not provided', () => {
+      render(<BranchIndicator {...defaultProps} />);
+
+      expect(
+        screen.queryByRole('button', { name: 'Pull the latest changes from GitHub' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('calls onPullLatest when clicked, without triggering the branch onClick', () => {
+      const onClick = vi.fn();
+      const onPullLatest = vi.fn();
+      render(<BranchIndicator {...defaultProps} onClick={onClick} onPullLatest={onPullLatest} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Pull the latest changes from GitHub' }));
+
+      expect(onPullLatest).toHaveBeenCalledTimes(1);
+      expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it('is disabled while a pull is in flight', () => {
+      const onPullLatest = vi.fn();
+      render(<BranchIndicator {...defaultProps} onPullLatest={onPullLatest} isPulling={true} />);
+
+      const button = screen.getByRole('button', { name: 'Pull the latest changes from GitHub' });
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+      expect(onPullLatest).not.toHaveBeenCalled();
+    });
+  });
+
+  it('labels the changes-dropdown action "Push"', () => {
+    render(
+      <BranchIndicator
+        {...defaultProps}
+        hasUncommittedChanges={true}
+        changedFiles={[{ path: 'test.ts', status: 'modified' }]}
+      />
+    );
+
+    const indicator = screen.getByText('feature/test').closest('.branch-indicator');
+    if (indicator) {
+      fireEvent.mouseEnter(indicator);
+    }
+
+    expect(screen.getByText('Push')).toBeInTheDocument();
+    expect(screen.queryByText('Save')).not.toBeInTheDocument();
+  });
 });
