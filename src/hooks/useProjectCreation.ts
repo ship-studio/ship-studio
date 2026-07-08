@@ -118,13 +118,6 @@ export const TEMPLATES: Template[] = [
     category: 'web',
   },
   {
-    id: 'nuxt-basic',
-    name: 'Nuxt',
-    description: 'Best for Vue teams building full-stack apps with server rendering.',
-    repo: 'https://github.com/ship-studio/nuxt-static-marketing-site-starter',
-    category: 'web',
-  },
-  {
     id: 'html-basic',
     name: 'HTML/CSS/JS',
     description: 'A plain site with no framework or build step — just HTML, CSS, and JS.',
