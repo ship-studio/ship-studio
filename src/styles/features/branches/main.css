@@ -15,7 +15,9 @@
   justify-content: center;
   gap: 6px;
   height: 28px;
-  padding: 0 var(--spacing-md);
+  /* Optically balanced: the icon glyph carries ~2px of built-in air on its
+     left while the text ends flush right, so equal padding reads lopsided. */
+  padding: 0 var(--spacing-md) 0 var(--spacing-sm);
   flex-shrink: 0;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
