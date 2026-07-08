@@ -1,5 +1,5 @@
 import { useCommands } from './useCommands';
-import { BranchIcon, PlusIcon, SyncIcon, UploadIcon } from '../components/icons';
+import { BranchIcon, PlusIcon, PullIcon, UploadIcon } from '../components/icons';
 
 /**
  * Workspace-scoped palette commands (Branches, PR flows).
@@ -88,7 +88,7 @@ export function useWorkspaceCommands({
       {
         id: 'git.pull',
         title: 'Pull latest from GitHub',
-        icon: <SyncIcon size={14} />,
+        icon: <PullIcon size={14} />,
         category: 'branch',
         when: ({ kind }) => kind === 'project' && isGitHubConnected,
         keywords: ['sync', 'fetch', 'update', 'download', 'git'],

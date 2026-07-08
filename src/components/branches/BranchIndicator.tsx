@@ -17,7 +17,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { BranchIcon, ChevronIcon, FileIcon, SyncIcon, TrashIcon } from '../icons';
+import { BranchIcon, ChevronIcon, FileIcon, PullIcon, TrashIcon } from '../icons';
 import { Spinner } from '../primitives/Spinner';
 import { ChangedFile, ChangeStatus } from '../../lib/git';
 import { discardChanges } from '../../lib/branches';
@@ -205,7 +205,7 @@ export function BranchIndicator({
             onPullLatest();
           }}
         >
-          {isPulling ? <Spinner size="sm" /> : <SyncIcon size={13} />}
+          {isPulling ? <Spinner size="sm" /> : <PullIcon size={13} />}
           <span>Pull</span>
         </button>
       )}

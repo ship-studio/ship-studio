@@ -85,7 +85,7 @@
    well before they actually overflow. Keep this breakpoint in sync with the
    terminal toolbar's (workspace/terminal.css) so every label collapses in
    unison. */
-@media (max-width: 1980px) {
+@media (max-width: 1600px) {
   .workspace-header .toolbar-btn-label,
   .workspace-header .workspace-tab > span,
   .workspace-header .branch-pull-button > span {
