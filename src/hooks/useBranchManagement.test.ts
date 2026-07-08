@@ -366,6 +366,26 @@ describe('useBranchManagement', () => {
       expect(result.current.showConflictResolution).toBe(false);
     });
 
+    it('explains that git stopped safely when local changes would be overwritten', async () => {
+      vi.mocked(branches.pullAndMerge).mockRejectedValue(
+        new Error(
+          'Failed to merge: error: Your local changes to the following files would be overwritten by merge:\n\tsrc/app.ts\nPlease commit your changes or stash them before you merge.'
+        )
+      );
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handlePullLatest();
+      });
+
+      const [message, type] = vi.mocked(params.showToast).mock.calls[0];
+      expect(type).toBe('error');
+      expect(message).toContain('nothing was touched');
+      expect(message).toContain('would be overwritten by merge');
+      expect(result.current.showConflictResolution).toBe(false);
+    });
+
     it('surfaces other failures verbatim with a Pull failed prefix', async () => {
       vi.mocked(branches.pullAndMerge).mockRejectedValue(
         new Error('Failed to merge: unable to access remote')

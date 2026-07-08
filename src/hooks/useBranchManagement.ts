@@ -241,6 +241,13 @@ export function useBranchManagement({
           `This branch isn't on GitHub yet, so there's nothing to pull — push it first. (git said: ${message})`,
           'error'
         );
+      } else if (/would be overwritten by (merge|checkout)/i.test(message)) {
+        // Git refused because the incoming commits touch files with local
+        // uncommitted edits. Nothing was changed — the working tree is safe.
+        showToast(
+          `The pull would overwrite unsaved changes, so git stopped — nothing was touched. Push (or discard) your changes first, then pull again. (git said: ${message})`,
+          'error'
+        );
       } else {
         logger.error('Pull failed', { message });
         trackError('git_pull', e, 'Workspace');
