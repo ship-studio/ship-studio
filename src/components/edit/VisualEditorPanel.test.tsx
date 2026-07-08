@@ -611,6 +611,63 @@ describe('VisualEditorPanel', () => {
     expect(width.value).toBe('full');
   });
 
+  // ── Length preset menu (styled SuggestionPopover, not the OS datalist) ──
+
+  it('opens a styled preset menu on focus and picks with Enter', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass=""
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
+    fireEvent.focus(width);
+
+    // The app's own listbox renders (portaled), showing the presets.
+    const menu = screen.getByRole('listbox');
+    expect(menu).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'full' })).toBeInTheDocument();
+
+    // Arrows navigate the menu while it's open; Enter picks the active preset.
+    fireEvent.keyDown(width, { key: 'ArrowDown' });
+    fireEvent.keyDown(width, { key: 'Enter' });
+    expect(onApplyEnum).toHaveBeenCalledTimes(1);
+    const [token] = onApplyEnum.mock.calls[0] as [string];
+    expect(token.startsWith('w-')).toBe(true);
+  });
+
+  it('filters presets while typing a keyword', () => {
+    render(<VisualEditorPanel {...mk()} selection={resolvedSelection} currentClass="" />);
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
+    fireEvent.focus(width);
+    fireEvent.change(width, { target: { value: 'fu' } });
+
+    expect(screen.getByRole('option', { name: 'full' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'screen' })).not.toBeInTheDocument();
+  });
+
+  it('suppresses the preset menu on numeric text so arrows keep stepping', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass="w-64"
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
+    fireEvent.focus(width);
+
+    // Numeric value: no menu, arrows step the number instead of navigating.
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    fireEvent.keyDown(width, { key: 'ArrowUp' });
+    expect(onApplyEnum).toHaveBeenLastCalledWith('w-65', { width: '16.25rem' });
+  });
+
   // ── Image section (asset replacement) ──
 
   const imgSelection: Selection = {

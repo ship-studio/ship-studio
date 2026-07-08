@@ -388,7 +388,7 @@ function NestedSelectorInput({
 }
 
 /** A click-to-edit `@media` condition chip (shows the compact label, edits the raw
- *  condition with a native datalist of common conditions). */
+ *  condition with a styled SuggestionPopover of common conditions). */
 function MediaChip({
   condition,
   onCommit,
