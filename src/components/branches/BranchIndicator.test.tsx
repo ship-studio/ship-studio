@@ -149,6 +149,12 @@ describe('BranchIndicator', () => {
       ).not.toBeInTheDocument();
     });
 
+    it('shows a visible "Pull" label', () => {
+      render(<BranchIndicator {...defaultProps} onPullLatest={vi.fn()} />);
+
+      expect(screen.getByText('Pull')).toBeInTheDocument();
+    });
+
     it('calls onPullLatest when clicked, without triggering the branch onClick', () => {
       const onClick = vi.fn();
       const onPullLatest = vi.fn();

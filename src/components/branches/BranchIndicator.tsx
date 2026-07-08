@@ -206,6 +206,7 @@ export function BranchIndicator({
           }}
         >
           {isPulling ? <Spinner size="sm" /> : <SyncIcon size={13} />}
+          <span>Pull</span>
         </button>
       )}
 

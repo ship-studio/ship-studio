@@ -219,7 +219,7 @@ Please help me understand what each version does and recommend which one to keep
   const handleSendToAgent = useCallback(() => {
     if (!onSendToAgent) return;
 
-    const fileList = files.map((f) => `- ${f.filePath}`).join('\n');
+    const fileList = (filesData ?? []).map((f) => `- ${f.filePath}`).join('\n');
     const prompt = `This project has git merge conflicts that I need you to resolve.
 
 Conflicted files:
@@ -235,7 +235,7 @@ If a resolution is genuinely ambiguous, show me the options and ask before choos
     onSendToAgent(prompt);
     onToast?.('Sent to your agent — continue in the terminal', 'success');
     onClose();
-  }, [onSendToAgent, files, onToast, onClose]);
+  }, [onSendToAgent, filesData, onToast, onClose]);
 
   const truncateContent = (content: string): { text: string; truncated: number } => {
     const lines = content.split('\n');

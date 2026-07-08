@@ -3,21 +3,25 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--spacing-sm);
 }
 
-/* Small square pull-latest button beside the branch chip (git pull) */
+/* Small pull-latest button beside the branch chip (git pull). Icon + "Pull"
+   label at full width; the label collapses at the header's icon-only
+   breakpoint (workspace/main.css), which also squares the button. */
 .branch-pull-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  gap: 6px;
   height: 28px;
+  padding: 0 var(--spacing-md);
   flex-shrink: 0;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-secondary);
+  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color var(--transition),

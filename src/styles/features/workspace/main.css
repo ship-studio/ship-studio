@@ -78,20 +78,28 @@
   border-bottom: 1px solid var(--border);
 }
 
-/* Narrow windows: collapse the header's text labels to icon-only so every
-   control stays visible (and reachable) instead of overflowing or scrolling
-   out of sight. The icons + tooltips carry the meaning. Keep this breakpoint in
-   sync with the terminal toolbar's (workspace/terminal.css) so every label
-   collapses in unison. */
-@media (max-width: 1300px) {
+/* Collapse the header's text labels to icon-only so every control stays
+   visible (and reachable) instead of overflowing or scrolling out of sight.
+   The icons + tooltips carry the meaning. Only genuinely wide windows keep
+   labels — the header carries enough controls that labels crowd each other
+   well before they actually overflow. Keep this breakpoint in sync with the
+   terminal toolbar's (workspace/terminal.css) so every label collapses in
+   unison. */
+@media (max-width: 1980px) {
   .workspace-header .toolbar-btn-label,
-  .workspace-header .workspace-tab > span {
+  .workspace-header .workspace-tab > span,
+  .workspace-header .branch-pull-button > span {
     display: none;
   }
 
   /* Tighter tab padding once they're icon-only. */
   .workspace-header .workspace-tab {
     padding: 0 var(--spacing-sm);
+  }
+
+  .workspace-header .branch-pull-button {
+    padding: 0;
+    width: 28px;
   }
 }
 
