@@ -51,7 +51,10 @@ echo "Components (.tsx limit 1200):"
 # Bumped again (small) for plugin failure surfacing (#165): pluginFailures and
 # the hosting-plugin count threaded into PluginsDropdown, usePlugins onError
 # wired to showToast. Pure wiring; the logic lives in usePlugins/PluginsDropdown.
-check_file src/components/workspace/WorkspaceView.tsx 1615
+# Bumped again (small) for the pull-latest button: isPulling/handlePullLatest
+# threaded from useBranchManagement to BranchIndicator + the git.push/git.pull
+# palette params. Pure wiring; the pull logic lives in useBranchManagement.
+check_file src/components/workspace/WorkspaceView.tsx 1625
 check_file src/components/dashboard/ProjectList.tsx 900
 check_file src/components/plugins/PluginManager.tsx 700
 check_file src/components/dashboard/ImportProject.tsx 500
