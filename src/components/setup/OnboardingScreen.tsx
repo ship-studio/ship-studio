@@ -154,6 +154,18 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const stepEnteredAtRef = useRef<Map<WizardStepId, number>>(new Map());
 
+  // The staggered post-exit re-checks (recheckWithDelays: 600/1500/3000ms)
+  // outlive fast unmounts — their continuations must not dispatch state into
+  // an unmounted tree (surfaced as a "window is not defined" teardown crash
+  // in CI, and a setState-after-unmount warning in the app).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   // Track each step entry: pageview, setup_step_entered, and remember when
   // we entered so the completion event can carry duration_ms.
   useEffect(() => {
@@ -202,11 +214,15 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         SETUP_STATUS_TIMEOUT_MS,
         'Setup status check'
       );
+      // Callers reach here from delayed re-checks that can outlive the
+      // wizard — never dispatch into an unmounted tree.
+      if (!mountedRef.current) return status;
       setItems(status.items);
       setError(null);
       return status;
     } catch (err) {
       logger.warn('Failed to fetch setup status', { error: err });
+      if (!mountedRef.current) return null;
       setError(
         err instanceof TimeoutError
           ? 'Setup check timed out — click Retry. If this persists, restart Ship Studio.'
@@ -327,8 +343,13 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
           });
         }
 
+        // The re-checks above can span seconds — bail before touching state
+        // if the wizard unmounted mid-wait.
+        if (!mountedRef.current) return;
+
         // Sync the checklist with reality either way.
         await fetchStatus();
+        if (!mountedRef.current) return;
 
         if (!verified) {
           void trackEvent('setup_action_failed', {
