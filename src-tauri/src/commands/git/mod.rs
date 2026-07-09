@@ -306,7 +306,12 @@ pub async fn ensure_shipstudio_dir() -> Result<String, CommandError> {
     let projects_dir = crate::utils::projects_root()?;
 
     if !projects_dir.exists() {
-        std::fs::create_dir_all(&projects_dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&projects_dir).map_err(|e| {
+            format!(
+                "Failed to create projects directory '{}': {e}",
+                projects_dir.display()
+            )
+        })?;
     }
 
     Ok(projects_dir.to_string_lossy().to_string())

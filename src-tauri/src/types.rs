@@ -764,6 +764,12 @@ pub struct AppState {
     /// macOS beta / GPU-driver combinations).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_gpu_enabled: Option<bool>,
+    /// Consent for automatic project-thumbnail capture. `None` = the user has
+    /// never been asked (the in-app explainer is shown before the first
+    /// auto-capture), `Some(true)` = allowed, `Some(false)` = opted out or a
+    /// capture failed because macOS Screen Recording permission was denied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnails_enabled: Option<bool>,
     /// Workspaces (org/client accounts) with isolated Claude/GitHub config and credentials
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accounts: Vec<Account>,

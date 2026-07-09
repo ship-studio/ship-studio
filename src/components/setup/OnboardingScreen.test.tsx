@@ -15,6 +15,7 @@ import {
   makeSetupStatus,
   ALL_READY_CLAUDE_ONLY,
   ALL_READY_BOTH_AGENTS,
+  ALL_READY_CODEX_ONLY,
   FRESH_INSTALL_ITEMS,
   STEP1_COMPLETE_STATUS,
   STEP1_COMPLETE_ITEMS,
@@ -104,6 +105,18 @@ vi.mock('./OnboardingTerminal', () => ({
         onClick={() => onExit(1, '✓ Logged in to github.com account juliangalluzzo (keyring)\n')}
       >
         Exit 1 (gh already logged in)
+      </button>
+      <button
+        data-testid="terminal-exit-1-network"
+        onClick={() => onExit(1, 'curl: (6) Could not resolve host: claude.ai\n')}
+      >
+        Exit 1 (network failure)
+      </button>
+      <button
+        data-testid="terminal-exit-1-sudo"
+        onClick={() => onExit(1, 'sudo: a password is required\n')}
+      >
+        Exit 1 (sudo required)
       </button>
     </div>
   ),
@@ -646,6 +659,47 @@ describe('OnboardingScreen', () => {
       ).toBeInTheDocument();
     });
 
+    it('Back is inert while a terminal action is in flight', async () => {
+      // Start on step 2 (Back visible) with git+gh ready so gh_auth's Connect
+      // button is actionable
+      const items = STEP1_COMPLETE_ITEMS.map((i) => {
+        if (i.id === 'git') return { ...i, status: 'ready' as const, version: '2.43.0' };
+        if (i.id === 'gh') return { ...i, status: 'ready' as const, version: '2.40.0' };
+        return i;
+      });
+      mockInvoke('get_full_setup_status', makeSetupStatus({ items, detectedAgents: [] }));
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Save your work safely and publish it online. Required.')
+        ).toBeInTheDocument();
+      });
+
+      // Open a terminal via gh_auth Connect (pre-check must miss)
+      mockCheckGitHubCliStatus.mockResolvedValueOnce({ installed: true, authenticated: false });
+      act(() => {
+        fireEvent.click(screen.getAllByText('Connect')[0]);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      });
+
+      // Clicking Back mid-action must not navigate (same guard as Next)
+      act(() => {
+        fireEvent.click(screen.getByText('Back'));
+      });
+
+      expect(
+        screen.getByText('Save your work safely and publish it online. Required.')
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText('Install the tools needed to manage dependencies')
+      ).not.toBeInTheDocument();
+    });
+
     it('Back button is not visible on first step', async () => {
       mockInvoke('get_full_setup_status', FRESH_STATUS);
 
@@ -735,6 +789,10 @@ describe('OnboardingScreen', () => {
       await waitFor(() => {
         expect(screen.getByText("You're all set!")).toBeInTheDocument();
       });
+
+      // Hosting was skipped — the copy must not claim everything is connected
+      expect(screen.getByText('Your dev environment is ready')).toBeInTheDocument();
+      expect(screen.queryByText('Everything is installed and connected')).not.toBeInTheDocument();
     });
 
     it('navigating back then forward preserves items state', async () => {
@@ -1161,6 +1219,148 @@ describe('OnboardingScreen', () => {
       });
     });
 
+    it('homebrew failure with a network tail shows network guidance, not the admin hint', async () => {
+      mockInvoke('get_full_setup_status', FRESH_STATUS);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quick Setup')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Install')[0]);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-1-network'));
+      });
+      act(() => {
+        fireEvent.click(screen.getByText('Close'));
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'curl: (6) Could not resolve host: claude.ai — This looks like a network problem — check your internet connection and try again.'
+          )
+        ).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByText(
+          'Installation failed. Your macOS account may need administrator privileges.'
+        )
+      ).not.toBeInTheDocument();
+    });
+
+    it('homebrew failure mentioning sudo/password keeps the admin-privileges hint', async () => {
+      mockInvoke('get_full_setup_status', FRESH_STATUS);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quick Setup')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Install')[0]);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-1-sudo'));
+      });
+      act(() => {
+        fireEvent.click(screen.getByText('Close'));
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'Installation failed. Your macOS account may need administrator privileges.'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('homebrew failure with a real extracted error shows it instead of the admin hint', async () => {
+      mockInvoke('get_full_setup_status', FRESH_STATUS);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Quick Setup')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Install')[0]);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-1-npm-err'));
+      });
+      act(() => {
+        fireEvent.click(screen.getByText('Close'));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('npm ERR! EEXIST: file already exists')).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByText(
+          'Installation failed. Your macOS account may need administrator privileges.'
+        )
+      ).not.toBeInTheDocument();
+    });
+
+    it('non-homebrew failure with a network tail shows the network guidance', async () => {
+      // Step 3: first Install button is Claude Code
+      mockInvoke('get_full_setup_status', HAS_BASE_NO_AGENTS_STATUS);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Install')[0]);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      });
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-1-network'));
+      });
+      act(() => {
+        fireEvent.click(screen.getByText('Close'));
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'curl: (6) Could not resolve host: claude.ai — This looks like a network problem — check your internet connection and try again.'
+          )
+        ).toBeInTheDocument();
+      });
+      // The raw curl line is kept and the guidance appended — never replaced
+      // (standing rule: verbose context beats tidy summaries).
+      expect(screen.getByText(/Could not resolve host/)).toBeInTheDocument();
+    });
+
     it('failed item can be retried by clicking Retry', async () => {
       // Start with a status that has node in error state
       const items = FRESH_INSTALL_ITEMS.map((i) => {
@@ -1297,7 +1497,9 @@ describe('OnboardingScreen', () => {
   // ============ Auth verification after terminal ============
 
   describe('auth verification after terminal', () => {
-    it('gh_auth terminal exit 0 but not authenticated shows error', async () => {
+    it('gh_auth terminal exit 0 but not authenticated shows error after staggered re-checks', async () => {
+      vi.useFakeTimers();
+
       // Start on step 2 with git+gh ready, gh_auth not authenticated
       const items = STEP1_COMPLETE_ITEMS.map((i) => {
         if (i.id === 'git') return { ...i, status: 'ready' as const, version: '2.43.0' };
@@ -1307,46 +1509,104 @@ describe('OnboardingScreen', () => {
       const status = makeSetupStatus({ items, detectedAgents: [] });
       mockInvoke('get_full_setup_status', status);
 
+      // Every check misses: the pre-check (so the terminal opens) and all of
+      // the staggered post-exit re-checks (so failure is finally declared).
+      mockCheckGitHubCliStatus.mockResolvedValue({ installed: true, authenticated: false });
+
       render(<OnboardingScreen onComplete={onComplete} />);
 
-      await waitFor(() => {
-        expect(
-          screen.getByText('Save your work safely and publish it online. Required.')
-        ).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
-
-      // Find Connect button for gh_auth
-      const connectButtons = screen.getAllByText('Connect');
-      expect(connectButtons.length).toBeGreaterThan(0);
-
-      // Pre-check returns NOT authenticated — terminal will open
-      mockCheckGitHubCliStatus.mockResolvedValueOnce({ installed: true, authenticated: false });
-      // Post-terminal auth check also returns NOT authenticated
-      mockCheckGitHubCliStatus.mockResolvedValueOnce({ installed: true, authenticated: false });
+      expect(
+        screen.getByText('Save your work safely and publish it online. Required.')
+      ).toBeInTheDocument();
 
       // Click Connect → opens terminal
+      const connectButtons = screen.getAllByText('Connect');
       act(() => {
         fireEvent.click(connectButtons[0]);
       });
-
-      await waitFor(() => {
-        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
 
       // Terminal exits 0 (user thought auth was done, but it wasn't)
       act(() => {
         fireEvent.click(screen.getByTestId('terminal-exit-0'));
       });
 
-      // Auth verification should fail → show error
-      await waitFor(() => {
-        expect(
-          screen.getByText('Authentication not completed. Click to try again.')
-        ).toBeInTheDocument();
+      // Not failed yet — the wizard re-checks at 600/1500/3000ms first
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
       });
+      expect(
+        screen.queryByText('Authentication not completed. Click to try again.')
+      ).not.toBeInTheDocument();
+
+      // After the final re-check misses, the error is shown
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1600);
+      });
+      expect(
+        screen.getByText('Authentication not completed. Click to try again.')
+      ).toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+
+    it('gh_auth token landing a beat after exit is rescued by the 600ms re-check', async () => {
+      vi.useFakeTimers();
+
+      const items = STEP1_COMPLETE_ITEMS.map((i) => {
+        if (i.id === 'git') return { ...i, status: 'ready' as const, version: '2.43.0' };
+        if (i.id === 'gh') return { ...i, status: 'ready' as const, version: '2.40.0' };
+        return i;
+      });
+      const status = makeSetupStatus({ items, detectedAgents: [] });
+      mockInvoke('get_full_setup_status', status);
+
+      // Pre-check misses (terminal opens); the immediate post-exit check also
+      // misses (token not written yet); the 600ms re-check finds it.
+      mockCheckGitHubCliStatus
+        .mockResolvedValueOnce({ installed: true, authenticated: false })
+        .mockResolvedValueOnce({ installed: true, authenticated: false })
+        .mockResolvedValue({ installed: true, authenticated: true });
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => {
+        fireEvent.click(screen.getAllByText('Connect')[0]);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-0'));
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(700);
+      });
+
+      // No failure declared — the delayed re-check verified the auth
+      expect(
+        screen.queryByText('Authentication not completed. Click to try again.')
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId('mock-terminal')).not.toBeInTheDocument();
+
+      vi.useRealTimers();
     });
 
     it('claude_auth terminal exit 0 but not authenticated shows error', async () => {
+      vi.useFakeTimers();
+
       // Start on step 3 with Claude installed but not authenticated
       const items = HAS_BASE_NO_AGENTS_ITEMS.map((i) => {
         if (i.id === 'claude') return { ...i, status: 'ready' as const, version: '1.0.0' };
@@ -1359,14 +1619,16 @@ describe('OnboardingScreen', () => {
       });
       mockInvoke('get_full_setup_status', status);
 
-      // Mock claude auth check to return NOT authenticated
+      // Mock claude auth check to return NOT authenticated (pre-check and
+      // every staggered post-exit re-check)
       mockInvoke('check_claude_auth_status', false);
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
+      expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
 
       // Find Connect button for claude_auth
       const connectButtons = screen.getAllByText('Connect');
@@ -1375,24 +1637,29 @@ describe('OnboardingScreen', () => {
       act(() => {
         fireEvent.click(connectButtons[0]);
       });
-
-      await waitFor(() => {
-        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
 
-      // Terminal exits 0 but auth check fails
+      // Terminal exits 0 but the auth check keeps failing through all re-checks
       act(() => {
         fireEvent.click(screen.getByTestId('terminal-exit-0'));
       });
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('Authentication not completed. Click to try again.')
-        ).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100);
       });
+
+      expect(
+        screen.getByText('Authentication not completed. Click to try again.')
+      ).toBeInTheDocument();
+
+      vi.useRealTimers();
     });
 
     it('claude_auth failure surfaces the extracted error from the output tail', async () => {
+      vi.useFakeTimers();
+
       // Verification fails AND the tail names the real cause — show the cause,
       // not the generic "Authentication not completed" (issue #159).
       const items = HAS_BASE_NO_AGENTS_ITEMS.map((i) => {
@@ -1409,31 +1676,37 @@ describe('OnboardingScreen', () => {
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
+      expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
 
       act(() => {
         fireEvent.click(screen.getAllByText('Connect')[0]);
       });
-
-      await waitFor(() => {
-        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
 
       act(() => {
         fireEvent.click(screen.getByTestId('terminal-exit-0-auth-error'));
       });
-
-      await waitFor(() => {
-        expect(screen.getByText('Error: OAuth token exchange failed')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100);
       });
+
+      expect(screen.getByText('Error: OAuth token exchange failed')).toBeInTheDocument();
       expect(
         screen.queryByText('Authentication not completed. Click to try again.')
       ).not.toBeInTheDocument();
+
+      vi.useRealTimers();
     });
 
     it('claude_auth failure when the CLI says already-logged-in names the identity', async () => {
+      vi.useFakeTimers();
+
       // The #159 desync: the CLI insists it has a login, but the status check
       // disagrees. Tell the user what the CLI reported and where to fix it.
       const items = HAS_BASE_NO_AGENTS_ITEMS.map((i) => {
@@ -1450,29 +1723,33 @@ describe('OnboardingScreen', () => {
 
       render(<OnboardingScreen onComplete={onComplete} />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
+      expect(screen.getByText('Install at least one AI coding assistant')).toBeInTheDocument();
 
       act(() => {
         fireEvent.click(screen.getAllByText('Connect')[0]);
       });
-
-      await waitFor(() => {
-        expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
       });
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
 
       act(() => {
         fireEvent.click(screen.getByTestId('terminal-exit-0-already-logged-in'));
       });
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(
-            "Claude reports you're already signed in as julian@example.com — if this looks wrong, sign out from the Agents panel first."
-          )
-        ).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100);
       });
+
+      expect(
+        screen.getByText(
+          "Claude reports you're already signed in as julian@example.com — if this looks wrong, sign out from the Agents panel first."
+        )
+      ).toBeInTheDocument();
+
+      vi.useRealTimers();
     });
 
     it('gh_auth nonzero exit with already-logged-in tail names the gh identity', async () => {
@@ -1584,6 +1861,91 @@ describe('OnboardingScreen', () => {
       await waitFor(() => {
         expect(screen.queryByTestId('mock-terminal')).not.toBeInTheDocument();
       });
+    });
+  });
+
+  // ============ Post-success verification (audit #3/#4) ============
+
+  describe('post-success verification', () => {
+    it('install exiting 0 without the tool appearing surfaces a clear error', async () => {
+      vi.useFakeTimers();
+
+      // Homebrew stays not_installed in every refresh — the offline installer
+      // signature (curl substitution came back empty, bash exited 0).
+      mockInvoke('get_full_setup_status', FRESH_STATUS);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText('Quick Setup')).toBeInTheDocument();
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Install')[0]);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-0'));
+      });
+
+      // Terminal closes immediately; verification is still re-checking
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.queryByTestId('mock-terminal')).not.toBeInTheDocument();
+
+      // After the 600/1500/3000ms re-checks all miss, the item goes to error
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100);
+      });
+      expect(
+        screen.getByText(
+          "The command finished but Package Manager still isn't detected. If you're on a spotty connection, check your internet and try again."
+        )
+      ).toBeInTheDocument();
+
+      vi.useRealTimers();
+    });
+
+    it('install exiting 0 with the tool detected on refresh shows no error', async () => {
+      vi.useFakeTimers();
+
+      mockInvoke('get_full_setup_status', FRESH_STATUS);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      act(() => {
+        fireEvent.click(screen.getAllByText('Install')[0]);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId('mock-terminal')).toBeInTheDocument();
+
+      // The refreshed status shows homebrew ready → first verification passes
+      mockInvoke('get_full_setup_status', STEP1_COMPLETE_STATUS);
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('terminal-exit-0'));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(screen.queryByTestId('mock-terminal')).not.toBeInTheDocument();
+      expect(screen.queryByText(/still isn't detected/)).not.toBeInTheDocument();
+      expect(screen.getByText('Next')).not.toBeDisabled();
+
+      vi.useRealTimers();
     });
   });
 
@@ -1803,6 +2165,8 @@ describe('OnboardingScreen', () => {
     });
 
     it('both agents detected does not auto-set default (user must choose)', async () => {
+      // detectedAgents includes claude-code — the effective default — so the
+      // fast path leaves the choice alone.
       mockInvoke('get_full_setup_status', BOTH_AGENTS_STATUS);
       mockInvoke('set_default_agent_id', undefined);
 
@@ -1816,6 +2180,74 @@ describe('OnboardingScreen', () => {
       });
 
       // With both agents, handleAllComplete doesn't call set_default_agent_id
+      const setDefaultCalls = invokeMock.mock.calls.filter(
+        (c: string[]) => c[0] === 'set_default_agent_id'
+      );
+      expect(setDefaultCalls.length).toBe(0);
+    });
+
+    it('fast path with multiple agents repoints the default when it is not among them', async () => {
+      // Codex + Opencode ready, Claude absent. The backend default falls back
+      // to claude-code, which isn't installed — the fast path must repoint it
+      // at the first detected agent (audit #9).
+      const items = ALL_READY_CODEX_ONLY.map((i) => {
+        if (i.id === 'opencode') return { ...i, status: 'ready' as const, version: '0.1.0' };
+        if (i.id === 'opencode_auth')
+          return { ...i, status: 'ready' as const, username: 'oc-user' };
+        return i;
+      });
+      const status = makeSetupStatus({
+        allReady: true,
+        items,
+        optionalAuths: { githubAuthenticated: true },
+        detectedAgents: ['codex', 'opencode'],
+      });
+      mockInvoke('get_full_setup_status', status);
+      mockInvoke('get_default_agent_id', null); // unset → effective default is claude-code
+      mockInvoke('set_default_agent_id', undefined);
+
+      const { invoke } = await import('@tauri-apps/api/core');
+      const invokeMock = invoke as ReturnType<typeof vi.fn>;
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("You're all set!")).toBeInTheDocument();
+      });
+
+      const setDefaultCalls = invokeMock.mock.calls.filter(
+        (c: string[]) => c[0] === 'set_default_agent_id'
+      );
+      expect(setDefaultCalls.length).toBe(1);
+      expect(setDefaultCalls[0][1]).toEqual({ agentId: 'codex' });
+    });
+
+    it('fast path with multiple agents keeps a persisted default that is among them', async () => {
+      const items = ALL_READY_CODEX_ONLY.map((i) => {
+        if (i.id === 'opencode') return { ...i, status: 'ready' as const, version: '0.1.0' };
+        if (i.id === 'opencode_auth')
+          return { ...i, status: 'ready' as const, username: 'oc-user' };
+        return i;
+      });
+      const status = makeSetupStatus({
+        allReady: true,
+        items,
+        optionalAuths: { githubAuthenticated: true },
+        detectedAgents: ['codex', 'opencode'],
+      });
+      mockInvoke('get_full_setup_status', status);
+      mockInvoke('get_default_agent_id', 'opencode');
+      mockInvoke('set_default_agent_id', undefined);
+
+      const { invoke } = await import('@tauri-apps/api/core');
+      const invokeMock = invoke as ReturnType<typeof vi.fn>;
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("You're all set!")).toBeInTheDocument();
+      });
+
       const setDefaultCalls = invokeMock.mock.calls.filter(
         (c: string[]) => c[0] === 'set_default_agent_id'
       );
@@ -1960,12 +2392,13 @@ describe('OnboardingScreen', () => {
       // Next should be disabled (no agent pair ready)
       expect(screen.getByText('Next')).toBeDisabled();
 
-      // Install Codex (terminal item) — codex is the second agent, install buttons
-      // are: Claude Code (Install), Codex (Install). Click the Codex Install button.
+      // Install Codex (terminal item) — install buttons on the agent step are
+      // Claude Code, Codex, Opencode in order. Click the Codex one: the
+      // post-success verification checks the *clicked* item, so clicking a
+      // different agent would (correctly) flag it as not detected.
       const installButtons = screen.getAllByText('Install');
-      // Codex Install is the second Install button (Claude Code is first)
       act(() => {
-        fireEvent.click(installButtons[installButtons.length - 1]);
+        fireEvent.click(installButtons[1]);
       });
 
       await waitFor(() => {
@@ -2150,6 +2583,31 @@ describe('OnboardingScreen', () => {
 
       // Step 1 should show in the indicator — verify it's rendered
       expect(screen.getByText('Package Manager & Node.js')).toBeInTheDocument();
+    });
+
+    it('marks the current step as completed once its items are ready', async () => {
+      // Start on step 2 (step 1 complete), then navigate Back to step 1 —
+      // step 1 is both current and complete, and must keep its check mark.
+      mockInvoke('get_full_setup_status', STEP1_COMPLETE_STATUS);
+
+      render(<OnboardingScreen onComplete={onComplete} />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Save your work safely and publish it online. Required.')
+        ).toBeInTheDocument();
+      });
+
+      expect(document.querySelectorAll('.wizard-indicator-dot.completed').length).toBe(1);
+
+      act(() => {
+        fireEvent.click(screen.getByText('Back'));
+      });
+
+      expect(
+        screen.getByText('Install the tools needed to manage dependencies')
+      ).toBeInTheDocument();
+      expect(document.querySelectorAll('.wizard-indicator-dot.completed').length).toBe(1);
     });
 
     it('shows all 4 step labels in indicator', async () => {

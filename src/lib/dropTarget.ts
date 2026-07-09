@@ -9,8 +9,16 @@
  * whether the drop belongs to it, or a single drop fans out to every
  * agent's PTY (issue #167).
  *
- * The payload's `position` is a Tauri `PhysicalPosition` (device pixels);
- * DOM rects are in logical CSS pixels — convert before hit-testing.
+ * The payload's `position` is *typed* as a Tauri `PhysicalPosition`, but
+ * what wry actually delivers is platform-dependent:
+ *   - Windows: true device pixels (`ScreenToClient` on the raw screen point)
+ *   - macOS: AppKit points — ALREADY logical CSS pixels, passed through
+ *     unscaled (wry `wkwebview/drag_drop.rs` uses `draggingLocation()` with
+ *     no scale-factor conversion; tauri-runtime-wry wraps the tuple verbatim)
+ *   - GTK/Linux: logical, like macOS
+ * Dividing by devicePixelRatio on macOS therefore lands every Retina drop at
+ * half-coordinates, the hit-test misses, and drops are silently ignored —
+ * use {@link dropPointToLogical}, which only converts where conversion is due.
  */
 
 /** An x/y point. Physical or logical depending on context. */
@@ -35,6 +43,20 @@ export interface DropRect {
 export function physicalToLogical(position: DropPoint, devicePixelRatio: number): DropPoint {
   const scale = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
   return { x: position.x / scale, y: position.y / scale };
+}
+
+/**
+ * Normalize a Tauri drag-drop position to logical CSS pixels for rect
+ * hit-testing. Only Windows delivers true device pixels; macOS (and GTK)
+ * deliver logical coordinates despite the `PhysicalPosition` typing — see
+ * the module docs. Scaling those breaks every drop on a Retina display.
+ */
+export function dropPointToLogical(
+  position: DropPoint,
+  isWindowsPlatform: boolean,
+  devicePixelRatio: number
+): DropPoint {
+  return isWindowsPlatform ? physicalToLogical(position, devicePixelRatio) : position;
 }
 
 /**

@@ -14,6 +14,23 @@ import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { useOptionalToast } from '../contexts/ToastContext';
 import { isMac } from '../lib/setup';
+import { setThumbnailsEnabled } from '../lib/settings';
+import { isPermissionDenialError } from '../lib/thumbnailGate';
+import { asCommandError, formatCommandError } from '../lib/errors';
+
+/** Real underlying message for a capture failure (never "[object Object]"). */
+const captureErrorMessage = (error: unknown): string => formatCommandError(asCommandError(error));
+
+/**
+ * A capture failure that looks like a macOS Screen Recording denial also
+ * turns off background thumbnail capture, so the scary OS prompt is never
+ * re-triggered on a timer. Re-enable via Settings → Project thumbnails.
+ */
+const stopAutoCaptureIfDenied = (error: unknown): void => {
+  if (isPermissionDenialError(error)) {
+    void setThumbnailsEnabled(false);
+  }
+};
 
 interface UsePreviewCaptureParams {
   /** Absolute path to the project directory */
@@ -53,7 +70,7 @@ export function usePreviewCapture({
   const cropOverlayRef = useRef<HTMLDivElement>(null);
 
   // Shared helper: capture the current window and return the temp file path
-  const captureWindowScreenshot = useCallback(async (): Promise<string | null> => {
+  const captureWindowScreenshot = useCallback(async (): Promise<string> => {
     const { getScreenshotableWindows, getWindowScreenshot } =
       await import('tauri-plugin-screenshots-api');
 
@@ -64,7 +81,17 @@ export function usePreviewCapture({
     );
 
     if (!ourWindow) {
-      return null;
+      // macOS omits window titles from the capturable-windows list when Screen
+      // Recording permission is denied, so "our window is missing" is the
+      // denial signature there. Throw the real reason instead of silently
+      // returning null (the message doubles as the denial-detection signal).
+      throw new Error(
+        isMac()
+          ? "Ship Studio's window isn't visible to macOS screen capture — Screen Recording " +
+              'permission was likely denied. Allow Ship Studio in System Settings → ' +
+              'Privacy & Security → Screen Recording, then try again.'
+          : "Ship Studio's window wasn't found in the list of capturable windows."
+      );
     }
 
     return await getWindowScreenshot(ourWindow.id);
@@ -86,7 +113,6 @@ export function usePreviewCapture({
         if (!iframeWrapperRef.current) return null;
 
         const tempPath = await captureWindowScreenshot();
-        if (!tempPath) return null;
 
         const rect = iframeWrapperRef.current.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
@@ -113,10 +139,13 @@ export function usePreviewCapture({
         }
         return finalPath;
       } catch (error) {
-        logger.error('[Preview] Viewport capture failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        const message = captureErrorMessage(error);
+        logger.error('[Preview] Viewport capture failed', { error: message });
+        stopAutoCaptureIfDenied(error);
         if (!opts?.silent) {
+          // Surface the real underlying error — "couldn't capture" alone is
+          // undebuggable (and hides a denied Screen Recording permission).
+          showToast(`Couldn't capture the preview: ${message}`, 'error');
           void trackEvent('screenshot_captured', {
             mode: 'viewport',
             success: false,
@@ -128,7 +157,7 @@ export function usePreviewCapture({
         setIsCapturing(false);
       }
     },
-    [projectPath, captureWindowScreenshot, isCapturing]
+    [projectPath, captureWindowScreenshot, isCapturing, showToast]
   );
 
   // Full-page capture using Playwright (scrolls page to trigger lazy content, then captures)
@@ -139,7 +168,7 @@ export function usePreviewCapture({
 
     setIsCapturing(true);
     try {
-      const captureUrl = `${baseUrl}${currentPage === '/' ? '' : currentPage}?_cb=${Date.now()}&shipstudio=1`;
+      const captureUrl = `${baseUrl}${currentPage === '/' ? '' : currentPage}`;
       const filePath = await invoke<string>('capture_fullpage_playwright', {
         projectPath,
         url: captureUrl,
@@ -187,7 +216,6 @@ export function usePreviewCapture({
 
       try {
         const tempPath = await captureWindowScreenshot();
-        if (!tempPath) return null;
 
         // Get the iframe's position relative to the window
         const iframeRect = iframeWrapperRef.current.getBoundingClientRect();
@@ -216,13 +244,14 @@ export function usePreviewCapture({
 
         return finalPath;
       } catch (error) {
-        logger.error('[Preview] Region capture failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        const message = captureErrorMessage(error);
+        logger.error('[Preview] Region capture failed', { error: message });
+        stopAutoCaptureIfDenied(error);
+        showToast(`Couldn't capture the selection: ${message}`, 'error');
         return null;
       }
     },
-    [projectPath, captureWindowScreenshot]
+    [projectPath, captureWindowScreenshot, showToast]
   );
 
   // Handle crop selection mouse events

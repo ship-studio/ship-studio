@@ -26,6 +26,21 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.13.4', // v0.13.4
+    items: [
+      'Fixed dragging files/screenshots into terminals on Retina Macs — drops were silently ignored since v0.13.2; they land correctly again, still only in the terminal under your cursor',
+      'Setup hardening — installs use the same PATH the checklist verifies with (fixes "npm not found" for nvm/volta/fnm users), missing tools get an instant plain-English message, one stuck program can no longer freeze the setup check, and "finished but didn\'t actually install" is detected and explained',
+      'GitHub/Claude sign-in gets a few seconds to register before the wizard declares it failed',
+      'Errors across the app show the real failure (command + output) instead of generic text; error notifications persist until dismissed and have a Copy button; command-palette failures are no longer silent',
+    ],
+  },
+  {
+    version: '0.13.3', // v0.13.3
+    items: [
+      'Fixed frozen setup and connect terminals — a v0.13.2 regression froze onboarding, install, and connect terminals after their first moments of output (GitHub/Vercel/agent connections stuck at "Starting…", installs freezing mid-way). They stream correctly again',
+    ],
+  },
+  {
     version: '0.13.2', // v0.13.2
     items: [
       'Terminals no longer get stuck at "Starting…" — fixed the startup race that made agents look dead (Windows especially), and onboarding terminals now auto-retry and show a real error instead of hanging',

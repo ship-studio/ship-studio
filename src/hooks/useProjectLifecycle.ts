@@ -796,9 +796,9 @@ export function useProjectLifecycle({
     try {
       await restartDevServer(cfg.projectPath);
     } catch (err) {
-      logger.error('[Install] Post-install dev server restart failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const detail = formatCommandError(asCommandError(err));
+      logger.error('[Install] Post-install dev server restart failed', { error: detail });
+      showToast(`Installed, but the dev server didn't restart: ${detail}`, 'error');
     }
   };
 

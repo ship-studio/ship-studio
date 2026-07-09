@@ -10,14 +10,113 @@ use crate::commands::accounts::{
 };
 use crate::commands::claude::find_binary_by_name;
 use crate::commands::github::get_gh_command;
+use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::{FullSetupStatus, OptionalAuths, SetupItemInfo, SetupItemStatus};
 use crate::utils::{create_command, find_executable};
+use std::path::Path;
 
 #[cfg(windows)]
-use crate::utils::check_winget;
+use crate::utils::get_winget_command;
 
 #[cfg(not(windows))]
-use crate::utils::check_homebrew;
+use crate::utils::get_brew_command;
+
+/// Timeout for local probes (`node --version`, agent status, …). Generous for a
+/// version print, but bounded — a CLI wedged on stdin or a broken install must
+/// never stall the onboarding wizard's status check.
+const LOCAL_PROBE_TIMEOUT_SECS: u64 = 5;
+
+/// Timeout for probes that may hit the network (`gh auth status`,
+/// `gh api user`, `vercel whoami`). Slightly longer to tolerate slow links,
+/// still bounded so an offline machine degrades instead of hanging.
+const NETWORK_PROBE_TIMEOUT_SECS: u64 = 8;
+
+/// Run `binary <args…>` bounded by a timeout and return its trimmed stdout when
+/// it exits successfully. Any failure — non-zero exit, spawn error, or timeout —
+/// degrades to `None` so a single wedged tool can never block the remaining
+/// checks (the item just reports as not ready / version unknown).
+async fn probe_stdout(binary: &Path, args: &[&str], timeout_secs: u64) -> Option<String> {
+    let label = format!("{} {}", binary.display(), args.join(" "));
+    let mut std_cmd = create_command(binary);
+    std_cmd.args(args);
+    let mut cmd = tokio::process::Command::from(std_cmd);
+    // If the probe times out, kill the child instead of leaving it wedged.
+    cmd.kill_on_drop(true);
+    match run_with_timeout(cmd, label.clone(), timeout_secs).await {
+        Ok(output) if output.status.success() => {
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        }
+        Ok(_) => None,
+        Err(err) => {
+            tracing::warn!(
+                cmd = %label,
+                error = %err,
+                "setup status probe failed; treating item as not ready"
+            );
+            None
+        }
+    }
+}
+
+/// Like [`probe_stdout`] but returns only the first line — for CLIs that print
+/// multi-line version banners (brew, gh).
+async fn probe_stdout_first_line(
+    binary: &Path,
+    args: &[&str],
+    timeout_secs: u64,
+) -> Option<String> {
+    probe_stdout(binary, args, timeout_secs)
+        .await
+        .and_then(|out| out.lines().next().map(|line| line.trim().to_string()))
+}
+
+/// Run a `gh` subcommand (extended PATH + active-workspace env) with a timeout.
+/// Returns `None` when the command times out or fails to spawn.
+async fn run_gh_with_timeout(args: &[&str], timeout_secs: u64) -> Option<std::process::Output> {
+    let mut std_cmd = get_gh_command();
+    std_cmd.args(args);
+    let mut cmd = tokio::process::Command::from(std_cmd);
+    cmd.kill_on_drop(true);
+    let label = format!("gh {}", args.join(" "));
+    match run_with_timeout(cmd, label.clone(), timeout_secs).await {
+        Ok(output) => Some(output),
+        Err(err) => {
+            tracing::warn!(
+                cmd = %label,
+                error = %err,
+                "setup status: gh probe failed; treating GitHub as not authenticated"
+            );
+            None
+        }
+    }
+}
+
+/// Run `vercel whoami` (optionally with an explicit token) with a network
+/// timeout. `None` on any failure — not signed in, spawn error, or timeout.
+async fn run_vercel_whoami(vercel_path: &Path, token: Option<&str>) -> Option<String> {
+    let mut std_cmd = create_command(vercel_path);
+    std_cmd.args(["whoami"]);
+    if let Some(t) = token {
+        std_cmd.env("VERCEL_TOKEN", t);
+    }
+    let mut cmd = tokio::process::Command::from(std_cmd);
+    cmd.kill_on_drop(true);
+    match run_with_timeout(cmd, "vercel whoami", NETWORK_PROBE_TIMEOUT_SECS).await {
+        Ok(output) if output.status.success() => {
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        }
+        Ok(_) => None,
+        Err(err) => {
+            tracing::warn!(
+                cmd = "vercel whoami",
+                error = %err,
+                "setup status: vercel probe failed; treating Vercel as not authenticated"
+            );
+            None
+        }
+    }
+}
 
 /// Get full setup status for all items
 #[tauri::command]
@@ -129,14 +228,159 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         };
     }
 
+    let active_account_id = get_active_account_id().unwrap_or_else(|_| "default".to_string());
+
+    // Locate binaries up front (pure filesystem checks — fast, no subprocesses).
+    #[cfg(windows)]
+    let pkg_mgr_path = get_winget_command();
+    #[cfg(not(windows))]
+    let pkg_mgr_path = get_brew_command();
+    let node_path = find_executable("node");
+    let git_path = find_executable("git");
+    let gh_path = find_executable("gh");
+    let vercel_path = find_executable("vercel");
+    let agent_paths: Vec<Option<std::path::PathBuf>> = ALL_AGENTS
+        .iter()
+        .map(|agent| find_binary_by_name(agent.binary_name))
+        .collect();
+
+    // Probe everything concurrently, each subprocess bounded by its own
+    // timeout, so one wedged CLI can neither stall the other checks nor hang
+    // the onboarding wizard's status probe.
+    let pkg_mgr_fut = async {
+        match &pkg_mgr_path {
+            Some(p) => probe_stdout_first_line(p, &["--version"], LOCAL_PROBE_TIMEOUT_SECS).await,
+            None => None,
+        }
+    };
+    let node_fut = async {
+        match &node_path {
+            Some(p) => probe_stdout(p, &["--version"], LOCAL_PROBE_TIMEOUT_SECS).await,
+            None => None,
+        }
+    };
+    let git_fut = async {
+        match &git_path {
+            Some(p) => probe_stdout(p, &["--version"], LOCAL_PROBE_TIMEOUT_SECS).await,
+            None => None,
+        }
+    };
+    let gh_fut = async {
+        let version = match &gh_path {
+            Some(p) => probe_stdout_first_line(p, &["--version"], LOCAL_PROBE_TIMEOUT_SECS).await,
+            None => None,
+        };
+
+        // Parse the output for a valid active login rather than trusting the
+        // exit code: `gh auth status` exits non-zero if any configured account
+        // has an invalid token, even when the active account is fine — which
+        // would wrongly strand the user on the GitHub step of onboarding. See
+        // accounts::parse_gh_auth_status.
+        let authed = if gh_path.is_some() {
+            run_gh_with_timeout(&["auth", "status"], NETWORK_PROBE_TIMEOUT_SECS)
+                .await
+                .map(|o| {
+                    crate::commands::accounts::parse_gh_auth_status(
+                        &String::from_utf8_lossy(&o.stdout),
+                        &String::from_utf8_lossy(&o.stderr),
+                    )
+                    .is_some()
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        let username = if authed {
+            run_gh_with_timeout(
+                &["api", "user", "--jq", ".login"],
+                NETWORK_PROBE_TIMEOUT_SECS,
+            )
+            .await
+            .and_then(|o| {
+                if o.status.success() {
+                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+        (version, authed, username)
+    };
+    let agents_fut = futures_util::future::join_all(ALL_AGENTS.iter().zip(&agent_paths).map(
+        |(agent, agent_path)| async move {
+            let version = match agent_path {
+                Some(p) => probe_stdout(p, &[agent.version_flag], LOCAL_PROBE_TIMEOUT_SECS).await,
+                None => None,
+            };
+            // Keychain-based agents (Cursor): ask the CLI, not the filesystem.
+            // The answer is global (no per-account dir), so probe once here and
+            // reuse it for both the per-account and global auth decisions below.
+            let command_auth = if agent_path.is_some() {
+                crate::commands::setup::agents::agent_command_auth_status_with_timeout(
+                    agent,
+                    LOCAL_PROBE_TIMEOUT_SECS,
+                )
+                .await
+            } else {
+                None
+            };
+            (version, command_auth)
+        },
+    ));
+    let vercel_fut = async {
+        let version = match &vercel_path {
+            Some(p) => probe_stdout(p, &["--version"], LOCAL_PROBE_TIMEOUT_SECS).await,
+            None => None,
+        };
+
+        // Vercel Auth — per-workspace:
+        //    • Non-default accounts: only authed if VERCEL_TOKEN is in the
+        //      account's keychain (browser-based `vercel login` stores a global
+        //      session that would bleed across workspaces — require an explicit
+        //      token instead so each workspace is fully isolated).
+        //    • Default account: existing global `vercel whoami` behaviour
+        //      (preserves logins from before Workspace isolation existed).
+        let account_vercel_token =
+            get_env_vars_for_account(&active_account_id).remove("VERCEL_TOKEN");
+        let whoami = match &vercel_path {
+            Some(p) => {
+                if let Some(ref token) = account_vercel_token {
+                    // Account has an explicit token → verify it and get username
+                    run_vercel_whoami(p, Some(token)).await
+                } else if active_account_id == DEFAULT_ACCOUNT_ID {
+                    // Default account → use global CLI session (browser-based login)
+                    run_vercel_whoami(p, None).await
+                } else {
+                    // Non-default account without a token → not connected for this workspace
+                    None
+                }
+            }
+            None => None,
+        };
+        (version, whoami)
+    };
+
+    let (
+        pkg_mgr_version,
+        node_version,
+        git_version,
+        (gh_version, gh_auth, gh_username),
+        agent_probes,
+        (vercel_version, vercel_whoami_result),
+    ) = tokio::join!(
+        pkg_mgr_fut,
+        node_fut,
+        git_fut,
+        gh_fut,
+        agents_fut,
+        vercel_fut
+    );
+
     let mut items = Vec::new();
 
     // 1. Package Manager (Homebrew on macOS/Linux, Winget on Windows)
-    #[cfg(windows)]
-    let (pkg_mgr_installed, pkg_mgr_version) = check_winget();
-    #[cfg(not(windows))]
-    let (pkg_mgr_installed, pkg_mgr_version) = check_homebrew();
-
     #[cfg(windows)]
     let pkg_mgr_name = "Winget";
     #[cfg(not(windows))]
@@ -145,7 +389,7 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     items.push(SetupItemInfo {
         id: "homebrew".to_string(), // Keep ID for backward compatibility
         friendly_name: pkg_mgr_name.to_string(),
-        status: if pkg_mgr_installed {
+        status: if pkg_mgr_path.is_some() {
             SetupItemStatus::Ready
         } else {
             SetupItemStatus::NotInstalled
@@ -156,20 +400,6 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     });
 
     // 2. Node.js
-    let node_path = find_executable("node");
-    let node_version = node_path.as_ref().and_then(|p| {
-        create_command(p)
-            .args(["--version"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
-    });
     let node_installed = node_path.is_some();
     items.push(SetupItemInfo {
         id: "node".to_string(),
@@ -219,20 +449,6 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     }
 
     // 3. Git
-    let git_path = find_executable("git");
-    let git_version = git_path.as_ref().and_then(|p| {
-        create_command(p)
-            .args(["--version"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
-    });
     items.push(SetupItemInfo {
         id: "git".to_string(),
         friendly_name: "Git".to_string(),
@@ -247,21 +463,6 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     });
 
     // 4. GitHub CLI
-    let gh_path = find_executable("gh");
-    let gh_version = gh_path.as_ref().and_then(|p| {
-        create_command(p)
-            .args(["--version"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    let out = String::from_utf8_lossy(&o.stdout);
-                    out.lines().next().map(|s| s.trim().to_string())
-                } else {
-                    None
-                }
-            })
-    });
     items.push(SetupItemInfo {
         id: "gh".to_string(),
         friendly_name: "GitHub CLI".to_string(),
@@ -275,43 +476,7 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         error_message: None,
     });
 
-    // 5. GitHub Auth
-    //
-    // Parse the output for a valid active login rather than trusting the exit
-    // code: `gh auth status` exits non-zero if any configured account has an
-    // invalid token, even when the active account is fine — which would wrongly
-    // strand the user on the GitHub step of onboarding. See
-    // accounts::parse_gh_auth_status.
-    let gh_auth = if gh_path.is_some() {
-        get_gh_command()
-            .args(["auth", "status"])
-            .output()
-            .map(|o| {
-                crate::commands::accounts::parse_gh_auth_status(
-                    &String::from_utf8_lossy(&o.stdout),
-                    &String::from_utf8_lossy(&o.stderr),
-                )
-                .is_some()
-            })
-            .unwrap_or(false)
-    } else {
-        false
-    };
-    let gh_username = if gh_auth {
-        get_gh_command()
-            .args(["api", "user", "--jq", ".login"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
-    } else {
-        None
-    };
+    // 5. GitHub Auth (probed above with a network timeout)
     items.push(SetupItemInfo {
         id: "gh_auth".to_string(),
         friendly_name: "GitHub Account".to_string(),
@@ -327,25 +492,12 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         error_message: None,
     });
 
-    // 6-7. Agent CLIs and Auth — check ALL agents
+    // 6-7. Agent CLIs and Auth — check ALL agents (probed above with timeouts)
     let mut detected_agents = Vec::new();
-    let active_account_id = get_active_account_id().unwrap_or_else(|_| "default".to_string());
 
-    for agent in ALL_AGENTS {
-        let agent_path = find_binary_by_name(agent.binary_name);
-        let agent_version = agent_path.as_ref().and_then(|p| {
-            create_command(p)
-                .args([agent.version_flag])
-                .output()
-                .ok()
-                .and_then(|o| {
-                    if o.status.success() {
-                        Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    } else {
-                        None
-                    }
-                })
-        });
+    for ((agent, agent_path), (agent_version, command_auth)) in
+        ALL_AGENTS.iter().zip(&agent_paths).zip(agent_probes)
+    {
         let binary_ready = agent_path.is_some();
         items.push(SetupItemInfo {
             id: agent.setup_item_ids.0.to_string(),
@@ -363,9 +515,7 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         // Agent Auth
         let agent_auth = if !binary_ready {
             false
-        } else if let Some(authed) =
-            crate::commands::setup::agents::agent_command_auth_status(agent)
-        {
+        } else if let Some(authed) = command_auth {
             // Keychain-based agents (Cursor): ask the CLI, not the filesystem.
             authed
         } else {
@@ -398,9 +548,7 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         // (real, global) auth dir for this purpose.
         let agent_auth_global = if !binary_ready {
             false
-        } else if let Some(authed) =
-            crate::commands::setup::agents::agent_command_auth_status(agent)
-        {
+        } else if let Some(authed) = command_auth {
             // Cursor's keychain login is already global (no per-account dir), so
             // the CLI status check is the same answer for every account.
             authed
@@ -418,20 +566,6 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     }
 
     // 8. Vercel CLI
-    let vercel_path = find_executable("vercel");
-    let vercel_version = vercel_path.as_ref().and_then(|p| {
-        create_command(p)
-            .args(["--version"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
-    });
     items.push(SetupItemInfo {
         id: "vercel".to_string(),
         friendly_name: "Vercel CLI".to_string(),
@@ -445,42 +579,8 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         error_message: None,
     });
 
-    // 9. Vercel Auth — per-workspace:
-    //    • Non-default accounts: only authed if VERCEL_TOKEN is in the
-    //      account's keychain (browser-based `vercel login` stores a global
-    //      session that would bleed across workspaces — require an explicit
-    //      token instead so each workspace is fully isolated).
-    //    • Default account: existing global `vercel whoami` behaviour
-    //      (preserves logins from before Workspace isolation existed).
-    let account_vercel_token = get_env_vars_for_account(&active_account_id).remove("VERCEL_TOKEN");
-    let run_vercel_whoami = |token: Option<&str>| -> Option<String> {
-        let p = find_executable("vercel")?;
-        let mut cmd = create_command(&p);
-        cmd.args(["whoami"]);
-        if let Some(t) = token {
-            cmd.env("VERCEL_TOKEN", t);
-        }
-        let out = cmd.output().ok()?;
-        if out.status.success() {
-            Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-        } else {
-            None
-        }
-    };
-    let vercel_whoami_result = if vercel_path.is_some() {
-        if let Some(ref token) = account_vercel_token {
-            // Account has an explicit token → verify it and get username
-            run_vercel_whoami(Some(token))
-        } else if active_account_id == DEFAULT_ACCOUNT_ID {
-            // Default account → use global CLI session (browser-based login)
-            run_vercel_whoami(None)
-        } else {
-            // Non-default account without a token → not connected for this workspace
-            None
-        }
-    } else {
-        None
-    };
+    // 9. Vercel Auth (probed above with a network timeout; see the per-workspace
+    //    rules on the vercel probe future)
     let vercel_auth = vercel_whoami_result.is_some();
     let vercel_username = vercel_whoami_result;
     items.push(SetupItemInfo {
@@ -568,9 +668,9 @@ pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
 
     // Fast Tier-1 checks: binary existence only (no --version calls)
     #[cfg(windows)]
-    let pkg_mgr_present = check_winget().0;
+    let pkg_mgr_present = get_winget_command().is_some();
     #[cfg(not(windows))]
-    let pkg_mgr_present = check_homebrew().0;
+    let pkg_mgr_present = get_brew_command().is_some();
 
     let node_present = find_executable("node").is_some();
     let git_present = find_executable("git").is_some();
@@ -602,5 +702,135 @@ pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
     crate::types::QuickSetupCheck {
         all_present,
         setup_complete_cached: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_stdout_returns_trimmed_output() {
+        let out = probe_stdout(Path::new("/bin/echo"), &["hello"], 5).await;
+        assert_eq!(out.as_deref(), Some("hello"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_stdout_degrades_to_none_on_timeout() {
+        // A wedged binary (simulated with `sleep`) must degrade to None
+        // instead of hanging the status check.
+        let out = probe_stdout(Path::new("/bin/sleep"), &["5"], 1).await;
+        assert_eq!(out, None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_stdout_degrades_to_none_on_nonzero_exit() {
+        let out = probe_stdout(Path::new("/bin/sh"), &["-c", "echo nope; exit 3"], 5).await;
+        assert_eq!(out, None);
+    }
+
+    #[tokio::test]
+    async fn probe_stdout_degrades_to_none_on_missing_binary() {
+        let out = probe_stdout(Path::new("/definitely/not/a/real/binary"), &[], 5).await;
+        assert_eq!(out, None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_stdout_first_line_takes_first_line() {
+        let out = probe_stdout_first_line(
+            Path::new("/bin/sh"),
+            &["-c", "printf 'line1\\nline2\\n'"],
+            5,
+        )
+        .await;
+        assert_eq!(out.as_deref(), Some("line1"));
+    }
+}
+
+/// A CLI binary resolved on the backend's extended PATH.
+///
+/// Returned by [`resolve_cli_path`] so the frontend can (a) fail fast with a
+/// clear message when a binary is missing instead of spawning a PTY that
+/// silently produces nothing, and (b) add the binary's directory to the PTY's
+/// PATH so the spawn sees the same binary the status checks saw. The install
+/// status checks (`find_executable`) search the user's login-shell PATH plus
+/// common install locations — the frontend's hand-built PTY PATH is a subset,
+/// so "installed ✓ but Connect hangs" was possible whenever a tool lived in a
+/// nonstandard prefix (MacPorts, custom Homebrew, portable installs).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedCli {
+    /// Absolute path to the resolved binary.
+    pub path: String,
+    /// Directory containing the binary — for appending to a PTY PATH.
+    pub dir: String,
+}
+
+/// Resolve a CLI binary name to an absolute path using the same discovery the
+/// setup status checks use. Returns `Ok(None)` when the binary genuinely
+/// isn't installed anywhere we know how to look.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn resolve_cli_path(name: String) -> Result<Option<ResolvedCli>, CommandError> {
+    // Bare command names only — reject separators/metacharacters so this can
+    // never be used to probe arbitrary filesystem paths from the frontend.
+    let valid = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if !valid {
+        return Err(CommandError::Validation {
+            field: "name".to_string(),
+            reason: "must be a bare command name".to_string(),
+        });
+    }
+
+    Ok(find_executable(&name).map(|path| {
+        let dir = path
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        ResolvedCli {
+            path: path.to_string_lossy().to_string(),
+            dir,
+        }
+    }))
+}
+
+#[cfg(test)]
+mod resolve_cli_tests {
+    use super::resolve_cli_path;
+
+    #[tokio::test]
+    async fn resolves_a_ubiquitous_binary() {
+        // `ls` exists on every Unix; `cmd` on every Windows.
+        let name = if cfg!(windows) { "cmd" } else { "ls" };
+        let resolved = resolve_cli_path(name.to_string()).await.unwrap();
+        let resolved = resolved.expect("binary should resolve");
+        assert!(!resolved.path.is_empty());
+        assert!(!resolved.dir.is_empty());
+    }
+
+    #[tokio::test]
+    async fn returns_none_for_missing_binary() {
+        let resolved = resolve_cli_path("definitely-not-a-real-cli-98765".to_string())
+            .await
+            .unwrap();
+        assert!(resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn rejects_paths_and_metacharacters() {
+        for bad in ["/bin/ls", "..\\cmd", "a b", "x;y", "", "ls\n"] {
+            assert!(
+                resolve_cli_path(bad.to_string()).await.is_err(),
+                "should reject {bad:?}"
+            );
+        }
     }
 }

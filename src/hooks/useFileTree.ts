@@ -38,7 +38,9 @@ const CODE_EDIT_MODE_KEY = 'shipstudio:code-edit-mode';
 export type PendingFileAction = { kind: 'switch'; path: string } | { kind: 'disable-edit' } | null;
 
 /** Outcome of a save attempt: written, nothing-to-write, or failed. */
-export type SaveResult = 'saved' | 'noop' | 'error';
+/** Result of a save attempt. Failures carry the real error message so the
+ *  caller can put it in front of the user (never a canned "failed" string). */
+export type SaveResult = 'saved' | 'noop' | { error: string };
 
 interface UseFileTreeResult {
   tree: FileTreeNode[];
@@ -330,7 +332,7 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       const msg = formatCommandError(asCommandError(err));
       logger.error('Failed to save file', { path, error: msg });
       setSaveError(msg);
-      return 'error';
+      return { error: msg };
     } finally {
       setIsSaving(false);
     }

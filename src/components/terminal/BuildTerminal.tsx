@@ -28,6 +28,7 @@ import {
   attachPtySession,
   writePtySessionLogged,
   resizePtySession,
+  detachPtySession,
   onPtySessionData,
   onPtySessionExit,
   createAttachGate,

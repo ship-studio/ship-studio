@@ -84,6 +84,15 @@ import { getWindowLabel } from '../lib/window';
 import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
 import { stripAnsi } from '../lib/ansi';
 
+/** Record of a dev-server process that died without Ship Studio stopping it. */
+export interface DevServerUnexpectedExit {
+  /** Exit code reported by the PTY, when known. 137 / -9 style codes usually
+   *  mean an external `kill` (e.g. an agent freeing the port). */
+  exitCode: number | null;
+  /** Epoch ms when the exit watcher observed the death. */
+  at: number;
+}
+
 /** All the per-project server state we track in the map. */
 interface ProjectServerState {
   handle: DevServerHandle | null;
@@ -114,6 +123,12 @@ interface ProjectServerState {
   /** Set when the login prompt was seen but `handle` wasn't assigned yet
    *  (the prompt can race the spawn call's resolution). */
   shopifyLoginNudgePending: boolean;
+  /** Set by the exit watcher when the dev-server process died WITHOUT Ship
+   *  Studio asking it to (crash, or an external `kill` — the classic case is
+   *  an AI agent in the terminal killing the port or racing its own dev
+   *  server against ours, issue #161). Cleared on every (re)spawn. Drives
+   *  the Preview pane's "dev server stopped → Restart" affordance. */
+  unexpectedExit: DevServerUnexpectedExit | null;
 }
 
 const DEFAULT_PORT = 3000;
@@ -161,6 +176,7 @@ function makeState(): ProjectServerState {
     pendingOutputLine: '',
     shopifyLoginDetector: null,
     shopifyLoginNudgePending: false,
+    unexpectedExit: null,
   };
 }
 
@@ -264,6 +280,7 @@ export function useDevServer(currentProjectPath: string | null) {
   const needsInstall = activeState?.needsInstall ?? null;
   const devServerOutputVersion = activeState?.outputVersion ?? 0;
   const healthOutputVersion = activeState?.healthVersion ?? 0;
+  const devServerUnexpectedExit = activeState?.unexpectedExit ?? null;
 
   // Synthetic refs so existing callers that read `devServerOutputRef.current`
   // (and `devServerRef.current` for beforeunload cleanup) keep working without
@@ -407,6 +424,12 @@ export function useDevServer(currentProjectPath: string | null) {
             exitCode: exitCode ?? null,
           });
           current.handle = null;
+          // Only exits Ship Studio did NOT initiate reach this point:
+          // stopServer deletes the map entry and restart paths null the
+          // handle before their kill lands, so `current.handle !== handle`
+          // filters both out above. Record it so the Preview pane can offer
+          // a real process restart instead of a poll-only Retry.
+          current.unexpectedExit = { exitCode: exitCode ?? null, at: Date.now() };
           bump();
         });
       } catch (e) {
@@ -499,6 +522,9 @@ export function useDevServer(currentProjectPath: string | null) {
       // Re-enable output handling for the (possibly new) server on this path.
       s.suppressed = false;
       s.port = port;
+      // A fresh spawn supersedes any prior death — clear the record so the
+      // Preview pane doesn't keep reporting a stale "process stopped".
+      s.unexpectedExit = null;
 
       // For monorepo projects, dev server / project-type detection should run
       // against the picked workspace subdir. Git/PR ops still use the repo root.
@@ -831,6 +857,7 @@ export function useDevServer(currentProjectPath: string | null) {
           }
           s.handle = null;
         }
+        s.unexpectedExit = null;
         s.outputBuffer = '';
         s.healthBuffer = '';
         s.outputVersion = 0;
@@ -979,6 +1006,7 @@ export function useDevServer(currentProjectPath: string | null) {
 
       if (command) {
         try {
+          s.unexpectedExit = null;
           s.outputBuffer = '';
           s.healthBuffer = '';
           s.outputVersion = 0;
@@ -1019,6 +1047,7 @@ export function useDevServer(currentProjectPath: string | null) {
     devServerOutputVersion,
     healthOutputVersion,
     needsInstall,
+    devServerUnexpectedExit,
 
     // Handlers
     handleHealthOutput,

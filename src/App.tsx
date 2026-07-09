@@ -52,6 +52,7 @@ import { sessionRegistry } from './lib/sessionRegistry';
 import { unregisterProjectSession } from './lib/projectSessions';
 import { UpdateBanner } from './components/UpdateBanner';
 import { MonorepoPickerModal } from './components/dashboard/MonorepoPickerModal';
+import { ThumbnailConsentModal } from './components/preview/ThumbnailConsentModal';
 import { ModalFrame } from './components/primitives/ModalFrame';
 import { Button } from './components/primitives/Button';
 import { Spinner } from './components/primitives/Spinner';
@@ -68,8 +69,9 @@ import {
 } from './components/CommandPalette/paletteContext';
 import { useAppCommands } from './commands/useAppCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
-import { SuccessIcon, InfoIcon, CloseIcon } from './components/icons';
+import { ToastList } from './components/primitives/ToastList';
 import { logger } from './lib/logger';
+import { asCommandError, formatCommandError } from './lib/errors';
 import { trackEvent, setActiveProject, trackPageview } from './lib/analytics';
 import { endProjectSession } from './lib/session';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
@@ -238,6 +240,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     isServerRunning,
     saveCustomDevCommand,
     needsInstall,
+    devServerUnexpectedExit,
     clearNeedsInstall,
     writeToDevServer,
     resizeDevServer,
@@ -300,6 +303,9 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleCropComplete,
     handleCropCancel,
     handlePreviewReady: onPreviewReady,
+    showThumbnailConsent,
+    resolveThumbnailConsent,
+    dismissThumbnailConsent,
     startScreenshotInterval,
     clearScreenshotInterval,
   } = useScreenshotManagement({
@@ -362,6 +368,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     showSubmitReview,
     setShowSubmitReview,
     isBranchSwitching,
+    isPulling,
     gitError,
     setGitError,
     showConflictResolution,
@@ -369,6 +376,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     fetchBranchInfo,
     checkGitStatus,
     handleBranchSwitch,
+    handlePullLatest,
     handlePublishError,
     handleResolveConflicts,
     handleConflictsResolved,
@@ -467,8 +475,11 @@ function AppContents({ initialProjectPath }: AppProps) {
         // when its save handler returns successfully.
         await restartDevServer(currentProject.path, newPort);
         showToast('Port updated and server restarted', 'success');
-      } catch {
-        showToast('Failed to save port setting', 'error');
+      } catch (err) {
+        showToast(
+          `Couldn't set dev server to port ${newPort}: ${formatCommandError(asCommandError(err))}`,
+          'error'
+        );
       }
     },
     [currentProject, restartDevServer, showToast, setDevServerPort]
@@ -526,14 +537,16 @@ function AppContents({ initialProjectPath }: AppProps) {
         try {
           await stopServer(projectPath);
         } catch (err) {
-          logger.warn('[CloseProject] stopServer threw', { error: String(err) });
+          logger.warn('[CloseProject] stopServer threw', {
+            error: formatCommandError(asCommandError(err)),
+          });
         }
         closeAllTerminalsForProject(projectPath);
         try {
           await unregisterProjectSession(projectPath);
         } catch (err) {
           logger.warn('[CloseProject] unregisterProjectSession failed', {
-            error: String(err),
+            error: formatCommandError(asCommandError(err)),
           });
         }
         sessionRegistry.destroy(projectPath);
@@ -580,7 +593,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             });
           } catch (err) {
             logger.warn('[SelectProjectTab] Failed to persist active tab', {
-              error: String(err),
+              error: formatCommandError(asCommandError(err)),
             });
           }
         }
@@ -734,6 +747,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       healthOutputVersion,
       handleHealthOutput,
       needsInstall,
+      devServerUnexpectedExit,
       onRunInstall: handleRunInstallCurrent,
       onDevServerInput: writeToDevServer,
       onDevServerResize: resizeDevServer,
@@ -751,6 +765,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       handleHealthOutput,
       healthPanelRef,
       needsInstall,
+      devServerUnexpectedExit,
       handleRunInstallCurrent,
       writeToDevServer,
       resizeDevServer,
@@ -905,6 +920,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       showSubmitReview,
       setShowSubmitReview,
       isBranchSwitching,
+      isPulling,
       gitError,
       setGitError,
       showConflictResolution,
@@ -912,6 +928,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       fetchBranchInfo,
       checkGitStatus,
       handleBranchSwitch,
+      handlePullLatest,
       handlePublishError,
       handleResolveConflicts,
       handleConflictsResolved,
@@ -925,6 +942,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       showSubmitReview,
       setShowSubmitReview,
       isBranchSwitching,
+      isPulling,
       gitError,
       setGitError,
       showConflictResolution,
@@ -932,6 +950,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       fetchBranchInfo,
       checkGitStatus,
       handleBranchSwitch,
+      handlePullLatest,
       handlePublishError,
       handleResolveConflicts,
       handleConflictsResolved,
@@ -1090,21 +1109,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         <div className="app">
           <AccountSelectScreen onContinue={() => setView('projects')} />
         </div>
-        {toasts.length > 0 && (
-          <div className="toast-container">
-            {toasts.map((t) => (
-              <div key={t.id} className={`toast toast-${t.type}`}>
-                <span className="toast-icon">
-                  {t.type === 'success' ? <SuccessIcon size={16} /> : <InfoIcon size={16} />}
-                </span>
-                <span className="toast-message">{t.message}</span>
-                <button className="toast-close" onClick={() => dismissToast(t.id)}>
-                  <CloseIcon size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <ToastList toasts={toasts} onDismiss={dismissToast} />
         {quitConfirmModal}
       </>
     );
@@ -1184,21 +1189,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             onCancel={() => void handleCancelMonorepoPick()}
           />
         )}
-        {toasts.length > 0 && (
-          <div className="toast-container">
-            {toasts.map((t) => (
-              <div key={t.id} className={`toast toast-${t.type}`}>
-                <span className="toast-icon">
-                  {t.type === 'success' ? <SuccessIcon size={16} /> : <InfoIcon size={16} />}
-                </span>
-                <span className="toast-message">{t.message}</span>
-                <button className="toast-close" onClick={() => dismissToast(t.id)}>
-                  <CloseIcon size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <ToastList toasts={toasts} onDismiss={dismissToast} />
         {quitConfirmModal}
       </>
     );
@@ -1280,6 +1271,12 @@ function AppContents({ initialProjectPath }: AppProps) {
         onOpenProjectPicker={openProjectPicker}
         onSwitchAccount={() => setView('account-select')}
         isProjectDevServerRunning={isServerRunning}
+      />
+      <ThumbnailConsentModal
+        isOpen={showThumbnailConsent}
+        onAllow={() => void resolveThumbnailConsent(true)}
+        onDeny={() => void resolveThumbnailConsent(false)}
+        onDismiss={dismissThumbnailConsent}
       />
       {quitConfirmModal}
     </>

@@ -323,10 +323,11 @@ export async function closePullRequest(projectPath: string, prNumber: number): P
  * This can result in merge conflicts if local and remote changes overlap.
  * @param projectPath - Absolute path to the project directory
  * @param mergeBranch - Optional branch to merge (e.g., "main"). If not provided, pulls from upstream.
+ * @returns Git's own summary output (e.g. "Already up to date." or merge/fast-forward stats)
  * @throws Error with MERGE_CONFLICT prefix if conflicts occur
  */
-export async function pullAndMerge(projectPath: string, mergeBranch?: string): Promise<void> {
-  return invoke('pull_and_merge', { projectPath, mergeBranch });
+export async function pullAndMerge(projectPath: string, mergeBranch?: string): Promise<string> {
+  return invoke<string>('pull_and_merge', { projectPath, mergeBranch });
 }
 
 /**

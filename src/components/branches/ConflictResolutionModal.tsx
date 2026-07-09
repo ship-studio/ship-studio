@@ -29,6 +29,12 @@ interface ConflictResolutionModalProps {
   projectPath: string;
   onClose: () => void;
   onResolved: () => void;
+  /**
+   * Sends a prompt to the agent terminal. When provided, the callout gains a
+   * "Send to Agent" button that hands the whole merge to the agent and closes
+   * the modal (leaving the merge in progress for the agent to finish).
+   */
+  onSendToAgent?: (prompt: string) => void;
 }
 
 /** Maximum lines to show before truncating with "and X more lines" */
@@ -38,6 +44,7 @@ export function ConflictResolutionModal({
   projectPath,
   onClose,
   onResolved,
+  onSendToAgent,
 }: ConflictResolutionModalProps) {
   const { showToast } = useOptionalToast();
   // Wrapped in useCallback so downstream useCallback deps stay stable.
@@ -205,6 +212,31 @@ Please help me understand what each version does and recommend which one to keep
     void copy(prompt);
   }, [currentFile, currentConflict, copy]);
 
+  // Hand the whole merge to the agent: it has file access, so the prompt
+  // lists the conflicted files and asks it to resolve and complete the merge.
+  // Closes via onClose directly (NOT handleClose) so the in-progress merge is
+  // left intact for the agent instead of being aborted.
+  const handleSendToAgent = useCallback(() => {
+    if (!onSendToAgent) return;
+
+    const fileList = (filesData ?? []).map((f) => `- ${f.filePath}`).join('\n');
+    const prompt = `This project has git merge conflicts that I need you to resolve.
+
+Conflicted files:
+${fileList}
+
+Please:
+1. Open each conflicted file and resolve the conflict markers (<<<<<<< / ======= / >>>>>>>), preserving the intent of both sides where possible
+2. Stage the resolved files
+3. Complete the merge with a commit
+
+If a resolution is genuinely ambiguous, show me the options and ask before choosing.`;
+
+    onSendToAgent(prompt);
+    onToast?.('Sent to your agent — continue in the terminal', 'success');
+    onClose();
+  }, [onSendToAgent, filesData, onToast, onClose]);
+
   const truncateContent = (content: string): { text: string; truncated: number } => {
     const lines = content.split('\n');
     if (lines.length <= MAX_PREVIEW_LINES) {
@@ -363,13 +395,18 @@ Please help me understand what each version does and recommend which one to keep
                 <InfoIcon size={16} />
               </span>
               <span>
-                If this is a more complicated conflict and you need both changes, copy the details
-                and ask Claude to help merge them manually.
+                If this is a more complicated conflict and you need both changes, hand it to your
+                agent to merge them manually.
               </span>
               <button className="conflict-copy-btn" onClick={handleCopyForClaude}>
                 <CopyIcon size={12} />
-                Copy for Claude
+                Copy Prompt
               </button>
+              {onSendToAgent && (
+                <button className="conflict-send-btn" onClick={handleSendToAgent}>
+                  Send to Agent
+                </button>
+              )}
             </div>
 
             {/* More information section */}

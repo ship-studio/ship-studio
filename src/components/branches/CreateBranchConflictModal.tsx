@@ -69,7 +69,10 @@ export function CreateBranchConflictModal({
       onToast(`Created and switched to ${targetBranch}${extra ? ` — ${extra}` : ''}`, 'success');
       onClose();
     } else {
-      onToast(result.error || 'Failed to switch to the new branch', 'error');
+      // Keep whatever detail git gave us; only explain when it gave none.
+      const detail =
+        result.error || '(git reported failure with no detail — check for uncommitted changes)';
+      onToast(`Created "${targetBranch}", but couldn't switch to it: ${detail}`, 'error');
     }
   };
 

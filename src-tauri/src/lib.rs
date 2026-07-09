@@ -380,6 +380,7 @@ pub fn run() {
             commands::edit::resolve_classname_source,
             commands::edit::apply_classname_edit,
             commands::edit::apply_classname_edit_multi,
+            commands::edit::insert_class_attr,
             commands::edit::resolve_text_source,
             commands::edit::apply_text_edit,
             commands::edit::resolve_image_source,
@@ -482,6 +483,8 @@ pub fn run() {
             commands::settings::set_slack_cta_hidden,
             commands::settings::get_terminal_gpu_enabled,
             commands::settings::set_terminal_gpu_enabled,
+            commands::settings::get_thumbnails_enabled,
+            commands::settings::set_thumbnails_enabled,
             // Accounts (Workspaces)
             commands::accounts::list_accounts,
             commands::accounts::create_account,
@@ -620,6 +623,7 @@ pub fn run() {
             commands::templates::download_template_zip,
             // Setup/Onboarding
             commands::setup::get_full_setup_status,
+            commands::setup::resolve_cli_path,
             commands::setup::install_homebrew,
             commands::setup::install_node_via_brew,
             commands::setup::install_git_via_brew,

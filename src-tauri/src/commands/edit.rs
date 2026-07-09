@@ -119,6 +119,11 @@ pub enum Resolution {
         /// The shared class string (identical at every location; the drift baseline).
         class_name: String,
     },
+    /// The element has no class attribute at all — nothing to resolve or replace.
+    /// Distinct from `ReadOnly` (a dynamic/computed class the editor mustn't touch):
+    /// frontends offer the insert-a-class path (`insert_class_attr`) here instead
+    /// of a dead end with a misleading "dynamic class" message.
+    NoClass,
     /// No static source match — dynamic className, or a generated/runtime class.
     ReadOnly { reason: String },
 }
@@ -376,6 +381,11 @@ fn resolved(o: &Occurrence, confidence: &str) -> Resolution {
 
 /// Core resolution logic, separated from the Tauri command for unit testing.
 fn resolve(occurrences: &[Occurrence], sig: &ElementSignature) -> Resolution {
+    // No class at all is its own state, not "dynamic": there's no literal to
+    // match OR to rewrite, but a class can be *inserted* (`insert_class_attr`).
+    if sig.class_name.trim().is_empty() {
+        return Resolution::NoClass;
+    }
     let exact: Vec<&Occurrence> = occurrences
         .iter()
         .filter(|o| o.class_name == sig.class_name)
@@ -629,6 +639,356 @@ pub fn apply_classname_edit_multi(
         .count();
     invalidate_index_cache(&root);
     Ok(applied)
+}
+
+// ───────────────────── Class attribute insertion ("Add class") ───────────────
+//
+// The resolver above anchors on an element's EXISTING static class literal, and
+// the write-back can only replace a literal's bytes. An element with no class
+// attribute therefore has nothing to anchor on and nothing to rewrite — which
+// used to make unstyled elements structurally unstylable from the editor. This
+// path locates the element's open tag by the signature's *other* signals — a
+// unique-in-source ancestor class pins the file, the element's text content pins
+// the tag — and INSERTS a fresh `className="…"` (JSX) / `class="…"` attribute
+// right after the tag name. Zero or multiple confident candidates fail with a
+// specific, actionable error; the editor never guesses an insert target.
+
+/// A candidate open tag for class insertion: matches the clicked element's tag
+/// name and carries no `class`/`className` attribute in any form.
+#[derive(Debug, Clone)]
+struct InsertCandidate {
+    /// Project-relative POSIX path.
+    file: String,
+    /// Byte offset just past the tag name — where ` class="…"` is spliced in.
+    insert_at: usize,
+    /// 1-based line of the tag's `<`.
+    line: usize,
+}
+
+/// Every open tag in `src` named `tag_name` (lowercased, like [`nearest_tag`])
+/// that has NO `class`/`className` attribute — static or dynamic. A tag with a
+/// dynamic `className={…}` is excluded too: inserting a second class attribute
+/// next to it would produce a duplicate-attribute bug, not a fix. Comments are
+/// skipped wholesale so markup inside them can't become an insert target.
+fn find_classless_tag_sites(src: &str, tag_name: &str) -> Vec<(usize, usize)> {
+    let bytes = src.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        if src[i..].starts_with("<!--") {
+            match src[i..].find("-->") {
+                Some(rel) => i += rel + 3,
+                None => break,
+            }
+            continue;
+        }
+        let Some(t) = tag_at(src, i) else {
+            i += 1;
+            continue;
+        };
+        if t.closing || t.name != tag_name {
+            i += 1;
+            continue;
+        }
+        // The byte right after the name must end an identifier — this rejects a
+        // member-expression component (`<Foo.Bar`) whose parsed name is only the
+        // `foo` prefix. (`tag_at` names are ASCII, so byte length == char length.)
+        let name_end = i + 1 + t.name.len();
+        if !matches!(
+            bytes.get(name_end),
+            Some(b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'>')
+        ) {
+            i += 1;
+            continue;
+        }
+        // The tag's real `>` — quote- AND `{…}`-aware, unlike `tag_at`'s, so an
+        // arrow function in a handler (`onClick={() => a > b}`) can't truncate
+        // the attribute scan below.
+        let Some(gt) = open_tag_end(src, name_end) else {
+            i += 1;
+            continue;
+        };
+        let tag_slice = &src[i..gt + 1];
+        if has_attr_name(tag_slice, "class") || has_attr_name(tag_slice, "className") {
+            i = gt + 1;
+            continue;
+        }
+        out.push((name_end, line_col(src, i).0));
+        i = gt + 1;
+    }
+    out
+}
+
+/// Every indexed source file under `root` as (project-relative POSIX path,
+/// contents) — the same walk/filters the className index uses.
+fn source_files(root: &Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let exts = source_exts(root);
+    let walker = ignore::WalkBuilder::new(root)
+        .standard_filters(true)
+        .build();
+    for entry in walker.flatten() {
+        let path = entry.path();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        if !exts.contains(&ext.as_str()) {
+            continue;
+        }
+        let Ok(src) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        out.push((rel, src));
+    }
+    out
+}
+
+/// The element's text as a bounded match probe (whitespace-normalized, first 60
+/// chars), or None when it's too short to be distinctive — the same thresholds
+/// [`disambiguate_by_text`] uses.
+fn text_probe(text: Option<&str>) -> Option<String> {
+    let needle = normalize_ws(text?);
+    if needle.chars().count() < 8 {
+        return None;
+    }
+    Some(needle.chars().take(60).collect())
+}
+
+/// True when `probe` appears in the (whitespace-normalized) window from the
+/// candidate tag's line through a bounded look-ahead — i.e. the clicked element's
+/// text sits in/near this tag's body.
+fn probe_matches_at(src: &str, line: usize, probe: &str) -> bool {
+    let lines: Vec<&str> = src.lines().collect();
+    let start = line.saturating_sub(1);
+    if start >= lines.len() {
+        return false;
+    }
+    let end = (start + 30).min(lines.len());
+    normalize_ws(&lines[start..end].join(" ")).contains(probe)
+}
+
+/// Locate the single open tag a class attribute should be inserted on, or fail
+/// with a specific error saying exactly what was searched and why it's ambiguous.
+///
+/// Ladder (mirrors `resolve`'s philosophy — a unique match wins, ambiguity never
+/// guesses): candidates are classless same-name tags; a unique-in-source ancestor
+/// class narrows them to its file; the element's text content pins one tag.
+fn locate_insert_site(
+    root: &Path,
+    occurrences: &[Occurrence],
+    sig: &ElementSignature,
+) -> Result<(InsertCandidate, String), CommandError> {
+    let tag = sig.tag_name.trim().to_ascii_lowercase();
+    if tag.is_empty() || !tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err(CommandError::Validation {
+            field: "signature".into(),
+            reason: format!("`{}` isn't a valid element tag name.", sig.tag_name),
+        });
+    }
+
+    let files = source_files(root);
+    let mut all: Vec<InsertCandidate> = Vec::new();
+    for (rel, src) in &files {
+        for (insert_at, line) in find_classless_tag_sites(src, &tag) {
+            all.push(InsertCandidate {
+                file: rel.clone(),
+                insert_at,
+                line,
+            });
+        }
+    }
+
+    let src_of = |file: &str| -> &str {
+        files
+            .iter()
+            .find(|(rel, _)| rel == file)
+            .map(|(_, s)| s.as_str())
+            .unwrap_or("")
+    };
+    let done = |c: &InsertCandidate| Ok((c.clone(), src_of(&c.file).to_string()));
+
+    // Ancestor anchor: the nearest ancestor whose class literal is unique in
+    // source pins the component file the element was authored in.
+    let anchor_file = sig.ancestor_classes.iter().find_map(|anc| {
+        let occ: Vec<&Occurrence> = occurrences
+            .iter()
+            .filter(|o| &o.class_name == anc)
+            .collect();
+        (occ.len() == 1).then(|| occ[0].file.clone())
+    });
+    let anchored: Vec<&InsertCandidate> = match &anchor_file {
+        Some(f) => all.iter().filter(|c| &c.file == f).collect(),
+        None => Vec::new(),
+    };
+    let pool: Vec<&InsertCandidate> = if anchored.is_empty() {
+        all.iter().collect()
+    } else {
+        anchored
+    };
+
+    if let [only] = pool.as_slice() {
+        return done(only);
+    }
+
+    // Text anchor: the clicked element's text content near a candidate tag is the
+    // strong per-element signal (same approach as `disambiguate_by_text`).
+    let probe = text_probe(sig.text.as_deref());
+    if let Some(probe) = &probe {
+        let by_text: Vec<&InsertCandidate> = pool
+            .iter()
+            .copied()
+            .filter(|c| probe_matches_at(src_of(&c.file), c.line, probe))
+            .collect();
+        if let [only] = by_text.as_slice() {
+            return done(only);
+        }
+        // The ancestor may have pinned the wrong file (the element can live in a
+        // child component) — retry the text anchor across every candidate.
+        if pool.len() != all.len() {
+            let by_text_all: Vec<&InsertCandidate> = all
+                .iter()
+                .filter(|c| probe_matches_at(src_of(&c.file), c.line, probe))
+                .collect();
+            if let [only] = by_text_all.as_slice() {
+                return done(only);
+            }
+        }
+    }
+
+    // Zero or multiple confident candidates — report exactly what was searched.
+    let text_note = match (&probe, &sig.text) {
+        (Some(p), _) => format!(" and its text (\"{p}\") didn't pin exactly one"),
+        (None, Some(t)) if !t.trim().is_empty() => {
+            " and its text is too short to tell them apart".to_string()
+        }
+        _ => " and it has no text to tell them apart".to_string(),
+    };
+    if all.is_empty() {
+        return Err(CommandError::Validation {
+            field: "element".into(),
+            reason: format!(
+                "Couldn't find a <{tag}> without a class in source to add a class to — searched {} source file(s). \
+                 It may be rendered by a component under a different tag name, or its markup may be generated. \
+                 Add a class to it in code once, then the editor can manage it.",
+                files.len()
+            ),
+        });
+    }
+    let mut seen_files: Vec<&str> = Vec::new();
+    for c in &pool {
+        if !seen_files.contains(&c.file.as_str()) {
+            seen_files.push(&c.file);
+        }
+    }
+    let shown = seen_files
+        .iter()
+        .take(4)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = seen_files.len().saturating_sub(4);
+    let file_list = if more > 0 {
+        format!("{shown}, +{more} more")
+    } else {
+        shown
+    };
+    Err(CommandError::Validation {
+        field: "element".into(),
+        reason: format!(
+            "Couldn't tell which <{tag}> in source to add the class to — {} classless <{tag}> tag(s) matched in {file_list}{text_note}. \
+             Add a class to it in code once, then the editor can manage it.",
+            pool.len()
+        ),
+    })
+}
+
+/// Class values are spliced into a fresh quoted attribute, so anything that could
+/// terminate the quote or read as markup/JSX is rejected outright.
+fn invalid_class_value(s: &str) -> bool {
+    s.trim().is_empty()
+        || s.chars()
+            .any(|c| matches!(c, '"' | '\'' | '`' | '<' | '>' | '{' | '}' | '\\') || c.is_control())
+}
+
+/// Splice ` className="…"`/` class="…"` into `src` at the candidate's insert
+/// offset, write the file, and return the new literal's location. The attribute
+/// name follows the file type (JSX authors `className`; Astro/HTML/Liquid/Vue/
+/// Svelte use `class`) and the quote style follows the file's dominant one.
+fn write_class_attr_insert(
+    root: &Path,
+    cand: &InsertCandidate,
+    src: &str,
+    new_class: &str,
+) -> Result<Location, CommandError> {
+    let ext = cand
+        .file
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let attr = if ext == "tsx" || ext == "jsx" {
+        "className"
+    } else {
+        "class"
+    };
+    // Match the file's quoting style: single quotes only when they clearly dominate.
+    let quote = if src.matches("='").count() > src.matches("=\"").count() {
+        '\''
+    } else {
+        '"'
+    };
+    let inserted = format!(" {attr}={quote}{new_class}{quote}");
+    let mut updated = String::with_capacity(src.len() + inserted.len());
+    updated.push_str(&src[..cand.insert_at]);
+    updated.push_str(&inserted);
+    updated.push_str(&src[cand.insert_at..]);
+
+    std::fs::write(root.join(&cand.file), &updated).map_err(CommandError::from)?;
+    invalidate_index_cache(root);
+
+    // 1-based line/column of the inserted literal's value in the updated file.
+    let value_start = cand.insert_at + 1 + attr.len() + 2; // space + attr + `="`
+    let (line, column) = line_col(&updated, value_start);
+    Ok(Location {
+        file: cand.file.clone(),
+        line,
+        column,
+    })
+}
+
+/// Insert a `class`/`className` attribute on an element that has NO class in
+/// source — the "Add class" path for unstyled elements, which the replace-only
+/// write-back can't serve. Locates the open tag via ancestor-file + text
+/// anchoring and fails with a specific error rather than guess when zero or
+/// multiple tags match. Returns the inserted literal's location.
+#[tauri::command]
+#[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
+pub fn insert_class_attr(
+    project_path: String,
+    signature: ElementSignature,
+    new_class: String,
+) -> Result<Location, CommandError> {
+    if invalid_class_value(&new_class) {
+        return Err(CommandError::Validation {
+            field: "new_class".into(),
+            reason: "Class names can't be empty or contain quotes, braces, backslashes, or angle brackets.".into(),
+        });
+    }
+    let root = validate_project_path(&project_path)?;
+    let occurrences = index_occurrences_cached(&root);
+    let (cand, src) = locate_insert_site(&root, occurrences.as_slice(), &signature)?;
+    write_class_attr_insert(&root, &cand, &src, &new_class)
 }
 
 // ───────────────────────────── Text content ─────────────────────────────────
@@ -2422,9 +2782,15 @@ fn locate_element(
                 reason: "This element appears in several identical places, so editing its markup here could change the wrong one. Ask your agent to edit it instead.".into(),
             })
         }
+        Resolution::NoClass => {
+            return Err(CommandError::Validation {
+                field: "element".into(),
+                reason: "This element has no class in source to anchor its markup on. Add a class to it first (the Add class action), then its markup becomes editable.".into(),
+            })
+        }
         // The class resolver couldn't anchor this element to source (its classes
-        // are dynamic/generated, or it has none). The markup editor is
-        // class-anchored, so phrase it for *markup*, not the class-string reason.
+        // are dynamic/generated). The markup editor is class-anchored, so phrase
+        // it for *markup*, not the class-string reason.
         Resolution::ReadOnly { .. } => {
             return Err(CommandError::Validation {
                 field: "element".into(),
@@ -2791,6 +3157,24 @@ const items = [];
             resolve(&occs, &sig("bg-red-500 dynamic", "div", &[])),
             Resolution::ReadOnly { .. }
         ));
+    }
+
+    #[test]
+    fn classless_element_resolves_to_no_class_not_read_only() {
+        // An element with NO class isn't "dynamic" — it's insertable. The distinct
+        // status lets frontends offer "Add class" instead of a dead-end banner.
+        let occs = vec![occ("flex", "a.tsx", 1, "div")];
+        assert!(matches!(
+            resolve(&occs, &sig("", "div", &[])),
+            Resolution::NoClass
+        ));
+        assert!(matches!(
+            resolve(&occs, &sig("   ", "p", &[])),
+            Resolution::NoClass
+        ));
+        // Serialized shape matches the TS mirror (`{ status: 'no_class' }`).
+        let json = serde_json::to_string(&Resolution::NoClass).unwrap();
+        assert_eq!(json, r#"{"status":"no_class"}"#);
     }
 
     #[test]
@@ -3555,5 +3939,254 @@ const items = [];
         assert!(invalid_src_value("/a<b>.png"));
         assert!(!invalid_src_value("/images/My Logo (1).png"));
         assert!(!invalid_src_value("/hero.png?v=2"));
+    }
+
+    // ───────────── insert_class_attr (add class on a classless element) ─────────
+
+    fn classless_sig(tag: &str, text: Option<&str>, ancestors: &[&str]) -> ElementSignature {
+        ElementSignature {
+            class_name: String::new(),
+            tag_name: tag.into(),
+            text: text.map(str::to_string),
+            ancestor_classes: ancestors.iter().map(|s| s.to_string()).collect(),
+            attr_src: None,
+        }
+    }
+
+    /// Locate + write, like the command does, but on a plain temp dir (bypassing
+    /// `validate_project_path`, which only admits ~/ShipStudio paths).
+    fn insert_class(
+        root: &Path,
+        sig: &ElementSignature,
+        class: &str,
+    ) -> Result<Location, CommandError> {
+        let occ = index_occurrences(root);
+        let (cand, src) = locate_insert_site(root, &occ, sig)?;
+        write_class_attr_insert(root, &cand, &src, class)
+    }
+
+    #[test]
+    fn insert_unique_classless_tag_jsx_with_other_attributes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("Hero.tsx"),
+            "export function Hero() {\n  return (\n    <div id=\"hero\" data-x onClick={() => a > b}>\n      Hello\n    </div>\n  );\n}\n",
+        )
+        .unwrap();
+
+        let loc = insert_class(root, &classless_sig("div", None, &[]), "mt-4").unwrap();
+        assert_eq!(loc.file, "Hero.tsx");
+        let updated = std::fs::read_to_string(root.join("Hero.tsx")).unwrap();
+        // JSX file → `className`, inserted right after the tag name; other
+        // attributes (including the `>`-bearing arrow handler) are untouched.
+        assert!(
+            updated.contains("<div className=\"mt-4\" id=\"hero\" data-x onClick={() => a > b}>"),
+            "got: {updated}"
+        );
+        // The returned location points at the inserted literal's value.
+        let line = updated.lines().nth(loc.line - 1).unwrap();
+        assert!(line.contains("className=\"mt-4\""));
+    }
+
+    #[test]
+    fn insert_pins_by_unique_text_among_candidates() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("About.tsx"),
+            "export function About() {\n  return (\n    <p>\n      With over 65 years of proven performance.\n    </p>\n  );\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Services.tsx"),
+            "export function Services() {\n  return (\n    <p>\n      Custom cabinets built to last for decades.\n    </p>\n  );\n}\n",
+        )
+        .unwrap();
+
+        let sig = classless_sig("p", Some("With over 65 years of proven performance."), &[]);
+        let loc = insert_class(root, &sig, "lead").unwrap();
+        assert_eq!(loc.file, "About.tsx");
+        let updated = std::fs::read_to_string(root.join("About.tsx")).unwrap();
+        assert!(updated.contains("<p className=\"lead\">"), "got: {updated}");
+        // The other file is untouched.
+        assert!(!std::fs::read_to_string(root.join("Services.tsx"))
+            .unwrap()
+            .contains("className"));
+    }
+
+    #[test]
+    fn insert_narrows_by_unique_ancestor_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        // A classless <div> in each file; only the ancestor class pins file A.
+        std::fs::write(
+            root.join("A.tsx"),
+            "export function A() {\n  return (\n    <section className=\"wrapper-a\">\n      <div />\n    </section>\n  );\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("B.tsx"),
+            "export function B() {\n  return (\n    <section className=\"wrapper-b\">\n      <div />\n    </section>\n  );\n}\n",
+        )
+        .unwrap();
+
+        let sig = classless_sig("div", None, &["wrapper-a"]);
+        let loc = insert_class(root, &sig, "grid").unwrap();
+        assert_eq!(loc.file, "A.tsx");
+        assert!(std::fs::read_to_string(root.join("A.tsx"))
+            .unwrap()
+            .contains("<div className=\"grid\" />"));
+        assert!(!std::fs::read_to_string(root.join("B.tsx"))
+            .unwrap()
+            .contains("grid"));
+    }
+
+    #[test]
+    fn insert_rejects_multiple_candidates_with_specific_error() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("A.tsx"),
+            "export const A = () => <div><span /></div>;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("B.tsx"),
+            "export const B = () => <div><span /></div>;\n",
+        )
+        .unwrap();
+
+        // Two classless <div>s, no text, no ancestor — must refuse, not guess.
+        let err = insert_class(root, &classless_sig("div", None, &[]), "x").unwrap_err();
+        match err {
+            CommandError::Validation { reason, .. } => {
+                assert!(reason.contains("2 classless <div>"), "got: {reason}");
+                assert!(
+                    reason.contains("A.tsx") && reason.contains("B.tsx"),
+                    "got: {reason}"
+                );
+                assert!(reason.contains("no text"), "got: {reason}");
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
+        // Neither file was written.
+        assert!(!std::fs::read_to_string(root.join("A.tsx"))
+            .unwrap()
+            .contains("className"));
+        assert!(!std::fs::read_to_string(root.join("B.tsx"))
+            .unwrap()
+            .contains("className"));
+    }
+
+    #[test]
+    fn insert_rejects_when_no_classless_tag_exists() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        // The only <div> already has a class — a DOM <div> without one must be
+        // coming from elsewhere (a component, generated markup), so refuse.
+        std::fs::write(
+            root.join("A.tsx"),
+            "export const A = () => <div className=\"x\">hi</div>;\n",
+        )
+        .unwrap();
+
+        let err = insert_class(root, &classless_sig("div", None, &[]), "x").unwrap_err();
+        match err {
+            CommandError::Validation { reason, .. } => {
+                assert!(reason.contains("Couldn't find a <div>"), "got: {reason}");
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn insert_uses_class_for_astro_and_matches_single_quote_style() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("index.astro"),
+            "---\nconst x = 1;\n---\n<section class=\"hero\">\n  <h1>Welcome to the site</h1>\n</section>\n",
+        )
+        .unwrap();
+        let loc = insert_class(root, &classless_sig("h1", None, &[]), "title").unwrap();
+        assert_eq!(loc.file, "index.astro");
+        let updated = std::fs::read_to_string(root.join("index.astro")).unwrap();
+        // Astro → `class`, double quotes (the file's dominant style).
+        assert!(updated.contains("<h1 class=\"title\">"), "got: {updated}");
+
+        // A static-HTML project whose attributes use single quotes keeps them.
+        let dir2 = tempfile::TempDir::new().unwrap();
+        let root2 = dir2.path();
+        std::fs::write(
+            root2.join("index.html"),
+            "<div id='a' data-role='main'>\n  <p>Some paragraph text</p>\n</div>\n",
+        )
+        .unwrap();
+        insert_class(root2, &classless_sig("p", None, &[]), "lead").unwrap();
+        let updated2 = std::fs::read_to_string(root2.join("index.html")).unwrap();
+        assert!(updated2.contains("<p class='lead'>"), "got: {updated2}");
+    }
+
+    #[test]
+    fn insert_handles_self_closing_tags() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("Pic.tsx"),
+            "export const Pic = () => <img src=\"/a.png\" alt=\"a\" />;\n",
+        )
+        .unwrap();
+        insert_class(root, &classless_sig("img", None, &[]), "rounded").unwrap();
+        let updated = std::fs::read_to_string(root.join("Pic.tsx")).unwrap();
+        assert!(
+            updated.contains("<img className=\"rounded\" src=\"/a.png\" alt=\"a\" />"),
+            "got: {updated}"
+        );
+    }
+
+    #[test]
+    fn classless_sites_skip_static_and_dynamic_class_and_comments() {
+        let src = r#"
+            export function C() {
+              return (
+                <div className="x">
+                  <div className={cn("a", b)}>y</div>
+                  {/* comment */}
+                  <div id="target">z</div>
+                </div>
+              );
+            }
+            // <!-- <div>in an HTML comment</div> --> is skipped in .html-style sources
+        "#;
+        let sites = find_classless_tag_sites(src, "div");
+        // Only the `id="target"` div has no class handling at all.
+        assert_eq!(sites.len(), 1);
+        let (insert_at, _line) = sites[0];
+        assert_eq!(&src[insert_at - 4..insert_at + 12], "<div id=\"target\"");
+
+        let html = "<!-- <div>commented out</div> -->\n<div>real</div>\n";
+        assert_eq!(find_classless_tag_sites(html, "div").len(), 1);
+    }
+
+    #[test]
+    fn classless_sites_ignore_member_expression_components() {
+        // `<Select.Option>`'s parsed name is only the `select` prefix — must not
+        // be treated as a classless <select>.
+        let src = "export const C = () => <Select.Option value=\"1\">one</Select.Option>;\n";
+        assert!(find_classless_tag_sites(src, "select").is_empty());
+    }
+
+    #[test]
+    fn insert_rejects_markup_breaking_class_values() {
+        assert!(invalid_class_value(""));
+        assert!(invalid_class_value("   "));
+        assert!(invalid_class_value("a\"b"));
+        assert!(invalid_class_value("a'b"));
+        assert!(invalid_class_value("a<b"));
+        assert!(invalid_class_value("a{b}"));
+        assert!(invalid_class_value("a\\b"));
+        assert!(!invalid_class_value("mt-4 text-[oklch(0.62_0.18_39)]"));
+        assert!(!invalid_class_value("hover:bg-red-500/50"));
     }
 }

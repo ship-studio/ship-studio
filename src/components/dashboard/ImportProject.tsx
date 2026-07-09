@@ -13,7 +13,6 @@
  */
 
 import { useState, useEffect } from 'react';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { trackError } from '../../lib/analytics';
 import {
   getGitHubUsername,
@@ -26,13 +25,12 @@ import {
 import {
   ensureShipStudioDir,
   projectPathExists,
-  spawnPty,
   ensureGitignoreHasShipstudio,
   detectWorkspaces,
   setWorkspaceSubpath,
   type WorkspaceInfo,
 } from '../../lib/project';
-import { getWindowLabel } from '../../lib/window';
+import { runPtyToExit } from '../../lib/ptyRun';
 import { checkNpmCachePermissions } from '../../lib/setup';
 import { Step1AccountSelection } from '../import-project/steps/Step1AccountSelection';
 import { Step2RepoSelection } from '../import-project/steps/Step2RepoSelection';
@@ -90,7 +88,10 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       setSelectedOwner(user);
     } catch (err) {
       trackError('github_accounts_load', err, 'Dashboard');
-      setError('Failed to load GitHub accounts. Please check your authentication.');
+      setError(
+        `Couldn't load your GitHub accounts: ${formatCommandError(asCommandError(err))}. ` +
+          'Try signing out and back into GitHub.'
+      );
     } finally {
       setLoadingAccounts(false);
     }
@@ -123,47 +124,6 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
     }
   };
 
-  const waitForPtyExit = async (targetId: number): Promise<number | null> => {
-    return new Promise((resolve, reject) => {
-      let unlistenExit: UnlistenFn | null = null;
-      let unlistenOutput: UnlistenFn | null = null;
-      const outputLines: string[] = [];
-      const MAX_OUTPUT_LINES = 30;
-
-      // Capture process output so we can surface it on failure
-      void listen<{ id: number; data: string }>('pty-output', (event) => {
-        if (event.payload.id === targetId) {
-          // Split into lines and keep a rolling window
-          const lines = event.payload.data.split(/\r?\n/).filter((l) => l.trim());
-          for (const line of lines) {
-            outputLines.push(line);
-            if (outputLines.length > MAX_OUTPUT_LINES) outputLines.shift();
-          }
-        }
-      }).then((fn) => {
-        unlistenOutput = fn;
-      });
-
-      void listen<{ id: number; code: number | null }>('pty-exit', (event) => {
-        if (event.payload.id === targetId) {
-          unlistenExit?.();
-          unlistenOutput?.();
-          if (event.payload.code === 0 || event.payload.code === null) {
-            resolve(event.payload.code);
-          } else {
-            const output = outputLines.join('\n').trim();
-            const msg = output
-              ? `Process exited with code ${event.payload.code}\n\n${output}`
-              : `Process exited with code ${event.payload.code}`;
-            reject(new Error(msg));
-          }
-        }
-      }).then((fn) => {
-        unlistenExit = fn;
-      });
-    });
-  };
-
   /** Run package manager install via PTY, with a pre-check for permissions */
   const runPackageInstall = async (projectPath: string, packageManager: string) => {
     // Pre-check: verify npm cache is writable (relevant for npm/npx, and sometimes pnpm/yarn too)
@@ -174,18 +134,14 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       );
     }
 
-    const installId = await spawnPty(
-      {
-        cwd: projectPath,
-        command: packageManager,
-        args: ['install'],
-        rows: 10,
-        cols: 80,
-      },
-      getWindowLabel()
-    );
-
-    await waitForPtyExit(installId);
+    logger.info('[ImportProject] phase: install', { projectPath, packageManager });
+    await runPtyToExit({
+      cwd: projectPath,
+      command: packageManager,
+      args: ['install'],
+      rows: 10,
+      cols: 80,
+    });
   };
 
   /** Retry just the install step (project already cloned) */
@@ -206,6 +162,11 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       await new Promise((r) => setTimeout(r, 800));
       onComplete(importedProjectPath);
     } catch (err) {
+      logger.error('[ImportProject] install retry failed', {
+        error: err instanceof Error ? err.message : String(err),
+        projectPath: importedProjectPath,
+        packageManager: importedPackageManager,
+      });
       trackError('project_install_retry', err, 'Dashboard');
       setError(friendlyProcessError(err));
     }
@@ -272,18 +233,22 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
         selectedOwner === '__collaborator__'
           ? selectedRepo.name
           : `${selectedOwner}/${selectedRepo.name}`;
-      const cloneId = await spawnPty(
-        {
-          cwd: shipstudioDir,
-          command: 'gh',
-          args: ['repo', 'clone', repoFullName, safeName],
-          rows: 10,
-          cols: 80,
-        },
-        getWindowLabel()
-      );
 
-      await waitForPtyExit(cloneId);
+      // Breadcrumb: log sanitized import parameters (names + paths only, no
+      // tokens) before invoking, so a crash mid-import localizes the phase.
+      logger.info('[ImportProject] phase: clone', {
+        repo: repoFullName,
+        safeName,
+        projectPath,
+      });
+      await runPtyToExit({
+        cwd: shipstudioDir,
+        command: 'gh',
+        args: ['repo', 'clone', repoFullName, safeName],
+        rows: 10,
+        cols: 80,
+      });
+      logger.info('[ImportProject] clone complete', { projectPath });
 
       setImportedProjectPath(projectPath);
 
@@ -293,6 +258,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       // a backend failure shows up in the dev console instead of being eaten.
       let workspaces: WorkspaceInfo[] = [];
       try {
+        logger.info('[ImportProject] phase: detect workspaces', { projectPath });
         workspaces = await detectWorkspaces(projectPath);
       } catch (err) {
         logger.warn('[ImportProject] detectWorkspaces failed; falling back to root', {
@@ -302,6 +268,10 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       }
 
       if (workspaces.length > 0) {
+        logger.info('[ImportProject] monorepo detected; awaiting workspace pick', {
+          projectPath,
+          workspaceCount: workspaces.length,
+        });
         const firstWeb = workspaces.find((w) => w.isWeb) ?? workspaces[0];
         setDiscoveredWorkspaces(workspaces);
         setSelectedWorkspacePick({ kind: 'app', relativePath: firstWeb.relativePath });
@@ -311,6 +281,11 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
       await finishImport(projectPath);
     } catch (err) {
+      logger.error('[ImportProject] import failed during clone/detect', {
+        error: err instanceof Error ? err.message : String(err),
+        repo: selectedRepo.name,
+        safeName,
+      });
       trackError('project_import', err, 'Dashboard');
       setError(friendlyProcessError(err));
     }
@@ -318,6 +293,9 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
   /** Resume install + setup after clone (and optionally after the workspace picker). */
   const finishImport = async (projectPath: string) => {
+    // Local phase tracker for error breadcrumbs — the `currentStep` state is
+    // stale inside this closure, so it can't localize the failure.
+    let phase = 'detect-package-manager';
     try {
       // Not every repo is an npm project (Flutter, plain HTML, Rust, …).
       // `npm install` exits ENOENT when there's no package.json, killing the
@@ -330,16 +308,25 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
         const packageManager = await detectPackageManager(projectPath);
         setImportedPackageManager(packageManager);
 
+        phase = 'install';
         await runPackageInstall(projectPath, packageManager);
       }
 
+      phase = 'setup';
       setCurrentStep('setup');
+      logger.info('[ImportProject] phase: setup', { projectPath });
       await ensureGitignoreHasShipstudio(projectPath);
 
       setCurrentStep('done');
+      logger.info('[ImportProject] import complete', { projectPath });
       await new Promise((r) => setTimeout(r, 800));
       onComplete(projectPath);
     } catch (err) {
+      logger.error('[ImportProject] import failed', {
+        error: err instanceof Error ? err.message : String(err),
+        phase,
+        projectPath,
+      });
       trackError('project_import', err, 'Dashboard');
       setError(friendlyProcessError(err));
     }

@@ -49,13 +49,17 @@ pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Pull remote changes and merge (may result in conflicts)
+/// Pull remote changes and merge (may result in conflicts).
+///
+/// Returns git's own summary output (e.g. "Already up to date." or the
+/// fast-forward/merge stats) so the UI can report what actually happened
+/// instead of a generic "done".
 #[tauri::command]
 #[tracing::instrument(skip(project_path, merge_branch), fields(project = %project_path, branch = ?merge_branch))]
 pub async fn pull_and_merge(
     project_path: String,
     merge_branch: Option<String>,
-) -> Result<(), CommandError> {
+) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
     // First fetch to ensure we have latest refs. Ignore failure (best-effort).
@@ -86,7 +90,10 @@ pub async fn pull_and_merge(
         return Err((format!("Failed to merge: {stderr}")).into());
     }
 
-    Ok(())
+    // The working tree may have changed under us — same reason git_pull invalidates.
+    GIT_CACHE.invalidate_status(&project_path);
+
+    Ok(combined)
 }
 
 /// Discard all uncommitted changes in the working directory

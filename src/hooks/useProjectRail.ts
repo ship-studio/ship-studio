@@ -15,6 +15,7 @@ import { useCallback } from 'react';
 import type { Project } from '../lib/project';
 import { usePinnedProjects, type UsePinnedProjectsReturn } from './usePinnedProjects';
 import { logger } from '../lib/logger';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { basename } from '../lib/paths';
 
 export interface UseProjectRailParams {
@@ -55,9 +56,11 @@ export function useProjectRail({
           await pinnedProjects.unpin(projectPath);
         }
       } catch (e) {
-        showToast(shouldPin ? 'Failed to pin project' : 'Failed to unpin project', 'error');
+        const detail = formatCommandError(asCommandError(e));
+        const name = basename(projectPath) || 'project';
+        showToast(`Couldn't ${shouldPin ? 'pin' : 'unpin'} ${name}: ${detail}`, 'error');
         logger.error('[useProjectRail] Pin toggle failed', {
-          error: String(e),
+          error: detail,
           projectPath,
           shouldPin,
         });

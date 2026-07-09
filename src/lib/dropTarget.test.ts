@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { physicalToLogical, isPointInRect } from './dropTarget';
+import { physicalToLogical, dropPointToLogical, isPointInRect } from './dropTarget';
 
 describe('physicalToLogical', () => {
   it('divides physical coordinates by the device pixel ratio', () => {
@@ -53,5 +53,27 @@ describe('isPointInRect', () => {
     const dropInRight = physicalToLogical({ x: 1200, y: 400 }, 2); // -> (600, 200)
     expect(isPointInRect(dropInRight, leftPane)).toBe(false);
     expect(isPointInRect(dropInRight, rightPane)).toBe(true);
+  });
+});
+
+describe('dropPointToLogical', () => {
+  it('divides by DPR on Windows (wry sends true device pixels there)', () => {
+    expect(dropPointToLogical({ x: 1200, y: 400 }, true, 2)).toEqual({ x: 600, y: 200 });
+  });
+
+  it('passes macOS coordinates through untouched — they are already logical AppKit points', () => {
+    // Regression: v0.13.2 divided these by DPR, so on a Retina display every
+    // drop landed at half-coordinates, missed the terminal rect, and was
+    // silently ignored ("can't drag screenshots into the terminal anymore").
+    expect(dropPointToLogical({ x: 600, y: 200 }, false, 2)).toEqual({ x: 600, y: 200 });
+  });
+
+  it('a Retina-Mac drop over the terminal hit-tests true end to end', () => {
+    const terminalPane = { left: 400, top: 40, right: 800, bottom: 600 };
+    // Cursor visually at (600, 200) on a DPR-2 Mac: wry reports logical
+    // (600, 200). The old code halved it to (300, 100) -> miss.
+    const point = dropPointToLogical({ x: 600, y: 200 }, false, 2);
+    expect(isPointInRect(point, terminalPane)).toBe(true);
+    expect(isPointInRect(physicalToLogical({ x: 600, y: 200 }, 2), terminalPane)).toBe(false);
   });
 });

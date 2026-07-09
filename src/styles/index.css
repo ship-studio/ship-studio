@@ -24,6 +24,7 @@
 @import './features/workspace/compact-workspace.css';
 @import './features/toolbar.css';
 @import './features/preview.css';
+@import './features/thumbnail-consent.css';
 @import './features/visual-editor.css';
 @import './features/visual-editor-image.css';
 @import './features/visual-editor-classes.css';

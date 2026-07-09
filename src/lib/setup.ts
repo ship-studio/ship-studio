@@ -182,15 +182,16 @@ export function getSetupDependencies(): Record<string, string[]> {
     git: ['homebrew'],
     gh: ['homebrew'],
     gh_auth: ['gh'],
-    claude: [], // Uses its own installer
+    claude: [], // Uses its own installer (native, not npm)
     claude_auth: ['claude'],
-    codex: [], // Uses npm global install
+    codex: ['node'], // npm global install — fails with a misleading error without Node
     codex_auth: ['codex'],
-    opencode: [], // Uses its own installer
+    // npm-based on Windows; macOS/Linux uses its own curl installer
+    opencode: isWindows() ? ['node'] : [],
     opencode_auth: ['opencode'],
-    cursor: [], // Uses its own installer
+    cursor: [], // Uses its own installer (native, not npm)
     cursor_auth: ['cursor'],
-    vercel: [], // Uses npm global install
+    vercel: ['node'], // npm global install — fails with a misleading error without Node
     vercel_auth: ['vercel'],
   };
 }
@@ -321,6 +322,43 @@ export function getReadyAgentPairs(items: SetupItem[]): (typeof AGENT_ITEM_PAIRS
  */
 export function isAtLeastOneAgentReady(items: SetupItem[]): boolean {
   return getReadyAgentPairs(items).length > 0;
+}
+
+/**
+ * Check whether an item shows as ready in a (freshly fetched) item list.
+ *
+ * An item *absent* from the list counts as ready: the backend drops items
+ * that are no longer applicable (e.g. `npm_fix` disappears from
+ * `get_full_setup_status` once the permissions are actually fixed), and
+ * treating that as "not ready" would flag a successful fix as a failure.
+ */
+export function isSetupItemReady(items: SetupItem[], itemId: string): boolean {
+  const item = items.find((i) => i.id === itemId);
+  return item === undefined || item.status === 'ready';
+}
+
+/**
+ * Run a boolean check immediately and then re-check on a staggered schedule
+ * before giving up. Auth/token files (and freshly installed binaries) can
+ * land a beat *after* the child process exits, so a single immediate check
+ * produces false "not completed" failures — the dashboard AgentsPanel
+ * re-checks at 600/1500/3000ms after terminal exit for exactly this reason.
+ *
+ * `delays` are offsets in ms from the first (immediate) check, matching the
+ * AgentsPanel schedule. Resolves `true` as soon as any check passes.
+ */
+export async function recheckWithDelays(
+  check: () => Promise<boolean>,
+  delays: number[] = [600, 1500, 3000]
+): Promise<boolean> {
+  if (await check()) return true;
+  let waited = 0;
+  for (const target of delays) {
+    await new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, target - waited)));
+    waited = target;
+    if (await check()) return true;
+  }
+  return false;
 }
 
 /**
@@ -476,6 +514,81 @@ export async function getFullSetupStatus(): Promise<FullSetupStatus> {
   return invoke<FullSetupStatus>('get_full_setup_status');
 }
 
+/** A CLI binary resolved on the backend's extended PATH. */
+export interface ResolvedCli {
+  /** Absolute path to the binary. */
+  path: string;
+  /** Directory containing the binary — for appending to a PTY PATH. */
+  dir: string;
+}
+
+/**
+ * Resolve a bare CLI name (e.g. "gh", "vercel") to an absolute path using the
+ * same discovery the setup status checks use (login-shell PATH + common
+ * install locations). Returns `null` when the binary isn't installed.
+ * Terminal spawns use this to fail fast with a clear message instead of
+ * launching a PTY that silently produces nothing, and to make the PTY see the
+ * exact binary the status checks saw.
+ */
+export async function resolveCliPath(name: string): Promise<ResolvedCli | null> {
+  return invoke<ResolvedCli | null>('resolve_cli_path', { name });
+}
+
+/**
+ * Windows spawn decision: should this command be wrapped as
+ * `cmd.exe /C <command> <args...>`, or spawned directly through the PTY?
+ *
+ * Only `.cmd`/`.bat` shims (npm, vercel, npx, …) NEED the cmd.exe wrapper —
+ * they are batch scripts, not executables. For real executables the wrapper
+ * adds a second parse layer with its own quote rules: portable_pty rebuilds
+ * a single command-line string from the argv, and `cmd.exe /C` RE-PARSES
+ * that string (see the quote-processing rules in `cmd /?`) before the target
+ * ever sees it. Spawning the resolved executable directly removes that layer
+ * entirely — the target's CRT parses exactly what portable_pty composed.
+ *
+ * Whether cmd's re-parse actually mangles a piped `-Command` argument is
+ * measured (not assumed) by the canary pair in
+ * src-tauri/src/commands/pty_session.rs. RECORDED VERDICT (Windows runner,
+ * job 85754711506): the piped expression survives BOTH shapes intact — the
+ * quote-stripping hazard was a false alarm. (Two earlier CI hangs initially
+ * blamed on quote-stripping were the test harness not answering ConPTY's
+ * DSR handshake.) Direct spawn is kept as a defensive simplification —
+ * strictly more deterministic — not as a bug fix.
+ *
+ * @param command the command as configured (e.g. "npm", "powershell", "gh")
+ * @param resolvedPath absolute path from {@link resolveCliPath}, when
+ *   resolution succeeded; `undefined`/`null` when it failed or was skipped
+ *   (fail-open), in which case the conservative default is to wrap — except
+ *   for PowerShell, which is a real executable on every Windows install.
+ */
+export function needsCmdExeWrapper(command: string, resolvedPath?: string | null): boolean {
+  const base = command.toLowerCase().split(/[\\/]/).pop() ?? '';
+  if (
+    base === 'powershell' ||
+    base === 'powershell.exe' ||
+    base === 'pwsh' ||
+    base === 'pwsh.exe'
+  ) {
+    // Always safe to spawn directly — and required for piped -Command args.
+    return false;
+  }
+  // Judge by the binary the spawn will actually hit; fall back to the
+  // command string itself if it already names a script.
+  const probe = (resolvedPath ?? command).toLowerCase();
+  if (probe.endsWith('.cmd') || probe.endsWith('.bat')) {
+    return true; // batch shim — only cmd.exe can run it
+  }
+  if (probe.endsWith('.exe') || probe.endsWith('.com')) {
+    return false; // real executable — spawn directly
+  }
+  // Unresolved, or resolved to something without a recognized executable
+  // extension (npm ships an extensionless `npm` sh script NEXT TO npm.cmd,
+  // and the backend's extended-PATH probe can return it): keep the historical
+  // cmd.exe wrapper as the conservative default — cmd re-searches PATH with
+  // PATHEXT and finds the proper .cmd/.exe.
+  return true;
+}
+
 /**
  * Start GitHub authentication flow (opens browser).
  * Returns a message to display to the user.
@@ -604,11 +717,14 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
     // Windows commands (using PowerShell where needed)
     return {
       homebrew: {
-        // Not applicable on Windows, but keep for compatibility
+        // Not applicable on Windows, but keep for compatibility. This is an
+        // informational echo that exits 0 on purpose — the wizard's
+        // post-success verification re-checks the item and surfaces an error
+        // state if winget still isn't detected afterwards.
         command: 'powershell',
         args: [
           '-Command',
-          'Write-Host "Winget should be pre-installed on Windows 10 21H2+. Please install from Microsoft Store if missing."',
+          'Write-Host "Winget was not detected. Install \'App Installer\' from the Microsoft Store, then click Install again."',
         ],
       },
       npm_fix: {
@@ -630,8 +746,14 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: ['-Command', 'irm https://claude.ai/install.ps1 | iex'],
       },
       claude_auth: {
+        // Dedicated sign-in flow (`claude auth login` — "Sign in to your
+        // Anthropic account"). The bare CLI used to be spawned here, which
+        // stranded non-technical users in the chat REPL when the CLI didn't
+        // auto-prompt for login (audit #7). The `claude auth` command family
+        // is the same one the backend already relies on for status checks
+        // (`claude auth status`, src-tauri/src/commands/accounts.rs).
         command: 'claude',
-        args: [],
+        args: ['auth', 'login'],
       },
       codex: {
         // --force clears EEXIST failures from stale/partial global installs,
@@ -640,8 +762,11 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: ['install', '-g', '@openai/codex', '--force'],
       },
       codex_auth: {
+        // Dedicated login subcommand (`codex login` — "Manage login") instead
+        // of the bare CLI, which dropped users into the agent chat UI when it
+        // didn't auto-prompt for sign-in (audit #7). Exits when auth completes.
         command: 'codex',
-        args: [],
+        args: ['login'],
       },
       opencode: {
         // No clean PowerShell one-liner installer exists for Windows; install
@@ -695,9 +820,16 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
             '  echo "Then restart Ship Studio and try again."',
             '  exit 1',
             'fi',
-            // Use command substitution instead of pipe so stdin stays connected to the
-            // terminal, allowing the Homebrew installer to interactively prompt for sudo
-            '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+            // Capture the installer script first so a failed download fails
+            // *loudly*: with a bare `bash -c "$(curl …)"`, an offline curl
+            // yields an empty substitution and bash exits 0 — a silent
+            // dead-end where nothing installed but nothing errored either.
+            // Use command substitution instead of a pipe so stdin stays
+            // connected to the terminal, allowing the Homebrew installer to
+            // interactively prompt for sudo.
+            'script="$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || { echo "Download failed — check your internet connection and try again."; exit 1; }',
+            '[ -n "$script" ] || { echo "Download failed — empty installer. Check your internet connection and try again."; exit 1; }',
+            'exec /bin/bash -c "$script"',
           ].join('\n'),
         ],
       },
@@ -717,16 +849,22 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: ['-c', 'curl -fsSL https://claude.ai/install.sh | bash'],
       },
       claude_auth: {
+        // Dedicated sign-in flow (`claude auth login`) — see the Windows entry
+        // above for why the bare CLI is not spawned here (audit #7).
         command: 'claude',
-        args: [],
+        args: ['auth', 'login'],
       },
       codex: {
+        // --force clears EEXIST failures from stale/partial global installs,
+        // which npm otherwise reports opaquely (issue #164).
         command: '/bin/bash',
-        args: ['-c', 'npm install -g @openai/codex'],
+        args: ['-c', 'npm install -g @openai/codex --force'],
       },
       codex_auth: {
+        // Dedicated login subcommand (`codex login`) — see the Windows entry
+        // above for why the bare CLI is not spawned here (audit #7).
         command: 'codex',
-        args: [],
+        args: ['login'],
       },
       opencode: {
         command: '/bin/bash',
@@ -745,8 +883,9 @@ export function getTerminalCommands(): Record<string, TerminalCommand> {
         args: ['login'],
       },
       vercel: {
+        // --force clears EEXIST failures from stale/partial global installs.
         command: '/bin/bash',
-        args: ['-c', 'npm install -g vercel'],
+        args: ['-c', 'npm install -g vercel --force'],
       },
       vercel_auth: {
         command: 'vercel',

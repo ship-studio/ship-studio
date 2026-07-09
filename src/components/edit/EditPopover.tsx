@@ -189,6 +189,16 @@ export function EditPopover({ anchor, initial, options, placeholder, onCommit, o
                   } else if (e.key === 'ArrowUp' && showMenu) {
                     e.preventDefault();
                     setActive((a) => Math.max(a - 1, 0));
+                  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                    // Menu closed: step a numeric value (same conventions as
+                    // drag-to-scrub) and live-apply. Non-numeric values keep
+                    // the default caret behavior.
+                    const next = stepNumericValue(text, e.key === 'ArrowUp' ? 1 : -1, e);
+                    if (next === null) return;
+                    e.preventDefault();
+                    setText(next);
+                    setActive(0);
+                    onCommit(next); // live-apply, like scrubbing
                   }
                 }}
               />
@@ -232,6 +242,22 @@ function magnitudeStep(v: number): number {
   if (a < 100) return 1; //  10–99  → 1 / px
   if (a < 1000) return 10; // 100–999 → 10 / px
   return 100; //              1000+   → 100 / px
+}
+
+/** One keyboard step of a numeric value: the magnitude-aware base step with
+ *  Shift ×10 / Alt ÷10 — the same conventions as drag-to-scrub. Preserves the
+ *  unit; null when the value isn't a single number (keyword, color, calc(…)). */
+function stepNumericValue(
+  value: string,
+  dir: 1 | -1,
+  mods: { shiftKey: boolean; altKey: boolean }
+): string | null {
+  const p = parseNumericValue(value);
+  if (!p) return null;
+  const base = magnitudeStep(p.num);
+  const step = mods.shiftKey ? base * 10 : mods.altKey ? base / 10 : base;
+  const stepDecimals = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
+  return formatNumericValue(p.num + dir * step, p.unit, Math.max(p.decimals, stepDecimals));
 }
 
 /** Drag-to-scrub a numeric value (devtools-style). Horizontal drag adjusts the

@@ -35,6 +35,7 @@ import { BranchPRTabContainer } from './BranchPRTabContainer';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
 import type { HealthTabPanelRef } from '../code/HealthTabPanel';
+import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { useIsCompact } from '../../hooks/useIsCompact';
 import { WorkspaceModals } from './WorkspaceModals';
 import { WorkspaceHeader, HOSTING_PLUGIN_IDS } from './WorkspaceHeader';
@@ -135,6 +136,9 @@ interface DevServerProps {
   healthOutputVersion: number;
   handleHealthOutput: (data: string) => void;
   needsInstall: { packageManager: string } | null;
+  /** Set when the dev-server process died without Ship Studio stopping it
+   *  (crash / external kill). Lets the Preview offer a real process restart. */
+  devServerUnexpectedExit: DevServerUnexpectedExit | null;
   onRunInstall: () => void;
   /** Type into the dev-server PTY (interactive CLI prompts in the logs pane). */
   onDevServerInput: (data: string) => void;
@@ -239,6 +243,7 @@ interface BranchProps {
   showSubmitReview: string | null;
   setShowSubmitReview: (branch: string | null) => void;
   isBranchSwitching: boolean;
+  isPulling: boolean;
   gitError: {
     errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic';
     message: string;
@@ -256,6 +261,7 @@ interface BranchProps {
   fetchBranchInfo: (projectPath: string) => Promise<void>;
   checkGitStatus: (projectPath: string) => Promise<void>;
   handleBranchSwitch: (branchName: string) => Promise<void>;
+  handlePullLatest: () => Promise<void>;
   handlePublishError: (
     error: string,
     errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic'
@@ -452,6 +458,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     healthOutputVersion,
     handleHealthOutput,
     needsInstall,
+    devServerUnexpectedExit,
     onRunInstall,
     onDevServerInput,
     onDevServerResize,
@@ -552,6 +559,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     showSubmitReview,
     setShowSubmitReview,
     isBranchSwitching,
+    isPulling,
     gitError,
     setGitError,
     showConflictResolution,
@@ -559,6 +567,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     fetchBranchInfo,
     checkGitStatus,
     handleBranchSwitch,
+    handlePullLatest,
     handlePublishError,
     handleResolveConflicts,
     handleConflictsResolved,
@@ -723,6 +732,9 @@ export const WorkspaceView = memo(function WorkspaceView({
     setWorkspaceTab,
     setShowSubmitReview,
     handleResolveConflicts: () => void handleResolveConflicts(),
+    openPushDropdown: () => setForcePublishOpen(true),
+    handlePullLatest: () => void handlePullLatest(),
+    isGitHubConnected: integrations.projectGithub?.status === 'connected',
   });
 
   // Shopify themes: preview gate state + palette commands.
@@ -900,6 +912,8 @@ export const WorkspaceView = memo(function WorkspaceView({
           void checkGitStatus(currentProject.path);
         }}
         onSave={() => setForcePublishOpen(true)}
+        onPullLatest={() => void handlePullLatest()}
+        isPulling={isPulling}
       />
     ) : null;
 
@@ -1442,6 +1456,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                             healthPanelRef={healthPanelRef}
                             onHealthOutput={handleHealthOutput}
                             needsInstall={needsInstall}
+                            devServerUnexpectedExit={devServerUnexpectedExit}
+                            onRestartDevServer={() => void handleRestartDevServer()}
                             onRunInstall={onRunInstall}
                             onOpenInCode={openInCode}
                             canUndo={canUndo}

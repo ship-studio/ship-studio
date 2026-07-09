@@ -23,7 +23,7 @@ export interface ControlRenderCtx {
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   onReset: (spec: ResetSpec) => void;
   onSetSide: (type: BoxType, side: Side, value: SpacingValue) => void;
-  onStepGap: (dir: 1 | -1) => void;
+  onStepGap: (dir: 1 | -1, step?: number) => void;
   /** Rendered colors (getComputedStyle) keyed by CSS prop, to seed color pickers. */
   computed?: Record<string, string | undefined>;
 }

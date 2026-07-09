@@ -317,9 +317,32 @@
   flex: 1;
 }
 
-.conflict-callout .conflict-copy-btn {
+.conflict-callout .conflict-copy-btn,
+.conflict-callout .conflict-send-btn {
   margin: 0;
   flex-shrink: 0;
+}
+
+/* Same chrome as the copy button, but accent-colored — it's the "do it for me" action */
+.conflict-send-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--bg-primary);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    opacity var(--transition),
+    background-color var(--transition);
+}
+
+.conflict-send-btn:hover {
+  opacity: 0.85;
 }
 
 /* More information section */

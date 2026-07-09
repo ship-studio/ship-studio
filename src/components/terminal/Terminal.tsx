@@ -24,6 +24,7 @@ import {
   writePtySessionLogged,
   resizePtySession,
   killPtySession,
+  detachPtySession,
   onPtySessionData,
   onPtySessionExit,
   createAttachGate,
@@ -49,7 +50,7 @@ import { isWindows } from '../../lib/setup';
 import { isPasteChord, readClipboardText, stageClipboardImage } from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
-import { isPointInRect, physicalToLogical } from '../../lib/dropTarget';
+import { isPointInRect, dropPointToLogical } from '../../lib/dropTarget';
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { decideStartupTimeoutAction } from './startupWatchdog';
 import type { AgentConfig } from '../../lib/agent';
@@ -273,7 +274,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           .catch((err) => {
             logger.error('[Terminal] Font loading failed, proceeding anyway', {
               agent: agent.id,
-              error: String(err),
+              error: formatCommandError(asCommandError(err)),
             });
             if (!cancelled) setIsReady(true);
           });
@@ -335,10 +336,16 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           // `visibility: hidden`, so their rects still overlap the visible
           // pane — computed visibility is the discriminator.
           if (getComputedStyle(container).visibility !== 'visible') return;
-          // The payload position is in physical (device) pixels; DOM rects
-          // are logical CSS pixels — convert before hit-testing. In a split,
-          // this naturally routes the drop to the pane under the cursor.
-          const point = physicalToLogical(event.payload.position, window.devicePixelRatio);
+          // Normalize the payload position to logical CSS pixels before
+          // hit-testing. Only Windows sends device pixels — macOS sends
+          // logical AppKit points despite the PhysicalPosition typing, and
+          // dividing them by DPR broke every Retina drop (see dropTarget.ts).
+          // In a split, this routes the drop to the pane under the cursor.
+          const point = dropPointToLogical(
+            event.payload.position,
+            isWindows(),
+            window.devicePixelRatio
+          );
           if (!isPointInRect(point, container.getBoundingClientRect())) return;
 
           // Debounce - ignore duplicate events within 500ms
@@ -1026,7 +1033,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             if (selection) {
               navigator.clipboard.writeText(selection).catch((err: unknown) => {
                 logger.warn('[Terminal] Failed to copy selection to clipboard', {
-                  error: String(err),
+                  error: formatCommandError(asCommandError(err)),
                 });
               });
               term.clearSelection();
@@ -1076,7 +1083,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
                 }
               } catch (err) {
                 logger.warn('[Terminal] Native clipboard paste failed', {
-                  error: String(err),
+                  error: formatCommandError(asCommandError(err)),
                 });
                 // Best-effort fallback to the browser clipboard (may be slow
                 // on WebView2, but better than dropping the paste entirely).
@@ -1099,7 +1106,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         logger.error('[Terminal] Failed to spawn PTY', {
           agent: agent.id,
           binary: agent.binaryName,
-          error: String(err),
+          error: formatCommandError(asCommandError(err)),
           retry: retryCount,
         });
 

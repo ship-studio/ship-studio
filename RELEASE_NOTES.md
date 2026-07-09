@@ -6,6 +6,17 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.13.4
+
+- **Fixed dragging files into terminals on Retina Macs** - Dropping a file or screenshot into an agent terminal silently did nothing since v0.13.2 (a coordinate-scaling bug in the drop routing). Drops land correctly again — and still go only to the terminal under your cursor.
+- **Setup is much harder to break** - Installs and connections now use the same PATH the checklist verifies with (fixes "Node is installed but npm not found" for nvm/volta/fnm users), a missing tool gets an instant plain-English message instead of a dead terminal, one stuck program can no longer freeze the whole setup check, and "finished but didn't actually install" (like an offline Homebrew install) is detected and explained instead of silently ignored.
+- **Auth flows stop crying wolf** - After you sign in to GitHub or Claude, the wizard now gives the login a few seconds to register before declaring it failed.
+- **Error messages tell you what actually happened** - Errors across the app now show the real underlying failure (with the command and its output) instead of generic "Something went wrong" text. Error notifications stay on screen until you dismiss them and have a Copy button, so you can paste the full error into Slack instead of screenshotting it. Failed command-palette actions now say so — they used to fail silently.
+
+## What's New in v0.13.3
+
+- **Fixed frozen setup and connect terminals** - A v0.13.2 regression froze onboarding, install, and connect terminals after their first moments of output — GitHub/Vercel/agent connections stuck at "Starting…" and installs freezing mid-way (like at the password prompt). They now stream output correctly again. If you got stuck setting up on v0.13.2, update and try again.
+
 ## What's New in v0.13.2
 
 - **Terminals no longer get stuck at "Starting…"** - Fixed the root cause: the terminal's first output could be lost in a startup race, making agents look dead (Windows especially, occasionally macOS). Onboarding terminals also auto-retry a wedged start and show a real error instead of hanging forever. Thanks to Sam Cotterill for the community fix.

@@ -874,7 +874,9 @@ pub async fn delete_project(path: String) -> Result<(), CommandError> {
     // below can't be defeated by a lexical path like `~/ShipStudio/../../.ssh`.
     // `Path::starts_with` is purely lexical and would otherwise pass such a path
     // straight through to `remove_dir_all`.
-    let canonical = dunce::canonicalize(&path).map_err(|_| "Project not found".to_string())?;
+    let canonical = dunce::canonicalize(&path).map_err(|e| CommandError::Io {
+        message: format!("Couldn't resolve project path {path}: {e}"),
+    })?;
 
     // Check if this is an external project
     if crate::commands::external_projects::is_registered_external_path(&canonical)? {
@@ -1014,8 +1016,9 @@ pub async fn rename_project(
     // lexical, so checking the raw `old_path` would let `~/ShipStudio/../../foo`
     // escape the sandbox and rename arbitrary directories. State stores are
     // still keyed by the original `old_path` string the frontend passed.
-    let project_path =
-        dunce::canonicalize(&old_path).map_err(|_| "Project not found".to_string())?;
+    let project_path = dunce::canonicalize(&old_path).map_err(|e| CommandError::Io {
+        message: format!("Couldn't resolve project path {old_path}: {e}"),
+    })?;
     let project_path = project_path.as_path();
 
     // Reject external projects (their folders live outside ~/ShipStudio).

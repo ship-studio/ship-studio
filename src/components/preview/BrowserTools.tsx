@@ -23,9 +23,13 @@ type InnerTab = 'console' | 'network' | 'elements';
 interface BrowserToolsProps {
   /** Pipe the currently active tab's serialized content into the agent terminal. */
   onSendToAgent?: (text: string) => void;
+  /** Whether this panel is actually visible (panel open AND Browser tab
+   *  selected). BrowserTools stays mounted in a hidden slot, so visibility
+   *  must come from the parent — it gates the live DOM subscription. */
+  active?: boolean;
 }
 
-export function BrowserTools({ onSendToAgent }: BrowserToolsProps) {
+export function BrowserTools({ onSendToAgent, active = true }: BrowserToolsProps) {
   const [tab, setTabRaw] = useState<InnerTab>('console');
   const setTab = (next: InnerTab) => {
     if (next !== tab) {
@@ -44,11 +48,15 @@ export function BrowserTools({ onSendToAgent }: BrowserToolsProps) {
   );
   const domSnapshot = useSyncExternalStore(inspectStore.subscribe, inspectStore.getDomSnapshot);
 
-  // Refresh DOM whenever the Elements tab activates so the user always sees
-  // current state (auto-refresh from the shim is debounced at 300ms).
+  // Live DOM snapshots only while the Elements view is actually visible —
+  // the shim's mutation observer re-serializes the page's DOM on changes,
+  // which is too expensive to leave running invisibly (see inspectStore).
+  // Subscribing also triggers an immediate fresh tree.
   useEffect(() => {
-    if (tab === 'elements') inspectStore.refreshDom();
-  }, [tab]);
+    if (!active || tab !== 'elements') return;
+    inspectStore.setDomSubscription(true);
+    return () => inspectStore.setDomSubscription(false);
+  }, [active, tab]);
 
   const handleClear = () => {
     if (tab === 'console') {

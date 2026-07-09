@@ -240,42 +240,71 @@ pub const INSPECTOR_SHIM: &str = r#"
       }
     };
 
-    // Debounced auto-refresh on mutations.
+    // Debounced auto-refresh on mutations — only while the host is subscribed
+    // (i.e. the Elements view is actually visible). Re-serializing up to 1500
+    // nodes every 300ms on mutation-heavy pages (animations flip attributes
+    // constantly) is real main-thread work the previewed page must not pay
+    // invisibly; it made the preview measurably jankier than Chrome.
     var domTimer = null;
+    var domSubscribed = false;
+    var domObserver = null;
     var scheduleDomSend = function () {
-      if (domTimer) return;
+      if (!domSubscribed || domTimer) return;
       domTimer = setTimeout(function () {
         domTimer = null;
-        sendDomTree();
+        if (domSubscribed) sendDomTree();
       }, 300);
     };
 
-    var startDomObserver = function () {
-      if (!document.documentElement || !window.MutationObserver) return;
-      try {
-        var mo = new MutationObserver(scheduleDomSend);
-        mo.observe(document.documentElement, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          characterData: true,
-        });
-      } catch (_) {}
-      sendDomTree();
+    var setDomSubscribed = function (on) {
+      domSubscribed = !!on;
+      if (!domSubscribed) {
+        if (domTimer) {
+          clearTimeout(domTimer);
+          domTimer = null;
+        }
+        if (domObserver) {
+          try {
+            domObserver.disconnect();
+          } catch (_) {}
+          domObserver = null;
+        }
+        return;
+      }
+      var arm = function () {
+        if (!domSubscribed || !document.documentElement || !window.MutationObserver) return;
+        if (!domObserver) {
+          try {
+            domObserver = new MutationObserver(scheduleDomSend);
+            domObserver.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              characterData: true,
+            });
+          } catch (_) {}
+        }
+        sendDomTree();
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', arm, { once: true });
+      } else {
+        arm();
+      }
     };
 
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', startDomObserver, { once: true });
-    } else {
-      startDomObserver();
-    }
-
-    // Host can request a fresh tree on demand (e.g., when Elements tab opens).
+    // Host commands: one-shot tree refresh, and subscribe/unsubscribe from the
+    // Elements view (drives the mutation observer above). A fresh document
+    // always starts unsubscribed; the host re-arms on our 'ready' beacon.
     window.addEventListener('message', function (e) {
       var d = e.data;
-      if (!d || typeof d !== 'object') return;
-      if (d.source === 'shipstudio-inspect-host' && d.type === 'request-dom-tree') {
+      if (!d || typeof d !== 'object' || d.source !== 'shipstudio-inspect-host') return;
+      if (d.type === 'request-dom-tree') {
         sendDomTree();
+      } else if (d.type === 'subscribe-dom-tree') {
+        setDomSubscribed(true);
+      } else if (d.type === 'unsubscribe-dom-tree') {
+        setDomSubscribed(false);
       }
     });
 

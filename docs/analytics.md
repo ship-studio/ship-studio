@@ -83,9 +83,10 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | Event | Properties |
 |---|---|
 | `screenshot_captured` | `mode` (`viewport`/`fullpage`), `success`, `fell_back`, `fallback_success` (fullpage only, present when `fell_back` — whether the viewport fallback produced a file) |
+| `thumbnail_consent_answered` | `allowed` — the user's answer to the first-run "Preview thumbnails" explainer shown before the first automatic thumbnail capture (#160) |
 | `preview_refreshed` | `trigger: 'user'` |
 | `preview_page_selected` | `route_pattern` (id segments → `:id`, capped 200), `depth` |
-| `preview_fix_with_agent` | `has_logs`, `is_static`, `reason` (`server-down`/`blank-iframe`) |
+| `preview_fix_with_agent` | `has_logs`, `is_static`, `reason` (`server-down`/`blank-iframe`), `process_gone` (dev-server process known-dead) |
 | `logs_sent_to_agent` | `source` (`full_buffer`/`selection`), `char_count`, `line_count`, `had_question` |
 | `browser_tools_subtab_switched` | `from_tab`, `to_tab` |
 | `browser_tools_cleared` | `tab` |
@@ -125,6 +126,7 @@ property), `bulk` (count, from the Code view's save), or `created_rule`.
 | `branch_switched` | — |
 | `branch_deleted` | — |
 | `branch_published` | `is_main`, `branch`, `time_since_last_publish_seconds` |
+| `git_pulled` | `result` (`pulled` / `up_to_date` / `merge_conflict`) |
 | `pr_created` | `base_branch`, `used_ai`, `title_length`, `description_length` |
 | `pr_merged` | `head_ref`, `base_ref` |
 | `pr_closed` | — |
@@ -160,6 +162,7 @@ To get an aggregate "any modal opened" count in PostHog, use a regex match on ev
 |---|---|
 | `calendar_visibility_toggled` | `visible` |
 | `terminal_gpu_toggled` | `enabled` |
+| `thumbnails_toggled` | `enabled` (the "Project thumbnails" auto-capture toggle) |
 | `projects_root_changed` | `is_custom` (false when reset to the default `~/ShipStudio`) |
 | `projects_moved` | `moved_count`, `skipped_count` (after moving projects into a newly-chosen folder) |
 

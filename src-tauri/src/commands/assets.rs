@@ -62,7 +62,7 @@ fn validate_asset_path(root_dir: &Path, asset_path: &str) -> Result<PathBuf, Str
         // For non-existent paths, verify parent exists and is within the root
         let parent = full_path
             .parent()
-            .ok_or("Invalid path: no parent directory")?;
+            .ok_or_else(|| format!("Invalid path {}: no parent directory", full_path.display()))?;
         if !parent.exists() {
             return Err("Parent directory does not exist".to_string());
         }
@@ -98,7 +98,13 @@ fn path_to_asset(path: &PathBuf, root_dir: &PathBuf) -> Result<Asset, String> {
     let relative_path = normalize_separators(
         &path
             .strip_prefix(root_dir)
-            .map_err(|_| "Failed to get relative path")?
+            .map_err(|e| {
+                format!(
+                    "Failed to get path of {} relative to assets root {}: {e}",
+                    path.display(),
+                    root_dir.display()
+                )
+            })?
             .to_string_lossy(),
     );
 

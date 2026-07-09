@@ -60,6 +60,27 @@ pub fn set_terminal_gpu_enabled(enabled: bool) -> Result<(), CommandError> {
     write_app_state(&state).map_err(CommandError::from)
 }
 
+/// Get the project-thumbnail auto-capture consent.
+///
+/// `None` = the user has never been asked (the frontend shows an in-app
+/// explainer before the first auto-capture), `Some(true)` = allowed,
+/// `Some(false)` = opted out or a capture failed because macOS Screen
+/// Recording permission was denied.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_thumbnails_enabled() -> Result<Option<bool>, CommandError> {
+    Ok(read_app_state().thumbnails_enabled)
+}
+
+/// Set the project-thumbnail auto-capture consent (persisted to app state).
+#[tauri::command]
+#[tracing::instrument]
+pub fn set_thumbnails_enabled(enabled: bool) -> Result<(), CommandError> {
+    let mut state = read_app_state();
+    state.thumbnails_enabled = Some(enabled);
+    write_app_state(&state).map_err(CommandError::from)
+}
+
 /// Get the projects root directory (absolute path). Falls back to the default
 /// `~/ShipStudio` when no custom root is configured.
 #[tauri::command]
