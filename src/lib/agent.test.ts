@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { isWindows } from './setup';
 import {
   getAgentById,
   initDefaultAgent,
@@ -152,7 +153,7 @@ describe('AgentConfig fields', () => {
   });
 
   it('TERMINAL has correct specific values', () => {
-    expect(TERMINAL.binaryName).toBe('/bin/zsh');
+    expect(TERMINAL.binaryName).toBe(isWindows() ? 'powershell.exe' : '/bin/zsh');
     expect(TERMINAL.autoAcceptFlag).toBeNull();
     expect(TERMINAL.supportsSkills).toBe(false);
     expect(TERMINAL.supportsStatusDetection).toBe(false);
