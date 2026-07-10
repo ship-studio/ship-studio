@@ -222,12 +222,16 @@ fn build_extended_path() -> String {
 
         if let Ok(program_files) = std::env::var("ProgramFiles") {
             windows_paths.push(format!("{}\\GitHub CLI", program_files));
+            // Git for Windows ships git.exe in both \cmd and \bin — list both so
+            // resolution never depends on the inherited system PATH.
+            windows_paths.push(format!("{}\\Git\\cmd", program_files));
             windows_paths.push(format!("{}\\Git\\bin", program_files));
             windows_paths.push(format!("{}\\nodejs", program_files));
         }
 
         if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
             windows_paths.push(format!("{}\\GitHub CLI", program_files_x86));
+            windows_paths.push(format!("{}\\Git\\cmd", program_files_x86));
             windows_paths.push(format!("{}\\Git\\bin", program_files_x86));
             windows_paths.push(format!("{}\\nodejs", program_files_x86));
         }
@@ -235,6 +239,7 @@ fn build_extended_path() -> String {
         // User-specific paths
         if let Some(home) = dirs::home_dir() {
             let home_str = home.to_string_lossy();
+            windows_paths.push(format!("{}\\AppData\\Local\\Programs\\Git\\cmd", home_str));
             windows_paths.push(format!("{}\\AppData\\Local\\Programs\\Git\\bin", home_str));
             windows_paths.push(format!("{}\\AppData\\Roaming\\npm", home_str));
             windows_paths.push(format!(r"{}\.local\bin", home_str));
@@ -408,6 +413,12 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
                     .join("nodejs")
                     .join(&cmd_exe),
             );
+            // Git for Windows ships git.exe in both \cmd and \bin.
+            windows_paths.push(
+                std::path::PathBuf::from(&program_files)
+                    .join("Git\\cmd")
+                    .join(&cmd_exe),
+            );
             windows_paths.push(
                 std::path::PathBuf::from(&program_files)
                     .join("Git\\bin")
@@ -428,6 +439,11 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
             );
             windows_paths.push(
                 std::path::PathBuf::from(&program_files_x86)
+                    .join("Git\\cmd")
+                    .join(&cmd_exe),
+            );
+            windows_paths.push(
+                std::path::PathBuf::from(&program_files_x86)
                     .join("Git\\bin")
                     .join(&cmd_exe),
             );
@@ -435,6 +451,10 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
 
         // User-specific paths
         if let Some(home) = dirs::home_dir() {
+            windows_paths.push(
+                home.join("AppData\\Local\\Programs\\Git\\cmd")
+                    .join(&cmd_exe),
+            );
             windows_paths.push(
                 home.join("AppData\\Local\\Programs\\Git\\bin")
                     .join(&cmd_exe),
