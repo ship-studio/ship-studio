@@ -215,6 +215,15 @@ export function usePreviewResize({ iframeWrapperRef, onUserResize }: UsePreviewR
     setCustomWidth(px);
   }, []);
 
+  // Exact size typed by the USER (dimensions popover). Unlike previewAtWidth
+  // this counts as a user resize, so a pinned editor breakpoint follows the
+  // new width. Height null = auto (full available height).
+  const previewAtSize = useCallback((width: number, height: number | null) => {
+    onUserResizeRef.current?.();
+    setCustomWidth(width);
+    setCustomHeight(height);
+  }, []);
+
   // How much the frame must shrink visually so the selected width fits the
   // pane (1 = no scaling). The iframe always renders at the true CSS width —
   // Chrome-DevTools-style — so a "Desktop 1440" preview really lays out at
@@ -255,5 +264,6 @@ export function usePreviewResize({ iframeWrapperRef, onUserResize }: UsePreviewR
     handleVerticalResizeStart,
     handleBreakpointClick,
     previewAtWidth,
+    previewAtSize,
   };
 }

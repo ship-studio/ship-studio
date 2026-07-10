@@ -44,7 +44,7 @@ import { AccountSelectScreen } from './components/accounts/AccountSelectScreen';
 import { WorkspaceView } from './components/workspace/WorkspaceView';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { useProjectRail } from './hooks/useProjectRail';
-import { OnboardingScreen } from './components/setup';
+import { OnboardingRouter } from './components/setup';
 import { Project, setTerminalState } from './lib/project';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
 import { initDefaultAgent } from './lib/agent';
@@ -1096,7 +1096,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       <>
         <div className="app">
           <UpdateBanner />
-          <OnboardingScreen onComplete={() => void handleOnboardingComplete()} />
+          <OnboardingRouter onComplete={() => void handleOnboardingComplete()} />
         </div>
         {quitConfirmModal}
       </>

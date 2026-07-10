@@ -1,0 +1,216 @@
+/**
+ * Agent activity layer over the preview iframe (AgentActivityOverlay):
+ * edge glow + action chip while the workspace agent uses a preview MCP tool,
+ * a big cursor with click ripple for navigate/reload, and a camera flash for
+ * screenshots. Never blocks the user's own pointer.
+ */
+
+.agent-activity-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-dropdown);
+  overflow: hidden;
+}
+
+/* ============ Edge glow ============ */
+
+.agent-activity-glow {
+  position: absolute;
+  inset: 0;
+  box-shadow:
+    inset 0 0 0 2px rgba(var(--action-rgb), 0.7),
+    inset 0 0 28px rgba(var(--action-rgb), 0.18);
+  animation: agact-glow-in var(--transition) ease-out;
+}
+
+.agent-activity-glow--busy {
+  animation: agact-glow-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes agact-glow-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes agact-glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 2px rgba(var(--action-rgb), 0.7),
+      inset 0 0 28px rgba(var(--action-rgb), 0.18);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 3px rgba(var(--action-rgb), 0.95),
+      inset 0 0 44px rgba(var(--action-rgb), 0.32);
+  }
+}
+
+/* ============ Action chip ============ */
+
+.agent-activity-chip {
+  position: absolute;
+  top: var(--spacing-md);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  /* Tighter on the left so the dot sits optically flush in the pill. */
+  padding: var(--spacing-xs) var(--spacing-md) var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-secondary);
+  border: 1px solid rgba(var(--action-rgb), 0.5);
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  /* Back-out curve: a touch of overshoot so the grow-in feels alive. */
+  animation: agact-chip-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Solid dot with a ping ring radiating from behind it (live-indicator style). */
+.agent-activity-chip-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--action);
+}
+
+.agent-activity-chip-dot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-full);
+  background: rgba(var(--action-rgb), 0.35);
+  animation: agact-dot-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes agact-chip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+/* Exit phase: the overlay stays mounted ~220ms (EXIT_MS in
+   AgentActivityOverlay) while everything shrinks and fades away. */
+.agent-activity-overlay--exiting .agent-activity-chip {
+  animation: agact-chip-out 0.2s ease-in both;
+}
+
+.agent-activity-overlay--exiting .agent-activity-glow {
+  animation: agact-glow-out 0.2s ease-in both;
+}
+
+@keyframes agact-chip-out {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px) scale(0.85);
+  }
+}
+
+@keyframes agact-glow-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes agact-dot-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+/* ============ Agent cursor + click ripple ============ */
+
+.agent-activity-cursor {
+  position: absolute;
+  /* left/top are set inline as fractions of the frame. */
+  transform: translate(-4px, -3px); /* hotspot: the arrow tip, not the box */
+  animation: agact-cursor-in 0.35s ease-out;
+}
+
+.agent-activity-cursor svg {
+  position: relative;
+  filter: drop-shadow(var(--shadow-sm));
+}
+
+.agent-activity-ripple {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  width: 56px;
+  height: 56px;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(var(--action-rgb), 0.9);
+  border-radius: var(--radius-full);
+  animation: agact-ripple 0.9s ease-out 0.25s both;
+}
+
+@keyframes agact-cursor-in {
+  from {
+    opacity: 0;
+    transform: translate(-4px, -3px) scale(1.6);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-4px, -3px) scale(1);
+  }
+}
+
+@keyframes agact-ripple {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.15);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* ============ Screenshot flash ============ */
+
+.agent-activity-flash {
+  position: absolute;
+  inset: 0;
+  background: var(--text-bright);
+  animation: agact-flash 0.6s ease-out both;
+}
+
+@keyframes agact-flash {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+  }
+}

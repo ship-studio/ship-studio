@@ -24,6 +24,9 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { usePreviewConnection, SERVER_MAX_RETRIES } from '../../hooks/usePreviewConnection';
+import { useAgentBridge } from '../../hooks/useAgentBridge';
+import { AgentActivityOverlay } from './AgentActivityOverlay';
+import { PreviewSizeControl } from './PreviewSizeControl';
 import { usePreviewCapture } from '../../hooks/usePreviewCapture';
 import {
   usePreviewResize,
@@ -357,6 +360,25 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const resize = usePreviewResize({
     iframeWrapperRef: capture.iframeWrapperRef,
     onUserResize: () => setPinnedBreakpoint(null),
+  });
+
+  // Agent preview bridge: an MCP server the workspace agent uses to read the
+  // preview's console/network/DOM, click/type/scroll in it, navigate it,
+  // resize its viewport, and take screenshots. (Below `resize` because the
+  // viewport tool drives it.)
+  useAgentBridge({
+    projectPath,
+    currentUrl: conn.serverReady ? conn.currentUrl : null,
+    serverReady: conn.serverReady,
+    currentPath: conn.currentPage,
+    pages: conn.filteredPages.map((p) => p.route),
+    navigate: conn.handlePageSelect,
+    reload: conn.handleRefresh,
+    setViewport: (value) =>
+      typeof value === 'number'
+        ? resize.previewAtWidth(value)
+        : resize.handleBreakpointClick(value),
+    getViewportWidth: () => resize.customWidth,
   });
 
   // Fullscreen: the container goes position:fixed over the window below the
@@ -714,6 +736,31 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     [cssEditorEnabled, cssEditorOn, cssToggleEditMode, openCssEditor, onToast]
   );
 
+  // Exact-size popover (dimensions readout). The palette command opens it via
+  // a bump signal so the popover state can stay local to the control.
+  const [sizePopoverSignal, setSizePopoverSignal] = useState(0);
+  useCommands(
+    () => [
+      {
+        id: 'preview.setSize',
+        title: 'Set exact preview size…',
+        category: 'action' as const,
+        when: 'project' as const,
+        keywords: [
+          'viewport',
+          'width',
+          'height',
+          'breakpoint',
+          'resize',
+          'dimensions',
+          'responsive',
+        ],
+        run: () => setSizePopoverSignal((s) => s + 1),
+      },
+    ],
+    []
+  );
+
   // Element tree (navigator) — left column in fullscreen edit mode, like
   // Webflow's navigator: read-only, select-only. Toggleable from the toolbar;
   // the choice persists cross-project like the editor pin.
@@ -996,7 +1043,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             >
               <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
             </svg>
-            <span>Edit</span>
+            <span className="preview-toolbar-btn-label">Edit</span>
             <span
               className={`preview-edit-toggle-switch ${activeEditMode ? 'is-on' : ''}`}
               aria-hidden
@@ -1025,7 +1072,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               >
                 <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
               </svg>
-              <span>Edit</span>
+              <span className="preview-toolbar-btn-label">Edit</span>
             </button>
             <span className="preview-edit-tooltip" role="tooltip">
               <strong>Visual editing</strong>
@@ -1058,7 +1105,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               <polyline points="4 17 10 11 4 5" />
               <line x1="12" y1="19" x2="20" y2="19" />
             </svg>
-            <span>Inspect</span>
+            <span className="preview-toolbar-btn-label">Inspect</span>
             <span className={`preview-logs-toggle-switch ${showLogs ? 'is-on' : ''}`} aria-hidden />
           </button>
         )}
@@ -1198,31 +1245,21 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           (() => {
             // The wrapper reports its VISUAL box; when the frame is scaled to
             // fit, the page actually lays out at the true (unscaled) size —
-            // that's the honest number to show and to tell the agent.
+            // that's the honest number to show (and to let the user set).
             const w = Math.round(iframeSize.w / resize.previewScale);
             const h = Math.round(iframeSize.h / resize.previewScale);
-            const scaleNote =
-              resize.previewScale < 1
-                ? ` (scaled to ${Math.round(resize.previewScale * 100)}%)`
-                : '';
             return (
-              <button
-                type="button"
-                className="preview-dimensions"
-                title={onSendToClaude ? 'Click to send to agent' : undefined}
-                disabled={!onSendToClaude}
-                aria-label={`Preview dimensions ${w} by ${h}${scaleNote}${
-                  onSendToClaude ? ', click to send to agent' : ''
-                }`}
-                onClick={() => {
-                  if (!onSendToClaude) return;
-                  onSendToClaude(
-                    `The preview viewport is currently ${w} × ${h} (width × height in CSS pixels)${scaleNote}.`
-                  );
-                }}
-              >
-                {w} × {h}
-              </button>
+              <PreviewSizeControl
+                width={w}
+                height={h}
+                hasCustomHeight={resize.customHeight !== null}
+                scalePercent={
+                  resize.previewScale < 1 ? Math.round(resize.previewScale * 100) : null
+                }
+                onApply={resize.previewAtSize}
+                onFit={() => resize.handleBreakpointClick('full')}
+                openSignal={sizePopoverSignal}
+              />
             );
           })()}
 
@@ -1310,6 +1347,9 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                   : undefined
               }
             />
+            {/* Agent activity layer: glow + cursor + action chip while the
+                workspace agent drives the preview through the agent bridge. */}
+            <AgentActivityOverlay />
             {/* Blank-iframe watchdog overlay: the server is healthy top-level but
                 the page never proved it rendered inside the embedded iframe —
                 e.g. an auth redirect loop aborted the subframe load (issue #179). */}

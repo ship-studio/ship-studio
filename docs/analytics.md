@@ -92,6 +92,9 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | `browser_tools_cleared` | `tab` |
 | `browser_tools_dom_refreshed` | — |
 | `browser_tools_sent_to_agent` | `tab`, `entry_count` (null for elements), `had_data`, `char_count` |
+| `agent_bridge_tool_used` | `tool` (preview_console/network/dom/navigate/reload/screenshot), `is_error` — the workspace agent called a preview MCP tool via the agent bridge |
+| `preview_size_popover_opened` | — (dimensions readout clicked open) |
+| `preview_size_applied` | `width`, `has_height` (exact preview size set from the dimensions popover) |
 | `terminal_tab_restarted` | — (relaunched an exited agent tab with a fresh session; fired from the in-terminal Enter prompt, toolbar, or palette) |
 | `code_file_opened` | `file_extension` |
 | `code_file_saved` | `file_extension` (a file edited in-app and written to disk via the Code tab editor) |
@@ -181,15 +184,20 @@ To get an aggregate "any modal opened" count in PostHog, use a regex match on ev
 
 | Event | Properties |
 |---|---|
-| `setup_started` | `entry_path` (`wizard`/`fast_path`), `entry_step` |
+| `setup_started` | `entry_path` (`wizard`/`fast_path`/`agent_led`), `entry_step` |
 | `setup_step_entered` | `step_id`, `step_index` |
 | `setup_step_completed` | `step_id`, `step_index`, `duration_ms`, `is_final` |
 | `setup_step_skipped` | `step_id`, `step_index`, `reason: 'already_complete'` |
 | `setup_step_navigated_back` | `from_step`, `to_step` |
-| `setup_action_clicked` | `item_id`, `action` (`install`/`connect`), `step_id` |
+| `setup_action_clicked` | `item_id`, `action` (`install`/`connect`), `step_id` (wizard step, or `agent_led_pick`) |
 | `setup_action_failed` | `item_id`, `exit_code`, `error_excerpt` (extracted from terminal output, capped 200) |
-| `onboarding_completed` | `agents`, `entry_path` |
+| `onboarding_completed` | `agents`, `entry_path` (`wizard`/`fast_path`/`agent_led`/`agent_led_fast_path`) |
 | `default_agent_selected` | `agent_id`, `agent_count` |
+| `onboarding_mode_switched` | `to` (`classic`/`agent`) — the escape-hatch health metric: a spike in `to: classic` means agent-led onboarding is failing people |
+| `agent_card_selected` | `key` (`claude`/`codex`/`cursor`/`opencode`/`other`), `already_ready` |
+| `onboarding_host_selected` | `host` (`vercel`/`cloudflare`/`skipped`) — becomes the workspace default host |
+| `agent_guided_setup_started` | `agent_id` (`other` for bring-your-own), `missing_items`, `host`, `demo` (true under mock mode) |
+| `agent_guided_setup_restarted` | `agent_id` — the agent session ended before setup finished and the user relaunched it |
 
 ### Errors & misc
 

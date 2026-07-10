@@ -109,7 +109,9 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
       lineHeight: 1.2,
       cursorBlink: true,
       cursorStyle: 'block',
-      scrollback: 1000,
+      // Match the workspace terminal. A smaller buffer trims constantly under
+      // a TUI agent's redraws, which makes the scrollbar jump around.
+      scrollback: 5000,
       allowProposedApi: true,
       theme: {
         background: '#1e1e1e',

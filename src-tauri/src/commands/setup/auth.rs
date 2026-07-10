@@ -144,26 +144,8 @@ pub async fn check_claude_auth_status(agent_id: Option<String>) -> bool {
 
     let active_account_id = get_active_account_id().unwrap_or_else(|_| "default".to_string());
 
-    // Claude: use the same source of truth as the dashboard's Agents panel
-    // (`resolve_claude_identity`) instead of file indicators. Files like
-    // `~/.claude/settings.json` survive a sign-out, so the old existence check
-    // reported "authenticated" while the dashboard's `claude auth status`
-    // check said "not connected" — a disagreement that left users stuck
-    // (issue #159). File indicators remain only as the fallback for when the
-    // CLI can't answer (e.g. an older binary without `auth status`).
     if agent.id == "claude-code" {
-        if active_account_id != DEFAULT_ACCOUNT_ID {
-            // Isolated workspaces are vault-driven, exactly like the dashboard.
-            // NeedsReconnect (expired token) counts as not authenticated so the
-            // wizard prompts a reconnect instead of green-lighting a dead token.
-            let identity = resolve_claude_identity(&active_account_id).await;
-            return identity.state == ClaudeConnState::Connected;
-        }
-        // Default workspace: the CLI's native keychain login is the truth.
-        if let Some((logged_in, _email)) = claude_cli_auth_status().await {
-            return logged_in;
-        }
-        // CLI couldn't answer — fall through to the file-indicator fallback.
+        return claude_auth_truth(&active_account_id).await;
     }
 
     let agent_dir = agent_auth_dir(&active_account_id, agent);
@@ -171,6 +153,43 @@ pub async fn check_claude_auth_status(agent_id: Option<String>) -> bool {
         let path = agent_dir.join(indicator);
         path.exists()
     })
+}
+
+/// THE single source of truth for "is Claude signed in" for an account.
+///
+/// Every surface that answers this question (the onboarding checklist item in
+/// `get_full_setup_status`, the wizard pre-checks, the dashboard) must go
+/// through here — two probes with different answers deadlock the UI: the
+/// "Connect" button trusts one and skips the login terminal, the checklist
+/// trusts the other and never turns green (issue #159, and its fresh-machine
+/// mirror where a mid-OAuth CLI says logged-in before any indicator files
+/// exist).
+///
+/// Order of truth: isolated workspaces are vault-driven; the Default
+/// workspace asks the CLI's native keychain login; file indicators are only
+/// the fallback for when the CLI can't answer (e.g. an older binary without
+/// `auth status`). The verdict and which source produced it are logged so a
+/// field report with a log file answers "which probe lied" immediately.
+pub async fn claude_auth_truth(account_id: &str) -> bool {
+    if account_id != DEFAULT_ACCOUNT_ID {
+        // NeedsReconnect (expired token) counts as not authenticated so the
+        // wizard prompts a reconnect instead of green-lighting a dead token.
+        let identity = resolve_claude_identity(account_id).await;
+        let authed = identity.state == ClaudeConnState::Connected;
+        tracing::info!(account_id, authed, source = "vault", "claude auth verdict");
+        return authed;
+    }
+    if let Some((logged_in, _email)) = claude_cli_auth_status().await {
+        tracing::info!(authed = logged_in, source = "cli", "claude auth verdict");
+        return logged_in;
+    }
+    let agent_dir = agent_auth_dir(account_id, crate::agent::get_agent_by_id("claude-code"));
+    let authed = crate::agent::get_agent_by_id("claude-code")
+        .auth_indicators
+        .iter()
+        .any(|indicator| agent_dir.join(indicator).exists());
+    tracing::info!(authed, source = "file_fallback", "claude auth verdict");
+    authed
 }
 
 /// Kill all tracked auth processes (synchronous helper).

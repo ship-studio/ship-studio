@@ -2,7 +2,87 @@
 
 use super::node_tool_command;
 use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::utils::validate_project_path;
+
+/// Ceiling for one capture-script run (page load + scroll + shot).
+const CAPTURE_TIMEOUT_SECS: u64 = 180;
+/// Ceiling for downloading Chromium during self-heal (~130MB).
+const BROWSER_INSTALL_TIMEOUT_SECS: u64 = 600;
+
+/// Run a capture script, self-healing the failure mode that otherwise bricks
+/// screenshots forever: the playwright npm package is present but its browser
+/// binary is gone (macOS evicts ~/Library/Caches/ms-playwright, and a
+/// playwright version bump moves to a new browser build the old cache doesn't
+/// have). `get_playwright_env()` only checks node_modules, so detect the miss
+/// from the script's own error output, reinstall Chromium, and retry once.
+async fn run_capture_script(
+    script_path: &std::path::Path,
+    playwright_env: &std::path::Path,
+) -> Result<std::process::Output, CommandError> {
+    let run = || {
+        let mut cmd = node_tool_command("node");
+        cmd.arg(script_path).current_dir(playwright_env);
+        run_with_timeout(
+            tokio::process::Command::from(cmd),
+            "playwright capture",
+            CAPTURE_TIMEOUT_SECS,
+        )
+    };
+
+    let output = run().await?;
+    if output.status.success() {
+        return Ok(output);
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if stderr.contains("Executable doesn't exist") || stderr.contains("playwright install") {
+        tracing::warn!("Playwright browser binary missing — reinstalling Chromium and retrying");
+        let mut install = node_tool_command("npx");
+        install
+            .args(["playwright", "install", "chromium"])
+            .current_dir(playwright_env);
+        let install_out = run_with_timeout(
+            tokio::process::Command::from(install),
+            "playwright install chromium",
+            BROWSER_INSTALL_TIMEOUT_SECS,
+        )
+        .await?;
+        if !install_out.status.success() {
+            let install_stderr = String::from_utf8_lossy(&install_out.stderr);
+            return Err((format!(
+                "Playwright's Chromium browser is missing and reinstalling it failed: {install_stderr}"
+            ))
+            .into());
+        }
+        return run().await;
+    }
+
+    // Other failures pass through — callers report status + stderr in detail.
+    Ok(output)
+}
+
+/// Playwright versions below this hang forever in `playwright install` on
+/// Node >= 24.16 (yauzl stream regression during archive extraction — fixed
+/// in Playwright 1.60; see microsoft/playwright#41000). Old envs upgrade in
+/// place; new envs install this range directly.
+const MIN_PLAYWRIGHT_MINOR: u32 = 60;
+const PLAYWRIGHT_INSTALL_SPEC: &str = "playwright@^1.60.0";
+
+/// Read the installed playwright version's (major, minor) from its package.json.
+fn installed_playwright_version(playwright_dir: &std::path::Path) -> Option<(u32, u32)> {
+    let pkg = playwright_dir
+        .join("node_modules")
+        .join("playwright")
+        .join("package.json");
+    let raw = std::fs::read_to_string(pkg).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let version = json.get("version")?.as_str()?;
+    let mut parts = version.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor: u32 = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
 
 /// Get or create a shared Playwright environment directory.
 /// Installs Playwright and Chromium once, reused for all screenshots.
@@ -13,6 +93,27 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
     // Check if playwright is already installed
     let node_modules = playwright_dir.join("node_modules").join("playwright");
     if node_modules.exists() {
+        match installed_playwright_version(&playwright_dir) {
+            Some((1, minor)) if minor < MIN_PLAYWRIGHT_MINOR => {
+                tracing::warn!(
+                    "Playwright 1.{} is affected by the Node >= 24.16 install hang — upgrading to {}",
+                    minor,
+                    PLAYWRIGHT_INSTALL_SPEC
+                );
+                let upgrade = node_tool_command("npm")
+                    .args(["install", PLAYWRIGHT_INSTALL_SPEC])
+                    .current_dir(&playwright_dir)
+                    .output()
+                    .map_err(|e| format!("Failed to upgrade playwright: {e}"))?;
+                if !upgrade.status.success() {
+                    let stderr = String::from_utf8_lossy(&upgrade.stderr);
+                    tracing::warn!(
+                        "Playwright upgrade failed (continuing with old version): {stderr}"
+                    );
+                }
+            }
+            _ => {}
+        }
         tracing::debug!(
             "Using existing Playwright environment at {:?}",
             playwright_dir
@@ -34,7 +135,7 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
     // Install playwright
     tracing::info!("Installing Playwright (this may take a moment on first run)...");
     let install_output = node_tool_command("npm")
-        .args(["install", "playwright"])
+        .args(["install", PLAYWRIGHT_INSTALL_SPEC])
         .current_dir(&playwright_dir)
         .output()
         .map_err(|e| format!("Failed to run npm install playwright: {e}"))?;
@@ -70,9 +171,13 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
 pub async fn capture_fullpage_playwright(
     project_path: String,
     url: String,
+    width: Option<u32>,
 ) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
+    // Match the preview's current viewport when given (agent bridge responsive
+    // checks); clamp to sane bounds so a bad value can't wedge Chromium.
+    let viewport_width = width.unwrap_or(1280).clamp(200, 3000);
 
     // Ensure screenshots directory exists
     if !screenshots_dir.exists() {
@@ -102,7 +207,7 @@ const {{ chromium }} = require('playwright');
     let browser;
     try {{
         browser = await chromium.launch();
-        const page = await browser.newPage({{ viewport: {{ width: 1280, height: 800 }} }});
+        const page = await browser.newPage({{ viewport: {{ width: {viewport_width}, height: 800 }} }});
 
         await page.goto('{}', {{ waitUntil: 'networkidle', timeout: 30000 }});
 
@@ -171,11 +276,7 @@ const {{ chromium }} = require('playwright');
 
     // Run the script from the playwright environment directory
     // This ensures require('playwright') can find the module
-    let output = node_tool_command("node")
-        .arg(&script_path)
-        .current_dir(&playwright_env)
-        .output()
-        .map_err(|e| format!("Failed to run capture script: {e}"))?;
+    let output = run_capture_script(&script_path, &playwright_env).await?;
 
     // Clean up script file
     let _ = std::fs::remove_file(&script_path);
@@ -202,9 +303,13 @@ const {{ chromium }} = require('playwright');
 pub async fn capture_viewport_playwright(
     project_path: String,
     url: String,
+    width: Option<u32>,
 ) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
+    // Match the preview's current viewport when given (agent bridge responsive
+    // checks); clamp to sane bounds so a bad value can't wedge Chromium.
+    let viewport_width = width.unwrap_or(1280).clamp(200, 3000);
 
     // Ensure screenshots directory exists
     if !screenshots_dir.exists() {
@@ -232,7 +337,7 @@ const {{ chromium }} = require('playwright');
     let browser;
     try {{
         browser = await chromium.launch();
-        const page = await browser.newPage({{ viewport: {{ width: 1280, height: 800 }} }});
+        const page = await browser.newPage({{ viewport: {{ width: {viewport_width}, height: 800 }} }});
 
         await page.goto('{}', {{ waitUntil: 'networkidle', timeout: 30000 }});
 
@@ -277,11 +382,7 @@ const {{ chromium }} = require('playwright');
         .map_err(|e| format!("Failed to write capture script: {e}"))?;
 
     // Run the script
-    let output = node_tool_command("node")
-        .arg(&script_path)
-        .current_dir(&playwright_env)
-        .output()
-        .map_err(|e| format!("Failed to run capture script: {e}"))?;
+    let output = run_capture_script(&script_path, &playwright_env).await?;
 
     // Clean up script file
     let _ = std::fs::remove_file(&script_path);

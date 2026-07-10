@@ -11,6 +11,7 @@
 //! - **Utilities**: Screenshots, IDE launcher, prerequisite checks
 
 pub mod agent;
+pub mod agent_bridge;
 pub mod cache;
 pub mod commands;
 pub mod errors;
@@ -118,6 +119,18 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
+            // Start the agent preview bridge (global loopback MCP server) at
+            // launch so it's listening before any agent session spawns —
+            // registrations from previous runs stay valid from second zero.
+            {
+                let handle = _app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = agent_bridge::start_global_agent_bridge(handle).await {
+                        tracing::error!("[AgentBridge] Failed to start global bridge: {}", e);
+                    }
+                });
+            }
+
             // Point the Android mirror bridge at the bundled scrcpy-server jar (its
             // low-latency video source). If the resource is missing, the bridge
             // falls back to a system scrcpy install, then to screenrecord.
@@ -276,7 +289,8 @@ pub fn run() {
                 let label = window.label().to_string();
                 tracing::info!("Window {} destroyed, cleaning up", label);
 
-                // Stop preview proxy and static server for this window
+                // Stop preview proxy and static server for this window (the
+                // agent bridge is global — it lives for the app's lifetime)
                 proxy::stop_preview_proxy(&label);
                 static_server::stop_static_server(&label);
 
@@ -316,6 +330,13 @@ pub fn run() {
                     // Mobile previews are torn down per-window above
                     // (teardown_mobile_previews_for_window_sync), so there's no
                     // global sim shutdown to do here.
+                }
+
+                // The agent bridge serves EVERY window (one global MCP server),
+                // so it must outlive the main window: project windows still
+                // need their preview tools after main closes.
+                if remaining_windows == 0 {
+                    agent_bridge::stop_all_agent_bridges();
                 }
             }
         })
@@ -579,6 +600,12 @@ pub fn run() {
             // Static File Server
             commands::static_server::start_static_server,
             commands::static_server::stop_static_server,
+            // Agent Preview Bridge (MCP server for the workspace agent)
+            commands::agent_bridge::get_agent_bridge_url,
+            commands::agent_bridge::get_agent_bridge_active_url,
+            commands::agent_bridge::register_cursor_mcp,
+            commands::agent_bridge::agent_bridge_attach,
+            commands::agent_bridge::agent_bridge_respond,
             // Project Type Detection
             commands::projects::detect_project_type_command,
             commands::projects::project_path_exists,
@@ -638,6 +665,12 @@ pub fn run() {
             commands::setup::get_system_arch,
             commands::setup::install_version,
             commands::setup::quick_setup_check,
+            commands::setup::get_onboarding_test_mode,
+            commands::setup::mock_mark_setup_item_ready,
+            commands::setup::set_external_agent_opt_in,
+            commands::setup::set_default_host,
+            commands::setup::get_default_host,
+            commands::setup::ensure_agent_workdir,
             commands::setup::mark_setup_complete,
             commands::setup::reset_setup_state,
             commands::setup::get_default_agent_id,

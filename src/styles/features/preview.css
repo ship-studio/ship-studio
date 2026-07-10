@@ -28,6 +28,19 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  /* The PANE's width (not the window's) decides toolbar density — same
+     container-query pattern as split-pane's terminal-pane. Safe here:
+     width comes from the flex parent, never from content. */
+  container-type: inline-size;
+  container-name: preview-pane;
+}
+
+/* Narrow pane: Edit / Inspect / Open drop their text and become icon
+   buttons. The little toggle switches stay — they carry the on/off state. */
+@container preview-pane (max-width: 800px) {
+  .preview-toolbar-btn-label {
+    display: none;
+  }
 }
 
 /* When inspect is open, insert a handle-sized row for the resize handle
@@ -407,59 +420,6 @@
 }
 .ss-edit-panel__pin.is-pinned {
   color: var(--accent);
-}
-
-.preview-dimensions {
-  margin-left: auto;
-  padding: 2px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  user-select: none;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.preview-dimensions:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  border-color: var(--border);
-  color: var(--text-primary);
-}
-
-.preview-dimensions:active:not(:disabled) {
-  background: var(--border);
-}
-
-.preview-dimensions:disabled {
-  cursor: default;
-}
-
-.preview-breakpoints {
-  display: flex;
-  align-self: stretch;
-  align-items: stretch;
-  gap: 0;
-  /* Cancel the parent .preview-toolbar's 9px top/bottom padding so the
-     tabs span the full toolbar height — lets the active underline sit
-     flush with the toolbar's bottom border. */
-  margin-top: -9px;
-  margin-bottom: -9px;
-  margin-left: auto;
-  margin-right: 0;
-}
-
-/* When the dimensions readout precedes the breakpoints, it owns the
-   auto-margin push so the two sit together on the right edge. */
-.preview-dimensions + .preview-breakpoints {
-  margin-left: var(--spacing-xs);
 }
 
 .breakpoint-btn {

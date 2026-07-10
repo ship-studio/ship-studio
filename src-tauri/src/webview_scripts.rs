@@ -293,9 +293,138 @@ pub const INSPECTOR_SHIM: &str = r#"
       }
     };
 
-    // Host commands: one-shot tree refresh, and subscribe/unsubscribe from the
-    // Elements view (drives the mutation observer above). A fresh document
-    // always starts unsubscribed; the host re-arms on our 'ready' beacon.
+    // --- Agent actions (click / type / scroll / query) ---
+    // Executed on behalf of the agent preview bridge. Every result carries the
+    // target's viewport rect (as fractions) so the host can animate the agent
+    // cursor to the real spot.
+
+    var findTargets = function (selector, text) {
+      var nodes;
+      try { nodes = document.querySelectorAll(selector); }
+      catch (err) { return { error: 'Invalid CSS selector: ' + selector }; }
+      var list = Array.prototype.slice.call(nodes);
+      if (text) {
+        var needle = String(text).toLowerCase();
+        list = list.filter(function (el) {
+          return (el.textContent || '').toLowerCase().indexOf(needle) !== -1;
+        });
+      }
+      return { list: list };
+    };
+
+    var describeEl = function (el) {
+      var t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      return '<' + el.tagName.toLowerCase() +
+        (el.id ? ' id="' + el.id + '"' : '') + '>' +
+        (t ? ' "' + t.slice(0, 80) + '"' : '');
+    };
+
+    var rectOf = function (el) {
+      var r = el.getBoundingClientRect();
+      var vw = window.innerWidth || 1;
+      var vh = window.innerHeight || 1;
+      return {
+        x: r.left, y: r.top, w: r.width, h: r.height,
+        fx: Math.min(Math.max((r.left + r.width / 2) / vw, 0), 1),
+        fy: Math.min(Math.max((r.top + r.height / 2) / vh, 0), 1)
+      };
+    };
+
+    var execAction = function (d) {
+      if (d.action === 'scroll') {
+        if (d.selector) {
+          var sf = findTargets(d.selector, d.text);
+          if (sf.error) return { ok: false, error: sf.error };
+          if (!sf.list.length) return { ok: false, error: 'No element matches selector: ' + d.selector };
+          sf.list[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return { ok: true, data: { scrolledTo: describeEl(sf.list[0]) }, rect: rectOf(sf.list[0]) };
+        }
+        var top = d.to === 'bottom' ? document.documentElement.scrollHeight
+          : d.to === 'top' ? 0
+          : (typeof d.y === 'number' ? d.y : 0);
+        window.scrollTo({ top: top, behavior: 'smooth' });
+        return { ok: true, data: { scrolledTo: d.to || top } };
+      }
+      if (d.action === 'query') {
+        var qf = findTargets(d.selector, d.text);
+        if (qf.error) return { ok: false, error: qf.error };
+        var max = Math.min(qf.list.length, 10);
+        var out = [];
+        for (var i = 0; i < max; i++) {
+          var qel = qf.list[i];
+          var html = qel.outerHTML || '';
+          out.push({
+            match: describeEl(qel),
+            visible: !!(qel.offsetWidth || qel.offsetHeight || qel.getClientRects().length),
+            outerHTML: html.length > 2000 ? html.slice(0, 2000) + '…[truncated]' : html
+          });
+        }
+        return { ok: true, data: { total: qf.list.length, returned: max, elements: out } };
+      }
+      // click / type target a single element
+      var f = findTargets(d.selector, d.text);
+      if (f.error) return { ok: false, error: f.error };
+      if (!f.list.length) {
+        return { ok: false, error: 'No element matches selector: ' + d.selector +
+          (d.text ? ' containing text "' + d.text + '"' : '') };
+      }
+      var idx = typeof d.index === 'number' ? d.index : 0;
+      if (idx >= f.list.length) {
+        return { ok: false, error: 'index ' + idx + ' is out of range — only ' + f.list.length + ' matches' };
+      }
+      var el = f.list[idx];
+      try { el.scrollIntoView({ block: 'center' }); } catch (_) {}
+      var rect = rectOf(el);
+      if (d.action === 'click') {
+        var r = el.getBoundingClientRect();
+        var cx = r.left + r.width / 2;
+        var cy = r.top + r.height / 2;
+        var fire = function (type) {
+          try {
+            el.dispatchEvent(new MouseEvent(type, {
+              bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy
+            }));
+          } catch (_) {}
+        };
+        fire('pointerdown'); fire('mousedown'); fire('pointerup'); fire('mouseup');
+        try { el.click(); } catch (err) { fire('click'); }
+        return { ok: true, data: { clicked: describeEl(el), matches: f.list.length }, rect: rect };
+      }
+      if (d.action === 'type') {
+        var value = String(d.value == null ? '' : d.value);
+        var tag = el.tagName;
+        try { el.focus(); } catch (_) {}
+        if (tag === 'INPUT' || tag === 'TEXTAREA') {
+          // React controlled inputs ignore direct .value writes — go through
+          // the native setter so the framework's onChange actually fires.
+          var protoObj = tag === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          var descr = Object.getOwnPropertyDescriptor(protoObj, 'value');
+          if (descr && descr.set) { descr.set.call(el, value); } else { el.value = value; }
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        } else if (el.isContentEditable) {
+          el.textContent = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          return { ok: false, error: 'Element is not typeable (not an input, textarea, or contenteditable): ' + describeEl(el) };
+        }
+        if (d.submit) {
+          var form = el.form;
+          if (form) {
+            try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch (_) {}
+          } else {
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          }
+        }
+        return { ok: true, data: { typedInto: describeEl(el), valueLength: value.length }, rect: rect };
+      }
+      return { ok: false, error: 'Unknown action: ' + d.action };
+    };
+
+    // Host commands: one-shot tree refresh, subscribe/unsubscribe from the
+    // Elements view (drives the mutation observer above), and agent actions.
+    // A fresh document always starts unsubscribed; the host re-arms on our
+    // 'ready' beacon.
     window.addEventListener('message', function (e) {
       var d = e.data;
       if (!d || typeof d !== 'object' || d.source !== 'shipstudio-inspect-host') return;
@@ -305,6 +434,13 @@ pub const INSPECTOR_SHIM: &str = r#"
         setDomSubscribed(true);
       } else if (d.type === 'unsubscribe-dom-tree') {
         setDomSubscribed(false);
+      } else if (d.type === 'exec-action') {
+        var res;
+        try { res = execAction(d); }
+        catch (err) { res = { ok: false, error: String((err && err.message) || err) }; }
+        res.type = 'action-result';
+        res.id = d.id;
+        post(res);
       }
     });
 

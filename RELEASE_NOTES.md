@@ -6,6 +6,14 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.15.0
+
+- **Your agent can now use the preview** - Claude Code (and Codex, Opencode, Cursor) get built-in tools to see and drive your live preview: screenshots, console errors, network requests, clicking, typing, page and breakpoint switching — so the agent verifies its own changes. A green glow and cursor show exactly what it's doing. Zero setup on every project you open.
+- **Agent-led onboarding** - Pick your AI agent and it installs everything for you (Homebrew, Node, Git, GitHub, your hosting CLI) while Ship Studio verifies each step with its own checks. Classic onboarding stays one click away.
+- **Set an exact preview size** - Click the dimensions readout in the preview toolbar to type a width and height; oversized viewports render at true width and scale to fit.
+- **Screenshot reliability** - Screenshots self-heal when macOS evicts the headless browser, and a Playwright/Node 24 install hang is fixed.
+
+
 ## What's New in v0.14.0
 
 - **Push and Pull, the way git means it** - The header button now always says **Push** — no more guessing whether "Publish", "Sync", or "Go Live" will do the thing. And there's a new **Pull** button beside the branch name: one click grabs the latest from GitHub. If a pull hits merge conflicts you get the visual resolver — with a new **Send to Agent** button that hands the whole merge to your agent. A pull can never overwrite unsaved work; git stops safely and the app tells you exactly what to do.

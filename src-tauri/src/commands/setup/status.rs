@@ -495,6 +495,38 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
     // 6-7. Agent CLIs and Auth — check ALL agents (probed above with timeouts)
     let mut detected_agents = Vec::new();
 
+    // Claude auth goes through the ONE shared truth (CLI-first, file
+    // fallback) — the same answer the wizard pre-checks and dashboard get.
+    // File indicators alone lied in both directions: they survive a sign-out
+    // (issue #159) and don't exist yet mid-first-login on a fresh machine,
+    // which deadlocked the Connect button against this checklist. Computed
+    // once here (not per item) because the guided phase polls this command
+    // every 3s and the CLI probe spawns a subprocess.
+    let claude_binary_ready = agent_paths
+        .get(
+            ALL_AGENTS
+                .iter()
+                .position(|a| a.id == "claude-code")
+                .unwrap_or(0),
+        )
+        .map(|p| p.is_some())
+        .unwrap_or(false);
+    let claude_auth_active = if claude_binary_ready {
+        crate::commands::setup::auth::claude_auth_truth(&active_account_id).await
+    } else {
+        false
+    };
+    let claude_auth_global = if !claude_binary_ready {
+        false
+    } else if active_account_id == crate::commands::accounts::DEFAULT_ACCOUNT_ID {
+        claude_auth_active
+    } else {
+        crate::commands::setup::auth::claude_auth_truth(
+            crate::commands::accounts::DEFAULT_ACCOUNT_ID,
+        )
+        .await
+    };
+
     for ((agent, agent_path), (agent_version, command_auth)) in
         ALL_AGENTS.iter().zip(&agent_paths).zip(agent_probes)
     {
@@ -515,6 +547,9 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         // Agent Auth
         let agent_auth = if !binary_ready {
             false
+        } else if agent.id == "claude-code" {
+            // Shared truth with the wizard pre-checks — see claude_auth_truth.
+            claude_auth_active
         } else if let Some(authed) = command_auth {
             // Keychain-based agents (Cursor): ask the CLI, not the filesystem.
             authed
@@ -548,6 +583,9 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         // (real, global) auth dir for this purpose.
         let agent_auth_global = if !binary_ready {
             false
+        } else if agent.id == "claude-code" {
+            // Shared truth with the wizard pre-checks — see claude_auth_truth.
+            claude_auth_global
         } else if let Some(authed) = command_auth {
             // Cursor's keychain login is already global (no per-account dir), so
             // the CLI status check is the same answer for every account.
@@ -606,8 +644,10 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
         .filter(|i| REQUIRED_ITEMS.contains(&i.id.as_str()) || i.id == "npm_fix")
         .all(|i| matches!(i.status, SetupItemStatus::Ready));
 
-    // At least one agent pair must be fully ready
-    let at_least_one_agent = !detected_agents.is_empty();
+    // At least one agent pair must be fully ready — or the user declared they
+    // bring their own agent ("Other" in agent-led onboarding).
+    let external_agent = read_app_state().external_agent.unwrap_or(false);
+    let at_least_one_agent = !detected_agents.is_empty() || external_agent;
     let all_ready = base_ready && at_least_one_agent;
 
     // Track optional auth status separately
@@ -676,22 +716,27 @@ pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
     let git_present = find_executable("git").is_some();
     let gh_present = find_executable("gh").is_some();
 
-    // Check ALL agents — at least one pair must be present
-    let at_least_one_agent = ALL_AGENTS.iter().any(|agent| {
-        let binary_present = find_binary_by_name(agent.binary_name).is_some();
-        if !binary_present {
-            return false;
-        }
-        if let Some(home) = dirs::home_dir() {
-            let agent_dir = home.join(agent.auth_config_dir);
+    // Check ALL agents — at least one pair must be present (or the user
+    // opted to bring their own agent via "Other" in agent-led onboarding)
+    let quick_account_id = app_state
+        .active_account_id
+        .clone()
+        .unwrap_or_else(|| crate::commands::accounts::DEFAULT_ACCOUNT_ID.to_string());
+    let at_least_one_agent = app_state.external_agent.unwrap_or(false)
+        || ALL_AGENTS.iter().any(|agent| {
+            let binary_present = find_binary_by_name(agent.binary_name).is_some();
+            if !binary_present {
+                return false;
+            }
+            // Same resolver as the full setup check — it has agent-specific
+            // directory mappings (claude/codex/opencode), so the quick and
+            // full checks can never disagree about auth state.
+            let agent_dir = agent_auth_dir(&quick_account_id, agent);
             agent
                 .auth_indicators
                 .iter()
                 .any(|indicator| agent_dir.join(indicator).exists())
-        } else {
-            false
-        }
-    });
+        });
 
     // For gh_auth, we trust the cached state since checking requires subprocess
     // It will be verified in the background after showing projects
@@ -790,7 +835,15 @@ pub async fn resolve_cli_path(name: String) -> Result<Option<ResolvedCli>, Comma
         });
     }
 
-    Ok(find_executable(&name).map(|path| {
+    // find_binary_by_name, NOT find_executable: it walks which() + the
+    // extended PATH + well-known install dirs (~/.local/bin, ~/.opencode/bin,
+    // …). On a fresh machine the claude installer drops the binary in
+    // ~/.local/bin BEFORE any shell profile puts that dir on PATH — the
+    // status checks (find_binary_by_name) saw it and reported "installed ✓",
+    // while this resolver (find_executable) said "not found", so the
+    // sign-in terminal refused to spawn. The checklist and this resolver
+    // must share one notion of "installed".
+    Ok(find_binary_by_name(&name).map(|path| {
         let dir = path
             .parent()
             .map(|p| p.to_string_lossy().to_string())

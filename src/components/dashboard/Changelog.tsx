@@ -26,6 +26,18 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.15.0', // v0.15.0
+    items: [
+      'Your agent can now use the preview — ask it to look at your site and it takes screenshots, reads console errors and network requests, clicks buttons, fills forms, switches pages and breakpoints, then fixes what it finds. A green glow and cursor show exactly what the agent is doing. Zero setup: works automatically on every project you open, with Claude Code, Codex, Opencode, and Cursor',
+      'Agent-led onboarding — setting up a new machine? Pick your coding agent and it installs everything else for you (Homebrew, Node, Git, GitHub, your hosting CLI) while Ship Studio independently verifies each step. The classic wizard stays one click away at all times',
+      'Choose your hosting provider during setup — Vercel or Cloudflare, or skip and decide later',
+      'Set an exact preview size — click the dimensions readout in the preview toolbar to type a width and height; wider-than-the-pane sizes render at true width and scale to fit (also in Cmd+K as "Set exact preview size")',
+      'Screenshots follow the preview viewport, so checking your site at mobile width captures real mobile rendering',
+      'The preview toolbar collapses to icon buttons when the pane gets narrow',
+      'Fixed: screenshots could fail forever if macOS evicted the headless browser from its cache — they now self-heal — and a Playwright/Node 24 incompatibility that hung the browser install',
+    ],
+  },
+  {
     version: '0.14.0', // v0.14.0
     items: [
       'Push and Pull, the way git means it — the header button always says Push now, and a new Pull button beside the branch name grabs the latest from GitHub in one click. Merge conflicts open the visual resolver, with a Send to Agent button that hands the whole merge to your agent. A pull can never overwrite unsaved work',
