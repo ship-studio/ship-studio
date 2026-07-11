@@ -20,8 +20,6 @@ import {
   setHideMainBranchWarning,
   getProjectThumbnail,
   uploadProjectThumbnail,
-  deleteProject,
-  removeProjectFromApp,
   renameProject,
   exportProjectAsTemplate,
 } from '../../lib/project';
@@ -69,6 +67,7 @@ import { moveProjectToAccount, getProjectAccountId } from '../../lib/accounts';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useProjectBulkActions } from '../../hooks/useProjectBulkActions';
 import { useProjectViewModeCommands } from '../../hooks/useProjectViewModeCommands';
+import { useProjectRemovalActions } from '../../hooks/useProjectRemovalActions';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { ChevronRightIcon } from '../icons';
 import type { ProjectViewMode } from './ProjectGridView';
@@ -151,10 +150,6 @@ export function ProjectList({
   const { activeAccount, accounts } = useActiveAccount();
   const activeAccountId = activeAccount?.id;
   const hasMultipleWorkspaces = accounts.length > 1;
-  const [deleteConfirm, setDeleteConfirm] = useState<DashboardProject | null>(null);
-  const [removeConfirm, setRemoveConfirm] = useState<DashboardProject | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [removing, setRemoving] = useState(false);
   const [renameTarget, setRenameTarget] = useState<DashboardProject | null>(null);
 
   // Folder navigation state
@@ -386,36 +381,22 @@ export function ProjectList({
 
   useProjectViewModeCommands(handleProjectViewModeChange);
 
-  const handleDelete = async (project: DashboardProject) => {
-    setDeleting(true);
-    try {
-      await deleteProject(project.path);
-      if (pinnedSet?.has(project.path)) {
-        // Unpin failures must not mask the successful delete — the files are
-        // already gone, so fall through to the normal cleanup + reload.
-        try {
-          await onTogglePin?.(project.path, false);
-        } catch (unpinError) {
-          trackError('project_unpin_after_delete', unpinError, 'Dashboard');
-          logger.error('Failed to unpin project after delete', {
-            error: unpinError instanceof Error ? unpinError.message : String(unpinError),
-          });
-        }
-      }
-      void trackEvent('project_deleted', { $screen_name: 'Dashboard' });
-      setDeleteConfirm(null);
-      removeProjectFromSelection(project.path);
-      await loadAll();
-    } catch (error) {
-      trackError('project_delete', error, 'Dashboard');
-      logger.error('Failed to delete project', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      alert('Failed to delete project: ' + formatCommandError(asCommandError(error)));
-    } finally {
-      setDeleting(false);
-    }
-  };
+  const {
+    deleteConfirm,
+    setDeleteConfirm,
+    removeConfirm,
+    setRemoveConfirm,
+    deleting,
+    removing,
+    handleDelete,
+    handleRemoveFromApp,
+  } = useProjectRemovalActions({
+    pinnedSet,
+    onTogglePin,
+    loadAll,
+    showToast,
+    removeProjectFromSelection,
+  });
 
   // Performs the rename and refreshes the dashboard. Throws on failure so the
   // modal can render the backend's reason inline (e.g. "Close this project
@@ -497,40 +478,6 @@ export function ProjectList({
         error: error instanceof Error ? error.message : String(error),
       });
       alert('Failed to export template: ' + formatCommandError(asCommandError(error)));
-    }
-  };
-
-  const handleRemoveFromApp = async (project: DashboardProject) => {
-    setRemoving(true);
-    try {
-      await removeProjectFromApp(project.path);
-      if (pinnedSet?.has(project.path)) {
-        // Same isolation as the bulk handler: the removal already succeeded.
-        try {
-          await onTogglePin?.(project.path, false);
-        } catch (unpinError) {
-          trackError('project_unpin_after_remove', unpinError, 'Dashboard');
-          logger.error('Failed to unpin project after remove', {
-            error: unpinError instanceof Error ? unpinError.message : String(unpinError),
-          });
-        }
-      }
-      void trackEvent('project_removed_from_app', {
-        is_external: project.is_external,
-        $screen_name: 'Dashboard',
-      });
-      setRemoveConfirm(null);
-      removeProjectFromSelection(project.path);
-      await loadAll();
-      showToast(`${project.name} was removed from Ship Studio`, 'success');
-    } catch (error) {
-      trackError('project_remove_from_app', error, 'Dashboard');
-      logger.error('Failed to remove project from Ship Studio', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      showToast(`Failed to remove project: ${formatCommandError(asCommandError(error))}`, 'error');
-    } finally {
-      setRemoving(false);
     }
   };
 
