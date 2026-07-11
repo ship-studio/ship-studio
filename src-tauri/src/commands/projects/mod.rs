@@ -865,6 +865,59 @@ pub async fn remove_git_history(project_path: String) -> Result<(), CommandError
     Ok(())
 }
 
+fn make_writable_recursive(path: &Path) -> std::io::Result<()> {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            make_writable_recursive(&entry.path())?;
+        }
+    }
+
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_symlink() {
+        let mut permissions = metadata.permissions();
+        if permissions.readonly() {
+            permissions.set_readonly(false);
+            std::fs::set_permissions(path, permissions)?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_dir_all_robust(path: &Path) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let mut retries = 10;
+    let delay = std::time::Duration::from_millis(100);
+
+    loop {
+        if let Err(e) = make_writable_recursive(path) {
+            tracing::warn!(
+                "Failed to set write permissions recursively on {}: {}",
+                path.display(),
+                e
+            );
+        }
+
+        match std::fs::remove_dir_all(path) {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                let is_access_denied =
+                    e.raw_os_error() == Some(5) || e.kind() == std::io::ErrorKind::PermissionDenied;
+
+                if is_access_denied && retries > 0 {
+                    retries -= 1;
+                    std::thread::sleep(delay);
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+}
+
 /// Deletes a project directory. Only allows deletion from ~/ShipStudio.
 /// External projects cannot be deleted — use unregister_external_project instead.
 #[tauri::command]
@@ -894,7 +947,20 @@ pub async fn delete_project(path: String) -> Result<(), CommandError> {
         return Err(("Can only delete projects from the projects directory".to_string()).into());
     }
 
-    std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())?;
+    let path_str = canonical.to_string_lossy().to_string();
+
+    // 1. Suspend the session first (kills PTYs + mobile previews)
+    suspend_session_internal(&path_str).await;
+
+    // 2. Unregister the session entirely
+    let _ = unregister_project_session(path_str).await;
+
+    // 3. Clear dashboard references (pins, folders)
+    clear_project_dashboard_references(&canonical).await;
+
+    // 4. Delete the directory robustly (handles read-only files and process locks with retries)
+    remove_dir_all_robust(&canonical).map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -1514,5 +1580,29 @@ mod tests {
         let err = load_removed_projects_config().expect_err("invalid registry should fail closed");
 
         assert!(err.contains("Failed to parse removed projects config"));
+    }
+
+    #[test]
+    fn remove_dir_all_robust_deletes_readonly_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("readonly_file.txt");
+        std::fs::write(&file_path, "test content").unwrap();
+
+        // Set the file to read-only
+        let mut perms = std::fs::metadata(&file_path).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&file_path, perms).unwrap();
+
+        // Verify it is indeed read-only
+        assert!(std::fs::metadata(&file_path)
+            .unwrap()
+            .permissions()
+            .readonly());
+
+        // Use remove_dir_all_robust to delete the directory tree
+        remove_dir_all_robust(tmp.path()).unwrap();
+
+        // Verify the directory no longer exists
+        assert!(!tmp.path().exists());
     }
 }
