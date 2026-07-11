@@ -67,6 +67,8 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 | `project_unpinned` | same | |
 | `pins_reordered` | `pin_count` | Drop event only — not mid-drag |
 | `project_picker_button_clicked` | — | Dedicated picker button only; Cmd+K opens are tracked separately |
+| `projects_bulk_deleted` | `count` | Bulk delete from the dashboard list view's selection bar |
+| `projects_bulk_removed_from_app` | `count` | Bulk non-destructive removal from the list view's selection bar |
 
 ### Cmd+K palette
 

@@ -982,64 +982,6 @@ pub async fn remove_project_from_app(path: String) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Clears path-keyed dashboard references after a project has already been
-/// removed from the visible project set.
-async fn clear_project_dashboard_references(canonical: &Path) {
-    let canonical_str = canonical.to_string_lossy().to_string();
-
-    if let Err(err) =
-        crate::commands::folders::move_project_to_folder(canonical_str.clone(), None).await
-    {
-        tracing::warn!(
-            project = %canonical.display(),
-            error = %err,
-            "Failed to clear project folder assignment after removal"
-        );
-    }
-
-    if let Err(err) = crate::commands::projects::unpin_project(canonical_str).await {
-        tracing::warn!(
-            project = %canonical.display(),
-            error = %err,
-            "Failed to unpin project after removal"
-        );
-    }
-}
-
-/// Removes a project from Ship Studio's dashboard without deleting its files.
-///
-/// Projects inside a configured projects folder are discovered automatically, so
-/// this records the exact project path in Ship Studio's app config and list
-/// scans skip it afterward. External projects keep using their existing
-/// registry removal path.
-#[tauri::command]
-#[tracing::instrument]
-pub async fn remove_project_from_app(path: String) -> Result<(), CommandError> {
-    let canonical = validate_project_path(&path)?;
-
-    if crate::commands::external_projects::is_registered_external_path(&canonical)? {
-        crate::commands::external_projects::unregister_external_project(path).await?;
-        clear_project_dashboard_references(&canonical).await;
-        return Ok(());
-    }
-
-    if !crate::utils::allowed_project_roots()
-        .iter()
-        .any(|root| canonical.starts_with(root))
-    {
-        return Err(
-            "Can only remove projects that live in a Ship Studio projects folder."
-                .to_string()
-                .into(),
-        );
-    }
-
-    mark_project_removed(&canonical)?;
-    clear_project_dashboard_references(&canonical).await;
-
-    Ok(())
-}
-
 /// Validate a proposed new project folder name, returning the trimmed value.
 ///
 /// A project name becomes a directory name, so it must be a single path
