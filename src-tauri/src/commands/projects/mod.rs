@@ -304,8 +304,19 @@ fn save_removed_projects_config(config: &RemovedProjectsConfig) -> Result<(), St
     let contents = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize removed projects config: {e}"))?;
 
-    std::fs::write(&config_path, contents)
-        .map_err(|e| format!("Failed to write removed projects config: {e}"))
+    let file_name = config_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("removed-projects.json");
+    let temp_path = config_path.with_file_name(format!(".{file_name}.tmp"));
+
+    std::fs::write(&temp_path, contents)
+        .map_err(|e| format!("Failed to write removed projects config: {e}"))?;
+
+    std::fs::rename(&temp_path, &config_path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to replace removed projects config: {e}")
+    })
 }
 
 /// Canonicalizes a path when possible, preserving the original path if it no
@@ -866,54 +877,84 @@ pub async fn remove_git_history(project_path: String) -> Result<(), CommandError
 }
 
 fn make_writable_recursive(path: &Path) -> std::io::Result<()> {
-    if path.is_dir() {
+    let metadata = std::fs::symlink_metadata(path)?;
+
+    // Never follow symlinks. A project can link outside itself — pnpm's
+    // node_modules links into the machine-global content-addressable store,
+    // whose files are deliberately read-only and shared by every project —
+    // and chmod-ing through the link would mutate files the delete below
+    // never touches. remove_dir_all removes the link itself, not its target,
+    // so the link needs no permission help either.
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+
+    if metadata.file_type().is_dir() {
         for entry in std::fs::read_dir(path)? {
-            let entry = entry?;
-            make_writable_recursive(&entry.path())?;
+            make_writable_recursive(&entry?.path())?;
         }
     }
 
-    let metadata = std::fs::symlink_metadata(path)?;
-    if !metadata.file_type().is_symlink() {
+    #[cfg(windows)]
+    {
         let mut permissions = metadata.permissions();
         if permissions.readonly() {
             permissions.set_readonly(false);
             std::fs::set_permissions(path, permissions)?;
         }
     }
+    #[cfg(unix)]
+    {
+        // Owner-write only — Permissions::set_readonly(false) would make the
+        // file world-writable on Unix (clippy::permissions_set_readonly_false).
+        use std::os::unix::fs::PermissionsExt;
+        let mode = metadata.permissions().mode();
+        if mode & 0o200 == 0 {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode | 0o200))?;
+        }
+    }
     Ok(())
 }
 
+/// Whether a failed `remove_dir_all` is worth retrying after a short wait.
+///
+/// ERROR_SHARING_VIOLATION (32) / ERROR_LOCK_VIOLATION (33) are Windows'
+/// "file open by another process" errors — the transient locks (antivirus,
+/// Search indexer, a just-killed PTY's children winding down) this retry
+/// exists for. ERROR_ACCESS_DENIED (5) covers in-use executables.
+fn is_retryable_delete_error(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33))
+        || e.kind() == std::io::ErrorKind::PermissionDenied
+}
+
+/// Blocking delete with read-only clearing and lock retries. Call from
+/// `spawn_blocking` — the chmod walk and retry sleeps can hold a thread for
+/// seconds on a large node_modules.
 fn remove_dir_all_robust(path: &Path) -> std::io::Result<()> {
     if !path.exists() {
         return Ok(());
     }
 
+    // Clear read-only attributes once up front (Windows refuses to delete
+    // read-only files; git objects and some packages ship them). Best-effort:
+    // a partial chmod still lets most of the tree go.
+    if let Err(e) = make_writable_recursive(path) {
+        tracing::warn!(
+            "Failed to set write permissions recursively on {}: {}",
+            path.display(),
+            e
+        );
+    }
+
     let mut retries = 10;
-    let delay = std::time::Duration::from_millis(100);
-
     loop {
-        if let Err(e) = make_writable_recursive(path) {
-            tracing::warn!(
-                "Failed to set write permissions recursively on {}: {}",
-                path.display(),
-                e
-            );
-        }
-
         match std::fs::remove_dir_all(path) {
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                let is_access_denied =
-                    e.raw_os_error() == Some(5) || e.kind() == std::io::ErrorKind::PermissionDenied;
-
-                if is_access_denied && retries > 0 {
-                    retries -= 1;
-                    std::thread::sleep(delay);
-                } else {
-                    return Err(e);
-                }
+            Ok(()) => return Ok(()),
+            Err(e) if retries > 0 && is_retryable_delete_error(&e) => {
+                retries -= 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
+            Err(e) => return Err(e),
         }
     }
 }
@@ -949,42 +990,70 @@ pub async fn delete_project(path: String) -> Result<(), CommandError> {
 
     let path_str = canonical.to_string_lossy().to_string();
 
-    // 1. Suspend the session first (kills PTYs + mobile previews)
+    // 1. Suspend the session first (kills PTYs + mobile previews) so nothing
+    //    holds handles inside the tree — the usual Windows deletion blocker.
     suspend_session_internal(&path_str).await;
 
-    // 2. Unregister the session entirely
-    let _ = unregister_project_session(path_str).await;
+    // 2. Unregister the session entirely. Failure isn't fatal to the delete,
+    //    but say so — a ghost registry entry explains later oddities.
+    if let Err(err) = unregister_project_session(path_str).await {
+        tracing::warn!(
+            project = %canonical.display(),
+            error = %err,
+            "Failed to unregister session before deleting project"
+        );
+    }
 
-    // 3. Clear dashboard references (pins, folders)
-    clear_project_dashboard_references(&canonical).await;
+    // 3. Delete the directory robustly (read-only attributes, transient
+    //    Windows locks). The chmod walk + retry sleeps are blocking work, so
+    //    keep them off the async runtime.
+    let target = canonical.clone();
+    tokio::task::spawn_blocking(move || remove_dir_all_robust(&target))
+        .await
+        .map_err(|e| format!("Project deletion task failed: {e}"))?
+        .map_err(|e| format!("Failed to delete project directory: {e}"))?;
 
-    // 4. Delete the directory robustly (handles read-only files and process locks with retries)
-    remove_dir_all_robust(&canonical).map_err(|e| e.to_string())?;
-
+    // 4. Clear dashboard references (pins, folders) — after the delete, so a
+    //    failed delete doesn't strip the pin off a project that still exists.
+    clear_project_dashboard_references(&canonical, Some(&path)).await;
     Ok(())
 }
 
 /// Clears path-keyed dashboard references after a project has already been
 /// removed from the visible project set.
-async fn clear_project_dashboard_references(canonical: &Path) {
+async fn clear_project_dashboard_references(canonical: &Path, dashboard_key: Option<&str>) {
     let canonical_str = canonical.to_string_lossy().to_string();
+    let mut keys = Vec::new();
 
-    if let Err(err) =
-        crate::commands::folders::move_project_to_folder(canonical_str.clone(), None).await
-    {
-        tracing::warn!(
-            project = %canonical.display(),
-            error = %err,
-            "Failed to clear project folder assignment after removal"
-        );
+    if let Some(key) = dashboard_key {
+        if !key.is_empty() {
+            keys.push(key.to_string());
+        }
     }
 
-    if let Err(err) = crate::commands::projects::unpin_project(canonical_str).await {
-        tracing::warn!(
-            project = %canonical.display(),
-            error = %err,
-            "Failed to unpin project after removal"
-        );
+    if !keys.iter().any(|key| key == &canonical_str) {
+        keys.push(canonical_str);
+    }
+
+    for key in keys {
+        if let Err(err) = crate::commands::folders::move_project_to_folder(key.clone(), None).await
+        {
+            tracing::warn!(
+                project = %canonical.display(),
+                dashboard_key = %key,
+                error = %err,
+                "Failed to clear project folder assignment after removal"
+            );
+        }
+
+        if let Err(err) = crate::commands::projects::unpin_project(key.clone()).await {
+            tracing::warn!(
+                project = %canonical.display(),
+                dashboard_key = %key,
+                error = %err,
+                "Failed to unpin project after removal"
+            );
+        }
     }
 }
 
@@ -1000,8 +1069,8 @@ pub async fn remove_project_from_app(path: String) -> Result<(), CommandError> {
     let canonical = validate_project_path(&path)?;
 
     if crate::commands::external_projects::is_registered_external_path(&canonical)? {
-        crate::commands::external_projects::unregister_external_project(path).await?;
-        clear_project_dashboard_references(&canonical).await;
+        crate::commands::external_projects::unregister_external_project(path.clone()).await?;
+        clear_project_dashboard_references(&canonical, Some(&path)).await;
         return Ok(());
     }
 
@@ -1017,7 +1086,7 @@ pub async fn remove_project_from_app(path: String) -> Result<(), CommandError> {
     }
 
     mark_project_removed(&canonical)?;
-    clear_project_dashboard_references(&canonical).await;
+    clear_project_dashboard_references(&canonical, Some(&path)).await;
 
     Ok(())
 }
@@ -1604,5 +1673,37 @@ mod tests {
 
         // Verify the directory no longer exists
         assert!(!tmp.path().exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_dir_all_robust_never_chmods_through_symlinks() {
+        // pnpm-style layout: the project links to a shared store whose files
+        // are read-only on purpose. Deleting the project must remove the link
+        // itself without touching the store's permissions.
+        let store = tempfile::tempdir().unwrap();
+        let store_file = store.path().join("shared.txt");
+        std::fs::write(&store_file, "shared").unwrap();
+        let mut perms = std::fs::metadata(&store_file).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&store_file, perms).unwrap();
+
+        let project = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(store.path(), project.path().join("node_modules_link")).unwrap();
+
+        remove_dir_all_robust(project.path()).unwrap();
+
+        assert!(!project.path().exists());
+        assert!(
+            store_file.exists(),
+            "symlink target must survive the delete"
+        );
+        assert!(
+            std::fs::metadata(&store_file)
+                .unwrap()
+                .permissions()
+                .readonly(),
+            "store file must stay read-only — chmod escaped through the symlink"
+        );
     }
 }

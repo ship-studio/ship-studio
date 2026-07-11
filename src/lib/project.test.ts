@@ -9,6 +9,7 @@
  * is integration-level behavior, not a wrapper.
  */
 
+import { mockIPC } from '@tauri-apps/api/mocks';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DashboardProject } from './project';
 import {
@@ -30,10 +31,6 @@ import {
   setHideMainBranchWarning,
 } from './project';
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
-}));
-
 // Silence logger + analytics (not exercised by these wrappers but imported by the module)
 vi.mock('./logger', () => ({
   logger: {
@@ -49,11 +46,17 @@ vi.mock('./analytics', () => ({
 }));
 
 describe('lib/project', () => {
-  let core: typeof import('@tauri-apps/api/core');
+  let invokeMock: ReturnType<typeof vi.fn>;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
-    core = await import('@tauri-apps/api/core');
+    invokeMock = vi.fn();
+    mockIPC((cmd, args) => {
+      if (args === undefined) {
+        return invokeMock(cmd);
+      }
+      return invokeMock(cmd, args);
+    });
   });
 
   // ============ getDashboardProjects ============
@@ -74,12 +77,12 @@ describe('lib/project', () => {
           workspace_subpath: null,
         },
       ];
-      vi.mocked(core.invoke).mockResolvedValue(projects);
+      invokeMock.mockResolvedValue(projects);
 
       const result = await getDashboardProjects();
 
-      expect(core.invoke).toHaveBeenCalledTimes(1);
-      expect(core.invoke).toHaveBeenCalledWith('get_dashboard_projects');
+      expect(invokeMock).toHaveBeenCalledTimes(1);
+      expect(invokeMock).toHaveBeenCalledWith('get_dashboard_projects', {});
       expect(result).toEqual(projects);
     });
 
@@ -98,7 +101,7 @@ describe('lib/project', () => {
           workspace_subpath: null,
         },
       ];
-      vi.mocked(core.invoke).mockResolvedValue(projects);
+      invokeMock.mockResolvedValue(projects);
 
       const result = await getDashboardProjects();
 
@@ -108,7 +111,7 @@ describe('lib/project', () => {
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('scan failed'));
+      invokeMock.mockRejectedValue(new Error('scan failed'));
       await expect(getDashboardProjects()).rejects.toThrow('scan failed');
     });
   });
@@ -121,16 +124,16 @@ describe('lib/project', () => {
         { name: 'a', path: '/ShipStudio/a' },
         { name: 'b', path: '/ShipStudio/b' },
       ];
-      vi.mocked(core.invoke).mockResolvedValue(list);
+      invokeMock.mockResolvedValue(list);
 
       const result = await listProjects();
 
-      expect(core.invoke).toHaveBeenCalledWith('list_projects');
+      expect(invokeMock).toHaveBeenCalledWith('list_projects', {});
       expect(result).toEqual(list);
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('no home dir'));
+      invokeMock.mockRejectedValue(new Error('no home dir'));
       await expect(listProjects()).rejects.toThrow('no home dir');
     });
   });
@@ -139,16 +142,16 @@ describe('lib/project', () => {
 
   describe('ensureShipStudioDir', () => {
     it('invokes "ensure_shipstudio_dir" and returns the absolute path', async () => {
-      vi.mocked(core.invoke).mockResolvedValue('/Users/test/ShipStudio');
+      invokeMock.mockResolvedValue('/Users/test/ShipStudio');
 
       const result = await ensureShipStudioDir();
 
-      expect(core.invoke).toHaveBeenCalledWith('ensure_shipstudio_dir');
+      expect(invokeMock).toHaveBeenCalledWith('ensure_shipstudio_dir', {});
       expect(result).toBe('/Users/test/ShipStudio');
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('mkdir failed'));
+      invokeMock.mockRejectedValue(new Error('mkdir failed'));
       await expect(ensureShipStudioDir()).rejects.toThrow('mkdir failed');
     });
   });
@@ -157,7 +160,7 @@ describe('lib/project', () => {
 
   describe('spawnPty', () => {
     it('invokes "spawn_pty" with options + windowLabel and returns the pty id', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(42);
+      invokeMock.mockResolvedValue(42);
 
       const options = {
         cwd: '/p',
@@ -168,7 +171,7 @@ describe('lib/project', () => {
       };
       const result = await spawnPty(options, 'main');
 
-      expect(core.invoke).toHaveBeenCalledWith('spawn_pty', {
+      expect(invokeMock).toHaveBeenCalledWith('spawn_pty', {
         options,
         windowLabel: 'main',
       });
@@ -176,7 +179,7 @@ describe('lib/project', () => {
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('spawn failed'));
+      invokeMock.mockRejectedValue(new Error('spawn failed'));
       const options = { cwd: '/p', command: 'bad', args: [], rows: 24, cols: 80 };
       await expect(spawnPty(options, 'main')).rejects.toThrow('spawn failed');
     });
@@ -186,17 +189,17 @@ describe('lib/project', () => {
 
   describe('ensureGitignoreHasShipstudio', () => {
     it('invokes "ensure_gitignore_has_shipstudio" with projectPath', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await ensureGitignoreHasShipstudio('/abs/project');
 
-      expect(core.invoke).toHaveBeenCalledWith('ensure_gitignore_has_shipstudio', {
+      expect(invokeMock).toHaveBeenCalledWith('ensure_gitignore_has_shipstudio', {
         projectPath: '/abs/project',
       });
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('write failed'));
+      invokeMock.mockRejectedValue(new Error('write failed'));
       await expect(ensureGitignoreHasShipstudio('/abs/project')).rejects.toThrow('write failed');
     });
   });
@@ -205,24 +208,24 @@ describe('lib/project', () => {
 
   describe('getProjectThumbnail', () => {
     it('invokes "get_project_thumbnail" with projectPath and returns base64', async () => {
-      vi.mocked(core.invoke).mockResolvedValue('data:image/png;base64,AAA');
+      invokeMock.mockResolvedValue('data:image/png;base64,AAA');
 
       const result = await getProjectThumbnail('/abs/project');
 
-      expect(core.invoke).toHaveBeenCalledWith('get_project_thumbnail', {
+      expect(invokeMock).toHaveBeenCalledWith('get_project_thumbnail', {
         projectPath: '/abs/project',
       });
       expect(result).toBe('data:image/png;base64,AAA');
     });
 
     it('returns null when no thumbnail exists', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(null);
+      invokeMock.mockResolvedValue(null);
       const result = await getProjectThumbnail('/abs/project');
       expect(result).toBeNull();
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('read error'));
+      invokeMock.mockRejectedValue(new Error('read error'));
       await expect(getProjectThumbnail('/abs/project')).rejects.toThrow('read error');
     });
   });
@@ -231,17 +234,17 @@ describe('lib/project', () => {
 
   describe('deleteProject', () => {
     it('invokes "delete_project" with path', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await deleteProject('/abs/project');
 
-      expect(core.invoke).toHaveBeenCalledWith('delete_project', {
+      expect(invokeMock).toHaveBeenCalledWith('delete_project', {
         path: '/abs/project',
       });
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('permission denied'));
+      invokeMock.mockRejectedValue(new Error('permission denied'));
       await expect(deleteProject('/abs/project')).rejects.toThrow('permission denied');
     });
   });
@@ -250,17 +253,17 @@ describe('lib/project', () => {
 
   describe('removeProjectFromApp', () => {
     it('invokes "remove_project_from_app" with path', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await removeProjectFromApp('/abs/project');
 
-      expect(core.invoke).toHaveBeenCalledWith('remove_project_from_app', {
+      expect(invokeMock).toHaveBeenCalledWith('remove_project_from_app', {
         path: '/abs/project',
       });
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('not found'));
+      invokeMock.mockRejectedValue(new Error('not found'));
       await expect(removeProjectFromApp('/abs/project')).rejects.toThrow('not found');
     });
   });
@@ -269,24 +272,24 @@ describe('lib/project', () => {
 
   describe('exportProjectAsTemplate', () => {
     it('invokes "export_project_as_template" with projectPath and returns saved path', async () => {
-      vi.mocked(core.invoke).mockResolvedValue('/Users/test/template.zip');
+      invokeMock.mockResolvedValue('/Users/test/template.zip');
 
       const result = await exportProjectAsTemplate('/abs/project');
 
-      expect(core.invoke).toHaveBeenCalledWith('export_project_as_template', {
+      expect(invokeMock).toHaveBeenCalledWith('export_project_as_template', {
         projectPath: '/abs/project',
       });
       expect(result).toBe('/Users/test/template.zip');
     });
 
     it('returns null when the user cancels the save dialog', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(null);
+      invokeMock.mockResolvedValue(null);
       const result = await exportProjectAsTemplate('/abs/project');
       expect(result).toBeNull();
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('export failed'));
+      invokeMock.mockRejectedValue(new Error('export failed'));
       await expect(exportProjectAsTemplate('/abs/project')).rejects.toThrow('export failed');
     });
   });
@@ -295,18 +298,18 @@ describe('lib/project', () => {
 
   describe('openProjectInNewWindow', () => {
     it('invokes "open_project_in_new_window" with projectPath + projectName', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await openProjectInNewWindow('/abs/project', 'My Project');
 
-      expect(core.invoke).toHaveBeenCalledWith('open_project_in_new_window', {
+      expect(invokeMock).toHaveBeenCalledWith('open_project_in_new_window', {
         projectPath: '/abs/project',
         projectName: 'My Project',
       });
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('window spawn failed'));
+      invokeMock.mockRejectedValue(new Error('window spawn failed'));
       await expect(openProjectInNewWindow('/abs/project', 'name')).rejects.toThrow(
         'window spawn failed'
       );
@@ -317,53 +320,53 @@ describe('lib/project', () => {
 
   describe('getCustomDevCommand', () => {
     it('invokes "get_custom_dev_command" with projectPath and returns the string', async () => {
-      vi.mocked(core.invoke).mockResolvedValue('npm run start');
+      invokeMock.mockResolvedValue('npm run start');
 
       const result = await getCustomDevCommand('/abs/project');
 
-      expect(core.invoke).toHaveBeenCalledWith('get_custom_dev_command', {
+      expect(invokeMock).toHaveBeenCalledWith('get_custom_dev_command', {
         projectPath: '/abs/project',
       });
       expect(result).toBe('npm run start');
     });
 
     it('returns null when no custom command configured', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(null);
+      invokeMock.mockResolvedValue(null);
       const result = await getCustomDevCommand('/abs/project');
       expect(result).toBeNull();
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('read failed'));
+      invokeMock.mockRejectedValue(new Error('read failed'));
       await expect(getCustomDevCommand('/abs/project')).rejects.toThrow('read failed');
     });
   });
 
   describe('setCustomDevCommand', () => {
     it('invokes "set_custom_dev_command" with projectPath + command string', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await setCustomDevCommand('/abs/project', 'pnpm dev');
 
-      expect(core.invoke).toHaveBeenCalledWith('set_custom_dev_command', {
+      expect(invokeMock).toHaveBeenCalledWith('set_custom_dev_command', {
         projectPath: '/abs/project',
         command: 'pnpm dev',
       });
     });
 
     it('passes null command through when clearing', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await setCustomDevCommand('/abs/project', null);
 
-      expect(core.invoke).toHaveBeenCalledWith('set_custom_dev_command', {
+      expect(invokeMock).toHaveBeenCalledWith('set_custom_dev_command', {
         projectPath: '/abs/project',
         command: null,
       });
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('write failed'));
+      invokeMock.mockRejectedValue(new Error('write failed'));
       await expect(setCustomDevCommand('/abs/project', 'x')).rejects.toThrow('write failed');
     });
   });
@@ -372,53 +375,53 @@ describe('lib/project', () => {
 
   describe('getAutoAcceptMode', () => {
     it('invokes "get_auto_accept_mode" with projectPath and returns the boolean', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(true);
+      invokeMock.mockResolvedValue(true);
 
       const result = await getAutoAcceptMode('/abs/project');
 
-      expect(core.invoke).toHaveBeenCalledWith('get_auto_accept_mode', {
+      expect(invokeMock).toHaveBeenCalledWith('get_auto_accept_mode', {
         projectPath: '/abs/project',
       });
       expect(result).toBe(true);
     });
 
     it('returns false when disabled', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(false);
+      invokeMock.mockResolvedValue(false);
       const result = await getAutoAcceptMode('/abs/project');
       expect(result).toBe(false);
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('read failed'));
+      invokeMock.mockRejectedValue(new Error('read failed'));
       await expect(getAutoAcceptMode('/abs/project')).rejects.toThrow('read failed');
     });
   });
 
   describe('setAutoAcceptMode', () => {
     it('invokes "set_auto_accept_mode" with projectPath + enabled flag', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await setAutoAcceptMode('/abs/project', true);
 
-      expect(core.invoke).toHaveBeenCalledWith('set_auto_accept_mode', {
+      expect(invokeMock).toHaveBeenCalledWith('set_auto_accept_mode', {
         projectPath: '/abs/project',
         enabled: true,
       });
     });
 
     it('passes through the enabled=false case', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await setAutoAcceptMode('/abs/project', false);
 
-      expect(core.invoke).toHaveBeenCalledWith('set_auto_accept_mode', {
+      expect(invokeMock).toHaveBeenCalledWith('set_auto_accept_mode', {
         projectPath: '/abs/project',
         enabled: false,
       });
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('write failed'));
+      invokeMock.mockRejectedValue(new Error('write failed'));
       await expect(setAutoAcceptMode('/abs/project', true)).rejects.toThrow('write failed');
     });
   });
@@ -427,47 +430,47 @@ describe('lib/project', () => {
 
   describe('getHideMainBranchWarning', () => {
     it('invokes "get_hide_main_branch_warning" with projectPath', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(true);
+      invokeMock.mockResolvedValue(true);
 
       const result = await getHideMainBranchWarning('/abs/project');
 
-      expect(core.invoke).toHaveBeenCalledWith('get_hide_main_branch_warning', {
+      expect(invokeMock).toHaveBeenCalledWith('get_hide_main_branch_warning', {
         projectPath: '/abs/project',
       });
       expect(result).toBe(true);
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('read failed'));
+      invokeMock.mockRejectedValue(new Error('read failed'));
       await expect(getHideMainBranchWarning('/abs/project')).rejects.toThrow('read failed');
     });
   });
 
   describe('setHideMainBranchWarning', () => {
     it('invokes "set_hide_main_branch_warning" with projectPath + hidden flag', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await setHideMainBranchWarning('/abs/project', true);
 
-      expect(core.invoke).toHaveBeenCalledWith('set_hide_main_branch_warning', {
+      expect(invokeMock).toHaveBeenCalledWith('set_hide_main_branch_warning', {
         projectPath: '/abs/project',
         hidden: true,
       });
     });
 
     it('passes through hidden=false', async () => {
-      vi.mocked(core.invoke).mockResolvedValue(undefined);
+      invokeMock.mockResolvedValue(undefined);
 
       await setHideMainBranchWarning('/abs/project', false);
 
-      expect(core.invoke).toHaveBeenCalledWith('set_hide_main_branch_warning', {
+      expect(invokeMock).toHaveBeenCalledWith('set_hide_main_branch_warning', {
         projectPath: '/abs/project',
         hidden: false,
       });
     });
 
     it('propagates errors from invoke', async () => {
-      vi.mocked(core.invoke).mockRejectedValue(new Error('write failed'));
+      invokeMock.mockRejectedValue(new Error('write failed'));
       await expect(setHideMainBranchWarning('/abs/project', true)).rejects.toThrow('write failed');
     });
   });
