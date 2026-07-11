@@ -97,6 +97,11 @@ pub struct SnapshotStatus {
     pub watching: bool,
     pub can_undo: bool,
     pub can_redo: bool,
+    /// Whether the project is inside a git working tree. Snapshots are captured
+    /// with `git stash create`, so undo/redo only work in a git repo — the UI uses
+    /// this to explain a disabled undo/redo button.
+    #[serde(default)]
+    pub is_git_repo: bool,
     pub history_size: usize,
     pub cursor: usize,
     /// Files that changed between the prior cursor and the new one. Always
@@ -104,6 +109,19 @@ pub struct SnapshotStatus {
     /// `snapshot_redo` so the UI can toast a meaningful summary.
     #[serde(default)]
     pub files_changed: Vec<String>,
+}
+
+/// Whether `path` is inside a git working tree (it, or an ancestor, has `.git`).
+/// Snapshots require this since they shell out to `git stash create`.
+fn is_git_repo(path: &Path) -> bool {
+    let mut cur = Some(path);
+    while let Some(p) = cur {
+        if p.join(".git").exists() {
+            return true;
+        }
+        cur = p.parent();
+    }
+    false
 }
 
 /// Decide whether a path that triggered the watcher should count toward
@@ -425,6 +443,7 @@ pub async fn snapshot_stop_watching(project_path: String) -> Result<(), CommandE
 #[instrument(name = "snapshot_status", skip(project_path), fields(project = %project_path))]
 pub async fn snapshot_status(project_path: String) -> Result<SnapshotStatus, CommandError> {
     let validated = validate_project_path(&project_path)?;
+    let git = is_git_repo(&validated);
     let map = HISTORIES.lock().map_err(|_| CommandError::Other {
         message: "history lock poisoned".into(),
     })?;
@@ -433,11 +452,15 @@ pub async fn snapshot_status(project_path: String) -> Result<SnapshotStatus, Com
             watching: h.watcher_shutdown.is_some(),
             can_undo: h.can_undo(),
             can_redo: h.can_redo(),
+            is_git_repo: git,
             history_size: h.snapshots.len(),
             cursor: h.cursor,
             files_changed: Vec::new(),
         },
-        None => SnapshotStatus::default(),
+        None => SnapshotStatus {
+            is_git_repo: git,
+            ..SnapshotStatus::default()
+        },
     })
 }
 
@@ -478,6 +501,7 @@ fn step(project_path: &Path, delta: i32) -> Result<SnapshotStatus, CommandError>
                     watching: history.watcher_shutdown.is_some(),
                     can_undo: history.can_undo(),
                     can_redo: history.can_redo(),
+                    is_git_repo: is_git_repo(project_path),
                     history_size: history.snapshots.len(),
                     cursor: history.cursor,
                     files_changed: Vec::new(),
@@ -527,6 +551,7 @@ fn step(project_path: &Path, delta: i32) -> Result<SnapshotStatus, CommandError>
         watching: history.watcher_shutdown.is_some(),
         can_undo: history.can_undo(),
         can_redo: history.can_redo(),
+        is_git_repo: is_git_repo(project_path),
         history_size: history.snapshots.len(),
         cursor: history.cursor,
         files_changed,

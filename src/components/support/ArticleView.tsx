@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { getArticle, recordArticleView } from '../../lib/support';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import type { LibraryArticle } from '../../lib/support';
 import type { SupportView } from './SupportPanel';
 
@@ -32,8 +33,10 @@ export function ArticleView({ slug, onNavigate }: ArticleViewProps) {
           setArticle(result);
           void recordArticleView(slug);
         }
-      } catch {
-        if (!cancelled) setError('Failed to load article.');
+      } catch (err) {
+        if (!cancelled) {
+          setError(`Couldn't load this article: ${formatCommandError(asCommandError(err))}`);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -9,11 +9,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFileTree } from '../../hooks/useFileTree';
 import { FileTree } from './FileTree';
 import { CodeViewer } from './CodeViewer';
+import { ProjectActionConfirmModal } from '../dashboard/ProjectActionConfirmModal';
 import { Spinner } from '../primitives/Spinner';
 import { Button } from '../primitives/Button';
-import { ResetIcon, SearchIcon } from '../icons';
+import { ResetIcon, SearchIcon, EditIcon } from '../icons';
 import { type FileTreeNode, fileExtensionForAnalytics } from '../../lib/code';
 import { trackEvent, trackSearch } from '../../lib/analytics';
+import { useCommands } from '../../commands/useCommands';
 
 interface CodeTabProps {
   projectPath: string;
@@ -35,6 +37,19 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     toggleDirectory,
     selectFile: selectFileRaw,
     refreshTree: refreshTreeRaw,
+    isEditing,
+    draft,
+    isDirty,
+    isSaving,
+    saveError,
+    cancelEdit,
+    updateDraft,
+    saveFile,
+    editModeEnabled,
+    setEditMode,
+    pendingAction,
+    confirmPendingAction,
+    cancelPendingAction,
   } = useFileTree(projectPath);
 
   const selectFile = useCallback(
@@ -51,6 +66,24 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     void trackEvent('code_tree_refreshed');
     refreshTreeRaw();
   }, [refreshTreeRaw]);
+
+  // Expose the persisted edit-mode toggle in the command palette (the palette is
+  // a contract — every user-facing feature registers its primary action).
+  useCommands(
+    () => [
+      {
+        id: 'code.toggleEdit',
+        title: editModeEnabled ? 'Disable code editing' : 'Enable code editing',
+        subtitle: 'Code tab — switch between read-only and live editing',
+        icon: <EditIcon size={14} />,
+        category: 'action',
+        when: 'project',
+        keywords: ['edit', 'code', 'editor', 'read only', 'write', 'ide'],
+        run: () => setEditMode(!editModeEnabled),
+      },
+    ],
+    [editModeEnabled, setEditMode]
+  );
 
   // Jump-to-code: open the targeted file. The line is forwarded to CodeViewer
   // (which scrolls + highlights it) independently, so re-targeting the same file
@@ -176,9 +209,40 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
           isLoading={isLoadingFile}
           error={fileError}
           onSendToAgent={onSendToAgent}
-          revealLine={revealTarget?.line}
+          revealLine={
+            revealTarget && revealTarget.file === selectedFilePath ? revealTarget.line : null
+          }
+          isEditing={isEditing}
+          draft={draft}
+          isDirty={isDirty}
+          isSaving={isSaving}
+          saveError={saveError}
+          onCancelEdit={cancelEdit}
+          onDraftChange={updateDraft}
+          onSave={saveFile}
+          editModeEnabled={editModeEnabled}
+          onToggleEditMode={setEditMode}
         />
       </div>
+      {pendingAction && (
+        <ProjectActionConfirmModal
+          title="Discard unsaved changes?"
+          body={
+            <span style={{ display: 'block', marginBottom: 'var(--spacing-md)' }}>
+              {pendingAction.kind === 'switch'
+                ? 'You have unsaved changes in this file. Switching files will discard them.'
+                : 'You have unsaved changes. Turning off Edit mode will discard them.'}
+            </span>
+          }
+          hint="This can’t be undone."
+          loading={false}
+          confirmLabel="Discard changes"
+          loadingLabel="Discarding…"
+          confirmVariant="danger"
+          onCancel={cancelPendingAction}
+          onConfirm={confirmPendingAction}
+        />
+      )}
     </div>
   );
 }

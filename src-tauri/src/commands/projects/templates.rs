@@ -5,7 +5,6 @@
 
 use super::detection::has_html_files;
 use crate::errors::CommandError;
-use std::io::{Read, Write};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 use walkdir::WalkDir;
@@ -52,19 +51,49 @@ pub async fn extract_template_zip(
         return Err((format!("A project named '{safe_name}' already exists")).into());
     }
 
-    // Get zip data either from direct bytes or by reading from path
-    let data = if let Some(bytes) = zip_data {
-        bytes
+    // Extract from direct bytes or stream from disk. On-disk zips are opened
+    // as files (not slurped into memory) so a large template can't OOM the app.
+    let extract_result = if let Some(bytes) = zip_data {
+        extract_archive_to(std::io::Cursor::new(bytes), &project_path)
     } else if let Some(path) = zip_path {
-        std::fs::read(&path).map_err(|e| format!("Failed to read zip file: {e}"))?
+        let file = std::fs::File::open(&path)
+            .map_err(|e| format!("Failed to open zip file '{path}': {e}"))?;
+        extract_archive_to(std::io::BufReader::new(file), &project_path)
     } else {
         return Err(("No zip data or path provided".to_string()).into());
     };
 
-    // Create a cursor from the zip data
-    let cursor = std::io::Cursor::new(data);
+    if let Err(e) = extract_result {
+        // Don't leave a half-extracted project behind on failure.
+        std::fs::remove_dir_all(&project_path).ok();
+        return Err(e);
+    }
+
+    // Verify it's a valid project (has package.json, HTML files, or a
+    // Shopify theme layout)
+    if !project_path.join("package.json").exists()
+        && !has_html_files(&project_path)
+        && !project_path.join("layout").join("theme.liquid").exists()
+    {
+        // Clean up invalid project
+        std::fs::remove_dir_all(&project_path).ok();
+        return Err("Invalid template: no package.json, .html files, or Shopify theme layout found. Please use a valid project template."
+            .to_string()
+            .into());
+    }
+
+    Ok(project_path.to_string_lossy().to_string())
+}
+
+/// Extract a zip archive into `project_path`, streaming each entry to disk
+/// (no per-file in-memory buffering). Errors carry the operation, the entry
+/// or destination path, and the underlying cause.
+fn extract_archive_to<R: std::io::Read + std::io::Seek>(
+    reader: R,
+    project_path: &std::path::Path,
+) -> Result<(), CommandError> {
     let mut archive =
-        ZipArchive::new(cursor).map_err(|e| format!("Failed to open zip file: {e}"))?;
+        ZipArchive::new(reader).map_err(|e| format!("Failed to open zip file: {e}"))?;
 
     if archive.is_empty() {
         return Err(("Zip file is empty".to_string()).into());
@@ -104,14 +133,18 @@ pub async fn extract_template_zip(
     };
 
     // Create project directory
-    std::fs::create_dir_all(&project_path)
-        .map_err(|e| format!("Failed to create project directory: {e}"))?;
+    std::fs::create_dir_all(project_path).map_err(|e| {
+        format!(
+            "Failed to create project directory '{}': {e}",
+            project_path.display()
+        )
+    })?;
 
     // Extract files
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
-            .map_err(|e| format!("Failed to read zip entry: {e}"))?;
+            .map_err(|e| format!("Failed to read zip entry #{i}: {e}"))?;
 
         let mut outpath = file.name().to_string();
 
@@ -147,28 +180,33 @@ pub async fn extract_template_zip(
         let dest_path = project_path.join(rel);
 
         if file.is_dir() {
-            std::fs::create_dir_all(&dest_path)
-                .map_err(|e| format!("Failed to create directory: {e}"))?;
+            std::fs::create_dir_all(&dest_path).map_err(|e| {
+                format!("Failed to create directory '{}': {e}", dest_path.display())
+            })?;
         } else {
             // Ensure parent directory exists
             if let Some(parent) = dest_path.parent() {
                 if !parent.exists() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|e| format!("Failed to create parent directory: {e}"))?;
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        format!(
+                            "Failed to create parent directory '{}': {e}",
+                            parent.display()
+                        )
+                    })?;
                 }
             }
 
-            // Extract file
+            // Extract file, streaming from the archive to disk so a large
+            // entry is never buffered fully in memory.
             let mut outfile = std::fs::File::create(&dest_path)
-                .map_err(|e| format!("Failed to create file: {e}"))?;
+                .map_err(|e| format!("Failed to create file '{}': {e}", dest_path.display()))?;
 
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer)
-                .map_err(|e| format!("Failed to read file from zip: {e}"))?;
-
-            outfile
-                .write_all(&buffer)
-                .map_err(|e| format!("Failed to write file: {e}"))?;
+            std::io::copy(&mut file, &mut outfile).map_err(|e| {
+                format!(
+                    "Failed to extract zip entry '{outpath}' to '{}': {e}",
+                    dest_path.display()
+                )
+            })?;
 
             // Set executable permission for scripts on Unix
             #[cfg(unix)]
@@ -180,7 +218,12 @@ pub async fn extract_template_zip(
                         // raw archive mode so a malicious template can't ship a
                         // setuid/setgid binary.
                         let mut perms = std::fs::metadata(&dest_path)
-                            .map_err(|e| format!("Failed to get file metadata: {e}"))?
+                            .map_err(|e| {
+                                format!(
+                                    "Failed to get file metadata for '{}': {e}",
+                                    dest_path.display()
+                                )
+                            })?
                             .permissions();
                         perms.set_mode(0o755);
                         std::fs::set_permissions(&dest_path, perms).ok();
@@ -190,20 +233,7 @@ pub async fn extract_template_zip(
         }
     }
 
-    // Verify it's a valid project (has package.json, HTML files, or a
-    // Shopify theme layout)
-    if !project_path.join("package.json").exists()
-        && !has_html_files(&project_path)
-        && !project_path.join("layout").join("theme.liquid").exists()
-    {
-        // Clean up invalid project
-        std::fs::remove_dir_all(&project_path).ok();
-        return Err("Invalid template: no package.json, .html files, or Shopify theme layout found. Please use a valid project template."
-            .to_string()
-            .into());
-    }
-
-    Ok(project_path.to_string_lossy().to_string())
+    Ok(())
 }
 
 /// Directories to exclude when exporting a project as a template
@@ -305,18 +335,16 @@ pub async fn export_project_as_template(
             zip.add_directory(format!("{relative_path_str}/"), options)
                 .map_err(|e| format!("Failed to add directory to zip: {e}"))?;
         } else {
-            // Add file entry
+            // Add file entry, streaming from disk so a large file (video,
+            // binary asset) is never buffered fully in memory.
             zip.start_file(&relative_path_str, options)
-                .map_err(|e| format!("Failed to start file in zip: {e}"))?;
+                .map_err(|e| format!("Failed to start file '{relative_path_str}' in zip: {e}"))?;
 
-            let mut file_content = Vec::new();
-            std::fs::File::open(path)
-                .map_err(|e| format!("Failed to open file: {e}"))?
-                .read_to_end(&mut file_content)
-                .map_err(|e| format!("Failed to read file: {e}"))?;
+            let mut file = std::fs::File::open(path)
+                .map_err(|e| format!("Failed to open file '{}': {e}", path.display()))?;
 
-            zip.write_all(&file_content)
-                .map_err(|e| format!("Failed to write file to zip: {e}"))?;
+            std::io::copy(&mut file, &mut zip)
+                .map_err(|e| format!("Failed to write file '{}' to zip: {e}", path.display()))?;
         }
     }
 

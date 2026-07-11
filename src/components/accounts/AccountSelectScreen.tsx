@@ -20,6 +20,7 @@ import {
   setActiveAccountId,
   type Account,
 } from '../../lib/accounts';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import '../../styles/features/account-select.css';
 
 interface AccountSelectScreenProps {
@@ -56,7 +57,7 @@ export function AccountSelectScreen({ onContinue }: AccountSelectScreenProps) {
       setAccounts(list);
       setActiveId(active);
     } catch (e) {
-      showToast(`Failed to load workspaces: ${String(e)}`, 'error');
+      showToast(`Failed to load workspaces: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +73,7 @@ export function AccountSelectScreen({ onContinue }: AccountSelectScreenProps) {
       await setActiveAccountId(account.id);
       onContinue();
     } catch (e) {
-      showToast(`Failed to switch workspace: ${String(e)}`, 'error');
+      showToast(`Failed to switch workspace: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setIsSwitching(false);
     }

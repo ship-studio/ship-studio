@@ -6,6 +6,72 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.15.0
+
+- **Your agent can now use the preview** - Claude Code (and Codex, Opencode, Cursor) get built-in tools to see and drive your live preview: screenshots, console errors, network requests, clicking, typing, page and breakpoint switching — so the agent verifies its own changes. A green glow and cursor show exactly what it's doing. Zero setup on every project you open.
+- **Agent-led onboarding** - Pick your AI agent and it installs everything for you (Homebrew, Node, Git, GitHub, your hosting CLI) while Ship Studio verifies each step with its own checks. Classic onboarding stays one click away.
+- **Set an exact preview size** - Click the dimensions readout in the preview toolbar to type a width and height; oversized viewports render at true width and scale to fit.
+- **Screenshot reliability** - Screenshots self-heal when macOS evicts the headless browser, and a Playwright/Node 24 install hang is fixed.
+
+
+## What's New in v0.14.0
+
+- **Push and Pull, the way git means it** - The header button now always says **Push** — no more guessing whether "Publish", "Sync", or "Go Live" will do the thing. And there's a new **Pull** button beside the branch name: one click grabs the latest from GitHub. If a pull hits merge conflicts you get the visual resolver — with a new **Send to Agent** button that hands the whole merge to your agent. A pull can never overwrite unsaved work; git stops safely and the app tells you exactly what to do.
+- **The visual CSS editor now works on Next.js projects with plain CSS** - Point-and-click editing of your global stylesheets on Next.js, not just Astro/HTML. CSS Modules are detected and explained rather than mis-edited.
+- **New "Next.js (Vanilla)" starter** - A plain-CSS Next.js template built for the visual editor. The existing starter is now labeled "Next.js (Tailwind)" so the choice is clear.
+- **You can style unstyled elements now** - Selecting an element with no class used to dead-end with "can't edit this element's classes in source." Both editors now offer **Add class**, which writes a real class attribute into your source — and refuses with a precise explanation if it can't safely tell which element you mean, rather than ever guessing.
+- **Arrow keys step values in the editor** - Click any value field (padding, margin, gap, width, font-size…) and press ↑/↓ to nudge it. Shift jumps ×10, Alt fine-steps. Works in both editors, matching the drag-to-scrub behavior.
+- **Editor dropdowns match the app** - Length preset menus no longer use the macOS system popup that ignored the dark theme.
+- **Windows: terminals no longer stall at startup** - Windows' ConPTY blocks all terminal output until a cursor-position query is answered; if the app wasn't ready to answer, the terminal sat at "Starting…" forever. The backend now answers whenever no terminal view is attached. Community fix by Vasanth — thank you!
+- **Agent connect flows actually sign you in** - The Connect buttons for Claude/Codex now run the real sign-in flows (`claude auth login` / `codex login`) instead of leaving you stranded in the agent's chat prompt.
+- **Preview reliability** - Next.js hot-reload no longer goes stale until you re-enter the project, and if an agent kills your dev server the preview now says so honestly — with a Restart button that actually restarts.
+- **Import can't crash the app anymore** - Importing a repository with a symlink loop (or other unusual layouts) used to crash Ship Studio outright; every import step now fails gracefully with a specific message.
+- **The screen-recording prompt explains itself** - macOS asks for screen-recording permission for project thumbnails; the app now tells you why before the scary system dialog, and respects a "no" instead of re-asking forever.
+
+## What's New in v0.13.4
+
+- **Fixed dragging files into terminals on Retina Macs** - Dropping a file or screenshot into an agent terminal silently did nothing since v0.13.2 (a coordinate-scaling bug in the drop routing). Drops land correctly again — and still go only to the terminal under your cursor.
+- **Setup is much harder to break** - Installs and connections now use the same PATH the checklist verifies with (fixes "Node is installed but npm not found" for nvm/volta/fnm users), a missing tool gets an instant plain-English message instead of a dead terminal, one stuck program can no longer freeze the whole setup check, and "finished but didn't actually install" (like an offline Homebrew install) is detected and explained instead of silently ignored.
+- **Auth flows stop crying wolf** - After you sign in to GitHub or Claude, the wizard now gives the login a few seconds to register before declaring it failed.
+- **Error messages tell you what actually happened** - Errors across the app now show the real underlying failure (with the command and its output) instead of generic "Something went wrong" text. Error notifications stay on screen until you dismiss them and have a Copy button, so you can paste the full error into Slack instead of screenshotting it. Failed command-palette actions now say so — they used to fail silently.
+
+## What's New in v0.13.3
+
+- **Fixed frozen setup and connect terminals** - A v0.13.2 regression froze onboarding, install, and connect terminals after their first moments of output — GitHub/Vercel/agent connections stuck at "Starting…" and installs freezing mid-way (like at the password prompt). They now stream output correctly again. If you got stuck setting up on v0.13.2, update and try again.
+
+## What's New in v0.13.2
+
+- **Terminals no longer get stuck at "Starting…"** - Fixed the root cause: the terminal's first output could be lost in a startup race, making agents look dead (Windows especially, occasionally macOS). Onboarding terminals also auto-retry a wedged start and show a real error instead of hanging forever. Thanks to Sam Cotterill for the community fix.
+- **Windows: paste works properly** - Ctrl+V pastes instantly (it could take 30 seconds or never land), and you can now paste a screenshot straight into the agent terminal — it's saved and handed to your agent as a file.
+- **Dropping a file lands in one terminal, not all of them** - Dragging a file or image into a terminal no longer types its path into every open agent across all your projects.
+- **Windows: full-page screenshots fixed** - Full-page capture silently produced only the visible area; it now works, and if capture ever falls back you'll see a notice instead of nothing.
+- **Visual editor dropdowns stay open** - On newer macOS versions, dropdowns in the edit panel could close the instant you opened them.
+- **Plugins fail loudly, not silently** - Clicking a plugin that errors now shows the real message, a crashing plugin is disabled for the session instead of being uninstalled from disk, plugin counts are accurate, and the Install button no longer loops after a plugin renames itself.
+- **Setup installs show the real error** - Failed installs surface the actual terminal output (not "Command failed. Click to try again"), and Windows now finds Node installed via nvm-windows, fnm, or Volta.
+- **Blank preview explains itself** - If your site doesn't render in the preview (for example Clerk development keys causing a redirect loop), you now get an explanation and a suggested fix instead of an empty pane.
+- **No more infinite spinner or black window at launch** - Every startup step now times out with a retry option, and if the app can't boot at all you get an actionable screen instead of a black void. Also restored bundle compatibility with macOS 12.
+- **Claude sign-in fixes** - An expired login no longer blocks signing back in, and failed sign-ins show what actually went wrong.
+- **Windows compatibility pass** - File tree and assets panel no longer collapse, shortcut hints show Ctrl instead of ⌘, project names display correctly, and Android SDK detection works.
+- **Clearer errors everywhere** - The last "[object Object]" messages (env editor, project import, project creation) now show real errors.
+
+
+## What's New in v0.13.1
+
+- **Edit code in the app** - The Code tab now has an Edit toggle for live editing (⌘S to save); read-only mode stays for selecting code to send to your agent. Remembered across projects and sessions.
+- **Fixed GitHub import** - Importing a repository no longer fails with a "forbidden path" error — it now clones and imports correctly.
+- **Fixed inline text editing** - Double-clicking to edit copy in the preview now writes to source and persists in vanilla-CSS and Astro projects.
+
+
+## What's New in v0.13.0
+
+- **A rebuilt CSS editor for non-Tailwind projects** - Click any element and see its full cascade as editable cards — like browser devtools, but every change writes straight to your real CSS. Edit every rule that styles the element, in cascade order, with overridden properties shown struck through.
+- **Modern CSS, visually** - Add new selectors, nest rules, and scope styles with @media, @container, @supports, @layer and @scope — all live-previewed and saved to source. Works on vanilla CSS and Astro `<style>` blocks.
+- **Smart Tab-to-fill** - As you build a rule, press Tab to accept the most likely next declaration (flex companions, the text-truncation trio, transition defaults…) — using your own design tokens when you have them.
+- **Variables, animations, and element settings** - Edit your project's CSS custom properties and @keyframes from dedicated panels, and change an element's tag, classes, and attributes from a Settings tab.
+- **Remove a project without deleting your files** - Removing a project takes it off the dashboard but leaves everything on disk, so you can re-import it anytime.
+- **Git uses the right account per workspace** - Push, pull, fetch, and publish now run as the GitHub account linked to each workspace, so projects on different accounts no longer act as the wrong user.
+
+
 ## What's New in v0.12.0
 
 - **Cursor CLI agent** - Cursor joins Claude Code, Codex, and Opencode as a built-in AI agent. Install it during setup, sign in, run `cursor-agent` in your workspace terminal, and set it as your default agent.

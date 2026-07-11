@@ -13,6 +13,7 @@ import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { WarningIcon } from '../icons';
 import { trackEvent, trackError } from '../../lib/analytics';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { installVersion } from '../../lib/updater';
 import { Button } from '../primitives/Button';
 
@@ -24,6 +25,84 @@ interface ChangelogEntry {
 // Changelog data - update this with each release!
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '0.15.0', // v0.15.0
+    items: [
+      'Your agent can now use the preview — ask it to look at your site and it takes screenshots, reads console errors and network requests, clicks buttons, fills forms, switches pages and breakpoints, then fixes what it finds. A green glow and cursor show exactly what the agent is doing. Zero setup: works automatically on every project you open, with Claude Code, Codex, Opencode, and Cursor',
+      'Agent-led onboarding — setting up a new machine? Pick your coding agent and it installs everything else for you (Homebrew, Node, Git, GitHub, your hosting CLI) while Ship Studio independently verifies each step. The classic wizard stays one click away at all times',
+      'Choose your hosting provider during setup — Vercel or Cloudflare, or skip and decide later',
+      'Set an exact preview size — click the dimensions readout in the preview toolbar to type a width and height; wider-than-the-pane sizes render at true width and scale to fit (also in Cmd+K as "Set exact preview size")',
+      'Screenshots follow the preview viewport, so checking your site at mobile width captures real mobile rendering',
+      'The preview toolbar collapses to icon buttons when the pane gets narrow',
+      'Fixed: screenshots could fail forever if macOS evicted the headless browser from its cache — they now self-heal — and a Playwright/Node 24 incompatibility that hung the browser install',
+    ],
+  },
+  {
+    version: '0.14.0', // v0.14.0
+    items: [
+      'Push and Pull, the way git means it — the header button always says Push now, and a new Pull button beside the branch name grabs the latest from GitHub in one click. Merge conflicts open the visual resolver, with a Send to Agent button that hands the whole merge to your agent. A pull can never overwrite unsaved work',
+      'The visual CSS editor works on Next.js projects with plain CSS — point-and-click editing of your global stylesheets, with CSS Modules detected and explained rather than mis-edited',
+      'New "Next.js (Vanilla)" starter built for the visual editor; the existing starter is now "Next.js (Tailwind)"',
+      'Style unstyled elements — selecting an element with no class used to dead-end; both editors now offer Add class, which writes a real class attribute into your source (and refuses with a precise reason instead of guessing when ambiguous)',
+      'Arrow keys step values in the editor — ↑/↓ nudges any value field, Shift jumps ×10, Alt fine-steps; matches drag-to-scrub in both editors',
+      'Editor preset dropdowns match the app theme instead of using the macOS system popup',
+      "Windows: terminals no longer stall at 'Starting…' — the backend now answers ConPTY's startup cursor query whenever no terminal view is attached. Community fix by Vasanth!",
+      'Agent Connect runs real sign-in flows (claude auth login / codex login) instead of stranding you in the chat prompt',
+      'Preview reliability — Next.js hot-reload no longer goes stale until you re-enter the project, and a dev server killed by an agent is reported honestly with a working Restart',
+      'Import can no longer crash the app — repositories with symlink loops or unusual layouts fail gracefully with a specific message',
+      'The macOS screen-recording prompt (for project thumbnails) explains itself first and respects a "no" instead of re-asking forever',
+    ],
+  },
+  {
+    version: '0.13.4', // v0.13.4
+    items: [
+      'Fixed dragging files/screenshots into terminals on Retina Macs — drops were silently ignored since v0.13.2; they land correctly again, still only in the terminal under your cursor',
+      'Setup hardening — installs use the same PATH the checklist verifies with (fixes "npm not found" for nvm/volta/fnm users), missing tools get an instant plain-English message, one stuck program can no longer freeze the setup check, and "finished but didn\'t actually install" is detected and explained',
+      'GitHub/Claude sign-in gets a few seconds to register before the wizard declares it failed',
+      'Errors across the app show the real failure (command + output) instead of generic text; error notifications persist until dismissed and have a Copy button; command-palette failures are no longer silent',
+    ],
+  },
+  {
+    version: '0.13.3', // v0.13.3
+    items: [
+      'Fixed frozen setup and connect terminals — a v0.13.2 regression froze onboarding, install, and connect terminals after their first moments of output (GitHub/Vercel/agent connections stuck at "Starting…", installs freezing mid-way). They stream correctly again',
+    ],
+  },
+  {
+    version: '0.13.2', // v0.13.2
+    items: [
+      'Terminals no longer get stuck at "Starting…" — fixed the startup race that made agents look dead (Windows especially), and onboarding terminals now auto-retry and show a real error instead of hanging',
+      "Windows: Ctrl+V pastes instantly (it could take 30 seconds or never land), and you can paste a screenshot straight into the agent terminal — it's saved and handed to your agent as a file",
+      'Dropping a file into a terminal lands in that terminal only — no longer typed into every open agent across all your projects',
+      "Windows: full-page screenshots fixed — capture silently produced only the visible area; if it ever falls back now, you'll see a notice",
+      'Visual editor dropdowns stay open — on newer macOS versions they could close the instant you opened them',
+      'Plugins fail loudly, not silently — real error messages on click, a crashing plugin is disabled for the session instead of uninstalled from disk, accurate counts, and no more Install-button loop',
+      "Setup installs show the real error instead of 'Command failed. Click to try again', and Windows finds Node installed via nvm-windows, fnm, or Volta",
+      "Blank preview explains itself — if your site can't render in the preview (e.g. Clerk development keys causing a redirect loop), you get an explanation and a suggested fix instead of an empty pane",
+      'No more infinite spinner or black window at launch — startup steps time out with a retry, and a fallback screen appears if the app cannot boot; also restored bundle compatibility with macOS 12',
+      'Claude sign-in fixes — an expired login no longer blocks signing back in, and failed sign-ins show what actually went wrong',
+      'Windows compatibility pass — file tree and assets panel no longer collapse, shortcut hints show Ctrl instead of ⌘, and project names display correctly',
+    ],
+  },
+  {
+    version: '0.13.1', // v0.13.1
+    items: [
+      'Edit code right in the app — the Code tab now has an Edit toggle that turns it into a live editor: type and save with ⌘S, while read-only mode stays for selecting code and sending it to your agent. The toggle is remembered across projects and sessions',
+      "Fixed importing GitHub repositories — picking a repo no longer fails with a 'forbidden path' error; it now clones and imports correctly",
+      'Fixed inline text editing in vanilla-CSS and Astro projects — double-clicking to edit copy in the preview now writes to your source and the change persists',
+    ],
+  },
+  {
+    version: '0.13.0', // v0.13.0
+    items: [
+      'A rebuilt CSS editor for non-Tailwind projects — click any element and see its full cascade as editable cards, like browser devtools, but every change writes straight to your real CSS in cascade order, with overridden properties struck through',
+      'Modern CSS, visually — add selectors, nest rules, and scope styles with @media, @container, @supports, @layer and @scope, all live-previewed and saved to source (vanilla CSS and Astro <style> blocks)',
+      'Smart Tab-to-fill — press Tab to accept the most likely next declaration as you build a rule, using your own design tokens when you have them',
+      "Variables, animations, and element settings — edit CSS custom properties and @keyframes from dedicated panels, and change an element's tag, classes, and attributes from a Settings tab",
+      'Remove a project without deleting your files — removing a project takes it off the dashboard but leaves everything on disk, so you can re-import it anytime',
+      'Git uses the right account per workspace — push, pull, fetch, and publish now run as the GitHub account linked to each workspace',
+    ],
+  },
   {
     version: '0.12.0', // v0.12.0
     items: [
@@ -618,7 +697,7 @@ export function Changelog({ className = '' }: ChangelogProps) {
     } catch (err: unknown) {
       trackError('version_rewind', err, 'Dashboard');
       setRewindStage('error');
-      setRewindError(err instanceof Error ? err.message : String(err));
+      setRewindError(formatCommandError(asCommandError(err)));
     }
   }, [rewindVersion]);
 

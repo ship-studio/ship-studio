@@ -2,29 +2,16 @@
 
 use crate::cache::GIT_CACHE;
 use crate::errors::CommandError;
-use crate::external_command::run_with_timeout;
 use crate::types::{BranchInfo, SwitchResult};
 use crate::utils::{create_command, validate_project_path};
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
 
-/// Timeout for git network operations (fetch, push). Matches git/sync.rs.
-const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
-
-/// Run a network-facing git command with a timeout.
-async fn run_git_net(
-    args: &[&str],
-    cwd: &Path,
-    label: &str,
-) -> Result<std::process::Output, CommandError> {
-    let mut cmd = create_command("git");
-    cmd.args(args).current_dir(cwd);
-    let tokio_cmd = tokio::process::Command::from(cmd);
-    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
-}
+// Network git ops (fetch, push --delete) go through the workspace-scoped helper
+// in the parent module so they authenticate as the project's workspace login.
+use super::run_git_net;
 
 /// Tracks the last time `git fetch` was run per project path.
 /// Prevents redundant network I/O when the frontend polls `list_branches` frequently.

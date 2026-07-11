@@ -1,3 +1,8 @@
+:root {
+  /* Readable line-length cap for overlay body copy (blank-iframe watchdog). */
+  --preview-error-copy-max-width: 460px;
+}
+
 /* Preview. Uses grid rather than column-flex because ancestor heights
    in the chain above .preview-pane are indefinite at layout time —
    percentage flex-basis on the logs panel was resolving to auto
@@ -23,6 +28,19 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  /* The PANE's width (not the window's) decides toolbar density — same
+     container-query pattern as split-pane's terminal-pane. Safe here:
+     width comes from the flex parent, never from content. */
+  container-type: inline-size;
+  container-name: preview-pane;
+}
+
+/* Narrow pane: Edit / Inspect / Open drop their text and become icon
+   buttons. The little toggle switches stay — they carry the on/off state. */
+@container preview-pane (max-width: 800px) {
+  .preview-toolbar-btn-label {
+    display: none;
+  }
 }
 
 /* When inspect is open, insert a handle-sized row for the resize handle
@@ -271,11 +289,20 @@
     color var(--transition);
 }
 
-.preview-refresh:hover,
-.preview-fullscreen-btn:hover,
-.preview-tree-btn:hover {
+.preview-refresh:hover:not(:disabled),
+.preview-fullscreen-btn:hover:not(:disabled),
+.preview-tree-btn:hover:not(:disabled) {
   background: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+/* Disabled (e.g. undo/redo with nothing to restore, or no git repo) — grayed
+   and non-interactive, matching the docked toolbar's icon buttons. */
+.preview-refresh:disabled,
+.preview-fullscreen-btn:disabled,
+.preview-tree-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .preview-tree-btn.active {
@@ -395,59 +422,6 @@
   color: var(--accent);
 }
 
-.preview-dimensions {
-  margin-left: auto;
-  padding: 2px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  user-select: none;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.preview-dimensions:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  border-color: var(--border);
-  color: var(--text-primary);
-}
-
-.preview-dimensions:active:not(:disabled) {
-  background: var(--border);
-}
-
-.preview-dimensions:disabled {
-  cursor: default;
-}
-
-.preview-breakpoints {
-  display: flex;
-  align-self: stretch;
-  align-items: stretch;
-  gap: 0;
-  /* Cancel the parent .preview-toolbar's 9px top/bottom padding so the
-     tabs span the full toolbar height — lets the active underline sit
-     flush with the toolbar's bottom border. */
-  margin-top: -9px;
-  margin-bottom: -9px;
-  margin-left: auto;
-  margin-right: 0;
-}
-
-/* When the dimensions readout precedes the breakpoints, it owns the
-   auto-margin push so the two sit together on the right edge. */
-.preview-dimensions + .preview-breakpoints {
-  margin-left: var(--spacing-xs);
-}
-
 .breakpoint-btn {
   position: relative;
   padding: 0 var(--spacing-md);
@@ -548,6 +522,47 @@
   z-index: var(--z-dropdown);
   color: var(--text-muted);
   font-size: var(--font-size-lg);
+}
+
+/* Blank-iframe watchdog overlay — the dev server is healthy but the page never
+   proved it rendered inside the embedded iframe (GitHub issue 179: e.g. an auth
+   redirect loop aborts the subframe load and WebKit renders it empty). */
+.preview-iframe-error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  z-index: var(--z-dropdown);
+  padding: var(--spacing-xl);
+  text-align: center;
+}
+
+.preview-iframe-error-overlay h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.preview-iframe-error-overlay p {
+  margin: 0;
+  max-width: var(--preview-error-copy-max-width);
+  color: var(--text-muted);
+  font-size: var(--font-size-md);
+  line-height: 1.6;
+}
+
+.preview-iframe-error-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
 }
 
 /* Preview Viewport */

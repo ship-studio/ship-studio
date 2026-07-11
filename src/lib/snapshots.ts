@@ -15,6 +15,9 @@ export interface SnapshotStatus {
   watching: boolean;
   can_undo: boolean;
   can_redo: boolean;
+  /** Whether the project is a git repo — snapshots use `git stash`, so undo/redo
+   *  only work in one. Used to explain a disabled undo/redo button. */
+  is_git_repo: boolean;
   history_size: number;
   cursor: number;
   /** Files changed between the prior cursor and the new one (empty for `getStatus`). */

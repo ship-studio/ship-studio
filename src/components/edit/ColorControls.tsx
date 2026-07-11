@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import {
   arbitraryColorRaw,
   colorClassToken,
@@ -98,20 +99,14 @@ export function ColorField({
     };
   }, [open, reposition]);
 
+  useDismissOnOutsidePointer(open, popRef, () => setOpen(false), {
+    isOutside: (t) => !triggerRef.current?.contains(t) && !popRef.current?.contains(t),
+  });
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t) || popRef.current?.contains(t)) return;
-      setOpen(false);
-    };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
   const handlePick = useCallback(

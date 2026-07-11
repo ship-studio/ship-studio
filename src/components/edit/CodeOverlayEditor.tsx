@@ -16,16 +16,11 @@ import { useEffect, useRef } from 'react';
 import { EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import {
-  syntaxHighlighting,
-  HighlightStyle,
-  indentUnit,
-  bracketMatching,
-} from '@codemirror/language';
+import { indentUnit, bracketMatching } from '@codemirror/language';
 import { css } from '@codemirror/lang-css';
 import { html } from '@codemirror/lang-html';
-import { tags as t } from '@lezer/highlight';
 import type { HighlightLang } from '../../lib/highlight';
+import { ghDarkExtension, ssEditorTheme } from '../../lib/codemirror';
 
 interface Props {
   value: string;
@@ -34,77 +29,6 @@ interface Props {
   className?: string;
   placeholder?: string;
 }
-
-/* github-dark token colors (same palette the Code tab's Shiki theme uses). */
-const ghDark = HighlightStyle.define([
-  { tag: [t.keyword, t.modifier, t.operatorKeyword], color: '#ff7b72' },
-  { tag: [t.propertyName], color: '#79c0ff' },
-  { tag: [t.variableName], color: '#ffa657' },
-  { tag: [t.function(t.variableName), t.labelName], color: '#d2a8ff' },
-  {
-    tag: [t.number, t.bool, t.atom, t.color, t.constant(t.name), t.standard(t.name)],
-    color: '#79c0ff',
-  },
-  {
-    tag: [t.typeName, t.className, t.namespace, t.changed, t.annotation, t.self],
-    color: '#79c0ff',
-  },
-  { tag: [t.string, t.special(t.string)], color: '#a5d6ff' },
-  { tag: [t.comment, t.meta], color: '#8b949e', fontStyle: 'italic' },
-  { tag: [t.tagName], color: '#7ee787' },
-  { tag: [t.attributeName], color: '#79c0ff' },
-  { tag: [t.invalid], color: '#f85149' },
-]);
-
-/* Editor chrome, themed with our tokens so it matches the panel surface. */
-const ssTheme = EditorView.theme(
-  {
-    '&': {
-      height: '100%',
-      color: 'var(--text-primary)',
-      backgroundColor: 'var(--bg-tertiary)',
-      fontSize: 'var(--font-size-xs)',
-    },
-    '&.cm-focused': { outline: 'none' },
-    '.cm-scroller': {
-      fontFamily: 'var(--font-mono, monospace)',
-      lineHeight: '1.6',
-      overflow: 'auto',
-      // Custom, theme-matched scrollbars (never the device's white default).
-      scrollbarWidth: 'thin',
-      scrollbarColor: 'var(--border) transparent',
-      // Promote to its own compositing layer so the native caret has a clean
-      // backing store and paints inside the panel's fixed, rounded, clipped box
-      // (without this, WebKit drops the caret entirely — see .cm-content).
-      transform: 'translateZ(0)',
-    },
-    '.cm-scroller::-webkit-scrollbar': { width: '10px', height: '10px' },
-    '.cm-scroller::-webkit-scrollbar-track': { background: 'transparent' },
-    '.cm-scroller::-webkit-scrollbar-thumb': {
-      background: 'var(--border)',
-      borderRadius: '999px',
-      border: '2px solid var(--bg-tertiary)',
-    },
-    '.cm-scroller::-webkit-scrollbar-thumb:hover': { background: 'var(--text-muted)' },
-    '.cm-scroller::-webkit-scrollbar-corner': { background: 'transparent' },
-    // Native caret, tinted bright. It renders invisibly inside the panel's
-    // rounded `overflow:hidden` compositing layer (a known WebKit bug) unless the
-    // editor is promoted to its own backing layer — see `.cm-scroller` above.
-    '.cm-content': {
-      padding: 'var(--spacing-sm) 0',
-      caretColor: 'var(--text-bright, #fff)',
-    },
-    '.cm-line': { padding: '0 var(--spacing-sm)' },
-    '.cm-cursor, .cm-cursor-primary': {
-      borderLeftColor: 'var(--text-bright, #fff)',
-      borderLeftWidth: '2px',
-    },
-    '.cm-selectionBackground, ::selection': { backgroundColor: 'var(--tint)' },
-    '&.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--tint-strong)' },
-    '.cm-activeLine': { backgroundColor: 'transparent' },
-  },
-  { dark: true }
-);
 
 export function CodeOverlayEditor({ value, onChange, lang, className, placeholder }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -126,8 +50,8 @@ export function CodeOverlayEditor({ value, onChange, lang, className, placeholde
         EditorState.tabSize.of(2),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         lang === 'css' ? css() : html(),
-        syntaxHighlighting(ghDark),
-        ssTheme,
+        ghDarkExtension,
+        ssEditorTheme,
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChangeRef.current(u.state.doc.toString());
         }),

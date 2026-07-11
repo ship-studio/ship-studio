@@ -9,6 +9,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 /** Props for the NewFolderModal component */
 interface NewFolderModalProps {
@@ -66,7 +67,7 @@ export function NewFolderModal({
       await onCreate(trimmedName);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
     } finally {
       setLoading(false);
     }

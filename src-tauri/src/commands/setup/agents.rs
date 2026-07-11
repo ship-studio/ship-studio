@@ -54,6 +54,44 @@ pub fn agent_command_auth_status(agent: &crate::agent::AgentConfig) -> Option<bo
     Some(combined.contains(needle))
 }
 
+/// Async variant of [`agent_command_auth_status`] with a per-call timeout, for
+/// status probes that must never hang (e.g. the onboarding wizard's
+/// `get_full_setup_status`). On timeout or spawn failure it logs a warning and
+/// returns `None`, letting the caller fall back to file-based auth indicators —
+/// mirroring the sync variant's behavior on spawn failure.
+pub async fn agent_command_auth_status_with_timeout(
+    agent: &crate::agent::AgentConfig,
+    timeout_secs: u64,
+) -> Option<bool> {
+    let args = agent.auth_status_args?;
+    let needle = agent.auth_status_ready_substr?;
+    let binary = find_binary_by_name(agent.binary_name)?;
+    let mut std_cmd = create_command(&binary);
+    std_cmd.args(args);
+    let mut cmd = tokio::process::Command::from(std_cmd);
+    // If the probe times out, kill the child instead of leaving it wedged.
+    cmd.kill_on_drop(true);
+    let label = format!("{} {}", agent.binary_name, args.join(" "));
+    match crate::external_command::run_with_timeout(cmd, label.clone(), timeout_secs).await {
+        Ok(output) => {
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            Some(combined.contains(needle))
+        }
+        Err(err) => {
+            tracing::warn!(
+                cmd = %label,
+                error = %err,
+                "agent auth status probe failed; falling back to file indicators"
+            );
+            None
+        }
+    }
+}
+
 /// Return the status of every known agent in a single call.
 /// Avoids the N round-trips the dashboard would otherwise need.
 #[tauri::command]

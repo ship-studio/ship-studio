@@ -1,0 +1,58 @@
+<script id="ss-scroll-restore">
+(function () {
+  try {
+    if (window.__ssScroll) return;
+    window.__ssScroll = 1;
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    var KEY = 'ssScroll:' + location.pathname;
+    var de = document.documentElement;
+    var save = function () {
+      try {
+        sessionStorage.setItem(KEY, String(window.scrollY || window.pageYOffset || 0));
+      } catch (e) {}
+    };
+    window.addEventListener('scroll', save, { passive: true });
+    window.addEventListener('pagehide', save);
+    window.addEventListener('beforeunload', save);
+
+    var saved = sessionStorage.getItem(KEY);
+    if (saved == null) return;
+    var target = parseFloat(saved) || 0;
+    if (target <= 0) return;
+
+    // Hold the first paint until the saved position is restored — restoring
+    // *after* paint makes the page visibly jump top -> back. But hold it as
+    // briefly as possible: reveal the moment the document is tall enough to
+    // scroll to the target (usually a few frames into parsing) instead of
+    // waiting for DOMContentLoaded, which module-loading dev servers can delay
+    // by seconds. A hard cap bounds the blank hold no matter what.
+    de.style.visibility = 'hidden';
+    var done = false;
+    var reveal = function () {
+      if (done) return;
+      done = true;
+      window.scrollTo(0, target);
+      de.style.visibility = '';
+    };
+    var poll = function () {
+      if (done) return;
+      if (de.scrollHeight - window.innerHeight >= target) {
+        reveal();
+        return;
+      }
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
+    document.addEventListener('DOMContentLoaded', function () {
+      window.scrollTo(0, target);
+      requestAnimationFrame(reveal);
+    });
+    window.addEventListener('load', reveal);
+    setTimeout(reveal, 400);
+  } catch (e) {
+    try {
+      document.documentElement.style.visibility = '';
+    } catch (_) {}
+  }
+})();
+</script>

@@ -44,6 +44,62 @@ fn validate_clone_url(url: &str) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// Normalize a git remote URL to a comparable `host/path` form: trims
+/// whitespace/trailing slashes/a trailing `.git`, drops the scheme and any
+/// `user@` in the authority, folds scp-style `git@host:owner/repo` into
+/// `host/owner/repo`, and lower-cases the host (paths stay case-sensitive).
+///
+/// Mirrors `normalizeRepoUrl` in `src/lib/pluginRepoUrl.ts` — keep in sync.
+fn normalize_repo_url(url: &str) -> String {
+    let mut u = url.trim().to_string();
+
+    // scp-style: git@host:owner/repo (no slash before the colon)
+    if let Some(rest) = u.strip_prefix("git@") {
+        if let Some((host, path)) = rest.split_once(':') {
+            if !host.contains('/') && !host.is_empty() {
+                u = format!("{host}/{path}");
+            }
+        }
+    }
+
+    // Drop scheme://
+    if let Some(idx) = u.find("://") {
+        let scheme_ok = !u[..idx].is_empty()
+            && u[..idx]
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'));
+        if scheme_ok {
+            u = u[idx + 3..].to_string();
+        }
+    }
+
+    // Drop user@ in the authority (never past the first '/')
+    if let Some(at) = u.find('@') {
+        let slash = u.find('/').unwrap_or(u.len());
+        if at < slash {
+            u = u[at + 1..].to_string();
+        }
+    }
+
+    let mut u = u.trim_end_matches('/').to_string();
+    if u.to_ascii_lowercase().ends_with(".git") {
+        u.truncate(u.len() - 4);
+    }
+    let u = u.trim_end_matches('/');
+
+    match u.find('/') {
+        Some(slash) => format!("{}{}", u[..slash].to_ascii_lowercase(), &u[slash..]),
+        None => u.to_ascii_lowercase(),
+    }
+}
+
+/// True when two repo URLs identify the same repository after normalization.
+/// Empty URLs never match (dev plugins have no source URL).
+fn repo_urls_match(a: &str, b: &str) -> bool {
+    let na = normalize_repo_url(a);
+    !na.is_empty() && na == normalize_repo_url(b)
+}
+
 /// List all installed plugins for a project
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
@@ -181,8 +237,26 @@ pub async fn install_plugin(
     // Update registry
     let mut registry = read_registry(&project_path)?;
 
-    // Remove old entry if exists
-    registry.plugins.retain(|e| e.plugin_id != manifest.id);
+    // Remove the old entry if it exists — matched by manifest id, and also by
+    // source URL so a plugin whose manifest id changed upstream (slug rename)
+    // replaces the old install instead of duplicating it. Stale directories
+    // left by a renamed id are cleaned up best-effort.
+    let mut stale_dirs: Vec<PathBuf> = Vec::new();
+    registry.plugins.retain(|e| {
+        let same_id = e.plugin_id == manifest.id;
+        let same_source = !e.is_dev && repo_urls_match(&e.source_url, &repo_url);
+        if same_source && !same_id && validate_plugin_id(&e.plugin_id).is_ok() {
+            stale_dirs.push(plugins_dir.join(&e.plugin_id));
+        }
+        !same_id && !same_source
+    });
+    for dir in stale_dirs {
+        if dir.exists() {
+            if let Err(e) = fs::remove_dir_all(&dir) {
+                tracing::warn!("Failed to remove stale plugin dir {}: {e}", dir.display());
+            }
+        }
+    }
 
     let entry = RegistryEntry {
         plugin_id: manifest.id.clone(),
@@ -422,7 +496,7 @@ pub fn toggle_plugin(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_clone_url;
+    use super::{normalize_repo_url, repo_urls_match, validate_clone_url};
 
     #[test]
     fn accepts_normal_remotes() {
@@ -443,6 +517,55 @@ mod tests {
         assert!(validate_clone_url("ext::sh -c 'touch /tmp/pwned'").is_err());
         assert!(validate_clone_url("file:///etc/passwd").is_err());
         assert!(validate_clone_url("/some/local/path").is_err());
+    }
+
+    #[test]
+    fn normalizes_repo_url_variants() {
+        assert_eq!(
+            normalize_repo_url("https://github.com/owner/repo.git"),
+            "github.com/owner/repo"
+        );
+        assert_eq!(
+            normalize_repo_url("https://github.com/owner/repo/"),
+            "github.com/owner/repo"
+        );
+        assert_eq!(
+            normalize_repo_url("git@github.com:owner/repo.git"),
+            "github.com/owner/repo"
+        );
+        assert_eq!(
+            normalize_repo_url("ssh://git@github.com/owner/repo.git"),
+            "github.com/owner/repo"
+        );
+        // Host is case-insensitive, path is not
+        assert_eq!(
+            normalize_repo_url("https://GitHub.COM/Owner/Repo"),
+            "github.com/Owner/Repo"
+        );
+        // An @ in the path is not a user
+        assert_eq!(
+            normalize_repo_url("https://github.com/owner/repo@v2"),
+            "github.com/owner/repo@v2"
+        );
+    }
+
+    #[test]
+    fn matches_equivalent_repo_urls() {
+        assert!(repo_urls_match(
+            "https://github.com/ship-studio/plugin-figma",
+            "git@github.com:ship-studio/plugin-figma.git"
+        ));
+        assert!(repo_urls_match(
+            "https://github.com/ship-studio/plugin-figma/",
+            "HTTPS://GITHUB.com/ship-studio/plugin-figma.git"
+        ));
+        assert!(!repo_urls_match(
+            "https://github.com/ship-studio/plugin-figma",
+            "https://github.com/ship-studio/plugin-vercel"
+        ));
+        // Dev plugins have empty source URLs — never match
+        assert!(!repo_urls_match("", ""));
+        assert!(!repo_urls_match("", "https://github.com/a/b"));
     }
 
     #[test]

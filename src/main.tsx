@@ -136,6 +136,11 @@ const OS_SKIP_SELECTOR = [
   // viewport gets caught by the `> *` rule) and makes the list unscrollable
   // when several projects are open.
   '.workspace-sidebar-scroll',
+  // CodeMirror owns its own scrolling. Its `.cm-scroller` is overflow:auto, so
+  // OverlayScrollbars would otherwise grab it and relocate the gutter/content
+  // out of CodeMirror's flex row — the line-number gutter collapses to full
+  // width and the code stacks below it (Code tab editor, visual editor).
+  '.cm-editor',
 ].join(', ');
 
 function initScrollbars() {

@@ -82,17 +82,22 @@ Fired from `useIntegrationStatus` once GitHub auth resolves with a username.
 
 | Event | Properties |
 |---|---|
-| `screenshot_captured` | `mode` (`viewport`/`fullpage`), `success`, `fell_back` |
+| `screenshot_captured` | `mode` (`viewport`/`fullpage`), `success`, `fell_back`, `fallback_success` (fullpage only, present when `fell_back` — whether the viewport fallback produced a file) |
+| `thumbnail_consent_answered` | `allowed` — the user's answer to the first-run "Preview thumbnails" explainer shown before the first automatic thumbnail capture (#160) |
 | `preview_refreshed` | `trigger: 'user'` |
 | `preview_page_selected` | `route_pattern` (id segments → `:id`, capped 200), `depth` |
-| `preview_fix_with_agent` | `has_logs`, `is_static` |
+| `preview_fix_with_agent` | `has_logs`, `is_static`, `reason` (`server-down`/`blank-iframe`), `process_gone` (dev-server process known-dead) |
 | `logs_sent_to_agent` | `source` (`full_buffer`/`selection`), `char_count`, `line_count`, `had_question` |
 | `browser_tools_subtab_switched` | `from_tab`, `to_tab` |
 | `browser_tools_cleared` | `tab` |
 | `browser_tools_dom_refreshed` | — |
 | `browser_tools_sent_to_agent` | `tab`, `entry_count` (null for elements), `had_data`, `char_count` |
+| `agent_bridge_tool_used` | `tool` (preview_console/network/dom/navigate/reload/screenshot), `is_error` — the workspace agent called a preview MCP tool via the agent bridge |
+| `preview_size_popover_opened` | — (dimensions readout clicked open) |
+| `preview_size_applied` | `width`, `has_height` (exact preview size set from the dimensions popover) |
 | `terminal_tab_restarted` | — (relaunched an exited agent tab with a fresh session; fired from the in-terminal Enter prompt, toolbar, or palette) |
 | `code_file_opened` | `file_extension` |
+| `code_file_saved` | `file_extension` (a file edited in-app and written to disk via the Code tab editor) |
 | `code_tree_refreshed` | — |
 | `code_snippet_sent_to_agent` | `file_extension`, `language`, `line_count`, `char_count`, `had_question` |
 | `code_snippet_copied` | `file_extension`, `line_count` |
@@ -124,6 +129,7 @@ property), `bulk` (count, from the Code view's save), or `created_rule`.
 | `branch_switched` | — |
 | `branch_deleted` | — |
 | `branch_published` | `is_main`, `branch`, `time_since_last_publish_seconds` |
+| `git_pulled` | `result` (`pulled` / `up_to_date` / `merge_conflict`) |
 | `pr_created` | `base_branch`, `used_ai`, `title_length`, `description_length` |
 | `pr_merged` | `head_ref`, `base_ref` |
 | `pr_closed` | — |
@@ -159,6 +165,7 @@ To get an aggregate "any modal opened" count in PostHog, use a regex match on ev
 |---|---|
 | `calendar_visibility_toggled` | `visible` |
 | `terminal_gpu_toggled` | `enabled` |
+| `thumbnails_toggled` | `enabled` (the "Project thumbnails" auto-capture toggle) |
 | `projects_root_changed` | `is_custom` (false when reset to the default `~/ShipStudio`) |
 | `projects_moved` | `moved_count`, `skipped_count` (after moving projects into a newly-chosen folder) |
 
@@ -177,14 +184,20 @@ To get an aggregate "any modal opened" count in PostHog, use a regex match on ev
 
 | Event | Properties |
 |---|---|
-| `setup_started` | `entry_path` (`wizard`/`fast_path`), `entry_step` |
+| `setup_started` | `entry_path` (`wizard`/`fast_path`/`agent_led`), `entry_step` |
 | `setup_step_entered` | `step_id`, `step_index` |
 | `setup_step_completed` | `step_id`, `step_index`, `duration_ms`, `is_final` |
 | `setup_step_skipped` | `step_id`, `step_index`, `reason: 'already_complete'` |
 | `setup_step_navigated_back` | `from_step`, `to_step` |
-| `setup_action_clicked` | `item_id`, `action` (`install`/`connect`), `step_id` |
-| `onboarding_completed` | `agents`, `entry_path` |
+| `setup_action_clicked` | `item_id`, `action` (`install`/`connect`), `step_id` (wizard step, or `agent_led_pick`) |
+| `setup_action_failed` | `item_id`, `exit_code`, `error_excerpt` (extracted from terminal output, capped 200) |
+| `onboarding_completed` | `agents`, `entry_path` (`wizard`/`fast_path`/`agent_led`/`agent_led_fast_path`) |
 | `default_agent_selected` | `agent_id`, `agent_count` |
+| `onboarding_mode_switched` | `to` (`classic`/`agent`) — the escape-hatch health metric: a spike in `to: classic` means agent-led onboarding is failing people |
+| `agent_card_selected` | `key` (`claude`/`codex`/`cursor`/`opencode`/`other`), `already_ready` |
+| `onboarding_host_selected` | `host` (`vercel`/`cloudflare`/`skipped`) — becomes the workspace default host |
+| `agent_guided_setup_started` | `agent_id` (`other` for bring-your-own), `missing_items`, `host`, `demo` (true under mock mode) |
+| `agent_guided_setup_restarted` | `agent_id` — the agent session ended before setup finished and the user relaunched it |
 
 ### Errors & misc
 

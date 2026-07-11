@@ -9,6 +9,9 @@ import { useState, useRef, useCallback, useEffect, type RefObject } from 'react'
 import type { PreviewHandle } from '../components/preview/Preview';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
+import { trackEvent } from '../lib/analytics';
+import { getThumbnailsEnabled, setThumbnailsEnabled } from '../lib/settings';
+import { decideAutoCapture, isPermissionDenialError } from '../lib/thumbnailGate';
 
 /** Delay after page load before capturing screenshot (8 seconds to allow Next.js/Vite to fully compile) */
 const SCREENSHOT_DELAY_MS = 8000;
@@ -45,6 +48,17 @@ export function useScreenshotManagement({
   // Refs for periodic capture and session tracking
   const screenshotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const captureSessionIdRef = useRef<number>(0);
+
+  // First-run consent for auto-capture (#160). The macOS "record screen
+  // content" prompt must never appear without context, so the first automatic
+  // capture is deferred behind an in-app explainer. Manual captures (camera
+  // button, crop) are intentionally NOT gated — a user clicking the camera has
+  // clear intent, and that click is an obvious cause for the OS prompt.
+  const [showThumbnailConsent, setShowThumbnailConsent] = useState(false);
+  const pendingConsentCaptureRef = useRef<{ projectPath: string; sessionId: number } | null>(null);
+  // Dismissing the explainer without answering (ESC / overlay click) defers
+  // the question for this session instead of nagging every 5 minutes.
+  const consentDeferredThisSessionRef = useRef(false);
 
   // Capture viewport screenshot and paste path into terminal
   const handleCaptureScreenshot = useCallback(async () => {
@@ -124,6 +138,19 @@ export function useScreenshotManagement({
         });
         return;
       }
+      const decision = decideAutoCapture(await getThumbnailsEnabled());
+      if (decision === 'skip') {
+        logger.info('[Thumbnail] Skipping - thumbnails disabled in Settings');
+        return;
+      }
+      if (decision === 'ask') {
+        if (!consentDeferredThisSessionRef.current) {
+          logger.info('[Thumbnail] Deferring - asking for thumbnail consent first');
+          pendingConsentCaptureRef.current = { projectPath, sessionId };
+          setShowThumbnailConsent(true);
+        }
+        return;
+      }
       try {
         logger.info('[Thumbnail] Capturing now', {
           projectPath,
@@ -137,6 +164,15 @@ export function useScreenshotManagement({
         });
         logger.info('Thumbnail captured successfully', { projectPath, attempt });
       } catch (error) {
+        if (isPermissionDenialError(error)) {
+          // Denied at the OS level. Persist the opt-out so background capture
+          // never re-triggers the macOS prompt; re-enable via Settings →
+          // Project thumbnails (after allowing Ship Studio in System Settings
+          // → Privacy & Security → Screen Recording).
+          logger.error('[Thumbnail] Permission denied - disabling auto-capture', { error });
+          void setThumbnailsEnabled(false);
+          return;
+        }
         if (captureSessionIdRef.current !== sessionId) {
           logger.info('[Thumbnail] Skipping retry - session cancelled');
           return;
@@ -177,6 +213,31 @@ export function useScreenshotManagement({
     },
     [captureScreenshot]
   );
+
+  // User answered the thumbnail explainer. Persist the choice, then run the
+  // deferred capture on "Allow" (its session guards handle project changes).
+  const resolveThumbnailConsent = useCallback(
+    async (allowed: boolean) => {
+      setShowThumbnailConsent(false);
+      const pending = pendingConsentCaptureRef.current;
+      pendingConsentCaptureRef.current = null;
+      // Persist before capturing — captureScreenshot re-reads the consent.
+      await setThumbnailsEnabled(allowed);
+      void trackEvent('thumbnail_consent_answered', { allowed });
+      if (allowed && pending) {
+        void captureScreenshot(pending.projectPath, pending.sessionId);
+      }
+    },
+    [captureScreenshot]
+  );
+
+  // Explainer dismissed without an answer: don't persist anything, just stop
+  // asking until the next launch (auto-capture stays deferred meanwhile).
+  const dismissThumbnailConsent = useCallback(() => {
+    setShowThumbnailConsent(false);
+    pendingConsentCaptureRef.current = null;
+    consentDeferredThisSessionRef.current = true;
+  }, []);
 
   // Start periodic screenshot interval for a project
   const startScreenshotInterval = useCallback(
@@ -252,6 +313,11 @@ export function useScreenshotManagement({
     handleCropComplete,
     handleCropCancel,
     handlePreviewReady,
+
+    // First-run consent for auto-capture (#160)
+    showThumbnailConsent,
+    resolveThumbnailConsent,
+    dismissThumbnailConsent,
 
     // Interval management (for handleSelectProject / handleBackToProjects)
     startScreenshotInterval,

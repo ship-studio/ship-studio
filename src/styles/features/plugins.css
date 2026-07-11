@@ -547,17 +547,56 @@
   cursor: not-allowed;
 }
 
-/* Plugin Error Indicator (shown when a plugin component crashes) */
-.plugin-error-indicator {
+/* Plugin error chip — compact inline stand-in rendered where a crashed
+   or load-failed plugin would have appeared (PluginSlot boundaries and
+   the Plugins dropdown's failed rows). Deliberately quiet: muted warning
+   glyph + plugin name, full error in the title tooltip. */
+.plugin-error-chip {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-full);
-  background: var(--error-light) 20;
-  color: var(--error-light);
+  gap: var(--spacing-xs);
+  padding: 2px var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
   font-size: var(--font-size-xs);
-  font-weight: 700;
+  line-height: 1;
   cursor: help;
+}
+
+.plugin-error-chip svg {
+  flex-shrink: 0;
+  color: var(--warning);
+  opacity: 0.7;
+}
+
+.plugin-error-chip-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+/* Greyed, non-actionable dropdown row for a plugin that failed to load.
+   Still catches clicks so we can explain why it's unavailable. */
+.plugin-dropdown-row--failed {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.plugin-dropdown-row.plugin-dropdown-row--failed:hover {
+  background: transparent;
+}
+
+.plugin-dropdown-row--failed .plugin-dropdown-row-label {
+  color: var(--text-muted);
+}
+
+/* Muted footer line in the Plugins dropdown explaining that installed
+   hosting plugins (Vercel & co) render in the header toolbar instead. */
+.plugins-dropdown-footer {
+  padding: 6px 12px 4px;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  margin-top: var(--spacing-xs);
 }

@@ -1,0 +1,55 @@
+/**
+ * Predictive autofill — the "ghost" next-declaration row in the cascade editor
+ * (Cursor-Tab style): a faint suggested `prop: value` you accept with Tab / click, or
+ * dismiss with Esc. v1 is heuristic (src/lib/cssPredict.ts); a Claude layer can follow.
+ * Tokens only.
+ */
+
+.ss-decl--ghost {
+  align-items: center;
+  opacity: 0.62;
+  font-style: italic;
+}
+.ss-decl--ghost:hover {
+  opacity: 0.95;
+}
+.ss-decl__ghost-accept {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ss-decl__ghost-hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-style: normal;
+}
+.ss-decl__ghost-kbd {
+  flex: 0 0 auto;
+  padding: 0 4px; /* css-ok: kbd chip */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-style: normal;
+}
+.ss-decl__ghost-dismiss {
+  all: unset;
+  cursor: pointer;
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.ss-decl--ghost:hover .ss-decl__ghost-dismiss {
+  opacity: 1;
+}
+.ss-decl__ghost-dismiss:hover {
+  color: var(--text-primary);
+}

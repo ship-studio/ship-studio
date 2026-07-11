@@ -23,6 +23,7 @@ import {
 import { listAgentSkills } from '../../lib/claude';
 import { trackEvent, trackSearch } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useModal } from '../../contexts/ModalContext';
 
 /** Format install count as compact string (e.g., 98500 → "98.5K") */
@@ -158,7 +159,7 @@ export function SkillsModal({
       logger.error('Failed to search skills', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setSearchError(err instanceof Error ? err.message : 'Search failed');
+      setSearchError(formatCommandError(asCommandError(err)));
     } finally {
       setIsSearching(false);
     }
@@ -178,7 +179,7 @@ export function SkillsModal({
       await fetchSkills();
       setActiveTab('installed');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = formatCommandError(asCommandError(err));
       logger.error('Failed to install skill', { error: msg });
       setSearchError(msg);
     } finally {

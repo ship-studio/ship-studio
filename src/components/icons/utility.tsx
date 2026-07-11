@@ -27,6 +27,28 @@ export function PlusIcon({ size = 14 }: IconProps) {
   );
 }
 
+/** Arrow down to a line (lucide arrow-down-to-line) — the git-pull metaphor:
+ *  bring the remote's commits down into your working copy. */
+export function PullIcon({ size = 12, className }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </svg>
+  );
+}
+
 export function BranchIcon({ size = 12 }: IconProps) {
   return (
     <svg

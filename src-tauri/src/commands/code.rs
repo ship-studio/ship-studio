@@ -4,7 +4,7 @@
 //! Provides a read-only file browser that respects .gitignore.
 
 use crate::errors::CommandError;
-use crate::utils::validate_project_path;
+use crate::utils::{normalize_separators, validate_project_path};
 use ignore::WalkBuilder;
 use serde::Serialize;
 use std::path::Path;
@@ -35,7 +35,7 @@ const MAX_ENTRIES: usize = 10_000;
 const MAX_FILE_SIZE: u64 = 500 * 1024;
 
 /// Directories to always skip, even if not in .gitignore.
-const SKIP_DIRS: &[&str] = &[
+pub(crate) const SKIP_DIRS: &[&str] = &[
     ".git",
     "node_modules",
     ".shipstudio",
@@ -94,7 +94,12 @@ pub fn list_project_files(project_path: &str) -> Result<Vec<FileEntry>, CommandE
             Err(_) => continue,
         };
 
-        let relative_str = relative.to_string_lossy().to_string();
+        // Emit forward slashes on every OS. On Windows `to_string_lossy()` yields
+        // backslash separators (`src\App.tsx`), but the frontend's tree builder
+        // and every path consumer split on `/`. Normalizing here keeps one path
+        // shape across platforms; Windows path joins accept `/` on the way back,
+        // so reads/saves still resolve. No-op on macOS/Linux.
+        let relative_str = normalize_separators(&relative.to_string_lossy());
 
         // Skip entries in always-skipped directories
         if should_skip_path(relative) {
@@ -205,6 +210,53 @@ pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileCont
     })
 }
 
+/// Overwrite a single project file with new content.
+///
+/// Used by the Code tab's inline editor. Only edits files that already exist
+/// and live inside the project; refuses path traversal, symlink escapes, and
+/// oversized writes (matching the [`MAX_FILE_SIZE`] read limit). Directories
+/// and brand-new paths are intentionally out of scope — the editor only saves
+/// files it first opened via [`read_project_file`].
+#[tauri::command]
+// skip_all so the file `content` argument is never captured into the span/logs;
+// only the safe path fields are recorded.
+#[tracing::instrument(skip_all, fields(project = %project_path, file = %file_path))]
+pub fn save_project_file(
+    project_path: &str,
+    file_path: &str,
+    content: &str,
+) -> Result<(), CommandError> {
+    let project = validate_project_path(project_path)?;
+
+    // Prevent path traversal
+    if file_path.contains("..") {
+        return Err(("Invalid path: path traversal not allowed".to_string()).into());
+    }
+
+    let full_path = project.join(file_path);
+
+    // Canonicalize the existing file and verify it stays within the project.
+    // The editor only ever saves a file it already opened, so the target must
+    // exist — this also resolves symlinks so we can reject escapes.
+    let canonical = dunce::canonicalize(&full_path).map_err(|e| format!("File not found: {e}"))?;
+    if !canonical.starts_with(&project) {
+        return Err(("Security error: path is outside project directory".to_string()).into());
+    }
+
+    if !canonical.is_file() {
+        return Err(("Path is not a file".to_string()).into());
+    }
+
+    // Keep writes bounded to the same limit the reader enforces.
+    if content.len() as u64 > MAX_FILE_SIZE {
+        return Err(("File is too large to save".to_string()).into());
+    }
+
+    std::fs::write(&canonical, content).map_err(|e| format!("Failed to write file: {e}"))?;
+
+    Ok(())
+}
+
 /// Infer the Shiki language identifier from a file path.
 ///
 /// Checks the filename first for well-known extensionless files (Dockerfile, Makefile, etc.),
@@ -302,6 +354,31 @@ mod tests {
         assert_eq!(infer_language("path/to/Justfile"), "just");
         assert_eq!(infer_language("script.sh"), "bash");
         assert_eq!(infer_language("unknown.xyz"), "plaintext");
+    }
+
+    #[test]
+    fn test_save_project_file_roundtrip() {
+        // The path validator only trusts projects under the configured projects
+        // root (default ~/ShipStudio), so the fixture must live there.
+        let root = crate::utils::projects_root().expect("projects root");
+        let dir = root.join(format!("shipstudio-code-save-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let project = dir.to_string_lossy().to_string();
+        let file = dir.join("note.txt");
+        std::fs::write(&file, "original").unwrap();
+
+        // Happy path: existing file is overwritten.
+        save_project_file(&project, "note.txt", "updated").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "updated");
+
+        // Path traversal is rejected.
+        assert!(save_project_file(&project, "../escape.txt", "x").is_err());
+
+        // Saving a path that doesn't exist yet is rejected (the editor only
+        // edits files it first opened).
+        assert!(save_project_file(&project, "does-not-exist.txt", "x").is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

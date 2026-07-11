@@ -30,23 +30,30 @@ function scrub<T>(value: T): T {
 
 const forceEnabled = import.meta.env.VITE_SENTRY_FORCE === '1';
 
-if (import.meta.env.PROD || forceEnabled) {
-  Sentry.init({
-    dsn: DSN,
-    environment: import.meta.env.PROD ? 'production' : 'development',
-    release: `ship-studio@${__APP_VERSION__}`,
+// Boot-path guard: instrument.ts is the first module main.tsx evaluates, so a
+// throw here means a black window (#173) — crash reporting must never be the
+// thing that crashes the app.
+try {
+  if (import.meta.env.PROD || forceEnabled) {
+    Sentry.init({
+      dsn: DSN,
+      environment: import.meta.env.PROD ? 'production' : 'development',
+      release: `ship-studio@${__APP_VERSION__}`,
 
-    sendDefaultPii: false,
+      sendDefaultPii: false,
 
-    integrations: [Sentry.browserTracingIntegration()],
+      integrations: [Sentry.browserTracingIntegration()],
 
-    tracesSampleRate: 0.1,
+      tracesSampleRate: 0.1,
 
-    beforeSend(event) {
-      return scrub(event);
-    },
-    beforeBreadcrumb(breadcrumb) {
-      return scrub(breadcrumb);
-    },
-  });
+      beforeSend(event) {
+        return scrub(event);
+      },
+      beforeBreadcrumb(breadcrumb) {
+        return scrub(breadcrumb);
+      },
+    });
+  }
+} catch (err) {
+  console.error('[Ship Studio] Sentry init failed', err);
 }

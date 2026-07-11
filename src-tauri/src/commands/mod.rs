@@ -3,10 +3,12 @@
 //! This module re-exports all Tauri command handlers organized by category.
 
 pub mod accounts;
+pub mod agent_bridge;
 pub mod ai;
 pub mod analytics;
 pub mod assets;
 pub mod claude;
+pub mod clipboard;
 pub mod code;
 pub mod conflicts;
 pub mod custom_classes;
@@ -46,6 +48,7 @@ pub use ai::*;
 pub use analytics::*;
 pub use assets::*;
 pub use claude::*;
+pub use clipboard::*;
 pub use code::*;
 pub use conflicts::*;
 pub use custom_classes::*;

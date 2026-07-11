@@ -28,6 +28,12 @@ export interface PluginModule {
   onDeactivate?: () => void;
 }
 
+/**
+ * Called when a plugin's onActivate/onDeactivate lifecycle hook throws.
+ * Lets callers surface the failure (toast) — the loader itself only logs.
+ */
+export type PluginLifecycleErrorHandler = (pluginName: string, error: unknown) => void;
+
 /** Maximum time (ms) to wait for a plugin's dynamic import to resolve */
 const PLUGIN_LOAD_TIMEOUT_MS = 10_000;
 
@@ -51,7 +57,8 @@ function cacheKey(projectPath: string, pluginId: string): string {
  */
 export async function loadPluginModule(
   projectPath: string,
-  pluginId: string
+  pluginId: string,
+  onError?: PluginLifecycleErrorHandler
 ): Promise<PluginModule> {
   const key = cacheKey(projectPath, pluginId);
 
@@ -102,6 +109,7 @@ export async function loadPluginModule(
         logger.error(`Plugin ${pluginId} onActivate failed`, {
           error: e instanceof Error ? e.message : String(e),
         });
+        onError?.(pluginModule.name, e);
       }
     }
 
@@ -117,7 +125,11 @@ export async function loadPluginModule(
 /**
  * Unload a plugin module, cleaning up its Blob URL and cache entry.
  */
-export function unloadPluginModule(projectPath: string, pluginId: string): void {
+export function unloadPluginModule(
+  projectPath: string,
+  pluginId: string,
+  onError?: PluginLifecycleErrorHandler
+): void {
   const key = cacheKey(projectPath, pluginId);
 
   const mod = moduleCache.get(key);
@@ -129,6 +141,7 @@ export function unloadPluginModule(projectPath: string, pluginId: string): void 
       logger.error(`Plugin ${pluginId} onDeactivate failed`, {
         error: e instanceof Error ? e.message : String(e),
       });
+      onError?.(mod.name, e);
     }
   }
 

@@ -7,6 +7,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use std::time::Duration;
 
+use super::node_tool_command;
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
 
 /// Returns true when the project's metadata marks the thumbnail as
@@ -83,7 +84,7 @@ pub async fn capture_project_thumbnail(
     let thumbnail_path_str = thumbnail_path.to_string_lossy().to_string();
 
     // Try using Playwright first (more reliable viewport control)
-    let npx_result = create_command("npx")
+    let npx_result = node_tool_command("npx")
         .args([
             "playwright",
             "screenshot",

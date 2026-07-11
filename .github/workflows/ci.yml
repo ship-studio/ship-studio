@@ -183,6 +183,16 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      # ConPTY spawn-shape canaries (direct vs. cmd.exe-wrapped PowerShell,
+      # see pty_session.rs tests). Run first and with --nocapture so the
+      # captured PTY output of BOTH variants is in the log as evidence even
+      # when they pass — these tests exist to answer a quoting question, not
+      # just to gate.
+      - name: PTY spawn-shape canaries (verbose)
+        env:
+          CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
+        run: cargo test --manifest-path src-tauri/Cargo.toml preserves_pipe_and_spaces_through_pty -- --nocapture
+
       - name: Backend tests
         env:
           CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}

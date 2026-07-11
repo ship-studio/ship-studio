@@ -24,6 +24,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button } from '../primitives/Button';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { useOptionalToast } from '../../contexts/ToastContext';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 /** Props for the GitHubButton component */
 interface GitHubButtonProps {
@@ -316,7 +317,7 @@ export function GitHubButton({
                     setIsCreatingRepo(false);
                   }, 3000);
                 } catch (e) {
-                  setError(String(e));
+                  setError(formatCommandError(asCommandError(e)));
                   onToast?.('Failed to create repository', 'error');
                   setIsLoading(false);
                   setIsCreatingRepo(false);

@@ -5,29 +5,30 @@
  *
  * Lifecycle: toggle on → post `ss:activate` (re-posted on every iframe `load`,
  * since the script re-initializes inert on each HMR reload) → an `ss:select`
- * click resolves to source via the backend (class resolution, plus parallel
- * text/image resolutions guarded by a staleness token) → edits (`applyToken`,
+ * click resolves to source via the backend (class resolution, plus a parallel
+ * image resolution guarded by a staleness token) → edits (`applyToken`,
  * `setBoxSide`, `stepSpacing`, `reset`) twMerge the live class and post
  * `ss:mutate` with breakpoint-scoped preview rules (instant DOM feedback, no
  * write) → `commit` writes the merged className back to source and advances
- * the drift baseline so consecutive edits keep working. Text and image edits
- * (`ss:textCommit`, `replaceImage`) write immediately on confirm.
+ * the drift baseline so consecutive edits keep working. Image edits
+ * (`replaceImage`) write immediately on confirm. Inline TEXT editing lives in
+ * the shared `useTextEditing` hook (mounted alongside this one in Preview.tsx).
  *
- * Exposes `editMode`, `selection`, `currentClass`, text/image resolutions,
+ * Exposes `editMode`, `selection`, `currentClass`, image resolution,
  * `multiTarget`, auto-save, and the edit/commit callbacks — consumed by
  * Preview.tsx, which threads them into VisualEditorPanel.
  *
  * Boundaries: lib/edit wrappers (`resolveClassnameSource`, `applyClassnameEdit
- * [Multi]`, `resolveTextSource`/`applyTextEdit`, `resolveImageSource`/
- * `applySrcEdit`, `findComponentUsage`) over the Rust edit backend; the iframe
- * `ss:*` message protocol; localStorage for the auto-save opt-in.
+ * [Multi]`, `resolveImageSource`/`applySrcEdit`, `findComponentUsage`) over the
+ * Rust edit backend; the iframe `ss:*` message protocol; localStorage for the
+ * auto-save opt-in.
  *
  * Gotchas: incoming messages are trusted only when `e.source` is the preview
  * iframe's contentWindow — the iframe hosts untrusted project content, and a
- * forged `ss:textCommit` would otherwise write to the user's files. Every
+ * forged `ss:mutate` would otherwise drive edits on the user's behalf. Every
  * write arms `ss:suppressReload` BEFORE touching disk: Astro's full reload can
  * beat the post-write `ss:commit`, briefly reverting the preview. Live values
- * (`currentClass`, text/image targets) are mirrored into refs so the commit
+ * (`currentClass`, image target) are mirrored into refs so the commit
  * callbacks read fresh state without re-subscribing the message handler.
  */
 
@@ -37,8 +38,7 @@ import {
   resolveClassnameSource,
   applyClassnameEdit,
   applyClassnameEditMulti,
-  resolveTextSource,
-  applyTextEdit,
+  insertClassAttr,
   resolveImageSource,
   applySrcEdit,
   findComponentUsage,
@@ -63,7 +63,6 @@ import {
   type ResetSpec,
   type ElementSignature,
   type Resolution,
-  type TextResolution,
   type ImageResolution,
   type UsageReport,
 } from '../lib/edit';
@@ -77,6 +76,7 @@ import {
 } from '../lib/customClasses';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 /**
  * What the style controls currently edit:
@@ -211,26 +211,12 @@ export function useVisualEditor({
     setMultiTargetState(t);
   }, []);
 
-  // Inline text editing: the resolved text target for the current selection (null
-  // when the element's text isn't a plain editable literal). Mirrored into a ref so
-  // the ss:textCommit handler reads the latest without re-subscribing. `text` is the
-  // source baseline used as the drift guard on write-back.
-  const [textResolution, setTextResolution] = useState<TextResolution | null>(null);
-  // Bumps each time a double-click lands on dynamic text the iframe bounced out of
-  // — drives a one-shot pulse on the DynamicTextHelp hand-off so the user notices it.
-  const [textBlockedNonce, setTextBlockedNonce] = useState(0);
-  const textTargetRef = useRef<{ file: string; line: number; column: number; text: string } | null>(
-    null
-  );
-  const setTextTarget = useCallback((res: TextResolution | null) => {
-    textTargetRef.current =
-      res?.status === 'resolved'
-        ? { file: res.file, line: res.line, column: res.column, text: res.text }
-        : null;
-    setTextResolution(res);
-  }, []);
-  // The signature of the current selection, mirrored for on-demand text resolution if
-  // a commit arrives before the (async) select-time resolve has landed.
+  // Inline text editing lives in the shared `useTextEditing` hook (mounted once in
+  // Preview.tsx, active for either styling editor) — it owns the ss:textInfo gating
+  // and ss:textCommit write-back. This hook keeps only the class/image concerns.
+
+  // The signature of the current selection, mirrored so the class commit/structural
+  // gestures read the live source-className baseline without re-subscribing.
   const selectedSigRef = useRef<ElementSignature | null>(null);
 
   // Image src editing: the resolved src target for the current selection (null when
@@ -328,67 +314,11 @@ export function useVisualEditor({
         signature?: ElementSignature;
         count?: number;
         leafText?: boolean;
-        text?: string;
       } | null;
       if (!d) return;
 
-      // The element turned out not to be editable (dynamic text) — the iframe bounced
-      // out of the optimistic edit. No toast: the panel shows the "copy a request for
-      // your agent" hand-off (DynamicTextHelp) for the still-selected element.
-      if (d.type === 'ss:textBlocked') {
-        setTextBlockedNonce((n) => n + 1);
-        return;
-      }
-
-      // Inline text edit was confirmed in the iframe — write the new text to source.
-      if (d.type === 'ss:textCommit' && typeof d.text === 'string') {
-        const next = d.text;
-        const sig = selectedSigRef.current;
-        // Arm reload suppression before writing (same reasoning as a class commit).
-        post({ type: 'ss:suppressReload' });
-        void (async () => {
-          try {
-            // The select-time resolve may not have landed yet (fast double-click →
-            // type → commit); resolve on demand so the edit is never dropped silently.
-            let target = textTargetRef.current;
-            if (!target) {
-              if (!sig) throw new Error('Lost track of this element — reselect it and try again.');
-              const res = await resolveTextSource(projectPath, sig);
-              if (res.status !== 'resolved')
-                throw new Error(res.reason || 'This text isn’t editable.');
-              target = { file: res.file, line: res.line, column: res.column, text: res.text };
-              textTargetRef.current = target;
-            }
-            if (next === target.text) {
-              post({ type: 'ss:commit' }); // unchanged — just re-baseline, no write
-              return;
-            }
-            await applyTextEdit(
-              projectPath,
-              target.file,
-              target.line,
-              target.column,
-              target.text,
-              next
-            );
-            // Advance the drift baseline so consecutive text edits keep working.
-            target.text = next;
-            setTextResolution((prev) =>
-              prev?.status === 'resolved' ? { ...prev, text: next } : prev
-            );
-            post({ type: 'ss:commit' });
-            recordCommit('visual_text_saved');
-            onToast?.('Saved to source', 'success');
-          } catch (err) {
-            logger.error('[VisualEditor] text write-back failed', { error: String(err) });
-            onToast?.(String(err), 'error');
-            // Couldn't save — put the original text back in the preview.
-            post({ type: 'ss:textRevert' });
-          }
-        })();
-        return;
-      }
-
+      // Text-edit messages (ss:textBlocked / ss:textCommit) are handled by the
+      // shared useTextEditing hook, not here.
       if (d.type !== 'ss:select' || !d.signature) return;
       const sig = d.signature;
       const instanceCount = d.count ?? 1;
@@ -408,7 +338,6 @@ export function useVisualEditor({
       post({ type: 'ss:clearClassPreview' });
       setMultiTarget('all'); // a fresh selection defaults to editing all occurrences
       setUsage(null);
-      setTextTarget(null); // optimistic; iframe allows editing until told otherwise
       setImageTarget(null);
       const usageToken = ++usageTokenRef.current;
       void (async () => {
@@ -430,7 +359,7 @@ export function useVisualEditor({
           }
         } catch (err) {
           logger.error('[VisualEditor] resolve failed', { error: String(err) });
-          onToast?.(String(err), 'error');
+          onToast?.(formatCommandError(asCommandError(err)), 'error');
           setSelection({
             signature: sig,
             resolution: {
@@ -441,24 +370,6 @@ export function useVisualEditor({
           });
         }
       })();
-      // Text-editability runs in parallel: only for single-text-node leaves. The
-      // iframe gates inline editing on the verdict we post back (ss:textInfo).
-      if (leafText) {
-        void (async () => {
-          try {
-            const textRes = await resolveTextSource(projectPath, sig);
-            // Ignore if the selection changed underneath us.
-            if (usageTokenRef.current !== usageToken) return;
-            setTextTarget(textRes);
-            post({ type: 'ss:textInfo', editable: textRes.status === 'resolved' });
-          } catch {
-            if (usageTokenRef.current === usageToken)
-              post({ type: 'ss:textInfo', editable: false });
-          }
-        })();
-      } else {
-        post({ type: 'ss:textInfo', editable: false });
-      }
       // Image src resolution runs in parallel for <img> elements — drives the
       // panel's Image section (current asset + Replace).
       if (sig.tagName === 'img') {
@@ -488,10 +399,8 @@ export function useVisualEditor({
     iframeRef,
     setLiveClass,
     setMultiTarget,
-    setTextTarget,
     setImageTarget,
     setEditTarget,
-    recordCommit,
   ]);
 
   // Load the project's custom classes when edit mode opens; refresh helper lets
@@ -512,6 +421,7 @@ export function useVisualEditor({
 
   useEffect(() => {
     if (!editMode) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: load custom classes + entry-CSS check on edit-mode open
     void refreshCustomClasses();
     void detectTailwindSetup(projectPath)
       .then((setup) => setClassEntryReady(setup.entryCss != null))
@@ -567,16 +477,16 @@ export function useVisualEditor({
     [postMutate, setLiveClass, activeBreakpoint, known]
   );
 
-  /** Step a spacing utility (padding/margin/gap) by one unit at the active
-   *  breakpoint, computed from that layer's current value (so stepping `md:` reads
-   *  the md value, not base). Steps the scale integer, or a numeric arbitrary
+  /** Step a spacing utility (padding/margin/gap) by `step` units (default 1) at the
+   *  active breakpoint, computed from that layer's current value (so stepping `md:`
+   *  reads the md value, not base). Steps the scale integer, or a numeric arbitrary
    *  value's magnitude (keeping its unit). Drives a breakpoint-scoped preview rule. */
   const stepSpacing = useCallback(
-    (kind: SpacingKind, dir: 1 | -1) => {
+    (kind: SpacingKind, dir: 1 | -1, step = 1) => {
       const ctrl = SPACING_CONTROLS.find((c) => c.kind === kind);
       if (!ctrl) return;
       const scoped = tokensForVariant(currentClassRef.current, activeBreakpoint.prefix, known);
-      const next = stepSpacingValue(spacingValue(scoped, ctrl.prefix), dir);
+      const next = stepSpacingValue(spacingValue(scoped, ctrl.prefix), dir * step);
       applyToken(spacingTokenFor(ctrl.prefix, next), { [ctrl.css]: spacingCss(next) });
     },
     [applyToken, activeBreakpoint, known]
@@ -628,7 +538,7 @@ export function useVisualEditor({
           if (!opts?.silent) onToast?.('Class saved', 'success');
         } catch (err) {
           logger.error('[VisualEditor] class write-back failed', { error: String(err) });
-          onToast?.(String(err), 'error');
+          onToast?.(formatCommandError(asCommandError(err)), 'error');
         }
         return;
       }
@@ -676,7 +586,7 @@ export function useVisualEditor({
         if (!opts?.silent) onToast?.('Saved to source', 'success');
       } catch (err) {
         logger.error('[VisualEditor] write-back failed', { error: String(err) });
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [selection, projectPath, onToast, post, setEditTarget, recordCommit]
@@ -721,6 +631,39 @@ export function useVisualEditor({
     [selection, projectPath, onToast, post, setLiveClass]
   );
 
+  /** Add the FIRST class to a class-less element (a `no_class` resolution): the
+   *  element has no class literal in source to resolve or replace, so the backend
+   *  INSERTS a fresh class attribute on its open tag (located by ancestor/text
+   *  anchoring — it rejects with a specific reason rather than guess). On success,
+   *  re-resolve so the panel transitions from the no-class state to full controls. */
+  const addFirstClass = useCallback(
+    async (name: string) => {
+      const sig = selectedSigRef.current;
+      const n = name.trim().replace(/^\./, '');
+      if (!sig || !n) return;
+      // Arm reload suppression before writing (same reasoning as a class commit).
+      post({ type: 'ss:suppressReload' });
+      try {
+        await insertClassAttr(projectPath, sig, n);
+        const nextSig = { ...sig, className: n };
+        selectedSigRef.current = nextSig;
+        setLiveClass(n);
+        post({ type: 'ss:mutate', className: n, rules: [] });
+        post({ type: 'ss:commit' });
+        // The inserted literal is now the element's source anchor — re-resolve so
+        // the selection gains a real location and the full controls appear.
+        const resolution = await resolveClassnameSource(projectPath, nextSig);
+        setSelection((prev) => (prev ? { ...prev, signature: nextSig, resolution } : prev));
+        recordCommit('visual_class_added', { mode: 'tailwind', first: true });
+        onToast?.('Class added', 'success');
+      } catch (err) {
+        logger.error('[VisualEditor] add first class failed', { error: String(err) });
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
+      }
+    },
+    [projectPath, post, setLiveClass, onToast, recordCommit]
+  );
+
   /** The selected element's current className — read from the live class in
    *  element mode, or the (kept-fresh) signature while a class is being edited.
    *  The structural gestures below operate on THIS, never on a class's @apply. */
@@ -743,7 +686,7 @@ export function useVisualEditor({
         await writeElementClass([...current, name].join(' '));
         recordCommit('custom_class_applied');
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [currentElementClass, writeElementClass, onToast, recordCommit]
@@ -765,7 +708,7 @@ export function useVisualEditor({
         if (ok && wasEditing) editElement();
         recordCommit('custom_class_unapplied');
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [currentElementClass, writeElementClass, editElement, onToast, recordCommit]
@@ -807,7 +750,7 @@ export function useVisualEditor({
           onToast?.(`Kept ${[...unsafe].join(', ')} on the element (not a utility).`, 'success');
         }
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [
@@ -861,7 +804,7 @@ export function useVisualEditor({
         onToast?.('Image replaced', 'success');
       } catch (err) {
         logger.error('[VisualEditor] image write-back failed', { error: String(err) });
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
         throw err;
       }
     },
@@ -910,14 +853,13 @@ export function useVisualEditor({
       if (prev) {
         setSelection(null);
         setLiveClass('');
-        setTextTarget(null);
         setImageTarget(null);
         setEditTarget({ kind: 'element' });
         selectedSigRef.current = null;
       }
       return !prev;
     });
-  }, [setLiveClass, setTextTarget, setImageTarget, setEditTarget]);
+  }, [setLiveClass, setImageTarget, setEditTarget]);
 
   return {
     editMode,
@@ -925,14 +867,10 @@ export function useVisualEditor({
     selection,
     currentClass,
     usage,
-    /** Text-editability of the current selection (drives the panel's hint). */
-    textResolution,
     /** Image-src editability of the current selection (drives the Image section). */
     imageResolution,
     /** Write a new src to source and swap the preview (immediate save). */
     replaceImage,
-    /** Bumps when a double-click hits dynamic text — pulses the hand-off block. */
-    textBlockedNonce,
     multiTarget,
     setMultiTarget,
     autoSave,
@@ -955,6 +893,8 @@ export function useVisualEditor({
     customClasses,
     /** Whether a writable Tailwind entry stylesheet exists (gates create). */
     classEntryReady,
+    /** Insert the first class on a class-less element, then re-resolve. */
+    addFirstClass,
     /** Append an existing custom class to the element and edit it. */
     applyClass,
     /** Remove a custom class from the element (keeps it defined in CSS). */

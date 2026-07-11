@@ -86,6 +86,15 @@ export async function readProjectFile(projectPath: string, filePath: string): Pr
   };
 }
 
+/** Overwrite a project file with new content (Code tab inline editor). */
+export async function saveProjectFile(
+  projectPath: string,
+  filePath: string,
+  content: string
+): Promise<void> {
+  await invoke('save_project_file', { projectPath, filePath, content });
+}
+
 /** Build a nested tree structure from a flat list of file entries. */
 export function buildFileTree(entries: FileEntry[]): FileTreeNode[] {
   const root: FileTreeNode[] = [];

@@ -9,6 +9,11 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useClickOutside } from './useClickOutside';
+import {
+  decideIframeWatchdogArm,
+  isPreviewProofOfLife,
+  IFRAME_BLANK_TIMEOUT_MS,
+} from './previewIframeWatchdog';
 import { logger } from '../lib/logger';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
@@ -79,19 +84,31 @@ export function usePreviewConnection({
   const [showPageDropdown, setShowPageDropdown] = useState(false);
   const [pageSearch, setPageSearch] = useState('');
   const [proxyPort, setProxyPort] = useState<number | null>(null);
-  const [cacheBuster, setCacheBuster] = useState(() => Date.now());
+  // Bumped to request an imperative iframe reload (Preview watches it). The
+  // iframe URL used to carry a `?_cb=<ts>&shipstudio=1` cache-buster instead,
+  // but those params leaked into the previewed app — its router, SSR search
+  // params, and analytics all saw junk Chrome never sends. Freshness is now the
+  // proxy's job (it serves injected HTML with Cache-Control: no-store).
+  const [reloadToken, setReloadToken] = useState(0);
+  // The iframe never proved it rendered a document (issue #179): the server is
+  // healthy top-level, but the subframe load aborted — e.g. an auth-middleware
+  // redirect loop — and WebKit renders an empty frame with no error anywhere.
+  const [iframeBlank, setIframeBlank] = useState(false);
 
   const devServerUrl = `http://localhost:${port}`;
   const baseUrl = proxyPort ? `http://localhost:${proxyPort}` : devServerUrl;
-  const currentUrl = `${baseUrl}${iframePath === '/' ? '' : iframePath}?_cb=${cacheBuster}&shipstudio=1`;
-  // URL safe to hand to the user's default browser: real dev server,
-  // current iframe path, no proxy and no Ship Studio query params. The
-  // iframe needs the proxy URL (for navigation tracking + cache busting)
-  // but external browsers should land on the dev server directly.
+  const currentUrl = `${baseUrl}${iframePath === '/' ? '' : iframePath}`;
+  // URL safe to hand to the user's default browser: real dev server and
+  // current iframe path, no proxy. The iframe needs the proxy URL (for
+  // navigation tracking and script injection) but external browsers should
+  // land on the dev server directly.
   const externalUrl = `${devServerUrl}${iframePath === '/' ? '' : iframePath}`;
 
   const wasRestartingRef = useRef(false);
   const healthCheckFailuresRef = useRef(0);
+  // Last time the HMR watchdog auto-reloaded the preview — throttles recovery
+  // so a flapping HMR socket can't put the iframe in a reload loop.
+  const lastHmrRecoveryRef = useRef(0);
   const isStoppedRef = useRef(false);
   isStoppedRef.current = isStopped;
   const retryCountRef = useRef(0);
@@ -107,6 +124,33 @@ export function usePreviewConnection({
   const readyProbeControllerRef = useRef<AbortController | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // Blank-iframe watchdog: has the current navigation proven life yet, and the
+  // pending "no proof arrived" timer. Refs (not state) so the message handler
+  // and timer callbacks always see the live values without re-subscribing.
+  const iframeAliveRef = useRef(false);
+  const iframeWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearIframeWatchdogTimer = useCallback(() => {
+    if (iframeWatchdogTimerRef.current) {
+      clearTimeout(iframeWatchdogTimerRef.current);
+      iframeWatchdogTimerRef.current = null;
+    }
+  }, []);
+
+  // (Re)start the blank-iframe timer. Fires only if no proof-of-life message
+  // arrived in the meantime — a late-but-healthy page clears itself.
+  const startIframeWatchdogTimer = useCallback(() => {
+    clearIframeWatchdogTimer();
+    iframeWatchdogTimerRef.current = setTimeout(() => {
+      iframeWatchdogTimerRef.current = null;
+      if (!iframeAliveRef.current) {
+        logger.warn('[Preview] Iframe never proved it rendered — flagging blank pane', {
+          timeoutMs: IFRAME_BLANK_TIMEOUT_MS,
+        });
+        setIframeBlank(true);
+      }
+    }, IFRAME_BLANK_TIMEOUT_MS);
+  }, [clearIframeWatchdogTimer]);
 
   // Reset state when project or port changes
   useEffect(() => {
@@ -120,7 +164,9 @@ export function usePreviewConnection({
     setPages([]);
     setShowPageDropdown(false);
     setPageSearch('');
-    setCacheBuster(Date.now());
+    setReloadToken(0);
+    setIframeBlank(false);
+    iframeAliveRef.current = false;
 
     const timer = setTimeout(() => setRetryCount(0), 1500);
     return () => clearTimeout(timer);
@@ -246,6 +292,50 @@ export function usePreviewConnection({
     };
   }, [serverReady, port]);
 
+  // Arm the blank-iframe watchdog on every explicit navigation: initial proxy
+  // URL and page select change `currentUrl`, and refresh / same-page select bump
+  // `reloadToken` (imperative reload) — each replaces the iframe's document, so
+  // the previous proof-of-life no longer stands. Skipped (and cleared) while the
+  // server isn't ready or the URL bypasses the injecting proxy, where no page
+  // could ever prove life.
+  useEffect(() => {
+    const action = decideIframeWatchdogArm('navigation', {
+      serverReady,
+      proxyActive: proxyPort !== null,
+      aliveSinceNavigation: false,
+    });
+    if (action === 'skip') {
+      setIframeBlank(false);
+      return;
+    }
+    logger.debug('[Preview] Arming blank-iframe watchdog', { url: currentUrl });
+    iframeAliveRef.current = false;
+    setIframeBlank(false);
+    startIframeWatchdogTimer();
+    return clearIframeWatchdogTimer;
+  }, [
+    currentUrl,
+    reloadToken,
+    serverReady,
+    proxyPort,
+    startIframeWatchdogTimer,
+    clearIframeWatchdogTimer,
+  ]);
+
+  // Give each document hop a fresh window: the iframe's `load` event fires per
+  // document (redirect chains, about:blank bounces during refresh). Injected
+  // scripts post their proof at parse time — before `load` — so a hop that
+  // already proved life must NOT re-arm (it would be falsely flagged blank).
+  const handleIframeLoad = useCallback(() => {
+    const action = decideIframeWatchdogArm('load', {
+      serverReady,
+      proxyActive: proxyPort !== null,
+      aliveSinceNavigation: iframeAliveRef.current,
+    });
+    if (action === 'skip') return;
+    startIframeWatchdogTimer();
+  }, [serverReady, proxyPort, startIframeWatchdogTimer]);
+
   // Listen for navigation and error events from the injected proxy scripts.
   //
   // SECURITY: these messages originate from the preview iframe, which renders
@@ -274,6 +364,15 @@ export function usePreviewConnection({
     ) => {
       if (!allowedOrigins.has(event.origin)) return;
       const data = event.data;
+      // Any injected-script message (shipstudio:* or the visual editor's ss:*)
+      // proves the iframe parsed and ran a real document — feed the blank-pane
+      // watchdog. Also self-heals: a page that finishes late (slow on-demand
+      // compile) clears an already-shown blank overlay.
+      if (data && isPreviewProofOfLife(data.type)) {
+        iframeAliveRef.current = true;
+        clearIframeWatchdogTimer();
+        setIframeBlank(false);
+      }
       if (data && data.type === 'shipstudio:navigate' && typeof data.pathname === 'string') {
         const pathname: string = data.pathname || '/';
         setCurrentPage((prev) => (prev === pathname ? prev : pathname));
@@ -294,10 +393,42 @@ export function usePreviewConnection({
         const prompt = `My dev server is returning an error:\n\n${data.message}\n\nPlease help me fix this.`;
         onSendToClaude?.(prompt);
       }
+      if (data && data.type === 'shipstudio:hmr-down') {
+        // The page's HMR socket died and never came back (watchdog in the
+        // injected reload-suppress script). The page still renders but no
+        // longer receives updates — the classic "stale preview until you
+        // restart the dev server". If the server itself is healthy, one
+        // reload reconnects everything; if it's down, the health-check flow
+        // owns recovery, so do nothing here.
+        if (!serverReady) return;
+        if (Date.now() - lastHmrRecoveryRef.current < 15000) return;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal })
+          .then(() => {
+            lastHmrRecoveryRef.current = Date.now();
+            logger.warn(
+              '[Preview] HMR connection lost while dev server is healthy — auto-reloading preview'
+            );
+            setReloadToken((t) => t + 1);
+          })
+          .catch(() => {
+            // Server unreachable — the periodic health check will surface it.
+          })
+          .finally(() => clearTimeout(timeoutId));
+      }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onSendToClaude, onToast, port, proxyPort]);
+  }, [
+    onSendToClaude,
+    onToast,
+    port,
+    proxyPort,
+    serverReady,
+    devServerUrl,
+    clearIframeWatchdogTimer,
+  ]);
 
   // Auto-reload for static HTML projects when files change on disk
   useEffect(() => {
@@ -307,7 +438,7 @@ export function usePreviewConnection({
 
     void listen<{ windowLabel: string }>('static-file-changed', () => {
       logger.debug('[Preview] File change detected, reloading preview');
-      setCacheBuster(Date.now());
+      setReloadToken((t) => t + 1);
     }).then((fn) => {
       unlisten = fn;
     });
@@ -459,23 +590,35 @@ export function usePreviewConnection({
   // Handlers
   const handleRefresh = useCallback(() => {
     void trackEvent('preview_refreshed', { trigger: 'user' });
-    setIframePath(currentPage);
-    setCacheBuster(Date.now());
-  }, [currentPage]);
+    if (iframePath === currentPage) {
+      // Same URL — a src diff won't reload; request an imperative reload.
+      setReloadToken((t) => t + 1);
+    } else {
+      // Path changed — the src change itself performs a fresh load.
+      setIframePath(currentPage);
+    }
+  }, [currentPage, iframePath]);
 
-  const handlePageSelect = useCallback((route: string) => {
-    void trackEvent('preview_page_selected', {
-      // Strip dynamic-looking segments (numeric ids, uuids) so the cardinality
-      // doesn't explode while still keeping the route shape useful.
-      route_pattern: route.replace(/\/(\d+|[0-9a-f-]{8,})/g, '/:id').slice(0, 200),
-      depth: route.split('/').filter(Boolean).length,
-    });
-    setCurrentPage(route);
-    setIframePath(route);
-    setShowPageDropdown(false);
-    setPageSearch('');
-    setCacheBuster(Date.now());
-  }, []);
+  const handlePageSelect = useCallback(
+    (route: string) => {
+      void trackEvent('preview_page_selected', {
+        // Strip dynamic-looking segments (numeric ids, uuids) so the cardinality
+        // doesn't explode while still keeping the route shape useful.
+        route_pattern: route.replace(/\/(\d+|[0-9a-f-]{8,})/g, '/:id').slice(0, 200),
+        depth: route.split('/').filter(Boolean).length,
+      });
+      setCurrentPage(route);
+      setShowPageDropdown(false);
+      setPageSearch('');
+      if (iframePath === route) {
+        // Re-selecting the visible page acts as a refresh.
+        setReloadToken((t) => t + 1);
+      } else {
+        setIframePath(route);
+      }
+    },
+    [iframePath]
+  );
 
   const handleRetry = useCallback(() => {
     setHasError(false);
@@ -518,11 +661,13 @@ export function usePreviewConnection({
     retryCount,
     serverReady,
     isStopped,
+    iframeBlank,
 
     // URL state
     baseUrl,
     currentUrl,
     externalUrl,
+    reloadToken,
 
     // Page navigation
     currentPage,
@@ -543,5 +688,6 @@ export function usePreviewConnection({
     handlePageSelect,
     handleRetry,
     stopConnecting,
+    handleIframeLoad,
   };
 }

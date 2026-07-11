@@ -196,6 +196,15 @@ pub fn get_window_for_project(project_path: &str) -> Option<String> {
     }
 }
 
+/// Snapshot of all open (project, window_label) pairs.
+/// Used by the agent bridge's "active project" routing.
+pub fn get_open_project_windows() -> Vec<(String, String)> {
+    OPEN_PROJECT_WINDOWS
+        .lock()
+        .map(|map| map.iter().map(|(p, l)| (p.clone(), l.clone())).collect())
+        .unwrap_or_default()
+}
+
 /// Remove a window from the registry by its label.
 /// Used during window close cleanup when we only know the window label.
 /// Also releases any reserved port for this window.

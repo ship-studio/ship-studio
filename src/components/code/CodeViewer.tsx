@@ -1,9 +1,11 @@
 /**
- * Syntax-highlighted code viewer for the code browser.
+ * Code viewer for the code browser.
  *
- * Uses Shiki for syntax highlighting with lazy-loaded grammars.
- * Shows placeholder states for no file selected, binary files,
- * oversized files, and loading.
+ * Renders the file with a single CodeMirror surface (`CodeFileEditor`) in BOTH
+ * read and edit mode, so the view is pixel-identical and only behavior changes:
+ * view mode is read-only and reports text selections for the "send to agent"
+ * popover; edit mode allows live editing. Shows placeholder states for no file
+ * selected, binary files, oversized files, and loading.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -15,9 +17,13 @@ import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { Spinner } from '../primitives/Spinner';
+import { Button } from '../primitives/Button';
 import { ChevronIcon, CodeIcon, FileIcon, VSCodeIcon, CursorIcon, CopyIcon } from '../icons';
 import { trackEvent } from '../../lib/analytics';
 import { fileExtensionForAnalytics } from '../../lib/code';
+import { CodeFileEditor } from './CodeFileEditor';
+import { basename } from '../../lib/paths';
+import type { SaveResult } from '../../hooks/useFileTree';
 
 interface CodeViewerProps {
   projectPath: string;
@@ -28,6 +34,20 @@ interface CodeViewerProps {
   onSendToAgent?: (text: string) => void;
   /** A 1-based line to highlight + scroll into view (jump-to-code). */
   revealLine?: number | null;
+  // Inline editing (Code tab). When `isEditing`, the read-only view is replaced
+  // by an editable CodeMirror surface.
+  isEditing?: boolean;
+  draft?: string;
+  isDirty?: boolean;
+  isSaving?: boolean;
+  saveError?: string | null;
+  /** Discard unsaved edits (re-seeds the draft from disk while edit mode stays on). */
+  onCancelEdit?: () => void;
+  onDraftChange?: (value: string) => void;
+  onSave?: () => Promise<SaveResult>;
+  /** Global, persisted "Code tab is editable" opt-in (drives the header toggle). */
+  editModeEnabled?: boolean;
+  onToggleEditMode?: (enabled: boolean) => void;
 }
 
 interface SelectionInfo {
@@ -38,37 +58,10 @@ interface SelectionInfo {
   mouseY: number;
 }
 
-const LINE_HEIGHT = 20;
-const CODE_PADDING_TOP = 12;
-
-// Cache the highlighter instance across renders
-let highlighterPromise: Promise<import('shiki').Highlighter> | null = null;
-
-async function getHighlighter() {
-  if (!highlighterPromise) {
-    highlighterPromise = import('shiki').then((shiki) =>
-      shiki.createHighlighter({
-        themes: ['github-dark'],
-        langs: [],
-      })
-    );
-  }
-  return highlighterPromise;
-}
-
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** Convert a viewport Y coordinate to a 1-based line number within the code area. */
-function yToLine(clientY: number, codeEl: HTMLElement, totalLines: number): number {
-  const codeRect = codeEl.getBoundingClientRect();
-  // Both clientY and codeRect.top are viewport coords — scroll is already accounted for
-  const relativeY = clientY - codeRect.top - CODE_PADDING_TOP;
-  const line = Math.floor(relativeY / LINE_HEIGHT) + 1;
-  return Math.max(1, Math.min(line, totalLines));
 }
 
 export function CodeViewer({
@@ -79,12 +72,20 @@ export function CodeViewer({
   error,
   onSendToAgent,
   revealLine,
+  isEditing = false,
+  draft = '',
+  isDirty = false,
+  isSaving = false,
+  saveError = null,
+  onCancelEdit,
+  onDraftChange,
+  onSave,
+  editModeEnabled = false,
+  onToggleEditMode,
 }: CodeViewerProps) {
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
     showToast(message, type);
-  const [highlightedHtml, setHighlightedHtml] = useState<string>('');
-  const codeRef = useRef<HTMLDivElement>(null);
   const [ideAvailability, setIdeAvailability] = useState<{ vscode: boolean; cursor: boolean }>({
     vscode: false,
     cursor: false,
@@ -94,35 +95,35 @@ export function CodeViewer({
     onCopy: () => onToast?.('Copied to clipboard', 'success'),
   });
 
-  // Selection popover state
+  // Selection popover state — fed by the editor's onSelectionChange in view mode.
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
   const [question, setQuestion] = useState('');
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-
-  // Line-level highlight overlay
-  const [highlightedLines, setHighlightedLines] = useState<{ start: number; end: number } | null>(
-    null
-  );
-  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const totalLinesRef = useRef(0);
-  const dragStartLineRef = useRef(0);
-  const dragTextRef = useRef('');
-  const dragCleanupRef = useRef<(() => void) | null>(null);
+  // ⌘S bypasses the disabled Save button, so guard against overlapping saves
+  // whose disk writes could finish out of order and leave a stale draft.
+  const saveInFlightRef = useRef(false);
 
   const dismissPopover = useCallback(() => {
     setSelectionInfo(null);
     setQuestion('');
     setPreviewExpanded(false);
-    setHighlightedLines(null);
-    if (highlightTimerRef.current) {
-      clearTimeout(highlightTimerRef.current);
-      highlightTimerRef.current = null;
-    }
     window.getSelection()?.removeAllRanges();
   }, []);
 
   useClickOutside(popoverRef, dismissPopover, selectionInfo !== null);
+
+  // The editor reports the current text selection (view mode only). Show the
+  // "send to agent" popover for a non-empty selection; dismiss when it clears.
+  const handleSelectionChange = useCallback((sel: SelectionInfo | null) => {
+    if (!sel) {
+      setSelectionInfo(null);
+      return;
+    }
+    setSelectionInfo(sel);
+    setQuestion('');
+    setPreviewExpanded(false);
+  }, []);
 
   // Check IDE availability on mount
   useEffect(() => {
@@ -142,118 +143,10 @@ export function CodeViewer({
     [projectPath, filePath]
   );
 
-  // Scroll to top and dismiss popover when file changes
+  // Dismiss the popover when the file changes (scroll + reveal now live in the editor).
   useEffect(() => {
-    if (codeRef.current) {
-      codeRef.current.scrollTop = 0;
-    }
     dismissPopover();
   }, [filePath, dismissPopover]);
-
-  // Jump-to-code: highlight a target line and scroll it into view. Runs after the
-  // file-change scroll-to-top reset above (via rAF) so it isn't clobbered; re-runs
-  // when the target line changes within the same file.
-  useEffect(() => {
-    if (revealLine == null || !fileContent) return;
-    setHighlightedLines({ start: revealLine, end: revealLine });
-    const id = requestAnimationFrame(() => {
-      const el = codeRef.current;
-      if (!el) return;
-      const target = CODE_PADDING_TOP + (revealLine - 1) * LINE_HEIGHT;
-      el.scrollTop = Math.max(0, target - el.clientHeight / 3);
-    });
-    return () => cancelAnimationFrame(id);
-  }, [revealLine, fileContent, filePath]);
-
-  // Dismiss popover on scroll
-  useEffect(() => {
-    const scrollEl = codeRef.current;
-    if (!scrollEl || !selectionInfo) return;
-    const handleScroll = () => dismissPopover();
-    scrollEl.addEventListener('scroll', handleScroll, { passive: true });
-    return () => scrollEl.removeEventListener('scroll', handleScroll);
-  }, [selectionInfo, dismissPopover]);
-
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      const codeEl = e.currentTarget as HTMLElement;
-      const startLine = yToLine(e.clientY, codeEl, totalLinesRef.current);
-      dragStartLineRef.current = startLine;
-      dragTextRef.current = '';
-
-      // Clear previous popover/highlight on new drag
-      if (selectionInfo) {
-        setSelectionInfo(null);
-        setQuestion('');
-        setPreviewExpanded(false);
-      }
-      if (highlightTimerRef.current) {
-        clearTimeout(highlightTimerRef.current);
-        highlightTimerRef.current = null;
-      }
-      setHighlightedLines(null);
-
-      const onDragMove = (moveEvent: MouseEvent) => {
-        const currentLine = yToLine(moveEvent.clientY, codeEl, totalLinesRef.current);
-        setHighlightedLines({
-          start: Math.min(dragStartLineRef.current, currentLine),
-          end: Math.max(dragStartLineRef.current, currentLine),
-        });
-        // Snapshot selected text during drag in case DOM changes disrupt selection later
-        const sel = window.getSelection();
-        if (sel && !sel.isCollapsed) {
-          dragTextRef.current = sel.toString();
-        }
-      };
-
-      const cleanup = () => {
-        document.removeEventListener('mousemove', onDragMove);
-        document.removeEventListener('mouseup', onDragEnd);
-        dragCleanupRef.current = null;
-      };
-      dragCleanupRef.current = cleanup;
-
-      const onDragEnd = (upEvent: MouseEvent) => {
-        cleanup();
-
-        const endLine = yToLine(upEvent.clientY, codeEl, totalLinesRef.current);
-        const startL = Math.min(dragStartLineRef.current, endLine);
-        const endL = Math.max(dragStartLineRef.current, endLine);
-
-        // If single-line click (no real drag), treat as click — clear and return
-        if (startL === endL && Math.abs(upEvent.clientY - e.clientY) < 3) {
-          setHighlightedLines(null);
-          window.getSelection()?.removeAllRanges();
-          return;
-        }
-
-        // Get text: prefer snapshotted drag text, fall back to extracting from content
-        let text = dragTextRef.current;
-        if (!text.trim() && fileContent?.content) {
-          const contentLines = fileContent.content.split('\n');
-          text = contentLines.slice(startL - 1, endL).join('\n');
-        }
-
-        // Clear browser selection — our overlay handles the visual highlight
-        window.getSelection()?.removeAllRanges();
-
-        setHighlightedLines({ start: startL, end: endL });
-        setSelectionInfo({
-          text,
-          startLine: startL,
-          endLine: endL,
-          mouseX: upEvent.clientX,
-          mouseY: upEvent.clientY,
-        });
-        setQuestion('');
-        setPreviewExpanded(false);
-      };
-
-      document.addEventListener('mousemove', onDragMove);
-      document.addEventListener('mouseup', onDragEnd);
-    },
-    [selectionInfo, fileContent?.content]
-  );
 
   const handleCopy = useCallback(() => {
     if (!selectionInfo || !filePath) return;
@@ -294,86 +187,31 @@ export function CodeViewer({
       void copy(formatted);
     }
 
-    // Close popover but keep highlight visible briefly
     setSelectionInfo(null);
     setQuestion('');
     setPreviewExpanded(false);
-    highlightTimerRef.current = setTimeout(() => {
-      setHighlightedLines(null);
-      highlightTimerRef.current = null;
-    }, 2000);
     // `copy` from useCopyToClipboard is referentially stable across renders;
     // adding it would churn the callback identity with no behavior change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionInfo, filePath, fileContent?.language, question, onToast, onSendToAgent]);
 
-  // Cleanup timer and drag listeners on unmount
-  useEffect(() => {
-    return () => {
-      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
-      dragCleanupRef.current?.();
-    };
-  }, []);
-
-  // Syntax highlight the content
-  useEffect(() => {
-    if (!fileContent || fileContent.isBinary || fileContent.isTruncated || !fileContent.content) {
-      setHighlightedHtml('');
-      return;
-    }
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const highlighter = await getHighlighter();
-        const lang = fileContent.language || 'plaintext';
-
-        const loadedLangs = highlighter.getLoadedLanguages();
-        if (!loadedLangs.includes(lang as import('shiki').BundledLanguage)) {
-          try {
-            await highlighter.loadLanguage(lang as import('shiki').BundledLanguage);
-          } catch {
-            // Fall back to plaintext if language not supported
-          }
-        }
-
-        const effectiveLang = highlighter
-          .getLoadedLanguages()
-          .includes(lang as import('shiki').BundledLanguage)
-          ? lang
-          : 'plaintext';
-
-        if (
-          effectiveLang === 'plaintext' &&
-          !highlighter.getLoadedLanguages().includes('plaintext')
-        ) {
-          try {
-            await highlighter.loadLanguage('plaintext');
-          } catch {
-            // ignore
-          }
-        }
-
-        const html = highlighter.codeToHtml(fileContent.content, {
-          lang: effectiveLang,
-          theme: 'github-dark',
-        });
-
-        if (!cancelled) {
-          setHighlightedHtml(html);
-        }
-      } catch {
-        if (!cancelled) {
-          setHighlightedHtml('');
-        }
+  const handleSave = useCallback(async () => {
+    if (!onSave || saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
+    try {
+      const result = await onSave();
+      // 'noop' (read mode / clean buffer) is silent — only a real save toasts.
+      if (result === 'saved') showToast('Saved', 'success');
+      else if (result !== 'noop') {
+        // Failure carries the real error from the write — show it, not a
+        // canned string (it's also mirrored in the saveError banner below).
+        const name = filePath ? basename(filePath) : 'file';
+        showToast(`Couldn't save ${name}: ${result.error}`, 'error');
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fileContent]);
+    } finally {
+      saveInFlightRef.current = false;
+    }
+  }, [onSave, showToast, filePath]);
 
   // No file selected
   if (!filePath) {
@@ -447,12 +285,9 @@ export function CodeViewer({
     );
   }
 
-  // Render highlighted code
-  const lines = fileContent?.content.split('\n') ?? [];
-  totalLinesRef.current = lines.length;
   const hasIde = ideAvailability.vscode || ideAvailability.cursor;
 
-  // Popover position: anchored to mouse release point, clamped to viewport
+  // Popover position: anchored to the selection end, clamped to viewport
   const popoverWidth = 320;
   const popoverHeight = 160;
   let popoverStyle: React.CSSProperties | undefined;
@@ -479,75 +314,121 @@ export function CodeViewer({
       <div className="code-viewer-header">
         <FileIcon size={14} />
         <span className="code-viewer-path">{filePath}</span>
+        {isDirty && <span className="code-viewer-dirty" title="Unsaved changes" aria-hidden />}
         {fileContent && <span className="code-viewer-size">{formatSize(fileContent.size)}</span>}
-        {hasIde && (
-          // Portal mode: .code-tab clips overflow, so the menu renders fixed
-          // in a body portal. Right-aligned — the button sits at the right
-          // end of the viewer header (matches the old `right: 0` override).
-          <Dropdown
-            portal
-            align="right"
-            trigger={(p) => (
-              <button className="code-viewer-open-btn" title="Open in IDE" {...p}>
-                <span>Open with</span>
-                <ChevronIcon size={10} />
-              </button>
-            )}
-          >
-            {ideAvailability.vscode && (
-              <DropdownItem
-                icon={<VSCodeIcon size={14} />}
-                onSelect={() => void handleOpenInIde('vscode')}
-                disabled={openingIde !== null}
+        <div className="code-viewer-actions">
+          {isEditing && (
+            // Contextual edit actions, grouped + divided from the persistent
+            // controls so Save/Revert read as their own thing.
+            <div className="code-viewer-edit-actions">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={onCancelEdit}
+                disabled={!isDirty || isSaving}
               >
-                {openingIde === 'vscode' ? 'Opening...' : 'VS Code'}
-              </DropdownItem>
-            )}
-            {ideAvailability.cursor && (
-              <DropdownItem
-                icon={<CursorIcon size={14} />}
-                onSelect={() => void handleOpenInIde('cursor')}
-                disabled={openingIde !== null}
+                Revert
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => void handleSave()}
+                disabled={!isDirty || isSaving}
               >
-                {openingIde === 'cursor' ? 'Opening...' : 'Cursor'}
-              </DropdownItem>
-            )}
-          </Dropdown>
-        )}
-      </div>
-      <div className="code-viewer-content" ref={codeRef}>
-        <div className="code-viewer-code-wrapper">
-          <div className="code-viewer-gutter">
-            {lines.map((_, i) => (
-              <div key={i} className="code-viewer-gutter-line">
-                {i + 1}
-              </div>
-            ))}
-          </div>
-          <div className="code-viewer-code" onMouseDown={handleMouseDown}>
-            {highlightedHtml ? (
-              <div
-                className="code-viewer-highlighted"
-                dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-              />
-            ) : (
-              <pre className="code-viewer-plain">{fileContent?.content ?? ''}</pre>
-            )}
-          </div>
-          {highlightedLines && (
-            <div className="code-selection-overlay" aria-hidden>
-              {Array.from({ length: highlightedLines.end - highlightedLines.start + 1 }, (_, i) => (
-                <div
-                  key={highlightedLines.start + i}
-                  className="code-selection-line"
-                  style={{ top: CODE_PADDING_TOP + (highlightedLines.start + i - 1) * LINE_HEIGHT }}
-                />
-              ))}
+                {isSaving ? <Spinner size="sm" /> : 'Save'}
+              </Button>
             </div>
+          )}
+          {onToggleEditMode && (
+            // Same control as the visual editor's Edit toggle (shared
+            // `preview-edit-toggle` classes) so the two read as one feature.
+            <button
+              type="button"
+              className={`preview-edit-toggle${editModeEnabled ? ' active' : ''}`}
+              onClick={() => onToggleEditMode(!editModeEnabled)}
+              title={
+                editModeEnabled
+                  ? 'Edit mode on — files open editable. Click to turn off.'
+                  : 'Turn on edit mode to edit files in Ship Studio'
+              }
+              aria-pressed={editModeEnabled}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
+              </svg>
+              <span>Edit</span>
+              <span
+                className={`preview-edit-toggle-switch ${editModeEnabled ? 'is-on' : ''}`}
+                aria-hidden
+              />
+            </button>
+          )}
+          {hasIde && (
+            // Portal mode: .code-tab clips overflow, so the menu renders fixed
+            // in a body portal. Right-aligned — the button sits at the right
+            // end of the viewer header (matches the old `right: 0` override).
+            <Dropdown
+              portal
+              align="right"
+              trigger={(p) => (
+                <button className="code-viewer-open-btn" title="Open in IDE" {...p}>
+                  <span>Open with</span>
+                  <ChevronIcon size={10} />
+                </button>
+              )}
+            >
+              {ideAvailability.vscode && (
+                <DropdownItem
+                  icon={<VSCodeIcon size={14} />}
+                  onSelect={() => void handleOpenInIde('vscode')}
+                  disabled={openingIde !== null}
+                >
+                  {openingIde === 'vscode' ? 'Opening...' : 'VS Code'}
+                </DropdownItem>
+              )}
+              {ideAvailability.cursor && (
+                <DropdownItem
+                  icon={<CursorIcon size={14} />}
+                  onSelect={() => void handleOpenInIde('cursor')}
+                  disabled={openingIde !== null}
+                >
+                  {openingIde === 'cursor' ? 'Opening...' : 'Cursor'}
+                </DropdownItem>
+              )}
+            </Dropdown>
           )}
         </div>
       </div>
-      {selectionInfo &&
+      <div className="code-viewer-editor">
+        {/* One renderer for both modes — read-only when not editing, editable
+            when editing — so the view is pixel-identical and only behavior
+            changes. Keyed per file so each open starts a clean editor. */}
+        <CodeFileEditor
+          key={filePath ?? 'editor'}
+          value={isEditing ? draft : (fileContent?.content ?? '')}
+          editable={isEditing}
+          onChange={(v) => onDraftChange?.(v)}
+          language={fileContent?.language ?? 'plaintext'}
+          onSave={() => void handleSave()}
+          revealLine={revealLine}
+          onSelectionChange={handleSelectionChange}
+        />
+        {isEditing && saveError && (
+          <div className="code-viewer-save-error">Save failed: {saveError}</div>
+        )}
+      </div>
+      {!isEditing &&
+        selectionInfo &&
         popoverStyle &&
         createPortal(
           <div className="code-selection-popover" ref={popoverRef} style={popoverStyle}>

@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as snapshots from '../lib/snapshots';
 import { logger } from '../lib/logger';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { usePolling } from './usePolling';
 import type { ToastType } from './useToasts';
 
@@ -18,6 +19,8 @@ type ShowToast = (message: string, type?: ToastType) => void;
 interface UseSnapshotsResult {
   canUndo: boolean;
   canRedo: boolean;
+  /** Whether the project is a git repo (snapshots require one). */
+  isGitRepo: boolean;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
 }
@@ -26,6 +29,7 @@ const EMPTY_STATUS: snapshots.SnapshotStatus = {
   watching: false,
   can_undo: false,
   can_redo: false,
+  is_git_repo: false,
   history_size: 0,
   cursor: 0,
   files_changed: [],
@@ -91,7 +95,7 @@ export function useSnapshots(
       const summary = summarize('Undid', next.files_changed);
       showToast(summary ?? 'Nothing to undo', summary ? 'success' : 'info');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = formatCommandError(asCommandError(err));
       showToast(`Undo failed: ${msg}`, 'error');
     }
   }, [projectPath, showToast]);
@@ -104,7 +108,7 @@ export function useSnapshots(
       const summary = summarize('Redid', next.files_changed);
       showToast(summary ?? 'Nothing to redo', summary ? 'success' : 'info');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = formatCommandError(asCommandError(err));
       showToast(`Redo failed: ${msg}`, 'error');
     }
   }, [projectPath, showToast]);
@@ -112,6 +116,7 @@ export function useSnapshots(
   return {
     canUndo: status.can_undo,
     canRedo: status.can_redo,
+    isGitRepo: status.is_git_repo,
     undo,
     redo,
   };

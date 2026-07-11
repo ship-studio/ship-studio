@@ -20,6 +20,15 @@ var origClasses=[];
    will recompile the real CSS, mirroring the old behavior that kept saved edits
    visible after the panel closed). */
 var pvDecls={},curMark=null,pendingMark=null,pvId=0,styleEl=null;
+/* Code-first CSS editor (vanilla-CSS projects): when the host activates with
+   {cascade:true} we ALSO emit ss:cascade on select — the full list of author rules
+   that match the clicked element, with specificity, source order, media/layer context
+   and per-declaration active/overridden flags computed here (the browser is the source
+   of truth for what matches). Live preview edits the REAL matched rule in place via the
+   CSSOM (delete+insert at its index), so adds/removals/nesting all reflect exactly — not
+   an override layer. pvRuleLoc maps a preview key → {owner group, index, original text}
+   so an edit can be reverted (restore) or committed (kept, HMR recompiles from source). */
+var pvRuleLoc={},cascadeMode=false;
 /* Inline text editing (double-click a single-text-node leaf to type, like Webflow).
    txtEl is the element being edited; txtOrig its text before editing (for revert).
    txtEditable is the parent's verdict for the current selection (optimistic true
@@ -49,7 +58,164 @@ function matching(el){var c=el.getAttribute('class');if(!c||!c.trim())return [el
    top-level rules only (descends media/supports and non-layered @imports, but skips
    @layer blocks — i.e. all the Tailwind utilities). Cross-origin sheets throw → skipped. */
 function uLayered(el){var props={};function scan(rules){for(var i=0;i<rules.length;i++){var r=rules[i];if(r.type===1){try{if(el.matches(r.selectorText)){var st=r.style;for(var j=0;j<st.length;j++)props[st[j]]=1;}}catch(e){}}else if(r.cssRules&&!(r.constructor&&r.constructor.name==='CSSLayerBlockRule')){try{scan(r.cssRules);}catch(e){}}else if(r.type===3&&r.styleSheet&&r.layerName==null){try{scan(r.styleSheet.cssRules);}catch(e){}}}}var s=document.styleSheets;for(var i=0;i<s.length;i++){try{var rr=s[i].cssRules;if(rr)scan(rr);}catch(e){}}var out=[];for(var k in props)out.push(k);return out;}
-function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
+/* Split a grouped selector ("a, .b:is(c,d)") on TOP-LEVEL commas only (parens/brackets
+   are depth-tracked so :is()/[attr] internals stay intact). */
+function ssSplitSel(sel){var out=[],depth=0,cur='';for(var i=0;i<sel.length;i++){var ch=sel[i];if(ch==='('||ch==='[')depth++;else if(ch===')'||ch===']')depth=Math.max(0,depth-1);if(ch===','&&depth===0){if(cur.trim())out.push(cur.trim());cur='';}else cur+=ch;}if(cur.trim())out.push(cur.trim());return out;}
+/* Strip Astro's scoped-style artifacts so a compiled selector still maps to source
+   (source `.foo` compiles to `.foo[data-astro-cid-x]` or `.foo:where([data-astro-cid-x])`). */
+function ssNormSel(sel){return sel.replace(/:where\(\[data-astro-cid-[\w-]+\]\)/g,'').replace(/\[data-astro-cid-[\w-]+\]/g,'').replace(/\s+/g,' ').trim();}
+/* A rule's source hint for mapping back to disk. Prefer the served stylesheet href;
+   for Vite-injected <style> tags (Astro dev — href is null) fall back to the
+   `data-vite-dev-id` on the owning <style>, which names the source file (and, for an
+   Astro component, the embedded block: `…/Foo.astro?astro&type=style&index=0&lang.css`). */
+function ssHref(r){var sh=r.parentStyleSheet;if(!sh)return null;if(sh.href)return sh.href;var n=sh.ownerNode;if(n&&n.getAttribute){var id=n.getAttribute('data-vite-dev-id');if(id)return id;}return null;}
+/* Approximate CSS specificity → [ids, classes, types]. :where()=0; :is()/:matches()/
+   :not()/:has() take the specificity of their MOST-specific argument (recursively);
+   ::pseudo-elements and tags count as type, everything else by token. */
+function ssGtSpec(x,y){return x[0]>y[0]||(x[0]===y[0]&&(x[1]>y[1]||(x[1]===y[1]&&x[2]>y[2])));}
+function ssMaxSpec(parts){var best=[0,0,0];for(var i=0;i<parts.length;i++){var sp=ssSpec(parts[i]);if(ssGtSpec(sp,best))best=sp;}return best;}
+function ssSpec(sel){
+  var a=0,b=0,c=0,s=''+sel,out='',i=0;
+  /* Lift out the functional pseudo-classes whose specificity is the max of their args
+     (`:is()/:matches()/:not()/:has()`) or zero (`:where()`); account for them via
+     recursion, then drop the whole `:name(...)` so its inner tokens aren't double-counted
+     by the regex pass below. */
+  while(i<s.length){
+    var mt=/^::?(is|matches|not|has|where)\(/i.exec(s.slice(i));
+    if(mt){
+      var name=mt[1].toLowerCase(),depth=0,j=i+mt[0].length-1,start=j+1;
+      for(;j<s.length;j++){var ch=s[j];if(ch==='(')depth++;else if(ch===')'){depth--;if(depth===0)break;}}
+      if(name!=='where'){var sp=ssMaxSpec(ssSplitSel(s.slice(start,j)));a+=sp[0];b+=sp[1];c+=sp[2];}
+      i=j+1;continue;
+    }
+    out+=s[i++];
+  }
+  s=out;var m;
+  m=s.match(/#[\w-]+/g);if(m)a+=m.length;s=s.replace(/#[\w-]+/g,' ');
+  m=s.match(/\[[^\]]*\]/g);if(m)b+=m.length;s=s.replace(/\[[^\]]*\]/g,' ');
+  m=s.match(/::[\w-]+/g);if(m)c+=m.length;s=s.replace(/::[\w-]+/g,' ');
+  m=s.match(/:[\w-]+/g);if(m)b+=m.length;s=s.replace(/:[\w-]+/g,' ');
+  s=s.replace(/\([^)]*\)/g,' '); /* drop leftover pseudo-class args, e.g. :nth-child(2n+1) */
+  m=s.match(/\.[\w-]+/g);if(m)b+=m.length;s=s.replace(/\.[\w-]+/g,' ');
+  m=s.match(/[a-zA-Z][\w-]*/g);if(m)c+=m.length;
+  return[a,b,c];
+}
+/* Safe CSS.supports() — true (assume supported) if the API or condition can't be evaluated. */
+function ssSupports(cond){try{return (typeof CSS!=='undefined'&&CSS.supports)?CSS.supports(cond):true;}catch(e){return true;}}
+/* Parse a `(min-width: Npx)` out of a media condition, else null. */
+function ssMinPx(cond){var m=/min-width\s*:\s*([\d.]+)px/i.exec(cond||'');return m?Math.round(parseFloat(m[1])):null;}
+/* Read a CSSStyleDeclaration into [{prop,value,important}] (longhands only — `length`
+   enumerates the expanded properties, which is what we want for per-property cascade). */
+function ssDecls(st){var d=[];for(var j=0;j<st.length;j++){var pn=st[j];d.push({prop:pn,value:st.getPropertyValue(pn),important:st.getPropertyPriority(pn)==='important'});}return d;}
+/* Walk every author stylesheet and return the rules matching `el`, in cascade order with
+   provenance, with each declaration flagged active (wins) or overridden. */
+function cascade(el){
+  /* `order.n` is the cascade position reported as each rule's sourceOrder. findRuleOwner()
+     re-derives the SAME numbering to pin a rule for preview/delete — if you change this
+     traversal, change that one too. The "previews the EXACT rule by source order" test
+     exercises both and fails on drift. */
+  var matched=[],order={n:0},layerCount={n:0};
+  function walk(rules,ctx){
+    for(var i=0;i<rules.length;i++){var r=rules[i];order.n++;
+      if(r.type===1){ /* style rule */
+        /* Pseudo-element rules (`.card::before`) intentionally don't match here: their
+           declarations target a separate generated box, so listing them in the element's
+           cascade would make the active/overridden logic falsely flag conflicts against
+           the element's own properties. el.matches() throws on them anyway → skipped. */
+        var parts=ssSplitSel(r.selectorText||'');
+        for(var pi=0;pi<parts.length;pi++){var norm=ssNormSel(parts[pi]);if(!norm)continue;var ok=false;try{ok=el.matches(norm);}catch(e){try{ok=el.matches(parts[pi]);}catch(e2){}}if(!ok)continue;var decls=ssDecls(r.style);if(!decls.length)continue;
+          matched.push({selector:norm,declarations:decls,specificity:ssSpec(norm),sourceOrder:order.n,mediaText:ctx.media,mediaMinPx:ctx.minPx,inactiveMedia:ctx.inactive,layer:ctx.layer,layered:ctx.layered,layerIndex:ctx.layerIndex,container:ctx.container,supports:ctx.supports,href:ssHref(r),origin:'author'});}
+      }else if(r.type===4){ /* @media */
+        var cond=r.conditionText||(r.media&&r.media.mediaText)||'';var bad=false;try{bad=!window.matchMedia(cond).matches;}catch(e){}
+        if(r.cssRules)walk(r.cssRules,{media:cond,minPx:ssMinPx(cond),inactive:ctx.inactive||bad,layer:ctx.layer,layered:ctx.layered,layerIndex:ctx.layerIndex,container:ctx.container,supports:ctx.supports});
+      }else if(r.type===3&&r.styleSheet){ /* @import — descend the same-origin sheet (cross-origin throws) */
+        try{walk(r.styleSheet.cssRules,ctx);}catch(e){}
+      }else if(r.cssRules){ /* @layer / @container / @supports / nesting — descend, tracking the condition so same-selector rules in different contexts stay distinguishable */
+        var cn=r.constructor&&r.constructor.name;
+        var lname=cn==='CSSLayerBlockRule'?(r.name||ctx.layer):ctx.layer;
+        /* Whether we're inside ANY cascade layer (named or anonymous). Drives cascade
+           precedence below; tracked by constructor (works even where the layer NAME
+           isn't exposed, e.g. jsdom) rather than the name. */
+        var layered=ctx.layered||cn==='CSSLayerBlockRule';
+        /* Each cascade-layer BLOCK gets the next index in document order; rules carry their
+           layer's index so `prio` can order layer-vs-layer (later layer wins for normal
+           declarations, earlier wins for `!important`). Encounter order works even where the
+           layer NAME isn't exposed (jsdom). */
+        var layerIndex=cn==='CSSLayerBlockRule'?layerCount.n++:ctx.layerIndex;
+        var cont=cn==='CSSContainerRule'?(r.conditionText||r.containerQuery||ctx.container):ctx.container;
+        var sup=cn==='CSSSupportsRule'?(r.conditionText||ctx.supports):ctx.supports;
+        /* A rule inside an unsupported `@supports` doesn't apply — mark it inactive so it
+           can't win a property (mirrors non-matching @media). */
+        var unsupported=cn==='CSSSupportsRule'&&!ssSupports(r.conditionText||'');
+        try{walk(r.cssRules,{media:ctx.media,minPx:ctx.minPx,inactive:ctx.inactive||unsupported,layer:lname,layered:layered,layerIndex:layerIndex,container:cont,supports:sup});}catch(e){}
+      }
+    }
+  }
+  var sheets=document.styleSheets;for(var si=0;si<sheets.length;si++){try{var rr=sheets[si].cssRules;if(rr)walk(rr,{media:null,minPx:null,inactive:false,layer:null,layered:false,layerIndex:null,container:null,supports:null});}catch(e){}}
+  /* Inline style="" — highest priority, read-only in v1. */
+  if(el.getAttribute&&el.getAttribute('style')){var idecls=ssDecls(el.style);if(idecls.length)matched.push({selector:null,declarations:idecls,specificity:[1,0,0],sourceOrder:1e9,mediaText:null,mediaMinPx:null,inactiveMedia:false,layer:null,layered:false,layerIndex:null,href:null,origin:'inline'});}
+  /* Per-property winner among currently-active rules: priority = [important, inline,
+     layerRank, id, class, type, sourceOrder], compared lexicographically (higher wins).
+     layerRank encodes cascade-layer precedence: for NORMAL declarations unlayered beats all
+     layers and a LATER layer beats an EARLIER one; for `!important` the order inverts
+     (layered beats unlayered, EARLIER layer beats later). LMAX is the layer-block count, an
+     upper bound on layer indices, so unlayered-normal (LMAX+1) outranks every layer. */
+  var LMAX=layerCount.n;
+  function prio(m,d){var li=(m.layerIndex==null?null:m.layerIndex);var layerRank=d.important?(li==null?-1:(LMAX-li)):(li==null?(LMAX+1):li);return[d.important?1:0,m.origin==='inline'?1:0,layerRank,m.specificity[0],m.specificity[1],m.specificity[2],m.sourceOrder];}
+  function gt(x,y){for(var i=0;i<x.length;i++){if(x[i]!==y[i])return x[i]>y[i];}return false;}
+  var best={};
+  for(var mi=0;mi<matched.length;mi++){var m=matched[mi];if(m.inactiveMedia)continue;for(var di=0;di<m.declarations.length;di++){var d=m.declarations[di],p=prio(m,d);if(!best[d.prop]||gt(p,best[d.prop].p))best[d.prop]={mi:mi,di:di,p:p};}}
+  for(var a=0;a<matched.length;a++){var mm=matched[a];for(var b=0;b<mm.declarations.length;b++){var dd=mm.declarations[b],bw=best[dd.prop];dd.active=!mm.inactiveMedia&&!!bw&&bw.mi===a&&bw.di===b;if(!dd.active&&bw){var win=matched[bw.mi];dd.overriddenBy=win.selector||'element.style';}}}
+  /* Sort for display like devtools: highest winning priority first (a rule's priority is
+     its strongest declaration), inactive-media rules sink to the bottom. */
+  function ruleImp(m){for(var i=0;i<m.declarations.length;i++)if(m.declarations[i].important)return true;return false;}
+  matched.sort(function(x,y){if(x.inactiveMedia!==y.inactiveMedia)return x.inactiveMedia?1:-1;var px=prio(x,{important:ruleImp(x)}),py=prio(y,{important:ruleImp(y)});return gt(px,py)?-1:gt(py,px)?1:0;});
+  return matched;
+}
+/* Normalize a media condition for matching ("(max-width: 768px)" ⇄ "(max-width:768px)"). */
+function ssNormMedia(m){return (m||'').replace(/\s+/g,'').toLowerCase();}
+/* Find the live CSSStyleRule matching selector+media and return its owning group
+   (the stylesheet or @media/@layer/@supports rule that owns insert/deleteRule) and
+   index, so a preview can replace it in place. Same traversal as cascade(). */
+function findRuleOwner(selector,mediaText,order){
+  /* When `order` (the cascade `sourceOrder`) is given, match the rule at that exact
+     traversal position — this walk increments `seq` identically to cascade()'s `order.n`,
+     so it pins THE rule the panel is showing even when a selector occurs in several rules
+     (e.g. a base `.btn` and a `@layer x { .btn }`). Falls back to selector+media match. */
+  var want=ssNormSel(selector),wantM=ssNormMedia(mediaText),seq={n:0};
+  function walk(owner,rules,media){
+    for(var i=0;i<rules.length;i++){var r=rules[i];seq.n++;
+      if(r.type===1){
+        if(order!=null){if(seq.n===order)return{owner:owner,index:i};}
+        else{var parts=ssSplitSel(r.selectorText||'');for(var pi=0;pi<parts.length;pi++){if(ssNormSel(parts[pi])===want&&ssNormMedia(media)===wantM)return{owner:owner,index:i};}}
+      }
+      else if(r.type===4){var cond=r.conditionText||(r.media&&r.media.mediaText)||'';if(r.cssRules){var h=walk(r,r.cssRules,cond);if(h)return h;}}
+      else if(r.type===3&&r.styleSheet){try{var hi=walk(r.styleSheet,r.styleSheet.cssRules,media);if(hi)return hi;}catch(e){}}
+      else if(r.cssRules){try{var hl=walk(r,r.cssRules,media);if(hl)return hl;}catch(e){}}
+    }
+    return null;
+  }
+  var s=document.styleSheets;for(var si=0;si<s.length;si++){try{var rr=s[si].cssRules;if(rr){var hit=walk(s[si],rr,null);if(hit)return hit;}}catch(e){}}
+  return null;
+}
+/* Replace a rule's live text in place: insert the new rule at its index, then drop the
+   old one (insert-before-delete so a parse error mid-typing leaves the sheet untouched).
+   Remembers the original text once, for revert. */
+function setRulePreview(key,selector,mediaText,cssText,order){
+  var loc=pvRuleLoc[key];
+  if(!loc){loc=findRuleOwner(selector,mediaText,order);if(!loc)return;loc.orig=loc.owner.cssRules[loc.index].cssText;pvRuleLoc[key]=loc;}
+  try{loc.owner.insertRule(cssText,loc.index);loc.owner.deleteRule(loc.index+1);}catch(e){}
+}
+/* Restore one (or, with no key, all) previewed rules to their original source text. */
+function clearRulePreview(key){
+  function restore(k){var loc=pvRuleLoc[k];if(!loc)return;try{loc.owner.insertRule(loc.orig,loc.index);loc.owner.deleteRule(loc.index+1);}catch(e){}delete pvRuleLoc[k];}
+  if(key!=null)restore(key);else{for(var k in pvRuleLoc)restore(k);}
+}
+/* A stable structural identity for the element: its element-index path up to <html>.
+   Two siblings with the SAME tag+class still differ here, so the editor never aliases
+   one onto the other; it's also stable across an HMR reload of the same tree. */
+function ssDomPath(el){var parts=[],e=el;while(e&&e!==document.documentElement){var p=e.parentElement;if(!p)break;var idx=0,sib=p.firstElementChild;while(sib&&sib!==e){idx++;sib=sib.nextElementSibling;}parts.unshift((e.tagName||'').toLowerCase()+':'+idx);e=p;}return parts.join('>');}
+function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
 function ensureStyle(){if(!styleEl){styleEl=document.createElement('style');styleEl.id='ss-preview';document.head.appendChild(styleEl);}return styleEl;}
 /* Build the preview CSS for one selection from its accumulated decls: base (minPx 0)
    as a bare rule, variants wrapped in @media, emitted ascending by minPx so a larger
@@ -282,7 +448,32 @@ function updateFmtBar(){
 }
 function onDbl(e){if(!active||txtEditing)return;var el=textTarget(e.target);if(!el||!txtEditable)return;e.preventDefault();e.stopPropagation();startText(el,e.clientX,e.clientY);}
 function onMove(e){if(!active||txtEditing)return;ensureHover();var t=pickTarget(e.target);if(t&&selectedSet.indexOf(t)!==-1)t=null;place(hoverBox,t);}
-function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:treeIdFor(el)},'*');}
+function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:treeIdFor(el)},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:treeIdFor(el)},'*');}catch(e){}}}
+/* Re-find a previously-selected element by its signature after an HMR reload (the
+   DOM is fresh, so the old handle is gone). Best-effort: match the tag, require the
+   original classes to still be present (the user may have ADDED some), and score by
+   text + ancestor-class agreement so the right instance wins. Lets the host keep the
+   panel in sync after external source edits — "instant read". */
+function findBySignature(sig){
+  if(!sig)return null;
+  var tag=(sig.tagName||'').toLowerCase();
+  var all=document.querySelectorAll(tag||'*');
+  var orig=(sig.className||'').split(/\s+/).filter(Boolean);
+  var wantText=(sig.text||'').trim().slice(0,80);
+  var anc=sig.ancestorClasses||[];
+  var best=null,bestScore=-1;
+  for(var i=0;i<all.length;i++){var el=all[i];
+    if(el.getAttribute&&el.getAttribute('data-ss-overlay'))continue;
+    var cls=((el.getAttribute&&el.getAttribute('class'))||'').split(/\s+/).filter(Boolean);
+    if(orig.length){var ok=true;for(var c=0;c<orig.length;c++){if(cls.indexOf(orig[c])===-1){ok=false;break;}}if(!ok)continue;}
+    var score=orig.length?10:0;
+    var t=(el.innerText||el.textContent||'').trim().slice(0,80);
+    if(wantText&&t===wantText)score+=6;
+    if(anc.length){var p=el.parentElement,ai=0;while(p&&ai<anc.length){var pc=p.getAttribute&&p.getAttribute('class');if(pc&&pc.trim()===anc[ai]){score++;ai++;}p=p.parentElement;}}
+    if(score>bestScore){bestScore=score;best=el;}
+  }
+  return best;
+}
 function onClick(e){if(!active||txtEditing)return;var el=pickTarget(e.target);if(!el)return;e.preventDefault();e.stopPropagation();selectEl(el);}
 /* ===== Element tree (read-only navigator) =====
    The parent requests a lightweight DOM snapshot; nodes get ephemeral ids so
@@ -299,9 +490,15 @@ function treeIsSsNode(n){return n.nodeType===1&&(n.getAttribute('data-ss-overlay
 function treeDirty(){if(!treeOn)return;if(treeTimer)clearTimeout(treeTimer);treeTimer=setTimeout(function(){if(treeOn)window.parent.postMessage({type:'ss:treeDirty'},'*');},300);}
 function treeEnsureObserver(){if(treeObserver)return;treeObserver=new MutationObserver(function(ms){for(var i=0;i<ms.length;i++){var m=ms[i],j;for(j=0;j<m.addedNodes.length;j++)if(!treeIsSsNode(m.addedNodes[j])){treeDirty();return;}for(j=0;j<m.removedNodes.length;j++)if(!treeIsSsNode(m.removedNodes[j])){treeDirty();return;}}});treeObserver.observe(document.body,{childList:true,subtree:true});}
 function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active)placeSet();}
-window.addEventListener('message',function(e){var d=e.data||{};
-if(d.type==='ss:activate'){active=true;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
-else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
+window.addEventListener('message',function(e){
+/* Only accept commands from the embedding app (our parent window) or same-window
+   synthetic events (our own code / tests, where source is null). A foreign page loaded
+   inside the preview posts with its own window as source and is ignored — it must not be
+   able to drive edits, mutate the DOM, or set CSS variables. */
+if(e.source&&e.source!==window.parent&&e.source!==window)return;
+var d=e.data||{};
+if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
+else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
 /* Parent's verdict on whether the current selection's text is editable in source. If
    the user already started editing optimistically (verdict hadn't arrived yet) and it
    turns out non-editable, bounce out now rather than failing silently at save. */
@@ -318,6 +515,18 @@ else if(d.type==='ss:mutateClass'){if(typeof d.selector==='string'&&d.rules){var
 /* Drop a custom-class preview (host left class-edit mode / reverted). Omit the
    selector to clear ALL class previews. */
 else if(d.type==='ss:clearClassPreview'){if(typeof d.selector==='string'){delete pvDecls['cls:'+d.selector];}else{for(var pk in pvDecls){if(String(pk).indexOf('cls:')===0)delete pvDecls[pk];}}rebuildSheet();}
+/* Code-first CSS editor live preview: replace the REAL matched rule in place with the
+   user's edited source (selector + media supplied so we can re-locate it), so adds,
+   removals and nesting all reflect exactly. */
+else if(d.type==='ss:previewRuleText'){if(d.ruleKey!=null&&typeof d.cssText==='string'){setRulePreview(d.ruleKey,d.selector,d.mediaText,d.cssText,d.order);}placeSet();}
+/* Discard an edit's preview (restore source text). Omit ruleKey to restore all. */
+else if(d.type==='ss:clearRulePreview'){clearRulePreview(d.ruleKey!=null?d.ruleKey:null);placeSet();}
+/* Edit was saved: keep the previewed rule (it now shows the saved text) and forget its
+   original so deactivate won't restore the pre-edit version; HMR recompiles from source. */
+else if(d.type==='ss:commitRulePreview'){if(d.ruleKey!=null)delete pvRuleLoc[d.ruleKey];window.__ssSuppressUntil=Date.now()+2000;placeSet();}
+/* Rule was deleted from source — remove the live rule too (committed; HMR will
+   reload to the same state). */
+else if(d.type==='ss:deleteRulePreview'){var dl=findRuleOwner(d.selector,d.mediaText,d.order);if(dl){try{dl.owner.deleteRule(dl.index);}catch(e){}}window.__ssSuppressUntil=Date.now()+2000;placeSet();}
 /* Edit was saved to source: clear the pending flag so the preview rule + class are kept
    (no longer reverted on deselect/deactivate) and re-baseline the class. HMR re-renders
    from source and the real compiled CSS takes over. */
@@ -326,12 +535,21 @@ else if(d.type==='ss:clearClassPreview'){if(typeof d.selector==='string'){delete
    value, so this only bridges the gap. srcset is cleared so a framework-generated
    candidate set can't keep showing the old image until then. */
 else if(d.type==='ss:setSrc'){if(typeof d.value==='string'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el||el.tagName!=='IMG')continue;el.setAttribute('src',d.value);if(el.hasAttribute('srcset'))el.setAttribute('srcset','');}}placeSet();}
+/* Variables editor live preview: set a custom property so every var() consumer updates
+   instantly. Prefer editing the live :root rule in the CSSOM (HMR replaces the sheet and
+   supersedes it cleanly); fall back to an inline style on <html> when there's no :root
+   rule yet (e.g. adding the first variable) — that fallback is cleared on commit. */
+else if(d.type==='ss:setVar'){if(typeof d.name==='string'){var vv=String(d.value!=null?d.value:''),setOk=false;try{var rl=findRuleOwner(':root',null);if(rl){rl.owner.cssRules[rl.index].style.setProperty(d.name,vv);setOk=true;}}catch(e){}if(!setOk){try{document.documentElement.style.setProperty(d.name,vv);}catch(e){}}}}
+else if(d.type==='ss:clearVar'){if(typeof d.name==='string'){try{document.documentElement.style.removeProperty(d.name);}catch(e){}}else{var ds=document.documentElement.style;for(var vi=ds.length-1;vi>=0;vi--){var pn=ds[vi];if(pn&&pn.indexOf('--')===0)ds.removeProperty(pn);}}}
 else if(d.type==='ss:suppressReload'){window.__ssSuppressUntil=Date.now()+3000;}
 else if(d.type==='ss:commit'){pendingMark=null;txtRevertEl=null;snapshotOrig();window.__ssSuppressUntil=Date.now()+2000;}
 else if(d.type==='ss:requestTree'){treeOn=true;treeEnsureObserver();treeSend();}
 else if(d.type==='ss:treeOff'){treeOn=false;}
 else if(d.type==='ss:selectNode'){var tn=treeById[d.id];if(tn&&tn.isConnected&&active&&!txtEditing){try{tn.scrollIntoView({block:'nearest'});}catch(err){}selectEl(tn);}}
-else if(d.type==='ss:hoverNode'){if(!active)return;var th=d.id!=null?treeById[d.id]:null;ensureHover();place(hoverBox,th&&th.isConnected?th:null);}});
+else if(d.type==='ss:hoverNode'){if(!active)return;var th=d.id!=null?treeById[d.id]:null;ensureHover();place(hoverBox,th&&th.isConnected?th:null);}
+/* Re-select the element matching the given signature (after an HMR reload) so the
+   panel re-reads its current source — keeps read/write instant after edits. */
+else if(d.type==='ss:reselect'){if(!active)return;var rel=findBySignature(d.signature);if(rel)selectEl(rel);}});
 document.addEventListener('mousemove',onMove,true);
 document.addEventListener('click',onClick,true);
 document.addEventListener('dblclick',onDbl,true);

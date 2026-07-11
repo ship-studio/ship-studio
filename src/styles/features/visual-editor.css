@@ -13,7 +13,7 @@
   color: var(--text-secondary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   cursor: pointer;
   transition:
     background var(--transition),
@@ -496,6 +496,37 @@
     box-shadow: 0 0 0 0 transparent;
     background: var(--bg-tertiary);
   }
+}
+
+/* "No class yet" state — offers inserting the element's FIRST class so unstyled
+   elements aren't a dead end (the resolver has no class literal to anchor on). */
+.ss-edit-panel__noclass {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+}
+.ss-edit-panel__noclass p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ss-edit-panel__noclass input {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+}
+.ss-edit-panel__noclass input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* Set-vs-inherited indicator: a filled dot when the value is set on the active

@@ -234,10 +234,33 @@
 }
 
 .code-viewer-size {
-  margin-left: auto;
   color: var(--text-muted);
   font-size: var(--font-size-sm);
   flex-shrink: 0;
+}
+
+/* All header actions, anchored to the right. */
+.code-viewer-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+/* Contextual edit actions (Revert/Save), divided from the persistent controls. */
+.code-viewer-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding-right: var(--spacing-sm);
+  border-right: 1px solid var(--border);
+}
+
+/* Match every header action control to the Edit toggle's height (28px). */
+.code-viewer-actions .button,
+.code-viewer-open-btn {
+  height: 28px;
 }
 
 .code-viewer-open-btn {
@@ -253,13 +276,54 @@
   font-family: inherit;
   cursor: pointer;
   flex-shrink: 0;
-  margin-left: 8px;
   white-space: nowrap;
 }
 
 .code-viewer-open-btn:hover {
   color: var(--text-primary);
   background: var(--bg-secondary);
+}
+
+/* Unsaved-changes dot, shown next to the path while editing. */
+.code-viewer-dirty {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--warning);
+  flex-shrink: 0;
+}
+
+/* The Code-tab Edit toggle reuses the visual editor's `.preview-edit-toggle`
+   classes (src/styles/features/visual-editor.css) so the two controls match. */
+
+/* The single CodeMirror surface — fills the viewer in both read and edit mode. */
+.code-viewer-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Jump-to-code: brief, clearly visible line highlight after scrolling a target
+   line into view (fades on its own after ~2s via the editor's reveal effect). */
+.code-file-editor .cm-reveal-line {
+  background: rgba(var(--info-rgb), 0.2);
+}
+
+.code-file-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.code-viewer-save-error {
+  flex-shrink: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--error);
+  font-size: var(--font-size-sm);
 }
 
 .code-viewer-placeholder {
@@ -271,123 +335,6 @@
   gap: 12px;
   color: var(--text-muted);
   font-size: var(--font-size-md);
-}
-
-.code-viewer-content {
-  flex: 1;
-  overflow: auto;
-  scrollbar-width: none;
-}
-
-.code-viewer-content::-webkit-scrollbar {
-  display: none;
-}
-
-.code-viewer-code-wrapper {
-  position: relative;
-  display: flex;
-  width: fit-content;
-  min-width: 100%;
-  min-height: 100%;
-  align-items: stretch;
-}
-
-.code-viewer-gutter {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  flex-shrink: 0;
-  width: 52px;
-  padding-top: 12px;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
-  user-select: none;
-}
-
-.code-viewer-gutter-line {
-  height: 20px;
-  line-height: 20px;
-  padding-right: 12px;
-  text-align: right;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  font-size: var(--font-size-base);
-  color: var(--text-muted);
-}
-
-.code-viewer-code {
-  flex: 1;
-  min-width: 0;
-  padding-left: 12px;
-}
-
-/* Hide native browser selection — we render our own highlight overlay */
-.code-viewer-code ::selection {
-  background: transparent;
-}
-
-/* Highlight overlay lives in code-wrapper, outside of code DOM to avoid disrupting selection */
-.code-selection-overlay {
-  position: absolute;
-  top: 0;
-  left: 52px;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.code-selection-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 20px;
-  background: color-mix(in srgb, var(--action) 18%, transparent);
-}
-
-.code-viewer-plain {
-  margin: 0;
-  padding: 12px 0 0;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  font-size: var(--font-size-base);
-  line-height: 20px;
-  color: var(--text-primary);
-  white-space: pre;
-}
-
-/* Shiki highlighted output */
-.code-viewer-highlighted {
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  font-size: var(--font-size-base);
-  line-height: 20px;
-}
-
-.code-viewer-highlighted pre {
-  margin: 0;
-  padding: 12px 0 0;
-  background: transparent !important;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-}
-
-.code-viewer-highlighted code {
-  display: block;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  white-space: normal;
-}
-
-.code-viewer-highlighted .shiki {
-  background: transparent !important;
-}
-
-.code-viewer-highlighted code > .line {
-  display: block;
-  height: 20px;
-  line-height: 20px;
-  padding-right: 16px;
-  white-space: pre;
 }
 
 /* Selection Popover */

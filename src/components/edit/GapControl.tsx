@@ -21,14 +21,17 @@ import {
   type ResetSpec,
 } from '../../lib/edit';
 
-/** Editable gap value field. Click to type, Enter/blur to apply; bad input marks
- *  the field invalid. Stays in sync when +/- steppers change it (prev-value pattern). */
+/** Editable gap value field. Click to type, Enter/blur to apply; ArrowUp/Down step
+ *  the value like the −/＋ buttons (Shift ×10, Alt fine). Bad input marks the field
+ *  invalid. Stays in sync when +/- steppers change it (prev-value pattern). */
 function GapField({
   value,
   onSet,
+  onStep,
 }: {
   value: SpacingValue | null;
   onSet: (v: SpacingValue) => void;
+  onStep: (dir: 1 | -1, step?: number) => void;
 }) {
   const display = spacingDisplay(value);
   const [text, setText] = useState(display);
@@ -75,6 +78,13 @@ function GapField({
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && commit()) e.currentTarget.blur();
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          // Same path as the −/＋ buttons; Shift ×10, Alt fine (÷10 on unit
+          // values — the Tailwind scale stays on whole steps).
+          const fine = value?.kind === 'arbitrary' ? 0.1 : 1;
+          onStep(e.key === 'ArrowUp' ? 1 : -1, e.shiftKey ? 10 : e.altKey ? fine : 1);
+        }
       }}
     />
   );
@@ -85,7 +95,7 @@ interface Props {
   layer: LayerContext;
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   onReset: (spec: ResetSpec) => void;
-  onStepGap: (dir: 1 | -1) => void;
+  onStepGap: (dir: 1 | -1, step?: number) => void;
 }
 
 export function GapControl({ currentClass, layer, onApplyEnum, onReset, onStepGap }: Props) {
@@ -110,6 +120,7 @@ export function GapControl({ currentClass, layer, onApplyEnum, onReset, onStepGa
         <GapField
           value={gap.value}
           onSet={(v) => onApplyEnum(spacingTokenFor('gap', v), { gap: spacingCss(v) })}
+          onStep={onStepGap}
         />
         <Button
           size="sm"

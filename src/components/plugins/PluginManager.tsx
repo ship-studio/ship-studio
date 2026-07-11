@@ -11,6 +11,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { CloseIcon, SearchIcon } from '../icons';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { repoUrlsMatch } from '../../lib/pluginRepoUrl';
 import {
   listPlugins,
   installPlugin,
@@ -256,7 +258,7 @@ export function PluginManager({
       logger.error('Failed to install plugin', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
       setInstallingId(null);
     }
   };
@@ -283,7 +285,7 @@ export function PluginManager({
       logger.error('Failed to install plugin from URL', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
     } finally {
       setIsInstallingUrl(false);
     }
@@ -310,7 +312,7 @@ export function PluginManager({
       logger.error('Failed to link dev plugin', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
     } finally {
       setIsLinkingDev(false);
     }
@@ -349,7 +351,13 @@ export function PluginManager({
     }
   };
 
+  // A registry entry counts as installed when its slug matches an installed
+  // manifest id OR its repo matches an installed plugin's source URL — the
+  // slug and manifest id can drift apart (renames), and matching only ids
+  // caused an endless "Install" loop for already-installed plugins.
   const installedIds = new Set(plugins.map((p) => p.manifest.id));
+  const isEntryInstalled = (entry: PluginRegistryEntry): boolean =>
+    installedIds.has(entry.id) || plugins.some((p) => repoUrlsMatch(p.source_url, entry.repo));
 
   // Filter plugins based on search query
   const filteredPlugins = debouncedQuery
@@ -503,7 +511,7 @@ export function PluginManager({
 
               <div className="plugins-list">
                 {filteredRegistry.map((entry) => {
-                  const isInstalled = installedIds.has(entry.id);
+                  const isInstalled = isEntryInstalled(entry);
                   const isThisInstalling = installingId === entry.id;
 
                   return (

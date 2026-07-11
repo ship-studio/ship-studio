@@ -1,0 +1,191 @@
+/**
+ * Project-global scopes of the CSS panel — the scope switch (Element / Variables /
+ * Animations) and the Variables (design tokens) + Animations (@keyframes) editors.
+ * Element-scoped cascade-card styles live in css-cascade.css. Tokens only.
+ */
+
+/* ── Scope switch (Element / Variables / Animations) ──
+   Top-level scope of the CSS panel: the selected element vs the project-global
+   design tokens and @keyframes. Distinct from the element's Style/Settings tabs. */
+.ss-cascade-scope {
+  /* Pinned to the top of the scrolling panel body (which has 0 padding here) so the
+     Element/Variables/Animations switch stays reachable while the cards scroll under
+     it. Opaque bg + z-index keep scrolled content from showing through. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-secondary);
+  display: flex;
+  gap: var(--spacing-xs);
+  /* Horizontal inset via padding (not margin) so the bottom border runs the full
+     width of the panel while the tabs stay inset. */
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border);
+}
+.ss-cascade-scope__tab {
+  all: unset;
+  flex: 1 1 0;
+  text-align: center;
+  padding: 5px 0; /* css-ok: scope tab height */
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+.ss-cascade-scope__tab:hover {
+  color: var(--text-primary);
+  background: var(--tint-subtle);
+}
+.ss-cascade-scope__tab.is-active {
+  color: var(--text-primary);
+  background: var(--tint-strong);
+  box-shadow: inset 0 0 0 1px var(--tint);
+}
+
+/* ── Variables editor (design tokens) ── */
+.ss-vars {
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
+}
+.ss-vars__scope {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+.ss-vars__scope-sel {
+  color: var(--code-property);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+.ss-vars__scope-note {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.ss-vars__list {
+  display: flex;
+  flex-direction: column;
+}
+.ss-var-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  padding: 3px 4px; /* css-ok: dense token row */
+  margin: 0 -4px; /* css-ok: edge-to-edge row */
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+.ss-var-row__swatch {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px; /* css-ok: tiny swatch */
+  box-shadow: inset 0 0 0 1px var(--overlay-30);
+}
+.ss-var-row__name {
+  flex: 0 0 auto;
+  max-width: 55%;
+  color: var(--code-property);
+  overflow-wrap: anywhere;
+}
+.ss-var-row__colon {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+.ss-var-row__value {
+  all: unset;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-primary);
+  cursor: text;
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+.ss-var-row__value:hover {
+  background: var(--tint-subtle);
+}
+.ss-var-row__value--ro {
+  cursor: default;
+  color: var(--text-secondary);
+}
+.ss-var-row__value--ro:hover {
+  background: none;
+}
+.ss-var-row__empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.ss-var-row.is-readonly {
+  opacity: 0.85;
+}
+.ss-vars__add {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-sm);
+}
+.ss-var-input {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--spacing-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+.ss-var-input:focus {
+  outline: 1px solid var(--action);
+}
+.ss-var-input--name {
+  flex: 0 0 42%;
+  color: var(--code-property);
+}
+.ss-var-input::placeholder {
+  color: var(--text-muted);
+}
+.ss-vars__scoped {
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-sm);
+  border-top: 1px dashed var(--border);
+}
+
+/* ── Animations editor (@keyframes) ── */
+.ss-anims {
+  display: flex;
+  flex-direction: column;
+}
+.ss-anims__add {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin: var(--spacing-sm) var(--spacing-md) 0;
+}
+.ss-anims__add-at {
+  flex: 0 0 auto;
+  color: var(--code-property);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+/* The fixed `@keyframes` keyword beside the editable animation name. */
+.ss-card__kf-at {
+  color: var(--text-muted);
+}
+.ss-card__kf-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}

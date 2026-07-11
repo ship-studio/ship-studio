@@ -22,7 +22,12 @@
  * Row-click forwarding: each row has an onClick that finds and
  * programmatically clicks the plugin's own <button>, so users can hit
  * anywhere in the row (including the label text) instead of having to
- * aim at the ~22px icon.
+ * aim at the ~22px icon. When no button exists (the plugin crashed and
+ * rendered the error chip instead) the click toasts an explanation.
+ *
+ * Accounting: plugins that failed to load render as greyed rows, and a
+ * footer notes how many hosting plugins live in the header toolbar — so
+ * the dropdown's visible count always matches what's installed.
  *
  * @module components/PluginsDropdown
  */
@@ -30,8 +35,8 @@
 import { useState, useRef, useCallback, type MouseEvent } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { ChevronIcon, PuzzleIcon } from '../icons';
-import { PluginSlot } from './PluginSlot';
-import type { LoadedPlugin } from '../../hooks/usePlugins';
+import { PluginSlot, PluginErrorChip } from './PluginSlot';
+import type { LoadedPlugin, PluginFailure } from '../../hooks/usePlugins';
 import type {
   PluginProjectData,
   PluginAppActions,
@@ -40,6 +45,10 @@ import type {
 
 interface PluginsDropdownProps {
   plugins: LoadedPlugin[];
+  /** Plugins that failed to load — rendered as greyed, non-actionable rows */
+  failures?: PluginFailure[];
+  /** Installed hosting plugins (vercel/…) render in the header toolbar, not here */
+  hostingPluginCount?: number;
   pluginProject: PluginProjectData | null;
   pluginActions: PluginAppActions;
   pluginTheme: PluginThemeData;
@@ -48,6 +57,8 @@ interface PluginsDropdownProps {
 
 export function PluginsDropdown({
   plugins,
+  failures = [],
+  hostingPluginCount = 0,
   pluginProject,
   pluginActions,
   pluginTheme,
@@ -85,7 +96,7 @@ export function PluginsDropdown({
           <PuzzleIcon size={14} />
           <span>Plugin Manager</span>
         </button>
-        {plugins.length > 0 && <div className="ss-dropdown__divider" />}
+        {(plugins.length > 0 || failures.length > 0) && <div className="ss-dropdown__divider" />}
         {plugins.map((plugin) => (
           <PluginDropdownRow
             key={plugin.info.manifest.id}
@@ -95,8 +106,34 @@ export function PluginsDropdown({
             pluginTheme={pluginTheme}
           />
         ))}
-        {plugins.length === 0 && (
+        {failures.map((failure) => (
+          <div
+            key={failure.id ?? failure.name}
+            className="plugin-dropdown-row plugin-dropdown-row--failed"
+            role="menuitem"
+            aria-disabled="true"
+            onClick={() =>
+              pluginActions.showToast(
+                `${failure.name} is unavailable — it may have crashed. Check the plugin manager.`,
+                'error'
+              )
+            }
+          >
+            <div className="plugin-dropdown-row-trigger">
+              <PluginErrorChip pluginName={failure.name} compact detail={failure.reason} />
+            </div>
+            <span className="plugin-dropdown-row-label">{failure.name}</span>
+          </div>
+        ))}
+        {plugins.length === 0 && failures.length === 0 && hostingPluginCount === 0 && (
           <div className="toolbar-dropdown-empty-hint">No plugins installed yet.</div>
+        )}
+        {hostingPluginCount > 0 && (
+          <div className="plugins-dropdown-footer">
+            {hostingPluginCount === 1
+              ? '1 hosting plugin lives in the toolbar'
+              : `${hostingPluginCount} hosting plugins live in the toolbar`}
+          </div>
         )}
       </div>
     </div>
@@ -133,7 +170,17 @@ function PluginDropdownRow({
     // Click landed on the row wrapper (label text, empty space) —
     // forward it to the plugin's button so users can hit anywhere in
     // the row instead of aiming at the ~22px icon.
-    triggerRef.current?.querySelector('button')?.click();
+    const button = triggerRef.current?.querySelector('button');
+    if (button) {
+      button.click();
+      return;
+    }
+    // No button — the plugin crashed (error chip) or rendered nothing.
+    // Say so instead of silently ignoring the click.
+    pluginActions.showToast(
+      `${plugin.info.manifest.name} is unavailable — it may have crashed. Check the plugin manager.`,
+      'error'
+    );
   };
 
   return (

@@ -27,7 +27,8 @@ import { GitErrorHandler } from '../branches/GitErrorHandler';
 import { SubmitReviewModal } from '../branches/SubmitReviewModal';
 import { ConflictResolutionModal } from '../branches/ConflictResolutionModal';
 import { OnboardingTerminal } from '../setup';
-import { SuccessIcon, InfoIcon, CloseIcon, DownloadIcon, ZapIcon } from '../icons';
+import { DownloadIcon, ZapIcon } from '../icons';
+import { ToastList } from '../primitives/ToastList';
 import type { Toast } from '../../hooks/useToasts';
 import type { NotificationSettings } from '../../lib/sounds';
 import type { AgentConfig } from '../../lib/agent';
@@ -236,21 +237,7 @@ export function WorkspaceModals({
       {isEducationMode && <EducationOverlay onClose={onCloseEducation} />}
 
       {/* Toast notifications */}
-      {toasts.length > 0 && (
-        <div className="toast-container">
-          {toasts.map((toast) => (
-            <div key={toast.id} className={`toast toast-${toast.type}`}>
-              <span className="toast-icon">
-                {toast.type === 'success' ? <SuccessIcon size={16} /> : <InfoIcon size={16} />}
-              </span>
-              <span className="toast-message">{toast.message}</span>
-              <button className="toast-close" onClick={() => dismissToast(toast.id)}>
-                <CloseIcon size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <ToastList toasts={toasts} onDismiss={dismissToast} />
 
       {/* Screenshot Preview Toast */}
       {screenshotPreviewPath && !showScreenshotModal && (
@@ -407,6 +394,7 @@ export function WorkspaceModals({
           projectPath={projectPath}
           onClose={onCloseConflictResolution}
           onResolved={onConflictsResolved}
+          onSendToAgent={onSendToClaude}
         />
       )}
 

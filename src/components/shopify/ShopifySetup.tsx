@@ -25,6 +25,7 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { Button } from '../primitives/Button';
 import { ResetIcon } from '../icons';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 type GateStep = 'checking' | 'cli-missing' | 'store-missing';
 
@@ -102,7 +103,7 @@ export function ShopifySetup({
       onConnected();
     } catch (err) {
       logger.error('[ShopifySetup] Failed to save store', { error: String(err) });
-      setInputError(err instanceof Error ? err.message : String(err));
+      setInputError(formatCommandError(asCommandError(err)));
     } finally {
       setIsSaving(false);
     }
