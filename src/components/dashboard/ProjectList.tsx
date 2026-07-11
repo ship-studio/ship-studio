@@ -391,7 +391,16 @@ export function ProjectList({
     try {
       await deleteProject(project.path);
       if (pinnedSet?.has(project.path)) {
-        await onTogglePin?.(project.path, false);
+        // Unpin failures must not mask the successful delete — the files are
+        // already gone, so fall through to the normal cleanup + reload.
+        try {
+          await onTogglePin?.(project.path, false);
+        } catch (unpinError) {
+          trackError('project_unpin_after_delete', unpinError, 'Dashboard');
+          logger.error('Failed to unpin project after delete', {
+            error: unpinError instanceof Error ? unpinError.message : String(unpinError),
+          });
+        }
       }
       void trackEvent('project_deleted', { $screen_name: 'Dashboard' });
       setDeleteConfirm(null);
@@ -496,7 +505,15 @@ export function ProjectList({
     try {
       await removeProjectFromApp(project.path);
       if (pinnedSet?.has(project.path)) {
-        await onTogglePin?.(project.path, false);
+        // Same isolation as the bulk handler: the removal already succeeded.
+        try {
+          await onTogglePin?.(project.path, false);
+        } catch (unpinError) {
+          trackError('project_unpin_after_remove', unpinError, 'Dashboard');
+          logger.error('Failed to unpin project after remove', {
+            error: unpinError instanceof Error ? unpinError.message : String(unpinError),
+          });
+        }
       }
       void trackEvent('project_removed_from_app', {
         is_external: project.is_external,
