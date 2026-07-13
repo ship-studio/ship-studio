@@ -29,6 +29,28 @@
   font-size: var(--font-size-md);
 }
 
+.ss-tree-panel__search {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--spacing-md);
+  height: 22px;
+  padding: 0 var(--spacing-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+}
+
+.ss-tree-panel__search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ss-tree-panel__search::placeholder {
+  color: var(--text-muted);
+}
+
 /* Visual / Code toggle in the header. */
 .ss-tree-panel__modes {
   margin-left: auto;
