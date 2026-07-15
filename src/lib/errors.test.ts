@@ -3,6 +3,7 @@ import {
   asCommandError,
   formatCommandError,
   friendlyProcessError,
+  humanizeGitError,
   isMergeConflictError,
   type CommandError,
 } from './errors';
@@ -100,5 +101,81 @@ describe('isMergeConflictError', () => {
     expect(isMergeConflictError({ type: 'MergeConflict', pr_number: 1, stderr: '' })).toBe(true);
     expect(isMergeConflictError({ type: 'Timeout', cmd: 'git', secs: 1 })).toBe(false);
     expect(isMergeConflictError('plain string error')).toBe(false);
+  });
+});
+
+describe('humanizeGitError', () => {
+  // Substring heuristics regress invisibly — lock each recognized failure
+  // class to a representative raw git/gh message.
+  const cases: Array<{ raw: string; expect: RegExp }> = [
+    {
+      raw: 'GraphQL: No commits between develop and feat/empty (createPullRequest)',
+      expect: /nothing to review yet/i,
+    },
+    {
+      raw: 'CONFLICT (content): Merge conflict in src/App.tsx\nAutomatic merge failed',
+      expect: /can't be merged .* automatically/i,
+    },
+    {
+      raw: '! [rejected]  main -> main (non-fast-forward)\nerror: failed to push',
+      expect: /newer changes on GitHub/i,
+    },
+    {
+      raw: 'remote: Permission denied (publickey).\nfatal: Could not read from remote repository',
+      expect: /didn't accept the connection/i,
+    },
+    {
+      raw: 'fatal: unable to access https://github.com/a/b: Could not resolve host: github.com',
+      expect: /couldn't reach GitHub/i,
+    },
+    {
+      raw: 'remote: error: GH006: Protected branch update failed for refs/heads/main',
+      expect: /protected, so changes can't be pushed/i,
+    },
+    {
+      raw: 'GraphQL: A pull request already exists for julian:feat/x. (createPullRequest)',
+      expect: /already an open pull request/i,
+    },
+    {
+      raw: 'error: Your local changes to the following files would be overwritten by checkout',
+      expect: /unsaved changes that would be lost/i,
+    },
+    {
+      raw: "error: pathspec 'feat/gone' did not match any file(s) known to git",
+      expect: /no longer exists/i,
+    },
+    {
+      raw: 'fatal: not a git repository (or any of the parent directories): .git',
+      expect: /isn't set up with git yet/i,
+    },
+  ];
+
+  it.each(cases)('humanizes: $raw', ({ raw, expect: pattern }) => {
+    expect(humanizeGitError(raw)).toMatch(pattern);
+  });
+
+  it('names the branches from context', () => {
+    const msg = humanizeGitError('GraphQL: No commits between develop and feat/empty', {
+      branch: 'feat/empty',
+      base: 'develop',
+    });
+    expect(msg).toContain('feat/empty');
+    expect(msg).toContain('develop');
+  });
+
+  it('falls back to the formatted raw message when nothing matches', () => {
+    expect(humanizeGitError('some completely novel git failure')).toBe(
+      'some completely novel git failure'
+    );
+  });
+
+  it('accepts CommandError objects, not just strings', () => {
+    const err: CommandError = {
+      type: 'Timeout',
+      cmd: 'git push',
+      secs: 30,
+    } as unknown as CommandError;
+    // Timeout formats to a "timed out" message → the network case.
+    expect(humanizeGitError(err)).toMatch(/couldn't reach GitHub/i);
   });
 });

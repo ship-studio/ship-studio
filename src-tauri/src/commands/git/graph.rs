@@ -177,14 +177,14 @@ fn merge_base(path: &std::path::Path, a: &str, b: &str) -> Option<(String, i64)>
 fn infer_base<'a>(
     path: &std::path::Path,
     target: &RawBranch,
-    all: &'a [RawBranch],
+    candidates: &[&'a RawBranch],
     default_branch: Option<&'a str>,
 ) -> Option<String> {
     let target_ref = target.git_ref();
     let target_tip = rev_parse(path, &target_ref);
 
     let mut best: Option<(&'a str, i64)> = None;
-    for cand in all {
+    for cand in candidates {
         if cand.name == target.name {
             continue;
         }
@@ -215,12 +215,31 @@ fn infer_base<'a>(
         .or_else(|| default_branch.map(|d| d.to_string()))
 }
 
+/// Most-recent branches consulted as merge-base candidates when a branch has
+/// no recorded lineage. Each candidate costs two git subprocesses per branch,
+/// so this bounds a repo with many branches to a predictable worst case; the
+/// long tail falls back to the default branch, which the elbow rendering
+/// degrades to gracefully.
+const MAX_INFER_CANDIDATES: usize = 8;
+
 /// Build the branch-graph node list for the visual. Local git only.
+///
+/// The git subprocess calls are blocking, and inference can spawn dozens of
+/// them — `spawn_blocking` keeps them off the async runtime so a large repo
+/// can't stall every other command while the graph builds.
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn get_branch_graph(project_path: String) -> Result<Vec<BranchGraphNode>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
-    let raw = list_raw_branches(&validated_path);
+    tokio::task::spawn_blocking(move || build_branch_graph(&validated_path))
+        .await
+        .map_err(|e| format!("Branch graph task failed: {e}"))?
+}
+
+fn build_branch_graph(
+    validated_path: &std::path::Path,
+) -> Result<Vec<BranchGraphNode>, CommandError> {
+    let raw = list_raw_branches(validated_path);
 
     let names: HashSet<String> = raw.iter().map(|b| b.name.clone()).collect();
     let metadata = load_project_metadata(&validated_path);
@@ -230,6 +249,28 @@ pub async fn get_branch_graph(project_path: String) -> Result<Vec<BranchGraphNod
         .default_base_branch
         .filter(|b| names.contains(b))
         .or_else(|| detect_default_branch(&names));
+
+    // Bounded merge-base candidate pool: the default branch plus the most
+    // recently committed branches. Inference cost is per-target × per-candidate
+    // subprocesses, so an unbounded pool goes quadratic on branch-heavy repos.
+    let infer_candidates: Vec<&RawBranch> = {
+        let mut by_recency: Vec<&RawBranch> = raw.iter().collect();
+        by_recency.sort_by(|a, b| b.last_commit_date.cmp(&a.last_commit_date));
+        let mut pool: Vec<&RawBranch> = by_recency
+            .iter()
+            .filter(|b| default_branch.as_deref() == Some(b.name.as_str()))
+            .copied()
+            .collect();
+        for b in by_recency {
+            if pool.len() >= MAX_INFER_CANDIDATES {
+                break;
+            }
+            if default_branch.as_deref() != Some(b.name.as_str()) {
+                pool.push(b);
+            }
+        }
+        pool
+    };
 
     let local_names = names_local(&raw);
     let mut nodes: Vec<BranchGraphNode> = Vec::with_capacity(raw.len());
@@ -245,7 +286,12 @@ pub async fn get_branch_graph(project_path: String) -> Result<Vec<BranchGraphNod
                 Some(recorded) if names.contains(recorded) && recorded != &b.name => {
                     Some(recorded.clone())
                 }
-                _ => infer_base(&validated_path, b, &raw, default_branch.as_deref()),
+                _ => infer_base(
+                    validated_path,
+                    b,
+                    &infer_candidates,
+                    default_branch.as_deref(),
+                ),
             }
         };
 

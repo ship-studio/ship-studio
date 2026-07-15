@@ -60,7 +60,6 @@ export function isMergeConflictError(value: unknown): boolean {
   return asCommandError(value).type === 'MergeConflict';
 }
 
-<<<<<<< HEAD
 /** Context that lets {@link humanizeGitError} name the branches involved. */
 export interface GitErrorContext {
   /** The branch the action was on (e.g. the PR's source / the one being pushed). */
@@ -156,7 +155,8 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
   }
 
   return raw;
-=======
+}
+
 /**
  * Exit-code → actionable-message mappings shared by the PTY-driven flows
  * (project creation, GitHub import) that run `git clone` / package installs.
@@ -194,5 +194,4 @@ export function friendlyProcessError(
   }
   // Strip the "Error: " prefix that comes from Error.toString()
   return msg.replace(/^Error:\s*/, '');
->>>>>>> origin/main
 }

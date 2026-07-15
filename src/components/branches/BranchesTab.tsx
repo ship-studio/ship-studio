@@ -138,16 +138,13 @@ export function BranchesTab({
   const [newBranchName, setNewBranchName] = useState('');
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [prefixUsername, setPrefixUsername] = useState(true);
-<<<<<<< HEAD
   // The project's configured default base branch (e.g. "develop"); falls back to
   // the repo's default (main/master). Used as the default when cutting a branch.
   const [defaultBaseBranch, setDefaultBaseBranch] = useState<string | null>(null);
   // The base branch the new branch will be cut from (user-selectable).
   const [baseBranch, setBaseBranch] = useState<string>('');
-=======
   // What the typed name becomes after sanitization (e.g. "adjust h2" → "adjust-h2")
   const sanitizedNewBranchName = sanitizeBranchName(newBranchName);
->>>>>>> origin/main
   // Set when create fails because uncommitted changes would be overwritten by
   // the checkout — drives the commit-or-stash modal.
   const [createConflict, setCreateConflict] = useState<{
@@ -505,7 +502,15 @@ export function BranchesTab({
                 spellCheck={false}
               />
             </div>
-<<<<<<< HEAD
+            {sanitizedNewBranchName && sanitizedNewBranchName !== newBranchName.trim() && (
+              <div className="branches-new-branch-hint">
+                will be created as:{' '}
+                <span className="branches-new-branch-hint-name">
+                  {prefixUsername && githubUsername ? `${githubUsername}/` : ''}
+                  {sanitizedNewBranchName}
+                </span>
+              </div>
+            )}
             {baseBranchOptions.length > 0 && (
               <label className="branches-new-branch-base">
                 <span className="branches-new-branch-base-label">Branch from</span>
@@ -522,16 +527,6 @@ export function BranchesTab({
                   ))}
                 </select>
               </label>
-=======
-            {sanitizedNewBranchName && sanitizedNewBranchName !== newBranchName.trim() && (
-              <div className="branches-new-branch-hint">
-                will be created as:{' '}
-                <span className="branches-new-branch-hint-name">
-                  {prefixUsername && githubUsername ? `${githubUsername}/` : ''}
-                  {sanitizedNewBranchName}
-                </span>
-              </div>
->>>>>>> origin/main
             )}
             <div className="branches-new-branch-footer">
               {githubUsername && (

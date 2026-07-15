@@ -23,6 +23,8 @@ import {
 import { Spinner } from '../primitives/Spinner';
 import { ResetIcon } from '../icons';
 import { logger } from '../../lib/logger';
+import { useOptionalToast } from '../../contexts/ToastContext';
+import { humanizeGitError } from '../../lib/errors';
 
 interface BranchGraphProps {
   /** Project path for graph data */
@@ -130,6 +132,7 @@ export function BranchGraph({
   onSelectBranch,
   onRefresh,
 }: BranchGraphProps) {
+  const { showToast } = useOptionalToast();
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
   const [nodes, setNodes] = useState<BranchGraphNode[] | null>(null);
@@ -175,12 +178,17 @@ export function BranchGraph({
 
   const handleDefaultBaseChange = async (value: string) => {
     const branch = value || null;
+    const previous = defaultBase;
     setDefaultBase(branch);
     try {
       await setDefaultBaseBranch(projectPath, branch);
       await load();
     } catch (e) {
       logger.error('Failed to set default base branch', { error: e });
+      // Roll the optimistic select back and say so — a silently unsaved
+      // default base would misdirect every future branch/PR.
+      setDefaultBase(previous);
+      showToast(humanizeGitError(e), 'error');
     }
   };
 

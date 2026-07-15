@@ -130,13 +130,18 @@ export function SubmitReviewModal({
     let prDescription = '';
 
     try {
-      // 1. Commit any pending changes so they land in the PR (best-effort; a
-      //    clean tree just returns false).
+      // 1. Commit any pending changes so they land in the PR (a clean tree
+      //    just returns false). A FAILED commit must stop the flow: continuing
+      //    would open a PR that silently lacks the user's latest changes while
+      //    the UI reports success — the worst failure mode for this audience.
       setProgressLabel('Saving your changes...');
       try {
         await commitChanges(projectPath, 'Updates from Ship Studio');
       } catch (e) {
-        logger.warn('[SubmitReview] Auto-commit failed; continuing', { error: e });
+        trackError('submit_review_autocommit', e, 'Submit Review');
+        setError(humanizeGitError(e, { branch: branchName, base: baseBranch }));
+        onToast?.("Couldn't save your latest changes — the pull request wasn't created", 'error');
+        return;
       }
 
       // 2. Read the diff and write a title + summary. Falls back to a

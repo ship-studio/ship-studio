@@ -626,6 +626,19 @@ pub async fn delete_branch(
             .output();
     }
 
+    // Drop the deleted branch's lineage record — without this the map grows
+    // forever across a project's life. Entries whose *base* was this branch
+    // stay: their child branches still exist and the graph falls back to
+    // merge-base inference for them.
+    let mut metadata = load_project_metadata(&validated_path);
+    if let Some(lineage) = metadata.branch_lineage.as_mut() {
+        if lineage.remove(&branch_name).is_some() {
+            if let Err(e) = save_project_metadata(&validated_path, &metadata) {
+                warn!(error = %e, "Failed to prune branch lineage after delete");
+            }
+        }
+    }
+
     // Invalidate caches so next list_branches gets fresh data
     GIT_CACHE.invalidate(&project_path);
     if let Ok(mut map) = LAST_FETCH.lock() {

@@ -300,10 +300,10 @@ CSS variables (`--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--text-primar
 
 ### Pull Request Flow
 1. User clicks "Submit for Review" on a branch
-2. SubmitReviewModal opens with branch name as default title
-3. User can click "Generate with AI" to auto-generate title/description
-4. Backend gathers git context (diff, commits, branch name) and calls Claude CLI
-5. PR is created via `gh pr create` with the title and description
+2. SubmitReviewModal opens; the merge target defaults to the project's configured default base branch (falling back to main/master)
+3. On submit the modal runs the whole flow itself: commits pending changes (a failed commit aborts with a humanized error — never a PR that silently lacks the user's latest work), generates the title/description via the agent CLI when available (branch-name title as fallback), then creates the PR
+4. Backend gathers git context (diff, commits, branch name) and calls Claude CLI for the summary
+5. PR is created via `gh pr create`; git/GitHub failures surface through `humanizeGitError` (src/lib/errors.ts) with the branch names filled in
 
 ### Languages (Multilingual / i18n) Flow
 1. Cmd+K → "Languages" opens `LanguagesModal` (`useModal('i18n')`)
