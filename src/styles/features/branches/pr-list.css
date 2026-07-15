@@ -185,9 +185,11 @@
   margin-bottom: 0;
 }
 
+/* One small green mark, not a green card: the inset bar says "you are here"
+   while the card itself stays neutral — green is reserved for current + PR. */
 .branch-card.current {
-  border-color: var(--action);
-  background: rgba(var(--action-rgb), 0.05);
+  background: var(--bg-tertiary);
+  box-shadow: inset 3px 0 0 0 var(--action);
 }
 
 /* Non-current cards switch to their branch when clicked. */
@@ -199,8 +201,8 @@
 }
 
 .branch-card.clickable:hover {
-  border-color: var(--action);
-  background: rgba(var(--action-rgb), 0.05);
+  border-color: var(--text-muted);
+  background: var(--bg-tertiary);
 }
 
 .branch-card-info {
@@ -234,7 +236,7 @@
 
 .branch-card-current-label {
   font-size: var(--font-size-sm);
-  color: var(--action);
+  color: var(--text-muted);
   font-weight: 500;
 }
 

@@ -375,20 +375,6 @@ export function BranchesTab({
 
   return (
     <div className="branches-tab">
-      {/* Branch graph visual */}
-      {branches.length > 0 && (
-        <div className="branches-tab-section">
-          <BranchGraph
-            projectPath={projectPath}
-            branches={branches}
-            currentBranch={currentBranch}
-            openPRs={openPRs}
-            onSelectBranch={(name) => void handleSwitch(name)}
-            onRefresh={onRefresh}
-          />
-        </div>
-      )}
-
       {/* Current Branch */}
       {currentBranchInfo && (
         <div className="branches-tab-section">
@@ -630,6 +616,21 @@ export function BranchesTab({
               showSubmitForReview={false}
             />
           ))}
+        </div>
+      )}
+
+      {/* Branch graph — collapsed by default; building it shells out to git
+          per branch, so it only loads when someone opens it. */}
+      {branches.length > 0 && (
+        <div className="branches-tab-section">
+          <BranchGraph
+            projectPath={projectPath}
+            branches={branches}
+            currentBranch={currentBranch}
+            openPRs={openPRs}
+            onSelectBranch={(name) => void handleSwitch(name)}
+            onRefresh={onRefresh}
+          />
         </div>
       )}
 

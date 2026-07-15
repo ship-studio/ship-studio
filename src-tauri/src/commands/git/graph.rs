@@ -7,7 +7,7 @@
 //! frontend from the workspace-scoped PR list it already holds.
 
 use crate::errors::CommandError;
-use crate::types::BranchGraphNode;
+use crate::types::{BranchGraphNode, BranchGraphResult};
 use crate::utils::{create_command, validate_project_path};
 use std::collections::HashSet;
 use tracing::debug;
@@ -220,26 +220,36 @@ fn infer_base<'a>(
 /// so this bounds a repo with many branches to a predictable worst case; the
 /// long tail falls back to the default branch, which the elbow rendering
 /// degrades to gracefully.
-const MAX_INFER_CANDIDATES: usize = 8;
+const MAX_INFER_CANDIDATES: usize = 6;
 
 /// Build the branch-graph node list for the visual. Local git only.
+///
+/// `limit` caps how many branches get the full (subprocess-heavy) treatment:
+/// the current + default branches always make the cut, then the most recently
+/// committed fill the rest. `total_branches` tells the frontend how many were
+/// trimmed so it can say "showing N of M".
 ///
 /// The git subprocess calls are blocking, and inference can spawn dozens of
 /// them — `spawn_blocking` keeps them off the async runtime so a large repo
 /// can't stall every other command while the graph builds.
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
-pub async fn get_branch_graph(project_path: String) -> Result<Vec<BranchGraphNode>, CommandError> {
+pub async fn get_branch_graph(
+    project_path: String,
+    limit: Option<usize>,
+) -> Result<BranchGraphResult, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
-    tokio::task::spawn_blocking(move || build_branch_graph(&validated_path))
+    tokio::task::spawn_blocking(move || build_branch_graph(&validated_path, limit))
         .await
         .map_err(|e| format!("Branch graph task failed: {e}"))?
 }
 
 fn build_branch_graph(
     validated_path: &std::path::Path,
-) -> Result<Vec<BranchGraphNode>, CommandError> {
-    let raw = list_raw_branches(validated_path);
+    limit: Option<usize>,
+) -> Result<BranchGraphResult, CommandError> {
+    let mut raw = list_raw_branches(validated_path);
+    let total_branches = raw.len();
 
     let names: HashSet<String> = raw.iter().map(|b| b.name.clone()).collect();
     let metadata = load_project_metadata(&validated_path);
@@ -249,6 +259,24 @@ fn build_branch_graph(
         .default_base_branch
         .filter(|b| names.contains(b))
         .or_else(|| detect_default_branch(&names));
+
+    // Trim to the branches worth the subprocess cost: current + default always,
+    // then most recently committed. The rest are counted, not rendered.
+    if let Some(limit) = limit {
+        if raw.len() > limit {
+            raw.sort_by(|a, b| b.last_commit_date.cmp(&a.last_commit_date));
+            let (mut kept, rest): (Vec<RawBranch>, Vec<RawBranch>) = raw
+                .into_iter()
+                .partition(|b| b.is_current || default_branch.as_deref() == Some(b.name.as_str()));
+            for b in rest {
+                if kept.len() >= limit {
+                    break;
+                }
+                kept.push(b);
+            }
+            raw = kept;
+        }
+    }
 
     // Bounded merge-base candidate pool: the default branch plus the most
     // recently committed branches. Inference cost is per-target × per-candidate
@@ -324,8 +352,14 @@ fn build_branch_graph(
             .then(b.last_commit_date.cmp(&a.last_commit_date))
     });
 
-    debug!(node_count = nodes.len(), "Branch graph built");
-    Ok(nodes)
+    debug!(
+        node_count = nodes.len(),
+        total_branches, "Branch graph built"
+    );
+    Ok(BranchGraphResult {
+        nodes,
+        total_branches,
+    })
 }
 
 /// Names of branches that exist as local refs (for base-ref resolution).

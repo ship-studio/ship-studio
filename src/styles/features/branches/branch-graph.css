@@ -150,37 +150,38 @@
   font-weight: 500;
 }
 
-/* Rails */
+/* Rails — neutral by default so green stays reserved for exactly two signals:
+   the branch you're on, and an open PR. A wall of green rails made green
+   meaningless (and the graph unreadable) on branch-heavy repos. */
 .branch-graph-rail {
-  stroke: var(--action);
-  stroke-width: 2.5;
+  stroke: var(--border);
+  stroke-width: 1.5;
   fill: none;
   stroke-linecap: round;
-  opacity: 0.85;
 }
 
 .branch-graph-rail.is-default {
-  stroke-width: 3;
-  opacity: 1;
+  stroke: var(--text-muted);
+  stroke-width: 2;
+  opacity: 0.7;
 }
 
 .branch-graph-rail.is-current {
   stroke: var(--action);
-  stroke-width: 3.5;
+  stroke-width: 2.5;
   opacity: 1;
 }
 
 /* Fork elbows */
 .branch-graph-elbow {
-  stroke: var(--action);
-  stroke-width: 2.5;
+  stroke: var(--border);
+  stroke-width: 1.5;
   fill: none;
-  opacity: 0.6;
 }
 
 /* Nodes */
 .branch-graph-node {
-  fill: var(--action);
+  fill: var(--text-muted);
   stroke: var(--bg-secondary);
   stroke-width: 2;
 }
@@ -189,19 +190,9 @@
   fill: var(--action);
 }
 
-/* PR marker + arrow — solid green chips pop against the thinner rails */
+/* PR marker — the one deliberately loud element besides the current branch */
 .branch-graph-pr {
   cursor: pointer;
-}
-
-.branch-graph-pr-arrow {
-  stroke: var(--action);
-  stroke-width: 2;
-  fill: none;
-}
-
-.branch-graph-arrowhead {
-  fill: var(--action);
 }
 
 .branch-graph-pr-chip {
@@ -218,4 +209,47 @@
   font-size: var(--font-size-xs);
   font-weight: 700;
   text-anchor: middle;
+}
+
+/* Collapsible header */
+.branch-graph-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.branch-graph-toggle:hover .branch-graph-title {
+  color: var(--text-primary);
+}
+
+.branch-graph-chevron {
+  display: inline-block;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+
+.branch-graph-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.branch-graph-count {
+  padding: 1px 7px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.branch-graph-trimmed {
+  padding: var(--spacing-sm) 14px;
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
 }

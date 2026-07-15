@@ -436,6 +436,14 @@ pub struct BranchInfo {
     pub pushed: bool,
 }
 
+/// Branch-graph payload: the rendered subset plus the true branch count, so
+/// the UI can say "showing N of M" when the graph was trimmed.
+#[derive(Serialize)]
+pub struct BranchGraphResult {
+    pub nodes: Vec<BranchGraphNode>,
+    pub total_branches: usize,
+}
+
 /// A node in the branch-graph visual: a branch plus the branch it was cut from.
 #[derive(Serialize)]
 pub struct BranchGraphNode {

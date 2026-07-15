@@ -125,14 +125,16 @@
   white-space: nowrap;
 }
 
+/* "On GitHub" is the normal state — neutral. "Local only" is the one that
+   might need action (not backed up), so it carries the gentle warning tint. */
 .branch-sync-badge.synced {
-  background: rgba(var(--action-rgb), 0.15);
-  color: var(--action);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .branch-sync-badge.local {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
+  background: rgba(var(--warning-rgb), 0.12);
+  color: var(--warning);
 }
 
 .branch-changes-dot {

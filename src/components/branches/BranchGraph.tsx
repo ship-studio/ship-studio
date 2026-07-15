@@ -61,6 +61,10 @@ const CHIP_W = 32;
 const CHIP_H = 18;
 const CORNER = 8;
 const MIN_WIDTH = 320;
+/** Cap on rendered branches — current + default always make the cut. Keeps
+ *  the visual scannable and bounds the per-branch git subprocess cost. */
+const GRAPH_LIMIT = 12;
+const EXPANDED_STORAGE_KEY = 'shipstudio.branchGraphExpanded';
 
 /**
  * Order branches into rows (parents above their children, roots first) and
@@ -139,6 +143,19 @@ export function BranchGraph({
   const [defaultBase, setDefaultBase] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [totalBranches, setTotalBranches] = useState(0);
+  // Collapsed by default: building the graph shells out to git per branch, so
+  // it must never tax people who didn't ask for it. Expansion is remembered
+  // across sessions for the people who live in it.
+  const [expanded, setExpanded] = useState(
+    () => localStorage.getItem(EXPANDED_STORAGE_KEY) === '1'
+  );
+
+  const toggleExpanded = () => {
+    const next = !expanded;
+    setExpanded(next);
+    localStorage.setItem(EXPANDED_STORAGE_KEY, next ? '1' : '0');
+  };
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -153,12 +170,9 @@ export function BranchGraph({
 
   const load = useCallback(async () => {
     try {
-      const [graph, base] = await Promise.all([
-        getBranchGraph(projectPath),
-        getDefaultBaseBranch(projectPath),
-      ]);
-      setNodes(graph);
-      setDefaultBase(base);
+      const graph = await getBranchGraph(projectPath, GRAPH_LIMIT);
+      setNodes(graph.nodes);
+      setTotalBranches(graph.totalBranches);
     } catch (e) {
       logger.error('Failed to load branch graph', { error: e });
       setNodes([]);
@@ -167,14 +181,24 @@ export function BranchGraph({
     }
   }, [projectPath]);
 
+  // The default-base setting is a cheap metadata read and stays useful while
+  // the graph is collapsed — load it unconditionally.
+  useEffect(() => {
+    void getDefaultBaseBranch(projectPath)
+      .then(setDefaultBase)
+      .catch(() => setDefaultBase(null));
+  }, [projectPath]);
+
   const branchesKey = useMemo(
     () => branches.map((b) => `${b.name}:${b.isCurrent ? 1 : 0}`).join('|'),
     [branches]
   );
+  // The expensive part (graph build) only runs while the section is open.
   useEffect(() => {
+    if (!expanded) return;
     setLoading(true);
     void load();
-  }, [load, branchesKey]);
+  }, [load, branchesKey, expanded]);
 
   const handleDefaultBaseChange = async (value: string) => {
     const branch = value || null;
@@ -222,18 +246,31 @@ export function BranchGraph({
   return (
     <div className="branch-graph" ref={wrapRef}>
       <div className="branch-graph-header">
-        <span className="branch-graph-title">Branch graph</span>
+        <button
+          type="button"
+          className="branch-graph-toggle"
+          onClick={toggleExpanded}
+          aria-expanded={expanded}
+        >
+          <span className={`branch-graph-chevron${expanded ? ' is-open' : ''}`}>›</span>
+          <span className="branch-graph-title">Branch graph</span>
+          {!expanded && branches.length > 0 && (
+            <span className="branch-graph-count">{branches.length}</span>
+          )}
+        </button>
         <div className="branch-graph-header-actions">
-          <button
-            type="button"
-            className={`branch-graph-refresh${isRefreshing ? ' spinning' : ''}`}
-            onClick={() => void handleRefresh()}
-            disabled={isRefreshing}
-            title="Refresh branches"
-            aria-label="Refresh branches"
-          >
-            <ResetIcon size={14} />
-          </button>
+          {expanded && (
+            <button
+              type="button"
+              className={`branch-graph-refresh${isRefreshing ? ' spinning' : ''}`}
+              onClick={() => void handleRefresh()}
+              disabled={isRefreshing}
+              title="Refresh branches"
+              aria-label="Refresh branches"
+            >
+              <ResetIcon size={14} />
+            </button>
+          )}
           {baseOptions.length > 0 && (
             <label className="branch-graph-default-base">
               <span>Default base</span>
@@ -256,7 +293,7 @@ export function BranchGraph({
         </div>
       </div>
 
-      {loading && !nodes ? (
+      {!expanded ? null : loading && !nodes ? (
         <div className="branch-graph-loading">
           <Spinner size="sm" />
         </div>
@@ -266,19 +303,6 @@ export function BranchGraph({
         <div className="branch-graph-body" style={{ height }}>
           {/* SVG graphics layer: rails, nodes, elbows, PR markers */}
           <svg className="branch-graph-svg" width={width} height={height}>
-            <defs>
-              <marker
-                id="branch-graph-arrow"
-                markerWidth="8"
-                markerHeight="8"
-                refX="5"
-                refY="4"
-                orient="auto"
-              >
-                <path d="M0,0 L7,4 L0,8 Z" className="branch-graph-arrowhead" />
-              </marker>
-            </defs>
-
             {/* Fork elbows (under rails) */}
             {laid.map((l) => {
               const base = l.node.base ? laidByName.get(l.node.base) : null;
@@ -309,7 +333,6 @@ export function BranchGraph({
 
               const pr = l.pr;
               const chipCx = rightX + CHIP_W / 2;
-              const target = pr ? laidByName.get(pr.baseRef) : null;
 
               return (
                 <g key={`row-${l.node.name}`}>
@@ -323,21 +346,6 @@ export function BranchGraph({
                       role="button"
                       tabIndex={0}
                     >
-                      {target &&
-                        (() => {
-                          const ty = rowY(target.row);
-                          const up = ty < y;
-                          return (
-                            <line
-                              className="branch-graph-pr-arrow"
-                              x1={chipCx}
-                              y1={up ? y - CHIP_H / 2 - 1 : y + CHIP_H / 2 + 1}
-                              x2={chipCx}
-                              y2={up ? ty + NODE_R + 2 : ty - NODE_R - 2}
-                              markerEnd="url(#branch-graph-arrow)"
-                            />
-                          );
-                        })()}
                       <rect
                         className="branch-graph-pr-chip"
                         x={chipCx - CHIP_W / 2}
@@ -389,6 +397,12 @@ export function BranchGraph({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {expanded && nodes && totalBranches > nodes.length && (
+        <div className="branch-graph-trimmed">
+          Showing the {nodes.length} most recent of {totalBranches} branches
         </div>
       )}
     </div>

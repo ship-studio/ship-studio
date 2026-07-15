@@ -216,15 +216,26 @@ export interface BranchGraphNode {
   pushed: boolean;
 }
 
+/** The rendered branch-graph subset plus the true branch count. */
+export interface BranchGraphResult {
+  nodes: BranchGraphNode[];
+  /** Total branches in the repo — may exceed nodes.length when trimmed. */
+  totalBranches: number;
+}
+
 /**
  * Build the branch-graph node list (branches + fork lineage + ahead/behind).
  * Local git only — no network. PR arrows are overlaid by the caller from its
  * existing (workspace-scoped) open-PR list.
  * @param projectPath - Absolute path to the project directory
+ * @param limit - Cap on rendered branches (current + default always included)
  */
-export async function getBranchGraph(projectPath: string): Promise<BranchGraphNode[]> {
-  const result = await invoke<
-    Array<{
+export async function getBranchGraph(
+  projectPath: string,
+  limit?: number
+): Promise<BranchGraphResult> {
+  const result = await invoke<{
+    nodes: Array<{
       name: string;
       base: string | null;
       is_current: boolean;
@@ -234,20 +245,24 @@ export async function getBranchGraph(projectPath: string): Promise<BranchGraphNo
       behind: number;
       last_commit_date: number;
       pushed: boolean;
-    }>
-  >('get_branch_graph', { projectPath });
+    }>;
+    total_branches: number;
+  }>('get_branch_graph', { projectPath, limit: limit ?? null });
 
-  return result.map((n) => ({
-    name: n.name,
-    base: n.base,
-    isCurrent: n.is_current,
-    isDefault: n.is_default,
-    isRemote: n.is_remote,
-    ahead: n.ahead,
-    behind: n.behind,
-    lastCommitDate: n.last_commit_date,
-    pushed: n.pushed,
-  }));
+  return {
+    totalBranches: result.total_branches,
+    nodes: result.nodes.map((n) => ({
+      name: n.name,
+      base: n.base,
+      isCurrent: n.is_current,
+      isDefault: n.is_default,
+      isRemote: n.is_remote,
+      ahead: n.ahead,
+      behind: n.behind,
+      lastCommitDate: n.last_commit_date,
+      pushed: n.pushed,
+    })),
+  };
 }
 
 /**
