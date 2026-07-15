@@ -8,9 +8,11 @@
 
 import { Button } from '../primitives/Button';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
-import { ChevronIcon, CheckIcon, FolderPlusIcon } from '../icons';
+import { ChevronIcon, CheckIcon, FolderPlusIcon, GridIcon, ListIcon } from '../icons';
 import { trackEvent } from '../../lib/analytics';
+import type { ProjectViewMode } from './ProjectGridView';
 
+/** Dashboard project sort keys. */
 export type SortOption = 'last_opened' | 'name';
 
 const SORT_LABELS: Record<SortOption, string> = {
@@ -18,21 +20,30 @@ const SORT_LABELS: Record<SortOption, string> = {
   name: 'Name',
 };
 
+/** Props for the dashboard section controls row. */
 export interface SearchAndSortProps {
   title: string;
   totalCount: number;
   sortBy: SortOption;
+  viewMode: ProjectViewMode;
   onSortChange: (option: SortOption) => void;
+  onViewModeChange: (mode: ProjectViewMode) => void;
   onNewFolder: () => void;
   /** Optional element rendered just after the title (e.g. a workspace chip). */
   titleAccessory?: React.ReactNode;
 }
 
+/**
+ * Renders dashboard sort, view-mode, and folder creation controls.
+ * @param props - Section label, active controls, and action callbacks.
+ */
 export function SearchAndSort({
   title,
   totalCount,
   sortBy,
+  viewMode,
   onSortChange,
+  onViewModeChange,
   onNewFolder,
   titleAccessory,
 }: SearchAndSortProps) {
@@ -45,6 +56,32 @@ export function SearchAndSort({
         {titleAccessory}
       </div>
       <div className="dashboard-section-controls">
+        <div className="dashboard-view-toggle" role="group" aria-label="Project view">
+          <Button
+            variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="dashboard-view-toggle-btn"
+            aria-pressed={viewMode === 'grid'}
+            aria-label="Grid view"
+            title="Grid view"
+            onClick={() => onViewModeChange('grid')}
+          >
+            <GridIcon size={14} />
+            <span className="dashboard-view-toggle-label">Grid</span>
+          </Button>
+          <Button
+            variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="dashboard-view-toggle-btn"
+            aria-pressed={viewMode === 'list'}
+            aria-label="List view"
+            title="List view"
+            onClick={() => onViewModeChange('list')}
+          >
+            <ListIcon size={14} />
+            <span className="dashboard-view-toggle-label">List</span>
+          </Button>
+        </div>
         <Dropdown
           align="right"
           menuClassName="sort-dropdown-menu"
