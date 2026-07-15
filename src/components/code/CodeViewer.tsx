@@ -22,6 +22,7 @@ import { ChevronIcon, CodeIcon, FileIcon, VSCodeIcon, CursorIcon, CopyIcon } fro
 import { trackEvent } from '../../lib/analytics';
 import { fileExtensionForAnalytics } from '../../lib/code';
 import { CodeFileEditor } from './CodeFileEditor';
+import { basename } from '../../lib/paths';
 import type { SaveResult } from '../../hooks/useFileTree';
 
 interface CodeViewerProps {
@@ -201,11 +202,16 @@ export function CodeViewer({
       const result = await onSave();
       // 'noop' (read mode / clean buffer) is silent — only a real save toasts.
       if (result === 'saved') showToast('Saved', 'success');
-      else if (result === 'error') showToast('Failed to save file', 'error');
+      else if (result !== 'noop') {
+        // Failure carries the real error from the write — show it, not a
+        // canned string (it's also mirrored in the saveError banner below).
+        const name = filePath ? basename(filePath) : 'file';
+        showToast(`Couldn't save ${name}: ${result.error}`, 'error');
+      }
     } finally {
       saveInFlightRef.current = false;
     }
-  }, [onSave, showToast]);
+  }, [onSave, showToast, filePath]);
 
   // No file selected
   if (!filePath) {

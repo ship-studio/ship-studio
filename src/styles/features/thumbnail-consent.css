@@ -1,0 +1,28 @@
+/* Thumbnail consent explainer (#160) — shown before the first automatic
+   project-thumbnail capture so the macOS screen-recording prompt never
+   appears without context. */
+
+.thumbnail-consent-modal {
+  max-width: 440px;
+}
+
+.thumbnail-consent-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+}
+
+.thumbnail-consent-body p {
+  margin: 0;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.thumbnail-consent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}

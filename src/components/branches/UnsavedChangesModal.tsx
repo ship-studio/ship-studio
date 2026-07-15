@@ -15,6 +15,7 @@ import { publishBranch, discardChanges, switchBranch } from '../../lib/branches'
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface UnsavedChangesModalProps {
   /** Current branch name */
@@ -54,7 +55,7 @@ export function UnsavedChangesModal({
         onToast?.(result.error || 'Failed to switch branch', 'error');
       }
     } catch (e) {
-      onToast?.(`Failed to publish: ${String(e)}`, 'error');
+      onToast?.(`Failed to publish: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setIsPublishing(false);
     }
@@ -73,7 +74,7 @@ export function UnsavedChangesModal({
         onToast?.(result.error || 'Failed to switch branch', 'error');
       }
     } catch (e) {
-      onToast?.(`Failed to discard changes: ${String(e)}`, 'error');
+      onToast?.(`Failed to discard changes: ${formatCommandError(asCommandError(e))}`, 'error');
     } finally {
       setIsDiscarding(false);
     }

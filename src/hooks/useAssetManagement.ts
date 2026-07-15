@@ -8,17 +8,20 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
 import {
   listAssets,
   uploadAsset,
   deleteAsset,
   renameAsset,
   createAssetFolder,
+  exportAsset,
   getAssetsRoot,
   setAssetsRoot,
   DEFAULT_ASSETS_ROOT,
   type Asset,
 } from '../lib/assets';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { trackEvent, trackError, trackSearch } from '../lib/analytics';
 import { logger } from '../lib/logger';
 
@@ -102,7 +105,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       onToast?.(`Assets folder set to ${saved}`, 'success');
     } catch (e) {
       trackError('assets_root_change', e, 'Workspace');
-      const msg = e instanceof Error ? e.message : 'Failed to change assets folder';
+      const msg = formatCommandError(asCommandError(e)) || 'Failed to change assets folder';
       setError(msg);
       onToast?.(msg, 'error');
     }
@@ -169,7 +172,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       );
     } catch (e) {
       trackError('asset_upload', e, 'Workspace');
-      const msg = e instanceof Error ? e.message : 'Failed to upload';
+      const msg = formatCommandError(asCommandError(e)) || 'Failed to upload';
       setError(msg);
       onToast?.(msg, 'error');
     } finally {
@@ -200,7 +203,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
         onToast?.(`Deleted ${asset.name}`, 'success');
       } catch (e) {
         trackError('asset_delete', e, 'Workspace');
-        const msg = e instanceof Error ? e.message : 'Failed to delete';
+        const msg = formatCommandError(asCommandError(e)) || 'Failed to delete';
         setError(msg);
         onToast?.(msg, 'error');
       } finally {
@@ -245,7 +248,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       onToast?.(`Renamed to ${renameValue.trim()}`, 'success');
     } catch (e) {
       trackError('asset_rename', e, 'Workspace');
-      const msg = e instanceof Error ? e.message : 'Failed to rename';
+      const msg = formatCommandError(asCommandError(e)) || 'Failed to rename';
       setError(msg);
       onToast?.(msg, 'error');
     } finally {
@@ -268,7 +271,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       onToast?.(`Created folder ${newFolderName.trim()}`, 'success');
     } catch (e) {
       trackError('asset_folder_create', e, 'Workspace');
-      const msg = e instanceof Error ? e.message : 'Failed to create folder';
+      const msg = formatCommandError(asCommandError(e)) || 'Failed to create folder';
       setError(msg);
       onToast?.(msg, 'error');
     } finally {
@@ -290,6 +293,27 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
       onToast?.(`Copied ${webPath}`, 'success');
     } catch (e) {
       logger.error('Failed to copy path', { error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  // Handle download: pick a destination via the native save dialog, then copy
+  // the asset there. The dialog already confirms replacement of an existing
+  // file, so the export runs with overwrite enabled.
+  const handleDownload = async (asset: Asset) => {
+    try {
+      const destination = await save({
+        defaultPath: asset.name,
+        title: `Download ${asset.name}`,
+      });
+      if (!destination) return; // user cancelled
+      const saved = await exportAsset(projectPath, asset.path, destination, true);
+      void trackEvent('asset_downloaded', { $screen_name: 'Workspace' });
+      onToast?.(`Saved to ${saved}`, 'success');
+    } catch (e) {
+      trackError('asset_download', e, 'Workspace');
+      const msg = formatCommandError(asCommandError(e));
+      setError(msg);
+      onToast?.(msg, 'error');
     }
   };
 
@@ -385,6 +409,7 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
     handleRename,
     handleCreateFolder,
     handleCopyPath,
+    handleDownload,
     navigateToFolder,
     handleDragEnter,
     handleDragLeave,

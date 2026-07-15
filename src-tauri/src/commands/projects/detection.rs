@@ -366,33 +366,115 @@ pub fn project_path_exists(path: String) -> Result<bool, CommandError> {
     Ok(resolved.exists())
 }
 
+/// Hard ceiling on page-scan recursion depth. Real route trees are a handful
+/// of levels deep; anything deeper is pathological (generated trees, junctions)
+/// and must not be allowed to grow the stack unboundedly — a stack overflow
+/// aborts the entire app, not just the command (issue #163).
+const MAX_SCAN_DEPTH: usize = 32;
+
+/// One directory entry surfaced to a recursive page scanner.
+struct ScanEntry {
+    path: std::path::PathBuf,
+    file_name: String,
+    is_dir: bool,
+}
+
+/// List `dir` for a recursive page scan, hardened against the failure modes
+/// that can take down the whole app or the whole scan:
+///
+/// - **Symlinked directories are never reported as directories** (via
+///   `DirEntry::file_type`, which does not follow symlinks). Following a
+///   self-referential symlink (`public/loop -> ..`) would recurse until stack
+///   overflow, which aborts the whole process — the crash class behind #163.
+/// - **Depth is capped** at [`MAX_SCAN_DEPTH`] so pathological nesting can't
+///   overflow the stack either; deeper directories are skipped with a warning.
+/// - **Unreadable subdirectories are skipped** (with a warning) instead of
+///   failing the entire scan; only a failure to read the scan root is an error,
+///   and that error carries the operation + path + underlying cause.
+fn read_scan_dir(dir: &std::path::Path, depth: usize) -> Result<Vec<ScanEntry>, String> {
+    if depth > MAX_SCAN_DEPTH {
+        tracing::warn!(
+            dir = %dir.display(),
+            depth,
+            "page scan reached depth limit; skipping deeper directories"
+        );
+        return Ok(Vec::new());
+    }
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if depth > 0 => {
+            tracing::warn!(
+                dir = %dir.display(),
+                error = %e,
+                "skipping unreadable directory during page scan"
+            );
+            return Ok(Vec::new());
+        }
+        Err(e) => {
+            return Err(format!(
+                "Failed to read directory '{}' during page scan: {e}",
+                dir.display()
+            ))
+        }
+    };
+
+    let mut out = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                tracing::warn!(
+                    dir = %dir.display(),
+                    error = %e,
+                    "skipping unreadable entry during page scan"
+                );
+                continue;
+            }
+        };
+        // `file_type()` does NOT follow symlinks: a symlink to a directory is
+        // reported as not-a-dir, so scanners never descend into it.
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        out.push(ScanEntry {
+            path: entry.path(),
+            file_name: entry.file_name().to_string_lossy().into_owned(),
+            is_dir,
+        });
+    }
+    Ok(out)
+}
+
 /// Scan Next.js pages (app/ directory with page.tsx/js/jsx files)
 pub(crate) fn scan_nextjs_pages(
     dir: &std::path::Path,
     base_dir: &std::path::Path,
 ) -> Result<Vec<PageInfo>, CommandError> {
     let mut pages = Vec::new();
-
     if !dir.exists() {
         return Ok(pages);
     }
+    scan_nextjs_pages_at(dir, base_dir, 0, &mut pages).map_err(CommandError::from)?;
+    Ok(pages)
+}
 
-    let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+fn scan_nextjs_pages_at(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+    depth: usize,
+    pages: &mut Vec<PageInfo>,
+) -> Result<(), String> {
+    for entry in read_scan_dir(dir, depth)? {
+        let path = entry.path;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            let dir_name = entry.file_name().to_string_lossy().to_string();
+        if entry.is_dir {
+            let dir_name = entry.file_name;
             if dir_name.starts_with('_') || dir_name.starts_with('.') || dir_name == "api" {
                 continue;
             }
 
-            let mut sub_pages = scan_nextjs_pages(&path, base_dir)?;
-            pages.append(&mut sub_pages);
+            scan_nextjs_pages_at(&path, base_dir, depth + 1, pages)?;
         } else {
-            let file_name = entry.file_name().to_string_lossy().to_string();
+            let file_name = entry.file_name;
             if file_name == "page.tsx" || file_name == "page.js" || file_name == "page.jsx" {
                 let parent = path.parent().unwrap_or(&path);
                 let relative = parent.strip_prefix(base_dir).unwrap_or(parent);
@@ -438,7 +520,7 @@ pub(crate) fn scan_nextjs_pages(
         }
     }
 
-    Ok(pages)
+    Ok(())
 }
 
 /// Scan SvelteKit pages (src/routes/ directory with +page.svelte files)
@@ -447,28 +529,32 @@ pub(crate) fn scan_sveltekit_pages(
     base_dir: &std::path::Path,
 ) -> Result<Vec<PageInfo>, String> {
     let mut pages = Vec::new();
-
     if !dir.exists() {
         return Ok(pages);
     }
+    scan_sveltekit_pages_at(dir, base_dir, 0, &mut pages)?;
+    Ok(pages)
+}
 
-    let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+fn scan_sveltekit_pages_at(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+    depth: usize,
+    pages: &mut Vec<PageInfo>,
+) -> Result<(), String> {
+    for entry in read_scan_dir(dir, depth)? {
+        let path = entry.path;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            let dir_name = entry.file_name().to_string_lossy().to_string();
+        if entry.is_dir {
+            let dir_name = entry.file_name;
             // Skip hidden directories and SvelteKit special directories
             if dir_name.starts_with('.') {
                 continue;
             }
 
-            let mut sub_pages = scan_sveltekit_pages(&path, base_dir)?;
-            pages.append(&mut sub_pages);
+            scan_sveltekit_pages_at(&path, base_dir, depth + 1, pages)?;
         } else {
-            let file_name = entry.file_name().to_string_lossy().to_string();
+            let file_name = entry.file_name;
             // SvelteKit uses +page.svelte for page components
             if file_name == "+page.svelte" {
                 let parent = path.parent().unwrap_or(&path);
@@ -510,7 +596,7 @@ pub(crate) fn scan_sveltekit_pages(
         }
     }
 
-    Ok(pages)
+    Ok(())
 }
 
 /// Scan Astro pages (src/pages/ directory with .astro files)
@@ -519,28 +605,32 @@ pub(crate) fn scan_astro_pages(
     base_dir: &std::path::Path,
 ) -> Result<Vec<PageInfo>, String> {
     let mut pages = Vec::new();
-
     if !dir.exists() {
         return Ok(pages);
     }
+    scan_astro_pages_at(dir, base_dir, 0, &mut pages)?;
+    Ok(pages)
+}
 
-    let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+fn scan_astro_pages_at(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+    depth: usize,
+    pages: &mut Vec<PageInfo>,
+) -> Result<(), String> {
+    for entry in read_scan_dir(dir, depth)? {
+        let path = entry.path;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            let dir_name = entry.file_name().to_string_lossy().to_string();
+        if entry.is_dir {
+            let dir_name = entry.file_name;
             // Skip hidden directories and special directories
             if dir_name.starts_with('.') || dir_name.starts_with('_') {
                 continue;
             }
 
-            let mut sub_pages = scan_astro_pages(&path, base_dir)?;
-            pages.append(&mut sub_pages);
+            scan_astro_pages_at(&path, base_dir, depth + 1, pages)?;
         } else {
-            let file_name = entry.file_name().to_string_lossy().to_string();
+            let file_name = entry.file_name;
             // Astro uses .astro, .md, and .mdx files for pages
             // index.astro maps to /
             if file_name.ends_with(".astro")
@@ -585,7 +675,7 @@ pub(crate) fn scan_astro_pages(
         }
     }
 
-    Ok(pages)
+    Ok(())
 }
 
 /// Scan Nuxt pages (pages/ directory with .vue files)
@@ -594,28 +684,32 @@ pub(crate) fn scan_nuxt_pages(
     base_dir: &std::path::Path,
 ) -> Result<Vec<PageInfo>, String> {
     let mut pages = Vec::new();
-
     if !dir.exists() {
         return Ok(pages);
     }
+    scan_nuxt_pages_at(dir, base_dir, 0, &mut pages)?;
+    Ok(pages)
+}
 
-    let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+fn scan_nuxt_pages_at(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+    depth: usize,
+    pages: &mut Vec<PageInfo>,
+) -> Result<(), String> {
+    for entry in read_scan_dir(dir, depth)? {
+        let path = entry.path;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            let dir_name = entry.file_name().to_string_lossy().to_string();
+        if entry.is_dir {
+            let dir_name = entry.file_name;
             // Skip hidden directories and underscore directories
             if dir_name.starts_with('.') || dir_name.starts_with('_') {
                 continue;
             }
 
-            let mut sub_pages = scan_nuxt_pages(&path, base_dir)?;
-            pages.append(&mut sub_pages);
+            scan_nuxt_pages_at(&path, base_dir, depth + 1, pages)?;
         } else {
-            let file_name = entry.file_name().to_string_lossy().to_string();
+            let file_name = entry.file_name;
             // Nuxt uses .vue files for pages
             if file_name.ends_with(".vue") {
                 let relative = path.strip_prefix(base_dir).unwrap_or(&path);
@@ -650,7 +744,7 @@ pub(crate) fn scan_nuxt_pages(
         }
     }
 
-    Ok(pages)
+    Ok(())
 }
 
 /// Scan for HTML files recursively and map them to routes
@@ -659,34 +753,32 @@ pub(crate) fn scan_html_pages(
     base_dir: &std::path::Path,
 ) -> Result<Vec<PageInfo>, String> {
     let mut pages = Vec::new();
-    scan_html_pages_recursive(dir, base_dir, &mut pages)?;
+    scan_html_pages_recursive(dir, base_dir, 0, &mut pages)?;
     Ok(pages)
 }
 
 fn scan_html_pages_recursive(
     dir: &std::path::Path,
     base_dir: &std::path::Path,
+    depth: usize,
     pages: &mut Vec<PageInfo>,
 ) -> Result<(), String> {
     if !dir.exists() {
         return Ok(());
     }
 
-    let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+    for entry in read_scan_dir(dir, depth)? {
+        let path = entry.path;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            let dir_name = entry.file_name().to_string_lossy().to_string();
+        if entry.is_dir {
+            let dir_name = entry.file_name;
             // Skip hidden dirs, node_modules, .git, .shipstudio, etc.
             if dir_name.starts_with('.') || dir_name == "node_modules" {
                 continue;
             }
-            scan_html_pages_recursive(&path, base_dir, pages)?;
+            scan_html_pages_recursive(&path, base_dir, depth + 1, pages)?;
         } else {
-            let file_name = entry.file_name().to_string_lossy().to_string();
+            let file_name = entry.file_name;
             if file_name.ends_with(".html") {
                 let relative = path.strip_prefix(base_dir).unwrap_or(&path);
                 let relative_str = relative.to_string_lossy();
@@ -1027,5 +1119,135 @@ mod tests {
         assert!(!has_html_files(tmp.path()));
         std::fs::write(tmp.path().join("index.html"), "").unwrap();
         assert!(has_html_files(tmp.path()));
+    }
+
+    /// Issue #163 crash class: a self-referential symlink used to make the
+    /// recursive scanners follow the cycle until stack overflow, which aborts
+    /// the entire app. The scan must terminate and still find real pages.
+    #[cfg(unix)]
+    #[test]
+    fn scan_html_pages_survives_symlink_loop() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "<html></html>").unwrap();
+        let sub = tmp.path().join("docs");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("about.html"), "<html></html>").unwrap();
+        // docs/loop -> project root: following it recurses forever.
+        std::os::unix::fs::symlink(tmp.path(), sub.join("loop")).unwrap();
+
+        let pages = scan_html_pages(tmp.path(), tmp.path()).expect("scan must not fail");
+        let routes: Vec<_> = pages.iter().map(|p| p.route.as_str()).collect();
+        assert!(routes.contains(&"/"));
+        assert!(routes.contains(&"/docs/about"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_nextjs_pages_survives_symlink_loop() {
+        let tmp = TempDir::new().unwrap();
+        let app = tmp.path().join("app");
+        std::fs::create_dir_all(app.join("about")).unwrap();
+        std::fs::write(app.join("page.tsx"), "export default ...").unwrap();
+        std::fs::write(app.join("about/page.tsx"), "export default ...").unwrap();
+        std::os::unix::fs::symlink(&app, app.join("about").join("loop")).unwrap();
+
+        let mut pages = scan_nextjs_pages(&app, &app).expect("scan must not fail");
+        sort_pages(&mut pages);
+        let routes: Vec<_> = pages.iter().map(|p| p.route.as_str()).collect();
+        assert_eq!(routes, vec!["/", "/about"]);
+    }
+
+    /// Even without symlinks, pathologically deep nesting must not overflow
+    /// the stack: directories beyond MAX_SCAN_DEPTH are skipped.
+    #[test]
+    fn scan_html_pages_caps_recursion_depth() {
+        let tmp = TempDir::new().unwrap();
+        let mut dir = tmp.path().to_path_buf();
+        for i in 0..(MAX_SCAN_DEPTH + 5) {
+            dir = dir.join(format!("d{i}"));
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("too-deep.html"), "").unwrap();
+        std::fs::write(tmp.path().join("index.html"), "").unwrap();
+
+        let pages = scan_html_pages(tmp.path(), tmp.path()).expect("scan must not fail");
+        let routes: Vec<_> = pages.iter().map(|p| p.route.as_str()).collect();
+        assert!(routes.contains(&"/"));
+        assert!(
+            !routes.iter().any(|r| r.contains("too-deep")),
+            "pages beyond the depth cap must be skipped, not crash the scan"
+        );
+    }
+
+    /// A filename that isn't valid UTF-8 must not panic the scan (names are
+    /// handled lossily and simply won't match page patterns).
+    #[cfg(unix)]
+    #[test]
+    fn scan_html_pages_handles_non_utf8_filename() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "").unwrap();
+        let bad_name = OsStr::from_bytes(b"bad-\xff\xfe-name");
+        if std::fs::write(tmp.path().join(bad_name), "").is_err() {
+            // Some filesystems (e.g. APFS on macOS) reject non-UTF-8 names
+            // outright, so the fixture can't exist there — nothing to test.
+            return;
+        }
+
+        let pages = scan_html_pages(tmp.path(), tmp.path()).expect("scan must not fail");
+        assert!(pages.iter().any(|p| p.route == "/"));
+    }
+
+    /// A permission-denied subdirectory must be skipped with a warning, not
+    /// fail (or crash) the whole page listing.
+    #[cfg(unix)]
+    #[test]
+    fn scan_html_pages_skips_unreadable_subdir() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "").unwrap();
+        let locked = tmp.path().join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::write(locked.join("secret.html"), "").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = scan_html_pages(tmp.path(), tmp.path());
+
+        // Restore permissions so TempDir cleanup succeeds regardless of outcome.
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let pages = result.expect("scan must not fail on an unreadable subdirectory");
+        let routes: Vec<_> = pages.iter().map(|p| p.route.as_str()).collect();
+        assert!(routes.contains(&"/"));
+        assert!(!routes.iter().any(|r| r.contains("secret")));
+    }
+
+    /// A scan root that can't be read at all must error with full context
+    /// (operation + path + cause) rather than a bare io message.
+    #[cfg(unix)]
+    #[test]
+    fn scan_root_read_failure_carries_path_context() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = scan_html_pages(&root, &root);
+
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let err = match result {
+            Ok(_) => panic!("unreadable scan root must error"),
+            Err(e) => e,
+        };
+        assert!(
+            err.contains(&root.display().to_string()),
+            "error must include the path, got: {err}"
+        );
     }
 }

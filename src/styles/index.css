@@ -10,6 +10,7 @@
 
 /* Features */
 @import './features/setup.css';
+@import './features/setup-agent-led.css';
 @import './features/project-list.css';
 @import './features/project-grid.css';
 @import './features/create-project.css';
@@ -24,6 +25,9 @@
 @import './features/workspace/compact-workspace.css';
 @import './features/toolbar.css';
 @import './features/preview.css';
+@import './features/preview-size.css';
+@import './features/agent-activity.css';
+@import './features/thumbnail-consent.css';
 @import './features/visual-editor.css';
 @import './features/visual-editor-image.css';
 @import './features/visual-editor-classes.css';

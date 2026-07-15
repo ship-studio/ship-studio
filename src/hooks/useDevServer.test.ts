@@ -275,6 +275,89 @@ describe('useDevServer', () => {
     });
   });
 
+  describe('unexpected dev-server exit (issue #161)', () => {
+    /** Mock a dev-server handle whose pty exposes onExit, capturing the exit
+     *  watcher's callback so tests can simulate an external death. */
+    async function mockDevServerWithExit() {
+      const { detectProjectType } = await import('../lib/static-server');
+      const project = await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('nextjs');
+      const captured: { exitCb?: (e: { exitCode: number }) => void } = {};
+      vi.mocked(project.startDevServer).mockResolvedValue({
+        pty: {
+          kill: vi.fn(),
+          onExit: (cb: (e: { exitCode: number }) => void) => {
+            captured.exitCb = cb;
+            return { dispose: vi.fn() };
+          },
+        },
+        stop: vi.fn().mockResolvedValue(undefined),
+      } as never);
+      return captured;
+    }
+
+    it('records the exit when the process dies externally; a respawn clears it', async () => {
+      const captured = await mockDevServerWithExit();
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'p', 3000, 'main');
+      });
+      expect(result.current.devServerUnexpectedExit).toBeNull();
+      expect(result.current.isServerRunning('/path/to/project')).toBe(true);
+
+      // External death — e.g. an agent in the terminal kills the port.
+      act(() => {
+        captured.exitCb?.({ exitCode: 137 });
+      });
+      expect(result.current.devServerUnexpectedExit).toMatchObject({ exitCode: 137 });
+      expect(result.current.isServerRunning('/path/to/project')).toBe(false);
+
+      // A fresh spawn supersedes the record.
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'p', 3000, 'main');
+      });
+      expect(result.current.devServerUnexpectedExit).toBeNull();
+      expect(result.current.isServerRunning('/path/to/project')).toBe(true);
+    });
+
+    it('does not record an exit for a stop Ship Studio initiated', async () => {
+      const captured = await mockDevServerWithExit();
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'p', 3000, 'main');
+      });
+      await act(async () => {
+        await result.current.stopServer('/path/to/project');
+      });
+      // The PTY's exit event fires after our own kill — must NOT be flagged.
+      act(() => {
+        captured.exitCb?.({ exitCode: 0 });
+      });
+      expect(result.current.devServerUnexpectedExit).toBeNull();
+    });
+
+    it('a restart clears the record before respawning', async () => {
+      const captured = await mockDevServerWithExit();
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'p', 3000, 'main');
+      });
+      act(() => {
+        captured.exitCb?.({ exitCode: 1 });
+      });
+      expect(result.current.devServerUnexpectedExit).not.toBeNull();
+
+      await act(async () => {
+        await result.current.handleRestartDevServer('/path/to/project');
+      });
+      expect(result.current.devServerUnexpectedExit).toBeNull();
+      expect(result.current.isServerRunning('/path/to/project')).toBe(true);
+    });
+  });
+
   describe('stopServer', () => {
     it('clears project type', async () => {
       const { result } = renderHook(() => useDevServer('/path/to/project'));

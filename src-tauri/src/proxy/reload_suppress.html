@@ -1,0 +1,137 @@
+<script id="ss-reload-suppress">
+(function () {
+  try {
+    if (window.__ssReloadSuppress) return;
+    window.__ssReloadSuppress = 1;
+    var Native = window.WebSocket;
+    if (!Native) return;
+
+    // Decide once per event whether it is a Vite `full-reload` that falls inside
+    // the editor's suppress window (`window.__ssSuppressUntil`, set on ss:commit).
+    // The verdict is memoized ON the event so every listener on the socket sees
+    // the same answer — without this, the first listener would consume the
+    // suppress window and later listeners would let the same reload through.
+    // Swallow-once: dropping a reload closes the window immediately, so a
+    // full-reload from an unrelated change (an agent editing files) still lands
+    // even when it races the editor's commit.
+    function shouldDrop(ev) {
+      if (ev.__ssDrop !== undefined) return ev.__ssDrop;
+      var drop = false;
+      if (
+        window.__ssSuppressUntil &&
+        Date.now() < window.__ssSuppressUntil &&
+        typeof ev.data === 'string'
+      ) {
+        try {
+          var msg = JSON.parse(ev.data);
+          drop = !!(msg && msg.type === 'full-reload');
+        } catch (e) {}
+      }
+      if (drop) window.__ssSuppressUntil = 0;
+      try {
+        Object.defineProperty(ev, '__ssDrop', { value: drop });
+      } catch (e) {
+        ev.__ssDrop = drop;
+      }
+      return drop;
+    }
+
+    // ---- HMR watchdog -------------------------------------------------
+    // A dead HMR socket is the silent killer: the page keeps rendering but
+    // stops receiving updates, and the user "fixes" it by restarting the dev
+    // server. Track HMR sockets (Vite's `vite-hmr` subprotocol, Next.js's
+    // `_next/webpack-hmr` path); if every one closes and no replacement is
+    // OPEN within 5s, tell the parent so it can health-check the server and
+    // reload the preview. Navigations tear this timer down with the document,
+    // so ordinary page loads never fire it.
+    var hmrLive = 0;
+    var hmrDownTimer = null;
+    function trackHmr(ws) {
+      ws.addEventListener('open', function () {
+        hmrLive++;
+        if (hmrDownTimer) {
+          clearTimeout(hmrDownTimer);
+          hmrDownTimer = null;
+        }
+      });
+      ws.addEventListener('close', function () {
+        hmrLive = Math.max(0, hmrLive - 1);
+        if (hmrLive > 0) return;
+        if (hmrDownTimer) clearTimeout(hmrDownTimer);
+        hmrDownTimer = setTimeout(function () {
+          hmrDownTimer = null;
+          if (hmrLive === 0) {
+            try {
+              window.parent.postMessage({ type: 'shipstudio:hmr-down' }, '*');
+            } catch (e) {}
+          }
+        }, 5000);
+      });
+    }
+
+    function Wrapped(url, protocols) {
+      var ws = arguments.length > 1 ? new Native(url, protocols) : new Native(url);
+      var isVite =
+        protocols === 'vite-hmr' || (protocols && ('' + protocols).indexOf('vite-hmr') >= 0);
+      if (isVite || ('' + url).indexOf('_next/webpack-hmr') >= 0) trackHmr(ws);
+      if (!isVite) return ws;
+
+      var nativeAdd = ws.addEventListener.bind(ws);
+      var nativeRemove = ws.removeEventListener.bind(ws);
+
+      // Original handler -> filtered wrapper, so removeEventListener can hand
+      // the native API the exact function that was registered.
+      var filters = new Map();
+      function filterFor(handler) {
+        var existing = filters.get(handler);
+        if (existing) return existing;
+        var filtered = function (ev) {
+          if (shouldDrop(ev)) return;
+          return typeof handler === 'function' ? handler.call(ws, ev) : handler.handleEvent(ev);
+        };
+        filters.set(handler, filtered);
+        return filtered;
+      }
+      ws.addEventListener = function (type, handler, opts) {
+        if (type !== 'message' || !handler) return nativeAdd(type, handler, opts);
+        return nativeAdd(type, filterFor(handler), opts);
+      };
+      ws.removeEventListener = function (type, handler, opts) {
+        if (type !== 'message' || !handler) return nativeRemove(type, handler, opts);
+        var filtered = filters.get(handler);
+        if (filtered) filters.delete(handler);
+        return nativeRemove(type, filtered || handler, opts);
+      };
+
+      // `onmessage` routes through ONE persistent dispatcher; the setter only
+      // swaps the stored handler. (Re-registering per assignment stacks stale
+      // handlers — every reassignment used to add another listener.)
+      var onmsg = null;
+      nativeAdd('message', function (ev) {
+        if (!onmsg || shouldDrop(ev)) return;
+        return onmsg.call(ws, ev);
+      });
+      try {
+        Object.defineProperty(ws, 'onmessage', {
+          configurable: true,
+          get: function () {
+            return onmsg;
+          },
+          set: function (h) {
+            onmsg = typeof h === 'function' ? h : null;
+          },
+        });
+      } catch (e) {}
+      return ws;
+    }
+    Wrapped.prototype = Native.prototype;
+    try {
+      Wrapped.CONNECTING = Native.CONNECTING;
+      Wrapped.OPEN = Native.OPEN;
+      Wrapped.CLOSING = Native.CLOSING;
+      Wrapped.CLOSED = Native.CLOSED;
+    } catch (e) {}
+    window.WebSocket = Wrapped;
+  } catch (e) {}
+})();
+</script>

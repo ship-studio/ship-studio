@@ -27,6 +27,7 @@ import {
   setBranchPrefixPreference,
   getDefaultBaseBranch,
   pushBranch,
+  sanitizeBranchName,
 } from '../../lib/branches';
 import { gitPull } from '../../lib/git';
 import { BranchIcon, PlusIcon, TrashIcon } from '../icons';
@@ -137,11 +138,16 @@ export function BranchesTab({
   const [newBranchName, setNewBranchName] = useState('');
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [prefixUsername, setPrefixUsername] = useState(true);
+<<<<<<< HEAD
   // The project's configured default base branch (e.g. "develop"); falls back to
   // the repo's default (main/master). Used as the default when cutting a branch.
   const [defaultBaseBranch, setDefaultBaseBranch] = useState<string | null>(null);
   // The base branch the new branch will be cut from (user-selectable).
   const [baseBranch, setBaseBranch] = useState<string>('');
+=======
+  // What the typed name becomes after sanitization (e.g. "adjust h2" → "adjust-h2")
+  const sanitizedNewBranchName = sanitizeBranchName(newBranchName);
+>>>>>>> origin/main
   // Set when create fails because uncommitted changes would be overwritten by
   // the checkout — drives the commit-or-stash modal.
   const [createConflict, setCreateConflict] = useState<{
@@ -324,12 +330,13 @@ export function BranchesTab({
   };
 
   const handleCreateBranch = async () => {
-    if (!newBranchName.trim()) return;
+    // Sanitize instead of rejecting: "adjust h2" becomes "adjust-h2"
+    let branchName = sanitizeBranchName(newBranchName);
+    if (!branchName) return;
 
     setIsCreatingBranch(true);
     try {
       // Prefix with username if checkbox is checked
-      let branchName = newBranchName.trim();
       if (prefixUsername && githubUsername) {
         branchName = `${githubUsername}/${branchName}`;
       }
@@ -498,6 +505,7 @@ export function BranchesTab({
                 spellCheck={false}
               />
             </div>
+<<<<<<< HEAD
             {baseBranchOptions.length > 0 && (
               <label className="branches-new-branch-base">
                 <span className="branches-new-branch-base-label">Branch from</span>
@@ -514,6 +522,16 @@ export function BranchesTab({
                   ))}
                 </select>
               </label>
+=======
+            {sanitizedNewBranchName && sanitizedNewBranchName !== newBranchName.trim() && (
+              <div className="branches-new-branch-hint">
+                will be created as:{' '}
+                <span className="branches-new-branch-hint-name">
+                  {prefixUsername && githubUsername ? `${githubUsername}/` : ''}
+                  {sanitizedNewBranchName}
+                </span>
+              </div>
+>>>>>>> origin/main
             )}
             <div className="branches-new-branch-footer">
               {githubUsername && (
@@ -541,7 +559,7 @@ export function BranchesTab({
                   variant="primary"
                   size="sm"
                   onClick={() => void handleCreateBranch()}
-                  disabled={!newBranchName.trim() || isCreatingBranch}
+                  disabled={!sanitizedNewBranchName || isCreatingBranch}
                 >
                   {isCreatingBranch ? 'Creating...' : 'Create'}
                 </Button>

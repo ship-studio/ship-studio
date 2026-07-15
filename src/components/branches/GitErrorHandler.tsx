@@ -63,7 +63,7 @@ export function GitErrorHandler({
         return {
           title: 'Merge conflict',
           description:
-            'Someone else changed the same files you modified. You can resolve these conflicts visually or ask Claude for help.',
+            'Someone else changed the same files you modified. You can resolve these conflicts visually or hand them to your agent.',
           claudePrompt: `I have merge conflicts on branch "${branchName}". Please help me:
 1. Show me which files have conflicts
 2. Guide me through resolving them
@@ -112,7 +112,7 @@ Please help me understand what went wrong and how to fix it.`,
         <p className="git-error-description">{errorInfo.description}</p>
 
         <div className="git-error-prompt-section">
-          <div className="git-error-prompt-label">Ask Claude to help:</div>
+          <div className="git-error-prompt-label">Ask your agent to help:</div>
           <div className="git-error-prompt">{errorInfo.claudePrompt}</div>
         </div>
       </div>
@@ -128,6 +128,11 @@ Please help me understand what went wrong and how to fix it.`,
             >
               Copy Prompt
             </Button>
+            {onSendToClaude && (
+              <Button variant="secondary" size="sm" onClick={handleSendToClaude}>
+                Send to Agent
+              </Button>
+            )}
             <Button variant="primary" size="sm" onClick={onResolveConflicts}>
               Resolve Conflicts
             </Button>
@@ -144,7 +149,7 @@ Please help me understand what went wrong and how to fix it.`,
             </Button>
             {onSendToClaude && (
               <Button variant="primary" size="sm" onClick={handleSendToClaude}>
-                Send to Claude
+                Send to Agent
               </Button>
             )}
           </>

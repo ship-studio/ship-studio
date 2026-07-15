@@ -11,6 +11,7 @@
 //! - **Utilities**: Screenshots, IDE launcher, prerequisite checks
 
 pub mod agent;
+pub mod agent_bridge;
 pub mod cache;
 pub mod commands;
 pub mod errors;
@@ -118,6 +119,18 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
+            // Start the agent preview bridge (global loopback MCP server) at
+            // launch so it's listening before any agent session spawns —
+            // registrations from previous runs stay valid from second zero.
+            {
+                let handle = _app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = agent_bridge::start_global_agent_bridge(handle).await {
+                        tracing::error!("[AgentBridge] Failed to start global bridge: {}", e);
+                    }
+                });
+            }
+
             // Point the Android mirror bridge at the bundled scrcpy-server jar (its
             // low-latency video source). If the resource is missing, the bridge
             // falls back to a system scrcpy install, then to screenrecord.
@@ -276,7 +289,8 @@ pub fn run() {
                 let label = window.label().to_string();
                 tracing::info!("Window {} destroyed, cleaning up", label);
 
-                // Stop preview proxy and static server for this window
+                // Stop preview proxy and static server for this window (the
+                // agent bridge is global — it lives for the app's lifetime)
                 proxy::stop_preview_proxy(&label);
                 static_server::stop_static_server(&label);
 
@@ -316,6 +330,13 @@ pub fn run() {
                     // Mobile previews are torn down per-window above
                     // (teardown_mobile_previews_for_window_sync), so there's no
                     // global sim shutdown to do here.
+                }
+
+                // The agent bridge serves EVERY window (one global MCP server),
+                // so it must outlive the main window: project windows still
+                // need their preview tools after main closes.
+                if remaining_windows == 0 {
+                    agent_bridge::stop_all_agent_bridges();
                 }
             }
         })
@@ -384,6 +405,7 @@ pub fn run() {
             commands::edit::resolve_classname_source,
             commands::edit::apply_classname_edit,
             commands::edit::apply_classname_edit_multi,
+            commands::edit::insert_class_attr,
             commands::edit::resolve_text_source,
             commands::edit::apply_text_edit,
             commands::edit::resolve_image_source,
@@ -486,6 +508,8 @@ pub fn run() {
             commands::settings::set_slack_cta_hidden,
             commands::settings::get_terminal_gpu_enabled,
             commands::settings::set_terminal_gpu_enabled,
+            commands::settings::get_thumbnails_enabled,
+            commands::settings::set_thumbnails_enabled,
             // Accounts (Workspaces)
             commands::accounts::list_accounts,
             commands::accounts::create_account,
@@ -580,6 +604,12 @@ pub fn run() {
             // Static File Server
             commands::static_server::start_static_server,
             commands::static_server::stop_static_server,
+            // Agent Preview Bridge (MCP server for the workspace agent)
+            commands::agent_bridge::get_agent_bridge_url,
+            commands::agent_bridge::get_agent_bridge_active_url,
+            commands::agent_bridge::register_cursor_mcp,
+            commands::agent_bridge::agent_bridge_attach,
+            commands::agent_bridge::agent_bridge_respond,
             // Project Type Detection
             commands::projects::detect_project_type_command,
             commands::projects::project_path_exists,
@@ -617,12 +647,14 @@ pub fn run() {
             commands::pty_session::pty_session_resize,
             commands::pty_session::pty_session_kill,
             commands::pty_session::pty_session_attach,
+            commands::pty_session::pty_session_detach,
             commands::pty_session::pty_session_list,
             // Community Templates
             commands::templates::fetch_community_templates,
             commands::templates::download_template_zip,
             // Setup/Onboarding
             commands::setup::get_full_setup_status,
+            commands::setup::resolve_cli_path,
             commands::setup::install_homebrew,
             commands::setup::install_node_via_brew,
             commands::setup::install_git_via_brew,
@@ -637,6 +669,12 @@ pub fn run() {
             commands::setup::get_system_arch,
             commands::setup::install_version,
             commands::setup::quick_setup_check,
+            commands::setup::get_onboarding_test_mode,
+            commands::setup::mock_mark_setup_item_ready,
+            commands::setup::set_external_agent_opt_in,
+            commands::setup::set_default_host,
+            commands::setup::get_default_host,
+            commands::setup::ensure_agent_workdir,
             commands::setup::mark_setup_complete,
             commands::setup::reset_setup_state,
             commands::setup::get_default_agent_id,
@@ -657,6 +695,7 @@ pub fn run() {
             commands::assets::delete_asset,
             commands::assets::rename_asset,
             commands::assets::create_asset_folder,
+            commands::assets::export_asset,
             // Code Health
             commands::health::detect_health_scripts,
             commands::health::run_health_script,
@@ -705,6 +744,9 @@ pub fn run() {
             commands::window::start_window_drag,
             commands::window::focus_window,
             commands::window::set_window_title,
+            // Clipboard (Windows terminal paste)
+            commands::clipboard::read_clipboard_text,
+            commands::clipboard::stage_clipboard_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

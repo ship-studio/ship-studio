@@ -14,6 +14,8 @@ import { PinIcon, ChevronIcon } from '../icons';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { setAlwaysOnTop } from '../../lib/window';
 import { logger } from '../../lib/logger';
+import { isMac } from '../../lib/setup';
+import { kbd } from '../../lib/shortcuts';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 
 interface Props {
@@ -35,7 +37,10 @@ const topbarStyle: Style = {
   width: '100vw',
   height: 36,
   boxSizing: 'border-box',
-  paddingLeft: 78, // reserves space under the macOS traffic lights
+  // Reserve space under the macOS traffic lights (overlay title bar). Windows
+  // and Linux use native decorations — there are no traffic lights to clear —
+  // so an 8px gutter avoids a big empty gap at the window's top-left.
+  paddingLeft: isMac() ? 78 : 8,
   paddingRight: 8,
   background: 'var(--bg-secondary)',
   borderBottom: '1px solid var(--border)',
@@ -185,7 +190,7 @@ export function CompactTopbar({
           title="Open command palette"
           aria-label="Open command palette"
         >
-          ⌘K
+          {kbd('mod', 'K')}
         </button>
         <div
           style={pickerWrapperStyle}

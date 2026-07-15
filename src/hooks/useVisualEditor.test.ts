@@ -16,6 +16,7 @@ vi.mock('../lib/edit', async (importActual) => {
     resolveClassnameSource: vi.fn(),
     applyClassnameEdit: vi.fn(),
     applyClassnameEditMulti: vi.fn(),
+    insertClassAttr: vi.fn(),
   };
 });
 
@@ -36,6 +37,7 @@ import {
   resolveClassnameSource,
   applyClassnameEdit,
   applyClassnameEditMulti,
+  insertClassAttr,
   BASE_BREAKPOINT,
   DEFAULT_BREAKPOINTS,
 } from '../lib/edit';
@@ -186,6 +188,54 @@ describe('useVisualEditor auto-save', () => {
     expect(localStorage.getItem('ss:visualEditor:autoSave')).toBe('1');
     act(() => result.current.toggleAutoSave());
     expect(localStorage.getItem('ss:visualEditor:autoSave')).toBe('0');
+  });
+});
+
+describe('useVisualEditor addFirstClass (class-less elements)', () => {
+  it('inserts the first class, then re-resolves so the panel gains full controls', async () => {
+    // Mirror the backend: an empty className resolves to `no_class`; once a class
+    // exists, it resolves normally.
+    (resolveClassnameSource as Fn).mockImplementation((_p: string, sig: { className: string }) =>
+      Promise.resolve(
+        sig.className.trim() === ''
+          ? { status: 'no_class' }
+          : {
+              status: 'resolved',
+              file: 'app/page.tsx',
+              line: 1,
+              column: 1,
+              class_name: sig.className,
+              confidence: 'unique',
+            }
+      )
+    );
+    (insertClassAttr as Fn).mockResolvedValue({ file: 'app/page.tsx', line: 1, column: 6 });
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('', iframeRef.current!.contentWindow!);
+    expect(result.current.selection?.resolution).toEqual({ status: 'no_class' });
+
+    await act(async () => {
+      await result.current.addFirstClass('mt-4');
+    });
+
+    expect(insertClassAttr).toHaveBeenCalledWith(
+      '/proj',
+      expect.objectContaining({ className: '' }),
+      'mt-4'
+    );
+    // Re-resolved with the inserted class as the new source anchor.
+    expect(result.current.selection?.resolution).toMatchObject({
+      status: 'resolved',
+      class_name: 'mt-4',
+    });
+    expect(result.current.currentClass).toBe('mt-4');
+    // The live preview received the mutate + commit for the new class.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the postMessage mock's calls, not invoking it bound
+    const post = iframeRef.current!.contentWindow!.postMessage as Fn;
+    const calls = post.mock.calls as Array<[{ type?: string; className?: string }]>;
+    expect(calls.some((c) => c[0]?.type === 'ss:mutate' && c[0]?.className === 'mt-4')).toBe(true);
+    expect(calls.some((c) => c[0]?.type === 'ss:commit')).toBe(true);
   });
 });
 

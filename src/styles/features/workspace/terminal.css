@@ -18,7 +18,7 @@
 /* Collapse "Agent Settings" to its gear icon at the SAME window width as the
    header's label collapse (workspace/main.css) so every toolbar label drops to
    icon-only in unison. Keep this breakpoint in sync with that one. */
-@media (max-width: 1300px) {
+@media (max-width: 1600px) {
   .terminal-tabs-bar .toolbar-btn-label {
     display: none;
   }

@@ -139,6 +139,48 @@ export async function discardChanges(projectPath: string): Promise<void> {
 }
 
 /**
+ * Sanitize user input into a valid git branch name.
+ *
+ * Rather than rejecting names like "adjust h2", we normalize them into
+ * something git accepts ("adjust-h2"):
+ * - trims and collapses whitespace runs into a single `-`
+ * - strips characters invalid in git refs (`~ ^ : ? * [ ] \` and `@{`)
+ * - collapses `..` runs into a single `.`
+ * - collapses repeated `-` / `/`
+ * - strips leading/trailing `/` and `.`, and a trailing `.lock`
+ *
+ * An input with nothing salvageable returns an empty string — callers must
+ * treat that the same as an empty input.
+ *
+ * @param name - Raw user input
+ * @returns A git-safe branch name, or an empty string
+ */
+export function sanitizeBranchName(name: string): string {
+  let sanitized = name
+    .trim()
+    .replace(/\s+/g, '-') // whitespace runs → single dash
+    // eslint-disable-next-line no-control-regex
+    .replace(/[~^:?*[\]\\\x00-\x1f\x7f]/g, '') // chars git forbids in refs
+    .replace(/@\{/g, '') // "@{" sequence is invalid in refs
+    .replace(/\.\.+/g, '.') // ".." is invalid in refs
+    .replace(/-+/g, '-') // collapse repeated dashes
+    .replace(/\/+/g, '/'); // collapse repeated slashes
+
+  // Stripping one thing can expose another (e.g. "name..lock" → "name.lock"
+  // → "name"), so repeat until stable.
+  for (;;) {
+    const next = sanitized
+      .replace(/^[/.]+/, '') // leading slashes/dots
+      .replace(/[/.]+$/, '') // trailing slashes/dots
+      .replace(/\.lock$/, ''); // git refuses refs ending in ".lock"
+    if (next === sanitized) break;
+    sanitized = next;
+  }
+
+  return sanitized;
+}
+
+/**
  * Create a new branch from a base branch.
  * @param projectPath - Absolute path to the project directory
  * @param branchName - Name for the new branch
@@ -372,10 +414,11 @@ export async function closePullRequest(projectPath: string, prNumber: number): P
  * This can result in merge conflicts if local and remote changes overlap.
  * @param projectPath - Absolute path to the project directory
  * @param mergeBranch - Optional branch to merge (e.g., "main"). If not provided, pulls from upstream.
+ * @returns Git's own summary output (e.g. "Already up to date." or merge/fast-forward stats)
  * @throws Error with MERGE_CONFLICT prefix if conflicts occur
  */
-export async function pullAndMerge(projectPath: string, mergeBranch?: string): Promise<void> {
-  return invoke('pull_and_merge', { projectPath, mergeBranch });
+export async function pullAndMerge(projectPath: string, mergeBranch?: string): Promise<string> {
+  return invoke<string>('pull_and_merge', { projectPath, mergeBranch });
 }
 
 /**

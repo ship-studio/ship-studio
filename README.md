@@ -50,8 +50,9 @@ lives on your machine, not on our servers.
   resolution UI.
 - **Deploys** — Push to staging or production on Vercel with one click;
   auto-deploys on every push.
-- **Projects Dashboard** — Visual cards with automatic screenshot
-  thumbnails, folders, pinned hot sessions, and multi-window support.
+- **Projects Dashboard** — Visual cards and a dense list view with bulk
+  selection, automatic screenshot thumbnails, folders, pinned hot sessions,
+  and multi-window support.
 - **Snapshots & Backups** — Create and restore project snapshots when an
   agent goes off the rails.
 - **Command Palette** — Cmd+K for every action in the app.

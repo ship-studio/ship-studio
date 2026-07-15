@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { trackEvent } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { UploadIcon } from '../icons';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
@@ -146,8 +147,15 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
       } catch (err) {
         // Surface the failure (don't block the modal) — a silent catch left the
         // button snapping back to "Continue" with no explanation.
-        logger.error('Failed to download community template', { error: err });
-        setError("Couldn't download that template. Check your connection and try again.");
+        const detail = formatCommandError(asCommandError(err));
+        logger.error('Failed to download community template', {
+          template: selectedCommunityTemplate.name,
+          error: detail,
+        });
+        setError(
+          `Couldn't download "${selectedCommunityTemplate.name}": ${detail}. ` +
+            'Check your connection and try again.'
+        );
       } finally {
         setDownloading(false);
       }

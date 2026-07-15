@@ -137,7 +137,8 @@ export function ScreenshotPreviewModal({ filePath, onClose }: ScreenshotPreviewM
         )}
       </div>
       <div className="screenshot-preview-footer">
-        <span className="screenshot-preview-path">{filePath.split('/').pop()}</span>
+        {/* Separator-agnostic basename: Windows paths use backslashes */}
+        <span className="screenshot-preview-path">{filePath.split(/[\\/]/).pop()}</span>
       </div>
     </ModalFrame>
   );

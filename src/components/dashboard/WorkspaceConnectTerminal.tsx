@@ -18,6 +18,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { loadNerdFonts } from '../../lib/fonts';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import {
   workspaceConnectStart,
   workspaceConnectWrite,
@@ -139,7 +140,9 @@ export function WorkspaceConnectTerminal({
         });
       } catch (err) {
         logger.warn('[WorkspaceConnectTerminal] failed to start connect', { error: String(err) });
-        term.write(`\r\n\x1b[31mCouldn't start login: ${String(err)}\x1b[0m\r\n`);
+        term.write(
+          `\r\n\x1b[31mCouldn't start login: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
+        );
         return;
       }
 

@@ -11,6 +11,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { ColorPicker } from './ColorPicker';
 import { colorSwatch, parseNumericValue, formatNumericValue } from '../../lib/cssProperties';
 
@@ -84,6 +85,26 @@ export function EditPopover({ anchor, initial, options, placeholder, onCommit, o
 
   // Escape cancels; click-away commits the current value. Clicks inside the popover
   // or its portaled sub-menus (the color format dropdown) don't dismiss.
+  // The popover is only mounted while open, so `open` is simply `true` here.
+  useDismissOnOutsidePointer(
+    true,
+    popRef,
+    () => {
+      onCommit(textRef.current);
+      onClose();
+    },
+    {
+      event: 'mousedown',
+      isOutside: (target) => {
+        const t = target as HTMLElement;
+        if (popRef.current?.contains(t)) return false;
+        // Clicking the anchor again is a toggle — let its own onClick close us.
+        if (anchor?.contains(t)) return false;
+        if (t.closest?.('.ss-enum__menu, .ss-color-popover')) return false;
+        return true;
+      },
+    }
+  );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -91,22 +112,9 @@ export function EditPopover({ anchor, initial, options, placeholder, onCommit, o
         onClose();
       }
     };
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (popRef.current?.contains(t)) return;
-      // Clicking the anchor again is a toggle — let its own onClick close us.
-      if (anchor?.contains(t)) return;
-      if (t.closest?.('.ss-enum__menu, .ss-color-popover')) return;
-      onCommit(textRef.current);
-      onClose();
-    };
     document.addEventListener('keydown', onKey, true);
-    document.addEventListener('mousedown', onDown, true);
-    return () => {
-      document.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('mousedown', onDown, true);
-    };
-  }, [onClose, onCommit, anchor]);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
 
   if (!pos) return null;
   return createPortal(
@@ -181,6 +189,16 @@ export function EditPopover({ anchor, initial, options, placeholder, onCommit, o
                   } else if (e.key === 'ArrowUp' && showMenu) {
                     e.preventDefault();
                     setActive((a) => Math.max(a - 1, 0));
+                  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                    // Menu closed: step a numeric value (same conventions as
+                    // drag-to-scrub) and live-apply. Non-numeric values keep
+                    // the default caret behavior.
+                    const next = stepNumericValue(text, e.key === 'ArrowUp' ? 1 : -1, e);
+                    if (next === null) return;
+                    e.preventDefault();
+                    setText(next);
+                    setActive(0);
+                    onCommit(next); // live-apply, like scrubbing
                   }
                 }}
               />
@@ -224,6 +242,22 @@ function magnitudeStep(v: number): number {
   if (a < 100) return 1; //  10–99  → 1 / px
   if (a < 1000) return 10; // 100–999 → 10 / px
   return 100; //              1000+   → 100 / px
+}
+
+/** One keyboard step of a numeric value: the magnitude-aware base step with
+ *  Shift ×10 / Alt ÷10 — the same conventions as drag-to-scrub. Preserves the
+ *  unit; null when the value isn't a single number (keyword, color, calc(…)). */
+function stepNumericValue(
+  value: string,
+  dir: 1 | -1,
+  mods: { shiftKey: boolean; altKey: boolean }
+): string | null {
+  const p = parseNumericValue(value);
+  if (!p) return null;
+  const base = magnitudeStep(p.num);
+  const step = mods.shiftKey ? base * 10 : mods.altKey ? base / 10 : base;
+  const stepDecimals = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
+  return formatNumericValue(p.num + dir * step, p.unit, Math.max(p.decimals, stepDecimals));
 }
 
 /** Drag-to-scrub a numeric value (devtools-style). Horizontal drag adjusts the

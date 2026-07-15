@@ -45,6 +45,32 @@
 
 .toast-message {
   flex: 1;
+  /* Long error payloads (multi-line stderr) scroll instead of clipping. */
+  max-height: 40vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Copy-to-clipboard affordance on error toasts — lets the user paste the
+   full error into Slack/a bug report instead of screenshotting it. */
+.toast-copy {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.toast-copy:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .toast-close {

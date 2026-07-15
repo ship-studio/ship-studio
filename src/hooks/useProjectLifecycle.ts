@@ -68,6 +68,7 @@ import { trackEvent, trackError, setActiveProject } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { getProjectId } from '../lib/projectIdentity';
 import { startProjectSession, endProjectSession } from '../lib/session';
+import { basename } from '../lib/paths';
 
 import type { AppView } from '../lib/types';
 
@@ -795,9 +796,9 @@ export function useProjectLifecycle({
     try {
       await restartDevServer(cfg.projectPath);
     } catch (err) {
-      logger.error('[Install] Post-install dev server restart failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const detail = formatCommandError(asCommandError(err));
+      logger.error('[Install] Post-install dev server restart failed', { error: detail });
+      showToast(`Installed, but the dev server didn't restart: ${detail}`, 'error');
     }
   };
 
@@ -830,7 +831,7 @@ export function useProjectLifecycle({
 
   const handleProjectCreated = async (projectPath: string) => {
     setShowCreateModal(false);
-    const projectName = projectPath.split('/').pop() || 'project';
+    const projectName = basename(projectPath) || 'project';
     void trackEvent('project_created', {
       project_name: projectName,
       source: 'new',
@@ -848,7 +849,7 @@ export function useProjectLifecycle({
 
   const handleProjectImported = async (projectPath: string) => {
     setImportView('none');
-    const projectName = projectPath.split('/').pop() || 'project';
+    const projectName = basename(projectPath) || 'project';
     void trackEvent('project_imported', {
       project_name: projectName,
       source: 'github',
@@ -863,7 +864,7 @@ export function useProjectLifecycle({
     try {
       const path = await registerExternalProject();
       if (path) {
-        const projectName = path.split('/').pop() || 'project';
+        const projectName = basename(path) || 'project';
         void trackEvent('project_imported', {
           project_name: projectName,
           source: 'local_folder',

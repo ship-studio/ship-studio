@@ -82,6 +82,7 @@
 
   /* RGB triplets — for alpha tints only: rgba(var(--error-rgb), 0.1).
    * Keep each in sync with its solid token above. */
+  --action-rgb: 84, 227, 110;
   --success-rgb: 78, 205, 196;
   --success-light-rgb: 34, 197, 94;
   --action-rgb: 84, 227, 110;
@@ -152,6 +153,10 @@
   --radius: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  /* Pill shape for wide elements (chips, badges). --radius-full is 50% and
+     only correct for square elements (circles) — on a wide chip it draws an
+     ellipse. */
+  --radius-pill: 999px;
   --radius-full: 50%;
 
   /* Z-index scale (use these — never raw numbers)
@@ -279,6 +284,36 @@ body {
   color: var(--text-primary);
 }
 
+/* Themed scrollbars everywhere. Without a global default, WebKit paints the
+   classic system scrollbar (a fat light bar on our dark UI) on any unstyled
+   scroll container whenever macOS is set to always show scroll bars — which
+   it is automatically for anyone using a mouse. Feature-scoped
+   ::-webkit-scrollbar rules override this where they exist. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px; /* css-ok: pill thumb */
+  border: 2px solid transparent; /* css-ok: inset gutter */
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Compact mode wrapper - transparent background to show rounded corners */
 body.compact-mode-active {
   background: transparent;
@@ -305,6 +340,30 @@ body.compact-mode-active html {
 .app-logo {
   height: 48px;
   width: auto;
+}
+
+/* Boot watchdog — replaces the loading spinner when the app is still stuck
+   on the loading view after BOOT_WATCHDOG_MS (see BootLoadingScreen.tsx). */
+.boot-watchdog {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+  max-width: 420px;
+  padding: 0 var(--spacing-lg);
+  text-align: center;
+}
+
+.boot-watchdog p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+}
+
+.boot-watchdog .boot-watchdog-hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 
 /* Spinner */

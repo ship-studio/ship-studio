@@ -19,6 +19,7 @@ import { Update } from '@tauri-apps/plugin-updater';
 import { checkForUpdate, downloadAndInstall, restartApp, UpdateInfo } from '../lib/updater';
 import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { Button } from './primitives/Button';
 import '../styles/features/update-banner.css';
 
@@ -119,9 +120,12 @@ export function UpdateBanner() {
     try {
       await restartApp();
     } catch (err) {
-      logger.warn('[UpdateBanner] Restart failed');
+      // Keep the underlying detail (mirrors the download-failure handler
+      // above, which extracts message + cause) and tell the user what to do.
+      const detail = formatCommandError(asCommandError(err));
+      logger.warn('[UpdateBanner] Restart failed', { error: detail });
       trackError('app_restart', err, 'Dashboard');
-      setError('Failed to restart. Please restart manually.');
+      setError(`Couldn't restart the app: ${detail}. Please quit and reopen Ship Studio manually.`);
     }
   }, []);
 
