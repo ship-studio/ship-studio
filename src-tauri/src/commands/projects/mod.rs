@@ -935,9 +935,22 @@ fn remove_dir_all_robust(path: &Path) -> std::io::Result<()> {
         return Ok(());
     }
 
-    // Clear read-only attributes once up front (Windows refuses to delete
-    // read-only files; git objects and some packages ship them). Best-effort:
-    // a partial chmod still lets most of the tree go.
+    // Fast path first: on a healthy tree remove_dir_all just works, and the
+    // chmod walk below stats every file — seconds of pure overhead on a large
+    // node_modules if paid unconditionally.
+    let first_err = match std::fs::remove_dir_all(path) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    tracing::info!(
+        "remove_dir_all failed ({}), retrying with read-only clearing: {}",
+        path.display(),
+        first_err
+    );
+
+    // Clear read-only attributes (Windows refuses to delete read-only files;
+    // git objects and some packages ship them). Best-effort: a partial chmod
+    // still lets most of the tree go.
     if let Err(e) = make_writable_recursive(path) {
         tracing::warn!(
             "Failed to set write permissions recursively on {}: {}",
