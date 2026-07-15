@@ -244,7 +244,7 @@ export function BranchGraph({
   const baseOptions = useMemo(() => Array.from(new Set(branches.map((b) => b.name))), [branches]);
 
   return (
-    <div className="branch-graph" ref={wrapRef}>
+    <div className={`branch-graph${expanded ? ' is-open' : ''}`} ref={wrapRef}>
       <div className="branch-graph-header">
         <button
           type="button"
@@ -271,23 +271,28 @@ export function BranchGraph({
               <ResetIcon size={14} />
             </button>
           )}
-          {baseOptions.length > 0 && (
+          {expanded && baseOptions.length > 0 && (
             <label className="branch-graph-default-base">
               <span>Default base</span>
-              <select
-                className="branch-graph-default-base-select"
-                value={defaultBase ?? ''}
-                onChange={(e) => void handleDefaultBaseChange(e.target.value)}
-              >
-                {defaultBase && !baseOptions.includes(defaultBase) && (
-                  <option value={defaultBase}>{defaultBase}</option>
-                )}
-                {baseOptions.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+              <span className="branch-graph-select-wrap">
+                <select
+                  className="branch-graph-default-base-select"
+                  value={defaultBase ?? ''}
+                  onChange={(e) => void handleDefaultBaseChange(e.target.value)}
+                >
+                  {defaultBase && !baseOptions.includes(defaultBase) && (
+                    <option value={defaultBase}>{defaultBase}</option>
+                  )}
+                  {baseOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <span className="branch-graph-select-caret" aria-hidden>
+                  ▾
+                </span>
+              </span>
             </label>
           )}
         </div>

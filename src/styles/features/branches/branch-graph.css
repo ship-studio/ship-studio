@@ -13,6 +13,11 @@
   justify-content: space-between;
   gap: var(--spacing-md);
   padding: 10px 14px;
+}
+
+/* Header divider only when the body below it is visible — collapsed, it
+   doubled up with the card's own bottom border. */
+.branch-graph.is-open .branch-graph-header {
   border-bottom: 1px solid var(--border);
 }
 
@@ -66,8 +71,18 @@
   color: var(--text-muted);
 }
 
+.branch-graph-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Flat app-styled select — appearance:none drops the native macOS chrome;
+   the sibling caret span stands in for the indicator. */
 .branch-graph-default-base-select {
-  padding: 4px 8px;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 4px 22px 4px 8px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -77,8 +92,21 @@
   outline: none;
 }
 
+.branch-graph-default-base-select:hover {
+  border-color: var(--text-muted);
+}
+
 .branch-graph-default-base-select:focus {
   border-color: var(--action);
+}
+
+.branch-graph-select-caret {
+  position: absolute;
+  right: 8px;
+  pointer-events: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1;
 }
 
 .branch-graph-loading,
@@ -211,7 +239,9 @@
   text-anchor: middle;
 }
 
-/* Collapsible header */
+/* Collapsible header. The toggle must not pick up the global button hover
+   pill — the whole row already reads as one control; feedback is the title
+   brightening and the chevron. */
 .branch-graph-toggle {
   display: inline-flex;
   align-items: center;
@@ -219,11 +249,21 @@
   padding: 0;
   background: none;
   border: none;
+  border-radius: 0;
   cursor: pointer;
   color: var(--text-secondary);
 }
 
+.branch-graph-toggle:hover,
+.branch-graph-toggle:focus-visible {
+  background: none;
+}
+
 .branch-graph-toggle:hover .branch-graph-title {
+  color: var(--text-primary);
+}
+
+.branch-graph-toggle:hover .branch-graph-chevron {
   color: var(--text-primary);
 }
 

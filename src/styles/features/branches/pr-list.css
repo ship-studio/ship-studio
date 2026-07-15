@@ -185,11 +185,10 @@
   margin-bottom: 0;
 }
 
-/* One small green mark, not a green card: the inset bar says "you are here"
-   while the card itself stays neutral — green is reserved for current + PR. */
+/* The current branch reads as "filled": the card is the only filled one in
+   the list, and it carries the "you are here" label — no color needed. */
 .branch-card.current {
   background: var(--bg-tertiary);
-  box-shadow: inset 3px 0 0 0 var(--action);
 }
 
 /* Non-current cards switch to their branch when clicked. */
