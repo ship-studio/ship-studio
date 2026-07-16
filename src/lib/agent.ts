@@ -10,6 +10,8 @@
  * @module lib/agent
  */
 
+import { isWindows } from './setup';
+
 /** Configuration for an AI coding agent integrated with Ship Studio. */
 export interface AgentConfig {
   /** Unique identifier (e.g., "claude-code") */
@@ -100,8 +102,8 @@ export const CURSOR: AgentConfig = {
 export const TERMINAL: AgentConfig = {
   id: 'terminal',
   displayName: 'Terminal',
-  binaryName: '/bin/zsh',
-  processName: 'zsh',
+  binaryName: isWindows() ? 'powershell.exe' : '/bin/zsh',
+  processName: isWindows() ? 'powershell' : 'zsh',
   autoAcceptFlag: null,
   supportsSkills: false,
   supportsMcp: false,

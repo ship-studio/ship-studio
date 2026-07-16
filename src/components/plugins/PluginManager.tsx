@@ -28,6 +28,7 @@ import {
 } from '../../lib/plugins';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 import { useModal } from '../../contexts/ModalContext';
+import { useOptionalToast } from '../../contexts/ToastContext';
 import { PluginInstallForm } from './PluginInstallForm';
 import { Spinner } from '../primitives/Spinner';
 import { PluginStatusGrid } from './PluginStatusGrid';
@@ -47,6 +48,7 @@ export function PluginManager({
   loadedPlugins = [],
 }: PluginManagerProps) {
   const { isOpen, close: onClose } = useModal('pluginManager');
+  const { showToast } = useOptionalToast();
   const [activeTab, setActiveTab] = useState<Tab>('installed');
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -258,7 +260,11 @@ export function PluginManager({
       logger.error('Failed to install plugin', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(formatCommandError(asCommandError(err)));
+      const msg = formatCommandError(asCommandError(err));
+      setError(msg);
+      // Toast too — the inline error renders below the plugin list, off-screen
+      // in a long library, so a failure otherwise looks like nothing happened.
+      showToast(msg, 'error');
       setInstallingId(null);
     }
   };
@@ -285,7 +291,9 @@ export function PluginManager({
       logger.error('Failed to install plugin from URL', {
         error: err instanceof Error ? err.message : String(err),
       });
-      setError(formatCommandError(asCommandError(err)));
+      const msg = formatCommandError(asCommandError(err));
+      setError(msg);
+      showToast(msg, 'error');
     } finally {
       setIsInstallingUrl(false);
     }

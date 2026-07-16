@@ -22,7 +22,7 @@ pub use plugin_lifecycle::*;
 pub use plugin_storage::*;
 
 use crate::errors::CommandError;
-use crate::utils::{create_command, get_extended_path, validate_project_path};
+use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -312,7 +312,13 @@ pub(crate) fn read_manifest(plugin_dir: &std::path::Path) -> Result<PluginManife
 
 /// Read the HEAD commit hash from a git repo directory
 pub(crate) fn read_git_head(repo_dir: &PathBuf) -> String {
-    let output = create_command("git")
+    // Resolve git to a full path — a bare "git" with an overridden PATH can fail
+    // to spawn on Windows even when git is installed. A missing commit hash is
+    // non-fatal here (update checks fall back to "update available").
+    let Some(git) = find_executable("git") else {
+        return String::new();
+    };
+    let output = create_command(&git)
         .args(["rev-parse", "HEAD"])
         .current_dir(repo_dir)
         .env("PATH", get_extended_path())
