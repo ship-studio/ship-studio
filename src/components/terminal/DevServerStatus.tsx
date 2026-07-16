@@ -37,6 +37,15 @@ interface DevServerStatusProps {
   onStop: () => void;
   /** Restart the connect loop from attempt 0. */
   onRetry: () => void;
+  /** The dev-server process is known-dead (its exit watcher fired and nothing
+   *  respawned it). Re-polling the port can't recover from this — the card
+   *  swaps Retry for a real process restart and says what happened. */
+  processExited?: boolean;
+  /** Exit code observed by the watcher, when known. */
+  exitCode?: number | null;
+  /** Restart the managed dev-server process (kill port → clear cache →
+   *  respawn). Only offered when `processExited` is set. */
+  onRestartServer?: () => void;
   /** Hand the stuck server + logs to the agent. Absent when no agent is wired. */
   onFixWithAgent?: () => void;
   /** Type into the dev-server PTY — CLIs like `shopify theme dev` block on
@@ -68,9 +77,10 @@ function keyToPtyData(e: React.KeyboardEvent): string | null {
   }
 }
 
-function title(phase: DevServerPhase, isStatic: boolean): string {
+function title(phase: DevServerPhase, isStatic: boolean, processExited: boolean): string {
   if (phase === 'loading') return isStatic ? 'Starting preview…' : 'Starting dev server…';
   if (phase === 'stopped') return 'Stopped waiting';
+  if (processExited && !isStatic) return 'Dev server stopped';
   return isStatic ? 'Could not start preview' : 'Could not connect to dev server';
 }
 
@@ -83,9 +93,16 @@ export function DevServerStatus({
   devServerOutput,
   onStop,
   onRetry,
+  processExited = false,
+  exitCode = null,
+  onRestartServer,
   onFixWithAgent,
   onInput,
 }: DevServerStatusProps) {
+  // Defensive gate: a static project serves off the static file server, not a
+  // PTY-managed process, so a stray processExited flag must never rebrand its
+  // error card as a dead dev-server process.
+  const processGone = processExited && !isStaticProject;
   const [logsOpen, setLogsOpen] = useState(true);
   const logBodyRef = useRef<HTMLPreElement>(null);
   // Whether the view is pinned to the bottom — true until the user scrolls up to
@@ -96,6 +113,14 @@ export function DevServerStatus({
     if (!devServerOutput) return '';
     return stripAnsi(devServerOutput).split('\n').slice(-LOG_TAIL_LINES).join('\n').trim();
   }, [devServerOutput]);
+
+  // Last non-empty output line — echoed into the error card so the likely
+  // cause (compile error, EADDRINUSE, crash message) is visible without
+  // expanding the logs.
+  const lastLogLine = useMemo(() => {
+    const lines = logTail.split('\n').filter((l) => l.trim().length > 0);
+    return lines.length > 0 ? lines[lines.length - 1].trim() : null;
+  }, [logTail]);
 
   // Follow the tail as new lines arrive (unless the user scrolled up).
   useEffect(() => {
@@ -143,14 +168,23 @@ export function DevServerStatus({
         </div>
       )}
 
-      <p className="preview-status__title">{title(phase, isStaticProject)}</p>
+      <p className="preview-status__title">{title(phase, isStaticProject, processGone)}</p>
 
       <p className="hint">
-        {phase === 'error' && !isStaticProject
-          ? 'It never responded — check the logs below or hand it to the agent.'
-          : phase === 'error' && isStaticProject
-            ? 'Make sure the project contains an index.html file.'
-            : `Waiting for localhost:${port}`}
+        {processGone
+          ? `The dev-server process is no longer running${
+              typeof exitCode === 'number' ? ` (exit code ${exitCode})` : ''
+            }. Something outside Ship Studio stopped it — often an AI agent in the terminal ` +
+            `running its own dev server or killing the port. ` +
+            `${onRestartServer ? 'Restart it to let Ship Studio take back over.' : 'Restart it from the toolbar to take back over.'}` +
+            `${lastLogLine ? ` Last output: “${lastLogLine}”.` : ''}`
+          : phase === 'error' && !isStaticProject
+            ? lastLogLine
+              ? `It never responded — last output: “${lastLogLine}”. Check the full logs below or hand it to the agent.`
+              : 'It never responded and produced no output — check the logs below or hand it to the agent.'
+            : phase === 'error' && isStaticProject
+              ? 'Make sure the project contains an index.html file.'
+              : `Waiting for localhost:${port}`}
       </p>
 
       {phase === 'loading' && retryCount > 0 && (
@@ -166,13 +200,25 @@ export function DevServerStatus({
           <Button variant="secondary" size="sm" onClick={onStop}>
             Stop
           </Button>
+        ) : processGone && onRestartServer ? (
+          // Poll-only Retry can't resurrect a dead process — offer the real
+          // restart pipeline instead (kill port → clear cache → respawn).
+          <Button variant="primary" size="sm" onClick={onRestartServer}>
+            Restart dev server
+          </Button>
         ) : (
           <Button variant="secondary" size="sm" onClick={onRetry}>
             Retry
           </Button>
         )}
         {onFixWithAgent && (
-          <Button variant="primary" size="sm" onClick={onFixWithAgent}>
+          <Button
+            variant={
+              phase !== 'loading' && processGone && onRestartServer ? 'secondary' : 'primary'
+            }
+            size="sm"
+            onClick={onFixWithAgent}
+          >
             Fix with agent
           </Button>
         )}

@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { PlusIcon } from '../icons/utility';
 import { CheckIcon, SearchIcon } from '../icons/common';
 import type { CustomClass } from '../../lib/customClasses';
@@ -129,16 +130,9 @@ export function ClassBar({
     };
   }, [open, reposition]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return;
-      close();
-    };
-    document.addEventListener('pointerdown', onDown, true);
-    return () => document.removeEventListener('pointerdown', onDown, true);
-  }, [open, close]);
+  useDismissOnOutsidePointer(open, menuRef, close, {
+    isOutside: (t) => !triggerRef.current?.contains(t) && !menuRef.current?.contains(t),
+  });
 
   const q = query.trim().toLowerCase();
   const matchedApplied = useMemo(

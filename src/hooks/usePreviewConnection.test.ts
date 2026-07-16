@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { usePreviewConnection } from './usePreviewConnection';
+import { IFRAME_BLANK_TIMEOUT_MS } from './previewIframeWatchdog';
 
 // The hook reaches for Tauri IPC, the proxy, analytics, and a logger on the
 // readiness path; stub them all so the test exercises only the fetch-probe loop.
@@ -153,5 +154,156 @@ describe('usePreviewConnection readiness probe', () => {
       unmount();
       await vi.advanceTimersByTimeAsync(0);
     });
+  });
+});
+
+describe('usePreviewConnection blank-iframe watchdog', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  /** Render the hook and drive it to the armed state: server ready, proxy up
+   *  (port 8080 per the invoke mock), iframe pointed at the proxy URL. */
+  async function renderReadyPreview() {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({} as Response));
+    const utils = renderHook(() => usePreviewConnection(baseParams));
+    // Mount settle timer (1.5s) → readiness probe resolves → serverReady.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    // Flush the proxy-start promise so proxyPort lands and the watchdog arms.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(utils.result.current.serverReady).toBe(true);
+    expect(utils.result.current.baseUrl).toBe('http://localhost:8080');
+    return utils;
+  }
+
+  /** Simulate a message posted by a script inside the preview iframe. */
+  function postFromPreview(type: string, origin = 'http://localhost:8080') {
+    window.dispatchEvent(new MessageEvent('message', { data: { type }, origin }));
+  }
+
+  async function teardown(unmount: () => void) {
+    await act(async () => {
+      unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  }
+
+  it('flags the pane blank when no proof-of-life arrives within the window', async () => {
+    const { result, unmount } = await renderReadyPreview();
+    expect(result.current.iframeBlank).toBe(false);
+
+    // This is the issue #179 shape: server healthy, proxy up, but the subframe
+    // load aborted (redirect loop) so the injected script never runs.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS);
+    });
+    expect(result.current.iframeBlank).toBe(true);
+
+    await teardown(unmount);
+  });
+
+  it('an alive (or navigate) message from the preview origin disarms the watchdog', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS / 2);
+      postFromPreview('shipstudio:alive');
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS * 2);
+    });
+    expect(result.current.iframeBlank).toBe(false);
+
+    await teardown(unmount);
+  });
+
+  it('ignores lookalike messages from a foreign origin', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    // A page NOT served by the preview (or a forged event) must not be able
+    // to silence the watchdog.
+    await act(async () => {
+      postFromPreview('shipstudio:alive', 'http://localhost:9999');
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS);
+    });
+    expect(result.current.iframeBlank).toBe(true);
+
+    await teardown(unmount);
+  });
+
+  it('refresh clears the overlay and re-arms the watchdog', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS);
+    });
+    expect(result.current.iframeBlank).toBe(true);
+
+    // Retry (the overlay's action) — overlay drops immediately, watchdog re-arms.
+    await act(async () => {
+      result.current.handleRefresh();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.iframeBlank).toBe(false);
+
+    // Still no proof after the fresh window → flags again.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS);
+    });
+    expect(result.current.iframeBlank).toBe(true);
+
+    // A late proof self-heals: the page finally rendered, overlay clears.
+    await act(async () => {
+      postFromPreview('shipstudio:navigate');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.iframeBlank).toBe(false);
+
+    await teardown(unmount);
+  });
+
+  it('a load hop after proof does not restart the watchdog', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    // Page proves life at parse time, then the iframe's load event fires —
+    // the proven document must not be re-timed (it will never post again).
+    await act(async () => {
+      postFromPreview('shipstudio:alive');
+      result.current.handleIframeLoad();
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS * 2);
+    });
+    expect(result.current.iframeBlank).toBe(false);
+
+    await teardown(unmount);
+  });
+
+  it('a load hop without proof re-arms a fresh window', async () => {
+    const { result, unmount } = await renderReadyPreview();
+
+    // Halfway through, an unproven document hop lands (e.g. a server redirect
+    // chain) — it gets a fresh full window rather than inheriting half of one…
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS / 2);
+      result.current.handleIframeLoad();
+      await vi.advanceTimersByTimeAsync(IFRAME_BLANK_TIMEOUT_MS - 1000);
+    });
+    expect(result.current.iframeBlank).toBe(false);
+
+    // …but still flags once that fresh window elapses with no proof.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(result.current.iframeBlank).toBe(true);
+
+    await teardown(unmount);
   });
 });

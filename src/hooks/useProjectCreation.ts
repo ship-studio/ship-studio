@@ -35,13 +35,20 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { trackError } from '../lib/analytics';
+import { friendlyProcessError } from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { checkNpmCachePermissions } from '../lib/setup';
 import { installPlugin, VERCEL_PLUGIN_REPO } from '../lib/plugins';
+import { basename } from '../lib/paths';
 
 // ---------------------------------------------------------------------------
 // Types & Constants
 // ---------------------------------------------------------------------------
+
+/** Extra PTY exit-code mappings specific to the creation flow (template scaffolds). */
+const CREATE_FLOW_EXIT_MESSAGES: Record<number, string> = {
+  69: 'Xcode Command Line Tools license has not been accepted. Open Terminal and run:\nsudo xcodebuild -license accept\n\nThen try creating the project again.',
+};
 
 /** Grouping for the template picker, so the grid isn't an undifferentiated list. */
 export type TemplateCategory = 'web' | 'mobile' | 'other';
@@ -70,16 +77,23 @@ function getDefaultTemplate(): Template {
     const found = TEMPLATES.find((t) => t.id === stored);
     if (found) return found;
   }
-  return TEMPLATES[0]; // Next.js
+  return TEMPLATES[0]; // Next.js (Tailwind)
 }
 
 /** Available project templates */
 export const TEMPLATES: Template[] = [
   {
     id: 'nextjs-basic',
-    name: 'Next.js',
+    name: 'Next.js (Tailwind)',
     description: 'The most flexible, especially for web apps. A great default if unsure.',
     repo: 'https://github.com/ship-studio/static-marketing-site-starter',
+    category: 'web',
+  },
+  {
+    id: 'nextjs-plain-css',
+    name: 'Next.js (Vanilla)',
+    description: 'Styled with vanilla CSS — best for people who write their own styles.',
+    repo: 'https://github.com/ship-studio/nextjs-plain-css-starter',
     category: 'web',
   },
   {
@@ -101,13 +115,6 @@ export const TEMPLATES: Template[] = [
     name: 'SvelteKit',
     description: 'Best for snappy, interactive apps with minimal JS and fast loads.',
     repo: 'https://github.com/ship-studio/sveltekit-static-marketing-site-starter',
-    category: 'web',
-  },
-  {
-    id: 'nuxt-basic',
-    name: 'Nuxt',
-    description: 'Best for Vue teams building full-stack apps with server rendering.',
-    repo: 'https://github.com/ship-studio/nuxt-static-marketing-site-starter',
     category: 'web',
   },
   {
@@ -235,7 +242,7 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
           if (event.payload.paths && event.payload.paths.length > 0) {
             const path = event.payload.paths[0];
             if (path.endsWith('.zip')) {
-              const fileName = path.split('/').pop() || 'template.zip';
+              const fileName = basename(path) || 'template.zip';
               setZipPath(path);
               setZipFileName(fileName);
               setZipFile(null); // Clear browser File object
@@ -310,26 +317,6 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
     });
   };
 
-  /** Map PTY exit codes to user-friendly error messages */
-  const getFriendlyError = (err: unknown): string => {
-    const msg = String(err);
-    const codeMatch = msg.match(/Process exited with code (\d+)/);
-    if (codeMatch) {
-      const code = parseInt(codeMatch[1]);
-      if (code === 243) {
-        return "npm couldn't access its cache directory (~/.npm). This usually happens when npm was previously run with sudo.\n\nTo fix, open a terminal and run:\nsudo chown -R $(whoami) ~/.npm";
-      }
-      if (code === 128) {
-        return "Git authentication failed. Make sure you're signed into GitHub.";
-      }
-      if (code === 69) {
-        return 'Xcode Command Line Tools license has not been accepted. Open Terminal and run:\nsudo xcodebuild -license accept\n\nThen try creating the project again.';
-      }
-    }
-    // Strip the "Error: " prefix that comes from Error.toString()
-    return msg.replace(/^Error:\s*/, '');
-  };
-
   /** Run npm install via PTY, with a pre-check for permissions */
   const runNpmInstall = async (projectPath: string) => {
     // Pre-check: verify npm cache is writable
@@ -371,7 +358,7 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
       onComplete(createdProjectPath);
     } catch (err) {
       trackError('project_install_retry', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err, CREATE_FLOW_EXIT_MESSAGES));
     }
   };
 
@@ -466,7 +453,7 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
       onComplete(projectPath);
     } catch (err) {
       trackError('project_create', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err, CREATE_FLOW_EXIT_MESSAGES));
     }
   };
 
@@ -554,7 +541,7 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
       onComplete(projectPath);
     } catch (err) {
       trackError('project_create_zip', err, 'Dashboard');
-      setError(getFriendlyError(err));
+      setError(friendlyProcessError(err, CREATE_FLOW_EXIT_MESSAGES));
     }
   };
 

@@ -77,6 +77,38 @@ export async function setTerminalGpuEnabled(enabled: boolean): Promise<void> {
   }
 }
 
+// ============ Project thumbnails (auto-capture consent) ============
+
+/**
+ * Consent state for automatic project-thumbnail capture.
+ * `null` = the user has never been asked (the in-app explainer is shown before
+ * the first auto-capture), `true` = allowed, `false` = opted out or a capture
+ * failed because macOS Screen Recording permission was denied.
+ */
+export type ThumbnailConsent = boolean | null;
+
+/**
+ * Get the project-thumbnail auto-capture consent. Falls back to `null`
+ * (undecided) on error so auto-capture stays deferred rather than triggering
+ * the macOS screen-recording prompt without context.
+ */
+export async function getThumbnailsEnabled(): Promise<ThumbnailConsent> {
+  try {
+    return await invoke<boolean | null>('get_thumbnails_enabled');
+  } catch {
+    return null;
+  }
+}
+
+/** Set the project-thumbnail auto-capture consent (persisted across sessions). */
+export async function setThumbnailsEnabled(enabled: boolean): Promise<void> {
+  try {
+    await invoke('set_thumbnails_enabled', { enabled });
+  } catch {
+    // Silently fail
+  }
+}
+
 // ============ Projects root directory ============
 
 /**

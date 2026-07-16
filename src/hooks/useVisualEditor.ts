@@ -38,6 +38,7 @@ import {
   resolveClassnameSource,
   applyClassnameEdit,
   applyClassnameEditMulti,
+  insertClassAttr,
   resolveImageSource,
   applySrcEdit,
   findComponentUsage,
@@ -75,6 +76,7 @@ import {
 } from '../lib/customClasses';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 /**
  * What the style controls currently edit:
@@ -357,7 +359,7 @@ export function useVisualEditor({
           }
         } catch (err) {
           logger.error('[VisualEditor] resolve failed', { error: String(err) });
-          onToast?.(String(err), 'error');
+          onToast?.(formatCommandError(asCommandError(err)), 'error');
           setSelection({
             signature: sig,
             resolution: {
@@ -475,16 +477,16 @@ export function useVisualEditor({
     [postMutate, setLiveClass, activeBreakpoint, known]
   );
 
-  /** Step a spacing utility (padding/margin/gap) by one unit at the active
-   *  breakpoint, computed from that layer's current value (so stepping `md:` reads
-   *  the md value, not base). Steps the scale integer, or a numeric arbitrary
+  /** Step a spacing utility (padding/margin/gap) by `step` units (default 1) at the
+   *  active breakpoint, computed from that layer's current value (so stepping `md:`
+   *  reads the md value, not base). Steps the scale integer, or a numeric arbitrary
    *  value's magnitude (keeping its unit). Drives a breakpoint-scoped preview rule. */
   const stepSpacing = useCallback(
-    (kind: SpacingKind, dir: 1 | -1) => {
+    (kind: SpacingKind, dir: 1 | -1, step = 1) => {
       const ctrl = SPACING_CONTROLS.find((c) => c.kind === kind);
       if (!ctrl) return;
       const scoped = tokensForVariant(currentClassRef.current, activeBreakpoint.prefix, known);
-      const next = stepSpacingValue(spacingValue(scoped, ctrl.prefix), dir);
+      const next = stepSpacingValue(spacingValue(scoped, ctrl.prefix), dir * step);
       applyToken(spacingTokenFor(ctrl.prefix, next), { [ctrl.css]: spacingCss(next) });
     },
     [applyToken, activeBreakpoint, known]
@@ -536,7 +538,7 @@ export function useVisualEditor({
           if (!opts?.silent) onToast?.('Class saved', 'success');
         } catch (err) {
           logger.error('[VisualEditor] class write-back failed', { error: String(err) });
-          onToast?.(String(err), 'error');
+          onToast?.(formatCommandError(asCommandError(err)), 'error');
         }
         return;
       }
@@ -584,7 +586,7 @@ export function useVisualEditor({
         if (!opts?.silent) onToast?.('Saved to source', 'success');
       } catch (err) {
         logger.error('[VisualEditor] write-back failed', { error: String(err) });
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [selection, projectPath, onToast, post, setEditTarget, recordCommit]
@@ -629,6 +631,39 @@ export function useVisualEditor({
     [selection, projectPath, onToast, post, setLiveClass]
   );
 
+  /** Add the FIRST class to a class-less element (a `no_class` resolution): the
+   *  element has no class literal in source to resolve or replace, so the backend
+   *  INSERTS a fresh class attribute on its open tag (located by ancestor/text
+   *  anchoring — it rejects with a specific reason rather than guess). On success,
+   *  re-resolve so the panel transitions from the no-class state to full controls. */
+  const addFirstClass = useCallback(
+    async (name: string) => {
+      const sig = selectedSigRef.current;
+      const n = name.trim().replace(/^\./, '');
+      if (!sig || !n) return;
+      // Arm reload suppression before writing (same reasoning as a class commit).
+      post({ type: 'ss:suppressReload' });
+      try {
+        await insertClassAttr(projectPath, sig, n);
+        const nextSig = { ...sig, className: n };
+        selectedSigRef.current = nextSig;
+        setLiveClass(n);
+        post({ type: 'ss:mutate', className: n, rules: [] });
+        post({ type: 'ss:commit' });
+        // The inserted literal is now the element's source anchor — re-resolve so
+        // the selection gains a real location and the full controls appear.
+        const resolution = await resolveClassnameSource(projectPath, nextSig);
+        setSelection((prev) => (prev ? { ...prev, signature: nextSig, resolution } : prev));
+        recordCommit('visual_class_added', { mode: 'tailwind', first: true });
+        onToast?.('Class added', 'success');
+      } catch (err) {
+        logger.error('[VisualEditor] add first class failed', { error: String(err) });
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
+      }
+    },
+    [projectPath, post, setLiveClass, onToast, recordCommit]
+  );
+
   /** The selected element's current className — read from the live class in
    *  element mode, or the (kept-fresh) signature while a class is being edited.
    *  The structural gestures below operate on THIS, never on a class's @apply. */
@@ -651,7 +686,7 @@ export function useVisualEditor({
         await writeElementClass([...current, name].join(' '));
         recordCommit('custom_class_applied');
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [currentElementClass, writeElementClass, onToast, recordCommit]
@@ -673,7 +708,7 @@ export function useVisualEditor({
         if (ok && wasEditing) editElement();
         recordCommit('custom_class_unapplied');
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [currentElementClass, writeElementClass, editElement, onToast, recordCommit]
@@ -715,7 +750,7 @@ export function useVisualEditor({
           onToast?.(`Kept ${[...unsafe].join(', ')} on the element (not a utility).`, 'success');
         }
       } catch (err) {
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
     [
@@ -769,7 +804,7 @@ export function useVisualEditor({
         onToast?.('Image replaced', 'success');
       } catch (err) {
         logger.error('[VisualEditor] image write-back failed', { error: String(err) });
-        onToast?.(String(err), 'error');
+        onToast?.(formatCommandError(asCommandError(err)), 'error');
         throw err;
       }
     },
@@ -858,6 +893,8 @@ export function useVisualEditor({
     customClasses,
     /** Whether a writable Tailwind entry stylesheet exists (gates create). */
     classEntryReady,
+    /** Insert the first class on a class-less element, then re-resolve. */
+    addFirstClass,
     /** Append an existing custom class to the element and edit it. */
     applyClass,
     /** Remove a custom class from the element (keeps it defined in CSS). */

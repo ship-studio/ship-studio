@@ -7,7 +7,12 @@
  * Live preview + write-back are handled by the hook's `setBoxSide`.
  */
 
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import {
   boxSide,
   readLayer,
@@ -63,9 +68,10 @@ function dragBaseOf(
 }
 
 /**
- * One side value. Three ways to change it:
+ * One side value. Four ways to change it:
  *  - drag along the bar's own axis (pulls outward to grow) — like a design tool,
  *  - scroll to scrub,
+ *  - ArrowUp/Down to step (Shift ×10, Alt fine),
  *  - click (selects all) then type a value or unit (10rem, 50%); Enter/blur applies.
  * Bad input (`40xyz`) marks the field invalid and isn't applied.
  */
@@ -94,6 +100,21 @@ function SideField({ value, onSet, cssProp, label, className, dir, inherited }: 
     setInvalid(false);
     onSet(parsed);
     return true;
+  };
+
+  /** One keyboard step: ArrowUp/Down = one drag tick, Shift ×10, Alt = fine
+   *  (÷10 on unit values; the Tailwind scale stays on whole steps). Steps the
+   *  typed text when it parses, else the live value — same commit path as drag. */
+  const onArrowStep = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    const parsed = parseSpacingInput(text, cssProp);
+    const cur = parsed.kind === 'invalid' ? value : parsed;
+    const base = dragBaseOf(cur);
+    if (!base) return; // non-numeric (calc(…)) — leave the caret alone
+    e.preventDefault();
+    const fine = cur?.kind === 'arbitrary' ? 0.1 : 1;
+    const step = e.shiftKey ? 10 : e.altKey ? fine : 1;
+    const dir = e.key === 'ArrowUp' ? 1 : -1;
+    onSet(base.build(Math.round((base.magnitude + dir * step) * 100) / 100));
   };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLInputElement>) => {
@@ -145,6 +166,7 @@ function SideField({ value, onSet, cssProp, label, className, dir, inherited }: 
       onFocus={(e) => e.target.select()}
       onKeyDown={(e) => {
         if (e.key === 'Enter') commit();
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') onArrowStep(e);
       }}
       onBlur={() => {
         // Apply if valid; otherwise drop the bad text back to the live value.

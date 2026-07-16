@@ -1,0 +1,402 @@
+/**
+ * Agent-led onboarding: mode router toggle, agent pick phase additions,
+ * guided setup layout (terminal + verification checklist), and the scripted
+ * demo terminal used under SHIPSTUDIO_FORCE_SETUP.
+ */
+
+:root {
+  /* Demo terminal accent hues — intentionally terminal-flavored one-offs. */
+  --alo-demo-cmd: #7dd3fc;
+  --alo-demo-ok: #23d18b;
+}
+
+/* ============ Mode router ============ */
+
+.onboarding-router {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  /* Flex column, like .app: .onboarding-screen relies on flex-shrink to be
+     bounded to the viewport so its own overflow-y:auto scrolls. As a plain
+     block child it grows past the viewport and the overflow is clipped
+     unscrollably. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Escape hatch, pinned in view at all times. */
+.onboarding-mode-toggle {
+  position: fixed;
+  top: var(--spacing-lg);
+  right: var(--spacing-lg);
+  z-index: var(--z-modal-overlay);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.onboarding-mode-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* ============ Agent pick grid (Phase 0) ============ */
+
+/* Wide enough for three cards per row; flex centering gives the 3 + 2 split. */
+.onboarding-content.agent-onboarding-content {
+  max-width: 600px; /* css-ok: layout max, three 170px cards + gaps */
+  width: 100%;
+}
+
+.agent-pick-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--spacing-md);
+}
+
+.agent-pick-card {
+  position: relative;
+  /* css-ok: fixed square card size, not a spacing-scale value */
+  width: 170px;
+  height: 170px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: center;
+  transition: all var(--transition);
+}
+
+.agent-pick-card:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+  transform: translateY(-1px); /* css-ok: hover lift, not spacing */
+}
+
+.agent-pick-card:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.agent-pick-card.detected-ready {
+  border-color: rgba(var(--action-rgb), 0.5);
+}
+
+.agent-pick-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* css-ok: icon tile size */
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--tint-subtle);
+}
+
+.agent-pick-card-name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.agent-pick-card-desc {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+/* Detection state, as a quiet caption under the description — no pill. */
+.agent-pick-card-status {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.agent-pick-card-status.ready {
+  color: var(--action);
+}
+
+/* ============ Agent setup detail (Phase 0, after a card click) ============ */
+
+.agent-setup-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.agent-setup-detail-back {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.agent-setup-detail-back:hover:not(:disabled) {
+  /* Text-color change only — override the global button hover background. */
+  background: none;
+  color: var(--text-primary);
+}
+
+.agent-setup-detail-back:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.agent-setup-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.agent-setup-detail-name {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.agent-setup-detail-sub {
+  margin: 2px 0 0; /* css-ok: optical nudge under the heading */
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* ============ "Other" prompt bar (guided phase) ============ */
+
+.agent-guided-prompt-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* ============ Guided phase layout ============ */
+
+/* The guided phase needs real estate for the terminal + checklist. */
+.onboarding-content.agent-guided-content {
+  max-width: 960px; /* css-ok: guided layout max (terminal + sidebar) */
+  width: 100%;
+}
+
+.agent-guided-header {
+  text-align: center;
+  margin-bottom: var(--spacing-xl);
+}
+
+.agent-guided-header .wizard-step-subtitle {
+  max-width: 520px; /* css-ok: readable line-length cap */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.agent-guided-layout {
+  display: flex;
+  gap: var(--spacing-lg);
+  align-items: stretch;
+}
+
+.agent-guided-terminal {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 420px; /* css-ok: terminal viewport height */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-primary);
+  /* Same left gutter the workspace gives Claude/Codex TUIs (terminal.css). */
+  padding-left: 12px; /* css-ok: matches .terminal-tab-content's 12px gutter */
+}
+
+.agent-guided-sidebar {
+  width: 260px; /* css-ok: checklist sidebar width */
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.agent-guided-exit-notice {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.agent-guided-complete {
+  padding: var(--spacing-md);
+  border: 1px solid rgba(var(--action-rgb), 0.4);
+  border-radius: var(--radius-md);
+  background: rgba(var(--action-rgb), 0.08);
+}
+
+.agent-guided-complete p {
+  margin: 0 0 var(--spacing-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* ============ Verification checklist ============ */
+
+.agent-setup-checklist {
+  padding: var(--spacing-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.agent-setup-checklist-title {
+  margin: 0 0 var(--spacing-xs);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.agent-setup-checklist-hint {
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.agent-setup-checklist-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.agent-setup-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  transition: color var(--transition);
+}
+
+.agent-setup-checklist-item.ready {
+  color: var(--text-primary);
+}
+
+.agent-setup-checklist-dot {
+  /* css-ok: checklist dot size */
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-full);
+}
+
+.agent-setup-checklist-footnote {
+  margin: var(--spacing-md) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* Muted "skip" card in the hosting grid. */
+.agent-pick-card-muted .agent-pick-card-icon {
+  color: var(--text-muted);
+}
+
+/* ============ Demo terminal (mock mode) ============ */
+
+.demo-agent-terminal {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--spacing-md);
+  background: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.demo-agent-terminal-badge {
+  display: inline-block;
+  margin-bottom: var(--spacing-md);
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  background: var(--tint);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.demo-agent-line {
+  margin-bottom: var(--spacing-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.demo-agent-line-agent {
+  color: var(--text-primary);
+}
+
+.demo-agent-line-cmd {
+  color: var(--alo-demo-cmd);
+}
+
+.demo-agent-line-out {
+  color: var(--text-muted);
+}
+
+.demo-agent-line-ok {
+  color: var(--alo-demo-ok);
+}
+
+.demo-agent-cursor {
+  display: inline-block;
+  /* css-ok: block-cursor glyph size in the demo terminal */
+  width: 8px;
+  height: 14px;
+  background: var(--text-secondary);
+  animation: alo-cursor-blink 1s step-end infinite;
+}
+
+@keyframes alo-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ============ Narrow windows ============ */
+
+@media (max-width: 900px) {
+  .agent-guided-layout {
+    flex-direction: column;
+  }
+
+  .agent-guided-sidebar {
+    width: 100%;
+  }
+}

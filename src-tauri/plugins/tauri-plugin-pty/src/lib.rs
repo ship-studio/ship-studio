@@ -30,6 +30,17 @@ struct Session {
 
 type PtyHandler = u32;
 
+/// Minimum PTY dimension. Windows ConPTY wedges (produces no output, or
+/// hangs the client) when created or resized at 0 rows/cols — which a
+/// caller can request when it spawns before its terminal widget has been
+/// measured. Clamp to a small sane floor; the real size follows via resize.
+const MIN_PTY_DIMENSION: u16 = 2;
+
+/// Clamp a requested PTY size to the minimum ConPTY tolerates.
+fn clamp_pty_size(rows: u16, cols: u16) -> (u16, u16) {
+    (rows.max(MIN_PTY_DIMENSION), cols.max(MIN_PTY_DIMENSION))
+}
+
 #[tauri::command]
 async fn spawn<R: Runtime>(
     file: String,
@@ -53,6 +64,7 @@ async fn spawn<R: Runtime>(
     let _ = flow_control_pause;
     let _ = flow_control_resume;
 
+    let (rows, cols) = clamp_pty_size(rows, cols);
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -65,7 +77,7 @@ async fn spawn<R: Runtime>(
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
     let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new(file);
+    let mut cmd = CommandBuilder::new(&file);
     cmd.args(args);
     if let Some(cwd) = cwd {
         cmd.cwd(OsString::from(cwd));
@@ -73,7 +85,12 @@ async fn spawn<R: Runtime>(
     for (k, v) in env.iter() {
         cmd.env(OsString::from(k), OsString::from(v));
     }
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    // Name the binary in the error — this string is what the frontend shows
+    // when a spawn fails (e.g. binary missing from the PTY's PATH).
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("Failed to start `{file}`: {e}"))?;
     let child_killer = child.clone_killer();
     let handler = state.session_id.fetch_add(1, Ordering::Relaxed);
 
@@ -126,11 +143,20 @@ async fn read(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<V
         .clone();
     tokio::task::spawn_blocking(move || {
         let mut buf = vec![0u8; 4096];
-        let n = session
-            .reader
-            .blocking_lock()
-            .read(&mut buf)
-            .map_err(|e| e.to_string())?;
+        let mut reader = session.reader.blocking_lock();
+        let n = loop {
+            match reader.read(&mut buf) {
+                Ok(n) => break n,
+                // A signal delivered to the process (e.g. SIGCHLD from any
+                // other exiting subprocess) can interrupt the blocking read.
+                // The frontend's read loop treats ANY error as fatal and
+                // stops reading forever, so a transient EINTR must be
+                // retried here — otherwise one stray signal permanently
+                // freezes the terminal mid-session.
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.to_string()),
+            }
+        };
         if n == 0 {
             // n == 0 on a blocking read means the PTY master side saw
             // the slave close (child process exited). Signal EOF so the
@@ -152,6 +178,7 @@ async fn resize(
     rows: u16,
     state: tauri::State<'_, PluginState>,
 ) -> Result<(), String> {
+    let (rows, cols) = clamp_pty_size(rows, cols);
     let session = state
         .sessions
         .read()
@@ -219,6 +246,21 @@ async fn exitstatus(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Re
     })
     .await
     .map_err(|e: tokio::task::JoinError| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_pty_size;
+
+    #[test]
+    fn clamp_pty_size_floors_zero_and_one() {
+        assert_eq!(clamp_pty_size(0, 0), (2, 2));
+        assert_eq!(clamp_pty_size(1, 0), (2, 2));
+        assert_eq!(clamp_pty_size(0, 120), (2, 120));
+        assert_eq!(clamp_pty_size(24, 1), (24, 2));
+        assert_eq!(clamp_pty_size(24, 80), (24, 80));
+        assert_eq!(clamp_pty_size(u16::MAX, u16::MAX), (u16::MAX, u16::MAX));
+    }
 }
 
 /// Initializes the plugin.

@@ -26,14 +26,17 @@ import { createWebLinksAddon } from '../../lib/terminalLinks';
 import {
   openPtySession,
   attachPtySession,
-  writePtySession,
+  writePtySessionLogged,
   resizePtySession,
+  detachPtySession,
   onPtySessionData,
   onPtySessionExit,
+  createAttachGate,
 } from '../../lib/ptySession';
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { loadNerdFonts } from '../../lib/fonts';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import '@xterm/xterm/css/xterm.css';
 
 interface BuildTerminalProps {
@@ -156,11 +159,16 @@ export function BuildTerminal({
 
     // User keystrokes → PTY (this is what makes prompts answerable).
     const inputDisposable = term.onData((data) => {
-      void writePtySession(sessionId, data);
+      writePtySessionLogged(sessionId, data);
     });
     disposers.push(() => inputDisposable.dispose());
 
-    // Open (idempotent) → attach (replay ring buffer) → subscribe to live feed.
+    // Open (idempotent) → subscribe to live feed → attach (replay ring
+    // buffer, then flush the gate). Subscribing BEFORE attaching matters:
+    // Tauri drops events with no registered listener, so the old
+    // attach-then-subscribe order could lose a chunk emitted between the
+    // snapshot and the subscription (issue #156). The offset gate drops the
+    // chunks the snapshot already covers, so nothing double-writes either.
     void (async () => {
       try {
         await openPtySession({
@@ -169,11 +177,40 @@ export function BuildTerminal({
           args: ['-lic', command],
           cwd,
           env: {},
-          cols: term.cols,
-          rows: term.rows,
+          // Clamp: spawning before layout settles can report 0-size, and a
+          // 0-size ConPTY produces no output at all (the backend clamps
+          // too; this keeps xterm and the PTY in agreement).
+          cols: Math.max(term.cols, 2),
+          rows: Math.max(term.rows, 2),
           projectPath: cwd,
         });
         if (cancelled) return;
+
+        const gate = createAttachGate((bytes) => {
+          term.write(bytes);
+          emitOutput(bytes);
+        });
+        const unlistenData = await onPtySessionData(sessionId, (bytes, offset) => {
+          if (cancelled) return;
+          gate.push(offset, bytes);
+        });
+        disposers.push(() => void unlistenData());
+
+        // Exit is parked until the snapshot replay so onOutput consumers see
+        // the build's final output before its exit classification.
+        let gateOpen = false;
+        let pendingExit: number | null = null;
+        let exitEventSeen = false;
+        const unlistenExit = await onPtySessionExit(sessionId, (exitCode) => {
+          if (cancelled) return;
+          exitEventSeen = true;
+          if (!gateOpen) {
+            pendingExit = exitCode;
+            return;
+          }
+          onExitRef.current?.(exitCode);
+        });
+        disposers.push(() => void unlistenExit());
 
         const attach = await attachPtySession(sessionId);
         if (cancelled) return;
@@ -181,26 +218,22 @@ export function BuildTerminal({
           term.write(attach.buffer);
           emitOutput(attach.buffer);
         }
-        // If it already exited before we attached, surface that immediately.
-        if (!attach.alive && attach.exitCode !== null) onExitRef.current?.(attach.exitCode);
-
-        const unlistenData = await onPtySessionData(sessionId, (bytes) => {
-          if (cancelled) return;
-          term.write(bytes);
-          emitOutput(bytes);
-        });
-        disposers.push(() => void unlistenData());
-
-        const unlistenExit = await onPtySessionExit(sessionId, (exitCode) => {
-          if (!cancelled) onExitRef.current?.(exitCode);
-        });
-        disposers.push(() => void unlistenExit());
+        gateOpen = true;
+        gate.open(attach.endOffset);
+        if (pendingExit !== null) {
+          onExitRef.current?.(pendingExit);
+        } else if (!attach.alive && attach.exitCode !== null && !exitEventSeen) {
+          // It exited before we even subscribed — surface that immediately.
+          onExitRef.current?.(attach.exitCode);
+        }
       } catch (err) {
         if (!cancelled) {
           logger.error('[BuildTerminal] failed to start build session', {
             error: err instanceof Error ? err.message : String(err),
           });
-          term.write(`\r\n\x1b[31mFailed to start build: ${String(err)}\x1b[0m\r\n`);
+          term.write(
+            `\r\n\x1b[31mFailed to start build: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
+          );
         }
       }
     })();
@@ -215,6 +248,7 @@ export function BuildTerminal({
     return () => {
       cancelled = true;
       resizeObserver.disconnect();
+      void detachPtySession(sessionId);
       for (const dispose of disposers) {
         try {
           dispose();

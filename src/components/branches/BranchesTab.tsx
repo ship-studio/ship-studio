@@ -25,6 +25,7 @@ import {
   formatRelativeTime,
   getBranchPrefixPreference,
   setBranchPrefixPreference,
+  sanitizeBranchName,
 } from '../../lib/branches';
 import { gitPull } from '../../lib/git';
 import { BranchIcon, PlusIcon } from '../icons';
@@ -95,6 +96,8 @@ export function BranchesTab({
   const [newBranchName, setNewBranchName] = useState('');
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [prefixUsername, setPrefixUsername] = useState(true);
+  // What the typed name becomes after sanitization (e.g. "adjust h2" → "adjust-h2")
+  const sanitizedNewBranchName = sanitizeBranchName(newBranchName);
   // Set when create fails because uncommitted changes would be overwritten by
   // the checkout — drives the commit-or-stash modal.
   const [createConflict, setCreateConflict] = useState<{
@@ -211,12 +214,13 @@ export function BranchesTab({
   };
 
   const handleCreateBranch = async () => {
-    if (!newBranchName.trim()) return;
+    // Sanitize instead of rejecting: "adjust h2" becomes "adjust-h2"
+    let branchName = sanitizeBranchName(newBranchName);
+    if (!branchName) return;
 
     setIsCreatingBranch(true);
     try {
       // Prefix with username if checkbox is checked
-      let branchName = newBranchName.trim();
       if (prefixUsername && githubUsername) {
         branchName = `${githubUsername}/${branchName}`;
       }
@@ -349,6 +353,15 @@ export function BranchesTab({
                 spellCheck={false}
               />
             </div>
+            {sanitizedNewBranchName && sanitizedNewBranchName !== newBranchName.trim() && (
+              <div className="branches-new-branch-hint">
+                will be created as:{' '}
+                <span className="branches-new-branch-hint-name">
+                  {prefixUsername && githubUsername ? `${githubUsername}/` : ''}
+                  {sanitizedNewBranchName}
+                </span>
+              </div>
+            )}
             <div className="branches-new-branch-footer">
               {githubUsername && (
                 <label className="branches-new-branch-checkbox">
@@ -375,7 +388,7 @@ export function BranchesTab({
                   variant="primary"
                   size="sm"
                   onClick={() => void handleCreateBranch()}
-                  disabled={!newBranchName.trim() || isCreatingBranch}
+                  disabled={!sanitizedNewBranchName || isCreatingBranch}
                 >
                   {isCreatingBranch ? 'Creating...' : 'Create'}
                 </Button>

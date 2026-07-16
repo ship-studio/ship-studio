@@ -8,6 +8,7 @@ import {
   shopifyAdminUrl,
 } from '../lib/shopify';
 import type { ProjectType } from '../lib/static-server';
+import { asCommandError, formatCommandError } from '../lib/errors';
 
 /**
  * Palette commands for Shopify theme projects. Called from `WorkspaceView`
@@ -78,7 +79,7 @@ export function useShopifyCommands({
             onSendToAgent(buildPushPrompt(store));
             showToast('Prompt pasted — press Enter in the terminal to run it', 'success');
           } catch (err) {
-            showToast(err instanceof Error ? err.message : String(err), 'error');
+            showToast(formatCommandError(asCommandError(err)), 'error');
           }
         },
       },
@@ -107,7 +108,7 @@ export function useShopifyCommands({
             }
             await openUrl(shopifyAdminUrl(store));
           } catch (err) {
-            showToast(err instanceof Error ? err.message : String(err), 'error');
+            showToast(formatCommandError(asCommandError(err)), 'error');
           }
         },
       },

@@ -11,7 +11,7 @@
  * ## State Architecture
  *
  * State has been extracted into custom hooks for better organization:
- * - `useToasts` - Toast notification state
+ * - `ToastProvider` / `useToast` - Toast notification state (app-root context)
  * - `useTerminalManagement` - Terminal tabs and session state
  * - `useIntegrationStatus` - GitHub/Claude integration state
  * - `useScreenshotManagement` - Screenshot capture, crop, and thumbnail state
@@ -26,7 +26,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useToasts } from './hooks/useToasts';
 import { useTerminalManagement } from './hooks/useTerminalManagement';
 import { usePlugins } from './hooks/usePlugins';
 import { useIntegrationStatus } from './hooks/useIntegrationStatus';
@@ -45,7 +44,7 @@ import { AccountSelectScreen } from './components/accounts/AccountSelectScreen';
 import { WorkspaceView } from './components/workspace/WorkspaceView';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { useProjectRail } from './hooks/useProjectRail';
-import { OnboardingScreen } from './components/setup';
+import { OnboardingRouter } from './components/setup';
 import { Project, setTerminalState } from './lib/project';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
 import { initDefaultAgent } from './lib/agent';
@@ -53,14 +52,16 @@ import { sessionRegistry } from './lib/sessionRegistry';
 import { unregisterProjectSession } from './lib/projectSessions';
 import { UpdateBanner } from './components/UpdateBanner';
 import { MonorepoPickerModal } from './components/dashboard/MonorepoPickerModal';
+import { ThumbnailConsentModal } from './components/preview/ThumbnailConsentModal';
 import { ModalFrame } from './components/primitives/ModalFrame';
 import { Button } from './components/primitives/Button';
 import { Spinner } from './components/primitives/Spinner';
-import { ToastContext } from './contexts/ToastContext';
+import { ToastProvider, useToast } from './contexts/ToastContext';
 import { ModalProvider, useModal } from './contexts/ModalContext';
 import { AgentBridgeProvider } from './contexts/AgentBridgeContext';
 import { CommandPaletteHost } from './components/CommandPalette/CommandPaletteHost';
 import { AppGlobalModals } from './components/AppGlobalModals';
+import { BootLoadingScreen } from './components/BootLoadingScreen';
 import {
   PaletteContextProvider,
   useOpenPalette,
@@ -68,19 +69,24 @@ import {
 } from './components/CommandPalette/paletteContext';
 import { useAppCommands } from './commands/useAppCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
-import { SuccessIcon, InfoIcon, CloseIcon } from './components/icons';
+import { ToastList } from './components/primitives/ToastList';
 import { logger } from './lib/logger';
+import { asCommandError, formatCommandError } from './lib/errors';
 import { trackEvent, setActiveProject, trackPageview } from './lib/analytics';
 import { endProjectSession } from './lib/session';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
 import type { AppView } from './lib/types';
 import './styles/index.css';
 
-// Initialize logger
-logger.init();
-
-// Track app launch
-void trackEvent('app_launched', { $screen_name: 'Dashboard' });
+// Boot-path guard: a throw at module scope would leave a black window (#173),
+// because this runs before ErrorBoundary exists. Logger/analytics are
+// nice-to-have — they must never prevent React from mounting.
+try {
+  logger.init();
+  void trackEvent('app_launched', { $screen_name: 'Dashboard' });
+} catch (err) {
+  console.error('[Ship Studio] Module-scope init failed', err);
+}
 
 /** Props for the App component */
 interface AppProps {
@@ -95,15 +101,17 @@ interface AppProps {
  */
 function App({ initialProjectPath }: AppProps) {
   return (
-    <ModalProvider>
-      <PaletteContextProvider>
-        <AgentBridgeProvider>
-          <AppContents initialProjectPath={initialProjectPath} />
-          <CommandPaletteHost />
-          <AppGlobalModals />
-        </AgentBridgeProvider>
-      </PaletteContextProvider>
-    </ModalProvider>
+    <ToastProvider>
+      <ModalProvider>
+        <PaletteContextProvider>
+          <AgentBridgeProvider>
+            <AppContents initialProjectPath={initialProjectPath} />
+            <CommandPaletteHost />
+            <AppGlobalModals />
+          </AgentBridgeProvider>
+        </PaletteContextProvider>
+      </ModalProvider>
+    </ToastProvider>
   );
 }
 
@@ -232,6 +240,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     isServerRunning,
     saveCustomDevCommand,
     needsInstall,
+    devServerUnexpectedExit,
     clearNeedsInstall,
     writeToDevServer,
     resizeDevServer,
@@ -294,6 +303,9 @@ function AppContents({ initialProjectPath }: AppProps) {
     handleCropComplete,
     handleCropCancel,
     handlePreviewReady: onPreviewReady,
+    showThumbnailConsent,
+    resolveThumbnailConsent,
+    dismissThumbnailConsent,
     startScreenshotInterval,
     clearScreenshotInterval,
   } = useScreenshotManagement({
@@ -339,8 +351,12 @@ function AppContents({ initialProjectPath }: AppProps) {
   // even on non-workspace views (loading / onboarding / projects).
   const helpModal = useModal('help');
 
-  // Toast notifications
-  const { toasts, showToast, dismissToast } = useToasts();
+  // Toast notifications — state lives in the app-root <ToastProvider>, so
+  // `useOptionalToast()` consumers anywhere in the tree share this stack.
+  // `toastsProps` is the memoized context value, still prop-drilled into
+  // WorkspaceView during the transition off `onToast` prop chains.
+  const toastsProps = useToast();
+  const { toasts, showToast, dismissToast } = toastsProps;
 
   // Branch management (state, polling, conflict handlers)
   const {
@@ -352,6 +368,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     showSubmitReview,
     setShowSubmitReview,
     isBranchSwitching,
+    isPulling,
     gitError,
     setGitError,
     showConflictResolution,
@@ -359,6 +376,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     fetchBranchInfo,
     checkGitStatus,
     handleBranchSwitch,
+    handlePullLatest,
     handlePublishError,
     handleResolveConflicts,
     handleConflictsResolved,
@@ -370,12 +388,15 @@ function AppContents({ initialProjectPath }: AppProps) {
     showToast,
   });
 
-  // Plugin system
+  // Plugin system — lifecycle-hook failures (onActivate/onDeactivate) toast via onError
   const {
     plugins: loadedPlugins,
+    failures: pluginFailures,
     getSlotPlugins,
     reloadPlugins,
-  } = usePlugins(currentProject?.path ?? null);
+  } = usePlugins(currentProject?.path ?? null, {
+    onError: (name, msg) => showToast(`Plugin "${name}": ${msg}`, 'error'),
+  });
 
   // Project lifecycle (selection, creation, import, publish, compact mode, etc.)
   const {
@@ -454,8 +475,11 @@ function AppContents({ initialProjectPath }: AppProps) {
         // when its save handler returns successfully.
         await restartDevServer(currentProject.path, newPort);
         showToast('Port updated and server restarted', 'success');
-      } catch {
-        showToast('Failed to save port setting', 'error');
+      } catch (err) {
+        showToast(
+          `Couldn't set dev server to port ${newPort}: ${formatCommandError(asCommandError(err))}`,
+          'error'
+        );
       }
     },
     [currentProject, restartDevServer, showToast, setDevServerPort]
@@ -513,14 +537,16 @@ function AppContents({ initialProjectPath }: AppProps) {
         try {
           await stopServer(projectPath);
         } catch (err) {
-          logger.warn('[CloseProject] stopServer threw', { error: String(err) });
+          logger.warn('[CloseProject] stopServer threw', {
+            error: formatCommandError(asCommandError(err)),
+          });
         }
         closeAllTerminalsForProject(projectPath);
         try {
           await unregisterProjectSession(projectPath);
         } catch (err) {
           logger.warn('[CloseProject] unregisterProjectSession failed', {
-            error: String(err),
+            error: formatCommandError(asCommandError(err)),
           });
         }
         sessionRegistry.destroy(projectPath);
@@ -567,7 +593,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             });
           } catch (err) {
             logger.warn('[SelectProjectTab] Failed to persist active tab', {
-              error: String(err),
+              error: formatCommandError(asCommandError(err)),
             });
           }
         }
@@ -721,6 +747,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       healthOutputVersion,
       handleHealthOutput,
       needsInstall,
+      devServerUnexpectedExit,
       onRunInstall: handleRunInstallCurrent,
       onDevServerInput: writeToDevServer,
       onDevServerResize: resizeDevServer,
@@ -738,6 +765,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       handleHealthOutput,
       healthPanelRef,
       needsInstall,
+      devServerUnexpectedExit,
       handleRunInstallCurrent,
       writeToDevServer,
       resizeDevServer,
@@ -882,15 +910,6 @@ function AppContents({ initialProjectPath }: AppProps) {
     [isEducationMode, setIsEducationMode, closeEducation]
   );
 
-  const toastsProps = useMemo(
-    () => ({
-      toasts,
-      showToast,
-      dismissToast,
-    }),
-    [toasts, showToast, dismissToast]
-  );
-
   const branchMgmtProps = useMemo(
     () => ({
       currentBranch,
@@ -901,6 +920,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       showSubmitReview,
       setShowSubmitReview,
       isBranchSwitching,
+      isPulling,
       gitError,
       setGitError,
       showConflictResolution,
@@ -908,6 +928,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       fetchBranchInfo,
       checkGitStatus,
       handleBranchSwitch,
+      handlePullLatest,
       handlePublishError,
       handleResolveConflicts,
       handleConflictsResolved,
@@ -921,6 +942,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       showSubmitReview,
       setShowSubmitReview,
       isBranchSwitching,
+      isPulling,
       gitError,
       setGitError,
       showConflictResolution,
@@ -928,6 +950,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       fetchBranchInfo,
       checkGitStatus,
       handleBranchSwitch,
+      handlePullLatest,
       handlePublishError,
       handleResolveConflicts,
       handleConflictsResolved,
@@ -937,10 +960,11 @@ function AppContents({ initialProjectPath }: AppProps) {
   const pluginsProps = useMemo(
     () => ({
       loadedPlugins,
+      pluginFailures,
       getSlotPlugins,
       reloadPlugins,
     }),
-    [loadedPlugins, getSlotPlugins, reloadPlugins]
+    [loadedPlugins, pluginFailures, getSlotPlugins, reloadPlugins]
   );
 
   // Stable wrappers for async callbacks passed to ProjectsView (prevents memo-busting)
@@ -1047,10 +1071,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   if (view === 'loading') {
     return (
       <>
-        <div className="app loading">
-          <img src="/ship_studio_full_noshadow.svg" alt="Ship Studio" className="app-logo" />
-          {loadingSpinner}
-        </div>
+        <BootLoadingScreen />
         {quitConfirmModal}
       </>
     );
@@ -1075,7 +1096,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       <>
         <div className="app">
           <UpdateBanner />
-          <OnboardingScreen onComplete={() => void handleOnboardingComplete()} />
+          <OnboardingRouter onComplete={() => void handleOnboardingComplete()} />
         </div>
         {quitConfirmModal}
       </>
@@ -1084,33 +1105,19 @@ function AppContents({ initialProjectPath }: AppProps) {
 
   if (view === 'account-select') {
     return (
-      <ToastContext.Provider value={toastsProps}>
+      <>
         <div className="app">
           <AccountSelectScreen onContinue={() => setView('projects')} />
         </div>
-        {toasts.length > 0 && (
-          <div className="toast-container">
-            {toasts.map((t) => (
-              <div key={t.id} className={`toast toast-${t.type}`}>
-                <span className="toast-icon">
-                  {t.type === 'success' ? <SuccessIcon size={16} /> : <InfoIcon size={16} />}
-                </span>
-                <span className="toast-message">{t.message}</span>
-                <button className="toast-close" onClick={() => dismissToast(t.id)}>
-                  <CloseIcon size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <ToastList toasts={toasts} onDismiss={dismissToast} />
         {quitConfirmModal}
-      </ToastContext.Provider>
+      </>
     );
   }
 
   if (view === 'projects') {
     return (
-      <ToastContext.Provider value={toastsProps}>
+      <>
         <div className={`projects-with-rail${isCompact ? ' is-compact' : ''}`} key="view-projects">
           {!isCompact && (
             <WorkspaceSidebar
@@ -1182,23 +1189,9 @@ function AppContents({ initialProjectPath }: AppProps) {
             onCancel={() => void handleCancelMonorepoPick()}
           />
         )}
-        {toasts.length > 0 && (
-          <div className="toast-container">
-            {toasts.map((t) => (
-              <div key={t.id} className={`toast toast-${t.type}`}>
-                <span className="toast-icon">
-                  {t.type === 'success' ? <SuccessIcon size={16} /> : <InfoIcon size={16} />}
-                </span>
-                <span className="toast-message">{t.message}</span>
-                <button className="toast-close" onClick={() => dismissToast(t.id)}>
-                  <CloseIcon size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <ToastList toasts={toasts} onDismiss={dismissToast} />
         {quitConfirmModal}
-      </ToastContext.Provider>
+      </>
     );
   }
 
@@ -1251,7 +1244,7 @@ function AppContents({ initialProjectPath }: AppProps) {
     );
   }
   return (
-    <ToastContext.Provider value={toastsProps}>
+    <>
       <WorkspaceView
         currentProject={currentProject}
         previewRef={previewRef}
@@ -1279,8 +1272,14 @@ function AppContents({ initialProjectPath }: AppProps) {
         onSwitchAccount={() => setView('account-select')}
         isProjectDevServerRunning={isServerRunning}
       />
+      <ThumbnailConsentModal
+        isOpen={showThumbnailConsent}
+        onAllow={() => void resolveThumbnailConsent(true)}
+        onDeny={() => void resolveThumbnailConsent(false)}
+        onDismiss={dismissThumbnailConsent}
+      />
       {quitConfirmModal}
-    </ToastContext.Provider>
+    </>
   );
 }
 

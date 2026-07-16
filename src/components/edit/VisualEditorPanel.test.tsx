@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { VisualEditorPanel } from './VisualEditorPanel';
 import {
   BASE_BREAKPOINT,
@@ -476,6 +476,198 @@ describe('VisualEditorPanel', () => {
     vi.unstubAllGlobals();
   });
 
+  // ── Arrow-key stepping (ArrowUp/Down; Shift ×10, Alt fine) ──
+
+  it('steps a padding side with ArrowUp/ArrowDown (Shift ×10)', () => {
+    const onSetSide = vi.fn();
+    renderPanel(
+      resolvedSelection,
+      'p-3',
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      onSetSide
+    );
+    const pt = screen.getByLabelText('Padding top');
+    fireEvent.keyDown(pt, { key: 'ArrowUp' });
+    expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', { kind: 'scale', n: 4 });
+    fireEvent.keyDown(pt, { key: 'ArrowDown' });
+    expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', { kind: 'scale', n: 2 });
+    fireEvent.keyDown(pt, { key: 'ArrowUp', shiftKey: true });
+    expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', { kind: 'scale', n: 13 });
+  });
+
+  it('clamps arrow-key stepping at zero for the spacing scale', () => {
+    const onSetSide = vi.fn();
+    renderPanel(
+      resolvedSelection,
+      'p-0',
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      onSetSide
+    );
+    fireEvent.keyDown(screen.getByLabelText('Padding top'), { key: 'ArrowDown' });
+    expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', { kind: 'scale', n: 0 });
+  });
+
+  it('steps an arbitrary spacing value preserving its unit (Alt = fine step)', () => {
+    const onSetSide = vi.fn();
+    renderPanel(
+      resolvedSelection,
+      'pt-[10rem]',
+      BASE_BREAKPOINT,
+      vi.fn(),
+      false,
+      false,
+      vi.fn(),
+      vi.fn(),
+      onSetSide
+    );
+    const pt = screen.getByLabelText('Padding top');
+    fireEvent.keyDown(pt, { key: 'ArrowUp' });
+    expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', {
+      kind: 'arbitrary',
+      raw: '11rem',
+    });
+    fireEvent.keyDown(pt, { key: 'ArrowUp', altKey: true });
+    expect(onSetSide).toHaveBeenLastCalledWith('padding', 'top', {
+      kind: 'arbitrary',
+      raw: '10.1rem',
+    });
+  });
+
+  it('steps the gap with arrow keys through the same stepper as the −/＋ buttons', () => {
+    const onStepGap = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass="gap-4"
+        onStepGap={onStepGap}
+      />
+    );
+    const gap = screen.getByLabelText('Gap');
+    fireEvent.keyDown(gap, { key: 'ArrowUp' });
+    expect(onStepGap).toHaveBeenLastCalledWith(1, 1);
+    fireEvent.keyDown(gap, { key: 'ArrowDown' });
+    expect(onStepGap).toHaveBeenLastCalledWith(-1, 1);
+    fireEvent.keyDown(gap, { key: 'ArrowUp', shiftKey: true });
+    expect(onStepGap).toHaveBeenLastCalledWith(1, 10);
+  });
+
+  it('steps a scale length (width) with arrow keys', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass="w-64"
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    fireEvent.keyDown(screen.getByLabelText('Width'), { key: 'ArrowUp' });
+    expect(onApplyEnum).toHaveBeenLastCalledWith('w-65', { width: '16.25rem' });
+  });
+
+  it('steps an arbitrary length preserving its unit', () => {
+    vi.stubGlobal('CSS', { supports: () => true });
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass="w-[480px]"
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    const width = screen.getByLabelText('Width');
+    fireEvent.keyDown(width, { key: 'ArrowUp' });
+    expect(onApplyEnum).toHaveBeenLastCalledWith('w-[481px]', { width: '481px' });
+    fireEvent.keyDown(width, { key: 'ArrowUp', shiftKey: true });
+    expect(onApplyEnum).toHaveBeenLastCalledWith('w-[491px]', { width: '491px' });
+    vi.unstubAllGlobals();
+  });
+
+  it('leaves keyword lengths alone on arrow keys', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass="w-full"
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
+    fireEvent.keyDown(width, { key: 'ArrowUp' });
+    expect(onApplyEnum).not.toHaveBeenCalled();
+    expect(width.value).toBe('full');
+  });
+
+  // ── Length preset menu (styled SuggestionPopover, not the OS datalist) ──
+
+  it('opens a styled preset menu on focus and picks with Enter', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass=""
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
+    fireEvent.focus(width);
+
+    // The app's own listbox renders (portaled), showing the presets.
+    const menu = screen.getByRole('listbox');
+    expect(menu).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'full' })).toBeInTheDocument();
+
+    // Arrows navigate the menu while it's open; Enter picks the active preset.
+    fireEvent.keyDown(width, { key: 'ArrowDown' });
+    fireEvent.keyDown(width, { key: 'Enter' });
+    expect(onApplyEnum).toHaveBeenCalledTimes(1);
+    const [token] = onApplyEnum.mock.calls[0] as [string];
+    expect(token.startsWith('w-')).toBe(true);
+  });
+
+  it('filters presets while typing a keyword', () => {
+    render(<VisualEditorPanel {...mk()} selection={resolvedSelection} currentClass="" />);
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
+    fireEvent.focus(width);
+    fireEvent.change(width, { target: { value: 'fu' } });
+
+    expect(screen.getByRole('option', { name: 'full' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'screen' })).not.toBeInTheDocument();
+  });
+
+  it('suppresses the preset menu on numeric text so arrows keep stepping', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass="w-64"
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
+    fireEvent.focus(width);
+
+    // Numeric value: no menu, arrows step the number instead of navigating.
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    fireEvent.keyDown(width, { key: 'ArrowUp' });
+    expect(onApplyEnum).toHaveBeenLastCalledWith('w-65', { width: '16.25rem' });
+  });
+
   // ── Image section (asset replacement) ──
 
   const imgSelection: Selection = {
@@ -546,5 +738,59 @@ describe('VisualEditorPanel', () => {
     // Styles genuinely aren't editable here — that's worth surfacing alongside Image.
     expect(screen.getByText(/aren’t a static string/)).toBeInTheDocument();
     expect(screen.getByText('Image')).toBeInTheDocument();
+  });
+
+  // ── Class-less elements (no_class → Add class) ──
+
+  const noClassSelection: Selection = {
+    signature: { className: '', tagName: 'div', ancestorClasses: [] },
+    resolution: { status: 'no_class' },
+    instanceCount: 1,
+  };
+
+  it('offers "Add class" instead of a read-only dead end for a class-less element', () => {
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={noClassSelection}
+        currentClass=""
+        onAddFirstClass={vi.fn()}
+      />
+    );
+    // The add-a-class state, not the misleading "dynamic classes" banner…
+    expect(screen.getByText(/has no classes yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/aren’t a static string/)).not.toBeInTheDocument();
+    // …and no style controls or footer (there's nothing to write to yet).
+    expect(screen.queryByTestId('spacing-box')).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /auto-save/i })).not.toBeInTheDocument();
+    // The action is disabled until a name is typed.
+    expect(screen.getByRole('button', { name: 'Add class' })).toBeDisabled();
+  });
+
+  it('submits the typed first class (leading dot stripped) via onAddFirstClass', async () => {
+    const onAddFirstClass = vi.fn(async () => {});
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={noClassSelection}
+        currentClass=""
+        onAddFirstClass={onAddFirstClass}
+      />
+    );
+    const input = screen.getByLabelText('First class name');
+    fireEvent.change(input, { target: { value: '.hero-title' } });
+    // Flush the async submit so the busy flag releases before the next attempt.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add class' }));
+      await Promise.resolve();
+    });
+    expect(onAddFirstClass).toHaveBeenCalledWith('hero-title');
+    // Enter in the input submits too.
+    fireEvent.change(input, { target: { value: 'flex gap-4' } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await Promise.resolve();
+    });
+    expect(onAddFirstClass).toHaveBeenCalledWith('flex gap-4');
   });
 });

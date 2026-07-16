@@ -26,13 +26,25 @@ export function ProjectActionConfirmModal({
   onCancel,
   onConfirm,
 }: ProjectActionConfirmModalProps) {
+  const handleCancel = () => {
+    if (!loading) {
+      onCancel();
+    }
+  };
+
   return (
-    <ModalFrame isOpen onClose={onCancel} title={title} showCloseButton={false}>
+    <ModalFrame
+      isOpen
+      onClose={handleCancel}
+      title={title}
+      showCloseButton={false}
+      dismissable={!loading}
+    >
       <div style={{ padding: 'var(--spacing-xl)' }}>
         <p>{body}</p>
         <p className="hint">{hint}</p>
         <div className="modal-actions">
-          <Button variant="secondary" onClick={onCancel} disabled={loading}>
+          <Button variant="secondary" onClick={handleCancel} disabled={loading}>
             Cancel
           </Button>
           <Button variant={confirmVariant} onClick={onConfirm} disabled={loading}>

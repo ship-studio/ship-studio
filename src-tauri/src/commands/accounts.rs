@@ -276,6 +276,33 @@ fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Decide whether a workspace's stored Claude token should be injected as
+/// `CLAUDE_CODE_OAUTH_TOKEN` into a spawned process, from stored state only
+/// (this runs on every PTY spawn — never make a network call here).
+///
+/// `CLAUDE_CODE_OAUTH_TOKEN` takes precedence over any interactive `/login`
+/// the user performs inside the terminal, so injecting a token past its
+/// recorded expiry would permanently shadow a fresh re-login with a dead
+/// credential (issue #159 — "cannot sign back into Claude"). Expired → don't
+/// inject; the terminal is then free to authenticate interactively.
+///
+/// Tokens the API rejected at connect time are never persisted in the first
+/// place (see `claude_token_is_rejected` in `connect_claude_account`), so
+/// "no token stored" is the stored rejection state and this helper only needs
+/// the expiry. No expiry recorded (older connect) → inject, mirroring
+/// `resolve_claude_identity`'s benefit-of-the-doubt for pre-expiry connects.
+fn should_inject_claude_token(expires_at: Option<u64>, now: u64) -> bool {
+    match expires_at {
+        Some(expires_at) => now < expires_at,
+        None => true,
+    }
+}
+
+/// Read a workspace's stored Claude token expiry (unix seconds), if any.
+fn read_claude_token_expiry(account_id: &str) -> Option<u64> {
+    read_from_keychain(account_id, CLAUDE_EXPIRES_KEY).and_then(|s| s.trim().parse::<u64>().ok())
+}
+
 /// Connection state of a workspace's Claude login, for the agent card.
 #[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -315,17 +342,14 @@ pub async fn resolve_claude_identity(account_id: &str) -> ClaudeIdentity {
         };
     };
     let email = read_from_keychain(account_id, CLAUDE_EMAIL_KEY);
-    let expired = read_from_keychain(account_id, CLAUDE_EXPIRES_KEY)
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .map(|exp| unix_now() >= exp)
-        // No expiry recorded (older connect): treat as still valid rather than
-        // nagging the user with a false red.
-        .unwrap_or(false);
+    // No expiry recorded (older connect): treat as still valid rather than
+    // nagging the user with a false red (see should_inject_claude_token).
+    let valid = should_inject_claude_token(read_claude_token_expiry(account_id), unix_now());
     ClaudeIdentity {
-        state: if expired {
-            ClaudeConnState::NeedsReconnect
-        } else {
+        state: if valid {
             ClaudeConnState::Connected
+        } else {
+            ClaudeConnState::NeedsReconnect
         },
         email,
     }
@@ -333,50 +357,58 @@ pub async fn resolve_claude_identity(account_id: &str) -> ClaudeIdentity {
 
 /// Identity for the Default workspace via `claude auth status` (native login).
 async fn resolve_default_claude_identity() -> ClaudeIdentity {
-    let Some(binary) = find_binary_by_name("claude") else {
-        return ClaudeIdentity {
+    match claude_cli_auth_status().await {
+        Some((true, email)) => ClaudeIdentity {
+            state: ClaudeConnState::Connected,
+            email,
+        },
+        // Logged out, or the CLI couldn't answer — either way there's no
+        // usable native login to report.
+        _ => ClaudeIdentity {
             state: ClaudeConnState::NotConnected,
             email: None,
-        };
-    };
-    let mut cmd = create_command(binary);
-    cmd.args(["auth", "status"]);
-    cmd.env("PATH", get_extended_path());
-    // Default = native locations; do NOT pin CLAUDE_CONFIG_DIR or inject a token.
-    let tokio_cmd = tokio::process::Command::from(cmd);
-    let stdout = match run_with_timeout(tokio_cmd, "claude auth status", 10).await {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
-        _ => {
-            return ClaudeIdentity {
-                state: ClaudeConnState::NotConnected,
-                email: None,
-            }
-        }
-    };
-    let (logged_in, email) = parse_claude_auth_status(&stdout);
-    ClaudeIdentity {
-        state: if logged_in {
-            ClaudeConnState::Connected
-        } else {
-            ClaudeConnState::NotConnected
         },
-        email,
     }
 }
 
-/// Parse `claude auth status` JSON → (logged_in, email). Tolerant of unknown
-/// fields and non-JSON output (returns `(false, None)`).
-fn parse_claude_auth_status(stdout: &str) -> (bool, Option<String>) {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) else {
-        return (false, None);
-    };
-    let logged_in = v.get("loggedIn").and_then(|b| b.as_bool()).unwrap_or(false);
+/// Ask the Claude CLI for its *native* (keychain/`~/.claude`) login state via
+/// `claude auth status`. This is the single source of truth shared by the
+/// dashboard's Agents panel and onboarding's `check_claude_auth_status` — file
+/// indicators like `~/.claude/settings.json` survive a sign-out and would make
+/// the two disagree (issue #159).
+///
+/// Returns `Some((logged_in, email))` when the CLI gave a definitive answer.
+/// Returns `None` when it *couldn't* answer — binary missing, spawn
+/// failure/timeout, or output that isn't the expected status JSON (e.g. an
+/// older CLI without the `auth` subcommand) — so callers may fall back to
+/// weaker signals.
+pub async fn claude_cli_auth_status() -> Option<(bool, Option<String>)> {
+    let binary = find_binary_by_name("claude")?;
+    let mut cmd = create_command(binary);
+    cmd.args(["auth", "status"]);
+    cmd.env("PATH", get_extended_path());
+    // Native locations; do NOT pin CLAUDE_CONFIG_DIR or inject a token.
+    let tokio_cmd = tokio::process::Command::from(cmd);
+    let out = run_with_timeout(tokio_cmd, "claude auth status", 10)
+        .await
+        .ok()?;
+    // Parse stdout regardless of exit code: a logged-out CLI may exit non-zero
+    // while still printing the status JSON. Unparseable output → None.
+    parse_claude_auth_status(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Parse `claude auth status` JSON → `Some((logged_in, email))`. Tolerant of
+/// unknown fields; returns `None` for non-JSON output or JSON without a
+/// `loggedIn` bool (not a definitive answer).
+fn parse_claude_auth_status(stdout: &str) -> Option<(bool, Option<String>)> {
+    let v = serde_json::from_str::<serde_json::Value>(stdout.trim()).ok()?;
+    let logged_in = v.get("loggedIn").and_then(|b| b.as_bool())?;
     let email = v
         .get("email")
         .and_then(|e| e.as_str())
         .map(str::to_string)
         .filter(|e| !e.is_empty());
-    (logged_in, email)
+    Some((logged_in, email))
 }
 
 // ============ Config dir isolation ============
@@ -614,8 +646,22 @@ pub fn get_env_vars_for_account(account_id: &str) -> HashMap<String, String> {
         // ever reading or writing the shared keychain entry. Only injected when
         // the workspace has actually connected Claude; otherwise its terminals
         // stay logged out (the correct "not connected" state).
+        //
+        // A token past its stored expiry is NOT injected (only the stored
+        // expiry is consulted — no network on this hot path): the env token
+        // overrides any interactive `/login` inside the terminal, so a dead
+        // token would make re-login impossible (issue #159). Skipping it keeps
+        // the isolated CLAUDE_CONFIG_DIR (set above) but lets the terminal
+        // authenticate interactively until the workspace is reconnected.
         if let Some(token) = read_from_keychain(account_id, CLAUDE_TOKEN_KEY) {
-            vars.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), token);
+            if should_inject_claude_token(read_claude_token_expiry(account_id), unix_now()) {
+                vars.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), token);
+            } else {
+                tracing::warn!(
+                    account_id = %account_id,
+                    "stored Claude token for workspace has expired; not injecting CLAUDE_CODE_OAUTH_TOKEN so an interactive login can work — reconnect the workspace to refresh it"
+                );
+            }
         }
     }
 
@@ -2009,16 +2055,47 @@ mod tests {
         let json = r#"{"loggedIn":true,"authMethod":"claude.ai","email":"a@b.com"}"#;
         assert_eq!(
             parse_claude_auth_status(json),
-            (true, Some("a@b.com".into()))
+            Some((true, Some("a@b.com".into())))
         );
 
         // Token-auth shape has no email — must not invent one.
         let token_shape = r#"{"loggedIn":true,"authMethod":"oauth_token"}"#;
-        assert_eq!(parse_claude_auth_status(token_shape), (true, None));
+        assert_eq!(parse_claude_auth_status(token_shape), Some((true, None)));
 
-        // Non-JSON / empty → not logged in, no email (never panics).
-        assert_eq!(parse_claude_auth_status("not json"), (false, None));
-        assert_eq!(parse_claude_auth_status(""), (false, None));
+        // A definitive logged-out answer is still an answer.
+        let logged_out = r#"{"loggedIn":false}"#;
+        assert_eq!(parse_claude_auth_status(logged_out), Some((false, None)));
+    }
+
+    #[test]
+    fn parse_claude_auth_status_returns_none_when_cli_cannot_answer() {
+        // Non-JSON (e.g. an older CLI without `auth status`) / empty output is
+        // NOT a definitive "logged out" — callers fall back to weaker signals.
+        assert_eq!(parse_claude_auth_status("not json"), None);
+        assert_eq!(parse_claude_auth_status(""), None);
+        assert_eq!(parse_claude_auth_status(r#"Unknown command "auth""#), None);
+        // JSON without a loggedIn bool is equally non-definitive.
+        assert_eq!(parse_claude_auth_status(r#"{"email":"a@b.com"}"#), None);
+        assert_eq!(parse_claude_auth_status(r#"{"loggedIn":"yes"}"#), None);
+    }
+
+    #[test]
+    fn should_inject_claude_token_skips_expired_tokens() {
+        let now = 1_750_000_000_u64;
+        // Valid (expiry in the future) → inject.
+        assert!(should_inject_claude_token(Some(now + 1), now));
+        // Expired → never inject: CLAUDE_CODE_OAUTH_TOKEN would override an
+        // interactive /login inside the terminal with a dead token (#159).
+        assert!(!should_inject_claude_token(Some(now - 1), now));
+        // Exactly at expiry counts as expired (mirrors the old `now >= exp`).
+        assert!(!should_inject_claude_token(Some(now), now));
+    }
+
+    #[test]
+    fn should_inject_claude_token_gives_benefit_of_the_doubt_without_expiry() {
+        // Older connects recorded no expiry — inject rather than silently
+        // logging every terminal out (matches resolve_claude_identity).
+        assert!(should_inject_claude_token(None, 1_750_000_000));
     }
 
     #[test]

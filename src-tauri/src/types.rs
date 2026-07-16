@@ -771,6 +771,15 @@ pub struct AppState {
     /// Default AI agent ID (e.g., "claude-code" or "codex"). None falls back to Claude Code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent_id: Option<String>,
+    /// User opted to bring their own agent ("Other" in agent-led onboarding).
+    /// Satisfies the at-least-one-agent requirement in setup checks so they
+    /// aren't bounced back to onboarding on every launch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_agent: Option<bool>,
+    /// Default hosting provider chosen during onboarding ("vercel" or
+    /// "cloudflare"). Used as the workspace-wide default for new projects.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_host: Option<String>,
     /// Unique device identifier for anonymous analytics (generated on first launch)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<String>,
@@ -788,6 +797,12 @@ pub struct AppState {
     /// macOS beta / GPU-driver combinations).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_gpu_enabled: Option<bool>,
+    /// Consent for automatic project-thumbnail capture. `None` = the user has
+    /// never been asked (the in-app explainer is shown before the first
+    /// auto-capture), `Some(true)` = allowed, `Some(false)` = opted out or a
+    /// capture failed because macOS Screen Recording permission was denied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnails_enabled: Option<bool>,
     /// Workspaces (org/client accounts) with isolated Claude/GitHub config and credentials
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accounts: Vec<Account>,

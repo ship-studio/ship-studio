@@ -28,7 +28,10 @@ import {
   getFullSetupStatus,
   checkClaudeAuthStatus,
   installPackages,
+  getDefaultAgentId,
   setDefaultAgentId,
+  isSetupItemReady,
+  recheckWithDelays,
   PKG_MGR_PACKAGES,
   TERMINAL_COMMANDS,
   USES_TERMINAL,
@@ -44,10 +47,31 @@ import {
 import { initDefaultAgent } from '../../lib/agent';
 import { checkGitHubCliStatus } from '../../lib/github';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { withTimeout, TimeoutError } from '../../lib/withTimeout';
+import { stripAnsi } from '../../lib/ansi';
+import {
+  detectAlreadyLoggedIn,
+  extractTerminalError,
+  isNetworkError,
+  isNodeMissingError,
+} from '../../lib/terminalDiagnostics';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { SlackIcon } from '../icons';
+import {
+  alreadySignedInMessage,
+  authFailureMessage,
+  notDetectedMessage,
+  NETWORK_FAILURE_MESSAGE,
+} from './setupFailureMessages';
 
 type OnboardingState = 'loading' | 'wizard' | 'complete';
+
+/**
+ * Cap on the setup-status check. The backend probes several binaries; if one
+ * hangs the user would otherwise stare at "Checking setup status..." forever
+ * (#173) — the timeout routes a hang into the existing error + Retry UI.
+ */
+const SETUP_STATUS_TIMEOUT_MS = 15_000;
 
 // Module-scoped so React 18 StrictMode's mount→unmount→remount in dev doesn't
 // re-fire `setup_started` after the first launch of this app session. Each
@@ -65,6 +89,10 @@ interface TerminalConfig {
   command: string;
   args: string[];
 }
+
+// Failure-message helpers (already-signed-in, auth failure, network, and
+// clean-exit-but-not-detected wording) are shared with the agent-led
+// onboarding — see ./setupFailureMessages.ts for the wording rationale.
 
 interface OnboardingScreenProps {
   /** Called when setup is complete and user continues */
@@ -84,6 +112,18 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const stepEnteredAtRef = useRef<Map<WizardStepId, number>>(new Map());
 
+  // The staggered post-exit re-checks (recheckWithDelays: 600/1500/3000ms)
+  // outlive fast unmounts — their continuations must not dispatch state into
+  // an unmounted tree (surfaced as a "window is not defined" teardown crash
+  // in CI, and a setState-after-unmount warning in the app).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   // Track each step entry: pageview, setup_step_entered, and remember when
   // we entered so the completion event can carry duration_ms.
   useEffect(() => {
@@ -100,13 +140,15 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     stepEnteredAtRef.current.set(currentStep, performance.now());
   }, [state, currentStep]);
 
-  // Compute completed steps: only show as completed if before the current step
+  // Compute completed steps: steps at or before the current one show as
+  // completed once their items are ready (the current step earning its check
+  // is real feedback); future steps stay unmarked to keep the path readable.
   const completedSteps = useMemo(() => {
     const set = new Set<WizardStepId>();
     const currentIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
     for (let i = 0; i < WIZARD_STEPS.length; i++) {
       const step = WIZARD_STEPS[i];
-      if (i < currentIndex && isWizardStepComplete(step.id, items)) {
+      if (i <= currentIndex && isWizardStepComplete(step.id, items)) {
         set.add(step.id);
       }
     }
@@ -125,13 +167,25 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   // Fetch initial status and determine starting step
   const fetchStatus = useCallback(async () => {
     try {
-      const status: FullSetupStatus = await getFullSetupStatus();
+      const status: FullSetupStatus = await withTimeout(
+        getFullSetupStatus(),
+        SETUP_STATUS_TIMEOUT_MS,
+        'Setup status check'
+      );
+      // Callers reach here from delayed re-checks that can outlive the
+      // wizard — never dispatch into an unmounted tree.
+      if (!mountedRef.current) return status;
       setItems(status.items);
       setError(null);
       return status;
-    } catch {
-      logger.warn('Failed to fetch setup status');
-      setError('Failed to check setup status. Please try again.');
+    } catch (err) {
+      logger.warn('Failed to fetch setup status', { error: err });
+      if (!mountedRef.current) return null;
+      setError(
+        err instanceof TimeoutError
+          ? 'Setup check timed out — click Retry. If this persists, restart Ship Studio.'
+          : 'Failed to check setup status. Please try again.'
+      );
       setState('wizard');
       return null;
     }
@@ -183,10 +237,20 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       const agentId = status.detectedAgents[0];
       await setDefaultAgentId(agentId);
       initDefaultAgent(agentId);
+    } else if (status.detectedAgents.length > 1) {
+      // Fast path with several agents skips the agent step's picker, and the
+      // backend default falls back to claude-code even when Claude isn't one
+      // of them. If the current default isn't actually installed, point it at
+      // the first detected agent so the workspace opens with a working one.
+      const currentDefault = (await getDefaultAgentId()) ?? 'claude-code';
+      if (!status.detectedAgents.includes(currentDefault)) {
+        const agentId = status.detectedAgents[0];
+        await setDefaultAgentId(agentId);
+        initDefaultAgent(agentId);
+      }
     }
     // Fast-path users still need a setup_started for funnel completeness.
     fireSetupStartedOnce('fast_path', null);
-    // If multiple agents, they'll be asked to pick in the agent step
     void trackEvent('onboarding_completed', {
       agents: status.detectedAgents,
       entry_path: 'fast_path',
@@ -202,7 +266,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
   // Handle terminal exit - process exit codes and check auth status
   const handleTerminalExit = useCallback(
-    async (exitCode: number | null) => {
+    async (exitCode: number | null, outputTail = '') => {
       const itemId = terminalConfig?.itemId;
       if (!itemId) return;
 
@@ -210,39 +274,91 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         setTerminalConfig(null);
         setTerminalExitCode(null);
 
-        // For auth items, verify the auth status
+        // A clean exit is a claim, not proof — e.g. an offline Homebrew
+        // install exits 0 with nothing installed. Verify the outcome actually
+        // landed, re-checking on a staggered schedule because auth/token files
+        // and freshly installed binaries can appear a beat after the process
+        // exits (same 600/1500/3000ms schedule as the dashboard AgentsPanel).
+        let verified: boolean;
         if (itemId === 'gh_auth') {
-          const status = await checkGitHubCliStatus();
-          if (!status.authenticated) {
-            updateItemStatus(itemId, {
-              status: 'error',
-              errorMessage: 'Authentication not completed. Click to try again.',
-            });
-            setActiveItemId(null);
-            return;
-          }
+          verified = await recheckWithDelays(
+            async () => (await checkGitHubCliStatus()).authenticated
+          );
         } else if (itemId === 'claude_auth') {
-          const isAuthed = await checkClaudeAuthStatus();
-          if (!isAuthed) {
-            updateItemStatus(itemId, {
-              status: 'error',
-              errorMessage: 'Authentication not completed. Click to try again.',
-            });
-            setActiveItemId(null);
-            return;
-          }
+          verified = await recheckWithDelays(() => checkClaudeAuthStatus());
+        } else {
+          verified = await recheckWithDelays(async () => {
+            try {
+              const status = await withTimeout(
+                getFullSetupStatus(),
+                SETUP_STATUS_TIMEOUT_MS,
+                'Setup status check'
+              );
+              return isSetupItemReady(status.items, itemId);
+            } catch {
+              return false;
+            }
+          });
         }
 
-        // Refresh full status
+        // The re-checks above can span seconds — bail before touching state
+        // if the wizard unmounted mid-wait.
+        if (!mountedRef.current) return;
+
+        // Sync the checklist with reality either way.
         await fetchStatus();
+        if (!mountedRef.current) return;
+
+        if (!verified) {
+          void trackEvent('setup_action_failed', {
+            item_id: itemId,
+            exit_code: exitCode,
+            error_excerpt: 'clean_exit_but_not_detected',
+          });
+          updateItemStatus(itemId, {
+            status: 'error',
+            errorMessage: itemId.endsWith('_auth')
+              ? authFailureMessage(itemId, outputTail)
+              : notDetectedMessage(itemId),
+          });
+        }
       } else {
         setTerminalExitCode(exitCode);
 
-        let errorMessage = 'Command failed. Click to try again.';
+        // Surface the actual failure from the terminal output instead of a
+        // generic message (issue #164 — installs failed with zero diagnostics).
+        const extractedError = extractTerminalError(outputTail);
+        const alreadySignedIn = itemId.endsWith('_auth') ? detectAlreadyLoggedIn(outputTail) : null;
+        const networkMessage = isNetworkError(outputTail) ? NETWORK_FAILURE_MESSAGE : null;
+        // Append guidance to the raw error, never replace it (standing rule:
+        // verbose context beats tidy summaries — the raw line is what makes a
+        // support screenshot diagnosable).
+        let errorMessage =
+          networkMessage && extractedError
+            ? `${extractedError} — ${NETWORK_FAILURE_MESSAGE}`
+            : (networkMessage ?? extractedError ?? 'Command failed. Click to try again.');
         if (itemId === 'homebrew') {
+          // Only claim an admin-privileges problem when the output actually
+          // points at one, or when nothing better was extracted — a blanket
+          // admin hint masks the real error (e.g. a network failure).
+          const mentionsPrivileges = /sudo|password|administrator/i.test(stripAnsi(outputTail));
+          if (mentionsPrivileges || (!networkMessage && !extractedError)) {
+            errorMessage =
+              'Installation failed. Your macOS account may need administrator privileges.';
+          }
+        } else if (isNodeMissingError(outputTail)) {
           errorMessage =
-            'Installation failed. Your macOS account may need administrator privileges.';
+            "Node.js/npm wasn't found. Complete the Node.js step first, or restart Ship Studio if you just installed it.";
+        } else if (alreadySignedIn) {
+          // Auth flow failed while the CLI insists it already has a login —
+          // surface the disagreement instead of a misleading command error.
+          errorMessage = alreadySignedInMessage(itemId, alreadySignedIn.identity);
         }
+        void trackEvent('setup_action_failed', {
+          item_id: itemId,
+          exit_code: exitCode,
+          error_excerpt: extractedError ?? undefined,
+        });
         updateItemStatus(itemId, {
           status: 'error',
           errorMessage,
@@ -265,9 +381,10 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       // Refresh status immediately
       void fetchStatus();
       // For auth items, do a delayed re-check in case the auth process
-      // was still completing when the user cancelled (e.g., gh/vercel
-      // writing the token after receiving the OAuth callback)
-      if (itemId === 'gh_auth' || itemId === 'vercel_auth' || itemId === 'claude_auth') {
+      // was still completing when the user cancelled (e.g., gh/vercel/codex
+      // writing the token after receiving the OAuth callback). Derived from
+      // the `*_auth` convention so new auth flows get this for free.
+      if (itemId.endsWith('_auth')) {
         setTimeout(() => void fetchStatus(), 2000);
       }
     }
@@ -457,6 +574,9 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
   // Navigate to the previous step
   const handleBack = useCallback(() => {
+    // Same in-flight guard as Next: navigating away mid-install/auth would
+    // desync the active item's row from the terminal driving it.
+    if (activeItemId || terminalConfig) return;
     const currentIndex = WIZARD_STEPS.findIndex((s) => s.id === currentStep);
     if (currentIndex > 0) {
       const prevStep = WIZARD_STEPS[currentIndex - 1].id;
@@ -466,7 +586,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
       });
       setCurrentStep(prevStep);
     }
-  }, [currentStep]);
+  }, [currentStep, activeItemId, terminalConfig]);
 
   // Check if Next button should be enabled
   const isNextEnabled = useMemo(() => {
@@ -521,7 +641,12 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   }
 
   if (state === 'complete') {
-    return <CelebrationScreen onContinue={onComplete} />;
+    return (
+      <CelebrationScreen
+        onContinue={onComplete}
+        hostingConnected={isWizardStepComplete('hosting', items)}
+      />
+    );
   }
 
   return (
@@ -649,7 +774,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
               <OnboardingTerminal
                 command={terminalConfig.command}
                 args={terminalConfig.args}
-                onExit={(exitCode) => void handleTerminalExit(exitCode)}
+                onExit={(exitCode, outputTail) => void handleTerminalExit(exitCode, outputTail)}
               />
               <div className="onboarding-terminal-hint">
                 <strong>If you're asked for a password</strong>, type it and press Enter. It stays

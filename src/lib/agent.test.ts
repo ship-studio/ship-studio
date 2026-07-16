@@ -4,7 +4,7 @@
  * Tests the in-memory cache, lookups, and constant declarations.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   getAgentById,
   initDefaultAgent,
@@ -161,10 +161,36 @@ describe('AgentConfig fields', () => {
   });
 
   it('TERMINAL has correct specific values', () => {
+    // The suite pins a macOS userAgent in src/test/setup.ts, so the Unix
+    // branch is what this file's top-level import resolved.
     expect(TERMINAL.binaryName).toBe('/bin/zsh');
+    expect(TERMINAL.processName).toBe('zsh');
     expect(TERMINAL.autoAcceptFlag).toBeNull();
     expect(TERMINAL.supportsSkills).toBe(false);
     expect(TERMINAL.supportsStatusDetection).toBe(false);
+  });
+
+  it('TERMINAL uses PowerShell on Windows', async () => {
+    // TERMINAL is a module-level const and lib/setup caches its platform()
+    // read, so exercising the Windows branch needs a fresh module graph
+    // under a Windows userAgent — not just a flipped mock.
+    const originalUserAgent = navigator.userAgent;
+    vi.resetModules();
+    Object.defineProperty(globalThis.navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      configurable: true,
+    });
+    try {
+      const { TERMINAL: winTerminal } = await import('./agent');
+      expect(winTerminal.binaryName).toBe('powershell.exe');
+      expect(winTerminal.processName).toBe('powershell');
+    } finally {
+      Object.defineProperty(globalThis.navigator, 'userAgent', {
+        value: originalUserAgent,
+        configurable: true,
+      });
+      vi.resetModules();
+    }
   });
 
   it('each agent config has required fields', () => {

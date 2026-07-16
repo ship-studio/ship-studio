@@ -13,6 +13,7 @@ import { useModal } from '../../contexts/ModalContext';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { getShopifyStore, setShopifyStore, normalizeStoreDomain } from '../../lib/shopify';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface ShopifyStoreModalProps {
   projectPath: string;
@@ -59,7 +60,7 @@ export function ShopifyStoreModal({ projectPath, onStoreSaved }: ShopifyStoreMod
       onStoreSaved();
     } catch (err) {
       logger.error('[ShopifyStoreModal] Failed to save store', { error: String(err) });
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatCommandError(asCommandError(err)));
     } finally {
       setIsSaving(false);
     }

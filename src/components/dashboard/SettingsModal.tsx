@@ -21,6 +21,8 @@ import {
   setSlackCtaHidden,
   getTerminalGpuEnabled,
   setTerminalGpuEnabled,
+  getThumbnailsEnabled,
+  setThumbnailsEnabled,
   getProjectsRoot,
   isCustomProjectsRoot,
   pickProjectsRoot,
@@ -70,6 +72,7 @@ export function SettingsModal({
   const [calendarVisible, setLocalCalendarVisible] = useState(true);
   const [slackCtaVisible, setLocalSlackCtaVisible] = useState(true);
   const [terminalGpuEnabled, setLocalTerminalGpuEnabled] = useState(true);
+  const [thumbnailsOn, setLocalThumbnailsOn] = useState(true);
   const [loading, setLoading] = useState(true);
 
   const [projectsRoot, setLocalProjectsRoot] = useState('');
@@ -82,19 +85,24 @@ export function SettingsModal({
     if (!isOpen) return;
     let cancelled = false;
     void (async () => {
-      const [enabled, calHidden, slackHidden, gpuEnabled, root, custom] = await Promise.all([
-        getAnalyticsEnabled(),
-        getCalendarHidden(),
-        getSlackCtaHidden(),
-        getTerminalGpuEnabled(),
-        getProjectsRoot().catch(() => ''),
-        isCustomProjectsRoot(),
-      ]);
+      const [enabled, calHidden, slackHidden, gpuEnabled, thumbnails, root, custom] =
+        await Promise.all([
+          getAnalyticsEnabled(),
+          getCalendarHidden(),
+          getSlackCtaHidden(),
+          getTerminalGpuEnabled(),
+          getThumbnailsEnabled(),
+          getProjectsRoot().catch(() => ''),
+          isCustomProjectsRoot(),
+        ]);
       if (!cancelled) {
         setLocalAnalyticsEnabled(enabled);
         setLocalCalendarVisible(!calHidden);
         setLocalSlackCtaVisible(!slackHidden);
         setLocalTerminalGpuEnabled(gpuEnabled);
+        // `null` = not asked yet; the toggle reflects the default-on behavior
+        // (the first auto-capture will show the in-app explainer).
+        setLocalThumbnailsOn(thumbnails !== false);
         setLocalProjectsRoot(root);
         setCustomRoot(custom);
         setLoading(false);
@@ -142,6 +150,16 @@ export function SettingsModal({
       $screen_name: 'Settings',
     });
   }, [terminalGpuEnabled]);
+
+  const handleThumbnailsToggle = useCallback(() => {
+    const newEnabled = !thumbnailsOn;
+    setLocalThumbnailsOn(newEnabled);
+    void setThumbnailsEnabled(newEnabled);
+    void trackEvent('thumbnails_toggled', {
+      enabled: newEnabled,
+      $screen_name: 'Settings',
+    });
+  }, [thumbnailsOn]);
 
   // Persist a new projects root, then offer to move existing projects over.
   const applyNewRoot = useCallback(
@@ -343,6 +361,28 @@ export function SettingsModal({
                 disabled={loading}
                 role="switch"
                 aria-checked={terminalGpuEnabled}
+              >
+                <span className="settings-toggle-track">
+                  <span className="settings-toggle-thumb" />
+                </span>
+              </button>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-row-label">Project thumbnails</span>
+                <span className="settings-row-description">
+                  Automatically screenshot the preview to show project thumbnails on the dashboard.
+                  On macOS this may require Screen Recording permission — allow Ship Studio under
+                  System Settings → Privacy &amp; Security → Screen Recording, then turn this back
+                  on.
+                </span>
+              </div>
+              <button
+                className={`settings-toggle ${thumbnailsOn ? 'on' : 'off'}`}
+                onClick={handleThumbnailsToggle}
+                disabled={loading}
+                role="switch"
+                aria-checked={thumbnailsOn}
               >
                 <span className="settings-toggle-track">
                   <span className="settings-toggle-thumb" />

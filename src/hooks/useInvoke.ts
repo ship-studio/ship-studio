@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { useCallback, useMemo } from 'react';
 import { logger } from '../lib/logger';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { useAsyncState, type UseAsyncStateReturn } from './useAsyncState';
 
 interface Options<T> {
@@ -31,7 +32,9 @@ export function useInvoke<T>(
       try {
         return await invoke<T>(command, args);
       } catch (e) {
-        const err = e instanceof Error ? e : new Error(String(e));
+        // A rejected Tauri command is a `CommandError` object, not an Error —
+        // `String(e)` would yield "[object Object]". Format it to its message.
+        const err = e instanceof Error ? e : new Error(formatCommandError(asCommandError(e)));
         logger.error(`invoke '${command}' failed`, { error: err.message });
         throw err;
       }

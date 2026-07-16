@@ -118,7 +118,7 @@ describe('useTextEditing', () => {
     await dispatch({ type: 'ss:select', signature: SIG, leafText: true }, src);
     await dispatch({ type: 'ss:textCommit', text: 'New copy' }, src);
     expect(posts(iframeRef)).toContainEqual({ type: 'ss:textRevert' });
-    expect(onToast).toHaveBeenCalledWith('Error: boom', 'error');
+    expect(onToast).toHaveBeenCalledWith('boom', 'error');
   });
 
   it('does not write when the text is unchanged (just re-baselines)', async () => {

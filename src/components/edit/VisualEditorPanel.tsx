@@ -210,6 +210,59 @@ function DynamicTextHelp({
   );
 }
 
+/** Shown when the selected element has NO class at all (`no_class` resolution):
+ *  instead of a dead-end read-only banner, offer inserting its first class — the
+ *  backend writes a fresh class attribute into the element's source tag, after
+ *  which the selection re-resolves and the full controls appear. */
+function NoClassState({
+  tag,
+  onAddClass,
+}: {
+  tag: string;
+  onAddClass: (name: string) => void | Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const trimmed = name.trim().replace(/^\./, '');
+  const submit = async () => {
+    if (!trimmed || busy) return;
+    setBusy(true);
+    try {
+      await onAddClass(trimmed);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="ss-edit-panel__noclass">
+      <p>
+        This <code>&lt;{tag}&gt;</code> has no classes yet. Add one to start styling it — it&apos;s
+        written straight into your source.
+      </p>
+      <input
+        type="text"
+        value={name}
+        placeholder="e.g. hero-title or flex gap-4"
+        aria-label="First class name"
+        spellCheck={false}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void submit();
+        }}
+      />
+      <Button
+        variant="primary"
+        size="sm"
+        block
+        disabled={!trimmed || busy}
+        onClick={() => void submit()}
+      >
+        {busy ? 'Adding…' : 'Add class'}
+      </Button>
+    </div>
+  );
+}
+
 /** Subtle info dot shown by the source line when the element is styled by a custom
  *  CSS class — its tooltip explains that edits use `!important` to win the cascade. */
 function CustomCssHint() {
@@ -267,8 +320,8 @@ interface Props {
   autoSave: boolean;
   /** Toggle auto-save on/off. */
   onToggleAutoSave: () => void;
-  /** Step the gap utility one notch up (1) or down (-1). */
-  onStepGap: (dir: 1 | -1) => void;
+  /** Step the gap utility up (1) or down (-1), by `step` notches (default 1). */
+  onStepGap: (dir: 1 | -1, step?: number) => void;
   /** Set one side of padding/margin to a scale step or arbitrary value. */
   onSetSide: (type: BoxType, side: Side, value: SpacingValue) => void;
   /** Apply an enum option's token + inline-style preview. */
@@ -290,6 +343,10 @@ interface Props {
   onApplyClass?: (name: string) => void | Promise<void>;
   onUnapplyClass?: (name: string) => void | Promise<void>;
   onCreateClass?: (name: string) => void;
+  /** Insert the FIRST class on a class-less element (`no_class` resolution) — the
+   *  backend writes a fresh class attribute into source, then the caller
+   *  re-resolves so the panel gains full controls. */
+  onAddFirstClass?: (name: string) => void | Promise<void>;
   /** Where the selected element's component is used project-wide (scope hint). */
   usage: UsageReport | null;
   /** Jump to a source file:line in the Code tab. */
@@ -339,6 +396,7 @@ export function VisualEditorPanel({
   onApplyClass = () => {},
   onUnapplyClass = () => {},
   onCreateClass = () => {},
+  onAddFirstClass,
   usage,
   onOpenInCode,
   onCommit,
@@ -364,7 +422,10 @@ export function VisualEditorPanel({
   // Show the controls as soon as an element is selected — they only need the class
   // string (available instantly). The source badge + Save fill in once resolved, so
   // the panel doesn't flicker through a "Resolving…" collapse on every click.
-  const controlsVisible = !!selection && resolution?.status !== 'read_only';
+  // `no_class` (element has no class at all) shows the add-a-class state instead:
+  // there's nothing for the style controls to write to yet.
+  const controlsVisible =
+    !!selection && resolution?.status !== 'read_only' && resolution?.status !== 'no_class';
 
   // Cascade-resolution context for the active breakpoint, threaded to each control
   // so they show the effective value at this layer and which breakpoint set it.
@@ -532,6 +593,13 @@ export function VisualEditorPanel({
             resolution={resolution}
             pulseKey={textBlockedNonce}
           />
+        )}
+
+        {/* No class at all: offer inserting the first one (writes a fresh class
+            attribute to source) instead of a dead-end banner. Classless images
+            skip it — the Image section already carries their state. */}
+        {resolution?.status === 'no_class' && selection && !isImage && onAddFirstClass && (
+          <NoClassState tag={selection.signature.tagName} onAddClass={onAddFirstClass} />
         )}
 
         {/* For a classless image the class resolver's "not a static string" verdict is

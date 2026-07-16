@@ -35,6 +35,7 @@ import { BranchPRTabContainer } from './BranchPRTabContainer';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
 import type { HealthTabPanelRef } from '../code/HealthTabPanel';
+import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { useIsCompact } from '../../hooks/useIsCompact';
 import { WorkspaceModals } from './WorkspaceModals';
 import { WorkspaceHeader, HOSTING_PLUGIN_IDS } from './WorkspaceHeader';
@@ -66,6 +67,7 @@ import { isMobileProjectType, type ProjectType } from '../../lib/static-server';
 import { ShopifySetup } from '../shopify/ShopifySetup';
 import { useShopifyTheme } from '../../hooks/useShopifyTheme';
 import { isMac } from '../../lib/setup';
+import { kbd } from '../../lib/shortcuts';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
 import type { TerminalHandle } from '../terminal/Terminal';
 import type { Toast, ToastType } from '../../hooks/useToasts';
@@ -74,7 +76,7 @@ import type { AgentStatus } from '../terminal/Terminal';
 import type { IntegrationState, AuthTerminalConfig } from '../../hooks/useIntegrationStatus';
 import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
 import type { ChangedFile } from '../../lib/git';
-import type { LoadedPlugin } from '../../hooks/usePlugins';
+import type { LoadedPlugin, PluginFailure } from '../../hooks/usePlugins';
 import type { PluginThemeData } from '../../contexts/PluginContext';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useModal } from '../../contexts/ModalContext';
@@ -134,6 +136,9 @@ interface DevServerProps {
   healthOutputVersion: number;
   handleHealthOutput: (data: string) => void;
   needsInstall: { packageManager: string } | null;
+  /** Set when the dev-server process died without Ship Studio stopping it
+   *  (crash / external kill). Lets the Preview offer a real process restart. */
+  devServerUnexpectedExit: DevServerUnexpectedExit | null;
   onRunInstall: () => void;
   /** Type into the dev-server PTY (interactive CLI prompts in the logs pane). */
   onDevServerInput: (data: string) => void;
@@ -238,6 +243,7 @@ interface BranchProps {
   showSubmitReview: string | null;
   setShowSubmitReview: (branch: string | null) => void;
   isBranchSwitching: boolean;
+  isPulling: boolean;
   gitError: {
     errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic';
     message: string;
@@ -255,6 +261,7 @@ interface BranchProps {
   fetchBranchInfo: (projectPath: string) => Promise<void>;
   checkGitStatus: (projectPath: string) => Promise<void>;
   handleBranchSwitch: (branchName: string) => Promise<void>;
+  handlePullLatest: () => Promise<void>;
   handlePublishError: (
     error: string,
     errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic'
@@ -265,6 +272,7 @@ interface BranchProps {
 
 interface PluginProps {
   loadedPlugins: LoadedPlugin[];
+  pluginFailures: PluginFailure[];
   getSlotPlugins: (slotName: string) => LoadedPlugin[];
   reloadPlugins: () => Promise<void>;
 }
@@ -450,6 +458,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     healthOutputVersion,
     handleHealthOutput,
     needsInstall,
+    devServerUnexpectedExit,
     onRunInstall,
     onDevServerInput,
     onDevServerResize,
@@ -550,6 +559,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     showSubmitReview,
     setShowSubmitReview,
     isBranchSwitching,
+    isPulling,
     gitError,
     setGitError,
     showConflictResolution,
@@ -557,12 +567,13 @@ export const WorkspaceView = memo(function WorkspaceView({
     fetchBranchInfo,
     checkGitStatus,
     handleBranchSwitch,
+    handlePullLatest,
     handlePublishError,
     handleResolveConflicts,
     handleConflictsResolved,
   } = branchMgmt;
 
-  const { loadedPlugins, getSlotPlugins, reloadPlugins } = plugins;
+  const { loadedPlugins, pluginFailures, getSlotPlugins, reloadPlugins } = plugins;
 
   const {
     autoAcceptMode,
@@ -721,6 +732,9 @@ export const WorkspaceView = memo(function WorkspaceView({
     setWorkspaceTab,
     setShowSubmitReview,
     handleResolveConflicts: () => void handleResolveConflicts(),
+    openPushDropdown: () => setForcePublishOpen(true),
+    handlePullLatest: () => void handlePullLatest(),
+    isGitHubConnected: integrations.projectGithub?.status === 'connected',
   });
 
   // Shopify themes: preview gate state + palette commands.
@@ -748,8 +762,10 @@ export const WorkspaceView = memo(function WorkspaceView({
       : enabled
         ? hint
         : idle;
-  const undoTitle = snapTitle('Undo', canUndo, 'Undo last change (⌘Z)', 'Nothing to undo yet');
-  const redoTitle = snapTitle('Redo', canRedo, 'Redo (⌘⇧Z)', 'Nothing to redo');
+  const undoHint = `Undo last change (${kbd('mod', 'Z')})`;
+  const redoHint = `Redo (${kbd('mod', 'shift', 'Z')})`;
+  const undoTitle = snapTitle('Undo', canUndo, undoHint, 'Nothing to undo yet');
+  const redoTitle = snapTitle('Redo', canRedo, redoHint, 'Nothing to redo');
 
   // Cmd+Z / Cmd+Shift+Z. We let native text-undo handle inputs and
   // contentEditable so a user editing a PR title still gets character-level
@@ -896,6 +912,8 @@ export const WorkspaceView = memo(function WorkspaceView({
           void checkGitStatus(currentProject.path);
         }}
         onSave={() => setForcePublishOpen(true)}
+        onPullLatest={() => void handlePullLatest()}
+        isPulling={isPulling}
       />
     ) : null;
 
@@ -975,6 +993,10 @@ export const WorkspaceView = memo(function WorkspaceView({
     headerExtras: (
       <PluginsDropdown
         plugins={loadedPlugins.filter((p) => !HOSTING_PLUGIN_IDS.includes(p.info.manifest.id))}
+        failures={pluginFailures}
+        hostingPluginCount={
+          loadedPlugins.filter((p) => HOSTING_PLUGIN_IDS.includes(p.info.manifest.id)).length
+        }
         pluginProject={pluginProject}
         pluginActions={pluginActions}
         pluginTheme={pluginTheme}
@@ -1355,7 +1377,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             className="toolbar-icon-btn"
                             onClick={() => void handleCaptureScreenshot()}
                             disabled={isCapturing || isCropMode}
-                            title="Screenshot preview for Claude (⌘⇧S)"
+                            title={`Screenshot preview for Claude (${kbd('mod', 'shift', 'S')})`}
                             data-education-id="screenshot-button"
                           >
                             {isCapturing ? (
@@ -1365,13 +1387,13 @@ export const WorkspaceView = memo(function WorkspaceView({
                             )}
                             <span className="capture-label-full">Full Screenshot</span>
                             <span className="capture-label-short">Full</span>
-                            <span className="capture-shortcut">&#8984;&#8679;S</span>
+                            <span className="capture-shortcut">{kbd('mod', 'shift', 'S')}</span>
                           </button>
                           <button
                             className={`toolbar-icon-btn ${isCropMode ? 'is-open' : ''}`}
                             onClick={() => setIsCropMode(!isCropMode)}
                             disabled={isCapturing || isCropCapturing}
-                            title="Crop screenshot for Claude (⌘⇧C)"
+                            title={`Crop screenshot for Claude (${kbd('mod', 'shift', 'C')})`}
                             data-education-id="crop-button"
                           >
                             {isCropCapturing ? (
@@ -1381,7 +1403,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                             )}
                             <span className="capture-label-full">Crop Screenshot</span>
                             <span className="capture-label-short">Crop</span>
-                            <span className="capture-shortcut">&#8984;&#8679;C</span>
+                            <span className="capture-shortcut">{kbd('mod', 'shift', 'C')}</span>
                           </button>
                         </div>
                       )}
@@ -1434,6 +1456,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                             healthPanelRef={healthPanelRef}
                             onHealthOutput={handleHealthOutput}
                             needsInstall={needsInstall}
+                            devServerUnexpectedExit={devServerUnexpectedExit}
+                            onRestartDevServer={() => void handleRestartDevServer()}
                             onRunInstall={onRunInstall}
                             onOpenInCode={openInCode}
                             canUndo={canUndo}

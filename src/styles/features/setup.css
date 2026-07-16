@@ -518,7 +518,7 @@
 }
 
 .wizard-agent-card-desc {
-  margin: var(--spacing-xs) 0 0;
+  margin: var(--spacing-xs) 0 var(--spacing-md);
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }

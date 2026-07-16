@@ -15,8 +15,11 @@
 //!
 //! ### `SHIPSTUDIO_FORCE_SETUP=<scenario>`
 //! Uses a fully mocked backend. Item statuses are faked based on the scenario.
-//! Clicking "Install" triggers a 2-second mock install. Terminal-based items
-//! (homebrew, gh_auth, claude, codex) still spawn real processes.
+//! In the classic wizard, clicking "Install" triggers a 2-second mock install
+//! and terminal-based items (homebrew, gh_auth, claude, codex) still spawn
+//! real processes. The agent-led onboarding is fully deterministic under this
+//! mode: actions flip mock state directly and the guided phase plays a
+//! scripted demo session driven by `mock_mark_setup_item_ready`.
 //! Scenarios: `fresh`, `auth-only`, `almost-done`, `both-agents`, `codex-only`,
 //! or comma-separated item IDs (e.g. `homebrew,node,git,gh,gh_auth`).
 //!
@@ -39,6 +42,7 @@ pub use install::*;
 pub use state::*;
 pub use status::*;
 
+use crate::errors::CommandError;
 use crate::types::AppState;
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
@@ -291,6 +295,66 @@ pub fn mock_install(item_id: &str) {
     }
 }
 
+// ============ Onboarding Test Mode ============
+
+/// Which onboarding test mode (if any) the app was launched in. The frontend
+/// uses this to swap real side effects for deterministic ones: under mock mode
+/// (`SHIPSTUDIO_FORCE_SETUP`) the agent-led onboarding runs a scripted demo
+/// session instead of spawning a real agent PTY or real installers.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnboardingTestMode {
+    /// `SHIPSTUDIO_FORCE_SETUP` is set — item statuses are mocked.
+    pub mock: bool,
+    /// `SHIPSTUDIO_FORCE_ONBOARDING` is set — real checks, wizard forced open.
+    pub force_onboarding: bool,
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub async fn get_onboarding_test_mode() -> Result<OnboardingTestMode, CommandError> {
+    Ok(OnboardingTestMode {
+        mock: is_mock_mode(),
+        // Raw env-var check on purpose: is_force_onboarding_mode() flips off
+        // after completion, but the frontend cares about how we were launched.
+        force_onboarding: std::env::var("SHIPSTUDIO_FORCE_ONBOARDING").is_ok(),
+    })
+}
+
+/// Mark a single setup item as ready in the mock state. Drives the scripted
+/// demo of the agent-led onboarding: the demo terminal flips items ready on a
+/// timeline and the real status polling picks them up, so the checklist UI is
+/// exercised end-to-end with zero changes to the host machine. Refuses to run
+/// outside mock mode.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn mock_mark_setup_item_ready(
+    item_id: String,
+) -> Result<(), crate::errors::CommandError> {
+    if !is_mock_mode() {
+        return Err(crate::errors::CommandError::Validation {
+            field: "item_id".to_string(),
+            reason: "mock_mark_setup_item_ready only works when SHIPSTUDIO_FORCE_SETUP is set"
+                .to_string(),
+        });
+    }
+    if !is_valid_mock_item(&item_id) {
+        return Err(crate::errors::CommandError::Validation {
+            field: "item_id".to_string(),
+            reason: format!("unknown setup item `{item_id}`"),
+        });
+    }
+    mock_install(&item_id);
+    Ok(())
+}
+
+/// Whether an id names a real setup item the mock state can hold. `npm_fix`
+/// is conditional (only exists while ~/.npm is broken) so it's not in
+/// ALL_ITEMS, but the demo may still flip it.
+fn is_valid_mock_item(item_id: &str) -> bool {
+    ALL_ITEMS.contains(&item_id) || item_id == "npm_fix"
+}
+
 /// Check if an item is mock-installed
 pub(super) fn is_mock_installed(item_id: &str) -> bool {
     MOCK_INSTALLED
@@ -399,6 +463,23 @@ mod tests {
         assert!(!items.contains(&"codex"));
         assert!(items.contains(&"opencode"));
         assert!(items.contains(&"opencode_auth"));
+    }
+
+    // ============ is_valid_mock_item ============
+
+    #[test]
+    fn valid_mock_items_accept_all_items_and_npm_fix() {
+        for item in ALL_ITEMS {
+            assert!(is_valid_mock_item(item), "{item} should be valid");
+        }
+        assert!(is_valid_mock_item("npm_fix"));
+    }
+
+    #[test]
+    fn invalid_mock_items_rejected() {
+        assert!(!is_valid_mock_item("rm -rf /"));
+        assert!(!is_valid_mock_item(""));
+        assert!(!is_valid_mock_item("HOMEBREW"));
     }
 
     // ============ AppState ============
