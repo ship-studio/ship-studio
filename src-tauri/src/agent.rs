@@ -170,7 +170,12 @@ pub const CURSOR: AgentConfig = AgentConfig {
     uninstall_command_unix: Some(
         "rm -f \"$HOME/.local/bin/cursor-agent\" \"$HOME/.local/bin/agent\" 2>/dev/null; rm -rf \"$HOME/.local/share/cursor-agent\" 2>/dev/null; echo Uninstalled.",
     ),
-    uninstall_command_windows: None,
+    // Runs via `cmd /C`. The Windows installer (`?win32=true`) mirrors the Unix
+    // layout under %USERPROFILE%\.local. `2>nul` + a trailing `echo` keep it
+    // exit-0 even if the paths are absent, so a missing install won't error.
+    uninstall_command_windows: Some(
+        "del /q \"%USERPROFILE%\\.local\\bin\\cursor-agent.exe\" \"%USERPROFILE%\\.local\\bin\\agent.exe\" 2>nul & rmdir /s /q \"%USERPROFILE%\\.local\\share\\cursor-agent\" 2>nul & echo Uninstalled.",
+    ),
     setup_item_ids: ("cursor", "cursor_auth"),
     setup_display_names: ("Cursor", "Cursor Account"),
     auth_status_args: Some(&["status"]),

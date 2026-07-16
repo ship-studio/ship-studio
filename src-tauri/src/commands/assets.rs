@@ -7,7 +7,7 @@
 use crate::commands::git::{load_project_metadata, save_project_metadata};
 use crate::errors::CommandError;
 use crate::types::Asset;
-use crate::utils::{resolve_workspace_path, validate_project_path};
+use crate::utils::{normalize_separators, resolve_workspace_path, validate_project_path};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -62,7 +62,7 @@ fn validate_asset_path(root_dir: &Path, asset_path: &str) -> Result<PathBuf, Str
         // For non-existent paths, verify parent exists and is within the root
         let parent = full_path
             .parent()
-            .ok_or("Invalid path: no parent directory")?;
+            .ok_or_else(|| format!("Invalid path {}: no parent directory", full_path.display()))?;
         if !parent.exists() {
             return Err("Parent directory does not exist".to_string());
         }
@@ -92,11 +92,21 @@ fn validate_asset_path(root_dir: &Path, asset_path: &str) -> Result<PathBuf, Str
 fn path_to_asset(path: &PathBuf, root_dir: &PathBuf) -> Result<Asset, String> {
     let metadata = fs::metadata(path).map_err(|e| format!("Failed to read metadata: {e}"))?;
 
-    let relative_path = path
-        .strip_prefix(root_dir)
-        .map_err(|_| "Failed to get relative path")?
-        .to_string_lossy()
-        .to_string();
+    // Forward slashes on every OS: the Assets panel groups files into folders and
+    // renders breadcrumbs by splitting `path` on `/`. On Windows `to_string_lossy()`
+    // would hand back backslashes and flatten the tree. No-op on macOS/Linux.
+    let relative_path = normalize_separators(
+        &path
+            .strip_prefix(root_dir)
+            .map_err(|e| {
+                format!(
+                    "Failed to get path of {} relative to assets root {}: {e}",
+                    path.display(),
+                    root_dir.display()
+                )
+            })?
+            .to_string_lossy(),
+    );
 
     let modified_at = metadata
         .modified()

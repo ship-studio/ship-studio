@@ -354,6 +354,7 @@
 .dashboard-card-row {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--spacing-md);
   width: 100%;
   padding: var(--spacing-md) var(--spacing-md) var(--spacing-md) var(--spacing-lg);

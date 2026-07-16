@@ -1579,11 +1579,16 @@ fn discover_stylesheets(root: &Path) -> Vec<(String, String)> {
     // freshly imported starter) would otherwise descend into `dist/` and `node_modules/`
     // — making every `src/` selector also match the built bundle → "defined in multiple
     // files" → read-only. This backstop keeps discovery correct without requiring git.
+    // `SKIP_DIRS` covers `.next/` (Next.js build output — its compiled CSS bundle would
+    // double-match every global-stylesheet selector); `out/` is Next's `next export`
+    // output, pruned only here (it's too generic a name to hide from code mode).
+    const DISCOVERY_EXTRA_SKIP_DIRS: &[&str] = &["out"];
     let walker = ignore::WalkBuilder::new(root)
         .standard_filters(true)
         .filter_entry(|entry| {
             let name = entry.file_name().to_string_lossy();
             !crate::commands::code::SKIP_DIRS.contains(&name.as_ref())
+                && !DISCOVERY_EXTRA_SKIP_DIRS.contains(&name.as_ref())
         })
         .build();
     for entry in walker.flatten() {
@@ -3544,6 +3549,37 @@ mod tests {
             .map(|(r, _)| r)
             .collect();
         assert_eq!(rels, vec!["app.css".to_string()]);
+    }
+
+    #[test]
+    fn discovery_prunes_nextjs_build_output_so_source_rules_resolve_uniquely() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        // A Next.js layout: the hand-authored global stylesheet…
+        std::fs::create_dir_all(root.join("app")).unwrap();
+        std::fs::write(root.join("app/globals.css"), ".title {\n  color: red;\n}\n").unwrap();
+        // …and the SAME selector in the compiled `.next/` bundle and `next export`'s
+        // `out/`. If either were discovered, locate would see the selector in two
+        // files → Multiple → the rule turns read-only in the editor.
+        std::fs::create_dir_all(root.join(".next/static/css")).unwrap();
+        std::fs::write(root.join(".next/static/css/x.css"), ".title{color:red}\n").unwrap();
+        std::fs::create_dir_all(root.join("out/_next/static/css")).unwrap();
+        std::fs::write(
+            root.join("out/_next/static/css/x.css"),
+            ".title{color:red}\n",
+        )
+        .unwrap();
+
+        let discovered = discover_stylesheets(root);
+        let rels: Vec<_> = discovered.iter().map(|(r, _)| r.clone()).collect();
+        assert_eq!(rels, vec!["app/globals.css".to_string()]);
+
+        // End to end: the rule still resolves to the single source file, not Multiple.
+        let sheets = idx(discovered);
+        match locate_rule(&sheets, &query(".title", None, None)) {
+            RuleLocation::Resolved { file, .. } => assert_eq!(file, "app/globals.css"),
+            other => panic!("expected unique resolution to the source rule, got {other:?}"),
+        }
     }
 
     #[test]

@@ -35,7 +35,9 @@ export interface UseToastsReturn {
 
 /** Maximum number of toasts to display at once */
 const MAX_TOASTS = 5;
-/** Time in ms before a toast auto-dismisses */
+/** Time in ms before a success/info toast auto-dismisses. Error toasts never
+ *  auto-dismiss — the user needs time to read (and copy) the full detail, so
+ *  they persist until manually dismissed via the ✕ button. */
 const TOAST_DURATION_MS = 4000;
 
 /**
@@ -78,12 +80,15 @@ export function useToasts(): UseToastsReturn {
       const updated = [...prev, { id, message, type }];
       return updated.slice(-MAX_TOASTS);
     });
-    // Auto-dismiss after timeout
-    const timer = setTimeout(() => {
-      timerMap.current.delete(id);
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, TOAST_DURATION_MS);
-    timerMap.current.set(id, timer);
+    // Auto-dismiss after timeout — except errors, which persist until the
+    // user dismisses them (they carry detail worth reading/copying).
+    if (type !== 'error') {
+      const timer = setTimeout(() => {
+        timerMap.current.delete(id);
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, TOAST_DURATION_MS);
+      timerMap.current.set(id, timer);
+    }
   }, []);
 
   const dismissToast = useCallback((id: number) => {

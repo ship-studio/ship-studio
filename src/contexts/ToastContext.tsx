@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useToasts, type UseToastsReturn, type ToastType } from '../hooks/useToasts';
 
 export const ToastContext = createContext<UseToastsReturn | null>(null);
@@ -8,7 +8,15 @@ interface ProviderProps {
 }
 
 export function ToastProvider({ children }: ProviderProps) {
-  const value = useToasts();
+  const { toasts, showToast, dismissToast } = useToasts();
+  // Memoize the context value so consumers only re-render when toast state
+  // actually changes (not when an ancestor re-renders the provider). The
+  // `showToast` / `dismissToast` functions are useCallback-stable inside
+  // `useToasts`, so effects and callbacks may safely list them as deps.
+  const value = useMemo(
+    () => ({ toasts, showToast, dismissToast }),
+    [toasts, showToast, dismissToast]
+  );
   return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;
 }
 

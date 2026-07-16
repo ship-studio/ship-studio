@@ -41,7 +41,7 @@ import {
 } from '../../lib/mobile';
 import { usePolling } from '../../hooks/usePolling';
 import { checkDependenciesInstalled } from '../../lib/project';
-import { attachPtySession, writePtySession } from '../../lib/ptySession';
+import { attachPtySession, writePtySessionLogged } from '../../lib/ptySession';
 import { getWindowLabel } from '../../lib/window';
 import { ResetIcon, ChevronIcon } from '../icons';
 import { Button } from '../primitives/Button';
@@ -156,6 +156,9 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
   // because the connect effect's stable-timer closes over it; a forward reference
   // would also trip the react-hooks immutability rule.
   const healAttemptsRef = useRef(0);
+  // Last connect-flow failure (formatted) — cited by the heal loop's give-up
+  // message so the user sees the concrete cause, not just "lost connection".
+  const lastConnectErrorRef = useRef<string | null>(null);
 
   // Accumulated build-log tail + a mirror of launchStatus, both read inside the
   // output handler (which must stay identity-stable so BuildTerminal's setup
@@ -284,10 +287,12 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
         void resolveBuild(platform, info.udid, info.launch_status);
       } catch (err) {
         if (cancelled) return;
-        logger.error('[DeviceMirror] failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        setErrorMsg(formatCommandError(asCommandError(err)));
+        const detail = formatCommandError(asCommandError(err));
+        logger.error('[DeviceMirror] failed', { error: detail });
+        // Remembered so the heal-loop's give-up message can cite the last
+        // concrete failure instead of a bare "lost connection".
+        lastConnectErrorRef.current = detail;
+        setErrorMsg(detail);
         setStatus('error');
       }
     };
@@ -339,7 +344,12 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
     if (healTimerRef.current !== null) return; // a heal is already pending
     if (healAttemptsRef.current >= MAX_HEAL_ATTEMPTS) {
       // Mirror won't come back on its own — stop looping and let the user act.
-      setErrorMsg('Lost the connection to the device mirror.');
+      const lastError = lastConnectErrorRef.current;
+      setErrorMsg(
+        `Lost the connection to the device mirror after ${MAX_HEAL_ATTEMPTS} reconnect attempts` +
+          `${lastError ? ` (last error: ${lastError})` : ' (the mirror stream kept dropping)'}. ` +
+          'Try restarting the preview.'
+      );
       setStatus('error');
       return;
     }
@@ -362,7 +372,7 @@ export function DeviceMirror({ projectName, projectPath, onSendToAgent }: Device
   // `react-native run-ios`) and `flutter run` all reload on an 'r' keystroke. We
   // write it straight to the build PTY the app is running in.
   const reloadApp = useCallback(() => {
-    void writePtySession(buildSessionId(projectPath), 'r');
+    writePtySessionLogged(buildSessionId(projectPath), 'r');
   }, [projectPath]);
 
   // Settle the build verdict. 'launched' is ground truth — the app is actually on

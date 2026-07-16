@@ -184,6 +184,8 @@
 
 /* Dashboard Header */
 .dashboard-header {
+  --dashboard-header-control-height: calc(var(--spacing-xl) + var(--spacing-md));
+
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -196,16 +198,17 @@
 .dashboard-search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   flex: 1;
-  padding: 0 10px;
+  height: var(--dashboard-header-control-height);
+  padding: 0 var(--spacing-md);
+  box-sizing: border-box;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   transition:
     border-color var(--transition),
     background-color var(--transition);
-  height: 30px;
   font: inherit;
   font-size: var(--font-size-md);
   text-align: left;
@@ -247,19 +250,22 @@
 .dashboard-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 /* Compact button styles for dashboard header - matches editor UI */
-.dashboard-header-actions button {
-  padding: 6px 12px;
+.dashboard-header-actions .button {
+  height: var(--dashboard-header-control-height);
+  padding: 0 var(--spacing-md);
   font-size: var(--font-size-base);
 }
 
+.dashboard-header-actions .button--secondary,
 .dashboard-header-actions .btn-secondary {
   background: var(--bg-secondary);
 }
 
 .dashboard-header-actions .btn-icon {
-  padding: 6px;
+  height: var(--dashboard-header-control-height);
+  padding: 0 var(--spacing-sm);
 }

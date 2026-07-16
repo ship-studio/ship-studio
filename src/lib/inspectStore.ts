@@ -68,6 +68,11 @@ let consoleEntries: ConsoleEntry[] = [];
 let networkEntries: NetworkEntry[] = [];
 let domSnapshot: DomSnapshot | null = null;
 let consoleId = 0;
+// Whether the Elements view wants live DOM snapshots. The shim's mutation
+// observer only runs while subscribed (serializing the tree on every mutation
+// burst is too expensive to leave on invisibly); a freshly loaded document
+// starts unsubscribed, so we re-arm it on the shim's 'ready' beacon.
+let domSubscriptionActive = false;
 
 const listeners = new Set<() => void>();
 const notify = () => {
@@ -93,6 +98,9 @@ const handleMessage = (event: MessageEvent) => {
       networkEntries = [];
       domSnapshot = null;
       consoleId = 0;
+      // A new document just installed the shim (reload/navigation); it starts
+      // unsubscribed, so re-arm live DOM snapshots if Elements is watching.
+      if (domSubscriptionActive) broadcastToPreviews('subscribe-dom-tree');
       notify();
       return;
     }
@@ -157,21 +165,24 @@ if (typeof window !== 'undefined') {
   window.addEventListener('message', handleMessage);
 }
 
-/**
- * Ask any preview iframes to re-serialize and post their DOM tree.
- * Called when the Elements tab activates so the user always sees fresh state.
- */
-const requestDomTree = () => {
+/** Broadcast a host command to any preview iframes. */
+const broadcastToPreviews = (type: string) => {
   if (typeof document === 'undefined') return;
   const iframes = document.querySelectorAll('iframe');
   iframes.forEach((iframe) => {
     try {
-      iframe.contentWindow?.postMessage({ source: HOST_CHANNEL, type: 'request-dom-tree' }, '*');
+      iframe.contentWindow?.postMessage({ source: HOST_CHANNEL, type }, '*');
     } catch {
       // ignore — cross-origin frames may not allow postMessage in some setups
     }
   });
 };
+
+/**
+ * Ask any preview iframes to re-serialize and post their DOM tree.
+ * Called when the Elements tab activates so the user always sees fresh state.
+ */
+const requestDomTree = () => broadcastToPreviews('request-dom-tree');
 
 /* All store methods are arrow properties (not method shorthand) so
    that references like `inspectStore.subscribe` passed into
@@ -198,4 +209,10 @@ export const inspectStore = {
     notify();
   },
   refreshDom: requestDomTree,
+  /** Turn live DOM snapshots on/off (Elements view visible/hidden). */
+  setDomSubscription: (active: boolean) => {
+    if (domSubscriptionActive === active) return;
+    domSubscriptionActive = active;
+    broadcastToPreviews(active ? 'subscribe-dom-tree' : 'unsubscribe-dom-tree');
+  },
 };

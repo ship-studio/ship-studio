@@ -6,6 +6,8 @@ import { useRankedCommands, type RankedCommand } from '../../commands/useRankedC
 import { recordRun } from '../../commands/frecency';
 import type { CommandCategory } from '../../commands/types';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { useOptionalToast } from '../../contexts/ToastContext';
 import { trackEvent, trackSearch, cancelTrackedSearch } from '../../lib/analytics';
 
 type DismissReason = 'command_run' | 'manual';
@@ -66,6 +68,7 @@ export function CommandPalette({
   context,
   currentProjectName,
 }: CommandPaletteProps) {
+  const { showToast } = useOptionalToast();
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTabRaw] = useState<TabId>('all');
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -183,15 +186,20 @@ export function CommandPalette({
     // Close first so the UI doesn't block on long-running handlers.
     onClose();
     recordRun(cmd.id);
+    // Surface failures — a silently-failing palette command kills trust in
+    // the palette. The toast carries the command title plus the real error.
+    const reportFailure = (kind: 'failed' | 'threw', err: unknown) => {
+      const detail = formatCommandError(asCommandError(err));
+      logger.error(`[CommandPalette] command ${kind}`, { id: cmd.id, error: detail });
+      showToast(`"${cmd.title}" failed: ${detail}`, 'error');
+    };
     try {
       const result = cmd.run();
       if (result && typeof (result as Promise<unknown>).then === 'function') {
-        (result as Promise<unknown>).catch((err) =>
-          logger.error('[CommandPalette] command failed', { id: cmd.id, error: String(err) })
-        );
+        (result as Promise<unknown>).catch((err) => reportFailure('failed', err));
       }
     } catch (err) {
-      logger.error('[CommandPalette] command threw', { id: cmd.id, error: String(err) });
+      reportFailure('threw', err);
     }
   };
 

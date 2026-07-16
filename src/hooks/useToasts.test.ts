@@ -88,6 +88,64 @@ describe('useToasts', () => {
     expect(result.current.toasts).toHaveLength(0);
   });
 
+  it('auto-dismisses info toasts after 4000ms', () => {
+    const { result } = renderHook(() => useToasts());
+
+    act(() => {
+      result.current.showToast('FYI', 'info');
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(result.current.toasts).toHaveLength(0);
+  });
+
+  it('never auto-dismisses error toasts', () => {
+    const { result } = renderHook(() => useToasts());
+
+    act(() => {
+      result.current.showToast('Something broke: detail here', 'error');
+    });
+    expect(result.current.toasts).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(result.current.toasts).toHaveLength(1);
+    expect(result.current.toasts[0].type).toBe('error');
+  });
+
+  it('error toasts can still be dismissed manually', () => {
+    const { result } = renderHook(() => useToasts());
+
+    act(() => {
+      result.current.showToast('Something broke', 'error');
+    });
+    const id = result.current.toasts[0].id;
+
+    act(() => {
+      result.current.dismissToast(id);
+    });
+    expect(result.current.toasts).toHaveLength(0);
+  });
+
+  it('success toasts auto-dismiss while an error toast persists', () => {
+    const { result } = renderHook(() => useToasts());
+
+    act(() => {
+      result.current.showToast('Something broke', 'error');
+      result.current.showToast('All good');
+    });
+    expect(result.current.toasts).toHaveLength(2);
+
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(result.current.toasts).toHaveLength(1);
+    expect(result.current.toasts[0].type).toBe('error');
+  });
+
   it('keeps max 5 toasts, removing oldest first', () => {
     const { result } = renderHook(() => useToasts());
 

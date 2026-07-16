@@ -134,7 +134,7 @@ describe('useFileTree — saveFile', () => {
       result.current.updateDraft('abcX');
       await flush();
     });
-    let ret: string | undefined;
+    let ret: Awaited<ReturnType<typeof result.current.saveFile>> | undefined;
     await act(async () => {
       ret = await result.current.saveFile();
     });
@@ -146,7 +146,7 @@ describe('useFileTree — saveFile', () => {
     const { result } = await setup(true);
     await open(result, 'a.ts', file({ content: 'abc' }));
     // draft === content → unchanged
-    let ret: string | undefined;
+    let ret: Awaited<ReturnType<typeof result.current.saveFile>> | undefined;
     await act(async () => {
       ret = await result.current.saveFile();
     });
@@ -154,7 +154,7 @@ describe('useFileTree — saveFile', () => {
     expect(ret).toBe('noop');
   });
 
-  it('surfaces a save failure and returns false', async () => {
+  it('surfaces a save failure with the real error message', async () => {
     (saveProjectFile as Fn).mockRejectedValueOnce(new Error('disk full'));
     const { result } = await setup(true);
     await open(result, 'a.ts', file({ content: 'abc' }));
@@ -162,11 +162,11 @@ describe('useFileTree — saveFile', () => {
       result.current.updateDraft('abcX');
       await flush();
     });
-    let ret: string | undefined;
+    let ret: Awaited<ReturnType<typeof result.current.saveFile>> | undefined;
     await act(async () => {
       ret = await result.current.saveFile();
     });
-    expect(ret).toBe('error');
+    expect(ret).toEqual({ error: 'disk full' });
     expect(result.current.saveError).toBe('disk full');
   });
 });

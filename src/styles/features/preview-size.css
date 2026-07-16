@@ -1,0 +1,128 @@
+/**
+ * Preview dimensions readout + exact-size popover (PreviewSizeControl):
+ * the toolbar "1440 × 900" button and the width/height inputs it opens.
+ */
+
+/* Wrapper anchors the size popover; owns the auto-margin push right. */
+.preview-size-wrap {
+  position: relative;
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.preview-dimensions {
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  user-select: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition);
+}
+
+.preview-dimensions:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.preview-dimensions:active:not(:disabled) {
+  background: var(--border);
+}
+
+.preview-dimensions:disabled {
+  cursor: default;
+}
+
+.preview-breakpoints {
+  display: flex;
+  align-self: stretch;
+  align-items: stretch;
+  gap: 0;
+  /* Cancel the parent .preview-toolbar's 9px top/bottom padding so the
+     tabs span the full toolbar height — lets the active underline sit
+     flush with the toolbar's bottom border. */
+  margin-top: -9px;
+  margin-bottom: -9px;
+  margin-left: auto;
+  margin-right: 0;
+}
+
+/* When the dimensions readout precedes the breakpoints, it owns the
+   auto-margin push so the two sit together on the right edge. */
+.preview-size-wrap + .preview-breakpoints {
+  margin-left: var(--spacing-xs);
+}
+
+/* Exact-size popover under the dimensions readout. */
+.preview-size-popover {
+  position: absolute;
+  top: calc(100% + var(--spacing-xs));
+  right: 0;
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.preview-size-inputs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.preview-size-input {
+  width: 72px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  /* WebKit's native number spinners don't theme (black on our dark UI). */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.preview-size-input::-webkit-outer-spin-button,
+.preview-size-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.preview-size-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.preview-size-x {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.preview-size-note {
+  margin: 0;
+  max-width: 200px;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+
+.preview-size-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}

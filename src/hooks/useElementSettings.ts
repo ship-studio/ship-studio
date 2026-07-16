@@ -21,6 +21,7 @@ import {
   resolveClassnameSource,
   applyClassnameEdit,
   applyClassnameEditMulti,
+  insertClassAttr,
   type ElementSignature,
 } from '../lib/edit';
 import { resolveElementHtml, applyElementHtml } from '../lib/edit-html';
@@ -224,6 +225,24 @@ export function useElementSettings({
     [projectPath, onToast, post]
   );
 
+  /** Add the FIRST class to an element that has none: there's no class literal in
+   *  source to resolve or replace, so the backend INSERTS a fresh class attribute
+   *  on the element's open tag (located by ancestor/text anchoring). On success,
+   *  proceed exactly like a successful `writeClassAttr` (live mutate + commit). */
+  const insertFirstClass = useCallback(
+    async (name: string): Promise<boolean> => {
+      const sig = sigRef.current;
+      if (!sig) return false;
+      post({ type: 'ss:suppressReload' });
+      await insertClassAttr(projectPath, sig, name);
+      sigRef.current = { ...sig, className: name };
+      post({ type: 'ss:mutate', className: name, rules: [] });
+      post({ type: 'ss:commit' });
+      return true;
+    },
+    [projectPath, post]
+  );
+
   const addClass = useCallback(
     async (name: string) => {
       const n = name.trim().replace(/^\./, '');
@@ -231,7 +250,11 @@ export function useElementSettings({
       setBusy(true);
       try {
         const next = [...classes, n];
-        if (await writeClassAttr(next.join(' '))) {
+        // No existing classes → insert a fresh attribute; otherwise rewrite the
+        // existing literal. Failures throw with the backend's specific reason.
+        const written =
+          classes.length === 0 ? await insertFirstClass(n) : await writeClassAttr(next.join(' '));
+        if (written) {
           setClasses(next);
           void trackEvent('visual_class_added', { mode: 'css-code' });
         }
@@ -242,7 +265,7 @@ export function useElementSettings({
         setBusy(false);
       }
     },
-    [classes, writeClassAttr, onToast]
+    [classes, writeClassAttr, insertFirstClass, onToast]
   );
 
   const removeClass = useCallback(

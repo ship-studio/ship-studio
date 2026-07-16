@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { Project } from '../lib/project';
 import { sessionRegistry } from '../lib/sessionRegistry';
 import { useModal } from '../contexts/ModalContext';
+import { basename } from '../lib/paths';
 
 interface Params {
   /** Pinned-row paths, in sidebar order. */
@@ -50,7 +51,7 @@ export function useProjectNumberShortcuts({ pinnedPaths, handleSelectProject }: 
       e.preventDefault();
       e.stopPropagation();
       closePalette();
-      const name = path.split('/').pop() ?? 'Project';
+      const name = basename(path) || 'Project';
       void open({ name, path, thumbnail: null });
     };
 

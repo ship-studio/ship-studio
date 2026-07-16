@@ -2,9 +2,9 @@
  * Plugin lifecycle commands: listing, installing, uninstalling, updating, and toggling plugins.
  */
 use crate::errors::CommandError;
-use crate::utils::{create_command, get_extended_path};
+use crate::utils::{create_command, find_executable, get_extended_path};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
 use super::{
@@ -42,6 +42,122 @@ fn validate_clone_url(url: &str) -> Result<(), CommandError> {
         );
     }
     Ok(())
+}
+
+/// Resolve the `git` executable to an absolute path, mirroring how the setup
+/// wizard checks for git. Spawning bare `"git"` with an overridden `PATH` can
+/// fail to resolve on Windows even when git is installed; resolving the full
+/// path first avoids that and lets us return a clear "install git" error.
+fn resolve_git() -> Result<PathBuf, CommandError> {
+    find_executable("git").ok_or_else(|| {
+        "Git isn't installed or couldn't be located. Install Git (https://git-scm.com) \
+         and restart Ship Studio, then try again."
+            .to_string()
+            .into()
+    })
+}
+
+/// `fs::rename` with a few retries. On Windows a rename briefly fails with a
+/// sharing violation while antivirus / the search indexer scan files git just
+/// wrote; a moment later the same rename succeeds.
+fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut result = fs::rename(from, to);
+    for _ in 0..4 {
+        if result.is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        result = fs::rename(from, to);
+    }
+    result
+}
+
+/// `fs::remove_dir_all` that first clears read-only attributes. Git marks pack
+/// files under `.git` read-only, which makes a plain `remove_dir_all` fail on
+/// Windows with "Access is denied".
+fn remove_dir_all_relaxed(dir: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    clear_readonly_recursive(dir);
+    fs::remove_dir_all(dir)
+}
+
+/// Recursively clear the read-only flag on every file under `dir` so it can be
+/// deleted. Best-effort: unreadable entries are skipped.
+#[cfg(windows)]
+fn clear_readonly_recursive(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.is_dir() {
+            clear_readonly_recursive(&entry.path());
+        } else {
+            let mut perms = metadata.permissions();
+            if perms.readonly() {
+                perms.set_readonly(false);
+                let _ = fs::set_permissions(entry.path(), perms);
+            }
+        }
+    }
+}
+
+/// Normalize a git remote URL to a comparable `host/path` form: trims
+/// whitespace/trailing slashes/a trailing `.git`, drops the scheme and any
+/// `user@` in the authority, folds scp-style `git@host:owner/repo` into
+/// `host/owner/repo`, and lower-cases the host (paths stay case-sensitive).
+///
+/// Mirrors `normalizeRepoUrl` in `src/lib/pluginRepoUrl.ts` — keep in sync.
+fn normalize_repo_url(url: &str) -> String {
+    let mut u = url.trim().to_string();
+
+    // scp-style: git@host:owner/repo (no slash before the colon)
+    if let Some(rest) = u.strip_prefix("git@") {
+        if let Some((host, path)) = rest.split_once(':') {
+            if !host.contains('/') && !host.is_empty() {
+                u = format!("{host}/{path}");
+            }
+        }
+    }
+
+    // Drop scheme://
+    if let Some(idx) = u.find("://") {
+        let scheme_ok = !u[..idx].is_empty()
+            && u[..idx]
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'));
+        if scheme_ok {
+            u = u[idx + 3..].to_string();
+        }
+    }
+
+    // Drop user@ in the authority (never past the first '/')
+    if let Some(at) = u.find('@') {
+        let slash = u.find('/').unwrap_or(u.len());
+        if at < slash {
+            u = u[at + 1..].to_string();
+        }
+    }
+
+    let mut u = u.trim_end_matches('/').to_string();
+    if u.to_ascii_lowercase().ends_with(".git") {
+        u.truncate(u.len() - 4);
+    }
+    let u = u.trim_end_matches('/');
+
+    match u.find('/') {
+        Some(slash) => format!("{}{}", u[..slash].to_ascii_lowercase(), &u[slash..]),
+        None => u.to_ascii_lowercase(),
+    }
+}
+
+/// True when two repo URLs identify the same repository after normalization.
+/// Empty URLs never match (dev plugins have no source URL).
+fn repo_urls_match(a: &str, b: &str) -> bool {
+    let na = normalize_repo_url(a);
+    !na.is_empty() && na == normalize_repo_url(b)
 }
 
 /// List all installed plugins for a project
@@ -91,13 +207,15 @@ pub async fn install_plugin(
     let plugins_dir = get_plugins_dir(&project_path)?;
     fs::create_dir_all(&plugins_dir).map_err(|e| format!("Failed to create plugins dir: {e}"))?;
 
+    let git = resolve_git()?;
+
     // Clone into a temp directory first, then move
     let temp_dir = plugins_dir.join(".tmp-install");
     if temp_dir.exists() {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = remove_dir_all_relaxed(&temp_dir);
     }
 
-    let output = create_command("git")
+    let output = create_command(&git)
         .args([
             "clone",
             "--depth",
@@ -112,7 +230,7 @@ pub async fn install_plugin(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = remove_dir_all_relaxed(&temp_dir);
         return Err((format!("Git clone failed: {stderr}")).into());
     }
 
@@ -120,7 +238,7 @@ pub async fn install_plugin(
     let manifest = match read_manifest(&temp_dir) {
         Ok(m) => m,
         Err(e) => {
-            let _ = fs::remove_dir_all(&temp_dir);
+            let _ = remove_dir_all_relaxed(&temp_dir);
             return Err((format!("Invalid plugin: {e}")).into());
         }
     };
@@ -129,7 +247,7 @@ pub async fn install_plugin(
 
     // Validate manifest has required fields
     if manifest.id.is_empty() || manifest.name.is_empty() {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = remove_dir_all_relaxed(&temp_dir);
         return Err(("Plugin manifest must have 'id' and 'name' fields".to_string()).into());
     }
 
@@ -139,50 +257,70 @@ pub async fn install_plugin(
         || manifest.id.contains("..")
         || manifest.id.starts_with('.')
     {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = remove_dir_all_relaxed(&temp_dir);
         return Err(("Plugin ID contains invalid characters".to_string()).into());
     }
 
     // Check min_app_version compatibility
     if let Err(e) = check_min_app_version(&manifest, &app) {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = remove_dir_all_relaxed(&temp_dir);
         return Err(e.into());
     }
 
     // Validate required_commands are all in the allowed set
     if let Err(e) = validate_required_commands(&manifest) {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = remove_dir_all_relaxed(&temp_dir);
         return Err(e.into());
+    }
+
+    // Read the commit hash and strip `.git` while still in the temp dir, BEFORE
+    // the move. On Windows the move (rename) fails if any handle is open in the
+    // source tree, and git leaves read-only pack files under `.git` that scanners
+    // briefly hold — moving a directory with no `.git` avoids both problems.
+    let commit_hash = read_git_head(&temp_dir);
+    let temp_git_dir = temp_dir.join(".git");
+    if temp_git_dir.exists() {
+        let _ = remove_dir_all_relaxed(&temp_git_dir);
     }
 
     let plugin_dir = plugins_dir.join(&manifest.id);
 
     // Remove existing version if present
     if plugin_dir.exists() {
-        fs::remove_dir_all(&plugin_dir)
+        remove_dir_all_relaxed(&plugin_dir)
             .map_err(|e| format!("Failed to remove existing plugin: {e}"))?;
     }
 
-    // Move temp to final location
-    fs::rename(&temp_dir, &plugin_dir).map_err(|e| {
-        let _ = fs::remove_dir_all(&temp_dir);
+    // Move temp to final location (retried — Windows scanners transiently lock
+    // freshly written files).
+    rename_with_retry(&temp_dir, &plugin_dir).map_err(|e| {
+        let _ = remove_dir_all_relaxed(&temp_dir);
         format!("Failed to move plugin to final location: {e}")
     })?;
-
-    // Read commit hash before removing .git
-    let commit_hash = read_git_head(&plugin_dir);
-
-    // Remove .git directory (no need to keep it)
-    let git_dir = plugin_dir.join(".git");
-    if git_dir.exists() {
-        let _ = fs::remove_dir_all(&git_dir);
-    }
 
     // Update registry
     let mut registry = read_registry(&project_path)?;
 
-    // Remove old entry if exists
-    registry.plugins.retain(|e| e.plugin_id != manifest.id);
+    // Remove the old entry if it exists — matched by manifest id, and also by
+    // source URL so a plugin whose manifest id changed upstream (slug rename)
+    // replaces the old install instead of duplicating it. Stale directories
+    // left by a renamed id are cleaned up best-effort.
+    let mut stale_dirs: Vec<PathBuf> = Vec::new();
+    registry.plugins.retain(|e| {
+        let same_id = e.plugin_id == manifest.id;
+        let same_source = !e.is_dev && repo_urls_match(&e.source_url, &repo_url);
+        if same_source && !same_id && validate_plugin_id(&e.plugin_id).is_ok() {
+            stale_dirs.push(plugins_dir.join(&e.plugin_id));
+        }
+        !same_id && !same_source
+    });
+    for dir in stale_dirs {
+        if dir.exists() {
+            if let Err(e) = fs::remove_dir_all(&dir) {
+                tracing::warn!("Failed to remove stale plugin dir {}: {e}", dir.display());
+            }
+        }
+    }
 
     let entry = RegistryEntry {
         plugin_id: manifest.id.clone(),
@@ -264,16 +402,19 @@ pub async fn update_plugin(
 
     validate_clone_url(&source_url)?;
 
+    let git = resolve_git()?;
+
     // Re-install from source (clean install)
     let plugins_dir = get_plugins_dir(&project_path)?;
     let plugin_dir = plugins_dir.join(&plugin_id);
 
     if plugin_dir.exists() {
-        fs::remove_dir_all(&plugin_dir).map_err(|e| format!("Failed to remove old plugin: {e}"))?;
+        remove_dir_all_relaxed(&plugin_dir)
+            .map_err(|e| format!("Failed to remove old plugin: {e}"))?;
     }
 
     // Clone fresh
-    let output = create_command("git")
+    let output = create_command(&git)
         .args([
             "clone",
             "--depth",
@@ -294,10 +435,11 @@ pub async fn update_plugin(
     // Read commit hash before removing .git
     let commit_hash = read_git_head(&plugin_dir);
 
-    // Remove .git directory
+    // Remove .git directory (relaxed — git leaves read-only pack files that a
+    // plain remove_dir_all can't delete on Windows).
     let git_dir = plugin_dir.join(".git");
     if git_dir.exists() {
-        let _ = fs::remove_dir_all(&git_dir);
+        let _ = remove_dir_all_relaxed(&git_dir);
     }
 
     let manifest = read_manifest(&plugin_dir)?;
@@ -364,7 +506,8 @@ pub async fn check_plugin_update(
     let installed_version = manifest.version.clone();
 
     // Get remote HEAD commit via git ls-remote
-    let output = create_command("git")
+    let git = resolve_git()?;
+    let output = create_command(&git)
         .args(["ls-remote", &source_url, "HEAD"])
         .env("PATH", get_extended_path())
         .output()
@@ -422,7 +565,11 @@ pub fn toggle_plugin(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_clone_url;
+    use super::{
+        normalize_repo_url, remove_dir_all_relaxed, rename_with_retry, repo_urls_match,
+        validate_clone_url,
+    };
+    use std::fs;
 
     #[test]
     fn accepts_normal_remotes() {
@@ -443,6 +590,85 @@ mod tests {
         assert!(validate_clone_url("ext::sh -c 'touch /tmp/pwned'").is_err());
         assert!(validate_clone_url("file:///etc/passwd").is_err());
         assert!(validate_clone_url("/some/local/path").is_err());
+    }
+
+    #[test]
+    fn normalizes_repo_url_variants() {
+        assert_eq!(
+            normalize_repo_url("https://github.com/owner/repo.git"),
+            "github.com/owner/repo"
+        );
+        assert_eq!(
+            normalize_repo_url("https://github.com/owner/repo/"),
+            "github.com/owner/repo"
+        );
+        assert_eq!(
+            normalize_repo_url("git@github.com:owner/repo.git"),
+            "github.com/owner/repo"
+        );
+        assert_eq!(
+            normalize_repo_url("ssh://git@github.com/owner/repo.git"),
+            "github.com/owner/repo"
+        );
+        // Host is case-insensitive, path is not
+        assert_eq!(
+            normalize_repo_url("https://GitHub.COM/Owner/Repo"),
+            "github.com/Owner/Repo"
+        );
+        // An @ in the path is not a user
+        assert_eq!(
+            normalize_repo_url("https://github.com/owner/repo@v2"),
+            "github.com/owner/repo@v2"
+        );
+    }
+
+    #[test]
+    fn matches_equivalent_repo_urls() {
+        assert!(repo_urls_match(
+            "https://github.com/ship-studio/plugin-figma",
+            "git@github.com:ship-studio/plugin-figma.git"
+        ));
+        assert!(repo_urls_match(
+            "https://github.com/ship-studio/plugin-figma/",
+            "HTTPS://GITHUB.com/ship-studio/plugin-figma.git"
+        ));
+        assert!(!repo_urls_match(
+            "https://github.com/ship-studio/plugin-figma",
+            "https://github.com/ship-studio/plugin-vercel"
+        ));
+        // Dev plugins have empty source URLs — never match
+        assert!(!repo_urls_match("", ""));
+        assert!(!repo_urls_match("", "https://github.com/a/b"));
+    }
+
+    #[test]
+    fn removes_dir_with_readonly_files() {
+        // Mirrors what git leaves under `.git`: read-only files that a plain
+        // remove_dir_all can't delete on Windows.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        fs::create_dir_all(root.join("objects")).unwrap();
+        let file = root.join("objects").join("pack");
+        fs::write(&file, b"data").unwrap();
+        let mut perms = fs::metadata(&file).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&file, perms).unwrap();
+
+        remove_dir_all_relaxed(&root).unwrap();
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn rename_with_retry_moves_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let from = tmp.path().join("src");
+        let to = tmp.path().join("dst");
+        fs::create_dir_all(&from).unwrap();
+        fs::write(from.join("f.txt"), b"x").unwrap();
+
+        rename_with_retry(&from, &to).unwrap();
+        assert!(!from.exists());
+        assert!(to.join("f.txt").exists());
     }
 
     #[test]

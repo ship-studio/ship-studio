@@ -24,6 +24,18 @@ import {
 } from '../lib/github';
 import { checkAgentCliStatus, AgentCliStatus } from '../lib/claude';
 import { identifyUser } from '../lib/analytics';
+import { logger } from '../lib/logger';
+import { withTimeout } from '../lib/withTimeout';
+
+/**
+ * Cap on the combined gh/agent CLI probes in `refreshAllCliStatuses`. These
+ * spawn real subprocesses; a single wedged binary must not block boot (#173).
+ * Kept below useAppSetup's 20s outer gate so this path degrades gracefully
+ * (unknown statuses) before the boot gate gives up entirely.
+ */
+const CLI_STATUS_TIMEOUT_MS = 15_000;
+/** Best-effort username lookup — never worth blocking boot for. */
+const USERNAME_TIMEOUT_MS = 10_000;
 
 // `getVersion` reads a baked-in compile-time constant; cache it so the
 // repeated identify path doesn't pay the Tauri IPC cost on every refresh.
@@ -196,12 +208,31 @@ export function useIntegrationStatus(): UseIntegrationStatusReturn {
   }, []);
 
   const refreshAllCliStatuses = useCallback(async () => {
-    const [ghStatus, clStatus] = await Promise.all([checkGitHubCliStatus(), checkAgentCliStatus()]);
+    // Unknown-but-boot-continues fallbacks: a hung or failed CLI probe must
+    // not block startup, so on timeout/error we log and proceed with
+    // not-installed statuses instead of failing the boot path.
+    let ghStatus: GitHubCliStatus = { installed: false, authenticated: false };
+    let clStatus: AgentCliStatus = { installed: false, version: null };
+    try {
+      [ghStatus, clStatus] = await withTimeout(
+        Promise.all([checkGitHubCliStatus(), checkAgentCliStatus()]),
+        CLI_STATUS_TIMEOUT_MS,
+        'CLI status check'
+      );
+    } catch (error) {
+      logger.warn('CLI status check failed or timed out — continuing with unknown statuses', {
+        error,
+      });
+    }
 
     let ghUsername: string | null = null;
     if (ghStatus.authenticated) {
       try {
-        ghUsername = await getGitHubUsername();
+        ghUsername = await withTimeout(
+          getGitHubUsername(),
+          USERNAME_TIMEOUT_MS,
+          'GitHub username lookup'
+        );
         if (ghUsername) {
           // Person props ($set) overwrite on every identify; person props
           // ($set_once) only land the first time we see this user.

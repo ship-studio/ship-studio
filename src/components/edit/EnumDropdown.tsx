@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 
 interface Option {
   label: string;
@@ -52,21 +53,16 @@ export function EnumDropdown({ label, options, value, onChange }: Props) {
     };
   }, [open, reposition]);
 
-  // Close on outside pointer / Escape.
+  // Close on outside pointer (menu is portaled, so the trigger is a second
+  // "inside" root) / Escape.
+  useDismissOnOutsidePointer(open, menuRef, () => setOpen(false), {
+    isOutside: (t) => !triggerRef.current?.contains(t) && !menuRef.current?.contains(t),
+  });
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return;
-      setOpen(false);
-    };
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
   return (

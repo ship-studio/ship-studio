@@ -11,6 +11,7 @@ import { SearchIcon } from '../icons';
 import { trackEvent } from '../../lib/analytics';
 import { Button } from '../primitives/Button';
 import { useModal } from '../../contexts/ModalContext';
+import { kbd } from '../../lib/shortcuts';
 
 interface DashboardHeaderProps {
   onCreateProject: () => void;
@@ -41,7 +42,7 @@ export function DashboardHeader({
       >
         <SearchIcon />
         <span className="dashboard-search-placeholder">Search projects, actions, settings…</span>
-        <span className="dashboard-search-shortcut">⌘K</span>
+        <span className="dashboard-search-shortcut">{kbd('mod', 'K')}</span>
       </button>
       <div className="dashboard-header-actions">
         {onImportProject && (

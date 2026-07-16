@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import { CloseIcon } from '../icons/common';
 import { PlusIcon } from '../icons/utility';
 import { EditPopover } from './EditPopover';
@@ -203,12 +204,9 @@ function NestControl({
   // Dismiss on Escape (returning focus to the trigger) or an outside click — a
   // keyboard user can't reach an onMouseLeave, so both are required to close it.
   // Mirrors the mousedown-capture click-outside pattern used by AddMenu.
+  useDismissOnOutsidePointer(open, wrapRef, () => setOpen(false), { event: 'mousedown' });
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -216,12 +214,8 @@ function NestControl({
         btnRef.current?.focus();
       }
     };
-    document.addEventListener('mousedown', onDown, true);
     document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('mousedown', onDown, true);
-      document.removeEventListener('keydown', onKey, true);
-    };
+    return () => document.removeEventListener('keydown', onKey, true);
   }, [open]);
 
   return (

@@ -59,6 +59,7 @@ Command modules in `src-tauri/src/commands/`. Domains with submodules are direct
 - `skills/` - Agent skill search and install
 
 Single-file domains:
+- `agent_bridge.rs` - Commands for the agent preview bridge (the loopback MCP server in `src-tauri/src/agent_bridge.rs` that lets the workspace agent read the preview's console/network/DOM, navigate it, and take screenshots)
 - `ai.rs` - AI-powered PR title/description generation via the agent CLI
 - `analytics.rs` - PostHog event tracking (API key stays in Rust; see `docs/analytics.md`)
 - `assets.rs` - Assets panel file management (configurable root, default `/public`)
@@ -116,6 +117,7 @@ Single-file domains:
 #### Frontend Libraries
 Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `agents-management.ts` / `agent.ts` - Agent CLI detection, install state, default-agent selection
+- `agentBridge.ts` - Frontend half of the agent preview bridge: executes forwarded MCP tool calls against the inspect store / preview and registers the server with the agent CLI
 - `ai.ts` - AI generation wrapper for PR descriptions
 - `analytics.ts` - PostHog event wrapper (every event documented in `docs/analytics.md`)
 - `assets.ts` - Asset management (list, upload, delete; configurable assets root)
@@ -160,9 +162,28 @@ Unit tests are colocated in source files using `#[cfg(test)]` modules.
 
 ### Onboarding / Setup Wizard Testing
 
-Onboarding is critical — it's the first thing every new user sees. There are two ways to test it:
+Onboarding is critical — it's the first thing every new user sees.
 
-#### 1. Real Mode: `SHIPSTUDIO_FORCE_ONBOARDING=1` (recommended for UI/flow testing)
+**There are two onboarding experiences**, chosen by `OnboardingRouter` (`src/components/setup/OnboardingRouter.tsx`):
+
+- **Agent-led (default)** — Phase 0 is a five-card agent picker (Claude Code / Codex / Cursor / Opencode / Other) with install→sign-in click-through per card; "Other" opens a plain terminal for any agent CLI and persists an `external_agent` opt-in so setup checks stop requiring a managed agent. A hosting step follows (Vercel / Cloudflare / skip — persisted as the workspace `default_host`). Then Phase 1 spawns the chosen agent in a terminal with a prescriptive setup prompt (`buildGuidedSetupPrompt` in `src/lib/agentOnboarding.ts`) and it installs everything else (Homebrew/winget, Node, Git, GitHub CLI, GitHub sign-in, plus the chosen host's CLI) while a checklist verifies with the app's own `get_full_setup_status` checks. The agent drives; the app verifies — completion is decided by our checks, never by the agent's claim. (Cloudflare has no backend detection yet, so its setup is verified only in the terminal; publishing flows are still Vercel-only.)
+- **Classic wizard** — the 4-step deterministic flow described below. Always one click away via the pinned "Try classic onboarding" corner button; the choice persists in `localStorage` (`shipstudio.onboardingMode`).
+
+#### Visual testing for the agent-led flow (works on any machine)
+
+```bash
+SHIPSTUDIO_FORCE_SETUP=fresh pnpm tauri dev
+```
+
+Under mock mode the agent-led flow is fully scripted and deterministic: Phase 0 install/connect buttons flip the backend mock state after a visible beat (no real terminals), and Phase 1 plays a scripted demo agent session (`DemoAgentTerminal`) that "installs" each tool on a ~30s timeline, flipping mock items ready via `mock_mark_setup_item_ready` so the real checklist polling ticks green end-to-end. Nothing touches the host machine — this is the reliable way for any contributor to eyeball the whole flow.
+
+Other useful scenarios: `SHIPSTUDIO_FORCE_SETUP=auth-only` (agents installed, nothing signed in — exercises Phase 0 connect), `almost-done` (only GitHub sign-in missing — short guided phase).
+
+`SHIPSTUDIO_FORCE_ONBOARDING=1` shows the agent-led flow with **real** checks and a **real agent**. On a fully set-up dev machine the pick phase shows real agent statuses, and the guided phase always runs (the fast-forwards to celebration are deliberately disabled under this env var): the agent is spawned with a verify-only prompt, checks each installed tool, and reports back — a genuine end-to-end test of the agent interaction without a fresh machine. Real *install* runs still need a machine/VM where things are actually missing.
+
+The classic wizard's two modes below work unchanged — click "Try classic onboarding" to reach them.
+
+#### 1. Classic, Real Mode: `SHIPSTUDIO_FORCE_ONBOARDING=1`
 
 ```bash
 SHIPSTUDIO_FORCE_ONBOARDING=1 pnpm tauri dev
@@ -202,7 +223,18 @@ This uses a **mock backend** — item statuses are faked. Clicking "Install" sim
 
 #### 3. Testing on a Fresh Machine (Real End-to-End)
 
-This is the gold standard test. On a clean macOS install (or a VM):
+This is the gold standard test — the true production path, no env vars, on a machine with nothing installed.
+
+**Disposable macOS VM (recommended):** `scripts/onboarding-vm.sh` wraps the whole flow with [Tart](https://github.com/cirruslabs/tart). One-time setup instructions are in the script header (standalone Tart binary + the `macos-sequoia-vanilla` image — *vanilla*, not *base*, which ships with Homebrew preinstalled and ruins the test). Then:
+
+```bash
+./scripts/onboarding-vm.sh fresh   # build DMG if needed, boot a pristine VM with it mounted
+./scripts/onboarding-vm.sh reset   # throw the used VM away; next fresh starts clean
+```
+
+VM login is admin/admin; the DMG appears under "My Shared Files → dmg" in Finder. Locally-built DMGs aren't notarized — right-click → Open. Budget ~35GB disk for the image. Clones are copy-on-write, so retest cycles are fast and always pristine.
+
+Alternatively, on a real clean macOS install:
 
 1. Install Xcode CLI tools: `xcode-select --install`
 2. Install Rust: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`

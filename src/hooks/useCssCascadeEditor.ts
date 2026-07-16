@@ -81,10 +81,19 @@ interface Params {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   projectPath: string;
   enabled: boolean;
+  /** The project bundles CSS Modules (Next.js) — unmapped module-hashed selectors
+   *  get a CSS-Modules explanation instead of the generic read-only reason. */
+  cssModulesHint?: boolean;
   onToast: (message: string, type?: 'success' | 'error') => void;
 }
 
-export function useCssCascadeEditor({ iframeRef, projectPath, enabled, onToast }: Params) {
+export function useCssCascadeEditor({
+  iframeRef,
+  projectPath,
+  enabled,
+  cssModulesHint = false,
+  onToast,
+}: Params) {
   const [editModeOn, setEditModeOn] = useState(false);
   const editMode = enabled && editModeOn;
 
@@ -263,7 +272,7 @@ export function useCssCascadeEditor({ iframeRef, projectPath, enabled, onToast }
             const locByIndex = new Map<number, RuleLocation>();
             toLocate.forEach((x, k) => locByIndex.set(x.index, locations[k]));
             if (selTokenRef.current !== token) return;
-            const merged = mergeCascade(matched, locByIndex);
+            const merged = mergeCascade(matched, locByIndex, { cssModulesHint });
 
             const nextBodies: Record<string, RuleBody> = {};
             const nextOverridden: Record<string, Map<string, string>> = {};
@@ -372,7 +381,7 @@ export function useCssCascadeEditor({ iframeRef, projectPath, enabled, onToast }
           } catch (err) {
             logger.error('[CssCascade] locate failed', { error: String(err) });
             if (selTokenRef.current === token) {
-              setRows(mergeCascade(matched, new Map()));
+              setRows(mergeCascade(matched, new Map(), { cssModulesHint }));
               onToast(toastText(err), 'error');
             }
           } finally {
@@ -383,7 +392,7 @@ export function useCssCascadeEditor({ iframeRef, projectPath, enabled, onToast }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [editMode, projectPath, post, iframeRef, onToast, clearTimers]);
+  }, [editMode, projectPath, post, iframeRef, onToast, clearTimers, cssModulesHint]);
 
   /** Live-preview a rule's current body in place (in-iframe CSSOM). */
   const previewRule = useCallback(

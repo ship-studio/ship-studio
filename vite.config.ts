@@ -26,6 +26,15 @@ export default defineConfig(async () => ({
 
   build: {
     chunkSizeWarningLimit: 1000,
+    // Explicit transpile floor. Vite 7's implicit default is safari16, which
+    // excludes macOS 12 (Safari 15) — a bundle its WebKit can't parse throws
+    // before React mounts and the user sees a black window (issue #173).
+    // safari15 keeps macOS 12 parseable for a few KB of extra transpilation.
+    // Note esbuild only down-levels syntax, not runtime APIs — don't use
+    // Safari-16+-only APIs at module scope. Raising this floor is a product
+    // decision tied to the minimum supported macOS version, not a routine
+    // dependency chore.
+    target: ["chrome107", "edge107", "firefox104", "safari15"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
