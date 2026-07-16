@@ -186,7 +186,13 @@ describe('useElementStructure', () => {
     const { result, iframeRef, onToast } = setup();
     const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
     await dispatch({ type: 'ss:select', signature: SIG, count: 1 }, source);
-    (insertElement as Fn).mockRejectedValue('This element appears in several identical places');
+    // Reject the way the backend really does: a structured CommandError object.
+    // Toasting it un-formatted would render "[object Object]".
+    (insertElement as Fn).mockRejectedValue({
+      type: 'Validation',
+      field: 'element',
+      reason: 'This element appears in several identical places',
+    });
 
     vi.useFakeTimers();
     await act(async () => {
@@ -196,6 +202,7 @@ describe('useElementStructure', () => {
       expect.stringContaining('several identical places'),
       'error'
     );
+    expect(onToast).not.toHaveBeenCalledWith(expect.stringContaining('object Object'), 'error');
     act(() => {
       vi.advanceTimersByTime(2000);
     });

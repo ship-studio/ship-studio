@@ -35,6 +35,7 @@ import {
   type InsertPosition,
 } from '../lib/edit-structure';
 import { resolveElementHtml } from '../lib/edit-html';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 
@@ -173,8 +174,9 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
       try {
         await action();
       } catch (err) {
-        logger.error('[ElementStructure] structural edit failed', { error: String(err) });
-        onToast?.(String(err), 'error');
+        const message = formatCommandError(asCommandError(err));
+        logger.error('[ElementStructure] structural edit failed', { error: message });
+        onToast?.(message, 'error');
       } finally {
         busyRef.current = false;
         setBusy(false);
