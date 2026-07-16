@@ -20,6 +20,23 @@
   margin: 0 0 var(--spacing-lg);
 }
 
+.attached-libraries-empty p {
+  margin: 0 0 var(--spacing-sm);
+}
+
+.attached-libraries-examples {
+  margin: 0 0 var(--spacing-md);
+  padding-left: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+
+.attached-libraries-note {
+  font-size: var(--font-size-sm);
+}
+
 .attached-libraries-error {
   color: var(--error);
 }

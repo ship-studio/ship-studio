@@ -80,9 +80,8 @@ export function AttachedLibrariesModal({ isOpen, onClose }: AttachedLibrariesMod
     >
       <div className="settings-modal-body">
         <p className="attached-libraries-intro">
-          Attach local folders — your own skills and reference docs — and Ship Studio makes them
-          available to the agent in every project. Skills load and files are readable; a
-          library&rsquo;s own instructions never override the project. Works with Claude Code.
+          A library is a folder your agent brings along to every project — it can read and edit the
+          files in it from any project, without you copying them into each repo.
         </p>
 
         {isLoading && libraries.length === 0 ? (
@@ -92,7 +91,20 @@ export function AttachedLibrariesModal({ isOpen, onClose }: AttachedLibrariesMod
         ) : error ? (
           <p className="attached-libraries-error">Couldn&rsquo;t load attached libraries.</p>
         ) : libraries.length === 0 ? (
-          <p className="attached-libraries-empty">No libraries attached yet.</p>
+          <div className="attached-libraries-empty">
+            <p>Attach a folder of things you reuse across projects. For example:</p>
+            <ul className="attached-libraries-examples">
+              <li>Brand guidelines, tone of voice, product facts</li>
+              <li>Code snippets and components you copy between projects</li>
+              <li>
+                Your own agent skills (a <code>.claude/skills</code> folder) — usable everywhere
+              </li>
+            </ul>
+            <p className="attached-libraries-note">
+              Works with Claude Code. A library&rsquo;s own <code>CLAUDE.md</code> is never loaded,
+              so it can&rsquo;t override a project&rsquo;s instructions.
+            </p>
+          </div>
         ) : (
           <ul className="attached-libraries-list">
             {libraries.map((lib) => (

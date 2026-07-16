@@ -293,8 +293,8 @@ export function SettingsModal({
               <div className="settings-row-info">
                 <span className="settings-row-label">Attached libraries</span>
                 <span className="settings-row-description">
-                  Local folders whose skills and files ride along into every project&rsquo;s agent
-                  (Claude Code), without copying them into each repo.
+                  Folders your agent brings along to every project — brand docs, snippets, your own
+                  skills. Works with Claude Code.
                 </span>
               </div>
               <Button
