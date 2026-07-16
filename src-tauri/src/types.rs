@@ -565,23 +565,27 @@ pub struct ExternalProject {
     pub registered_at: u64,
 }
 
-// ============ Attached Libraries ============
+// ============ Shared Libraries ============
 
-/// Current schema version for the attached libraries config.
-pub const ATTACHED_LIBRARIES_CONFIG_SCHEMA_VERSION: u32 = 1;
+/// Current schema version for the shared libraries config. v1 was a single
+/// flat list; v2 scopes libraries per workspace (account) so e.g. a
+/// per-client workspace carries its own set.
+pub const ATTACHED_LIBRARIES_CONFIG_SCHEMA_VERSION: u32 = 2;
 
-/// Configuration for attached libraries stored in
+/// Configuration for shared libraries stored in
 /// ~/ShipStudio/.shipstudio/attached-libraries.json
 #[derive(Serialize, Deserialize, Default)]
 pub struct AttachedLibrariesConfig {
     pub schema_version: u32,
-    pub libraries: Vec<AttachedLibrary>,
+    /// Libraries keyed by workspace (account) id.
+    pub workspaces: std::collections::HashMap<String, Vec<AttachedLibrary>>,
 }
 
-/// A local directory the user attaches to every agent session. Its skills load
-/// and its files become readable via the agent's additional-directory flag
-/// (e.g. Claude Code's `--add-dir`); its CLAUDE.md is deliberately not loaded,
-/// so an attached library can't override the project's own instructions.
+/// A local directory the user attaches to every agent session in a workspace.
+/// Its skills load and its files become readable via the agent's
+/// additional-directory flag (e.g. Claude Code's `--add-dir`); its CLAUDE.md is
+/// deliberately not loaded, so a shared library can't override the project's
+/// own instructions.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AttachedLibrary {
     pub path: String,

@@ -1,12 +1,15 @@
 /**
- * AttachedLibrariesModal — manage the local folders that ride along into every
- * agent session.
+ * AttachedLibrariesModal — manage the workspace's shared libraries ("attached
+ * libraries" internally): local folders that ride along into every agent
+ * session in the active workspace.
  *
- * Attached libraries let a user carry their own skills and reference docs
- * across projects: Ship Studio passes each registered folder to the agent via
- * its additional-directory flag (Claude Code's `--add-dir`), so the folder's
- * skills load and its files are readable in every project. The folder's own
- * CLAUDE.md is never loaded, so it can't override the project's instructions.
+ * Shared libraries let a user carry their own skills and reference docs across
+ * a workspace's projects: Ship Studio passes each registered folder to the
+ * agent via its additional-directory flag (Claude Code's `--add-dir`), so the
+ * folder's skills load and its files are readable in every project. The
+ * folder's own CLAUDE.md is never loaded, so it can't override the project's
+ * instructions. Scoping is per workspace (account) — e.g. one set of brand
+ * docs per client workspace — resolved backend-side from the active account.
  *
  * Folders are registered through a native picker (the trust boundary) — see
  * `src/lib/attached-libraries.ts` and `commands/attached_libraries.rs`.
@@ -75,13 +78,14 @@ export function AttachedLibrariesModal({ isOpen, onClose }: AttachedLibrariesMod
     <ModalFrame
       isOpen={isOpen}
       onClose={onClose}
-      title="Attached libraries"
+      title="Shared libraries"
       className="settings-modal"
     >
       <div className="settings-modal-body">
         <p className="attached-libraries-intro">
-          A library is a folder your agent brings along to every project — it can read and edit the
-          files in it from any project, without you copying them into each repo.
+          A shared library is a folder your agent brings along to every project in this workspace —
+          it can read and edit the files in it from any project, without you copying them into each
+          repo.
         </p>
 
         {isLoading && libraries.length === 0 ? (
@@ -92,7 +96,7 @@ export function AttachedLibrariesModal({ isOpen, onClose }: AttachedLibrariesMod
           <p className="attached-libraries-error">Couldn&rsquo;t load attached libraries.</p>
         ) : libraries.length === 0 ? (
           <div className="attached-libraries-empty">
-            <p>Attach a folder of things you reuse across projects. For example:</p>
+            <p>Attach a folder of things you reuse across this workspace&rsquo;s projects:</p>
             <ul className="attached-libraries-examples">
               <li>Brand guidelines, tone of voice, product facts</li>
               <li>Code snippets and components you copy between projects</li>

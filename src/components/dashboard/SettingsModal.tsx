@@ -291,10 +291,10 @@ export function SettingsModal({
             </div>
             <div className="settings-row">
               <div className="settings-row-info">
-                <span className="settings-row-label">Attached libraries</span>
+                <span className="settings-row-label">Shared libraries</span>
                 <span className="settings-row-description">
-                  Folders your agent brings along to every project — brand docs, snippets, your own
-                  skills. Works with Claude Code.
+                  Folders your agent brings along to every project in this workspace — brand docs,
+                  snippets, your own skills. Works with Claude Code.
                 </span>
               </div>
               <Button
