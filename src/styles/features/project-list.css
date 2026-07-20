@@ -128,6 +128,13 @@
   margin-bottom: 32px;
 }
 
+.project-list-view-all {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+  margin-bottom: 32px;
+}
+
 .project-list-empty {
   text-align: center;
   padding: 60px 24px;
