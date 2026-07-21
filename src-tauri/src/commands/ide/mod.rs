@@ -15,6 +15,7 @@ pub use screenshots::*;
 use crate::errors::CommandError;
 use crate::types::{BrowserInfo, IdeAvailability};
 use crate::utils::{create_command, validate_project_path};
+use ship_studio_macros::ship_command;
 use std::path::{Path, PathBuf};
 use tauri::{Manager, WebviewUrl};
 
@@ -117,7 +118,7 @@ pub(crate) fn resize_thumbnail_image(path: &Path, target_width: u32) {
     }
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn check_ide_availability() -> IdeAvailability {
     #[cfg(target_os = "macos")]
@@ -137,7 +138,7 @@ pub async fn check_ide_availability() -> IdeAvailability {
     }
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn open_in_ide(
     project_path: String,
@@ -194,7 +195,7 @@ pub async fn open_in_ide(
 }
 
 /// Check which browsers are available on the system
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn check_browser_availability() -> Vec<BrowserInfo> {
     #[cfg(target_os = "macos")]
@@ -238,7 +239,7 @@ pub async fn check_browser_availability() -> Vec<BrowserInfo> {
 }
 
 /// Open a URL in a specific browser
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), CommandError> {
     #[cfg(target_os = "macos")]
@@ -283,7 +284,7 @@ pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), 
     }
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn open_studio_window(
     app: tauri::AppHandle,

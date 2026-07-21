@@ -4,6 +4,7 @@ use super::strip_ansi_codes;
 use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path};
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -118,7 +119,7 @@ fn read_skills_from_plugin(plugin_path: &str, plugin_name: &str, scope: &str) ->
 }
 
 /// List all available Claude skills from installed plugins and skills directory
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn list_claude_skills(
     project_path: Option<String>,
@@ -255,7 +256,7 @@ pub struct SkillSearchResult {
 }
 
 /// Check if the Skills CLI is available (npx skills --version)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn check_skills_cli() -> bool {
     let home = dirs::home_dir()
@@ -276,7 +277,7 @@ pub async fn check_skills_cli() -> bool {
 
 /// Search for skills using the Skills CLI
 /// Runs: npx skills find "<query>"
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn search_skills(query: String) -> Result<Vec<SkillSearchResult>, CommandError> {
     // Get HOME directory for proper npm config resolution

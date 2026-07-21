@@ -7,6 +7,7 @@ use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;
 use crate::types::PullRequestInfo;
 use crate::utils::{create_command, validate_project_path};
+use ship_studio_macros::ship_command;
 
 /// Timeout for network-facing CLI ops (gh/git) so a hung remote can't freeze a
 /// PR command. Matches git/branches.rs.
@@ -27,7 +28,7 @@ async fn run_net(
 }
 
 /// List pull requests for the repository
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn list_pull_requests(
     project_path: String,
@@ -83,7 +84,7 @@ pub async fn list_pull_requests(
 
 /// Create a new pull request.
 /// Automatically pushes the branch to the remote first if needed.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path, title, body, base), fields(project = %project_path, base = %base))]
 pub async fn create_pull_request(
     project_path: String,
@@ -133,7 +134,7 @@ pub async fn create_pull_request(
 /// Merge a pull request. Returns `CommandError::MergeConflict` when `gh`
 /// reports the PR isn't mergeable so the frontend can render a conflict-
 /// resolution flow without grepping the stderr for known phrases.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -164,7 +165,7 @@ fn is_conflict_stderr(stderr: &str) -> bool {
 }
 
 /// Checkout a pull request branch locally for review
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn checkout_pull_request(
     project_path: String,
@@ -196,7 +197,7 @@ pub async fn checkout_pull_request(
 }
 
 /// Close a pull request without merging
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
 pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;

@@ -5,6 +5,7 @@
 
 use super::detection::has_html_files;
 use crate::errors::CommandError;
+use ship_studio_macros::ship_command;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 use walkdir::WalkDir;
@@ -18,7 +19,7 @@ use zip::ZipArchive;
 /// Accepts either:
 /// - `zip_data`: Raw zip bytes (from browser File API)
 /// - `zip_path`: Path to a zip file on disk (from Tauri drag-drop)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn extract_template_zip(
     project_name: String,
@@ -256,7 +257,7 @@ const EXPORT_EXCLUDED_DIRS: &[&str] = &[
 /// Exports a project as a zip template file.
 /// Opens a save dialog for the user to choose the destination.
 /// Returns the path to the saved file, or None if cancelled.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn export_project_as_template(
     app: AppHandle,

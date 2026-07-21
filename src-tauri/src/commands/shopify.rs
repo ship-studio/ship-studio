@@ -10,6 +10,7 @@ use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;
 use crate::types::{AgentCliStatus, ProjectMetadata};
 use crate::utils::{create_command, validate_project_path};
+use ship_studio_macros::ship_command;
 
 /// Version probes should be near-instant; a hung CLI must not stall the
 /// preview-pane setup gate.
@@ -19,7 +20,7 @@ const SHOPIFY_DETECT_TIMEOUT_SECS: u64 = 10;
 ///
 /// Uses the same validated-binary probe as the agent CLIs so a broken install
 /// (e.g. an npm wrapper missing its native dep) doesn't read as "installed".
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn check_shopify_cli_status() -> AgentCliStatus {
     let Some(path) = find_validated_binary("shopify", "version") else {
@@ -79,7 +80,7 @@ fn validate_store_domain(store: &str) -> Result<(), CommandError> {
 /// port-based orphan reaper can't see it; the stale session then makes the
 /// NEXT run stop on a "proceed?" confirm. Called before every theme dev
 /// spawn. The store domain is validated, so the pkill pattern is inert.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn kill_stale_theme_dev(store: String) -> Result<(), CommandError> {
     validate_store_domain(&store)?;
@@ -93,7 +94,7 @@ pub async fn kill_stale_theme_dev(store: String) -> Result<(), CommandError> {
 
 /// Gets the connected Shopify store domain for a theme project, or None if
 /// the user hasn't connected a store yet.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_shopify_store(project_path: String) -> Result<Option<String>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -114,7 +115,7 @@ pub async fn get_shopify_store(project_path: String) -> Result<Option<String>, C
 /// Sets (or clears, with None) the connected Shopify store domain for a
 /// theme project. The domain must be a bare hostname like
 /// `my-store.myshopify.com` — the frontend normalizes user input first.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_shopify_store(
     project_path: String,

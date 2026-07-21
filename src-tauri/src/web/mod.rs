@@ -8,6 +8,7 @@
 //! any of this, and stays the reference implementation for correct behavior.
 
 pub mod auth;
+pub mod commands;
 pub mod config;
 
 use axum::{
@@ -62,6 +63,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/login", post(auth::login))
         .route("/api/logout", post(auth::logout))
         .route("/api/session", get(auth::session))
+        .route("/api/cmd/{name}", post(commands::dispatch))
         // Explicit wildcard rather than `.fallback` — the outer router owns the
         // fallback (the SPA), and `merge` would silently drop this one.
         .route("/api/{*rest}", get(api_not_found).post(api_not_found))
@@ -287,6 +289,100 @@ mod tests {
                 .header(header::COOKIE, cookie)
                 .header(header::ORIGIN, "https://evil.example.com")
                 .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn command_routes_require_a_session() {
+        let (status, body) = send(
+            test_state(),
+            Request::post("/api/cmd/list_projects")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "http://localhost:1420")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body.contains("\"type\":\"NotAuthenticated\""));
+    }
+
+    #[tokio::test]
+    async fn a_command_call_returns_the_ok_envelope() {
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        let (status, body) = send(
+            state,
+            Request::post("/api/cmd/get_active_session_count")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "http://localhost:1420")
+                .header(header::COOKIE, cookie)
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let json: serde_json::Value = serde_json::from_str(&body).expect("JSON body");
+        assert_eq!(json["ok"], serde_json::json!(true));
+        assert!(json["data"].is_number(), "body was {body}");
+    }
+
+    #[tokio::test]
+    async fn a_failing_command_still_returns_200_with_ok_false() {
+        // The envelope carries the verdict; a command error is not a transport
+        // error, and the frontend must not have to treat it as one.
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        let (status, body) = send(
+            state,
+            Request::post("/api/cmd/detect_project_type_command")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "http://localhost:1420")
+                .header(header::COOKIE, cookie)
+                .body(Body::from(r#"{"projectPath":"/definitely/not/here"}"#))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let json: serde_json::Value = serde_json::from_str(&body).expect("JSON body");
+        assert_eq!(json["ok"], serde_json::json!(false));
+        // The tagged discriminator must survive untouched — `asCommandError`
+        // in src/lib/errors.ts keys off exactly this.
+        assert!(json["error"]["type"].is_string(), "body was {body}");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_command_is_404() {
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        let (status, body) = send(
+            state,
+            Request::post("/api/cmd/no_such_command")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "http://localhost:1420")
+                .header(header::COOKIE, cookie)
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.contains("unknown command"));
+    }
+
+    #[tokio::test]
+    async fn a_command_call_from_a_foreign_origin_is_403() {
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        let (status, _) = send(
+            state,
+            Request::post("/api/cmd/list_projects")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://evil.example.com")
+                .header(header::COOKIE, cookie)
+                .body(Body::from("{}"))
                 .unwrap(),
         )
         .await;

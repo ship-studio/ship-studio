@@ -6,6 +6,7 @@ use crate::errors::CommandError;
 use crate::types::{
     ExternalProject, ExternalProjectsConfig, EXTERNAL_PROJECTS_CONFIG_SCHEMA_VERSION,
 };
+use ship_studio_macros::ship_command;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -107,7 +108,7 @@ pub fn is_registered_external_path(canonical: &Path) -> Result<bool, String> {
 
 /// Opens a native folder picker and registers the selected folder as an external project.
 /// Returns the path of the registered project, or None if cancelled.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn register_external_project(app: AppHandle) -> Result<Option<String>, CommandError> {
     let folder = app
@@ -229,7 +230,7 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
 /// Other metadata (terminal state, last_opened, custom thumbnail, etc.) is
 /// preserved so a user who remove+re-adds for organisation reasons doesn't
 /// lose everything.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn unregister_external_project(path: String) -> Result<(), CommandError> {
     let mut config = load_config()?;
@@ -319,7 +320,7 @@ fn looks_like_project_root(path: &Path) -> bool {
 /// don't fail with "Security error: path is outside ShipStudio directory".
 ///
 /// Returns Ok(true) if newly registered, Ok(false) if already registered or inside ~/ShipStudio.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn ensure_external_project_registered(
     app: AppHandle,
@@ -377,7 +378,7 @@ pub async fn ensure_external_project_registered(
 }
 
 /// Check if a project path is an external project.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn is_project_external(path: String) -> Result<bool, CommandError> {
     let canonical =

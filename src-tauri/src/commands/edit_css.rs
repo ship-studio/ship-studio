@@ -28,6 +28,7 @@ use crate::commands::edit::Location;
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -1881,7 +1882,7 @@ fn validate_selector(selector: &str) -> Result<(), CommandError> {
 
 /// Resolve a clicked element to the CSS rule that styles its class, at the
 /// given breakpoint (`None` = base). Returns a typed status the UI branches on.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature), fields(project = %project_path))]
 pub fn resolve_css_rule(
     project_path: String,
@@ -1896,7 +1897,7 @@ pub fn resolve_css_rule(
 /// Surgically set (or remove, when `value` is `None`) one declaration on the
 /// rule for `selector` at the given breakpoint. Fail-closed if the rule can't
 /// be pinned to a single block.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path, file = %file, selector = %selector, property = %property))]
 pub fn set_css_declaration(
     project_path: String,
@@ -1927,7 +1928,7 @@ pub fn set_css_declaration(
 /// handled separately. Fail-closed if an identical *base* rule already exists; a
 /// conditional rule is always distinct from the base, so the dup-check is skipped
 /// when wrapping.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(declarations), fields(project = %project_path, file = %file, selector = %selector))]
 pub fn create_css_class(
     project_path: String,
@@ -1979,7 +1980,7 @@ pub fn create_css_class(
 
 /// List hand-authored stylesheets in the project (project-relative POSIX
 /// paths), so the UI can offer an authored-sheet target for new rules.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn list_stylesheets(project_path: String) -> Result<Vec<String>, CommandError> {
     let root = validate_project_path(&project_path)?;
@@ -2025,7 +2026,7 @@ pub(crate) fn css_class_exists(root: &Path, class: &str) -> bool {
 }
 
 /// All class names defined across the project's stylesheets, sorted & unique.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn list_css_classes(project_path: String) -> Result<Vec<String>, CommandError> {
     let root = validate_project_path(&project_path)?;
@@ -2044,7 +2045,7 @@ pub fn list_css_classes(project_path: String) -> Result<Vec<String>, CommandErro
 /// text — `.card`, `article .feature-card`, `@keyframes reveal`), sorted & unique.
 /// Powers the "Add selector" autocomplete so existing rules are discoverable and
 /// re-surfaced (rather than duplicated or rejected) when you type one that exists.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn list_css_selectors(project_path: String) -> Result<Vec<String>, CommandError> {
     let root = validate_project_path(&project_path)?;
@@ -2102,7 +2103,7 @@ fn collect_custom_props(css: &str, set: &mut std::collections::BTreeSet<String>)
 
 /// All CSS custom-property names (`--foo`) defined across the project's stylesheets,
 /// sorted & unique — powers `var(--…)` value autocomplete in the editor.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn list_css_variables(project_path: String) -> Result<Vec<String>, CommandError> {
     let root = validate_project_path(&project_path)?;
@@ -2130,7 +2131,7 @@ pub struct CssVariableDef {
 /// order (so the UI can keep last-wins semantics). `:root` tokens are the common,
 /// editable case; ones scoped to other selectors are surfaced too (the UI groups
 /// them by scope). Powers the Variables editor.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn get_css_variables(project_path: String) -> Result<Vec<CssVariableDef>, CommandError> {
     let root = validate_project_path(&project_path)?;
@@ -2155,7 +2156,7 @@ pub fn get_css_variables(project_path: String) -> Result<Vec<CssVariableDef>, Co
 /// Map a batch of cascade matches (from the in-iframe walker) back to their source
 /// rules, in the same order. Each entry is `resolved` (editable), `multiple`, or
 /// `not_found` (read-only) — the code panel renders accordingly.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(matched), fields(project = %project_path, rules = matched.len()))]
 pub fn locate_css_rules(
     project_path: String,
@@ -2171,7 +2172,7 @@ pub fn locate_css_rules(
 /// against `old_inner`; fail-closed if the rule isn't pinned to one block or the
 /// new body would break out of it (`{`/`}` are rejected — a code panel edits the
 /// declarations of a single rule, never its structure).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(
     skip(old_inner, new_inner),
     fields(project = %project_path, file = %file, selector = %selector)
@@ -2202,7 +2203,7 @@ pub fn apply_css_rule_text(
 
 /// Delete the whole rule for `selector`+`media_text` from its stylesheet,
 /// drift-guarded against `old_inner`. Fail-closed if it isn't pinned to one rule.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(old_inner), fields(project = %project_path, file = %file, selector = %selector))]
 pub fn delete_css_rule(
     project_path: String,
@@ -2220,7 +2221,7 @@ pub fn delete_css_rule(
 
 /// Wrap the rule for `selector`+`media_text` in `at_prelude` (e.g. a `@media`
 /// query), drift-guarded against `old_inner`.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(old_inner), fields(project = %project_path, file = %file, selector = %selector, at = %at_prelude))]
 pub fn wrap_css_rule(
     project_path: String,
@@ -2239,7 +2240,7 @@ pub fn wrap_css_rule(
 
 /// Change the selector of the rule for `selector`+`media_text` to `new_selector`,
 /// drift-guarded against `old_inner`.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(old_inner), fields(project = %project_path, file = %file, selector = %selector, new = %new_selector))]
 pub fn rename_css_selector(
     project_path: String,
@@ -2259,7 +2260,7 @@ pub fn rename_css_selector(
 
 /// Change the `@media` condition enclosing the rule for `selector`+`media_text` to
 /// `new_media`, drift-guarded against `old_inner`.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(old_inner), fields(project = %project_path, file = %file, selector = %selector, new = %new_media))]
 pub fn rename_css_at_rule(
     project_path: String,

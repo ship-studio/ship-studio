@@ -3,6 +3,7 @@
 //! Structured logging using the `tracing` ecosystem.
 //! Logs are written to daily rotating files in the app's log directory.
 
+use ship_studio_macros::ship_command;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -208,13 +209,13 @@ pub fn init_server_logging() -> Result<(), String> {
 }
 
 /// Get the current log file path (for debugging/support)
-#[tauri::command]
+#[ship_command]
 pub fn get_log_path() -> String {
     get_log_dir().to_string_lossy().to_string()
 }
 
 /// Log a message from the frontend
-#[tauri::command]
+#[ship_command]
 pub fn log_frontend_event(level: String, message: String, context: Option<serde_json::Value>) {
     let ctx = context.map(|c| c.to_string()).unwrap_or_default();
 

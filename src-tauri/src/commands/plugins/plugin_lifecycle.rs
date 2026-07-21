@@ -3,6 +3,7 @@
  */
 use crate::errors::CommandError;
 use crate::utils::{create_command, find_executable, get_extended_path};
+use ship_studio_macros::ship_command;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
@@ -161,7 +162,7 @@ fn repo_urls_match(a: &str, b: &str) -> bool {
 }
 
 /// List all installed plugins for a project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn list_plugins(project_path: String) -> Result<Vec<PluginInfo>, CommandError> {
     let registry = read_registry(&project_path)?;
@@ -195,7 +196,7 @@ pub fn list_plugins(project_path: String) -> Result<Vec<PluginInfo>, CommandErro
 }
 
 /// Install a plugin from a GitHub repository URL into a project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn install_plugin(
     app: AppHandle,
@@ -346,7 +347,7 @@ pub async fn install_plugin(
 }
 
 /// Uninstall a plugin by its ID from a project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), CommandError> {
     // Reject traversal-style IDs before joining onto the plugins dir — this
@@ -382,7 +383,7 @@ pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), C
 }
 
 /// Update a plugin by pulling latest from its source repository
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn update_plugin(
     app: AppHandle,
@@ -475,7 +476,7 @@ pub async fn update_plugin(
 }
 
 /// Check if a plugin has an update available by comparing commit hashes
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn check_plugin_update(
     project_path: String,
@@ -541,7 +542,7 @@ pub async fn check_plugin_update(
 }
 
 /// Toggle a plugin's enabled state
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn toggle_plugin(
     project_path: String,

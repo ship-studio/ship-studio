@@ -4,6 +4,7 @@ use super::{PtyInfo, PTY_ID_COUNTER, PTY_REGISTRY};
 use crate::errors::CommandError;
 use crate::types::SpawnPtyOptions;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
+use ship_studio_macros::ship_command;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
@@ -24,7 +25,7 @@ use tauri::Emitter;
 ///
 /// The `window_label` parameter ensures events are only sent to the window that
 /// spawned the PTY, enabling multi-window isolation.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app, options))]
 pub async fn spawn_pty(
     app: tauri::AppHandle,
@@ -174,7 +175,7 @@ pub async fn spawn_pty(
 /// windows are closed.
 ///
 /// The `pty_id` should be unique (e.g., the PTY ID from tauri-pty or a timestamp).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn register_external_pty(
     window_label: String,
@@ -209,7 +210,7 @@ pub fn register_external_pty(
 /// Unregister an externally-spawned PTY process.
 ///
 /// Called when the PTY exits normally (before window close) to keep the registry clean.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn unregister_external_pty(pty_id: u32) -> Result<(), CommandError> {
     if let Ok(mut registry) = PTY_REGISTRY.lock() {

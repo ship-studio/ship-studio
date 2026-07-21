@@ -12,6 +12,7 @@ use tracing::{debug, error, info, instrument, warn};
 // Network git ops (fetch, push --delete) go through the workspace-scoped helper
 // in the parent module so they authenticate as the project's workspace login.
 use super::run_git_net;
+use ship_studio_macros::ship_command;
 
 /// Tracks the last time `git fetch` was run per project path.
 /// Prevents redundant network I/O when the frontend polls `list_branches` frequently.
@@ -27,7 +28,7 @@ use super::{
 };
 
 /// List all branches (local and remote) with metadata
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "list_branches", skip(project_path), fields(project = %project_path))]
 pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -176,7 +177,7 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
 }
 
 /// Get the current branch name
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_current_branch(project_path: String) -> Result<String, CommandError> {
     // Check cache first
@@ -208,7 +209,7 @@ pub async fn get_current_branch(project_path: String) -> Result<String, CommandE
 }
 
 /// Switch to a different branch
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "switch_branch", skip(project_path), fields(project = %project_path, target_branch = %branch_name))]
 pub async fn switch_branch(
     project_path: String,
@@ -386,7 +387,7 @@ pub async fn switch_branch(
 }
 
 /// Create a new branch from a base branch
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "create_branch", skip(project_path), fields(project = %project_path, branch = %branch_name, from = %from_branch))]
 pub async fn create_branch(
     project_path: String,
@@ -503,7 +504,7 @@ pub async fn create_branch(
 /// Publish a single branch to GitHub without opening a PR: `git push -u origin
 /// <branch>`. Pushes the named local branch (which need not be checked out) and
 /// sets its upstream. Used by the per-branch "Publish" action.
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "push_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
 pub async fn push_branch(project_path: String, branch_name: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -545,7 +546,7 @@ pub async fn push_branch(project_path: String, branch_name: String) -> Result<()
 }
 
 /// Delete a branch (local and optionally remote)
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "delete_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
 pub async fn delete_branch(
     project_path: String,

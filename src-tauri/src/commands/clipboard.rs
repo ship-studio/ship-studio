@@ -11,6 +11,7 @@
 //! and its path is pasted, mirroring the existing drag-drop behavior.
 
 use crate::errors::CommandError;
+use ship_studio_macros::ship_command;
 use std::path::Path;
 
 /// How many times to try opening/reading the clipboard. On Windows the
@@ -48,7 +49,7 @@ fn with_clipboard_retry<T>(
 /// Returns `Ok(None)` when the clipboard holds no text (e.g. it's empty or
 /// contains an image) rather than an error, so the frontend can fall through
 /// to image handling.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn read_clipboard_text() -> Result<Option<String>, CommandError> {
     match with_clipboard_retry(|clipboard| clipboard.get_text()) {
@@ -63,7 +64,7 @@ pub fn read_clipboard_text() -> Result<Option<String>, CommandError> {
 /// If the system clipboard holds an image, write it to a temp PNG and return
 /// the absolute path (to be pasted into the terminal like a dropped file).
 /// Returns `Ok(None)` when the clipboard holds no image.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn stage_clipboard_image() -> Result<Option<String>, CommandError> {
     let image = match with_clipboard_retry(|clipboard| clipboard.get_image()) {

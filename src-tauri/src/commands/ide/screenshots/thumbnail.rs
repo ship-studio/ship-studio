@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use super::node_tool_command;
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
+use ship_studio_macros::ship_command;
 
 /// Returns true when the project's metadata marks the thumbnail as
 /// user-supplied — auto-capture must skip these so it doesn't clobber
@@ -24,7 +25,7 @@ fn is_thumbnail_locked(project: &Path) -> bool {
     metadata.custom_thumbnail.unwrap_or(false)
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn capture_project_thumbnail(
     project_path: String,
@@ -170,7 +171,7 @@ pub async fn capture_project_thumbnail(
     }
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -191,7 +192,7 @@ pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String
 /// auto-capture so subsequent dev-server-driven captures don't overwrite
 /// it. Returns the new thumbnail as a base64 data URL so the dashboard
 /// can refresh without a second round-trip.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(image_data), fields(project = %project_path, bytes = image_data.len()))]
 pub async fn upload_project_thumbnail(
     project_path: String,

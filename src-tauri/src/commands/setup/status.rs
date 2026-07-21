@@ -21,6 +21,7 @@ use crate::utils::get_winget_command;
 
 #[cfg(not(windows))]
 use crate::utils::get_brew_command;
+use ship_studio_macros::ship_command;
 
 /// Timeout for local probes (`node --version`, agent status, …). Generous for a
 /// version print, but bounded — a CLI wedged on stdin or a broken install must
@@ -119,7 +120,7 @@ async fn run_vercel_whoami(vercel_path: &Path, token: Option<&str>) -> Option<St
 }
 
 /// Get full setup status for all items
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_full_setup_status() -> FullSetupStatus {
     // Debug/mock mode: return mock state for testing onboarding flow
@@ -677,7 +678,7 @@ pub async fn get_full_setup_status() -> FullSetupStatus {
 
 /// Quick setup check - only checks binary/file existence (no subprocess calls)
 /// This is ~10ms vs 2-5 seconds for full setup check
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn quick_setup_check() -> crate::types::QuickSetupCheck {
     // Force onboarding mode: always show onboarding with real checks
@@ -818,7 +819,7 @@ pub struct ResolvedCli {
 /// Resolve a CLI binary name to an absolute path using the same discovery the
 /// setup status checks use. Returns `Ok(None)` when the binary genuinely
 /// isn't installed anywhere we know how to look.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn resolve_cli_path(name: String) -> Result<Option<ResolvedCli>, CommandError> {
     // Bare command names only — reject separators/metacharacters so this can

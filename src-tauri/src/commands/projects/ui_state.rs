@@ -8,9 +8,10 @@ use crate::commands::accounts::DEFAULT_ACCOUNT_ID;
 use crate::errors::CommandError;
 use crate::types::{Account, ProjectMetadata, TerminalState};
 use crate::utils::validate_project_path;
+use ship_studio_macros::ship_command;
 
 /// Marks a project as opened by updating its last_opened timestamp
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn mark_project_opened(project_path: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -56,7 +57,7 @@ pub async fn mark_project_opened(project_path: String) -> Result<(), CommandErro
 }
 
 /// Gets the branch prefix username preference (defaults to true if not set)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_branch_prefix_preference(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -75,7 +76,7 @@ pub async fn get_branch_prefix_preference(project_path: String) -> Result<bool, 
 }
 
 /// Sets the branch prefix username preference
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_branch_prefix_preference(
     project_path: String,
@@ -110,7 +111,7 @@ pub async fn set_branch_prefix_preference(
 }
 
 /// Gets whether the main branch warning banner should be hidden for this project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_hide_main_branch_warning(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -129,7 +130,7 @@ pub async fn get_hide_main_branch_warning(project_path: String) -> Result<bool, 
 }
 
 /// Sets whether the main branch warning banner should be hidden for this project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_hide_main_branch_warning(
     project_path: String,
@@ -164,7 +165,7 @@ pub async fn set_hide_main_branch_warning(
 }
 
 /// Gets the auto-accept mode preference for a project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_auto_accept_mode(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -184,7 +185,7 @@ pub async fn get_auto_accept_mode(project_path: String) -> Result<bool, CommandE
 
 /// Sets the auto-accept mode preference for a project
 /// When enabled, Claude will run with --dangerously-skip-permissions flag
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_auto_accept_mode(project_path: String, enabled: bool) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -216,7 +217,7 @@ pub async fn set_auto_accept_mode(project_path: String, enabled: bool) -> Result
 }
 
 /// Gets the saved terminal tab state for a project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_terminal_state(
     project_path: String,
@@ -237,7 +238,7 @@ pub async fn get_terminal_state(
 }
 
 /// Saves the terminal tab state for a project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(state), fields(project = %project_path))]
 pub async fn set_terminal_state(
     project_path: String,
@@ -278,7 +279,7 @@ pub async fn set_terminal_state(
 /// Passing `account_id = "default"` moves the project to the Default
 /// workspace; the stored value is set to `None` so that legacy projects
 /// (which have no `account_id`) remain naturally visible in Default.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path, account = %account_id))]
 pub async fn move_project_to_account(
     project_path: String,
@@ -432,7 +433,7 @@ pub fn project_account_id_sync(project_path: &std::path::Path) -> String {
 
 /// Returns the Workspace (Account) id the current project belongs to.
 /// Falls back to the active account id if the project has no `account_id`.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_account_id(project_path: String) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;

@@ -7,9 +7,10 @@
 use crate::errors::CommandError;
 use crate::types::{ProjectMetadata, PROJECT_METADATA_SCHEMA_VERSION};
 use crate::utils::validate_project_path;
+use ship_studio_macros::ship_command;
 
 /// Reads project metadata from .shipstudio/project.json with automatic schema migration
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn read_project_metadata(
     project_path: String,
@@ -40,7 +41,7 @@ pub async fn read_project_metadata(
 
 /// Writes project metadata to .shipstudio/project.json
 /// Always ensures the schema_version is set to the current version.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(metadata), fields(project = %project_path))]
 pub async fn write_project_metadata(
     project_path: String,
@@ -68,7 +69,7 @@ pub async fn write_project_metadata(
 }
 
 /// Checks whether a project has a `.vercel/project.json` config file.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn has_vercel_config(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;

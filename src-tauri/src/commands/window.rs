@@ -6,6 +6,7 @@
 use crate::commands::setup::{read_app_state, write_app_state};
 use crate::errors::CommandError;
 use crate::types::{CompactModePreferences, WindowPosition};
+use ship_studio_macros::ship_command;
 use tauri::{LogicalPosition, LogicalSize, Window};
 
 /// Compact mode dimensions
@@ -18,7 +19,7 @@ const FULL_MODE_HEIGHT: f64 = 800.0;
 
 /// Enter compact mode - resize window and enable always-on-top
 /// The UI adapts via responsive CSS based on window width
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn enter_compact_mode(window: Window) -> Result<(), CommandError> {
     tracing::info!("Entering compact mode");
@@ -51,7 +52,7 @@ pub async fn enter_compact_mode(window: Window) -> Result<(), CommandError> {
 }
 
 /// Exit compact mode - restore window to full size
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn exit_compact_mode(window: Window) -> Result<(), CommandError> {
     tracing::info!("Exiting compact mode");
@@ -81,7 +82,7 @@ pub async fn exit_compact_mode(window: Window) -> Result<(), CommandError> {
 }
 
 /// Toggle always-on-top state for the window
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn set_always_on_top(window: Window, enabled: bool) -> Result<(), CommandError> {
     tracing::info!("Setting always on top: {}", enabled);
@@ -100,7 +101,7 @@ pub async fn set_always_on_top(window: Window, enabled: bool) -> Result<(), Comm
 }
 
 /// Save compact mode window position
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn save_compact_position(x: i32, y: i32) -> Result<(), CommandError> {
     save_compact_position_internal(x, y)
@@ -119,7 +120,7 @@ fn save_compact_position_internal(x: i32, y: i32) -> Result<(), CommandError> {
 }
 
 /// Get current compact mode preferences
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_compact_preferences() -> Result<CompactModePreferences, CommandError> {
     let state = read_app_state();
@@ -128,7 +129,7 @@ pub async fn get_compact_preferences() -> Result<CompactModePreferences, Command
 
 /// Set compact mode window size
 /// If height is provided, uses that; otherwise uses default
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn set_compact_expanded(
     window: Window,
@@ -156,7 +157,7 @@ pub async fn set_compact_expanded(
 }
 
 /// Get current window position (for drag tracking)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_window_position(window: Window) -> Result<WindowPosition, CommandError> {
     let position = window
@@ -170,7 +171,7 @@ pub async fn get_window_position(window: Window) -> Result<WindowPosition, Comma
 }
 
 /// Set window position (for drag implementation)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn set_window_position(window: Window, x: i32, y: i32) -> Result<(), CommandError> {
     window
@@ -181,7 +182,7 @@ pub async fn set_window_position(window: Window, x: i32, y: i32) -> Result<(), C
 }
 
 /// Start dragging the window (native drag)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn start_window_drag(window: Window) -> Result<(), CommandError> {
     window
@@ -192,7 +193,7 @@ pub async fn start_window_drag(window: Window) -> Result<(), CommandError> {
 }
 
 /// Focus and bring window to front (useful after opening external apps)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn focus_window(window: Window) -> Result<(), CommandError> {
     tracing::debug!("Focusing window");
@@ -211,7 +212,7 @@ pub async fn focus_window(window: Window) -> Result<(), CommandError> {
 }
 
 /// Set the window title dynamically
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn set_window_title(window: Window, title: String) -> Result<(), CommandError> {
     tracing::debug!("Setting window title: {}", title);

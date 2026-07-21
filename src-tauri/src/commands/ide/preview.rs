@@ -4,6 +4,7 @@
 //! as well as evaluating JavaScript and scrolling within them.
 
 use crate::errors::CommandError;
+use ship_studio_macros::ship_command;
 use std::sync::Mutex;
 use tauri::{Manager, Webview, WebviewUrl};
 
@@ -21,7 +22,7 @@ pub struct ScrollDimensions {
 /// Creates a native child webview at the specified position.
 /// Used for Sanity Studio to support OAuth authentication.
 /// Only one preview webview can exist at a time.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn create_preview_webview(
     app: tauri::AppHandle,
@@ -68,7 +69,7 @@ pub async fn create_preview_webview(
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn navigate_preview_webview(
     app: tauri::AppHandle,
@@ -81,7 +82,7 @@ pub async fn navigate_preview_webview(
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn resize_preview_webview(
     app: tauri::AppHandle,
@@ -101,7 +102,7 @@ pub async fn resize_preview_webview(
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn destroy_preview_webview(app: tauri::AppHandle) -> Result<(), CommandError> {
     let mut exists = PREVIEW_WEBVIEW_EXISTS
@@ -115,7 +116,7 @@ pub async fn destroy_preview_webview(app: tauri::AppHandle) -> Result<(), Comman
 }
 
 /// Evaluate JavaScript in the preview webview (fire and forget).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn eval_preview_js(app: tauri::AppHandle, js: String) -> Result<(), CommandError> {
     let webview = app
@@ -130,7 +131,7 @@ pub async fn eval_preview_js(app: tauri::AppHandle, js: String) -> Result<(), Co
 
 /// Scroll the preview webview to a specific Y position and return the actual scroll position.
 /// Returns the actual scrollY after scrolling (may be less than requested if at bottom).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn scroll_preview_webview(app: tauri::AppHandle, y: u32) -> Result<(), CommandError> {
     let webview = app
@@ -147,7 +148,7 @@ pub async fn scroll_preview_webview(app: tauri::AppHandle, y: u32) -> Result<(),
 /// Get the current scroll position from the preview webview.
 /// Note: This is a best-effort approach since we can't easily get return values from JS eval.
 /// The stitch_screenshots function handles duplicate detection as a fallback.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn get_preview_scroll_info(app: tauri::AppHandle) -> Result<(u32, u32), CommandError> {
     // We can't reliably get JS return values from the preview webview,
@@ -166,7 +167,7 @@ pub async fn get_preview_scroll_info(app: tauri::AppHandle) -> Result<(u32, u32)
 
 /// Check if the webview can still scroll down (returns true if not at bottom).
 /// This is a simpler approach than trying to get exact scroll dimensions.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn check_preview_can_scroll(app: tauri::AppHandle) -> Result<bool, CommandError> {
     let webview = app

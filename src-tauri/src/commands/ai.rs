@@ -8,6 +8,7 @@ use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;
 use crate::types::GeneratedPR;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
@@ -158,7 +159,7 @@ async fn run_agent_headless(
 
 /// Gather git context and generate a PR title and description using the active
 /// agent CLI in headless mode.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, base = %base_branch))]
 pub async fn generate_pr_description(
     project_path: String,
@@ -404,7 +405,7 @@ fn parse_response(response: &str) -> Result<GeneratedPR, String> {
 ///
 /// Exposed as a command for potential UI use (e.g. a "regenerate" button); the
 /// publish flow generates messages internally via [`resolve_commit_message`].
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn generate_commit_message(project_path: String) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;

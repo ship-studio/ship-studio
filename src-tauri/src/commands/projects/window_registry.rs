@@ -6,12 +6,13 @@
 use crate::errors::CommandError;
 use crate::state::{get_window_for_project, register_project_window, unregister_project_window};
 use crate::utils::validate_project_path;
+use ship_studio_macros::ship_command;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// Opens a project in a new window.
 /// If the project is already open in another window, focuses that window instead.
 /// Returns the window label of the new or existing window.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn open_project_in_new_window(
     app: AppHandle,
@@ -83,7 +84,7 @@ pub async fn open_project_in_new_window(
 /// Registers a project for the current window.
 /// Called when a project is opened in any window (main or new).
 /// This ensures duplicate window detection works correctly.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn register_project_for_window(
     window_label: String,
@@ -105,7 +106,7 @@ pub async fn register_project_for_window(
 /// Unregisters the current window from the project registry.
 /// Called when a project window navigates back to the projects list.
 /// This allows the same project to be opened in a new window via "Open in New Window".
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn unregister_project_from_window(window_label: String) -> Result<(), CommandError> {
     crate::state::unregister_window_by_label(&window_label);
@@ -118,7 +119,7 @@ pub async fn unregister_project_from_window(window_label: String) -> Result<(), 
 
 /// Check if a project is already open in another window.
 /// Returns the window label if open, or null if not.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_window(project_path: String) -> Option<String> {
     // Validate the path is within ~/ShipStudio
@@ -142,7 +143,7 @@ pub async fn get_project_window(project_path: String) -> Option<String> {
 
 /// Focus a window by its label.
 /// Used to bring an existing project window to the front.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn focus_window_by_label(
     app: AppHandle,

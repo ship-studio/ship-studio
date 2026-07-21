@@ -5,10 +5,11 @@
 
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
+use ship_studio_macros::ship_command;
 
 /// Start a static file server for a project, returning the port it's listening on.
 /// Also starts a file watcher that emits `static-file-changed` events for live reload.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn start_static_server(
     app: tauri::AppHandle,
@@ -26,7 +27,7 @@ pub async fn start_static_server(
 }
 
 /// Stop the static file server for a window.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn stop_static_server(window_label: String) -> Result<(), CommandError> {
     crate::static_server::stop_static_server(&window_label);

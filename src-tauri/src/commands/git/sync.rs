@@ -8,9 +8,10 @@ use super::git_stage_and_commit;
 // Network git ops (fetch, pull, merge) go through the workspace-scoped helper in
 // the parent module so they authenticate as the project's workspace login.
 use super::run_git_net;
+use ship_studio_macros::ship_command;
 
 /// Fetch all branches from remotes
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn fetch_all_branches(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -31,7 +32,7 @@ pub async fn fetch_all_branches(project_path: String) -> Result<(), CommandError
 }
 
 /// Pull latest changes from remote for current branch
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -54,7 +55,7 @@ pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
 /// Returns git's own summary output (e.g. "Already up to date." or the
 /// fast-forward/merge stats) so the UI can report what actually happened
 /// instead of a generic "done".
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path, merge_branch), fields(project = %project_path, branch = ?merge_branch))]
 pub async fn pull_and_merge(
     project_path: String,
@@ -97,7 +98,7 @@ pub async fn pull_and_merge(
 }
 
 /// Discard all uncommitted changes in the working directory
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -134,7 +135,7 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
 
 /// Stage all changes and create a commit with the given message.
 /// Returns true if a commit was made, false if there was nothing to commit.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path, message), fields(project = %project_path))]
 pub async fn commit_changes(project_path: String, message: String) -> Result<bool, CommandError> {
     let validated_path = validate_project_path(&project_path)?;

@@ -11,6 +11,7 @@
 use crate::errors::CommandError;
 use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 
 /// Represents an MCP server configured for an agent.
 #[derive(Debug, Serialize, Clone)]
@@ -173,7 +174,7 @@ fn parse_scope_from_mcp_get(output: &str) -> String {
 /// Strategy: Parse `<binary> mcp list` output which contains name, command/URL,
 /// and status for each server. Then run `<binary> mcp get <name>` per server
 /// to enrich with scope information.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip_all, fields(project = ?project_path, agent = ?agent_id))]
 pub async fn list_mcp_servers(
     project_path: Option<String>,
@@ -268,7 +269,7 @@ pub async fn list_mcp_servers(
 /// "my-server -- npx -y @some/mcp-server"
 ///
 /// For Claude Code, appends `-s <scope>` for the configuration scope.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip_all, fields(agent = ?agent_id))]
 pub async fn add_mcp_server(
     raw_args: String,
@@ -344,7 +345,7 @@ pub async fn add_mcp_server(
 }
 
 /// Remove an MCP server by name using the agent's CLI.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip_all, fields(agent = ?agent_id))]
 pub async fn remove_mcp_server(
     name: String,

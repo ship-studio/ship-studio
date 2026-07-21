@@ -20,6 +20,7 @@
 use crate::errors::CommandError;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, PtySize};
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -217,7 +218,7 @@ pub struct SessionListItem {
 /// a UUID from the frontend's tab model) so re-open attempts are idempotent
 /// and so the same id routes through write/attach/kill later.
 #[allow(clippy::too_many_arguments)]
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip_all, fields(session_id = %session_id, command = %command))]
 pub async fn pty_session_open(
     app: AppHandle,
@@ -418,7 +419,7 @@ pub async fn pty_session_open(
     Ok(OpenSessionResult { session_id, pid })
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(data))]
 pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), CommandError> {
     let session = {
@@ -438,7 +439,7 @@ pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), Comman
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<(), CommandError> {
     let session = {
@@ -466,7 +467,7 @@ pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<()
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn pty_session_kill(session_id: String) -> Result<(), CommandError> {
     // Pop first so repeated kills are no-ops and the reader thread can exit
@@ -491,7 +492,7 @@ pub fn pty_session_kill(session_id: String) -> Result<(), CommandError> {
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandError> {
     let session = {
@@ -528,7 +529,7 @@ pub fn pty_session_attach(session_id: String) -> Result<AttachResult, CommandErr
     })
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn pty_session_detach(session_id: String) -> Result<(), CommandError> {
     let session = {
@@ -543,7 +544,7 @@ pub fn pty_session_detach(session_id: String) -> Result<(), CommandError> {
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn pty_session_list(
     project_path: Option<String>,

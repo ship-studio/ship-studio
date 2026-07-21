@@ -13,6 +13,7 @@ use crate::commands::projects::{is_astro_project, is_nextjs_project};
 use crate::errors::CommandError;
 use crate::utils::{resolve_workspace_path, validate_project_path};
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 use std::path::{Path, PathBuf};
 use tracing::info;
 
@@ -895,7 +896,7 @@ fn compute_status(workspace: &Path) -> I18nStatus {
 
 /// Report the i18n state of a project: framework support, whether an i18n
 /// block exists, and the configured locales.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_i18n_status(project_path: String) -> Result<I18nStatus, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -907,7 +908,7 @@ pub async fn get_i18n_status(project_path: String) -> Result<I18nStatus, Command
 /// `defaultLocale` into the framework config, creating the config file if the
 /// project has none. Fails with a `Validation` error (and changes nothing)
 /// when the existing config can't be edited safely.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(locales), fields(project = %project_path, locale_count = locales.len(), default_locale = %default_locale))]
 pub async fn set_i18n_config(
     project_path: String,

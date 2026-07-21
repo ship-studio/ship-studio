@@ -3,10 +3,11 @@
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use image::GenericImageView;
+use ship_studio_macros::ship_command;
 
 /// Crop an image and save it to the project's screenshots folder
 /// Takes the source image path, crop bounds (x, y, width, height), and returns the saved path
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn crop_and_save_screenshot(
     project_path: String,
@@ -59,7 +60,7 @@ pub async fn crop_and_save_screenshot(
 
 /// Read a screenshot file and return it as a base64 data URL.
 /// Used for displaying screenshot previews in the UI.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_screenshot_base64(file_path: String) -> Result<String, CommandError> {
     use base64::Engine;
@@ -79,7 +80,7 @@ pub async fn get_screenshot_base64(file_path: String) -> Result<String, CommandE
 /// When scrolling stops working (page bottom reached), the BOTTOM EDGE of both
 /// captures will be identical (same footer/content).
 /// This is more reliable than comparing the whole image.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn compare_screenshots(
     path1: String,

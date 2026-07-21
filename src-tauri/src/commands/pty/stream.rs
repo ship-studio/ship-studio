@@ -4,6 +4,7 @@
 use super::{kill_process, PTY_REGISTRY};
 use crate::errors::CommandError;
 use crate::utils::create_command;
+use ship_studio_macros::ship_command;
 
 /// Kill a PTY process by its ID.
 ///
@@ -11,7 +12,7 @@ use crate::utils::create_command;
 /// was found and killed, Ok(false) if no process with that ID was found.
 ///
 /// Uses SIGTERM first to allow graceful shutdown, then SIGKILL after a timeout.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn kill_pty(id: u32) -> Result<bool, CommandError> {
     let pid = {
@@ -83,7 +84,7 @@ pub fn kill_window_pty_sync(window_label: &str) -> u32 {
 ///
 /// This is the preferred method for cleanup when switching projects in a window.
 /// It only kills PTYs belonging to the specified window, leaving other windows' PTYs intact.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn kill_window_pty(window_label: String) -> Result<u32, CommandError> {
     let pids_to_kill: Vec<(u32, u32)> = {
@@ -191,7 +192,7 @@ pub fn get_project_pty_pids_internal(project_path: &str) -> Vec<u32> {
 /// PTYs whose `project_path` matches; PTYs without a project_path are untouched.
 ///
 /// Returns the number of PTYs killed.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn kill_project_pty(project_path: String) -> Result<u32, CommandError> {
     Ok(kill_project_pty_internal(&project_path))
@@ -199,7 +200,7 @@ pub async fn kill_project_pty(project_path: String) -> Result<u32, CommandError>
 
 /// Return the PIDs of all PTYs associated with a project. Used for memory
 /// queries and process-running checks. Returns an empty vec if no PTYs match.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_project_pty_pids(project_path: String) -> Result<Vec<u32>, CommandError> {
     Ok(get_project_pty_pids_internal(&project_path))
@@ -209,7 +210,7 @@ pub async fn get_project_pty_pids(project_path: String) -> Result<Vec<u32>, Comm
 ///
 /// WARNING: This kills PTYs across ALL windows. Use `kill_window_pty` instead
 /// for per-window cleanup. This should only be used during app shutdown.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn kill_all_pty() -> Result<u32, CommandError> {
     let pids: Vec<(u32, u32)> = {
@@ -248,7 +249,7 @@ pub async fn kill_all_pty() -> Result<u32, CommandError> {
 ///
 /// This kills any agent or next-server processes that have become orphaned
 /// (parent PID is 1, meaning their parent process died).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn cleanup_orphaned_processes() -> Result<(), CommandError> {
     #[cfg(unix)]
@@ -289,7 +290,7 @@ pub async fn cleanup_orphaned_processes() -> Result<(), CommandError> {
 }
 
 /// Kill any process listening on a specific port
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn kill_port(port: u32) -> Result<(), CommandError> {
     #[cfg(unix)]

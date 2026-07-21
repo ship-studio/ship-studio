@@ -15,6 +15,7 @@ use crate::errors::CommandError;
 use crate::external_command::run_to_stdout;
 use crate::utils::{create_command, find_executable, get_extended_path};
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::process::Command;
 
 const SIMCTL_TIMEOUT_SECS: u64 = 15;
@@ -269,7 +270,7 @@ async fn simctl_stdout(
 ///
 /// Errors if `xcrun` is unavailable (Xcode not installed). Returns an empty
 /// vec when Xcode is present but no simulator is booted.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_booted_simulators() -> Result<Vec<MobileSimulator>, CommandError> {
     tracing::info!("list_booted_simulators: invoked");
@@ -303,7 +304,7 @@ pub async fn list_booted_simulators() -> Result<Vec<MobileSimulator>, CommandErr
 /// can false-positive on a pre-booted sim that already has another third-party app
 /// running. Either way Apple's own UIKit apps (Safari = `com.apple.mobilesafari`,
 /// etc.) are excluded.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn simulator_app_running(
     udid: String,
@@ -334,7 +335,7 @@ pub async fn simulator_app_running(
 ///
 /// Best-effort: if Simulator isn't running, or the user hasn't granted automation
 /// permission, this is a no-op — the window simply stays, exactly as before.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn hide_simulator() -> Result<(), CommandError> {
     #[cfg(target_os = "macos")]
@@ -472,7 +473,7 @@ fn parse_adb_devices(stdout: &str) -> Vec<AndroidDevice> {
 
 /// List currently-connected, ready Android devices/emulators. Empty vec when none
 /// are running (or adb is absent); errors only on an unexpected adb failure.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_android_devices() -> Result<Vec<AndroidDevice>, CommandError> {
     let mut cmd = adb_command();
@@ -586,7 +587,7 @@ async fn emulator_boot_completed(serial: &str) -> bool {
 /// analog of [`simulator_app_running`]. `pidof <app_id>` exits 0 with the pid iff
 /// the process is alive. The app id (Gradle `applicationId`) comes from the build
 /// log; without it we can't tell our app from others, so report not-running.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn android_app_running(
     serial: String,
@@ -649,7 +650,7 @@ fn detect_mobile_targets_for(project_path: &std::path::Path) -> MobileTargets {
 /// Which platforms a project can build for (iOS / Android). Combined by the frontend
 /// with [`mobile_platform_support`] (machine capability) so a platform is only
 /// offered when the project targets it AND the toolchain exists.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn detect_mobile_targets(project_path: String) -> Result<MobileTargets, CommandError> {
     let project = crate::utils::validate_project_path(&project_path)?;
@@ -729,7 +730,7 @@ async fn android_tooling_available() -> bool {
 /// Report which mobile platforms this machine can actually preview — not just which
 /// toolchain is partially present, but which can boot/build something. The frontend
 /// offers only these; the rest route to agent-driven setup.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn mobile_platform_support() -> Result<MobilePlatformSupport, CommandError> {
     Ok(MobilePlatformSupport {
@@ -1824,7 +1825,7 @@ fn with_android_build_env(platform: crate::state::Platform, cmd: String) -> Stri
 /// if the project type isn't a supported native mobile app. Android commands are
 /// wrapped to provide `JAVA_HOME`/`ANDROID_HOME` for Gradle (see
 /// [`with_android_build_env`]).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_simulator_launch_command(
     project_path: String,
@@ -2194,7 +2195,7 @@ const LAUNCH_STATUSES: [&str; 4] = ["building", "launched", "failed", "exited"];
 /// so a later reuse (tab-return) restores it instantly — the pty ring buffer
 /// can have dropped the log marker the verdict came from. No-op when no session
 /// is registered (the report raced a teardown).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn set_mobile_launch_status(
     project_path: String,
@@ -2220,7 +2221,7 @@ pub async fn set_mobile_launch_status(
 /// actually recover a broken preview. `preferred` pins a specific device
 /// (frontend passes `null` in v1). The returned [`MirrorInfo`] is what the
 /// frontend embeds; the app build is launched separately as a `pty_session`.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn start_mobile_preview(
     project_path: String,

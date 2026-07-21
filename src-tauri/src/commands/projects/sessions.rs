@@ -24,6 +24,7 @@ use crate::state::{
     unregister_session as state_unregister_session, ProjectSessionBackend,
 };
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 
 /// Frontend-facing view of a project session.
 #[derive(Debug, Clone, Serialize)]
@@ -80,7 +81,7 @@ pub struct PidMemory {
 /// **Invariant guard:** if the project already has a session under a different
 /// window, this returns a Validation error. Same window → idempotent (just
 /// touches `last_activity_at`).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn register_project_session(
     project_path: String,
@@ -100,7 +101,7 @@ pub async fn register_project_session(
 ///
 /// Returns the number of PTYs killed. Idempotent — calling on an already-
 /// suspended session is a no-op (still returns 0 unless lingering PTYs are found).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn suspend_project_session(project_path: String) -> Result<u32, CommandError> {
     Ok(suspend_session_internal(&project_path).await)
@@ -137,7 +138,7 @@ pub async fn suspend_session_internal(project_path: &str) -> u32 {
 /// Note: this does NOT unpin the project — that's a separate `unpin_project`
 /// call. A user might want to close a session while leaving the pin in place
 /// so it can be reactivated later.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn unregister_project_session(project_path: String) -> Result<(), CommandError> {
     state_unregister_session(&project_path);
@@ -149,7 +150,7 @@ pub async fn unregister_project_session(project_path: String) -> Result<(), Comm
 
 /// Bump the session's last-activity timestamp. Cheap, safe to call frequently
 /// (terminal input, focus events, etc.). LRU eviction in Phase 5 uses this.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn touch_project_session(project_path: String) -> Result<(), CommandError> {
     touch_session(&project_path);
@@ -157,7 +158,7 @@ pub async fn touch_project_session(project_path: String) -> Result<(), CommandEr
 }
 
 /// List all currently registered sessions (active + suspended).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_project_sessions() -> Result<Vec<ProjectSessionInfo>, CommandError> {
     let sessions = list_sessions();
@@ -171,7 +172,7 @@ pub async fn list_project_sessions() -> Result<Vec<ProjectSessionInfo>, CommandE
 }
 
 /// Look up a single session by project path. Returns `None` if no session.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_project_session_info(
     project_path: String,
@@ -184,7 +185,7 @@ pub async fn get_project_session_info(
 
 /// Count of currently active sessions. Used by the rail UI to enforce the
 /// soft cap (default 5) before allowing a new session to spawn.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_active_session_count() -> Result<usize, CommandError> {
     Ok(count_active_sessions())
@@ -194,7 +195,7 @@ pub async fn get_active_session_count() -> Result<usize, CommandError> {
 ///
 /// Uses platform-native tools: `ps -o rss=` on Unix (returns KB → multiplied
 /// to bytes), `tasklist /FI` on Windows. Returns zeroes if no PIDs match.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_session_memory(project_path: String) -> Result<SessionMemoryReport, CommandError> {
     let pids = get_project_pty_pids_internal(&project_path);

@@ -27,6 +27,7 @@ use crate::errors::CommandError;
 use crate::utils::{create_command, validate_project_path};
 use notify::{EventKind, RecursiveMode, Watcher};
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -387,7 +388,7 @@ fn spawn_watcher(project_path: PathBuf) -> oneshot::Sender<()> {
 /// snapshots. Idempotent — calling it twice for the same project is a no-op.
 /// Also seeds the history with an initial snapshot of the current state so
 /// the first undo has somewhere to go back to.
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "snapshot_start_watching", skip(project_path), fields(project = %project_path))]
 pub async fn snapshot_start_watching(project_path: String) -> Result<(), CommandError> {
     let validated = validate_project_path(&project_path)?;
@@ -423,7 +424,7 @@ pub async fn snapshot_start_watching(project_path: String) -> Result<(), Command
 }
 
 /// Stop watching and clear the in-memory history for a project.
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "snapshot_stop_watching", skip(project_path), fields(project = %project_path))]
 pub async fn snapshot_stop_watching(project_path: String) -> Result<(), CommandError> {
     let validated = validate_project_path(&project_path)?;
@@ -439,7 +440,7 @@ pub async fn snapshot_stop_watching(project_path: String) -> Result<(), CommandE
 }
 
 /// Returns whether undo/redo are currently available.
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "snapshot_status", skip(project_path), fields(project = %project_path))]
 pub async fn snapshot_status(project_path: String) -> Result<SnapshotStatus, CommandError> {
     let validated = validate_project_path(&project_path)?;
@@ -465,7 +466,7 @@ pub async fn snapshot_status(project_path: String) -> Result<SnapshotStatus, Com
 }
 
 /// Step the cursor back one entry and apply that snapshot to the working tree.
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "snapshot_undo", skip(project_path), fields(project = %project_path))]
 pub async fn snapshot_undo(project_path: String) -> Result<SnapshotStatus, CommandError> {
     let validated = validate_project_path(&project_path)?;
@@ -473,7 +474,7 @@ pub async fn snapshot_undo(project_path: String) -> Result<SnapshotStatus, Comma
 }
 
 /// Step the cursor forward one entry and apply that snapshot.
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "snapshot_redo", skip(project_path), fields(project = %project_path))]
 pub async fn snapshot_redo(project_path: String) -> Result<SnapshotStatus, CommandError> {
     let validated = validate_project_path(&project_path)?;

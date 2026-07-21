@@ -11,6 +11,7 @@ use crate::commands::claude::find_binary_by_name;
 use crate::errors::CommandError;
 use crate::utils::create_command;
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 
 /// Rich per-agent status for the dashboard's Agents panel.
 #[derive(Serialize, Clone)]
@@ -94,7 +95,7 @@ pub async fn agent_command_auth_status_with_timeout(
 
 /// Return the status of every known agent in a single call.
 /// Avoids the N round-trips the dashboard would otherwise need.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_agents_status() -> Vec<AgentStatus> {
     let default_id = super::read_app_state()
@@ -178,7 +179,7 @@ pub async fn get_agents_status() -> Vec<AgentStatus> {
 
 /// Remove an agent's auth indicator files so the CLI is no longer signed in.
 /// The binary itself is left intact.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn sign_out_agent(agent_id: String) -> Result<(), CommandError> {
     let agent = get_agent_by_id(&agent_id);
@@ -228,7 +229,7 @@ pub async fn sign_out_agent(agent_id: String) -> Result<(), CommandError> {
 
 /// Run the agent's uninstall command. Best-effort: the command is expected to
 /// be idempotent and ignore missing files.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn uninstall_agent(agent_id: String) -> Result<String, CommandError> {
     let agent = get_agent_by_id(&agent_id);

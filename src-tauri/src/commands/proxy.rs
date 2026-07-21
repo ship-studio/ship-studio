@@ -7,8 +7,9 @@
 /// Start a reverse proxy for the preview iframe.
 /// Returns the proxy's listening port.
 use crate::errors::CommandError;
+use ship_studio_macros::ship_command;
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn start_preview_proxy(
     window_label: String,
@@ -20,7 +21,7 @@ pub async fn start_preview_proxy(
 }
 
 /// Stop the preview proxy for the given window.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn stop_preview_proxy(window_label: String) -> Result<(), CommandError> {
     crate::proxy::stop_preview_proxy(&window_label);

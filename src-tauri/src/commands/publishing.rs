@@ -12,9 +12,10 @@ use crate::commands::github::ensure_git_identity;
 use crate::errors::CommandError;
 use crate::types::PublishResult;
 use crate::utils::{create_command, validate_project_path};
+use ship_studio_macros::ship_command;
 use tracing::{debug, error, info, instrument, warn};
 
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "publish_to_github", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_to_github(
     project_path: String,
@@ -133,7 +134,7 @@ pub async fn publish_to_github(
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "publish_to_staging", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_to_staging(
     project_path: String,
@@ -185,7 +186,7 @@ pub async fn publish_to_staging(
     })
 }
 
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "publish_to_production", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_to_production(
     project_path: String,
@@ -229,7 +230,7 @@ pub async fn publish_to_production(
 }
 
 /// Publish (push) the current branch to origin
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "publish_branch", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_branch(
     project_path: String,

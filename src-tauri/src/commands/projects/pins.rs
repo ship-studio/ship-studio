@@ -14,6 +14,7 @@
 
 use crate::errors::CommandError;
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
@@ -128,7 +129,7 @@ where
 ///
 /// **Invariant guard:** this is the only path that grows `pinned_paths`.
 /// It deduplicates by path so the same project can never appear twice.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn pin_project(project_path: String) -> Result<Vec<String>, CommandError> {
     with_pins_locked(|pins| {
@@ -144,7 +145,7 @@ pub async fn pin_project(project_path: String) -> Result<Vec<String>, CommandErr
 
 /// Remove a project from the pinned list. Also clears its `last_sessions` entry
 /// so the next pin starts fresh. Idempotent.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn unpin_project(project_path: String) -> Result<Vec<String>, CommandError> {
     with_pins_locked(|pins| {
@@ -177,7 +178,7 @@ pub fn rename_pinned_path(old_path: &str, new_path: &str) -> Result<(), CommandE
 }
 
 /// Return the current ordered list of pinned project paths.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_pinned_projects() -> Result<Vec<String>, CommandError> {
     Ok(read_pins().pinned_paths)
@@ -186,7 +187,7 @@ pub async fn list_pinned_projects() -> Result<Vec<String>, CommandError> {
 /// Replace the pin order. Validates that the new order contains exactly the
 /// same set of paths as the current pins — no adds, no removes, just reorder.
 /// Returns `Validation` error if the sets differ.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn reorder_pins(ordered_paths: Vec<String>) -> Result<Vec<String>, CommandError> {
     with_pins_locked(|pins| -> Result<Vec<String>, CommandError> {
@@ -217,7 +218,7 @@ pub async fn reorder_pins(ordered_paths: Vec<String>) -> Result<Vec<String>, Com
 
 /// Persist per-pin session metadata. Called when the user closes the app or
 /// suspends a session — captures tab session IDs so we can `--resume` later.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn save_pin_session(
     project_path: String,
@@ -239,7 +240,7 @@ pub async fn save_pin_session(
 }
 
 /// Read per-pin session metadata, or `None` if not yet saved.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_pin_session(project_path: String) -> Result<Option<LastSession>, CommandError> {
     Ok(read_pins().last_sessions.get(&project_path).cloned())

@@ -3,6 +3,7 @@
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use image::{DynamicImage, GenericImageView, RgbaImage};
+use ship_studio_macros::ship_command;
 
 /// Helper function to compare two images for similarity (returns true if they're nearly identical).
 /// Focuses on the bottom 60% of each image where duplicates are most apparent.
@@ -46,7 +47,7 @@ fn images_are_similar(img1: &DynamicImage, img2: &DynamicImage, skip_header: u32
 /// Stitch multiple screenshots together vertically for full-page capture.
 /// Takes multiple image paths and combines them into a single image.
 /// sticky_header_height: height of fixed/sticky elements at the top to skip in subsequent captures
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn stitch_screenshots(
     project_path: String,

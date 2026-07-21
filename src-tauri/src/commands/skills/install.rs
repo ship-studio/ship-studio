@@ -3,10 +3,11 @@
 use super::extract_skills_cli_error;
 use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
+use ship_studio_macros::ship_command;
 
 /// Install a skill using the Skills CLI
 /// Runs: npx skills add <package> -y --agent <agent-id>
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn install_skill(
     package: String,
@@ -77,7 +78,7 @@ pub async fn install_skill(
 
 /// Remove a skill using the Skills CLI
 /// Runs: npx skills remove <package> --agent <agent-id>
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn remove_skill(
     package: String,

@@ -10,9 +10,10 @@ use tauri::Emitter;
 
 #[cfg(windows)]
 use crate::utils::get_winget_command;
+use ship_studio_macros::ship_command;
 
 /// Install Homebrew
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), CommandError> {
     let _ = app.emit(
@@ -44,7 +45,7 @@ pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), CommandError>
 }
 
 /// Install Node.js via Homebrew
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
     let _ = app.emit(
@@ -80,7 +81,7 @@ pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), CommandE
 }
 
 /// Install Git via Homebrew
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
     let _ = app.emit(
@@ -116,7 +117,7 @@ pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), CommandEr
 }
 
 /// Install GitHub CLI via Homebrew
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
     let _ = app.emit(
@@ -160,7 +161,7 @@ pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), CommandErr
 /// - node -> node
 /// - git -> git
 /// - gh -> gh
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_brew_packages(
     app: tauri::AppHandle,
@@ -249,7 +250,7 @@ fn extract_winget_error(stderr: &str, stdout: &str) -> String {
 /// - git -> Git.Git
 /// - gh -> GitHub.cli
 #[cfg(windows)]
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_winget_packages(
     app: tauri::AppHandle,
@@ -338,7 +339,7 @@ pub async fn install_winget_packages(
 
 // Stub for non-Windows platforms
 #[cfg(not(windows))]
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(_app))]
 pub async fn install_winget_packages(
     _app: tauri::AppHandle,
@@ -349,7 +350,7 @@ pub async fn install_winget_packages(
 
 /// Check if the npm cache directory (~/.npm) is writable by the current user.
 /// Returns "ok" if writable or doesn't exist, "not_writable" if it exists but isn't writable.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn check_npm_cache_permissions() -> String {
     if let Some(home) = dirs::home_dir() {

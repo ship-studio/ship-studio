@@ -7,6 +7,7 @@ use crate::errors::CommandError;
 use crate::utils::{normalize_separators, validate_project_path};
 use ignore::WalkBuilder;
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 use std::path::Path;
 
 /// A file or directory entry in the project tree.
@@ -48,7 +49,7 @@ pub(crate) const SKIP_DIRS: &[&str] = &[
 ];
 
 /// List all files in a project, respecting .gitignore.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn list_project_files(project_path: &str) -> Result<Vec<FileEntry>, CommandError> {
     let project = validate_project_path(project_path)?;
@@ -144,7 +145,7 @@ fn should_skip_path(relative: &Path) -> bool {
 }
 
 /// Read a single file from the project.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileContent, CommandError> {
     let project = validate_project_path(project_path)?;
@@ -217,7 +218,7 @@ pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileCont
 /// oversized writes (matching the [`MAX_FILE_SIZE`] read limit). Directories
 /// and brand-new paths are intentionally out of scope — the editor only saves
 /// files it first opened via [`read_project_file`].
-#[tauri::command]
+#[ship_command]
 // skip_all so the file `content` argument is never captured into the span/logs;
 // only the safe path fields are recorded.
 #[tracing::instrument(skip_all, fields(project = %project_path, file = %file_path))]

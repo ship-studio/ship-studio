@@ -44,6 +44,7 @@ pub use status::*;
 
 use crate::errors::CommandError;
 use crate::types::AppState;
+use ship_studio_macros::ship_command;
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
 
@@ -310,7 +311,7 @@ pub struct OnboardingTestMode {
     pub force_onboarding: bool,
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_onboarding_test_mode() -> Result<OnboardingTestMode, CommandError> {
     Ok(OnboardingTestMode {
@@ -326,7 +327,7 @@ pub async fn get_onboarding_test_mode() -> Result<OnboardingTestMode, CommandErr
 /// timeline and the real status polling picks them up, so the checklist UI is
 /// exercised end-to-end with zero changes to the host machine. Refuses to run
 /// outside mock mode.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn mock_mark_setup_item_ready(
     item_id: String,

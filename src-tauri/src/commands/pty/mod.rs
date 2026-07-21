@@ -11,6 +11,7 @@ pub use stream::*;
 
 use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU32;
 use std::sync::{LazyLock, Mutex};
@@ -90,7 +91,7 @@ pub(super) fn kill_process(pid: u32) {
 
 /// Get the reserved port for a `(window, project)` pair, if any.
 /// Returns None if no port is reserved for this pair.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_reserved_port_for_window(window_label: String, project_path: String) -> Option<u16> {
     tracing::info!(
@@ -113,7 +114,7 @@ pub fn get_reserved_port_for_window(window_label: String, project_path: String) 
 /// Tries the preferred port first, then increments until finding an available one.
 /// Also checks against reserved ports to avoid race conditions in multi-window scenarios.
 /// Returns the first available port found.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn find_available_port(preferred_port: u16) -> Result<u16, CommandError> {
     use std::net::TcpListener;
@@ -144,7 +145,7 @@ pub fn find_available_port(preferred_port: u16) -> Result<u16, CommandError> {
 /// Atomically finds a port and reserves it. If the pair already holds one,
 /// returns it (idempotent) — different projects in the same window each get
 /// their own port independently.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn find_and_reserve_port(
     window_label: String,
@@ -206,7 +207,7 @@ pub fn find_and_reserve_port(
 /// Called when a project's dev server is deliberately stopped or the project
 /// is being torn down. For window-wide cleanup on close, the backend calls
 /// `release_port_for_window` directly.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn release_reserved_port(
     window_label: String,
@@ -224,7 +225,7 @@ pub fn release_reserved_port(
 /// Get the extended PATH that includes nvm, Homebrew, and other common tool locations.
 ///
 /// This is needed for the frontend PTY spawn since macOS apps don't inherit shell PATH.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_shell_path() -> String {
     get_extended_path()
@@ -236,7 +237,7 @@ pub fn get_shell_path() -> String {
 /// forward critical system vars (SystemRoot, COMSPEC, PATHEXT, TEMP, etc.)
 /// that Node.js and cmd.exe require to function.
 /// On macOS/Linux, returns an empty map (the Unix env vars are hardcoded in the frontend).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_system_env() -> std::collections::HashMap<String, String> {
     #[allow(unused_mut)]

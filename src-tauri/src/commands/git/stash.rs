@@ -4,6 +4,7 @@ use crate::cache::GIT_CACHE;
 use crate::errors::CommandError;
 use crate::types::RestoreResult;
 use crate::utils::{create_command, validate_project_path};
+use ship_studio_macros::ship_command;
 use tracing::{info, instrument, warn};
 
 use super::{
@@ -12,7 +13,7 @@ use super::{
 };
 
 /// Get stash info for a project (if any auto-stash exists)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_stash_info(
     project_path: String,
@@ -29,7 +30,7 @@ pub async fn get_stash_info(
 /// This is a plain `git stash` (NOT the metadata-tracked auto-stash that switch
 /// uses), so the user restores it manually with `git stash pop`. Returns true if
 /// something was stashed, false if the tree was already clean.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn stash_changes(project_path: String) -> Result<bool, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -58,7 +59,7 @@ pub async fn stash_changes(project_path: String) -> Result<bool, CommandError> {
 }
 
 /// Manually apply and clear the auto-stash
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn apply_stash(project_path: String) -> Result<bool, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -86,7 +87,7 @@ pub async fn apply_stash(project_path: String) -> Result<bool, CommandError> {
 }
 
 /// Drop the auto-stash without applying
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn drop_stash(project_path: String) -> Result<bool, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -115,7 +116,7 @@ pub async fn drop_stash(project_path: String) -> Result<bool, CommandError> {
 // ============ Backup Commands ============
 
 /// Get list of backups (git commits) for the project
-#[tauri::command]
+#[ship_command]
 #[instrument(skip_all, fields(path = %project_path))]
 pub async fn get_backups(
     project_path: String,
@@ -169,7 +170,7 @@ pub async fn get_backups(
 
 /// Restore to a specific backup (git commit)
 /// Creates a new branch with the restored content for safe review via PR
-#[tauri::command]
+#[ship_command]
 #[instrument(skip_all, fields(path = %project_path, hash = %commit_hash))]
 pub async fn restore_backup(
     project_path: String,

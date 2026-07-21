@@ -12,10 +12,11 @@ use crate::commands::accounts::{
 use crate::commands::claude::find_binary_by_name;
 use crate::errors::CommandError;
 use crate::utils::{create_command, find_executable};
+use ship_studio_macros::ship_command;
 use tauri::Emitter;
 
 /// Start GitHub authentication (opens browser)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, CommandError> {
     let _ = app.emit(
@@ -65,7 +66,7 @@ pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, CommandE
 
 /// Start agent authentication.
 /// If `agent_id` is provided, authenticate that specific agent. Otherwise, use the active agent.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn start_claude_auth(
     app: tauri::AppHandle,
@@ -121,7 +122,7 @@ pub async fn start_claude_auth(
 
 /// Check if an agent is authenticated.
 /// If `agent_id` is provided, check that specific agent. Otherwise, use the active agent.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn check_claude_auth_status(agent_id: Option<String>) -> bool {
     let agent = match agent_id.as_deref() {
@@ -235,14 +236,14 @@ pub fn cleanup_auth_processes_sync() -> u32 {
 ///
 /// This is useful for cleanup when closing the app to prevent orphaned processes.
 /// Returns the number of processes that were killed.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn cleanup_auth_processes() -> Result<u32, CommandError> {
     Ok(cleanup_auth_processes_sync())
 }
 
 /// Get the system CPU architecture (e.g., "aarch64" or "x86_64").
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_system_arch() -> String {
     std::env::consts::ARCH.to_string()
@@ -254,7 +255,7 @@ pub fn get_system_arch() -> String {
 /// On Windows: downloads the .nsis.zip, extracts, and runs the NSIS installer silently.
 /// The frontend should call `relaunch()` after this completes (macOS only;
 /// on Windows the installer handles restart).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_version(app: tauri::AppHandle, version: String) -> Result<(), CommandError> {
     if cfg!(debug_assertions) {

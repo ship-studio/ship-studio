@@ -7,6 +7,7 @@
  */
 use crate::errors::CommandError;
 use crate::utils::{create_command, get_extended_path, validate_project_path};
+use ship_studio_macros::ship_command;
 use std::fs;
 use std::path::PathBuf;
 use tauri::AppHandle;
@@ -22,7 +23,7 @@ use super::{
 ///
 /// Storage is at {project}/.shipstudio/plugins/{plugin-id}/storage.json
 /// Acquires a per-plugin lock to prevent races with concurrent writes.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_storage(
     plugin_id: String,
@@ -50,7 +51,7 @@ pub fn read_plugin_storage(
 /// Write plugin storage data
 ///
 /// Acquires a per-plugin lock to prevent concurrent read-modify-write races.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn write_plugin_storage(
     plugin_id: String,
@@ -81,7 +82,7 @@ pub fn write_plugin_storage(
 /// Execute a shell command in a plugin's context
 ///
 /// Security: validates project_path, uses extended PATH, enforces configurable timeout (default 120s).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn exec_plugin_shell(
     plugin_id: String,
@@ -143,7 +144,7 @@ pub async fn exec_plugin_shell(
 ///
 /// Opens a native folder picker, validates the selected folder has plugin.json and dist/index.js,
 /// then registers it in the project's plugin registry as a dev plugin.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app), fields(project = %project_path))]
 pub async fn link_dev_plugin(
     app: AppHandle,
@@ -241,7 +242,7 @@ pub async fn link_dev_plugin(
 /// Unlink a dev plugin from a project.
 ///
 /// Removes the plugin from the registry only. Does NOT delete local files.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn unlink_dev_plugin(project_path: String, plugin_id: String) -> Result<(), CommandError> {
     let mut registry = read_registry(&project_path)?;

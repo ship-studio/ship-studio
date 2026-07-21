@@ -11,6 +11,7 @@ use crate::types::{
 };
 use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::path::Path;
 use std::process::Command;
 use std::sync::LazyLock;
@@ -96,7 +97,7 @@ pub fn parse_github_repo(url: &str) -> Option<String> {
     None
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn check_github_cli_status() -> GitHubCliStatus {
     // Check if gh CLI is installed
@@ -170,7 +171,7 @@ fn gh_command_and_account(project_path: Option<&str>) -> Result<(Command, String
     }
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_github_username(project_path: Option<String>) -> Result<String, CommandError> {
     let (mut cmd, account_id) = gh_command_and_account(project_path.as_deref())?;
@@ -193,7 +194,7 @@ pub async fn get_github_username(project_path: Option<String>) -> Result<String,
     Ok(username)
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_github_orgs(project_path: Option<String>) -> Result<Vec<String>, CommandError> {
     // Get orgs where user can create repos, scoped to the project's workspace
@@ -218,7 +219,7 @@ pub async fn get_github_orgs(project_path: Option<String>) -> Result<Vec<String>
 
 /// Checks GitHub status by verifying with the GitHub CLI.
 /// Asks GitHub directly instead of inferring from local files.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_project_github_status(project_path: String) -> ProjectGitHubStatus {
     let not_a_repo = ProjectGitHubStatus {
@@ -409,7 +410,7 @@ pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandErr
     Ok(())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(options), fields(project = %options.project_path, repo = %options.repo_name))]
 pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, CommandError> {
     let validated_path =
@@ -500,7 +501,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
 }
 
 /// Lists GitHub repositories for a given owner (user or organization)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, CommandError> {
     let mut cmd = get_gh_command();
@@ -552,7 +553,7 @@ struct GitHubApiOwner {
 }
 
 /// Lists GitHub repositories where the user is a collaborator (not owner)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> {
     // Use GitHub API to get repos where user is a collaborator
@@ -600,7 +601,7 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
 }
 
 /// Detects the package manager used in a project by checking for lock files
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn detect_package_manager(project_path: String) -> Result<String, CommandError> {
     let path = Path::new(&project_path);

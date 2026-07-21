@@ -23,6 +23,7 @@ use crate::errors::CommandError;
 use crate::types::ProjectType;
 use crate::utils::{validate_project_path, validate_workspace_path};
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::path::Path;
 
 /// Source file extensions we index for class literals, by project shape. `.html`
@@ -521,7 +522,7 @@ fn disambiguate_by_text(
 }
 
 /// Resolve a clicked element to its source className location.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
 pub fn resolve_classname_source(
     project_path: String,
@@ -551,7 +552,7 @@ pub fn resolve_classname_source(
 /// value still matches `old_class` (guards against the user having edited the
 /// file directly since selection). Only the literal's value is touched; the rest
 /// of the file — including formatting — is preserved byte-for-byte.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path, file = %file, line = line))]
 pub fn apply_classname_edit(
     project_path: String,
@@ -630,7 +631,7 @@ fn try_replace_classname(
 /// occurrences" path for a class string that appears in multiple places). Each spot
 /// is verified against `old_class` independently; stale ones are skipped. Returns
 /// how many were actually updated.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(edits), fields(project = %project_path, count = edits.len()))]
 pub fn apply_classname_edit_multi(
     project_path: String,
@@ -981,7 +982,7 @@ fn write_class_attr_insert(
 /// write-back can't serve. Locates the open tag via ancestor-file + text
 /// anchoring and fails with a specific error rather than guess when zero or
 /// multiple tags match. Returns the inserted literal's location.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
 pub fn insert_class_attr(
     project_path: String,
@@ -1600,7 +1601,7 @@ fn resolve_text_by_content(
 /// unique class and read the text inside that tag (most reliable). Strategy 2: when
 /// there's no unique class (classless element, repeated class, or non-literal text),
 /// search source for the element's text content.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
 pub fn resolve_text_source(
     project_path: String,
@@ -1680,7 +1681,7 @@ fn jsxify_class_attr(text: &str, file: &str) -> String {
 /// identical text appears more than once on the same line. Only the trimmed run is
 /// touched — surrounding whitespace and the rest of the file are preserved byte-for-
 /// byte. Allows plain text, `<br>` line breaks, and inline formatting; rejects other markup.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path, file = %file, line = line))]
 pub fn apply_text_edit(
     project_path: String,
@@ -2021,7 +2022,7 @@ fn resolve_src_by_value(
 /// on the element's className (most reliable; also covers framework image components
 /// whose rendered URL differs from the authored one). Strategy 2: search source for
 /// the rendered `src` attribute value.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature), fields(project = %project_path, tag = %signature.tag_name))]
 pub fn resolve_image_source(
     project_path: String,
@@ -2091,7 +2092,7 @@ fn invalid_src_value(s: &str) -> bool {
 /// equals `old_src` (drift guard). The `column` pins the exact attribute when
 /// identical values share a line. Only the literal's value is touched — the rest of
 /// the file is preserved byte-for-byte.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path, file = %file, line = line))]
 pub fn apply_src_edit(
     project_path: String,
@@ -2271,7 +2272,7 @@ fn apply_v3_screens(config: &str, map: &mut std::collections::BTreeMap<String, u
 /// classes the visual editor writes will compile. A bare `@import "tailwindcss"`
 /// in a CSS file does NOTHING without the Vite/PostCSS plugin (or a v3 config), so
 /// we require a real integration. Used to gate the editor: no Tailwind → no editor.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn is_tailwind_active(project_path: String) -> Result<bool, CommandError> {
     // Resolve the workspace first: in a monorepo the Tailwind/PostCSS config lives
@@ -2333,7 +2334,7 @@ fn tailwind_active_at(root: &Path) -> bool {
 /// Meta-frameworks (Next.js) are gated by project type instead and don't need
 /// this. React Native is detected before Vite, so a `ProjectType::Vite` project
 /// matching here is genuinely a React web app.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn project_uses_react(project_path: String) -> Result<bool, CommandError> {
     // Read package.json from the resolved workspace, not the repo root, so a
@@ -2354,7 +2355,7 @@ fn project_uses_react_at(root: &Path) -> bool {
     contents.contains("\"react\":")
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn detect_breakpoints(project_path: String) -> Result<Vec<Breakpoint>, CommandError> {
     // Scan the resolved workspace's CSS/config, not the repo root, so a monorepo
@@ -2555,7 +2556,7 @@ pub struct UsageReport {
 
 /// Find where the component containing `file:line` is rendered across the project.
 /// Used to warn that editing a shared component changes it everywhere it appears.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path, file = %file, line = line))]
 pub fn find_component_usage(
     project_path: String,
@@ -2827,7 +2828,7 @@ pub(crate) fn locate_element(
 }
 
 /// Resolve a clicked element to its source HTML (opening tag → closing tag).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature), fields(project = %project_path))]
 pub fn resolve_element_html(
     project_path: String,
@@ -2843,7 +2844,7 @@ pub fn resolve_element_html(
 
 /// Replace an element's source markup, after verifying it still equals
 /// `old_html` (drift guard — the file may have changed since selection).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature, old_html, new_html), fields(project = %project_path))]
 pub fn apply_element_html(
     project_path: String,

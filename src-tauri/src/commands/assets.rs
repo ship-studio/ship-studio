@@ -8,6 +8,7 @@ use crate::commands::git::{load_project_metadata, save_project_metadata};
 use crate::errors::CommandError;
 use crate::types::Asset;
 use crate::utils::{normalize_separators, resolve_workspace_path, validate_project_path};
+use ship_studio_macros::ship_command;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -164,7 +165,7 @@ fn list_files_recursive(
 }
 
 /// Get the folder (relative to the project workspace) the Assets panel manages.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_assets_root(project_path: String) -> Result<String, CommandError> {
     let repo_root = validate_project_path(&project_path)?;
@@ -178,7 +179,7 @@ pub async fn get_assets_root(project_path: String) -> Result<String, CommandErro
 /// Point the Assets panel at a different folder (e.g. `src/assets`), persisted
 /// per project in `.shipstudio/project.json`. Creates the folder if missing.
 /// Returns the normalized root that was saved.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_assets_root(project_path: String, root: String) -> Result<String, CommandError> {
     let repo_root = validate_project_path(&project_path)?;
@@ -214,7 +215,7 @@ pub async fn set_assets_root(project_path: String, root: String) -> Result<Strin
 }
 
 /// List all assets in the project's assets folder (recursive)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_assets(project_path: String) -> Result<Vec<Asset>, CommandError> {
     let repo_root = validate_project_path(&project_path)?;
@@ -235,7 +236,7 @@ pub async fn list_assets(project_path: String) -> Result<Vec<Asset>, CommandErro
 }
 
 /// Upload a file to the assets folder (or subfolder)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn upload_asset(
     project_path: String,
@@ -307,7 +308,7 @@ pub async fn upload_asset(
 }
 
 /// Delete an asset
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn delete_asset(project_path: String, asset_path: String) -> Result<(), CommandError> {
     let repo_root = validate_project_path(&project_path)?;
@@ -334,7 +335,7 @@ pub async fn delete_asset(project_path: String, asset_path: String) -> Result<()
 }
 
 /// Rename an asset
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn rename_asset(
     project_path: String,
@@ -381,7 +382,7 @@ pub async fn rename_asset(
 }
 
 /// Create a folder in the assets folder
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn create_asset_folder(
     project_path: String,
@@ -505,7 +506,7 @@ fn export_asset_to(
 /// Export (download) an asset: copy it out of the project's assets folder to a
 /// caller-supplied absolute destination path (chosen via a native save dialog).
 /// Returns the destination path that was written.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn export_asset(
     project_path: String,

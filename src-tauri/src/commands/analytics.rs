@@ -8,6 +8,7 @@
 
 use crate::commands::setup::{read_app_state, write_app_state};
 use crate::errors::CommandError;
+use ship_studio_macros::ship_command;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -188,7 +189,7 @@ fn get_device_id() -> String {
 
 /// Track an analytics event. Properties are optional key-value pairs.
 /// The distinct_id defaults to the device_id if not provided.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn track_event(
     event_name: String,
@@ -209,7 +210,7 @@ pub async fn track_event(
 /// every identify). `set_once` becomes `$set_once` (only written if the
 /// property doesn't already exist on the person — useful for first_seen_*
 /// fields that should never change after the first call).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn identify_user(
     user_id: String,
@@ -269,7 +270,7 @@ pub async fn identify_user(
 }
 
 /// Get whether analytics are currently enabled
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_analytics_enabled() -> Result<bool, CommandError> {
     let enabled = ANALYTICS
@@ -281,7 +282,7 @@ pub fn get_analytics_enabled() -> Result<bool, CommandError> {
 }
 
 /// Set whether analytics are enabled (persisted to app state)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn set_analytics_enabled(enabled: bool) -> Result<(), CommandError> {
     // Update the in-memory cache
@@ -304,7 +305,7 @@ pub fn set_analytics_enabled(enabled: bool) -> Result<(), CommandError> {
 }
 
 /// Get the anonymous device ID (useful for frontend to know the distinct_id)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub fn get_device_id_command() -> Result<String, CommandError> {
     Ok(get_device_id())

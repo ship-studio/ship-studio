@@ -1,0 +1,14 @@
+[package]
+name = "ship-studio-macros"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Attribute macro that gives every Ship Studio command both a Tauri IPC handler and an HTTP handler."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

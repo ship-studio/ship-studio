@@ -3,13 +3,14 @@
 //! Fetches community templates from the Ship Studio API and downloads template zips.
 
 use crate::errors::CommandError;
+use ship_studio_macros::ship_command;
 
 const TEMPLATES_API_URL: &str = "https://www.ship.studio/api/v1/templates";
 
 /// Fetch community templates from the Ship Studio API.
 /// Accepts optional query parameters that map to the API spec.
 /// Returns the raw JSON string so the frontend can parse it.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn fetch_community_templates(
     search: Option<String>,
@@ -68,7 +69,7 @@ pub async fn fetch_community_templates(
 
 /// Download a template zip from a signed URL to a temporary file.
 /// Returns the path to the downloaded file.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn download_template_zip(url: String) -> Result<String, CommandError> {
     let client = reqwest::Client::builder()

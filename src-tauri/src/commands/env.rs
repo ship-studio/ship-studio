@@ -5,8 +5,9 @@
 use crate::errors::CommandError;
 use crate::types::{EnvFile, EnvVar};
 use crate::utils::{validate_project_file_path, validate_project_path};
+use ship_studio_macros::ship_command;
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn list_env_files(project_path: String) -> Result<Vec<EnvFile>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -37,7 +38,7 @@ pub async fn list_env_files(project_path: String) -> Result<Vec<EnvFile>, Comman
     Ok(env_files)
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(file_path), fields(file = %file_path))]
 pub async fn read_env_file(file_path: String) -> Result<Vec<EnvVar>, CommandError> {
     // Constrain reads to files inside ShipStudio/registered projects so this
@@ -83,7 +84,7 @@ const MAX_ENV_VALUE_LENGTH: usize = 65536;
 /// Writes environment variables to a .env file with validation.
 /// Validates that variable names are alphanumeric/underscore and don't start with numbers.
 /// Auto-quotes values containing spaces or special characters.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(file_path, vars), fields(file = %file_path, var_count = vars.len()))]
 pub async fn write_env_file(file_path: String, vars: Vec<EnvVar>) -> Result<(), CommandError> {
     // Constrain writes to files inside ShipStudio/registered projects so this
@@ -143,7 +144,7 @@ pub async fn write_env_file(file_path: String, vars: Vec<EnvVar>) -> Result<(), 
 
 /// Creates a new .env file in the project directory.
 /// Validates both project path (must be in ShipStudio) and filename.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path, file_name), fields(project = %project_path, file = %file_name))]
 pub async fn create_env_file(
     project_path: String,
@@ -177,7 +178,7 @@ pub async fn create_env_file(
     Ok(env_path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(file_path), fields(file = %file_path))]
 pub async fn delete_env_file(file_path: String) -> Result<(), CommandError> {
     // Validate the file is inside ShipStudio (or a registered external project)

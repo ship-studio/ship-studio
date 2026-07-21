@@ -8,9 +8,10 @@ use crate::errors::CommandError;
 use crate::types::ProjectMetadata;
 use crate::utils::{resolve_workspace_path, validate_project_path};
 use serde::Serialize;
+use ship_studio_macros::ship_command;
 
 /// Gets the custom dev command for a project (for generic projects)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_custom_dev_command(project_path: String) -> Result<Option<String>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -29,7 +30,7 @@ pub async fn get_custom_dev_command(project_path: String) -> Result<Option<Strin
 }
 
 /// Sets the custom dev command for a project (for generic projects)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_custom_dev_command(
     project_path: String,
@@ -66,7 +67,7 @@ pub async fn set_custom_dev_command(
 /// Gets whether this project is forced to serve as a static site, overriding
 /// the `generic` classification a root `package.json` would otherwise trigger.
 /// Returns `false` when unset.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_force_static_serve(project_path: String) -> Result<bool, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -86,7 +87,7 @@ pub async fn get_force_static_serve(project_path: String) -> Result<bool, Comman
 
 /// Sets whether this project is forced to serve as a static site. Stores `None`
 /// (field omitted) when turned off, so the JSON stays clean.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_force_static_serve(project_path: String, force: bool) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -118,7 +119,7 @@ pub async fn set_force_static_serve(project_path: String, force: bool) -> Result
 }
 
 /// Gets the dev server port for a project (returns None if not configured, meaning use default 3000)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_dev_server_port(project_path: String) -> Result<Option<u16>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -137,7 +138,7 @@ pub async fn get_dev_server_port(project_path: String) -> Result<Option<u16>, Co
 }
 
 /// Sets the dev server port for a project
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_dev_server_port(project_path: String, port: u16) -> Result<(), CommandError> {
     if port == 0 {
@@ -175,7 +176,7 @@ pub async fn set_dev_server_port(project_path: String, port: u16) -> Result<(), 
 /// Gets the active workspace subpath for a monorepo project, or None if the
 /// project is single-package. Returned path uses POSIX separators relative to
 /// the project root (e.g. `apps/admin`).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn get_workspace_subpath(project_path: String) -> Result<Option<String>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -194,7 +195,7 @@ pub async fn get_workspace_subpath(project_path: String) -> Result<Option<String
 }
 
 /// Sets the active workspace subpath. Set to None to unlock (treat as single-package).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn set_workspace_subpath(
     project_path: String,
@@ -270,7 +271,7 @@ pub struct DependencyStatus {
 /// lives there (or per-workspace under pnpm, but the root presence is the
 /// reliable signal). Returns `installed: true` for projects without a
 /// `package.json` so we don't gate static-html / generic projects.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn check_dependencies_installed(
     project_path: String,
@@ -299,7 +300,7 @@ pub async fn check_dependencies_installed(
 
 /// Clears project cache directories (.next, node_modules/.cache, etc.)
 /// Used when restarting the dev server to ensure a fresh build.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn clear_project_cache(project_path: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;

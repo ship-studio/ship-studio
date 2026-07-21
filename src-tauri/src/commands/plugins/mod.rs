@@ -24,6 +24,7 @@ pub use plugin_storage::*;
 use crate::errors::CommandError;
 use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -360,7 +361,7 @@ pub(crate) fn get_storage_path(plugin_id: &str, project_path: &str) -> Result<Pa
 }
 
 /// Read the JavaScript bundle for a plugin (dist/index.js)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<String, CommandError> {
     validate_plugin_id(&plugin_id)?;
@@ -395,7 +396,7 @@ pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<Str
 }
 
 /// Read a plugin's manifest
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub fn read_plugin_manifest(
     project_path: String,

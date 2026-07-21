@@ -27,6 +27,7 @@ use crate::commands::edit_css::css_class_exists;
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::path::Path;
 
 /// Where the new element lands relative to the selected anchor element.
@@ -347,7 +348,7 @@ fn span_tag(src: &str, start: usize) -> String {
 /// Insert a new element of `element_kind` before/after/inside the selected
 /// element, committed straight to source. Returns the generated class so the
 /// frontend can reselect the element once the dev server reloads.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature), fields(project = %project_path))]
 pub fn insert_element(
     project_path: String,
@@ -390,7 +391,7 @@ pub fn insert_element(
 /// Duplicate the selected element right after itself. The copy keeps every
 /// original class (identical styling) plus one generated token so both copies
 /// keep resolving to distinct source literals.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature), fields(project = %project_path))]
 pub fn duplicate_element(
     project_path: String,
@@ -434,7 +435,7 @@ pub fn duplicate_element(
 
 /// Delete the selected element's source markup, drift-guarded against
 /// `old_html` (from `resolve_element_html` at action time).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(signature, old_html), fields(project = %project_path))]
 pub fn delete_element(
     project_path: String,

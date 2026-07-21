@@ -24,6 +24,7 @@ use crate::types::{
     AttachedLibrariesConfig, AttachedLibrary, ATTACHED_LIBRARIES_CONFIG_SCHEMA_VERSION,
 };
 use serde::Deserialize;
+use ship_studio_macros::ship_command;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
@@ -129,7 +130,7 @@ fn is_registered(libraries: &[AttachedLibrary], canonical: &Path) -> bool {
 /// List the active workspace's shared libraries (for the management UI).
 /// Entries are returned exactly as stored — a directory may no longer exist on
 /// disk, which the UI can surface.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_attached_libraries() -> Result<Vec<AttachedLibrary>, CommandError> {
     let config = load_config()?;
@@ -146,7 +147,7 @@ pub async fn list_attached_libraries() -> Result<Vec<AttachedLibrary>, CommandEr
 /// Used at agent-launch to build the additional-directory flags. Missing or
 /// non-directory entries are skipped so a moved or deleted library never breaks
 /// an agent spawn.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn attached_library_dirs() -> Result<Vec<String>, CommandError> {
     let config = load_config()?;
@@ -168,7 +169,7 @@ pub async fn attached_library_dirs() -> Result<Vec<String>, CommandError> {
 ///
 /// The picker is the trust boundary: a directory can only enter the registry
 /// through explicit user selection, never a path supplied by the webview.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn add_attached_library(app: AppHandle) -> Result<Option<String>, CommandError> {
     let folder = app
@@ -214,7 +215,7 @@ pub async fn add_attached_library(app: AppHandle) -> Result<Option<String>, Comm
 
 /// Remove a shared library from the active workspace's registry. Does not
 /// delete the folder on disk.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn remove_attached_library(path: String) -> Result<(), CommandError> {
     let mut config = load_config()?;

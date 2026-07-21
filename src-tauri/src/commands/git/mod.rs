@@ -24,6 +24,7 @@ use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;
 use crate::types::PrerequisiteCheck;
 use crate::utils::{create_command, find_executable, get_extended_path, validate_project_path};
+use ship_studio_macros::ship_command;
 use tracing::{debug, error, info, instrument};
 
 /// Default timeout for git network operations (fetch / pull / push). 60s is
@@ -267,7 +268,7 @@ pub(crate) fn save_project_metadata(
 // ============ Tauri Commands ============
 
 /// Checks if required tools (node, npm, git, gh, claude) are installed.
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "check_prerequisites")]
 pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
     let commands = vec!["node", "npm", "git", "gh", "claude"];
@@ -295,14 +296,14 @@ pub async fn check_prerequisites() -> Vec<PrerequisiteCheck> {
 }
 
 /// Returns the configured projects root directory (custom or default `~/ShipStudio`).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_shipstudio_dir() -> Result<String, CommandError> {
     Ok(crate::utils::projects_root()?.to_string_lossy().to_string())
 }
 
 /// Creates the configured projects root directory if it doesn't exist.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn ensure_shipstudio_dir() -> Result<String, CommandError> {
     let projects_dir = crate::utils::projects_root()?;
@@ -319,7 +320,7 @@ pub async fn ensure_shipstudio_dir() -> Result<String, CommandError> {
     Ok(projects_dir.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[ship_command]
 #[instrument(name = "init_git_repo", skip(project_path), fields(project = %project_path))]
 pub async fn init_git_repo(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;

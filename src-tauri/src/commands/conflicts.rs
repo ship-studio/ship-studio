@@ -6,6 +6,7 @@ use crate::commands::github::ensure_git_identity;
 use crate::errors::CommandError;
 use crate::types::{ConflictBlock, ConflictedFile};
 use crate::utils::{create_command, validate_project_path};
+use ship_studio_macros::ship_command;
 
 /// Parse git merge conflict markers from file content.
 pub fn parse_conflicts(content: &str, all_lines: &[&str]) -> (Vec<ConflictBlock>, String, String) {
@@ -107,7 +108,7 @@ pub fn parse_conflicts(content: &str, all_lines: &[&str]) -> (Vec<ConflictBlock>
 }
 
 /// Get information about all conflicted files in the repository
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFile>, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -178,7 +179,7 @@ pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFil
 }
 
 /// Resolve a single conflict in a file by choosing current or incoming content
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path, file_path, resolution), fields(project = %project_path, file = %file_path, conflict_index = conflict_index, resolution = %resolution))]
 pub async fn resolve_conflict(
     project_path: String,
@@ -282,7 +283,7 @@ pub async fn resolve_conflict(
 }
 
 /// Abort the current merge and return to pre-merge state
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn abort_merge(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
@@ -302,7 +303,7 @@ pub async fn abort_merge(project_path: String) -> Result<(), CommandError> {
 }
 
 /// Complete the merge after all conflicts have been resolved
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn complete_merge(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;

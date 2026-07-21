@@ -7,6 +7,7 @@ use super::{
     FORCE_ONBOARDING_COMPLETED,
 };
 use crate::errors::CommandError;
+use ship_studio_macros::ship_command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Get the app state file path
@@ -34,7 +35,7 @@ pub(crate) fn get_app_state_path() -> std::path::PathBuf {
 }
 
 /// Mark setup as complete (persists to disk)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn mark_setup_complete() -> Result<(), CommandError> {
     // Force onboarding / mock mode: don't persist to disk
@@ -68,7 +69,7 @@ pub async fn mark_setup_complete() -> Result<(), CommandError> {
 /// Persist that the user brings their own agent ("Other" in the agent-led
 /// onboarding). Setup checks then treat the agent requirement as satisfied,
 /// so the user isn't redirected back to onboarding on every launch.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn set_external_agent_opt_in(enabled: bool) -> Result<(), CommandError> {
     // Test modes: don't persist to disk (mirrors mark_setup_complete).
@@ -89,7 +90,7 @@ pub async fn set_external_agent_opt_in(enabled: bool) -> Result<(), CommandError
 /// Desktop, Documents) attributed to Ship Studio, and the pending dialog
 /// freezes the scan mid-syscall, which reads as "the agent is stuck"
 /// (found in fresh-VM testing).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn ensure_agent_workdir() -> Result<String, CommandError> {
     match crate::utils::projects_root() {
@@ -110,7 +111,7 @@ const VALID_HOSTS: &[&str] = &["vercel", "cloudflare"];
 
 /// Persist the workspace-wide default hosting provider chosen during
 /// onboarding. New projects default to this host.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn set_default_host(host: String) -> Result<(), CommandError> {
     if !VALID_HOSTS.contains(&host.as_str()) {
@@ -135,14 +136,14 @@ pub async fn set_default_host(host: String) -> Result<(), CommandError> {
 }
 
 /// The persisted default hosting provider, if one was chosen.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_default_host() -> Result<Option<String>, CommandError> {
     Ok(read_app_state().default_host)
 }
 
 /// Clear setup complete flag (for testing/reset)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn reset_setup_state() -> Result<(), CommandError> {
     // Read existing state to preserve other fields (e.g., compact_mode)
@@ -157,14 +158,14 @@ pub async fn reset_setup_state() -> Result<(), CommandError> {
 
 /// Get the default agent ID from persisted AppState.
 /// Returns None if not set (frontend should fall back to Claude Code).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_default_agent_id() -> Option<String> {
     read_app_state().default_agent_id
 }
 
 /// Set the default agent ID. Persists to AppState and updates in-memory cache.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn set_default_agent_id(agent_id: String) -> Result<(), CommandError> {
     let mut state = read_app_state();

@@ -10,6 +10,7 @@ use crate::errors::CommandError;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use ship_studio_macros::ship_command;
 use tracing::debug;
 
 const CSTAR_IDENTITY_SECRET: &str = match option_env!("CSTAR_IDENTITY_SECRET") {
@@ -94,7 +95,7 @@ fn sign_identity(external_id: &str, email: &str, name: &str, timestamp: i64) -> 
 // ─── Tauri Commands ──────────────────────────────────────────────────────────
 
 /// Returns the current user's identity + HMAC signature for ChatClient.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_support_identity() -> Result<SupportIdentity, CommandError> {
     let (login, email, name) = get_github_user()?;

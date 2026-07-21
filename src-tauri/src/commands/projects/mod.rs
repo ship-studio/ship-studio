@@ -34,6 +34,7 @@ use crate::types::{DashboardProject, PageInfo, ProjectInfo, ProjectMetadata, Pro
 use crate::utils::{create_command, validate_project_path};
 use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
+use ship_studio_macros::ship_command;
 use std::path::{Path, PathBuf};
 
 // ============ Helper Functions ============
@@ -375,7 +376,7 @@ pub(crate) fn restore_removed_project(canonical: &Path) -> Result<bool, CommandE
 
 // ============ Tauri Commands ============
 
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
     let shipstudio_dir = crate::utils::projects_root()?;
@@ -504,7 +505,7 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
 }
 
 /// Returns enhanced project list for dashboard with git info
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandError> {
     let shipstudio_dir = crate::utils::projects_root()?;
@@ -677,7 +678,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
 
 /// Scans a project's pages/routes directory for page routes.
 /// Supports Next.js, SvelteKit, Astro, Nuxt, and static HTML projects.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -759,7 +760,7 @@ pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandEr
 }
 
 /// Opens a folder in Finder (macOS)
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn open_in_finder(path: String) -> Result<(), CommandError> {
     let path = validate_project_path(&path)?;
@@ -792,7 +793,7 @@ pub async fn open_in_finder(path: String) -> Result<(), CommandError> {
 }
 
 /// Ensures .shipstudio/ is in the project's .gitignore
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -834,7 +835,7 @@ pub async fn ensure_gitignore_has_shipstudio(project_path: String) -> Result<(),
 }
 
 /// Creates a blank project directory with a .gitignore.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn create_blank_project(project_path: String) -> Result<(), CommandError> {
     // Can't use validate_project_path because the directory doesn't exist yet.
@@ -862,7 +863,7 @@ pub async fn create_blank_project(project_path: String) -> Result<(), CommandErr
 }
 
 /// Removes the .git directory from a project so it starts fresh (not connected to template repo).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn remove_git_history(project_path: String) -> Result<(), CommandError> {
     let project = validate_project_path(&project_path)?;
@@ -974,7 +975,7 @@ fn remove_dir_all_robust(path: &Path) -> std::io::Result<()> {
 
 /// Deletes a project directory. Only allows deletion from ~/ShipStudio.
 /// External projects cannot be deleted — use unregister_external_project instead.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn delete_project(path: String) -> Result<(), CommandError> {
     // Canonicalize FIRST (resolves symlinks and `..`) so the containment check
@@ -1076,7 +1077,7 @@ async fn clear_project_dashboard_references(canonical: &Path, dashboard_key: Opt
 /// this records the exact project path in Ship Studio's app config and list
 /// scans skip it afterward. External projects keep using their existing
 /// registry removal path.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn remove_project_from_app(path: String) -> Result<(), CommandError> {
     let canonical = validate_project_path(&path)?;
@@ -1153,7 +1154,7 @@ fn validate_project_name(name: &str) -> Result<String, CommandError> {
 /// so the folder isn't moved out from under live processes. Everything inside
 /// the directory — git remotes, `.vercel`, `.shipstudio` metadata — travels
 /// with the move untouched. Returns the new absolute path.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument(skip(window))]
 pub async fn rename_project(
     window: tauri::Window,
@@ -1369,7 +1370,7 @@ fn scan_movable(
 }
 
 /// Preview which projects in `from` can be moved into `to` (drives the move prompt).
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn list_movable_projects(
     from: String,
@@ -1399,7 +1400,7 @@ pub async fn list_movable_projects(
 /// Skips projects that are currently open or whose name collides in the
 /// destination. For each moved project, rekeys pins, folder membership, and
 /// session state so the dashboard stays consistent. Returns a per-project report.
-#[tauri::command]
+#[ship_command]
 #[tracing::instrument]
 pub async fn move_projects_to_root(from: String, to: String) -> Result<MoveReport, CommandError> {
     let from_dir = std::path::Path::new(&from);
