@@ -21,8 +21,7 @@ import {
 } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
-import { setTerminalState, checkDependenciesInstalled } from '../../lib/project';
-import { detectPackageManager } from '../../lib/github';
+import { setTerminalState } from '../../lib/project';
 import { Terminal } from '../terminal/Terminal';
 import { StaleEnvBanner } from '../terminal/StaleEnvBanner';
 import { DevServerLogs } from '../terminal/DevServerLogs';
@@ -57,7 +56,7 @@ import {
   RedoIcon,
 } from '../icons';
 import { useSnapshots } from '../../hooks/useSnapshots';
-import { useWorktrees } from '../../hooks/useWorktrees';
+import { useWorktreeWorkflow } from '../../hooks/useWorktreeWorkflow';
 import { ToolbarDropdown } from './ToolbarDropdown';
 import { TerminalSplitHeaders } from './TerminalSplitHeaders';
 import { TerminalSplitDividers } from './TerminalSplitDividers';
@@ -432,12 +431,6 @@ export const WorkspaceView = memo(function WorkspaceView({
   const devCommandModal = useModal('devCommand');
   const projectSettingsModal = useModal('projectSettings');
   const pluginManagerModal = useModal('pluginManager');
-  const worktreeCreateModal = useModal('worktreeCreate');
-
-  // Worktrees of the current project's repository (main worktree first).
-  // Refreshed alongside branch info so the sidebar/Branches tab stay in sync
-  // with `git worktree` state.
-  const { worktrees, refresh: refreshWorktrees } = useWorktrees(currentProject.path);
   useEffect(() => {
     const cleanups = [
       envEditorModal.registerOnClose(focusActiveTerminal),
@@ -561,6 +554,16 @@ export const WorkspaceView = memo(function WorkspaceView({
   const { isEducationMode, closeEducation } = modals;
 
   const { toasts: toastList, showToast, dismissToast } = toasts;
+
+  // Worktrees of the current project's repository (state, create-modal
+  // trigger, post-create open + auto-install). Logic lives in the hook.
+  const worktree = useWorktreeWorkflow({
+    projectPath: currentProject.path,
+    showToast,
+    onSelectProject,
+    onCloseProject,
+    onRunInstallFor,
+  });
 
   const {
     currentBranch,
@@ -747,8 +750,8 @@ export const WorkspaceView = memo(function WorkspaceView({
     openPushDropdown: () => setForcePublishOpen(true),
     handlePullLatest: () => void handlePullLatest(),
     isGitHubConnected: integrations.projectGithub?.status === 'connected',
-    openWorktreeCreate: () => worktreeCreateModal.open(),
-    hasWorktreeData: worktrees.length > 0,
+    openWorktreeCreate: worktree.openCreate,
+    hasWorktreeData: worktree.worktrees.length > 0,
   });
 
   // Shopify themes: preview gate state + palette commands.
@@ -1034,7 +1037,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     onPublishStatusChange: () => {
       void handleGitHubStatusChange();
       void fetchBranchInfo(currentProject.path);
-      void refreshWorktrees();
+      void worktree.refresh();
     },
     onCreatePR: () => setShowSubmitReview(currentBranch || 'main'),
     forcePublishOpen,
@@ -1131,8 +1134,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                 isWebProject && devServerPort > 0 ? `http://localhost:${devServerPort}` : undefined
               }
               isProjectDevServerRunning={isProjectDevServerRunning}
-              worktrees={worktrees}
-              onAddWorktree={() => worktreeCreateModal.open()}
+              worktrees={worktree.worktrees}
+              onAddWorktree={worktree.openCreate}
               onSwitchAccount={onSwitchAccount}
             />
             <div className="workspace-main">
@@ -1531,11 +1534,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                         handleResolveConflicts={handleResolveConflicts}
                         handleGitHubConnect={handleGitHubConnect}
                         onSendToAgent={sendToClaude}
-                        worktrees={worktrees}
-                        onOpenWorktree={onSelectProject}
-                        onCloseWorktreeSession={onCloseProject}
-                        onWorktreesChanged={() => void refreshWorktrees()}
-                        onCreateWorktree={() => worktreeCreateModal.open()}
+                        {...worktree.tabProps}
                       />
                     </div>
                   }
@@ -1629,24 +1628,8 @@ export const WorkspaceView = memo(function WorkspaceView({
           onCloseInstallTerminal={onCloseInstallTerminal}
           onInstallTerminalExit={onInstallTerminalExit}
           currentBranch={currentBranch || 'main'}
-          worktrees={worktrees}
-          onWorktreeCreated={(path) => {
-            showToast('Worktree created', 'success');
-            void refreshWorktrees();
-            onSelectProject(path);
-            // A fresh worktree checkout never has node_modules — start the
-            // install immediately instead of waiting for the Preview CTA.
-            void checkDependenciesInstalled(path)
-              .then(async (status) => {
-                if (status.hasPackageJson && !status.installed) {
-                  const pm = await detectPackageManager(path).catch(() => 'npm');
-                  onRunInstallFor(path, pm);
-                }
-              })
-              .catch(() => {
-                // Detection failure just falls back to the existing CTA flow.
-              });
-          }}
+          worktrees={worktree.worktrees}
+          onWorktreeCreated={worktree.handleCreated}
           customDevCommand={customDevCommand}
           onSaveDevCommand={handleSaveDevCommand}
           devServerPort={devServerPort}
