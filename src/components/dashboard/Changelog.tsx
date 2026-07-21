@@ -26,6 +26,14 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.17.0', // v0.17.0
+    items: [
+      "Worktrees — work on multiple branches of the same project at the same time. Create a worktree from the sidebar or Cmd+K and it opens as its own workspace: its own agent, terminal, dev server on its own port, and preview, while your other branches keep running. Switch between them from the sidebar with everything staying hot. It's real git underneath (git worktree), so your terminal and the app always agree",
+      'Worktrees come ready to work — dependencies auto-install, your .env files are copied over (they never leave your machine), and plugins are shared across every worktree of a project, so installing one anywhere makes it available everywhere',
+      'Removing a worktree follows git faithfully: the folder goes, the branch stays — and if there are uncommitted changes it refuses first and asks before force-removing. Stale entries (folder deleted by hand) show up marked and one click prunes them',
+    ],
+  },
+  {
     version: '0.16.0', // v0.16.0
     items: [
       'Build pages visually: add, duplicate, and delete elements right on the canvas — a floating toolbar on your selection (plus a right-click menu in the element tree and Cmd+K commands) inserts headings, paragraphs, buttons, images and more, before/after/inside the selected element, written straight into your source and immediately styleable. Community feature by Benoît!',
