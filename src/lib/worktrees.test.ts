@@ -12,6 +12,7 @@ import {
   removeWorktree,
   pruneWorktrees,
   isManagedWorktreePath,
+  worktreeDisplayName,
 } from './worktrees';
 
 describe('listWorktrees', () => {
@@ -28,6 +29,7 @@ describe('listWorktrees', () => {
           is_current: true,
           locked: null,
           prunable: null,
+          last_commit_date: 1750000000000,
         },
         {
           path: '/p/.worktrees/app/feature-x',
@@ -37,6 +39,7 @@ describe('listWorktrees', () => {
           is_current: false,
           locked: 'on my laptop',
           prunable: 'gitdir file points to non-existent location',
+          last_commit_date: null,
         },
       ];
     });
@@ -51,6 +54,7 @@ describe('listWorktrees', () => {
         isCurrent: true,
         locked: null,
         prunable: null,
+        lastCommitDate: 1750000000000,
       },
       {
         path: '/p/.worktrees/app/feature-x',
@@ -60,6 +64,7 @@ describe('listWorktrees', () => {
         isCurrent: false,
         locked: 'on my laptop',
         prunable: 'gitdir file points to non-existent location',
+        lastCommitDate: null,
       },
     ]);
   });
@@ -129,6 +134,22 @@ describe('removeWorktree / pruneWorktrees', () => {
       },
       { cmd: 'prune_worktrees', projectPath: '/p/app' },
     ]);
+  });
+});
+
+describe('worktreeDisplayName', () => {
+  it('renders "<project> / <branch>" for managed worktree paths', () => {
+    expect(worktreeDisplayName('/Users/me/ShipStudio/.worktrees/myapp/feature-x')).toBe(
+      'myapp / feature-x'
+    );
+    expect(worktreeDisplayName('C:\\Users\\me\\ShipStudio\\.worktrees\\myapp\\fix')).toBe(
+      'myapp / fix'
+    );
+  });
+
+  it('returns null for regular project paths', () => {
+    expect(worktreeDisplayName('/Users/me/ShipStudio/myapp')).toBeNull();
+    expect(worktreeDisplayName('/Users/me/code/feature-x')).toBeNull();
   });
 });
 

@@ -341,6 +341,31 @@
   text-overflow: ellipsis;
 }
 
+/* Worktree names ("project / branch"): the repo part ellipsizes, the branch
+   part never does — otherwise every worktree of one repo truncates to the
+   same string and reads as duplicate rows. */
+.sidebar-project-name-split {
+  display: flex;
+  align-items: baseline;
+}
+
+.sidebar-project-name-repo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-project-name-branch {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-weight: 500;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sidebar-project-meta {
   font-size: var(--font-size-xs);
   color: var(--text-muted);

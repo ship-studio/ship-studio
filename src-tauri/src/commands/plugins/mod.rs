@@ -2,7 +2,9 @@
  * Plugin management commands for Ship Studio.
  *
  * Plugins are project-level: each project has its own plugins directory
- * at <project>/.shipstudio/plugins/.
+ * at <project>/.shipstudio/plugins/. Git worktrees of one repository all
+ * resolve to the MAIN worktree's directory (see `plugins_owner_root`), so
+ * installing a plugin from any worktree makes it available in every one.
  *
  * Provides commands for:
  * - Listing, installing, uninstalling, and updating plugins
@@ -26,7 +28,7 @@ use crate::utils::{create_command, find_executable, get_extended_path, validate_
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use tauri::AppHandle;
 
@@ -264,10 +266,62 @@ pub struct ShellResult {
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
-/// Get the plugins directory for a project: <project>/.shipstudio/plugins/
+/// Maps a checkout path to the directory that owns its plugins. Cached
+/// forever: a path's main worktree never changes while the path exists.
+static PLUGINS_OWNER_CACHE: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, PathBuf>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+/// Resolves the project directory that owns plugins for this checkout: the
+/// repository's MAIN worktree. Plugins belong to the project, not the
+/// checkout — an install from any linked git worktree must be visible in all
+/// of them, exactly like git shares refs/config via the common dir. Non-git
+/// directories and main worktrees resolve to themselves.
+fn plugins_owner_root(validated: &Path) -> PathBuf {
+    if let Ok(cache) = PLUGINS_OWNER_CACHE.lock() {
+        if let Some(owner) = cache.get(validated) {
+            return owner.clone();
+        }
+    }
+    let resolved = (|| {
+        let output = create_command("git")
+            .args(["rev-parse", "--git-common-dir"])
+            .current_dir(validated)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if raw.is_empty() {
+            return None;
+        }
+        // The common dir may be reported relative to the cwd.
+        let common = if Path::new(&raw).is_absolute() {
+            PathBuf::from(raw)
+        } else {
+            validated.join(raw)
+        };
+        // <main>/.git → <main>. Anything else (bare repos) keeps per-dir plugins.
+        if common.file_name().is_some_and(|n| n == ".git") {
+            common.parent().map(Path::to_path_buf)
+        } else {
+            None
+        }
+    })()
+    .unwrap_or_else(|| validated.to_path_buf());
+    if let Ok(mut cache) = PLUGINS_OWNER_CACHE.lock() {
+        cache.insert(validated.to_path_buf(), resolved.clone());
+    }
+    resolved
+}
+
+/// Get the plugins directory for a project: `<main worktree>/.shipstudio/plugins/`.
+/// All git worktrees of one repository share a single plugin store.
 pub(crate) fn get_plugins_dir(project_path: &str) -> Result<PathBuf, String> {
     let validated = validate_project_path(project_path)?;
-    Ok(validated.join(".shipstudio").join("plugins"))
+    Ok(plugins_owner_root(&validated)
+        .join(".shipstudio")
+        .join("plugins"))
 }
 
 /// Read the plugin registry for a project
@@ -467,5 +521,40 @@ mod tests {
 
         let result = get_storage_path(".hidden", "/tmp/test");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn plugins_owner_root_resolves_worktrees_to_main() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let main = tmp.path().join("repo");
+        std::fs::create_dir_all(&main).unwrap();
+        let run = |args: &[&str], cwd: &std::path::Path| {
+            assert!(std::process::Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .expect("git")
+                .status
+                .success());
+        };
+        run(&["init", "-q", "-b", "main"], &main);
+        run(&["config", "user.email", "t@t"], &main);
+        run(&["config", "user.name", "t"], &main);
+        run(&["commit", "-q", "--allow-empty", "-m", "init"], &main);
+        let wt = tmp.path().join("wt-feature");
+        run(
+            &["worktree", "add", "-b", "feature", wt.to_str().unwrap()],
+            &main,
+        );
+
+        let canon = |p: &std::path::Path| dunce::canonicalize(p).unwrap();
+        // A linked worktree resolves to the main worktree...
+        assert_eq!(canon(&plugins_owner_root(&canon(&wt))), canon(&main));
+        // ...the main worktree resolves to itself...
+        assert_eq!(canon(&plugins_owner_root(&canon(&main))), canon(&main));
+        // ...and a non-git directory falls back to itself.
+        let plain = tmp.path().join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert_eq!(plugins_owner_root(&canon(&plain)), canon(&plain));
     }
 }

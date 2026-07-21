@@ -163,11 +163,15 @@ export function usePlugins(
   // Reload when project changes
   useEffect(() => {
     mountedRef.current = true;
+    // Unload the previous project's plugins under the path they were loaded
+    // with — the module cache is keyed by (path, id), so unloading with the
+    // NEW path is a silent no-op that leaves the old modules' timers and
+    // hooks alive, firing backend calls against a project where the plugin
+    // isn't installed ("Plugin 'x' not found" toasts on project switch).
+    const previousPath = currentPathRef.current;
     currentPathRef.current = projectPath;
-
-    // Unload previous plugins
     plugins.forEach((p) =>
-      unloadPluginModule(currentPathRef.current || '', p.info.manifest.id, handleLifecycleError)
+      unloadPluginModule(previousPath || '', p.info.manifest.id, handleLifecycleError)
     );
 
     void loadAllPlugins(projectPath);

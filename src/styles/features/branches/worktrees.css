@@ -30,7 +30,7 @@
 }
 
 .worktree-row.is-current {
-  border-color: var(--accent);
+  background: var(--tint-subtle);
 }
 
 .worktree-row-info {
@@ -65,8 +65,7 @@
 }
 
 .worktree-chip.is-current-chip {
-  color: var(--accent);
-  border-color: var(--accent);
+  border: none;
   background: transparent;
 }
 
@@ -203,6 +202,22 @@
   font-size: var(--font-size-md);
 }
 
+.worktree-field select {
+  /* Native selects render the OS control — restyle to match text inputs. */
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: var(--spacing-2xl);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--spacing-md) center;
+}
+
+.worktree-field select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 .worktree-field input[type='text']:focus,
 .worktree-field select:focus {
   outline: none;
@@ -223,8 +238,43 @@
   cursor: pointer;
 }
 
-.worktree-checkbox input {
-  margin-top: 2px;
+.worktree-checkbox input[type='checkbox'] {
+  /* Native checkbox is the OS-blue control — restyle to the app's accent. */
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    border-color var(--transition);
+}
+
+.worktree-checkbox input[type='checkbox']:hover {
+  border-color: var(--text-muted);
+}
+
+.worktree-checkbox input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.worktree-checkbox input[type='checkbox']:checked::after {
+  content: '';
+  width: 4px;
+  height: 8px;
+  border: solid var(--bg-deep);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-top: -2px;
 }
 
 .worktree-checkbox-hint {

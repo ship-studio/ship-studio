@@ -145,6 +145,10 @@ function WorktreeCreateForm({
                 onChange={(e) => setBranchName(e.target.value)}
                 placeholder="feature-x"
                 autoFocus
+                autoCorrect="off"
+                autoCapitalize="off"
+                autoComplete="off"
+                spellCheck={false}
                 disabled={isCreating}
               />
               {branchName && sanitizeBranchName(branchName) !== branchName.trim() && (

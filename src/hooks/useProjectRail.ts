@@ -17,6 +17,7 @@ import { usePinnedProjects, type UsePinnedProjectsReturn } from './usePinnedProj
 import { logger } from '../lib/logger';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { basename } from '../lib/paths';
+import { worktreeDisplayName } from '../lib/worktrees';
 
 export interface UseProjectRailParams {
   /** Path of the project the workspace is currently showing, or `null`. */
@@ -74,7 +75,7 @@ export function useProjectRail({
       // Clicking a pin cold-starts the project today (it's a launcher,
       // not background sessions). Phase 2d–2f will swap this for
       // in-place activation when the session is already alive.
-      const projectName = basename(projectPath) || 'project';
+      const projectName = worktreeDisplayName(projectPath) ?? (basename(projectPath) || 'project');
       void handleSelectProject({ name: projectName, path: projectPath, thumbnail: null });
     },
     [handleSelectProject]

@@ -15,7 +15,8 @@ import { Button } from '../primitives/Button';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { ALL_AGENTS, TERMINAL, getAgentById, type AgentConfig } from '../../lib/agent';
-import { isManagedWorktreePath, type WorktreeInfo } from '../../lib/worktrees';
+import { worktreeParentPath, type WorktreeInfo } from '../../lib/worktrees';
+import { formatRelativeTime } from '../../lib/branches';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
@@ -445,11 +446,26 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         label: wt.branch ?? wt.head,
         isActive: wt.isCurrent,
         dotState: wt.isCurrent || hasLiveSession ? 'active' : 'muted',
-        meta: wt.isMain ? 'main' : wt.prunable !== null ? 'prunable' : undefined,
+        // Meta: state problems first (stale/locked), else how fresh the
+        // checked-out commit is — same language as the branch cards.
+        meta:
+          wt.prunable !== null
+            ? 'stale'
+            : wt.locked !== null
+              ? 'locked'
+              : wt.lastCommitDate !== null
+                ? formatRelativeTime(wt.lastCommitDate)
+                : undefined,
         onSelect: wt.isCurrent ? undefined : () => onSelectProject(wt.path),
+        // Live background worktree sessions can be shut down from here — the
+        // family close on the project row does all of them at once.
+        onClose:
+          !wt.isCurrent && hasLiveSession && onCloseProject
+            ? () => onCloseProject(wt.path)
+            : undefined,
       };
     });
-  }, [worktrees, registryVersion, onSelectProject]);
+  }, [worktrees, registryVersion, onSelectProject, onCloseProject]);
 
   const filterLower = filter.trim().toLowerCase();
   const matchesFilter = (label: string) =>
@@ -470,41 +486,64 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   // the session registry, which tracks every project that's been opened
   // this launch. Dev servers stay alive for these rows until the user hits
   // the close button.
+  // A "family" is one repository: the main checkout plus its worktrees. The
+  // sidebar shows ONE row per family — worktree sessions never appear as
+  // separate top-level rows; they live inside the family row's body.
+  const familyKeyOf = (path: string) => worktreeParentPath(path) ?? path;
+  const currentFamily = currentProjectPath !== null ? familyKeyOf(currentProjectPath) : null;
+
   const activeRows: PinnedProjectRow[] = useMemo(() => {
     // `registryVersion` is the reactivity trigger — snapshots are read below.
     void registryVersion;
     const snaps = sessionRegistry.snapshotAll();
-    const rows: PinnedProjectRow[] = [];
+    const families = new Map<string, typeof snaps>();
     for (const snap of snaps) {
-      if (pinnedPaths.has(snap.projectPath)) continue;
-      rows.push({
-        projectPath: snap.projectPath,
-        fallbackName: basename(snap.projectPath) || 'Project',
-        status: snap.status,
-        agentStatus: snap.lastAgentStatus,
-        unreadCount: snap.unreadCount,
-        memoryBytes: snap.memoryBytes,
-        isCurrent: snap.projectPath === currentProjectPath,
-      });
+      const family = familyKeyOf(snap.projectPath);
+      // Families whose root is pinned render under Pinned, not Active —
+      // their worktree sessions show inside the pinned row's body.
+      if (pinnedPaths.has(snap.projectPath) || pinnedPaths.has(family)) continue;
+      const list = families.get(family);
+      if (list) list.push(snap);
+      else families.set(family, [snap]);
     }
-    // Registry order is activation order; stabilize by path so swapping
+    const rows: PinnedProjectRow[] = [...families.entries()].map(([family, members]) => {
+      const root = members.find((m) => m.projectPath === family);
+      const primary = root ?? members[0];
+      return {
+        projectPath: family,
+        fallbackName: basename(family) || 'Project',
+        status: members.some((m) => m.status === 'active') ? 'active' : primary.status,
+        agentStatus: primary.lastAgentStatus,
+        unreadCount: members.reduce((n, m) => n + m.unreadCount, 0),
+        memoryBytes: members.reduce((n, m) => n + m.memoryBytes, 0),
+        isCurrent: currentFamily === family,
+      };
+    });
+    // Stable name order (matches useProjectNumberShortcuts) so swapping
     // between two active projects doesn't reorder rows.
-    rows.sort((a, b) => a.projectPath.localeCompare(b.projectPath));
+    rows.sort(
+      (a, b) =>
+        a.fallbackName.localeCompare(b.fallbackName) || a.projectPath.localeCompare(b.projectPath)
+    );
     return rows;
-  }, [pinnedPaths, currentProjectPath, registryVersion]);
+  }, [pinnedPaths, currentFamily, registryVersion]);
 
   // Edge case: current project isn't in pinned or active (e.g. the session
   // registry hasn't picked it up yet during the initial open). Synthesize
   // a row so the workspace still has a sidebar entry.
   const currentIsKnown =
-    currentProjectPath !== null &&
-    (pinnedPaths.has(currentProjectPath) ||
-      activeRows.some((p) => p.projectPath === currentProjectPath));
+    currentFamily !== null &&
+    (pinnedRows.some((r) => familyKeyOf(r.projectPath) === currentFamily) ||
+      activeRows.some((p) => p.projectPath === currentFamily));
   const currentExternalRow: PinnedProjectRow | null =
-    currentProjectPath && !currentIsKnown
+    currentProjectPath && currentFamily && !currentIsKnown
       ? {
-          projectPath: currentProjectPath,
-          fallbackName: currentProjectName ?? (basename(currentProjectPath) || 'Project'),
+          projectPath: currentFamily,
+          fallbackName:
+            basename(currentFamily) ||
+            currentProjectName ||
+            basename(currentProjectPath) ||
+            'Project',
           status: 'active',
           agentStatus: 'idle',
           unreadCount: 0,
@@ -520,11 +559,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
 
   // Force-open the group containing the current project. We honor the
   // user's manual collapsed state for the OTHER group.
-  const currentInPinned = currentProjectPath !== null && pinnedPaths.has(currentProjectPath);
+  const currentInPinned =
+    currentFamily !== null && pinnedRows.some((r) => familyKeyOf(r.projectPath) === currentFamily);
   const currentInActive =
-    currentProjectPath !== null &&
+    currentFamily !== null &&
     !currentInPinned &&
-    (currentExternalRow !== null || activeRows.some((r) => r.projectPath === currentProjectPath));
+    (currentExternalRow !== null || activeRows.some((r) => r.projectPath === currentFamily));
   const pinnedOpen = currentInPinned || !groupCollapsed.pinned;
   const activeOpen = currentInActive || !groupCollapsed.projects;
 
@@ -548,11 +588,42 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   // live agent/terminal/command sections; anyone else gets the read-only
   // InactiveProjectSections view fed from the session registry.
   const renderProjectRow = (row: PinnedProjectRow) => {
-    const isCurrent = row.projectPath === currentProjectPath;
+    // A row is "current" when the current project is any member of its
+    // family — being inside a worktree still highlights the project row.
+    const isCurrent = currentFamily !== null && familyKeyOf(row.projectPath) === currentFamily;
     const expanded = isProjectExpanded(row.projectPath);
     // Only rows with a live session can be closed. Pinned rows that have
     // never been opened this launch show status 'inactive' and get no X.
     const canClose = !!onCloseProject && row.status !== 'inactive';
+    // Closing a family row shuts down every member session (main checkout
+    // and worktrees alike) — leaving invisible hot sessions behind would
+    // silently keep dev servers and PTYs running.
+    const closeFamily = () => {
+      if (!onCloseProject) return;
+      const members = sessionRegistry
+        .snapshotAll()
+        .filter((s) => familyKeyOf(s.projectPath) === familyKeyOf(row.projectPath))
+        .map((s) => s.projectPath);
+      for (const path of members.length > 0 ? members : [row.projectPath]) {
+        onCloseProject(path);
+      }
+    };
+    // Hot sessions in this family other than the row's own path — rendered
+    // as a Worktrees section inside non-current rows' bodies.
+    const familyWorktreeItems: SidebarItem[] = sessionRegistry
+      .snapshotAll()
+      .filter(
+        (s) =>
+          s.projectPath !== row.projectPath &&
+          familyKeyOf(s.projectPath) === familyKeyOf(row.projectPath)
+      )
+      .map((s) => ({
+        key: `bg-wt-${s.projectPath}`,
+        label: basename(s.projectPath) || s.projectPath,
+        dotState: s.status === 'active' ? ('active' as const) : ('muted' as const),
+        onSelect: () => onSelectProject(s.projectPath),
+        onClose: onCloseProject ? () => onCloseProject(s.projectPath) : undefined,
+      }));
     return (
       <ProjectGroup
         key={row.projectPath}
@@ -562,11 +633,24 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         shortcutNumber={shortcutNumberFor(row)}
         onToggleExpand={() => toggleProjectExpanded(row.projectPath)}
         onSelectProject={onSelectProject}
-        onClose={canClose ? () => onCloseProject(row.projectPath) : undefined}
+        onClose={canClose ? closeFamily : undefined}
       >
         {expanded &&
           (isCurrent ? (
             <div key="current-body" className="sidebar-project-body-inner">
+              {worktreeItems.length > 0 && (
+                <SidebarSection
+                  id="worktrees"
+                  label="Worktrees"
+                  total={worktreeItems.length}
+                  collapsed={collapsed.worktrees}
+                  onToggle={() => toggleSection('worktrees')}
+                  onAdd={onAddWorktree ? () => onAddWorktree() : undefined}
+                  addLabel="New worktree"
+                  items={worktreeItems.filter((i) => matchesFilter(i.label))}
+                  emptyHint={filter ? 'No matches' : 'No worktrees'}
+                />
+              )}
               <SidebarSection
                 id="agents"
                 label="Agents"
@@ -592,19 +676,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 items={filteredTerminals}
                 emptyHint={filter ? 'No matches' : 'No terminals'}
               />
-              {worktreeItems.length > 0 && (
-                <SidebarSection
-                  id="worktrees"
-                  label="Worktrees"
-                  total={worktreeItems.length}
-                  collapsed={collapsed.worktrees}
-                  onToggle={() => toggleSection('worktrees')}
-                  onAdd={onAddWorktree ? () => onAddWorktree() : undefined}
-                  addLabel="New worktree"
-                  items={worktreeItems.filter((i) => matchesFilter(i.label))}
-                  emptyHint={filter ? 'No matches' : 'No worktrees'}
-                />
-              )}
               <SidebarSection
                 id="commands"
                 label="Dev server"
@@ -619,6 +690,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             <div key="inactive-body" className="sidebar-project-body-inner">
               <InactiveProjectSections
                 snapshot={sessionRegistry.snapshot(row.projectPath)}
+                worktreeItems={familyWorktreeItems}
                 filterLower={filterLower}
                 hasLiveDevServer={isProjectDevServerRunning?.(row.projectPath) ?? false}
                 onSelectTab={(sessionId) => {
@@ -781,11 +853,14 @@ function SidebarGroupHeader({
  */
 function InactiveProjectSections({
   snapshot,
+  worktreeItems,
   filterLower,
   hasLiveDevServer,
   onSelectTab,
 }: {
   snapshot: SessionSnapshot | undefined;
+  /** Hot worktree sessions in this project's family (empty when none). */
+  worktreeItems?: SidebarItem[];
   filterLower: string;
   /** True if a dev server is currently tracked for this project path. */
   hasLiveDevServer: boolean;
@@ -826,6 +901,17 @@ function InactiveProjectSections({
 
   return (
     <>
+      {worktreeItems && worktreeItems.length > 0 && (
+        <SidebarSection
+          id="worktrees"
+          label="Worktrees"
+          total={worktreeItems.length}
+          collapsed={false}
+          onToggle={() => {}}
+          items={worktreeItems.filter((i) => matches(i.label))}
+          emptyHint={filterLower ? 'No matches' : 'No worktrees'}
+        />
+      )}
       <SidebarSection
         id="agents"
         label="Agents"
@@ -857,6 +943,29 @@ function InactiveProjectSections({
   );
 }
 
+/**
+ * Project-row label. Worktree names ("project / branch") ellipsize the
+ * PROJECT part and always keep the branch visible — end-truncation would
+ * render every worktree of one project as the same "myproject…" string,
+ * which reads as duplicate rows.
+ */
+function ProjectRowName({ name }: { name: string }) {
+  const slash = name.indexOf(' / ');
+  if (slash === -1) {
+    return (
+      <span className="sidebar-project-name" title={name}>
+        {name}
+      </span>
+    );
+  }
+  return (
+    <span className="sidebar-project-name sidebar-project-name-split" title={name}>
+      <span className="sidebar-project-name-repo">{name.slice(0, slash)}</span>
+      <span className="sidebar-project-name-branch">{name.slice(slash)}</span>
+    </span>
+  );
+}
+
 function ProjectGroup({
   row,
   isCurrent,
@@ -882,7 +991,10 @@ function ProjectGroup({
   // Parent WorkspaceSidebar subscribes to the registry; this snapshot is
   // therefore re-read on every relevant change.
   const snap = sessionRegistry.snapshot(row.projectPath);
-  const dot = projectDotState(row, snap?.terminalTabs);
+  const baseDot = projectDotState(row, snap?.terminalTabs);
+  // Family rows can be live purely through a worktree session (the root path
+  // itself has no tabs) — the aggregated row status is authoritative then.
+  const dot = baseDot === 'muted' && row.status === 'active' ? 'active' : baseDot;
   const memoryLabel =
     row.memoryBytes > 0 ? `${Math.round(row.memoryBytes / (1024 * 1024))}MB` : null;
 
@@ -926,12 +1038,7 @@ function ProjectGroup({
         >
           {shortcutNumber !== null ? kbd('mod', String(shortcutNumber)) : initials}
         </span>
-        <span className="sidebar-project-name" title={row.fallbackName}>
-          {row.fallbackName}
-        </span>
-        {isManagedWorktreePath(row.projectPath) && (
-          <span className="sidebar-project-meta">worktree</span>
-        )}
+        <ProjectRowName name={row.fallbackName} />
         {memoryLabel && <span className="sidebar-project-meta">{memoryLabel}</span>}
         {onClose && (
           <button

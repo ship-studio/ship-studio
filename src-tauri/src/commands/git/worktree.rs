@@ -34,6 +34,8 @@ pub struct WorktreeInfo {
     pub locked: Option<String>,
     /// Prune reason when git considers the entry prunable.
     pub prunable: Option<String>,
+    /// Unix timestamp (ms) of the checked-out HEAD commit, when resolvable.
+    pub last_commit_date: Option<u64>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -88,8 +90,9 @@ fn parse_worktree_porcelain(output: &str) -> Vec<ParsedWorktree> {
             });
         } else if let Some(wt) = current.as_mut() {
             if let Some(sha) = line.strip_prefix("HEAD ") {
-                // Short sha for display; git prints the full 40-char sha.
-                wt.head = sha.chars().take(7).collect();
+                // Full sha here — needed for commit-date lookup; shortened for
+                // display when building the public WorktreeInfo.
+                wt.head = sha.to_string();
             } else if let Some(branch_ref) = line.strip_prefix("branch ") {
                 wt.branch = Some(
                     branch_ref
@@ -191,6 +194,31 @@ fn canon(path: &str) -> PathBuf {
     dunce::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path))
 }
 
+/// Resolves commit timestamps (ms) for a set of shas in one git call:
+/// `git show -s --format='%H %ct' <shas…>`. Best-effort — an empty map on
+/// any failure just leaves `last_commit_date` unset.
+fn commit_timestamps_ms(cwd: &Path, shas: &[&str]) -> std::collections::HashMap<String, u64> {
+    let mut map = std::collections::HashMap::new();
+    if shas.is_empty() {
+        return map;
+    }
+    let mut args: Vec<&str> = vec!["show", "-s", "--format=%H %ct"];
+    args.extend(shas);
+    if let Ok(output) = run_worktree_git(cwd, &args) {
+        if output.status.success() {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let mut parts = line.split_whitespace();
+                if let (Some(sha), Some(secs)) = (parts.next(), parts.next()) {
+                    if let Ok(secs) = secs.parse::<u64>() {
+                        map.insert(sha.to_string(), secs * 1000);
+                    }
+                }
+            }
+        }
+    }
+    map
+}
+
 /// Lists all worktrees of the repository containing `project_path`, main
 /// worktree first (git's porcelain order). Returns an empty list for
 /// non-git directories so callers can simply hide the feature.
@@ -208,7 +236,14 @@ pub async fn list_worktrees(project_path: String) -> Result<Vec<WorktreeInfo>, C
 
     let current = canon(&validated_path.to_string_lossy());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let worktrees = parse_worktree_porcelain(&stdout)
+    let parsed = parse_worktree_porcelain(&stdout);
+    let shas: Vec<&str> = parsed
+        .iter()
+        .map(|w| w.head.as_str())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let timestamps = commit_timestamps_ms(&validated_path, &shas);
+    let worktrees = parsed
         .into_iter()
         .enumerate()
         .map(|(i, wt)| {
@@ -216,8 +251,9 @@ pub async fn list_worktrees(project_path: String) -> Result<Vec<WorktreeInfo>, C
             WorktreeInfo {
                 is_main: i == 0,
                 is_current,
+                last_commit_date: timestamps.get(&wt.head).copied(),
                 path: wt.path,
-                head: wt.head,
+                head: wt.head.chars().take(7).collect(),
                 branch: wt.branch,
                 locked: wt.locked,
                 prunable: wt.prunable,
@@ -315,6 +351,9 @@ pub async fn add_worktree(
     if copy_env {
         copy_env_files(&validated_path, &dest);
     }
+
+    // Plugins need no copying: all worktrees of one repository resolve to the
+    // main worktree's plugin store (see `plugins_owner_root` in commands::plugins).
 
     GIT_CACHE.invalidate(&project_path);
 
@@ -432,7 +471,7 @@ branch refs/heads/feature-x
         let parsed = parse_worktree_porcelain(porcelain);
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].path, "/Users/me/ShipStudio/myapp");
-        assert_eq!(parsed[0].head, "1234567");
+        assert_eq!(parsed[0].head, "1234567890abcdef1234567890abcdef12345678");
         assert_eq!(parsed[0].branch.as_deref(), Some("main"));
         assert_eq!(parsed[1].branch.as_deref(), Some("feature-x"));
         assert!(parsed[1].locked.is_none());

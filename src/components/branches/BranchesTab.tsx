@@ -747,7 +747,9 @@ export function BranchesTab({
                     {wt.branch ?? `detached @ ${wt.head}`}
                   </span>
                   {wt.isMain && <span className="worktree-chip">main worktree</span>}
-                  {wt.isCurrent && <span className="worktree-chip is-current-chip">current</span>}
+                  {wt.isCurrent && (
+                    <span className="worktree-chip is-current-chip">you are here</span>
+                  )}
                   {wt.locked !== null && <span className="worktree-chip">locked</span>}
                   {wt.prunable !== null && (
                     <span className="worktree-chip is-prunable-chip">stale</span>

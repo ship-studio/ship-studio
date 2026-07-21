@@ -36,6 +36,7 @@ import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getProjectId } from '../lib/projectIdentity';
 import { basename } from '../lib/paths';
+import { worktreeDisplayName } from '../lib/worktrees';
 
 /** A pinned project as the rail wants to render it. */
 export interface PinnedProjectRow {
@@ -98,7 +99,7 @@ function buildRows(
     const snap = snapshotByPath.get(projectPath);
     return {
       projectPath,
-      fallbackName: lastPathSegment(projectPath),
+      fallbackName: worktreeDisplayName(projectPath) ?? lastPathSegment(projectPath),
       status: snap?.status ?? 'inactive',
       agentStatus: snap?.lastAgentStatus ?? 'idle',
       unreadCount: snap?.unreadCount ?? 0,

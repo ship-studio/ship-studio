@@ -21,7 +21,8 @@ import {
 } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
-import { setTerminalState } from '../../lib/project';
+import { setTerminalState, checkDependenciesInstalled } from '../../lib/project';
+import { detectPackageManager } from '../../lib/github';
 import { Terminal } from '../terminal/Terminal';
 import { StaleEnvBanner } from '../terminal/StaleEnvBanner';
 import { DevServerLogs } from '../terminal/DevServerLogs';
@@ -141,6 +142,9 @@ interface DevServerProps {
    *  (crash / external kill). Lets the Preview offer a real process restart. */
   devServerUnexpectedExit: DevServerUnexpectedExit | null;
   onRunInstall: () => void;
+  /** Path-scoped install trigger — used to auto-install a fresh worktree's
+   *  dependencies without waiting for the Preview CTA click. */
+  onRunInstallFor: (projectPath: string, packageManager: string) => void;
   /** Type into the dev-server PTY (interactive CLI prompts in the logs pane). */
   onDevServerInput: (data: string) => void;
   /** Sync the dev-server PTY size to the logs terminal. */
@@ -467,6 +471,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     needsInstall,
     devServerUnexpectedExit,
     onRunInstall,
+    onRunInstallFor,
     onDevServerInput,
     onDevServerResize,
   } = devServer;
@@ -1629,6 +1634,18 @@ export const WorkspaceView = memo(function WorkspaceView({
             showToast('Worktree created', 'success');
             void refreshWorktrees();
             onSelectProject(path);
+            // A fresh worktree checkout never has node_modules — start the
+            // install immediately instead of waiting for the Preview CTA.
+            void checkDependenciesInstalled(path)
+              .then(async (status) => {
+                if (status.hasPackageJson && !status.installed) {
+                  const pm = await detectPackageManager(path).catch(() => 'npm');
+                  onRunInstallFor(path, pm);
+                }
+              })
+              .catch(() => {
+                // Detection failure just falls back to the existing CTA flow.
+              });
           }}
           customDevCommand={customDevCommand}
           onSaveDevCommand={handleSaveDevCommand}

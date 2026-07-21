@@ -752,6 +752,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       needsInstall,
       devServerUnexpectedExit,
       onRunInstall: handleRunInstallCurrent,
+      onRunInstallFor: handleRunInstall,
       onDevServerInput: writeToDevServer,
       onDevServerResize: resizeDevServer,
     }),
@@ -770,6 +771,7 @@ function AppContents({ initialProjectPath }: AppProps) {
       needsInstall,
       devServerUnexpectedExit,
       handleRunInstallCurrent,
+      handleRunInstall,
       writeToDevServer,
       resizeDevServer,
     ]

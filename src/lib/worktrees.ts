@@ -26,6 +26,8 @@ export interface WorktreeInfo {
   locked: string | null;
   /** Prune reason when git considers the entry stale */
   prunable: string | null;
+  /** Unix timestamp (ms) of the checked-out HEAD commit, when resolvable */
+  lastCommitDate: number | null;
 }
 
 export interface AddWorktreeOptions {
@@ -54,6 +56,7 @@ interface RawWorktreeInfo {
   is_current: boolean;
   locked: string | null;
   prunable: string | null;
+  last_commit_date: number | null;
 }
 
 /**
@@ -70,6 +73,7 @@ export async function listWorktrees(projectPath: string): Promise<WorktreeInfo[]
     isCurrent: w.is_current,
     locked: w.locked,
     prunable: w.prunable,
+    lastCommitDate: w.last_commit_date,
   }));
 }
 
@@ -124,6 +128,28 @@ export function worktreeFolderName(branch: string): string {
     .replace(/[. ]+$/, '')
     .slice(0, 64);
   return out || 'worktree';
+}
+
+/**
+ * Display name for a managed worktree path: `"<project> / <branch-folder>"`,
+ * derived from the `.worktrees/<project>/<branch>` layout. Null for paths
+ * outside a managed container — callers fall back to `basename(path)`,
+ * which for a worktree alone would misleadingly show just the branch name.
+ */
+export function worktreeDisplayName(path: string): string | null {
+  const match = path.match(/[/\\]\.worktrees[/\\]([^/\\]+)[/\\]([^/\\]+)[/\\]?$/);
+  return match ? `${match[1]} / ${match[2]}` : null;
+}
+
+/**
+ * For a managed worktree path, the parent project's path (the main worktree):
+ * `<root>/.worktrees/<project>/<branch>` → `<root>/<project>`. Null for
+ * regular project paths. Used to group all checkouts of one repository into
+ * a single sidebar "family".
+ */
+export function worktreeParentPath(path: string): string | null {
+  const match = path.match(/^(.*)([/\\])\.worktrees[/\\]([^/\\]+)[/\\][^/\\]+[/\\]?$/);
+  return match ? `${match[1]}${match[2]}${match[3]}` : null;
 }
 
 /** True when a path lives inside a Ship Studio-managed `.worktrees` container. */
