@@ -24,6 +24,10 @@ export interface UseWorkspaceCommandsParams {
   handlePullLatest: () => void;
   /** Push/pull commands only make sense with a connected GitHub repo */
   isGitHubConnected: boolean;
+  /** Opens the "New worktree" modal. */
+  openWorktreeCreate: () => void;
+  /** Worktree commands only make sense in a git repo (list is empty otherwise). */
+  hasWorktreeData: boolean;
 }
 
 const PullRequestGlyph = () => (
@@ -72,6 +76,8 @@ export function useWorkspaceCommands({
   openPushDropdown,
   handlePullLatest,
   isGitHubConnected,
+  openWorktreeCreate,
+  hasWorktreeData,
 }: UseWorkspaceCommandsParams) {
   useCommands(
     () => [
@@ -141,6 +147,25 @@ export function useWorkspaceCommands({
         run: () => setWorkspaceTab('prs'),
       },
       {
+        id: 'worktree.create',
+        title: 'New worktree…',
+        subtitle: 'Work on another branch side by side',
+        icon: <BranchIcon size={14} />,
+        category: 'branch',
+        when: ({ kind }) => kind === 'project' && hasWorktreeData,
+        keywords: ['worktree', 'parallel', 'branch', 'git', 'side by side'],
+        run: openWorktreeCreate,
+      },
+      {
+        id: 'worktree.manage',
+        title: 'Manage worktrees',
+        icon: <BranchIcon size={14} />,
+        category: 'branch',
+        when: ({ kind }) => kind === 'project' && hasWorktreeData,
+        keywords: ['worktree', 'remove', 'prune', 'git'],
+        run: () => setWorkspaceTab('branches'),
+      },
+      {
         id: 'branch.resolveConflicts',
         title: 'Resolve merge conflicts',
         icon: <AlertGlyph />,
@@ -160,6 +185,8 @@ export function useWorkspaceCommands({
       openPushDropdown,
       handlePullLatest,
       isGitHubConnected,
+      openWorktreeCreate,
+      hasWorktreeData,
     ]
   );
 }

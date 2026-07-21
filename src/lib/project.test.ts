@@ -75,6 +75,7 @@ describe('lib/project', () => {
           hide_main_branch_warning: false,
           is_external: false,
           workspace_subpath: null,
+          worktree_count: null,
         },
       ];
       invokeMock.mockResolvedValue(projects);
@@ -99,6 +100,7 @@ describe('lib/project', () => {
           hide_main_branch_warning: null,
           is_external: true,
           workspace_subpath: null,
+          worktree_count: null,
         },
       ];
       invokeMock.mockResolvedValue(projects);

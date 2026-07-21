@@ -38,6 +38,7 @@ function makeProject(overrides: Partial<DashboardProject> = {}): DashboardProjec
     hide_main_branch_warning: null,
     is_external: false,
     workspace_subpath: null,
+    worktree_count: null,
     ...overrides,
   };
 }

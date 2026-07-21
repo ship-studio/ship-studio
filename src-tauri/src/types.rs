@@ -75,6 +75,9 @@ pub struct DashboardProject {
     /// single-package projects. Surfaced on the dashboard card so the user
     /// can tell two imports of the same repo apart.
     pub workspace_subpath: Option<String>,
+    /// Number of linked git worktrees under `<projects_root>/.worktrees/<name>`.
+    /// None when the project has none — the card shows no hint.
+    pub worktree_count: Option<usize>,
 }
 
 /// Next.js page route information

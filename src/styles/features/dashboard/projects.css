@@ -242,6 +242,12 @@
   white-space: nowrap;
 }
 
+.project-card-worktrees {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .project-card-deployment {
   display: flex;
   align-items: center;

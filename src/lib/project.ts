@@ -53,6 +53,8 @@ export interface DashboardProject {
   is_external: boolean;
   /** Active monorepo workspace subpath (e.g. `apps/admin`), or null. */
   workspace_subpath: string | null;
+  /** Number of linked git worktrees under `~/ShipStudio/.worktrees/<name>`, or null. */
+  worktree_count: number | null;
 }
 
 /**

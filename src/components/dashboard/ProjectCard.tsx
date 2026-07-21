@@ -107,6 +107,11 @@ export const ProjectCard = memo(function ProjectCard({
             {hasChanges && (
               <span className="project-card-changes">{project.uncommitted_count} uncommitted</span>
             )}
+            {project.worktree_count != null && project.worktree_count > 0 && (
+              <span className="project-card-worktrees">
+                · {project.worktree_count} {project.worktree_count === 1 ? 'worktree' : 'worktrees'}
+              </span>
+            )}
           </div>
         </div>
         <ProjectCardMenu

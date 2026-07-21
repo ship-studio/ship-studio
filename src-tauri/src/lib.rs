@@ -369,6 +369,10 @@ pub fn run() {
             commands::git::git_pull,
             commands::git::pull_and_merge,
             commands::git::delete_branch,
+            commands::git::list_worktrees,
+            commands::git::add_worktree,
+            commands::git::remove_worktree,
+            commands::git::prune_worktrees,
             commands::git::get_backups,
             commands::git::restore_backup,
             // Projects

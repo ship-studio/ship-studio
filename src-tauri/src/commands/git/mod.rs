@@ -13,12 +13,14 @@ mod graph;
 mod stash;
 mod status;
 mod sync;
+mod worktree;
 
 pub use branches::*;
 pub use graph::*;
 pub use stash::*;
 pub use status::*;
 pub use sync::*;
+pub use worktree::*;
 
 use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;

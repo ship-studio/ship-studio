@@ -15,6 +15,7 @@ import { Button } from '../primitives/Button';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { ALL_AGENTS, TERMINAL, getAgentById, type AgentConfig } from '../../lib/agent';
+import { isManagedWorktreePath, type WorktreeInfo } from '../../lib/worktrees';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
@@ -29,7 +30,7 @@ import {
   type TabStatus,
 } from '../../lib/sessionRegistry';
 
-type SectionId = 'agents' | 'terminals' | 'commands';
+type SectionId = 'agents' | 'terminals' | 'worktrees' | 'commands';
 type GroupId = 'pinned' | 'projects';
 
 interface SidebarItem {
@@ -112,6 +113,13 @@ interface Props {
    *  can reflect the live state. Evaluated on each render. */
   isProjectDevServerRunning?: (projectPath: string) => boolean;
 
+  // Worktrees
+  /** All worktrees of the current project's repository (`git worktree list`,
+   *  main first). Empty for non-git projects — the section hides itself. */
+  worktrees?: WorktreeInfo[];
+  /** Open the "New worktree" modal. When omitted, the section has no "+". */
+  onAddWorktree?: () => void;
+
   /** Open the "Switch Workspace" picker. When omitted, the footer button
    *  showing the active Workspace is not rendered. */
   onSwitchAccount?: () => void;
@@ -127,7 +135,7 @@ function readCollapsed(): Record<SectionId, boolean> {
   } catch {
     // ignore
   }
-  return { agents: false, terminals: false, commands: false };
+  return { agents: false, terminals: false, worktrees: false, commands: false };
 }
 
 function writeCollapsed(state: Record<SectionId, boolean>) {
@@ -250,6 +258,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onRestartDevServer,
   devServerUrl,
   isProjectDevServerRunning,
+  worktrees,
+  onAddWorktree,
   onSwitchAccount,
 }: Props) {
   const { activeAccount, accounts } = useActiveAccount(currentProjectPath);
@@ -421,6 +431,26 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     devServerUrl,
   ]);
 
+  // Worktree rows for the current project. Clicking a non-current worktree
+  // performs the same in-place project switch as any other sidebar row — the
+  // previous worktree's session (PTYs + dev server) stays hot in "Active".
+  const worktreeItems = useMemo<SidebarItem[]>(() => {
+    void registryVersion;
+    const list = worktrees ?? [];
+    return list.map((wt) => {
+      const snap = sessionRegistry.snapshot(wt.path);
+      const hasLiveSession = snap?.status === 'active';
+      return {
+        key: `worktree-${wt.path}`,
+        label: wt.branch ?? wt.head,
+        isActive: wt.isCurrent,
+        dotState: wt.isCurrent || hasLiveSession ? 'active' : 'muted',
+        meta: wt.isMain ? 'main' : wt.prunable !== null ? 'prunable' : undefined,
+        onSelect: wt.isCurrent ? undefined : () => onSelectProject(wt.path),
+      };
+    });
+  }, [worktrees, registryVersion, onSelectProject]);
+
   const filterLower = filter.trim().toLowerCase();
   const matchesFilter = (label: string) =>
     !filterLower || label.toLowerCase().includes(filterLower);
@@ -562,6 +592,19 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 items={filteredTerminals}
                 emptyHint={filter ? 'No matches' : 'No terminals'}
               />
+              {worktreeItems.length > 0 && (
+                <SidebarSection
+                  id="worktrees"
+                  label="Worktrees"
+                  total={worktreeItems.length}
+                  collapsed={collapsed.worktrees}
+                  onToggle={() => toggleSection('worktrees')}
+                  onAdd={onAddWorktree ? () => onAddWorktree() : undefined}
+                  addLabel="New worktree"
+                  items={worktreeItems.filter((i) => matchesFilter(i.label))}
+                  emptyHint={filter ? 'No matches' : 'No worktrees'}
+                />
+              )}
               <SidebarSection
                 id="commands"
                 label="Dev server"
@@ -886,6 +929,9 @@ function ProjectGroup({
         <span className="sidebar-project-name" title={row.fallbackName}>
           {row.fallbackName}
         </span>
+        {isManagedWorktreePath(row.projectPath) && (
+          <span className="sidebar-project-meta">worktree</span>
+        )}
         {memoryLabel && <span className="sidebar-project-meta">{memoryLabel}</span>}
         {onClose && (
           <button

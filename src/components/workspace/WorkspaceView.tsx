@@ -56,6 +56,7 @@ import {
   RedoIcon,
 } from '../icons';
 import { useSnapshots } from '../../hooks/useSnapshots';
+import { useWorktrees } from '../../hooks/useWorktrees';
 import { ToolbarDropdown } from './ToolbarDropdown';
 import { TerminalSplitHeaders } from './TerminalSplitHeaders';
 import { TerminalSplitDividers } from './TerminalSplitDividers';
@@ -427,6 +428,12 @@ export const WorkspaceView = memo(function WorkspaceView({
   const devCommandModal = useModal('devCommand');
   const projectSettingsModal = useModal('projectSettings');
   const pluginManagerModal = useModal('pluginManager');
+  const worktreeCreateModal = useModal('worktreeCreate');
+
+  // Worktrees of the current project's repository (main worktree first).
+  // Refreshed alongside branch info so the sidebar/Branches tab stay in sync
+  // with `git worktree` state.
+  const { worktrees, refresh: refreshWorktrees } = useWorktrees(currentProject.path);
   useEffect(() => {
     const cleanups = [
       envEditorModal.registerOnClose(focusActiveTerminal),
@@ -735,6 +742,8 @@ export const WorkspaceView = memo(function WorkspaceView({
     openPushDropdown: () => setForcePublishOpen(true),
     handlePullLatest: () => void handlePullLatest(),
     isGitHubConnected: integrations.projectGithub?.status === 'connected',
+    openWorktreeCreate: () => worktreeCreateModal.open(),
+    hasWorktreeData: worktrees.length > 0,
   });
 
   // Shopify themes: preview gate state + palette commands.
@@ -1020,6 +1029,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     onPublishStatusChange: () => {
       void handleGitHubStatusChange();
       void fetchBranchInfo(currentProject.path);
+      void refreshWorktrees();
     },
     onCreatePR: () => setShowSubmitReview(currentBranch || 'main'),
     forcePublishOpen,
@@ -1116,6 +1126,8 @@ export const WorkspaceView = memo(function WorkspaceView({
                 isWebProject && devServerPort > 0 ? `http://localhost:${devServerPort}` : undefined
               }
               isProjectDevServerRunning={isProjectDevServerRunning}
+              worktrees={worktrees}
+              onAddWorktree={() => worktreeCreateModal.open()}
               onSwitchAccount={onSwitchAccount}
             />
             <div className="workspace-main">
@@ -1514,6 +1526,11 @@ export const WorkspaceView = memo(function WorkspaceView({
                         handleResolveConflicts={handleResolveConflicts}
                         handleGitHubConnect={handleGitHubConnect}
                         onSendToAgent={sendToClaude}
+                        worktrees={worktrees}
+                        onOpenWorktree={onSelectProject}
+                        onCloseWorktreeSession={onCloseProject}
+                        onWorktreesChanged={() => void refreshWorktrees()}
+                        onCreateWorktree={() => worktreeCreateModal.open()}
                       />
                     </div>
                   }
@@ -1606,6 +1623,13 @@ export const WorkspaceView = memo(function WorkspaceView({
           installTerminalExited={installTerminalExited}
           onCloseInstallTerminal={onCloseInstallTerminal}
           onInstallTerminalExit={onInstallTerminalExit}
+          currentBranch={currentBranch || 'main'}
+          worktrees={worktrees}
+          onWorktreeCreated={(path) => {
+            showToast('Worktree created', 'success');
+            void refreshWorktrees();
+            onSelectProject(path);
+          }}
           customDevCommand={customDevCommand}
           onSaveDevCommand={handleSaveDevCommand}
           devServerPort={devServerPort}

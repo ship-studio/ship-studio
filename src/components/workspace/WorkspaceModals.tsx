@@ -25,6 +25,7 @@ import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { ShopifyStoreModal } from '../shopify/ShopifyStoreModal';
 import { GitErrorHandler } from '../branches/GitErrorHandler';
 import { SubmitReviewModal } from '../branches/SubmitReviewModal';
+import { WorktreeCreateModal } from '../branches/WorktreeCreateModal';
 import { ConflictResolutionModal } from '../branches/ConflictResolutionModal';
 import { OnboardingTerminal } from '../setup';
 import { DownloadIcon, ZapIcon } from '../icons';
@@ -33,6 +34,7 @@ import type { Toast } from '../../hooks/useToasts';
 import type { NotificationSettings } from '../../lib/sounds';
 import type { AgentConfig } from '../../lib/agent';
 import type { BranchInfo } from '../../lib/branches';
+import type { WorktreeInfo } from '../../lib/worktrees';
 import type { AuthTerminalConfig, IntegrationState } from '../../hooks/useIntegrationStatus';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 import { Spinner } from '../primitives/Spinner';
@@ -147,6 +149,11 @@ export interface WorkspaceModalsProps {
   isShopifyTheme: boolean;
   onShopifyStoreSaved: () => void;
 
+  // Worktree create modal — read state via useModal('worktreeCreate')
+  currentBranch: string;
+  worktrees: WorktreeInfo[];
+  onWorktreeCreated: (path: string) => void;
+
   // Plugin terminal
   pluginTerminal: { command: string; args: string[]; title: string } | null;
   pluginTerminalExited: boolean;
@@ -214,6 +221,9 @@ export function WorkspaceModals({
   isWebProject,
   isShopifyTheme,
   onShopifyStoreSaved,
+  currentBranch,
+  worktrees,
+  onWorktreeCreated,
   pluginTerminal,
   pluginTerminalExited,
   onClosePluginTerminal,
@@ -232,6 +242,14 @@ export function WorkspaceModals({
       />
 
       <AssetsPanel projectPath={projectPath} />
+
+      <WorktreeCreateModal
+        projectPath={projectPath}
+        currentBranch={currentBranch}
+        branches={branches}
+        worktrees={worktrees}
+        onCreated={onWorktreeCreated}
+      />
 
       {/* Education Mode Overlay */}
       {isEducationMode && <EducationOverlay onClose={onCloseEducation} />}

@@ -197,6 +197,27 @@ pub(crate) fn is_valid_project(path: &std::path::Path) -> bool {
             || path.join(".git").exists())
 }
 
+/// Counts app-managed git worktrees for a project: subdirectories of
+/// `<projects_root>/.worktrees/<project_dir_name>`. Filesystem-only (no git)
+/// so the dashboard scan stays cheap; `None` when there are none.
+fn count_managed_worktrees(project_path: &std::path::Path) -> Option<usize> {
+    let dir_name = project_path.file_name()?;
+    let container = crate::utils::projects_root()
+        .ok()?
+        .join(".worktrees")
+        .join(dir_name);
+    let count = std::fs::read_dir(container)
+        .ok()?
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .count();
+    if count > 0 {
+        Some(count)
+    } else {
+        None
+    }
+}
+
 /// Whether a project should be shown on the dashboard for the given active
 /// Workspace (Account). Resolves through the shared `effective_account_id_in`
 /// helper so visibility and credential routing never disagree: a project is
@@ -581,6 +602,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                 hide_main_branch_warning,
                 is_external: false,
                 workspace_subpath,
+                worktree_count: count_managed_worktrees(&path),
             });
             scan_paths.push(path);
         } else if path.is_dir() && !entry.file_name().to_string_lossy().starts_with('.') {
@@ -645,6 +667,7 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                     hide_main_branch_warning,
                     is_external: true,
                     workspace_subpath,
+                    worktree_count: count_managed_worktrees(&path),
                 });
                 scan_paths.push(path);
             } else {

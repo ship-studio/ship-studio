@@ -10,6 +10,7 @@ import { BranchesTab } from '../branches/BranchesTab';
 import { PullRequestsTab } from '../branches/PullRequestsTab';
 import { ConnectOverlay } from '../ConnectOverlay';
 import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
+import type { WorktreeInfo } from '../../lib/worktrees';
 import type { IntegrationState } from '../../hooks/useIntegrationStatus';
 
 export interface BranchPRTabContainerProps {
@@ -37,6 +38,16 @@ export interface BranchPRTabContainerProps {
   handleGitHubConnect: () => void;
   /** Paste a prompt into the agent terminal (for merge-conflict hand-off). */
   onSendToAgent: (prompt: string) => void;
+  /** Current `git worktree list` for this repository. */
+  worktrees: WorktreeInfo[];
+  /** Switch the workspace to a worktree path (in-place, session stays hot). */
+  onOpenWorktree: (path: string) => void;
+  /** Tear down a worktree's hot session before `git worktree remove`. */
+  onCloseWorktreeSession: (path: string) => void;
+  /** Re-query the worktree list after a mutation. */
+  onWorktreesChanged: () => void;
+  /** Open the "New worktree" modal. */
+  onCreateWorktree: () => void;
 }
 
 export function BranchPRTabContainer({
@@ -56,6 +67,11 @@ export function BranchPRTabContainer({
   handleResolveConflicts,
   handleGitHubConnect,
   onSendToAgent,
+  worktrees,
+  onOpenWorktree,
+  onCloseWorktreeSession,
+  onWorktreesChanged,
+  onCreateWorktree,
 }: BranchPRTabContainerProps) {
   const showBranchesPane =
     workspaceTab === 'branches' ||
@@ -80,6 +96,11 @@ export function BranchPRTabContainer({
             onViewPR={() => setWorkspaceTab('prs')}
             onRefresh={() => void fetchBranchInfo(projectPath)}
             onSendToAgent={onSendToAgent}
+            worktrees={worktrees}
+            onOpenWorktree={onOpenWorktree}
+            onCloseWorktreeSession={onCloseWorktreeSession}
+            onWorktreesChanged={onWorktreesChanged}
+            onCreateWorktree={onCreateWorktree}
           />
         ) : (
           <div style={{ position: 'relative', flex: 1 }}>

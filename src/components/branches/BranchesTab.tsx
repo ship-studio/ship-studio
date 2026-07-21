@@ -30,7 +30,9 @@ import {
   sanitizeBranchName,
 } from '../../lib/branches';
 import { gitPull } from '../../lib/git';
-import { BranchIcon, PlusIcon, TrashIcon } from '../icons';
+import { removeWorktree, pruneWorktrees, type WorktreeInfo } from '../../lib/worktrees';
+import { openProjectInNewWindow } from '../../lib/project';
+import { BranchIcon, PlusIcon, TrashIcon, ExternalLinkIcon } from '../icons';
 import { Spinner } from '../primitives/Spinner';
 import { BranchGraph } from './BranchGraph';
 import { UnsavedChangesModal } from './UnsavedChangesModal';
@@ -99,6 +101,16 @@ interface BranchesTabProps {
   onRefresh: () => void;
   /** Paste a prompt into the agent terminal (used to hand off a merge conflict). */
   onSendToAgent?: (prompt: string) => void;
+  /** Current `git worktree list` for this repository (main worktree first). */
+  worktrees?: WorktreeInfo[];
+  /** Switch the workspace to a worktree's path (in-place, session stays hot). */
+  onOpenWorktree?: (path: string) => void;
+  /** Tear down a worktree's hot session (dev server, PTYs) before removal. */
+  onCloseWorktreeSession?: (path: string) => void;
+  /** Re-query the worktree list after add/remove/prune. */
+  onWorktreesChanged?: () => void;
+  /** Open the "New worktree" modal. */
+  onCreateWorktree?: () => void;
 }
 
 export function BranchesTab({
@@ -112,6 +124,11 @@ export function BranchesTab({
   onViewPR,
   onRefresh,
   onSendToAgent,
+  worktrees = [],
+  onOpenWorktree,
+  onCloseWorktreeSession,
+  onWorktreesChanged,
+  onCreateWorktree,
 }: BranchesTabProps) {
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
@@ -224,6 +241,16 @@ export function BranchesTab({
   );
 
   const handleSwitch = async (branchName: string) => {
+    // Git refuses to check out a branch that's already checked out in another
+    // worktree — the faithful move is to go where the branch already lives.
+    const homeWorktree = worktrees.find((w) => !w.isCurrent && w.branch === branchName);
+    if (homeWorktree && onOpenWorktree) {
+      onToast?.(`${branchName} is checked out in a worktree — opening it`, 'success');
+      void trackEvent('worktree_switched', { via: 'branch_switch_redirect' });
+      onOpenWorktree(homeWorktree.path);
+      return;
+    }
+
     // A paused merge with unresolved conflicts blocks switching. Catch that
     // explicitly and voice it, rather than failing with a raw git error or the
     // misleading "unsaved changes / publish & switch" flow (which would commit
@@ -267,6 +294,67 @@ export function BranchesTab({
       if (isBranchGoneError(errText(e))) onRefresh();
     } finally {
       setSwitchingBranch(null);
+    }
+  };
+
+  // ---- Worktrees (git worktree remove / prune) ----
+  const [worktreeToRemove, setWorktreeToRemove] = useState<WorktreeInfo | null>(null);
+  const [isRemovingWorktree, setIsRemovingWorktree] = useState(false);
+  const [worktreeRemoveError, setWorktreeRemoveError] = useState<string | null>(null);
+  const [isPruningWorktrees, setIsPruningWorktrees] = useState(false);
+
+  /** Git refuses to remove a dirty worktree without `--force` — detect its
+   *  phrasing so the confirm modal can escalate to a Force Remove button. */
+  const isDirtyWorktreeError = (e: unknown): boolean => {
+    const text = typeof e === 'string' ? e : errText(e);
+    return /contains modified or untracked files|use --force/i.test(text);
+  };
+
+  // Anchor mutation commands at the main worktree: removing the worktree the
+  // command's cwd sits inside would fail (or leave a dangling cwd).
+  const mainWorktreePath = worktrees.find((w) => w.isMain)?.path ?? projectPath;
+
+  const handleRemoveWorktree = async (force: boolean) => {
+    if (!worktreeToRemove) return;
+    const wt = worktreeToRemove;
+    setIsRemovingWorktree(true);
+    setWorktreeRemoveError(null);
+    try {
+      // Removing the worktree we're standing in: move the workspace to the
+      // main worktree first so the teardown below runs on a background path.
+      if (wt.isCurrent && onOpenWorktree) {
+        onOpenWorktree(mainWorktreePath);
+      }
+      // Stop its dev server / PTYs and drop the session before the folder goes.
+      onCloseWorktreeSession?.(wt.path);
+      await removeWorktree(mainWorktreePath, wt.path, force);
+      void trackEvent('worktree_removed', { forced: force });
+      onToast?.(
+        wt.branch ? `Removed worktree — branch ${wt.branch} is kept` : 'Removed worktree',
+        'success'
+      );
+      setWorktreeToRemove(null);
+      onWorktreesChanged?.();
+    } catch (e) {
+      trackError('worktree_remove', e, 'Workspace');
+      setWorktreeRemoveError(errText(e));
+    } finally {
+      setIsRemovingWorktree(false);
+    }
+  };
+
+  const handlePruneWorktrees = async () => {
+    setIsPruningWorktrees(true);
+    try {
+      await pruneWorktrees(mainWorktreePath);
+      void trackEvent('worktree_pruned', { $screen_name: 'Workspace' });
+      onToast?.('Cleared stale worktree entries', 'success');
+      onWorktreesChanged?.();
+    } catch (e) {
+      trackError('worktree_prune', e, 'Workspace');
+      onToast?.(errText(e), 'error');
+    } finally {
+      setIsPruningWorktrees(false);
     }
   };
 
@@ -619,6 +707,100 @@ export function BranchesTab({
         </div>
       )}
 
+      {/* Worktrees — parallel working folders of this repo (`git worktree`).
+          Shown whenever the repo has worktree data, so the feature is
+          discoverable even with only the main worktree. */}
+      {worktrees.length > 0 && (
+        <div className="branches-tab-section">
+          <div className="branches-tab-section-header worktrees-section-header">
+            <span>Worktrees</span>
+            <div className="worktrees-section-actions">
+              {worktrees.some((w) => w.prunable !== null) && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void handlePruneWorktrees()}
+                  disabled={isPruningWorktrees}
+                  title="git worktree prune — clears entries whose folders are gone"
+                >
+                  {isPruningWorktrees ? 'Pruning…' : 'Prune stale'}
+                </Button>
+              )}
+              {onCreateWorktree && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  leftIcon={<PlusIcon size={12} />}
+                  onClick={onCreateWorktree}
+                >
+                  New worktree
+                </Button>
+              )}
+            </div>
+          </div>
+          {worktrees.map((wt) => (
+            <div key={wt.path} className={`worktree-row ${wt.isCurrent ? 'is-current' : ''}`}>
+              <div className="worktree-row-info">
+                <div className="worktree-row-title">
+                  <BranchIcon size={12} />
+                  <span className="worktree-row-branch">
+                    {wt.branch ?? `detached @ ${wt.head}`}
+                  </span>
+                  {wt.isMain && <span className="worktree-chip">main worktree</span>}
+                  {wt.isCurrent && <span className="worktree-chip is-current-chip">current</span>}
+                  {wt.locked !== null && <span className="worktree-chip">locked</span>}
+                  {wt.prunable !== null && (
+                    <span className="worktree-chip is-prunable-chip">stale</span>
+                  )}
+                </div>
+                <div className="worktree-row-path" title={wt.path}>
+                  {wt.path}
+                </div>
+              </div>
+              <div className="worktree-row-actions">
+                {!wt.isCurrent && onOpenWorktree && wt.prunable === null && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      void trackEvent('worktree_switched', { via: 'branches_tab' });
+                      onOpenWorktree(wt.path);
+                    }}
+                  >
+                    Open
+                  </Button>
+                )}
+                {wt.prunable === null && (
+                  <button
+                    type="button"
+                    className="worktree-row-icon-btn"
+                    onClick={() => void openProjectInNewWindow(wt.path, wt.branch ?? 'worktree')}
+                    title="Open in new window"
+                    aria-label="Open worktree in new window"
+                  >
+                    <ExternalLinkIcon size={12} />
+                  </button>
+                )}
+                {!wt.isMain && (
+                  <button
+                    type="button"
+                    className="worktree-row-icon-btn is-danger"
+                    onClick={() => {
+                      setWorktreeRemoveError(null);
+                      setWorktreeToRemove(wt);
+                    }}
+                    title="Remove worktree (git worktree remove)"
+                    aria-label={`Remove worktree ${wt.branch ?? wt.path}`}
+                  >
+                    <TrashIcon size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Branch graph — collapsed by default; building it shells out to git
           per branch, so it only loads when someone opens it. */}
       {branches.length > 0 && (
@@ -664,6 +846,78 @@ export function BranchesTab({
             >
               {deletingBranch ? 'Deleting...' : 'Delete'}
             </Button>
+          </div>
+        </ModalFrame>
+      )}
+
+      {/* Remove-worktree confirm. Mirrors git: the folder goes, the branch stays.
+          A dirty tree makes git refuse — the error escalates the button to Force. */}
+      {worktreeToRemove && (
+        <ModalFrame
+          isOpen
+          onClose={() => {
+            setWorktreeToRemove(null);
+            setWorktreeRemoveError(null);
+          }}
+          dismissable={!isRemovingWorktree}
+          title="Remove Worktree?"
+          className="post-merge-content"
+        >
+          <div className="post-merge-body">
+            <p>
+              This deletes the folder <strong>{worktreeToRemove.path}</strong>
+              {worktreeToRemove.branch && (
+                <>
+                  {' '}
+                  where <strong>{worktreeToRemove.branch}</strong> is checked out
+                </>
+              )}
+              .
+            </p>
+            <p>
+              The branch itself is <strong>kept</strong> — only the working folder goes away, same
+              as <code>git worktree remove</code>.
+            </p>
+            {worktreeRemoveError && (
+              <div className="worktree-remove-error">
+                <p>{worktreeRemoveError}</p>
+                {isDirtyWorktreeError(worktreeRemoveError) && (
+                  <p>
+                    <strong>The worktree has uncommitted changes.</strong> Force-removing discards
+                    them permanently.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="post-merge-footer">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setWorktreeToRemove(null);
+                setWorktreeRemoveError(null);
+              }}
+              disabled={isRemovingWorktree}
+            >
+              Cancel
+            </Button>
+            {worktreeRemoveError && isDirtyWorktreeError(worktreeRemoveError) ? (
+              <Button
+                variant="danger"
+                onClick={() => void handleRemoveWorktree(true)}
+                disabled={isRemovingWorktree}
+              >
+                {isRemovingWorktree ? 'Removing...' : 'Force Remove'}
+              </Button>
+            ) : (
+              <Button
+                variant="danger"
+                onClick={() => void handleRemoveWorktree(false)}
+                disabled={isRemovingWorktree}
+              >
+                {isRemovingWorktree ? 'Removing...' : 'Remove'}
+              </Button>
+            )}
           </div>
         </ModalFrame>
       )}
