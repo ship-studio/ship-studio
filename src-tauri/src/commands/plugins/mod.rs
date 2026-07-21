@@ -277,6 +277,14 @@ static PLUGINS_OWNER_CACHE: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf
 /// of them, exactly like git shares refs/config via the common dir. Non-git
 /// directories and main worktrees resolve to themselves.
 fn plugins_owner_root(validated: &Path) -> PathBuf {
+    // Only a LINKED git worktree has a `.git` pointer file; main checkouts
+    // have a `.git` directory and everything else has none. Anything that
+    // isn't a linked worktree owns its own plugins — resolving via git for
+    // those would walk up to an unrelated enclosing repo (e.g. a dotfiles
+    // repo at $HOME) and relocate plugin storage there.
+    if !validated.join(".git").is_file() {
+        return validated.to_path_buf();
+    }
     if let Ok(cache) = PLUGINS_OWNER_CACHE.lock() {
         if let Some(owner) = cache.get(validated) {
             return owner.clone();
@@ -556,5 +564,10 @@ mod tests {
         let plain = tmp.path().join("plain");
         std::fs::create_dir_all(&plain).unwrap();
         assert_eq!(plugins_owner_root(&canon(&plain)), canon(&plain));
+        // ...even when that non-git directory sits INSIDE a repo (dotfiles
+        // repos at $HOME): plugins must not relocate to the enclosing repo.
+        let nested = main.join("not-a-repo-itself");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert_eq!(plugins_owner_root(&canon(&nested)), canon(&nested));
     }
 }
