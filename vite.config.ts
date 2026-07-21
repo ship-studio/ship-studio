@@ -21,6 +21,8 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@tauri-apps/api/core": path.resolve(__dirname, "./src/lib/ipc.ts"),
+      "@tauri-apps/api/event": path.resolve(__dirname, "./src/lib/webEvents.ts"),
     },
   },
 

@@ -34,7 +34,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::AppHandle;
 
 /// The ID of the built-in default account. Always exists; cannot be deleted.
 pub const DEFAULT_ACCOUNT_ID: &str = "default";
@@ -1197,7 +1196,7 @@ fn redact_token_stream(carry: &mut Vec<u8>, eof: bool) -> (Vec<u8>, Option<Strin
 }
 
 /// Emit a chunk of PTY output to the webview for the given connect session.
-fn emit_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) {
+fn emit_connect_data(session_id: &str, bytes: &[u8]) {
     let _ = crate::emit::all(
         "claude-connect-data",
         serde_json::json!({ "sessionId": session_id, "data": bytes }),
@@ -1219,9 +1218,8 @@ fn emit_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) {
 /// `email` is display-only: Claude exposes no way to resolve the account from
 /// the opaque token, so the caller passes what the user logged in as.
 #[ship_command]
-#[tracing::instrument(skip(app, email), fields(session_id = %session_id, id = %id))]
+#[tracing::instrument(skip(email), fields(session_id = %session_id, id = %id))]
 pub fn claude_connect_start(
-    app: AppHandle,
     session_id: String,
     id: String,
     email: Option<String>,
@@ -1309,7 +1307,6 @@ pub fn claude_connect_start(
 
     // Reader thread: scrapes + redacts the token, streams the rest.
     {
-        let app = app.clone();
         let session_id = session_id.clone();
         let account_id = id.clone();
         let email = email
@@ -1336,7 +1333,7 @@ pub fn claude_connect_start(
                     );
                     let msg = "\r\n\x1b[31mThat login didn't work — the API rejected the token. \
                                Please start over and run the login again.\x1b[0m\r\n";
-                    emit_connect_data(&app, &session_id, msg.as_bytes());
+                    emit_connect_data(&session_id, msg.as_bytes());
                     // No `claude-connect-captured`: the workspace stays
                     // disconnected, and the connect modal's exit handler shows
                     // its "Login didn't finish / Start over" affordance.
@@ -1357,20 +1354,20 @@ pub fn claude_connect_start(
                     Ok(n) => n,
                 };
                 if session.captured.load(Ordering::Relaxed) {
-                    emit_connect_data(&app, &session_id, &buf[..n]);
+                    emit_connect_data(&session_id, &buf[..n]);
                     continue;
                 }
                 carry.extend_from_slice(&buf[..n]);
                 let (emit, token) = redact_token_stream(&mut carry, false);
                 if !emit.is_empty() {
-                    emit_connect_data(&app, &session_id, &emit);
+                    emit_connect_data(&session_id, &emit);
                 }
                 if let Some(token) = token {
                     store_and_signal(token);
                     // The retained tail is unrelated text now — flush it raw.
                     if !carry.is_empty() {
                         let tail = std::mem::take(&mut carry);
-                        emit_connect_data(&app, &session_id, &tail);
+                        emit_connect_data(&session_id, &tail);
                     }
                 }
             }
@@ -1378,21 +1375,20 @@ pub fn claude_connect_start(
             if !session.captured.load(Ordering::Relaxed) {
                 let (emit, token) = redact_token_stream(&mut carry, true);
                 if !emit.is_empty() {
-                    emit_connect_data(&app, &session_id, &emit);
+                    emit_connect_data(&session_id, &emit);
                 }
                 if let Some(token) = token {
                     store_and_signal(token);
                 }
             } else if !carry.is_empty() {
                 let tail = std::mem::take(&mut carry);
-                emit_connect_data(&app, &session_id, &tail);
+                emit_connect_data(&session_id, &tail);
             }
         });
     }
 
     // Waiter thread: reaps the child, drops the registry entry, signals exit.
     {
-        let app = app.clone();
         let session_id = session_id.clone();
         std::thread::spawn(move || {
             let code = match child.wait() {
@@ -1559,7 +1555,7 @@ impl ConnectService {
 }
 
 /// Emit a chunk of PTY output to the webview for a workspace-connect session.
-fn emit_workspace_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) {
+fn emit_workspace_connect_data(session_id: &str, bytes: &[u8]) {
     let _ = crate::emit::all(
         "workspace-connect-data",
         serde_json::json!({ "sessionId": session_id, "data": bytes }),
@@ -1578,9 +1574,8 @@ fn emit_workspace_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) 
 /// "Press Enter to open…" prompt and send Enter once so the browser opens
 /// immediately.
 #[ship_command]
-#[tracing::instrument(skip(app), fields(session_id = %session_id, id = %id, service = %service))]
+#[tracing::instrument(fields(session_id = %session_id, id = %id, service = %service))]
 pub fn workspace_connect_start(
-    app: AppHandle,
     session_id: String,
     id: String,
     service: String,
@@ -1669,7 +1664,6 @@ pub fn workspace_connect_start(
     // Reader thread: stream output verbatim. For GitHub, auto-send Enter once we
     // see the "Press Enter to open…" prompt so the browser launches itself.
     {
-        let app = app.clone();
         let session_id = session_id.clone();
         let session = session.clone();
         let auto_enter = svc.auto_enter();
@@ -1684,7 +1678,7 @@ pub fn workspace_connect_start(
                     Ok(0) | Err(_) => break,
                     Ok(n) => n,
                 };
-                emit_workspace_connect_data(&app, &session_id, &buf[..n]);
+                emit_workspace_connect_data(&session_id, &buf[..n]);
                 if auto_enter && !sent_enter {
                     tail.extend_from_slice(&buf[..n]);
                     let hay = String::from_utf8_lossy(&tail).to_lowercase();
@@ -1706,7 +1700,6 @@ pub fn workspace_connect_start(
 
     // Waiter thread: reaps the child, drops the registry entry, signals exit.
     {
-        let app = app.clone();
         let session_id = session_id.clone();
         let is_github = matches!(svc, ConnectService::Github);
         std::thread::spawn(move || {

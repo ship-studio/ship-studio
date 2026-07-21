@@ -10,6 +10,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { getWindowLabel, isTauriRuntime } from './webEvents';
 import { spawn, IPty } from './webPty';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
@@ -165,7 +166,11 @@ export async function removeProjectFromApp(path: string): Promise<void> {
  * @returns The new absolute path
  */
 export async function renameProject(oldPath: string, newName: string): Promise<string> {
-  return invoke<string>('rename_project', { oldPath, newName });
+  return invoke<string>('rename_project', {
+    oldPath,
+    newName,
+    windowLabel: await getWindowLabel(),
+  });
 }
 
 /**
@@ -187,7 +192,11 @@ export async function openProjectInNewWindow(
   projectPath: string,
   projectName: string
 ): Promise<void> {
-  return invoke<void>('open_project_in_new_window', { projectPath, projectName });
+  const destination = await invoke<string>('open_project_in_new_window', {
+    projectPath,
+    projectName,
+  });
+  if (!isTauriRuntime()) window.open(destination, '_blank', 'noopener');
 }
 
 /** Handle for controlling a running dev server */

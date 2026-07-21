@@ -16,8 +16,8 @@ use ship_studio_macros::ship_command;
 
 /// Start GitHub authentication (opens browser)
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, CommandError> {
+#[tracing::instrument]
+pub async fn start_github_auth() -> Result<String, CommandError> {
     let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
@@ -66,11 +66,8 @@ pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, CommandE
 /// Start agent authentication.
 /// If `agent_id` is provided, authenticate that specific agent. Otherwise, use the active agent.
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn start_claude_auth(
-    app: tauri::AppHandle,
-    agent_id: Option<String>,
-) -> Result<String, CommandError> {
+#[tracing::instrument]
+pub async fn start_claude_auth(agent_id: Option<String>) -> Result<String, CommandError> {
     let agent = match agent_id.as_deref() {
         Some(id) => get_agent_by_id(id),
         None => get_active_agent(),

@@ -6,7 +6,6 @@ use crate::utils::{create_command, find_executable, get_extended_path};
 use ship_studio_macros::ship_command;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::AppHandle;
 
 use super::{
     check_min_app_version, get_plugins_dir, now_ms, read_git_head, read_manifest, read_registry,
@@ -197,9 +196,8 @@ pub fn list_plugins(project_path: String) -> Result<Vec<PluginInfo>, CommandErro
 
 /// Install a plugin from a GitHub repository URL into a project
 #[ship_command]
-#[tracing::instrument(skip(app), fields(project = %project_path))]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn install_plugin(
-    app: AppHandle,
     project_path: String,
     repo_url: String,
 ) -> Result<PluginInfo, CommandError> {
@@ -263,7 +261,7 @@ pub async fn install_plugin(
     }
 
     // Check min_app_version compatibility
-    if let Err(e) = check_min_app_version(&manifest, &app) {
+    if let Err(e) = check_min_app_version(&manifest) {
         let _ = remove_dir_all_relaxed(&temp_dir);
         return Err(e.into());
     }
@@ -384,9 +382,8 @@ pub fn uninstall_plugin(project_path: String, plugin_id: String) -> Result<(), C
 
 /// Update a plugin by pulling latest from its source repository
 #[ship_command]
-#[tracing::instrument(skip(app), fields(project = %project_path))]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn update_plugin(
-    app: AppHandle,
     project_path: String,
     plugin_id: String,
 ) -> Result<PluginInfo, CommandError> {
@@ -448,7 +445,7 @@ pub async fn update_plugin(
     warn_on_setup_items(&manifest);
 
     // Check min_app_version compatibility
-    check_min_app_version(&manifest, &app)?;
+    check_min_app_version(&manifest)?;
 
     // Validate required_commands are all in the allowed set
     validate_required_commands(&manifest)?;

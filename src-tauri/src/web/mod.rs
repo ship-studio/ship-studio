@@ -32,6 +32,7 @@ use crate::errors::CommandError;
 pub struct AppState {
     pub config: Arc<Config>,
     pub events: tokio::sync::broadcast::Sender<crate::emit::Frame>,
+    pub sessions: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 /// `GET /api/health` — unauthenticated liveness probe. Deliberately says
@@ -111,6 +112,7 @@ pub async fn serve() -> Result<(), String> {
     let state = AppState {
         config: Arc::new(config),
         events: crate::emit::init_broadcast(),
+        sessions: Arc::default(),
     };
 
     let listener = tokio::net::TcpListener::bind(bind)
@@ -145,6 +147,7 @@ mod tests {
                 session_ttl_secs: 3600,
             }),
             events,
+            sessions: Arc::default(),
         }
     }
 
@@ -377,12 +380,14 @@ mod tests {
     async fn a_command_call_returns_the_ok_envelope() {
         let state = test_state();
         let cookie = valid_cookie(&state);
+        state.sessions.lock().unwrap().insert("web-test".into());
         let (status, body) = send(
             state,
             Request::post("/api/cmd/get_active_session_count")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::ORIGIN, "http://localhost:1420")
                 .header(header::COOKIE, cookie)
+                .header("x-ship-window", "web-test")
                 .body(Body::from("{}"))
                 .unwrap(),
         )
@@ -394,17 +399,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_command_rejects_a_stale_browser_session() {
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        let (status, body) = send(
+            state,
+            Request::post("/api/cmd/get_active_session_count")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "http://localhost:1420")
+                .header(header::COOKIE, cookie)
+                .header("x-ship-window", "web-not-connected")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body.contains("browser session"));
+    }
+
+    #[tokio::test]
     async fn a_failing_command_still_returns_200_with_ok_false() {
         // The envelope carries the verdict; a command error is not a transport
         // error, and the frontend must not have to treat it as one.
         let state = test_state();
         let cookie = valid_cookie(&state);
+        state.sessions.lock().unwrap().insert("web-test".into());
         let (status, body) = send(
             state,
             Request::post("/api/cmd/detect_project_type_command")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::ORIGIN, "http://localhost:1420")
                 .header(header::COOKIE, cookie)
+                .header("x-ship-window", "web-test")
                 .body(Body::from(r#"{"projectPath":"/definitely/not/here"}"#))
                 .unwrap(),
         )

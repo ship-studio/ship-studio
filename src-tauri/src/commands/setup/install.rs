@@ -13,8 +13,8 @@ use ship_studio_macros::ship_command;
 
 /// Install Homebrew
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), CommandError> {
+#[tracing::instrument]
+pub async fn install_homebrew() -> Result<(), CommandError> {
     let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
@@ -45,8 +45,8 @@ pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), CommandError>
 
 /// Install Node.js via Homebrew
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
+#[tracing::instrument]
+pub async fn install_node_via_brew() -> Result<(), CommandError> {
     let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
@@ -81,8 +81,8 @@ pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), CommandE
 
 /// Install Git via Homebrew
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
+#[tracing::instrument]
+pub async fn install_git_via_brew() -> Result<(), CommandError> {
     let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
@@ -117,8 +117,8 @@ pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), CommandEr
 
 /// Install GitHub CLI via Homebrew
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
+#[tracing::instrument]
+pub async fn install_gh_via_brew() -> Result<(), CommandError> {
     let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
@@ -161,11 +161,8 @@ pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), CommandErr
 /// - git -> git
 /// - gh -> gh
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn install_brew_packages(
-    app: tauri::AppHandle,
-    packages: Vec<String>,
-) -> Result<(), CommandError> {
+#[tracing::instrument]
+pub async fn install_brew_packages(packages: Vec<String>) -> Result<(), CommandError> {
     if packages.is_empty() {
         return Ok(());
     }
@@ -250,11 +247,8 @@ fn extract_winget_error(stderr: &str, stdout: &str) -> String {
 /// - gh -> GitHub.cli
 #[cfg(windows)]
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn install_winget_packages(
-    app: tauri::AppHandle,
-    packages: Vec<String>,
-) -> Result<(), CommandError> {
+#[tracing::instrument]
+pub async fn install_winget_packages(packages: Vec<String>) -> Result<(), CommandError> {
     if packages.is_empty() {
         return Ok(());
     }
@@ -339,11 +333,8 @@ pub async fn install_winget_packages(
 // Stub for non-Windows platforms
 #[cfg(not(windows))]
 #[ship_command]
-#[tracing::instrument(skip(_app))]
-pub async fn install_winget_packages(
-    _app: tauri::AppHandle,
-    _packages: Vec<String>,
-) -> Result<(), CommandError> {
+#[tracing::instrument]
+pub async fn install_winget_packages(_packages: Vec<String>) -> Result<(), CommandError> {
     Err(("Winget is only available on Windows".to_string()).into())
 }
 

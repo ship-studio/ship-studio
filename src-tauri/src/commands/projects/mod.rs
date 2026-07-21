@@ -1155,9 +1155,9 @@ fn validate_project_name(name: &str) -> Result<String, CommandError> {
 /// the directory — git remotes, `.vercel`, `.shipstudio` metadata — travels
 /// with the move untouched. Returns the new absolute path.
 #[ship_command]
-#[tracing::instrument(skip(window))]
+#[tracing::instrument]
 pub async fn rename_project(
-    window: tauri::Window,
+    window_label: String,
     old_path: String,
     new_name: String,
 ) -> Result<String, CommandError> {
@@ -1196,7 +1196,7 @@ pub async fn rename_project(
     // contract). Clear it and continue. A *different* window owning it means
     // the project may genuinely be on screen there: refuse.
     if let Some(owning_label) = crate::state::get_window_for_project(&old_path) {
-        if owning_label != window.label() {
+        if owning_label != window_label {
             return Err(
                 "This project is open in another window. Close that window, then rename."
                     .to_string()

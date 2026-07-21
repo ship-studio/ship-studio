@@ -12,14 +12,10 @@ use ship_studio_macros::ship_command;
 /// isn't running yet). The project path rides inside the URL so the server
 /// can route tool calls to whichever window has the project open.
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn get_agent_bridge_url(
-    app: tauri::AppHandle,
-    project_path: String,
-) -> Result<String, CommandError> {
+pub async fn get_agent_bridge_url(project_path: String) -> Result<String, CommandError> {
     let validated = validate_project_path(&project_path)?;
     let canonical = validated.to_string_lossy().to_string();
-    agent_bridge::agent_bridge_url_for_project(app, &canonical)
+    agent_bridge::agent_bridge_url_for_project(crate::emit::tauri_app(), &canonical)
         .await
         .map_err(CommandError::from)
 }
@@ -27,9 +23,9 @@ pub async fn get_agent_bridge_url(
 /// The "active project" MCP URL for agents with global configs (Codex,
 /// Opencode, Cursor): tool calls resolve to the focused project at call time.
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn get_agent_bridge_active_url(app: tauri::AppHandle) -> Result<String, CommandError> {
-    agent_bridge::agent_bridge_active_url(app)
+#[tracing::instrument]
+pub async fn get_agent_bridge_active_url() -> Result<String, CommandError> {
+    agent_bridge::agent_bridge_active_url(crate::emit::tauri_app())
         .await
         .map_err(CommandError::from)
 }

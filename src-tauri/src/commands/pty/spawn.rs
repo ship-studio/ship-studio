@@ -25,9 +25,8 @@ use std::sync::atomic::Ordering;
 /// The `window_label` parameter ensures events are only sent to the window that
 /// spawned the PTY, enabling multi-window isolation.
 #[ship_command]
-#[tracing::instrument(skip(app, options))]
+#[tracing::instrument(skip(options))]
 pub async fn spawn_pty(
-    app: tauri::AppHandle,
     options: SpawnPtyOptions,
     window_label: String,
     project_path: Option<String>,
@@ -41,7 +40,6 @@ pub async fn spawn_pty(
     options.cwd = validated_cwd.to_string_lossy().to_string();
 
     let id = PTY_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let app_handle = app.clone();
     let label_for_thread = window_label.clone();
     let project_path_for_thread = project_path.clone();
 
@@ -97,7 +95,6 @@ pub async fn spawn_pty(
             let stderr = child.stderr.take();
 
             // Read stdout in a thread - emit to specific window only
-            let app_for_stdout = app_handle.clone();
             let label_for_stdout = label.clone();
             let stdout_handle = stdout.map(|stdout| {
                 std::thread::spawn(move || {
@@ -116,7 +113,6 @@ pub async fn spawn_pty(
             });
 
             // Read stderr in a thread - emit to specific window only
-            let app_for_stderr = app_handle.clone();
             let label_for_stderr = label.clone();
             let stderr_handle = stderr.map(|stderr| {
                 std::thread::spawn(move || {

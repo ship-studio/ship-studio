@@ -193,7 +193,7 @@ pub async fn link_dev_plugin(
     }
 
     // Check min_app_version compatibility
-    check_min_app_version(&manifest, &app)?;
+    check_min_app_version(&manifest)?;
 
     // Validate required_commands are all in the allowed set
     validate_required_commands(&manifest)?;

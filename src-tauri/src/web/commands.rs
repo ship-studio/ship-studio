@@ -12,7 +12,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -95,6 +95,7 @@ fn ok_response(data: serde_json::Value) -> Response {
 pub async fn dispatch(
     State(_state): State<AppState>,
     Path(name): Path<String>,
+    headers: HeaderMap,
     body: Option<Json<serde_json::Value>>,
 ) -> Response {
     let Some(command) = get(&name) else {
@@ -106,7 +107,38 @@ pub async fn dispatch(
         );
     };
 
-    let args = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let mut args = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let Some(label) = headers
+        .get("x-ship-window")
+        .and_then(|value| value.to_str().ok())
+    else {
+        return error_response(
+            StatusCode::UNAUTHORIZED,
+            CommandError::NotAuthenticated {
+                service: "browser session".into(),
+            },
+        );
+    };
+    if !_state
+        .sessions
+        .lock()
+        .is_ok_and(|sessions| sessions.contains(label))
+    {
+        return error_response(
+            StatusCode::UNAUTHORIZED,
+            CommandError::NotAuthenticated {
+                service: "browser session".into(),
+            },
+        );
+    }
+    if !args.is_object() {
+        args = serde_json::json!({});
+    }
+    if let Some(object) = args.as_object_mut() {
+        object
+            .entry("windowLabel")
+            .or_insert_with(|| serde_json::Value::String(label.to_string()));
+    }
 
     match (command.handler)(args).await {
         Ok(data) => ok_response(data),
@@ -246,7 +278,7 @@ mod tests {
         // when someone knowingly adds another desktop dependency.
         assert_eq!(
             names.len(),
-            44,
+            25,
             "desktop-only command count changed: {names:?}"
         );
         // Every one of them still has a route.

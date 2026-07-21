@@ -104,7 +104,6 @@ static STATIC_SERVER_INSTANCES: LazyLock<Mutex<HashMap<String, StaticServerInsta
 /// Returns the server's listening port. Also starts a file watcher that emits
 /// `static-file-changed` Tauri events when project files are modified.
 pub async fn start_static_server(
-    app: tauri::AppHandle,
     window_label: String,
     project_path: String,
 ) -> Result<u16, String> {
@@ -164,7 +163,7 @@ pub async fn start_static_server(
 
     // Start file watcher for live reload
     let watcher_shutdown_tx =
-        start_file_watcher(app, window_label.clone(), PathBuf::from(&project_path));
+        start_file_watcher(window_label.clone(), PathBuf::from(&project_path));
 
     let instance = StaticServerInstance {
         port,
@@ -244,11 +243,7 @@ fn should_trigger_reload(path: &Path) -> bool {
 
 /// Start a file watcher that emits Tauri events when project files change.
 /// Returns a shutdown channel sender to stop the watcher.
-fn start_file_watcher(
-    app: tauri::AppHandle,
-    window_label: String,
-    project_path: PathBuf,
-) -> oneshot::Sender<()> {
+fn start_file_watcher(window_label: String, project_path: PathBuf) -> oneshot::Sender<()> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
 
     // Use an mpsc channel to bridge notify's sync callback to our async context

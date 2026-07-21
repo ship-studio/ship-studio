@@ -1,21 +1,13 @@
+use super::AppState;
+use crate::errors::CommandError;
 use axum::{
-    extract::{ws::Message, Query, State, WebSocketUpgrade},
+    extract::{ws::Message, State, WebSocketUpgrade},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use serde::Deserialize;
-
-use super::AppState;
-use crate::errors::CommandError;
-
-#[derive(Deserialize)]
-pub struct EventQuery {
-    window_label: String,
-}
 
 pub async fn events(
     State(state): State<AppState>,
-    Query(query): Query<EventQuery>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
@@ -32,19 +24,57 @@ pub async fn events(
     }
 
     ws.on_upgrade(move |mut socket| async move {
-        let mut receiver = state.events.subscribe();
-        while let Some(frame) = next_visible(&mut receiver, &query.window_label).await {
-            let body = serde_json::json!({
-                "event": frame.event,
-                "payload": frame.payload,
-            });
-            if socket
-                .send(Message::Text(body.to_string().into()))
-                .await
-                .is_err()
-            {
-                break;
+        let window_label = format!("web-{}", uuid::Uuid::new_v4());
+        if let Ok(mut sessions) = state.sessions.lock() {
+            sessions.insert(window_label.clone());
+        }
+        let ready = serde_json::json!({
+            "event": "ship-window-ready",
+            "payload": { "windowLabel": window_label },
+        });
+        if socket
+            .send(Message::Text(ready.to_string().into()))
+            .await
+            .is_err()
+        {
+            if let Ok(mut sessions) = state.sessions.lock() {
+                sessions.remove(&window_label);
             }
+            return;
+        }
+        let mut receiver = state.events.subscribe();
+        loop {
+            tokio::select! {
+                incoming = socket.recv() => {
+                    if incoming.is_none() || incoming.is_some_and(|message| {
+                        matches!(message, Ok(Message::Close(_)) | Err(_))
+                    }) {
+                        break;
+                    }
+                }
+                frame = next_visible(&mut receiver, &window_label) => {
+                    let Some(frame) = frame else { break };
+                    let body = serde_json::json!({
+                        "event": frame.event,
+                        "payload": frame.payload,
+                    });
+                    if socket
+                        .send(Message::Text(body.to_string().into()))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        crate::proxy::stop_preview_proxy(&window_label);
+        crate::static_server::stop_static_server(&window_label);
+        crate::commands::pty::kill_window_pty_sync(&window_label);
+        crate::state::unregister_window_by_label(&window_label);
+        if let Ok(mut sessions) = state.sessions.lock() {
+            sessions.remove(&window_label);
         }
     })
     .into_response()

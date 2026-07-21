@@ -63,6 +63,18 @@ pub fn init_broadcast() -> tokio::sync::broadcast::Sender<Frame> {
     tx
 }
 
+/// Desktop application handle for commands that still need to create or
+/// focus a native window. Web callers get `None` and return browser URLs.
+pub fn tauri_app() -> Option<tauri::AppHandle> {
+    match SINK.get() {
+        Some(Sink::Tauri(app)) => Some(app.clone()),
+        #[cfg(feature = "web")]
+        Some(Sink::Broadcast(_)) | None => None,
+        #[cfg(not(feature = "web"))]
+        None => None,
+    }
+}
+
 /// An event that reached nobody.
 ///
 /// Most callers ignore this — events are advisory and a closed window is

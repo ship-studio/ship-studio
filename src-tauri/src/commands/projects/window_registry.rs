@@ -13,15 +13,20 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 /// If the project is already open in another window, focuses that window instead.
 /// Returns the window label of the new or existing window.
 #[ship_command]
-#[tracing::instrument(skip(app), fields(project = %project_path))]
+#[tracing::instrument(fields(project = %project_path))]
 pub async fn open_project_in_new_window(
-    app: AppHandle,
     project_path: String,
     project_name: String,
 ) -> Result<String, CommandError> {
     // Validate the path is within ~/ShipStudio
     let validated_path = validate_project_path(&project_path)?;
     let project_path = validated_path.to_string_lossy().to_string();
+
+    let encoded_path = urlencoding::encode(&project_path);
+    let url = format!("index.html?project={encoded_path}");
+    let Some(app) = crate::emit::tauri_app() else {
+        return Ok(format!("/?project={encoded_path}"));
+    };
 
     // Check if project already has a window open
     if let Some(existing_label) = get_window_for_project(&project_path) {
@@ -44,10 +49,6 @@ pub async fn open_project_in_new_window(
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let window_label = format!("project-{timestamp}");
-
-    // Encode project path for URL parameter
-    let encoded_path = urlencoding::encode(&project_path);
-    let url = format!("index.html?project={encoded_path}");
 
     tracing::info!(
         "Creating new window {} for project {}",
@@ -144,15 +145,19 @@ pub async fn get_project_window(project_path: String) -> Option<String> {
 /// Focus a window by its label.
 /// Used to bring an existing project window to the front.
 #[ship_command]
-#[tracing::instrument(skip(app))]
-pub async fn focus_window_by_label(
-    app: AppHandle,
-    window_label: String,
-) -> Result<(), CommandError> {
+#[tracing::instrument]
+pub async fn focus_window_by_label(window_label: String) -> Result<Option<String>, CommandError> {
+    let Some(app) = crate::emit::tauri_app() else {
+        let project = crate::state::get_open_project_windows()
+            .into_iter()
+            .find_map(|(project, label)| (label == window_label).then_some(project))
+            .ok_or_else(|| CommandError::from(format!("Window {window_label} not found")))?;
+        return Ok(Some(format!("/?project={}", urlencoding::encode(&project))));
+    };
     if let Some(window) = app.get_webview_window(&window_label) {
         window.set_focus().map_err(|e| e.to_string())?;
         tracing::info!("Focused window {}", window_label);
-        Ok(())
+        Ok(None)
     } else {
         Err((format!("Window {window_label} not found")).into())
     }

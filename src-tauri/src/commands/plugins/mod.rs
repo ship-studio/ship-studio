@@ -29,7 +29,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
-use tauri::AppHandle;
 
 /// Per-plugin storage locks to prevent concurrent read-modify-write races.
 /// Key: "project_path:plugin_id"
@@ -120,10 +119,7 @@ pub(crate) fn validate_required_commands(manifest: &PluginManifest) -> Result<()
 
 /// Check that a plugin's min_app_version is satisfied by the current app version.
 /// Returns Ok(()) if compatible, Err with a message if not.
-pub(crate) fn check_min_app_version(
-    manifest: &PluginManifest,
-    app: &AppHandle,
-) -> Result<(), String> {
+pub(crate) fn check_min_app_version(manifest: &PluginManifest) -> Result<(), String> {
     let min_ver_str = manifest.min_app_version.trim();
     if min_ver_str.is_empty() {
         return Ok(());
@@ -132,7 +128,7 @@ pub(crate) fn check_min_app_version(
     let min_ver = semver::Version::parse(min_ver_str)
         .map_err(|e| format!("Invalid min_app_version '{min_ver_str}' in plugin manifest: {e}"))?;
 
-    let app_ver_str = app.package_info().version.to_string();
+    let app_ver_str = env!("CARGO_PKG_VERSION");
     let app_ver = semver::Version::parse(&app_ver_str)
         .map_err(|e| format!("Failed to parse app version '{app_ver_str}': {e}"))?;
 

@@ -172,7 +172,9 @@ fn decode_project_segment(segment: &str) -> Option<String> {
 /// port is taken (another Ship Studio instance, or an unrelated process), we
 /// fall back to an ephemeral port and persist the new one — per-project
 /// registrations self-correct the next time that project is opened.
-pub async fn start_global_agent_bridge(app: tauri::AppHandle) -> Result<(u16, String), String> {
+pub async fn start_global_agent_bridge(
+    app: Option<tauri::AppHandle>,
+) -> Result<(u16, String), String> {
     // Kill switch: support/debug escape hatch if the bridge misbehaves in the
     // field. With the server down, agents just see one failed-to-connect MCP
     // entry and everything else works normally.
@@ -275,7 +277,7 @@ pub async fn start_global_agent_bridge(app: tauri::AppHandle) -> Result<(u16, St
 
 /// URL for one project's MCP registration; starts the server if needed.
 pub async fn agent_bridge_url_for_project(
-    app: tauri::AppHandle,
+    app: Option<tauri::AppHandle>,
     canonical_project_path: &str,
 ) -> Result<String, String> {
     let (port, token) = start_global_agent_bridge(app).await?;
@@ -284,7 +286,7 @@ pub async fn agent_bridge_url_for_project(
 
 /// URL for agents whose MCP config is global (Codex, Opencode, Cursor):
 /// routes to the focused Ship Studio project at call time.
-pub async fn agent_bridge_active_url(app: tauri::AppHandle) -> Result<String, String> {
+pub async fn agent_bridge_active_url(app: Option<tauri::AppHandle>) -> Result<String, String> {
     let (port, token) = start_global_agent_bridge(app).await?;
     Ok(format!(
         "http://127.0.0.1:{port}/mcp/{token}/{ACTIVE_PROJECT_SEGMENT}"
@@ -357,7 +359,7 @@ fn has_valid_host(req: &Request<Incoming>) -> bool {
 }
 
 async fn handle_http(
-    app: tauri::AppHandle,
+    app: Option<tauri::AppHandle>,
     token: String,
     req: Request<Incoming>,
 ) -> Result<Response<ServerBody>, hyper::Error> {
@@ -415,7 +417,7 @@ async fn handle_http(
                     .body(full_body(Bytes::new()))
                     .unwrap());
             }
-            let response = handle_rpc(&app, &project_path, &message).await;
+            let response = handle_rpc(app.as_ref(), &project_path, &message).await;
             Ok(json_response(response))
         }
         // We don't offer a server-initiated SSE stream.
@@ -623,7 +625,7 @@ fn tools_list_result() -> Value {
     json!({ "tools": tools })
 }
 
-async fn handle_rpc(app: &tauri::AppHandle, project_path: &str, message: &Value) -> Value {
+async fn handle_rpc(app: Option<&tauri::AppHandle>, project_path: &str, message: &Value) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
     let params = message.get("params");
@@ -658,7 +660,7 @@ async fn handle_rpc(app: &tauri::AppHandle, project_path: &str, message: &Value)
 /// (isError: true) rather than protocol errors, so the agent can read what
 /// went wrong and adapt.
 async fn dispatch_tool(
-    app: &tauri::AppHandle,
+    app: Option<&tauri::AppHandle>,
     project_path: &str,
     tool: &ToolDef,
     arguments: Value,
@@ -748,7 +750,7 @@ async fn dispatch_tool(
 /// The focused Ship Studio window's project wins; with nothing focused
 /// (agent running while the user looks elsewhere), a single open project is
 /// unambiguous; several open projects without focus is unanswerable.
-fn resolve_active_project(app: &tauri::AppHandle) -> Result<String, String> {
+fn resolve_active_project(app: Option<&tauri::AppHandle>) -> Result<String, String> {
     use tauri::Manager;
     let open = crate::state::get_open_project_windows();
     if open.is_empty() {
@@ -756,10 +758,12 @@ fn resolve_active_project(app: &tauri::AppHandle) -> Result<String, String> {
             "No project is open in Ship Studio right now. Ask the user to open the project you're working on (its preview provides these tools).".to_string(),
         );
     }
-    for (label, window) in app.webview_windows() {
-        if window.is_focused().unwrap_or(false) {
-            if let Some((project, _)) = open.iter().find(|(_, l)| *l == label) {
-                return Ok(project.clone());
+    if let Some(app) = app {
+        for (label, window) in app.webview_windows() {
+            if window.is_focused().unwrap_or(false) {
+                if let Some((project, _)) = open.iter().find(|(_, l)| *l == label) {
+                    return Ok(project.clone());
+                }
             }
         }
     }

@@ -15,6 +15,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { isTauriRuntime } from './webEvents';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 /**
@@ -143,5 +144,6 @@ export async function getProjectWindow(projectPath: string): Promise<string | nu
  * @param windowLabel - Label of the window to focus
  */
 export async function focusWindowByLabel(windowLabel: string): Promise<void> {
-  return invoke('focus_window_by_label', { windowLabel });
+  const destination = await invoke<string | null>('focus_window_by_label', { windowLabel });
+  if (!isTauriRuntime() && destination) window.open(destination, '_blank', 'noopener');
 }

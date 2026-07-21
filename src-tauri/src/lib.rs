@@ -131,7 +131,7 @@ pub fn run() {
             {
                 let handle = _app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = agent_bridge::start_global_agent_bridge(handle).await {
+                    if let Err(e) = agent_bridge::start_global_agent_bridge(Some(handle)).await {
                         tracing::error!("[AgentBridge] Failed to start global bridge: {}", e);
                     }
                 });
