@@ -163,6 +163,12 @@ sends, crash reports included. Building your own distribution? See
 [docs/FORKING.md → Telemetry](docs/FORKING.md#5--telemetry) to swap in your
 own keys or strip telemetry entirely.
 
+## Self-hosting
+
+Ship Studio can also run as a server you reach from a browser. It is
+**single-user software that grants shell access to its host** — read
+[docs/self-hosting.md](docs/self-hosting.md) before exposing it to anything.
+
 ## Security
 
 Found a vulnerability? **Do not file a public issue.** See

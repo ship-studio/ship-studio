@@ -187,6 +187,26 @@ pub fn init_logging() -> Result<(), String> {
     Ok(())
 }
 
+/// Logging for the self-hosted server binary.
+///
+/// Deliberately *not* [`init_logging`]: that one writes a rotating JSON file to
+/// a desktop log directory and only mirrors to the console in debug builds.
+/// Both are wrong in a container — the log directory is ephemeral and a release
+/// build would emit nothing at all. A server logs to stdout and lets whatever
+/// supervises it (Docker, systemd) do the collecting.
+#[cfg(feature = "web")]
+pub fn init_server_logging() -> Result<(), String> {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("ship_studio_lib=info,warn"));
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().with_target(true).with_level(true).compact())
+        .with(sentry_tracing::layer())
+        .try_init()
+        .map_err(|e| format!("Failed to initialize logging: {e}"))
+}
+
 /// Get the current log file path (for debugging/support)
 #[tauri::command]
 pub fn get_log_path() -> String {

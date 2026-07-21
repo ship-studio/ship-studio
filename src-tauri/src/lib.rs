@@ -22,6 +22,8 @@ pub mod state;
 pub mod static_server;
 pub mod types;
 pub mod utils;
+#[cfg(feature = "web")]
+pub mod web;
 pub mod webview_scripts;
 
 use tauri::Manager;

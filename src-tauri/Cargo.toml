@@ -20,6 +20,24 @@ expect_used = "warn"
 name = "ship_studio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# The desktop app. Declared explicitly because adding the server bin below
+# turns off Cargo's bin autodiscovery for src/main.rs.
+[[bin]]
+name = "ship-studio"
+path = "src/main.rs"
+
+# The self-hosted server. Only builds with `--features web`, so the default
+# desktop build is untouched.
+[[bin]]
+name = "ship-studio-server"
+path = "src/bin/server.rs"
+required-features = ["web"]
+
+[features]
+default = []
+# HTTP + WebSocket transport for the self-hosted deployment.
+web = ["dep:axum", "dep:tower-http"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -74,8 +92,17 @@ thiserror = "1"
 # paste behind an async permission wait — see commands/clipboard.rs).
 arboard = "3"
 
+# --- Web (self-hosted) transport, feature-gated ---
+# Deliberately small: cookies are parsed from the header directly and constant-
+# time comparison reuses the `hmac` dep above, so no cookie or crypto crate.
+axum = { version = "0.8", features = ["ws"], optional = true }
+tower-http = { version = "0.6", features = ["fs", "trace"], optional = true }
+
 [dev-dependencies]
 tempfile = "3"
+# Drives the axum Router in-process (`oneshot`) so the auth middleware is
+# tested without binding a socket.
+tower = { version = "0.5", features = ["util"] }
 
 # macOS-specific dependencies for WebKit JavaScript evaluation
 [target.'cfg(target_os = "macos")'.dependencies]
