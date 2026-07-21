@@ -13,13 +13,12 @@ use crate::commands::claude::find_binary_by_name;
 use crate::errors::CommandError;
 use crate::utils::{create_command, find_executable};
 use ship_studio_macros::ship_command;
-use tauri::Emitter;
 
 /// Start GitHub authentication (opens browser)
 #[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn start_github_auth(app: tauri::AppHandle) -> Result<String, CommandError> {
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
             "itemId": "gh_auth",
@@ -77,7 +76,7 @@ pub async fn start_claude_auth(
         None => get_active_agent(),
     };
 
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
             "itemId": agent.setup_item_ids.1,
@@ -262,7 +261,7 @@ pub async fn install_version(app: tauri::AppHandle, version: String) -> Result<(
         return Err(("Version rewind is only available in production builds.".to_string()).into());
     }
 
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "rewind-progress",
         serde_json::json!({ "stage": "downloading" }),
     );
@@ -280,7 +279,7 @@ pub async fn install_version(app: tauri::AppHandle, version: String) -> Result<(
     result?;
 
     tracing::info!("Rewind: v{} installed successfully", version);
-    let _ = app.emit("rewind-progress", serde_json::json!({ "stage": "done" }));
+    let _ = crate::emit::all("rewind-progress", serde_json::json!({ "stage": "done" }));
 
     Ok(())
 }
@@ -343,7 +342,7 @@ async fn install_version_platform(
     download_release_artifact(&url, &tar_path).await?;
 
     tracing::info!("Rewind: download complete, extracting");
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "rewind-progress",
         serde_json::json!({ "stage": "installing" }),
     );
@@ -417,7 +416,7 @@ async fn install_version_platform(
     download_release_artifact(&url, &zip_path).await?;
 
     tracing::info!("Rewind: download complete, extracting");
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "rewind-progress",
         serde_json::json!({ "stage": "installing" }),
     );

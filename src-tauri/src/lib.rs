@@ -15,6 +15,7 @@ pub mod agent_bridge;
 pub mod cache;
 pub mod command_manifest;
 pub mod commands;
+pub mod emit;
 pub mod errors;
 pub mod external_command;
 pub mod logging;
@@ -30,13 +31,10 @@ pub mod webview_scripts;
 use tauri::generate_handler;
 use tauri::Manager;
 
-#[cfg(target_os = "macos")]
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-#[cfg(target_os = "macos")]
-use tauri::Emitter;
-
 #[cfg(unix)]
 use std::process::Command;
+#[cfg(target_os = "macos")]
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 
 // Kill orphaned agent processes spawned by this app
 fn cleanup_agent_processes() {
@@ -123,6 +121,10 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
+            // Install the event sink before anything can emit — the agent
+            // bridge below starts immediately and pushes to the frontend.
+            emit::init_tauri(_app.handle().clone());
+
             // Start the agent preview bridge (global loopback MCP server) at
             // launch so it's listening before any agent session spawns —
             // registrations from previous runs stay valid from second zero.
@@ -274,13 +276,13 @@ pub fn run() {
                     }
                     if let Some(window) = app_handle.get_webview_window("main") {
                         if event.id() == "close_tab" {
-                            let _ = window.emit("close-tab", ());
+                            let _ = emit::to(window.label(), "close-tab", ());
                         } else if event.id() == "confirm_quit" {
-                            let _ = window.emit("confirm-quit", ());
+                            let _ = emit::to(window.label(), "confirm-quit", ());
                         } else if event.id() == "capture_screenshot" {
-                            let _ = window.emit("capture-screenshot", ());
+                            let _ = emit::to(window.label(), "capture-screenshot", ());
                         } else if event.id() == "toggle_crop" {
-                            let _ = window.emit("toggle-crop", ());
+                            let _ = emit::to(window.label(), "toggle-crop", ());
                         }
                     }
                 });

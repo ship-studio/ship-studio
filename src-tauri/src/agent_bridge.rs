@@ -29,7 +29,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
-use tauri::Emitter;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -714,7 +713,7 @@ async fn dispatch_tool(
         window_label
     );
 
-    if let Err(e) = app.emit_to(&window_label, "agent-bridge-request", payload) {
+    if let Err(e) = crate::emit::to(&window_label, "agent-bridge-request", payload) {
         if let Ok(mut pending) = PENDING_REQUESTS.lock() {
             pending.remove(&request_id);
         }

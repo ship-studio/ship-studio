@@ -21,7 +21,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
-use tauri::Emitter;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -334,7 +333,7 @@ fn start_file_watcher(
 
                     last_emit = Instant::now();
                     tracing::debug!("[FileWatcher] Emitting static-file-changed for '{}'", label_clone);
-                    let _ = app.emit(
+                    let _ = crate::emit::all(
                         "static-file-changed",
                         serde_json::json!({ "windowLabel": label_clone }),
                     );

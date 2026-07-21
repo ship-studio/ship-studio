@@ -10,6 +10,7 @@
 pub mod auth;
 pub mod commands;
 pub mod config;
+pub mod events;
 
 use axum::{
     extract::State,
@@ -29,6 +30,7 @@ use crate::errors::CommandError;
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
+    pub events: tokio::sync::broadcast::Sender<crate::emit::Frame>,
 }
 
 /// `GET /api/health` — unauthenticated liveness probe. Deliberately says
@@ -64,6 +66,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/logout", post(auth::logout))
         .route("/api/session", get(auth::session))
         .route("/api/cmd/{name}", post(commands::dispatch))
+        .route("/api/events", get(events::events))
         // Explicit wildcard rather than `.fallback` — the outer router owns the
         // fallback (the SPA), and `merge` would silently drop this one.
         .route("/api/{*rest}", get(api_not_found).post(api_not_found))
@@ -105,6 +108,7 @@ pub async fn serve() -> Result<(), String> {
     let bind = config.bind;
     let state = AppState {
         config: Arc::new(config),
+        events: crate::emit::init_broadcast(),
     };
 
     let listener = tokio::net::TcpListener::bind(bind)
@@ -126,6 +130,7 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_state() -> AppState {
+        let (events, _) = tokio::sync::broadcast::channel(16);
         AppState {
             config: Arc::new(Config {
                 bind: "127.0.0.1:1420".parse().unwrap(),
@@ -137,6 +142,7 @@ mod tests {
                 preview_bind: "127.0.0.1".parse().unwrap(),
                 session_ttl_secs: 3600,
             }),
+            events,
         }
     }
 
@@ -160,6 +166,41 @@ mod tests {
             .await
             .unwrap();
         (status, String::from_utf8_lossy(&bytes).to_string())
+    }
+
+    fn websocket_request(cookie: Option<&str>, origin: &str) -> Request<Body> {
+        let mut request = Request::get("/api/events?window_label=main")
+            .header(header::CONNECTION, "upgrade")
+            .header(header::UPGRADE, "websocket")
+            .header("sec-websocket-version", "13")
+            .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .header(header::ORIGIN, origin);
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, cookie);
+        }
+        request.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn websocket_upgrade_requires_a_session() {
+        let (status, _) = send(
+            test_state(),
+            websocket_request(None, "http://localhost:1420"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn websocket_upgrade_rejects_a_foreign_origin() {
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        let (status, _) = send(
+            state,
+            websocket_request(Some(&cookie), "https://attacker.example"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

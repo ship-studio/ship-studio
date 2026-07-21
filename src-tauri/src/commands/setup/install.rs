@@ -6,7 +6,6 @@
 use super::{is_mock_mode, mock_install};
 use crate::errors::CommandError;
 use crate::utils::{create_command, get_brew_command};
-use tauri::Emitter;
 
 #[cfg(windows)]
 use crate::utils::get_winget_command;
@@ -16,7 +15,7 @@ use ship_studio_macros::ship_command;
 #[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), CommandError> {
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
             "itemId": "homebrew",
@@ -48,7 +47,7 @@ pub async fn install_homebrew(app: tauri::AppHandle) -> Result<(), CommandError>
 #[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
             "itemId": "node",
@@ -84,7 +83,7 @@ pub async fn install_node_via_brew(app: tauri::AppHandle) -> Result<(), CommandE
 #[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
             "itemId": "git",
@@ -120,7 +119,7 @@ pub async fn install_git_via_brew(app: tauri::AppHandle) -> Result<(), CommandEr
 #[ship_command]
 #[tracing::instrument(skip(app))]
 pub async fn install_gh_via_brew(app: tauri::AppHandle) -> Result<(), CommandError> {
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
             "itemId": "gh",
@@ -171,7 +170,7 @@ pub async fn install_brew_packages(
         return Ok(());
     }
 
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
             "itemId": "brew_batch",
@@ -260,7 +259,7 @@ pub async fn install_winget_packages(
         return Ok(());
     }
 
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "setup-progress",
         serde_json::json!({
             "itemId": "winget_batch",

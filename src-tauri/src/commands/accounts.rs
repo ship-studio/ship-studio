@@ -34,7 +34,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 /// The ID of the built-in default account. Always exists; cannot be deleted.
 pub const DEFAULT_ACCOUNT_ID: &str = "default";
@@ -1198,7 +1198,7 @@ fn redact_token_stream(carry: &mut Vec<u8>, eof: bool) -> (Vec<u8>, Option<Strin
 
 /// Emit a chunk of PTY output to the webview for the given connect session.
 fn emit_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) {
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "claude-connect-data",
         serde_json::json!({ "sessionId": session_id, "data": bytes }),
     );
@@ -1346,7 +1346,7 @@ pub fn claude_connect_start(
                 if let Err(e) = store_claude_token(&account_id, &token, email.as_deref()) {
                     tracing::warn!("failed to store captured Claude token: {e}");
                 }
-                let _ = app.emit(
+                let _ = crate::emit::all(
                     "claude-connect-captured",
                     serde_json::json!({ "sessionId": session_id }),
                 );
@@ -1403,7 +1403,7 @@ pub fn claude_connect_start(
             if let Ok(mut map) = CONNECT_REGISTRY.lock() {
                 map.remove(&session_id);
             }
-            let _ = app.emit(
+            let _ = crate::emit::all(
                 "claude-connect-exit",
                 serde_json::json!({ "sessionId": session_id, "exitCode": code }),
             );
@@ -1560,7 +1560,7 @@ impl ConnectService {
 
 /// Emit a chunk of PTY output to the webview for a workspace-connect session.
 fn emit_workspace_connect_data(app: &AppHandle, session_id: &str, bytes: &[u8]) {
-    let _ = app.emit(
+    let _ = crate::emit::all(
         "workspace-connect-data",
         serde_json::json!({ "sessionId": session_id, "data": bytes }),
     );
@@ -1724,7 +1724,7 @@ pub fn workspace_connect_start(
             if is_github {
                 crate::commands::github::invalidate_github_username_cache();
             }
-            let _ = app.emit(
+            let _ = crate::emit::all(
                 "workspace-connect-exit",
                 serde_json::json!({ "sessionId": session_id, "exitCode": code }),
             );

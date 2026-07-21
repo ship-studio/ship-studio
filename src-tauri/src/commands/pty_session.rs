@@ -24,7 +24,7 @@ use ship_studio_macros::ship_command;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 /// Max bytes retained per-session for attach-time replay. ~128 KiB is enough
 /// for a few screenfuls of a modern TUI (Claude Code banner + recent prompt)
@@ -366,7 +366,7 @@ pub async fn pty_session_open(
                 else {
                     break; // poisoned — registry is unusable for this session
                 };
-                let _ = app_for_reader.emit(
+                let _ = crate::emit::all(
                     "pty-session-data",
                     serde_json::json!({
                         "sessionId": session_id_for_reader,
@@ -399,7 +399,7 @@ pub async fn pty_session_open(
             if let Ok(mut slot) = session_for_waiter.exit_code.lock() {
                 *slot = Some(code);
             }
-            let _ = app_for_waiter.emit(
+            let _ = crate::emit::all(
                 "pty-session-exit",
                 serde_json::json!({
                     "sessionId": session_id_for_waiter,

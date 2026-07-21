@@ -8,7 +8,6 @@ use ship_studio_macros::ship_command;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
-use tauri::Emitter;
 
 /// Spawns a command in a pseudo-terminal (PTY) and streams output to the frontend.
 ///
@@ -104,7 +103,7 @@ pub async fn spawn_pty(
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stdout);
                     for line in reader.lines().map_while(Result::ok) {
-                        let _ = app_for_stdout.emit_to(
+                        let _ = crate::emit::to(
                             &label_for_stdout,
                             "pty-output",
                             serde_json::json!({
@@ -123,7 +122,7 @@ pub async fn spawn_pty(
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stderr);
                     for line in reader.lines().map_while(Result::ok) {
-                        let _ = app_for_stderr.emit_to(
+                        let _ = crate::emit::to(
                             &label_for_stderr,
                             "pty-output",
                             serde_json::json!({
@@ -155,7 +154,7 @@ pub async fn spawn_pty(
 
         // Emit exit event to specific window only
         let exit_code = result.unwrap_or(-1);
-        let _ = app_handle.emit_to(
+        let _ = crate::emit::to(
             &label,
             "pty-exit",
             serde_json::json!({
