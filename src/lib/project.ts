@@ -10,7 +10,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { spawn, IPty } from 'tauri-pty';
+import { spawn, IPty } from './webPty';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { readTextFile } from '@tauri-apps/plugin-fs';
@@ -552,18 +552,7 @@ export async function startDevServer(
       try {
         // Dispose the onData listener FIRST to stop any remaining writes.
         dataDisposable?.dispose();
-        // Kill via the plugin directly so we can await it and know the
-        // session was removed from backend state. The backend's updated
-        // `kill` handler removes the session from its map, which causes
-        // the next `read` invoke to return "EOF" — tauri-pty's internal
-        // for(;;) loop catches that and exits cleanly, no CPU spin.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-        const pid = (pty as any).pid as number | undefined;
-        if (typeof pid === 'number') {
-          await invoke('plugin:pty|kill', { pid }).catch(() => {
-            // Already dead — fine.
-          });
-        }
+        pty.kill();
         // Unregister from backend
         await invoke('unregister_external_pty', { ptyId }).catch(() => {});
       } catch (e) {

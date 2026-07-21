@@ -11,6 +11,7 @@ pub mod auth;
 pub mod commands;
 pub mod config;
 pub mod events;
+pub mod pty;
 
 use axum::{
     extract::State,
@@ -67,6 +68,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/session", get(auth::session))
         .route("/api/cmd/{name}", post(commands::dispatch))
         .route("/api/events", get(events::events))
+        .route("/api/pty", get(pty::pty))
         // Explicit wildcard rather than `.fallback` — the outer router owns the
         // fallback (the SPA), and `merge` would silently drop this one.
         .route("/api/{*rest}", get(api_not_found).post(api_not_found))
@@ -168,8 +170,8 @@ mod tests {
         (status, String::from_utf8_lossy(&bytes).to_string())
     }
 
-    fn websocket_request(cookie: Option<&str>, origin: &str) -> Request<Body> {
-        let mut request = Request::get("/api/events?window_label=main")
+    fn websocket_request(path: &str, cookie: Option<&str>, origin: &str) -> Request<Body> {
+        let mut request = Request::get(path)
             .header(header::CONNECTION, "upgrade")
             .header(header::UPGRADE, "websocket")
             .header("sec-websocket-version", "13")
@@ -185,7 +187,11 @@ mod tests {
     async fn websocket_upgrade_requires_a_session() {
         let (status, _) = send(
             test_state(),
-            websocket_request(None, "http://localhost:1420"),
+            websocket_request(
+                "/api/events?window_label=main",
+                None,
+                "http://localhost:1420",
+            ),
         )
         .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -197,7 +203,23 @@ mod tests {
         let cookie = valid_cookie(&state);
         let (status, _) = send(
             state,
-            websocket_request(Some(&cookie), "https://attacker.example"),
+            websocket_request(
+                "/api/events?window_label=main",
+                Some(&cookie),
+                "https://attacker.example",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn pty_websocket_rejects_a_foreign_origin() {
+        let state = test_state();
+        let cookie = valid_cookie(&state);
+        let (status, _) = send(
+            state,
+            websocket_request("/api/pty", Some(&cookie), "https://attacker.example"),
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);

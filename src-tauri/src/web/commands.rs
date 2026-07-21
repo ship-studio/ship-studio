@@ -246,7 +246,7 @@ mod tests {
         // when someone knowingly adds another desktop dependency.
         assert_eq!(
             names.len(),
-            45,
+            44,
             "desktop-only command count changed: {names:?}"
         );
         // Every one of them still has a route.

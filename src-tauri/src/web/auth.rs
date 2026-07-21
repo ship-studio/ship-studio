@@ -154,7 +154,7 @@ pub async fn require_auth(
     // CSRF: state-changing requests must not carry a foreign Origin. Checked
     // before the exemption list so `/api/login` is covered too — otherwise a
     // hostile page could silently log the browser into an attacker's session.
-    let websocket_upgrade = path == "/api/events";
+    let websocket_upgrade = matches!(path, "/api/events" | "/api/pty");
     let origin_missing = headers.get(header::ORIGIN).is_none();
     if (websocket_upgrade && origin_missing)
         || ((!request.method().is_safe() || websocket_upgrade)

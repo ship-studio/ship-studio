@@ -24,7 +24,6 @@ use ship_studio_macros::ship_command;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
-use tauri::AppHandle;
 
 /// Max bytes retained per-session for attach-time replay. ~128 KiB is enough
 /// for a few screenfuls of a modern TUI (Claude Code banner + recent prompt)
@@ -221,7 +220,6 @@ pub struct SessionListItem {
 #[ship_command]
 #[tracing::instrument(skip_all, fields(session_id = %session_id, command = %command))]
 pub async fn pty_session_open(
-    app: AppHandle,
     session_id: String,
     command: String,
     args: Vec<String>,
@@ -336,7 +334,6 @@ pub async fn pty_session_open(
     {
         let session_id_for_reader = session_id.clone();
         let session_for_reader = session.clone();
-        let app_for_reader = app.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
             let mut dsr_carry: Vec<u8> = Vec::new();
@@ -382,7 +379,6 @@ pub async fn pty_session_open(
     {
         let session_id_for_waiter = session_id.clone();
         let session_for_waiter = session.clone();
-        let app_for_waiter = app.clone();
         std::thread::spawn(move || {
             let code = match child.wait() {
                 Ok(status) => {
