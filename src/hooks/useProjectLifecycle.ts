@@ -557,9 +557,13 @@ export function useProjectLifecycle({
       });
       if (actualReservedPort !== null) {
         try {
+          // kill_port is internally bounded and only returns once the port is
+          // verified free (TERM → wait → KILL escalation) — abandoning it early
+          // is what used to let a half-dead server wedge the replacement, so
+          // the race here is purely a hung-IPC failsafe.
           await Promise.race([
             invoke('kill_port', { port: actualReservedPort }),
-            new Promise((resolve) => setTimeout(resolve, 3000)),
+            new Promise((resolve) => setTimeout(resolve, 12000)),
           ]);
         } catch {
           // Ignore errors - port may already be free
@@ -621,9 +625,10 @@ export function useProjectLifecycle({
     // server we were about to reuse.
     if (!reuseIncomingServer) {
       try {
+        // Failsafe ceiling only — kill_port itself waits until the port is free.
         await Promise.race([
           invoke('kill_port', { port }),
-          new Promise((resolve) => setTimeout(resolve, 3000)),
+          new Promise((resolve) => setTimeout(resolve, 12000)),
         ]);
       } catch {
         // Ignore - port may already be free

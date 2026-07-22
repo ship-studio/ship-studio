@@ -288,55 +288,199 @@ pub async fn cleanup_orphaned_processes() -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Kill any process listening on a specific port
+/// True when nothing is listening on `port` on either loopback stack.
+/// Only `AddrInUse` counts as occupied — other bind errors (e.g. IPv6
+/// loopback unavailable) say nothing about the port.
+fn port_is_free(port: u16) -> bool {
+    use std::io::ErrorKind;
+    use std::net::TcpListener;
+    for addr in [format!("127.0.0.1:{port}"), format!("[::1]:{port}")] {
+        if let Err(e) = TcpListener::bind(&addr) {
+            if e.kind() == ErrorKind::AddrInUse {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Poll until `port` is free or `max_ms` elapses. Returns whether it freed.
+async fn wait_port_free(port: u16, max_ms: u64) -> bool {
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(max_ms);
+    loop {
+        let free = tokio::task::spawn_blocking(move || port_is_free(port))
+            .await
+            .unwrap_or(true);
+        if free {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+}
+
+/// PIDs currently LISTENING on `port`.
+///
+/// -n: skip DNS lookups, -P: skip port name lookups (both speed up macOS significantly).
+/// -sTCP:LISTEN is critical: without it, `-i :PORT` also matches CLIENTS connected to
+/// the port — and our own webview holds an established connection to the dev server's
+/// port (the Preview pane). Killing those client PIDs takes down the WebKit process
+/// and crashes the whole app on dev-server restart. Listeners only.
+/// Wrapped in a timeout to prevent hanging when processes are in transitional states.
+#[cfg(unix)]
+async fn listener_pids(port: u32) -> Vec<i32> {
+    let result = tokio::time::timeout(
+        tokio::time::Duration::from_secs(3),
+        tokio::task::spawn_blocking(move || {
+            std::process::Command::new("lsof")
+                .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-t"])
+                .output()
+        }),
+    )
+    .await;
+    match result {
+        Ok(Ok(Ok(output))) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|l| l.trim().parse::<i32>().ok())
+            .filter(|pid| *pid > 1)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Send `signal` to each PID and to its whole process group, so dev-server
+/// workers (Turbopack, Vite child processes) die with their parent. PTY
+/// children run in their own session, so a listener's group never includes
+/// the app — but we still refuse to signal our own group as a hard guard.
+#[cfg(unix)]
+fn signal_pids(pids: &[i32], signal: &str) {
+    let own_pgid = std::process::Command::new("ps")
+        .args(["-o", "pgid=", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<i32>()
+                .ok()
+        });
+    for pid in pids {
+        let pgid = std::process::Command::new("ps")
+            .args(["-o", "pgid=", "-p", &pid.to_string()])
+            .output()
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<i32>()
+                    .ok()
+            });
+        if let Some(pgid) = pgid {
+            if pgid > 1 && Some(pgid) != own_pgid {
+                let _ = std::process::Command::new("kill")
+                    .args([&format!("-{signal}"), "--", &format!("-{pgid}")])
+                    .output();
+            }
+        }
+        let _ = std::process::Command::new("kill")
+            .args([&format!("-{signal}"), &pid.to_string()])
+            .output();
+    }
+}
+
+/// Kill any process listening on a specific port, and don't return until the
+/// port is actually free (bounded).
+///
+/// SIGTERM first so dev servers can shut down cleanly, escalating to SIGKILL
+/// only for holdouts. The old fire-SIGKILL-and-sleep(100ms) version raced the
+/// replacement server: Next/Turbopack got killed mid-write (half-written .next
+/// build state, workers surviving the parent) while the new `next dev` was
+/// already starting against the same directory — which wedged it into serving
+/// 404s for every route until manually restarted.
 #[tauri::command]
 #[tracing::instrument]
 pub async fn kill_port(port: u32) -> Result<(), CommandError> {
+    let Ok(port16) = u16::try_from(port) else {
+        return Ok(());
+    };
+
     #[cfg(unix)]
     {
-        // Use lsof to find the PID LISTENING on the port, then kill it.
-        // -n: skip DNS lookups, -P: skip port name lookups (both speed up macOS significantly).
-        // -sTCP:LISTEN is critical: without it, `-i :PORT` also matches CLIENTS connected to
-        // the port — and our own webview holds an established connection to the dev server's
-        // port (the Preview pane). Killing those client PIDs with `kill -9` takes down the
-        // WebKit process and crashes the whole app on dev-server restart. Listeners only.
-        // Wrap in a timeout to prevent hanging when processes are in transitional states.
-        let lsof_result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(3),
-            tokio::task::spawn_blocking(move || {
-                std::process::Command::new("lsof")
-                    .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-t"])
-                    .output()
-            }),
-        )
-        .await;
-
-        if let Ok(Ok(Ok(output))) = lsof_result {
-            if output.status.success() {
-                let pids = String::from_utf8_lossy(&output.stdout);
-                for pid in pids.lines() {
-                    if let Ok(pid_num) = pid.trim().parse::<i32>() {
-                        // Kill the process and its children
-                        let _ = create_command("kill")
-                            .args(["-9", &pid_num.to_string()])
-                            .output();
-                    }
-                }
+        let pids = listener_pids(port).await;
+        if pids.is_empty() {
+            if !port_is_free(port16) {
+                tracing::warn!(port, "kill_port: port occupied but no listener PID found");
             }
+            return Ok(());
         }
-        // If lsof timed out or failed, proceed anyway — port may already be free
+        {
+            let pids = pids.clone();
+            let _ = tokio::task::spawn_blocking(move || signal_pids(&pids, "TERM")).await;
+        }
+        if wait_port_free(port16, 2000).await {
+            return Ok(());
+        }
+        // Escalate — re-list in case the survivors are different processes
+        // (e.g. a worker that outlived the parent we TERMed).
+        let mut holdouts = listener_pids(port).await;
+        if holdouts.is_empty() {
+            holdouts = pids;
+        }
+        let _ = tokio::task::spawn_blocking(move || signal_pids(&holdouts, "KILL")).await;
+        if !wait_port_free(port16, 1500).await {
+            tracing::warn!(
+                port,
+                "kill_port: port still occupied after TERM+KILL escalation"
+            );
+        }
     }
 
     #[cfg(not(unix))]
     {
-        // Windows: use netstat and taskkill
+        // Windows: netstat + tree-kill (/T) so dev-server workers die with the parent.
         let _ = create_command("cmd")
-            .args(["/C", &format!("for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :{} ^| findstr LISTENING') do taskkill /F /PID %a", port)])
+            .args(["/C", &format!("for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :{} ^| findstr LISTENING') do taskkill /F /T /PID %a", port)])
             .output();
+        let _ = wait_port_free(port16, 2000).await;
     }
 
-    // Give processes time to die
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
     Ok(())
+}
+
+#[cfg(test)]
+mod kill_port_tests {
+    use super::{port_is_free, wait_port_free};
+    use std::net::TcpListener;
+
+    #[test]
+    fn port_is_free_detects_listener() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(!port_is_free(port));
+        drop(listener);
+        // A parallel test can grab an ephemeral port the instant we drop it,
+        // so sample several fresh ports instead of asserting on this one.
+        let saw_free = (0..20).any(|_| {
+            let l = TcpListener::bind("127.0.0.1:0").unwrap();
+            let p = l.local_addr().unwrap().port();
+            drop(l);
+            port_is_free(p)
+        });
+        assert!(saw_free);
+    }
+
+    #[tokio::test]
+    async fn wait_port_free_resolves_when_listener_drops() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(!wait_port_free(port, 0).await);
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+            drop(listener);
+        });
+        assert!(wait_port_free(port, 3000).await);
+        handle.await.unwrap();
+    }
 }

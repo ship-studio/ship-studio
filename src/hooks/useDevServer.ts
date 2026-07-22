@@ -940,9 +940,11 @@ export function useDevServer(currentProjectPath: string | null) {
             return;
           }
           try {
+            // kill_port only returns once the port is verified free; the
+            // timeout is a hung-IPC failsafe.
             await withTimeoutFallback(
               invoke('kill_port', { port: effectivePort }),
-              5000,
+              12000,
               undefined
             );
           } catch {
@@ -969,9 +971,11 @@ export function useDevServer(currentProjectPath: string | null) {
           bump();
         } else {
           try {
+            // kill_port only returns once the port is verified free; the
+            // timeout is a hung-IPC failsafe.
             await withTimeoutFallback(
               invoke('kill_port', { port: effectivePort }),
-              5000,
+              12000,
               undefined
             );
           } catch {

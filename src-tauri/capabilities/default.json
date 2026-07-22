@@ -35,6 +35,7 @@
       "identifier": "fs:allow-read-text-file",
       "allow": [
         { "path": "$HOME/ShipStudio/**/package.json" },
+        { "path": "$HOME/ShipStudio/.worktrees/**/package.json" },
         { "path": "$HOME/**/package.json" },
         { "path": "/Volumes/**/package.json" }
       ]
