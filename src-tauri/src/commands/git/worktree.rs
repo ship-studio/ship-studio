@@ -5,9 +5,12 @@
 //! branch, and dirty-tree refusals bubble up so the UI can offer `--force`.
 //!
 //! App-managed worktrees are created under
-//! `<projects_root>/.worktrees/<parent_dir_name>/<sanitized_branch>` — inside
-//! the allowed projects root (so `validate_project_path` accepts them) but
-//! dot-prefixed so the dashboard scan never lists the container as a project.
+//! `<projects_root>/.worktrees/<main_worktree_dir_name>/<sanitized_branch>` —
+//! inside the allowed projects root (so `validate_project_path` accepts them)
+//! but dot-prefixed so the dashboard scan never lists the container as a
+//! project. The container is always named after the repository's MAIN
+//! worktree, no matter which checkout the add was invoked from, so one
+//! repository's worktrees stay in one family folder.
 
 use crate::cache::GIT_CACHE;
 use crate::errors::CommandError;
@@ -194,6 +197,20 @@ fn canon(path: &str) -> PathBuf {
     dunce::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path))
 }
 
+/// The repository's main worktree path as seen from any checkout — the first
+/// entry of `git worktree list --porcelain`. None when `cwd` isn't a git
+/// repository or git fails.
+fn main_worktree_path(cwd: &Path) -> Option<PathBuf> {
+    let output = run_worktree_git(cwd, &["worktree", "list", "--porcelain"]).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_worktree_porcelain(&stdout)
+        .first()
+        .map(|w| PathBuf::from(&w.path))
+}
+
 /// Resolves commit timestamps (ms) for a set of shas in one git call:
 /// `git show -s --format='%H %ct' <shas…>`. Best-effort — an empty map on
 /// any failure just leaves `last_commit_date` unset.
@@ -284,7 +301,13 @@ pub async fn add_worktree(
         guard_ref_name(base, "base_ref")?;
     }
 
-    let parent_dir_name = validated_path
+    // Anchor naming, metadata, and .env copies to the repository's MAIN
+    // worktree: `project_path` may itself be a linked worktree (creating a
+    // worktree while working inside one), and using the invoking directory
+    // would scatter one repository's worktrees across differently-named
+    // container folders.
+    let anchor = main_worktree_path(&validated_path).unwrap_or_else(|| validated_path.clone());
+    let parent_dir_name = anchor
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .ok_or_else(|| CommandError::Validation {
@@ -326,10 +349,11 @@ pub async fn add_worktree(
         return Err(process_error(&args, &output));
     }
 
-    // Seed the worktree's own .shipstudio/project.json from the parent so the
-    // dev server behaves identically (command, monorepo subpath, workspace) —
-    // but on its own port, since every project otherwise defaults to 3000.
-    let parent_meta = load_project_metadata(&validated_path);
+    // Seed the worktree's own .shipstudio/project.json from the main worktree
+    // so the dev server behaves identically (command, monorepo subpath,
+    // workspace) — but on its own port, since every project otherwise
+    // defaults to 3000.
+    let parent_meta = load_project_metadata(&anchor);
     let mut meta = crate::types::ProjectMetadata {
         custom_dev_command: parent_meta.custom_dev_command.clone(),
         workspace_subpath: parent_meta.workspace_subpath.clone(),
@@ -349,7 +373,7 @@ pub async fn add_worktree(
     }
 
     if copy_env {
-        copy_env_files(&validated_path, &dest);
+        copy_env_files(&anchor, &dest);
     }
 
     // Plugins need no copying: all worktrees of one repository resolve to the
@@ -567,5 +591,54 @@ branch refs/heads/feature
         }
         let picked = pick_free_port(bound - 1).expect("a free port should exist");
         assert_ne!(picked, bound, "picker must not return a bound port");
+    }
+
+    /// Adding a worktree while inside another worktree must anchor to the
+    /// repository's main worktree — the regression scattered one repo's
+    /// worktrees across container folders named after whichever checkout
+    /// the user happened to invoke from.
+    #[test]
+    fn main_worktree_path_resolves_from_linked_worktree() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let main = tmp.path().join("myrepo");
+        std::fs::create_dir(&main).unwrap();
+        let git = |cwd: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("HOME", tmp.path())
+                .output()
+                .expect("git runs");
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        git(&main, &["init", "-b", "main"]);
+        git(&main, &["config", "user.email", "t@t"]);
+        git(&main, &["config", "user.name", "t"]);
+        git(&main, &["commit", "--allow-empty", "-m", "init"]);
+        let linked = tmp.path().join("linked-wt");
+        git(
+            &main,
+            &["worktree", "add", "-b", "side", linked.to_str().unwrap()],
+        );
+
+        let from_main = main_worktree_path(&main).expect("resolves from main");
+        let from_linked = main_worktree_path(&linked).expect("resolves from linked");
+        assert_eq!(from_main.file_name(), main.file_name());
+        assert_eq!(
+            from_linked.file_name(),
+            main.file_name(),
+            "linked worktree must resolve to the main worktree, not itself"
+        );
+
+        // Non-git directory: no resolution, caller falls back to the input.
+        let plain = tmp.path().join("plain");
+        std::fs::create_dir(&plain).unwrap();
+        assert!(main_worktree_path(&plain).is_none());
     }
 }

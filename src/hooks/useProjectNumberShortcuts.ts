@@ -3,7 +3,7 @@ import type { Project } from '../lib/project';
 import { sessionRegistry } from '../lib/sessionRegistry';
 import { useModal } from '../contexts/ModalContext';
 import { basename } from '../lib/paths';
-import { worktreeParentPath } from '../lib/worktrees';
+import { familyRootOf, ensureFamilyRoot } from '../lib/worktreeFamilies';
 
 interface Params {
   /** Pinned-row paths, in sidebar order. */
@@ -41,11 +41,13 @@ export function useProjectNumberShortcuts({ pinnedPaths, handleSelectProject }: 
       const pinSet = new Set(pins);
       // One entry per repository family (a project and its worktrees are one
       // sidebar row), name-ordered — must mirror WorkspaceSidebar's grouping.
-      const familyKeyOf = (p: string) => worktreeParentPath(p) ?? p;
+      // Roots come from the shared git-truth cache; kick off resolution for
+      // any session path not yet resolved so the ordering converges.
+      const snaps = sessionRegistry.snapshotAll();
+      for (const s of snaps) ensureFamilyRoot(s.projectPath);
       const seen = new Set<string>();
-      const activePaths = sessionRegistry
-        .snapshotAll()
-        .map((s) => familyKeyOf(s.projectPath))
+      const activePaths = snaps
+        .map((s) => familyRootOf(s.projectPath))
         .filter((p) => !pinSet.has(p))
         .filter((p) => (seen.has(p) ? false : (seen.add(p), true)))
         .sort((a, b) => (basename(a) || a).localeCompare(basename(b) || b) || a.localeCompare(b));

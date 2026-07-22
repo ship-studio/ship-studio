@@ -15,7 +15,13 @@ import { Button } from '../primitives/Button';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { ALL_AGENTS, TERMINAL, getAgentById, type AgentConfig } from '../../lib/agent';
-import { worktreeParentPath, type WorktreeInfo } from '../../lib/worktrees';
+import { type WorktreeInfo } from '../../lib/worktrees';
+import {
+  familyRootOf,
+  ensureFamilyRoot,
+  subscribeFamilyRoots,
+  familyRootsVersion,
+} from '../../lib/worktreeFamilies';
 import { formatRelativeTime } from '../../lib/branches';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
@@ -320,6 +326,22 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     () => 0
   );
 
+  // Git-truth family roots for worktree sessions. The `.worktrees/<name>/…`
+  // path guess can't locate the real parent for external projects (the repo
+  // lives outside ~/ShipStudio), so each worktree path is resolved via
+  // `list_worktrees` — this subscription re-renders when a resolution lands
+  // and the grouping below snaps to the correct family.
+  const familiesVersion = useSyncExternalStore(
+    subscribeFamilyRoots,
+    familyRootsVersion,
+    familyRootsVersion
+  );
+  useEffect(() => {
+    void registryVersion;
+    for (const s of sessionRegistry.snapshotAll()) ensureFamilyRoot(s.projectPath);
+    if (currentProjectPath) ensureFamilyRoot(currentProjectPath);
+  }, [registryVersion, currentProjectPath]);
+
   const toggleSection = (id: SectionId) => {
     setCollapsed((prev) => {
       const next = { ...prev, [id]: !prev[id] };
@@ -489,12 +511,15 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   // A "family" is one repository: the main checkout plus its worktrees. The
   // sidebar shows ONE row per family — worktree sessions never appear as
   // separate top-level rows; they live inside the family row's body.
-  const familyKeyOf = (path: string) => worktreeParentPath(path) ?? path;
+  const familyKeyOf = (path: string) => familyRootOf(path);
   const currentFamily = currentProjectPath !== null ? familyKeyOf(currentProjectPath) : null;
 
   const activeRows: PinnedProjectRow[] = useMemo(() => {
     // `registryVersion` is the reactivity trigger — snapshots are read below.
+    // `familiesVersion` re-groups rows when an async family-root resolution
+    // lands (a worktree session merging into its parent's row).
     void registryVersion;
+    void familiesVersion;
     const snaps = sessionRegistry.snapshotAll();
     const families = new Map<string, typeof snaps>();
     for (const snap of snaps) {
@@ -526,7 +551,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         a.fallbackName.localeCompare(b.fallbackName) || a.projectPath.localeCompare(b.projectPath)
     );
     return rows;
-  }, [pinnedPaths, currentFamily, registryVersion]);
+  }, [pinnedPaths, currentFamily, registryVersion, familiesVersion]);
 
   // Edge case: current project isn't in pinned or active (e.g. the session
   // registry hasn't picked it up yet during the initial open). Synthesize

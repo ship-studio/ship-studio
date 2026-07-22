@@ -26,6 +26,13 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.17.1', // v0.17.1
+    items: [
+      'Worktree fix — the sidebar no longer shows duplicate rows for a project when its worktrees are open. Grouping now asks git which repository a worktree belongs to, so it works for imported projects living outside ~/ShipStudio too',
+      'Creating a worktree while working inside another worktree now files it under the project itself instead of nesting it under the worktree you happened to be in',
+    ],
+  },
+  {
     version: '0.17.0', // v0.17.0
     items: [
       "Worktrees — work on multiple branches of the same project at the same time. Create a worktree from the sidebar or Cmd+K and it opens as its own workspace: its own agent, terminal, dev server on its own port, and preview, while your other branches keep running. Switch between them from the sidebar with everything staying hot. It's real git underneath (git worktree), so your terminal and the app always agree",
