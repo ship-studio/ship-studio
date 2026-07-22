@@ -44,3 +44,14 @@ export function isPermissionDenialError(error: unknown): boolean {
     /screen recording|screen capture|screencapturekit|scstream|tcc|cgdisplay|record/.test(message);
   return denial && screen;
 }
+
+/**
+ * The backend's pre-capture TCP health check found nothing listening on the
+ * dev-server port (`capture_project_thumbnail` in thumbnail.rs). Retrying a
+ * capture against a dead server can't succeed — callers should skip their
+ * retry loop and wait for the next scheduled capture instead.
+ */
+export function isServerNotRespondingError(error: unknown): boolean {
+  const message = formatCommandError(asCommandError(error)).toLowerCase();
+  return message.includes('dev server not responding');
+}

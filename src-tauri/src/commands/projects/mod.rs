@@ -76,34 +76,55 @@ async fn run_scan_command(
     .ok()
 }
 
-/// Helper to get git branch for a project (time-bounded; `None` on timeout).
+/// Resolve the checked-out branch by reading `.git/HEAD` directly — a
+/// microsecond fs read instead of a `git rev-parse` fork per project per
+/// dashboard load (those forks timed out over 1,100 times in 12 days of
+/// real-usage logs). Handles worktree/submodule `.git` *files*
+/// (`gitdir: <path>`). Returns `None` for detached HEAD and non-git dirs,
+/// matching the old rev-parse behavior.
+fn branch_from_head_file(project_path: &Path) -> Option<String> {
+    let dot_git = project_path.join(".git");
+    let git_dir = if dot_git.is_file() {
+        let contents = std::fs::read_to_string(&dot_git).ok()?;
+        let target = contents.strip_prefix("gitdir:")?.trim();
+        let target = Path::new(target);
+        if target.is_absolute() {
+            target.to_path_buf()
+        } else {
+            project_path.join(target)
+        }
+    } else if dot_git.is_dir() {
+        dot_git
+    } else {
+        return None;
+    };
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let name = head.trim().strip_prefix("ref: refs/heads/")?;
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// Helper to get git branch for a project. Reads `.git/HEAD` — no subprocess.
 async fn get_git_branch(project_path: &Path) -> Option<String> {
-    let output = run_scan_command(
-        "git",
-        &["rev-parse", "--abbrev-ref", "HEAD"],
-        project_path,
-        GIT_SCAN_TIMEOUT_SECS,
-    )
-    .await?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if branch == "HEAD" || branch.is_empty() {
-        return None;
-    }
-
-    Some(branch)
+    branch_from_head_file(project_path)
 }
 
 /// Helper to count uncommitted changes (tracked files only; time-bounded,
-/// `None` on timeout).
+/// `None` on timeout). Results — including failures — are cached in
+/// `GIT_CACHE` for 30s, so git write operations invalidate them and a repo
+/// that errors or times out isn't re-forked on every dashboard load.
 async fn get_uncommitted_count(project_path: &Path) -> Option<u32> {
     let git_dir = project_path.join(".git");
     if !git_dir.exists() {
         return None;
+    }
+
+    let cache_key = project_path.to_string_lossy().to_string();
+    if let Some(cached) = crate::cache::GIT_CACHE.get_scan_status(&cache_key) {
+        return cached;
     }
 
     // Use -uno to ignore untracked files like .DS_Store
@@ -113,14 +134,14 @@ async fn get_uncommitted_count(project_path: &Path) -> Option<u32> {
         project_path,
         GIT_SCAN_TIMEOUT_SECS,
     )
-    .await?;
+    .await;
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let count = stdout.lines().filter(|l| !l.trim().is_empty()).count() as u32;
-        return Some(count);
-    }
-    None
+    let count = output.filter(|o| o.status.success()).map(|o| {
+        let stdout = String::from_utf8_lossy(&o.stdout);
+        stdout.lines().filter(|l| !l.trim().is_empty()).count() as u32
+    });
+    crate::cache::GIT_CACHE.set_scan_status(&cache_key, count);
+    count
 }
 
 /// Collects git metadata (current branch + uncommitted count) for many
@@ -138,16 +159,53 @@ async fn scan_git_info(paths: Vec<PathBuf>) -> Vec<(Option<String>, Option<u32>)
         .await
 }
 
+/// Exclusions already warned about this session, so the loud warn fires once
+/// per (path, reason) instead of once per dashboard scan — the same dozen
+/// directories used to produce 4,000+ identical warn lines in a day's logs.
+static EXCLUSION_WARNED: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashSet<(PathBuf, String)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
 /// Issue #162: a project silently missing from the dashboard is
 /// indistinguishable from data loss to users. Every filter that hides a
 /// directory from the project list must log through here so the exclusion
-/// shows up loudly in the logs (logging only — no behavior change).
+/// shows up loudly in the logs (logging only — no behavior change). Repeat
+/// occurrences within one app session demote to debug.
 fn warn_project_excluded(path: &Path, reason: &str) {
-    tracing::warn!(
-        path = %path.display(),
-        reason,
-        "project directory excluded from dashboard list"
-    );
+    let first_time = EXCLUSION_WARNED
+        .lock()
+        .map(|mut seen| seen.insert((path.to_path_buf(), reason.to_string())))
+        .unwrap_or(true);
+    if first_time {
+        tracing::warn!(
+            path = %path.display(),
+            reason,
+            "project directory excluded from dashboard list"
+        );
+    } else {
+        tracing::debug!(
+            path = %path.display(),
+            reason,
+            "project directory excluded from dashboard list"
+        );
+    }
+}
+
+/// Directories whose `.gitignore` has already been checked this session.
+/// The check/write used to run for every project on every dashboard scan.
+static GITIGNORE_ENSURED: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashSet<PathBuf>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+/// Ensure `.shipstudio/` is gitignored, once per project per app session.
+fn ensure_gitignore_once(project: &Path) {
+    let first_time = GITIGNORE_ENSURED
+        .lock()
+        .map(|mut seen| seen.insert(project.to_path_buf()))
+        .unwrap_or(true);
+    if first_time {
+        let _ = ensure_gitignore_has_shipstudio_sync(project);
+    }
 }
 
 /// Sync helper for ensuring .shipstudio/ is in gitignore
@@ -587,8 +645,8 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
                 metadata.as_ref().and_then(|m| m.hide_main_branch_warning);
             let workspace_subpath = metadata.as_ref().and_then(|m| m.workspace_subpath.clone());
 
-            // Ensure .shipstudio/ is gitignored
-            let _ = ensure_gitignore_has_shipstudio_sync(&path);
+            // Ensure .shipstudio/ is gitignored (once per project per session)
+            ensure_gitignore_once(&path);
 
             projects.push(DashboardProject {
                 name: entry.file_name().to_string_lossy().to_string(),
@@ -1519,6 +1577,45 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = None;
         }
+    }
+
+    #[test]
+    fn branch_from_head_file_reads_normal_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git_dir = tmp.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/feature/foo-bar\n").unwrap();
+        assert_eq!(
+            branch_from_head_file(tmp.path()),
+            Some("feature/foo-bar".to_string())
+        );
+    }
+
+    #[test]
+    fn branch_from_head_file_none_for_detached_and_non_git() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(branch_from_head_file(tmp.path()), None);
+        let git_dir = tmp.path().join(".git");
+        std::fs::create_dir(&git_dir).unwrap();
+        std::fs::write(
+            git_dir.join("HEAD"),
+            "1234567890abcdef1234567890abcdef12345678\n",
+        )
+        .unwrap();
+        assert_eq!(branch_from_head_file(tmp.path()), None);
+    }
+
+    #[test]
+    fn branch_from_head_file_follows_gitdir_pointer() {
+        // Linked worktrees have a `.git` FILE pointing at the real git dir.
+        let tmp = tempfile::tempdir().unwrap();
+        let real_git = tmp.path().join("repo-git");
+        std::fs::create_dir(&real_git).unwrap();
+        std::fs::write(real_git.join("HEAD"), "ref: refs/heads/wt-branch\n").unwrap();
+        let wt = tmp.path().join("worktree");
+        std::fs::create_dir(&wt).unwrap();
+        std::fs::write(wt.join(".git"), "gitdir: ../repo-git\n").unwrap();
+        assert_eq!(branch_from_head_file(&wt), Some("wt-branch".to_string()));
     }
 
     #[test]

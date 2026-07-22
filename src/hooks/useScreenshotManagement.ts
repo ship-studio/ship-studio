@@ -11,7 +11,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getThumbnailsEnabled, setThumbnailsEnabled } from '../lib/settings';
-import { decideAutoCapture, isPermissionDenialError } from '../lib/thumbnailGate';
+import {
+  decideAutoCapture,
+  isPermissionDenialError,
+  isServerNotRespondingError,
+} from '../lib/thumbnailGate';
 
 /** Delay after page load before capturing screenshot (8 seconds to allow Next.js/Vite to fully compile) */
 const SCREENSHOT_DELAY_MS = 8000;
@@ -193,6 +197,14 @@ export function useScreenshotManagement({
         }
         if (captureSessionIdRef.current !== sessionId) {
           logger.info('[Thumbnail] Skipping retry - session cancelled');
+          return;
+        }
+        // A dev server that isn't answering its port won't start answering
+        // because we retry — the next scheduled capture (preview-ready or the
+        // periodic interval) will get it once the server is really up. Retrying
+        // here burned ~15s of health checks per burst against dead servers.
+        if (isServerNotRespondingError(error)) {
+          logger.info('[Thumbnail] Dev server not responding - skipping retries', { attempt });
           return;
         }
         if (attempt < SCREENSHOT_MAX_RETRIES) {

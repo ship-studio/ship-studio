@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { decideAutoCapture, isPermissionDenialError } from './thumbnailGate';
+import {
+  decideAutoCapture,
+  isPermissionDenialError,
+  isServerNotRespondingError,
+} from './thumbnailGate';
 
 describe('decideAutoCapture', () => {
   it('defers and asks on first run (consent never given)', () => {
@@ -63,5 +67,24 @@ describe('isPermissionDenialError', () => {
   it('handles null/undefined without throwing', () => {
     expect(isPermissionDenialError(null)).toBe(false);
     expect(isPermissionDenialError(undefined)).toBe(false);
+  });
+});
+
+describe('isServerNotRespondingError', () => {
+  it('detects the backend health-check refusal, in Error and CommandError shapes', () => {
+    expect(
+      isServerNotRespondingError(new Error('Dev server not responding, skipping thumbnail capture'))
+    ).toBe(true);
+    expect(
+      isServerNotRespondingError({
+        type: 'Other',
+        message: 'Dev server not responding, skipping thumbnail capture',
+      })
+    ).toBe(true);
+  });
+
+  it('does not flag other capture failures', () => {
+    expect(isServerNotRespondingError(new Error('playwright is not installed'))).toBe(false);
+    expect(isServerNotRespondingError(null)).toBe(false);
   });
 });

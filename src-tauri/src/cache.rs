@@ -37,10 +37,18 @@ pub struct GitCache {
     has_changes: Mutex<HashMap<String, CacheEntry<bool>>>,
     /// Cache for changed files per project
     changed_files: Mutex<HashMap<String, CacheEntry<Vec<crate::types::ChangedFile>>>>,
+    /// Cache for the dashboard scan's uncommitted count per project. Stores
+    /// failures too (`None`) so a repo that errors or times out isn't
+    /// re-forked on every dashboard load within the TTL window.
+    scan_status: Mutex<HashMap<String, CacheEntry<Option<u32>>>>,
     /// TTL for branch cache (longer, branch changes less frequently)
     branch_ttl: Duration,
     /// TTL for status cache (shorter, status changes more frequently)
     status_ttl: Duration,
+    /// TTL for the dashboard scan status cache — deliberately long; the
+    /// dashboard tolerates a slightly stale count, and write operations
+    /// invalidate it anyway.
+    scan_status_ttl: Duration,
 }
 
 impl GitCache {
@@ -49,8 +57,33 @@ impl GitCache {
             current_branch: Mutex::new(HashMap::new()),
             has_changes: Mutex::new(HashMap::new()),
             changed_files: Mutex::new(HashMap::new()),
+            scan_status: Mutex::new(HashMap::new()),
             branch_ttl: Duration::from_secs(5),
             status_ttl: Duration::from_secs(5),
+            scan_status_ttl: Duration::from_secs(30),
+        }
+    }
+
+    /// Get the cached dashboard-scan uncommitted count for a project.
+    /// Outer `None` = cache miss; inner `None` = cached failure.
+    pub fn get_scan_status(&self, project_path: &str) -> Option<Option<u32>> {
+        let cache = self.scan_status.lock().ok()?;
+        let entry = cache.get(project_path)?;
+        if entry.is_expired() {
+            None
+        } else {
+            Some(entry.value)
+        }
+    }
+
+    /// Cache the dashboard-scan uncommitted count (or failure) for a project.
+    pub fn set_scan_status(&self, project_path: &str, count: Option<u32>) {
+        if let Ok(mut cache) = self.scan_status.lock() {
+            cache.retain(|_, entry| !entry.is_expired());
+            cache.insert(
+                project_path.to_string(),
+                CacheEntry::new(count, self.scan_status_ttl),
+            );
         }
     }
 
@@ -148,6 +181,9 @@ impl GitCache {
         if let Ok(mut cache) = self.changed_files.lock() {
             cache.remove(project_path);
         }
+        if let Ok(mut cache) = self.scan_status.lock() {
+            cache.remove(project_path);
+        }
     }
 
     /// Invalidate status caches (branch stays valid, but status changes)
@@ -157,6 +193,9 @@ impl GitCache {
             cache.remove(project_path);
         }
         if let Ok(mut cache) = self.changed_files.lock() {
+            cache.remove(project_path);
+        }
+        if let Ok(mut cache) = self.scan_status.lock() {
             cache.remove(project_path);
         }
     }
@@ -170,6 +209,9 @@ impl GitCache {
             cache.retain(|_, entry| !entry.is_expired());
         }
         if let Ok(mut cache) = self.changed_files.lock() {
+            cache.retain(|_, entry| !entry.is_expired());
+        }
+        if let Ok(mut cache) = self.scan_status.lock() {
             cache.retain(|_, entry| !entry.is_expired());
         }
     }

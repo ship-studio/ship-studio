@@ -216,7 +216,7 @@ describe('useScreenshotManagement auto-capture consent gate', () => {
 
   it('non-denial failure keeps the retry behavior', async () => {
     vi.mocked(getThumbnailsEnabled).mockResolvedValue(true);
-    invokeMock.mockRejectedValue('Dev server not responding, skipping thumbnail capture');
+    invokeMock.mockRejectedValue('playwright screenshot crashed');
     const { result } = renderHook(() => useScreenshotManagement(makeParams()));
 
     await triggerAutoCapture(result);
@@ -227,6 +227,23 @@ describe('useScreenshotManagement auto-capture consent gate', () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
     expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(setThumbnailsEnabled).not.toHaveBeenCalled();
+  });
+
+  it('dead dev server: gives up immediately instead of burning the retry loop', async () => {
+    vi.mocked(getThumbnailsEnabled).mockResolvedValue(true);
+    invokeMock.mockRejectedValue('Dev server not responding, skipping thumbnail capture');
+    const { result } = renderHook(() => useScreenshotManagement(makeParams()));
+
+    await triggerAutoCapture(result);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    // No retry is scheduled — the next scheduled capture will try again when
+    // the server is actually up. Thumbnails stay enabled.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
     expect(setThumbnailsEnabled).not.toHaveBeenCalled();
   });
 });
