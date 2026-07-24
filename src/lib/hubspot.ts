@@ -93,22 +93,25 @@ export function defaultThemeDest(projectPath: string, themeSrc?: string | null):
  * The preview command for a HubSpot theme project. `hs cms theme preview`
  * uploads the theme at `src` to the given Design Tools path, watches for
  * changes, and serves a local preview rendered against the connected account.
- * `--noSsl` keeps it plain HTTP so the app's preview proxy can attach
- * directly. It MUST be the camelCase form: the CLI's help advertises
- * `--no-ssl`, but its strict parser rejects that spelling with "Unknown
- * argument: ssl" (verified against hs 8.10.0); only `--noSsl` parses.
+ *
+ * Runs in the CLI's default HTTPS mode: HubSpot's login redirect (required by
+ * every rendering route) only accepts the `https://hslocal.net` origin, so
+ * plain-HTTP mode can never show a rendered page. The first run on a machine
+ * generates a local mkcert certificate, which asks for the user's password
+ * once in the dev-server logs pane to trust the local CA.
  */
 export function hubspotPreviewCommand(src: string, dest: string, port: number): string {
-  return `hs cms theme preview --src ${src} --dest ${dest} --noSsl --port ${port}`;
+  return `hs cms theme preview --src ${src} --dest ${dest} --port ${port}`;
 }
 
 /**
  * The dev server's canonical external origin. `hslocal.net` resolves to
- * 127.0.0.1 and is the hostname the CLI itself advertises (and HubSpot's
- * login redirect accepts); plain localhost is rejected by the login flow.
+ * 127.0.0.1 and is the hostname the CLI itself advertises; HubSpot's login
+ * redirect (required by every rendering route) accepts only the HTTPS
+ * hslocal.net origin. localhost and plain HTTP are both rejected.
  */
 export function hubspotExternalOrigin(port: number): string {
-  return `http://hslocal.net:${port}`;
+  return `https://hslocal.net:${port}`;
 }
 
 /** Where to get a free HubSpot developer/sandbox account. */

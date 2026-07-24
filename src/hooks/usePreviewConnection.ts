@@ -55,10 +55,14 @@ interface UsePreviewConnectionParams {
   projectPath: string;
   /** Origin to use for URLs handed to the system browser, when the dev server
    *  has a canonical hostname that differs from localhost. HubSpot's CMS dev
-   *  server is addressed as http://hslocal.net:<port> (DNS to 127.0.0.1) and
+   *  server is addressed as https://hslocal.net:<port> (DNS to 127.0.0.1) and
    *  its login redirect expects that origin. Defaults to the localhost dev
    *  server URL. */
   externalOrigin?: string;
+  /** The dev server itself speaks HTTPS (self-signed / mkcert certificate).
+   *  Switches the readiness probe scheme and makes the proxy wrap its
+   *  upstream connection in TLS. */
+  tlsUpstream?: boolean;
   isDevServerRestarting: boolean;
   isStaticProject: boolean;
   onServerReady?: () => void;
@@ -71,6 +75,7 @@ export function usePreviewConnection({
   port,
   projectPath,
   externalOrigin,
+  tlsUpstream,
   isDevServerRestarting,
   isStaticProject,
   onServerReady,
@@ -103,7 +108,7 @@ export function usePreviewConnection({
   // redirect loop — and WebKit renders an empty frame with no error anywhere.
   const [iframeBlank, setIframeBlank] = useState(false);
 
-  const devServerUrl = `http://localhost:${port}`;
+  const devServerUrl = `${tlsUpstream ? 'https' : 'http'}://localhost:${port}`;
   const baseUrl = proxyPort ? `http://localhost:${proxyPort}` : devServerUrl;
   const currentUrl = `${baseUrl}${iframePath === '/' ? '' : iframePath}`;
   // URL safe to hand to the user's default browser: real dev server and
@@ -113,6 +118,37 @@ export function usePreviewConnection({
   // one — see externalOrigin).
   const externalBase = externalOrigin ?? devServerUrl;
   const externalUrl = `${externalBase}${iframePath === '/' ? '' : iframePath}`;
+
+  /** Probe the dev server for liveness. Plain-HTTP servers are probed with a
+   *  webview fetch; TLS upstreams go through the backend (`probe_dev_server`),
+   *  because the webview rejects the dev server's local certificate until its
+   *  CA is trusted. Throws on failure/timeout, mirroring fetch semantics. */
+  const probeDevServer = useCallback(
+    async (timeoutMs: number, controller?: AbortController) => {
+      const ctl = controller ?? new AbortController();
+      const timeoutId = setTimeout(() => ctl.abort(), timeoutMs);
+      try {
+        if (tlsUpstream) {
+          const ok = await Promise.race([
+            invoke<boolean>('probe_dev_server', { port, timeoutMs }),
+            new Promise<never>((_, reject) => {
+              ctl.signal.addEventListener(
+                'abort',
+                () => reject(new DOMException('Aborted', 'AbortError')),
+                { once: true }
+              );
+            }),
+          ]);
+          if (!ok) throw new Error('dev server not responding');
+        } else {
+          await fetch(devServerUrl, { mode: 'no-cors', signal: ctl.signal });
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    },
+    [tlsUpstream, devServerUrl, port]
+  );
 
   const wasRestartingRef = useRef(false);
   const healthCheckFailuresRef = useRef(0);
@@ -284,7 +320,11 @@ export function usePreviewConnection({
     let cancelled = false;
     const windowLabel = getWindowLabel();
 
-    invoke<number>('start_preview_proxy', { windowLabel, targetPort: port })
+    invoke<number>('start_preview_proxy', {
+      windowLabel,
+      targetPort: port,
+      targetTls: tlsUpstream ?? false,
+    })
       .then((proxyP) => {
         if (!cancelled) {
           logger.info('[Preview] Proxy started', { proxyPort: proxyP, targetPort: port });
@@ -300,7 +340,7 @@ export function usePreviewConnection({
       setProxyPort(null);
       invoke('stop_preview_proxy', { windowLabel }).catch(() => {});
     };
-  }, [serverReady, port]);
+  }, [serverReady, port, tlsUpstream]);
 
   // Arm the blank-iframe watchdog on every explicit navigation: initial proxy
   // URL and page select change `currentUrl`, and refresh / same-page select bump
@@ -433,9 +473,7 @@ export function usePreviewConnection({
         // owns recovery, so do nothing here.
         if (!serverReady) return;
         if (Date.now() - lastHmrRecoveryRef.current < 15000) return;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal })
+        probeDevServer(3000)
           .then(() => {
             lastHmrRecoveryRef.current = Date.now();
             logger.warn(
@@ -445,8 +483,7 @@ export function usePreviewConnection({
           })
           .catch(() => {
             // Server unreachable — the periodic health check will surface it.
-          })
-          .finally(() => clearTimeout(timeoutId));
+          });
       }
     };
     window.addEventListener('message', handleMessage);
@@ -457,7 +494,7 @@ export function usePreviewConnection({
     port,
     proxyPort,
     serverReady,
-    devServerUrl,
+    probeDevServer,
     externalBase,
     clearIframeWatchdogTimer,
   ]);
@@ -501,7 +538,7 @@ export function usePreviewConnection({
       readyProbeControllerRef.current = controller;
       const timeoutId = setTimeout(() => controller.abort(), SERVER_READY_TIMEOUT_MS);
       try {
-        await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
+        await probeDevServer(SERVER_READY_TIMEOUT_MS, controller);
 
         logger.info('[Preview] Server check succeeded', { port });
         setIsLoading(false);
@@ -562,12 +599,8 @@ export function usePreviewConnection({
 
     const healthCheck = async () => {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+        await probeDevServer(HEALTH_CHECK_TIMEOUT_MS);
 
-        await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
-
-        clearTimeout(timeoutId);
         healthCheckFailuresRef.current = 0;
       } catch {
         healthCheckFailuresRef.current += 1;
@@ -617,7 +650,7 @@ export function usePreviewConnection({
       stopPolling();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [serverReady, devServerUrl]);
+  }, [serverReady, probeDevServer]);
 
   // Handlers
   const handleRefresh = useCallback(() => {

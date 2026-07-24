@@ -327,6 +327,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     port,
     projectPath,
     externalOrigin: projectType === 'hubspotcms' ? hubspotExternalOrigin(port) : undefined,
+    tlsUpstream: projectType === 'hubspotcms',
     isDevServerRestarting,
     isStaticProject,
     onServerReady,

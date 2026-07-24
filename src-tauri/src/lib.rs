@@ -614,6 +614,7 @@ pub fn run() {
             commands::conflicts::complete_merge,
             // Preview Proxy
             commands::proxy::start_preview_proxy,
+            commands::proxy::probe_dev_server,
             commands::proxy::stop_preview_proxy,
             // Static File Server
             commands::static_server::start_static_server,

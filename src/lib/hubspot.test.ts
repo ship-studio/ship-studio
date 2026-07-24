@@ -35,15 +35,15 @@ describe('defaultThemeDest', () => {
 });
 
 describe('hubspotPreviewCommand', () => {
-  it('builds the preview command with no-ssl and port', () => {
+  it('builds the preview command with the allocated port', () => {
     expect(hubspotPreviewCommand('.', 'my-theme', 3142)).toBe(
-      'hs cms theme preview --src . --dest my-theme --noSsl --port 3142'
+      'hs cms theme preview --src . --dest my-theme --port 3142'
     );
   });
 
   it('passes a nested theme src through', () => {
     expect(hubspotPreviewCommand('rti-2026', 'rti-2026', 3200)).toBe(
-      'hs cms theme preview --src rti-2026 --dest rti-2026 --noSsl --port 3200'
+      'hs cms theme preview --src rti-2026 --dest rti-2026 --port 3200'
     );
   });
 });
