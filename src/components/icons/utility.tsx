@@ -27,6 +27,44 @@ export function PlusIcon({ size = 14 }: IconProps) {
   );
 }
 
+/** Triangle play glyph (lucide play) — start a stopped container. */
+export function PlayIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <polygon points="6 3 20 12 6 21 6 3" />
+    </svg>
+  );
+}
+
+/** Square stop glyph (lucide square) — stop a running container. */
+export function StopIcon({ size = 14, className }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <rect x="5" y="5" width="14" height="14" rx="1.5" />
+    </svg>
+  );
+}
+
 /** Arrow down to a line (lucide arrow-down-to-line) — the git-pull metaphor:
  *  bring the remote's commits down into your working copy. */
 export function PullIcon({ size = 12, className }: IconProps) {
