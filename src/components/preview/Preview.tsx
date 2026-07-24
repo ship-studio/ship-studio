@@ -70,6 +70,7 @@ import { pathLocale, switchPathLocale } from '../../lib/i18n';
 import { kbd } from '../../lib/shortcuts';
 import { useCommands } from '../../commands/useCommands';
 import { logger } from '../../lib/logger';
+import { hubspotExternalOrigin } from '../../lib/hubspot';
 import type { ProjectType } from '../../lib/static-server';
 import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { isEditorFramework, resolveEditorMode } from '../../lib/editorGate';
@@ -325,6 +326,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const conn = usePreviewConnection({
     port,
     projectPath,
+    externalOrigin: projectType === 'hubspotcms' ? hubspotExternalOrigin(port) : undefined,
     isDevServerRestarting,
     isStaticProject,
     onServerReady,

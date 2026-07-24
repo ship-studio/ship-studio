@@ -102,6 +102,15 @@ export function hubspotPreviewCommand(src: string, dest: string, port: number): 
   return `hs cms theme preview --src ${src} --dest ${dest} --noSsl --port ${port}`;
 }
 
+/**
+ * The dev server's canonical external origin. `hslocal.net` resolves to
+ * 127.0.0.1 and is the hostname the CLI itself advertises (and HubSpot's
+ * login redirect accepts); plain localhost is rejected by the login flow.
+ */
+export function hubspotExternalOrigin(port: number): string {
+  return `http://hslocal.net:${port}`;
+}
+
 /** Where to get a free HubSpot developer/sandbox account. */
 export const HUBSPOT_DEVELOPERS_URL = 'https://developers.hubspot.com';
 

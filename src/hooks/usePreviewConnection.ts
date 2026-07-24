@@ -53,6 +53,12 @@ export interface PageInfo {
 interface UsePreviewConnectionParams {
   port: number;
   projectPath: string;
+  /** Origin to use for URLs handed to the system browser, when the dev server
+   *  has a canonical hostname that differs from localhost. HubSpot's CMS dev
+   *  server is addressed as http://hslocal.net:<port> (DNS to 127.0.0.1) and
+   *  its login redirect expects that origin. Defaults to the localhost dev
+   *  server URL. */
+  externalOrigin?: string;
   isDevServerRestarting: boolean;
   isStaticProject: boolean;
   onServerReady?: () => void;
@@ -64,6 +70,7 @@ interface UsePreviewConnectionParams {
 export function usePreviewConnection({
   port,
   projectPath,
+  externalOrigin,
   isDevServerRestarting,
   isStaticProject,
   onServerReady,
@@ -102,8 +109,10 @@ export function usePreviewConnection({
   // URL safe to hand to the user's default browser: real dev server and
   // current iframe path, no proxy. The iframe needs the proxy URL (for
   // navigation tracking and script injection) but external browsers should
-  // land on the dev server directly.
-  const externalUrl = `${devServerUrl}${iframePath === '/' ? '' : iframePath}`;
+  // land on the dev server directly (via its canonical hostname when it has
+  // one — see externalOrigin).
+  const externalBase = externalOrigin ?? devServerUrl;
+  const externalUrl = `${externalBase}${iframePath === '/' ? '' : iframePath}`;
 
   const wasRestartingRef = useRef(false);
   const healthCheckFailuresRef = useRef(0);
@@ -387,10 +396,12 @@ export function usePreviewConnection({
         try {
           const target = new URL(data.url);
           if (target.protocol === 'http:' || target.protocol === 'https:') {
-            const external = new URL(data.url);
-            if (proxyPort && target.port === String(proxyPort)) {
-              external.port = String(port);
-            }
+            // Proxy-origin URLs are rebuilt on the dev server's external
+            // origin (canonical hostname when set); anything else opens as-is.
+            const external =
+              proxyPort && target.port === String(proxyPort)
+                ? new URL(target.pathname + target.search + target.hash, externalBase)
+                : target;
             void openUrl(external.href);
           }
         } catch {
@@ -447,6 +458,7 @@ export function usePreviewConnection({
     proxyPort,
     serverReady,
     devServerUrl,
+    externalBase,
     clearIframeWatchdogTimer,
   ]);
 
