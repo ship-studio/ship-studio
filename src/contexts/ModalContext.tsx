@@ -41,6 +41,7 @@ export type ModalId =
   | 'quitConfirm'
   | 'commandPalette'
   | 'shopifyStore'
+  | 'hubspotTheme'
   | 'worktreeCreate';
 
 interface ModalContextValue {

@@ -77,6 +77,15 @@ import {
   killStaleThemeDev,
   shopifyThemeDevCommand,
 } from '../lib/shopify';
+import {
+  checkHubspotAuthStatus,
+  checkHubspotCliStatus,
+  defaultThemeDest,
+  getHubspotDest,
+  getHubspotThemeSrc,
+  hubspotPreviewCommand,
+  killStaleHubspotPreview,
+} from '../lib/hubspot';
 import { logger } from '../lib/logger';
 import { withTimeoutFallback } from '../lib/withTimeout';
 import { trackEvent } from '../lib/analytics';
@@ -613,11 +622,12 @@ export function useDevServer(currentProjectPath: string | null) {
       // and a theme's optional package.json (Tailwind tooling, or one an
       // agent added) must not block the preview behind an install gate.
       try {
-        // Shopify themes and force-static projects don't need an npm install to
-        // preview: the theme runs via `shopify theme dev`, and a force-static
-        // site is served straight off disk regardless of its build tooling.
+        // Shopify/HubSpot themes and force-static projects don't need an npm
+        // install to preview: themes run via their own CLI (`shopify theme
+        // dev` / `hs cms theme preview`), and a force-static site is served
+        // straight off disk regardless of its build tooling.
         const depStatus =
-          detectedType === 'shopifytheme' || forceStatic
+          detectedType === 'shopifytheme' || detectedType === 'hubspotcms' || forceStatic
             ? { installed: true, hasPackageJson: false }
             : await checkDependenciesInstalled(projectPath);
         if (!depStatus.installed && depStatus.hasPackageJson) {
@@ -764,6 +774,59 @@ export function useDevServer(currentProjectPath: string | null) {
             '[OpenProject] Shopify theme detected, no store connected; deferring dev server',
             { projectPath }
           );
+        }
+      } else if (detectedType === 'hubspotcms') {
+        // HubSpot themes render through `hs cms theme preview`, which needs
+        // the CLI installed and signed in. Without both we defer — the preview
+        // pane shows the HubspotSetup gate, which fixes setup and restarts the
+        // server. The Design Tools destination defaults to the project folder
+        // name, so a configured account is the only real requirement.
+        let hubspotReady = false;
+        try {
+          const [cli, authed] = await Promise.all([
+            checkHubspotCliStatus(),
+            checkHubspotAuthStatus(),
+          ]);
+          hubspotReady = cli.installed && authed;
+        } catch {
+          /* treated as not ready */
+        }
+        if (hubspotReady) {
+          try {
+            const themeSrc = (await getHubspotThemeSrc(projectPath).catch(() => null)) ?? '.';
+            const dest =
+              (await getHubspotDest(projectPath).catch(() => null)) ??
+              defaultThemeDest(projectPath, themeSrc);
+            s.outputBuffer = '';
+            s.healthBuffer = '';
+            s.outputVersion = 0;
+            s.healthVersion = 0;
+            bump();
+            void trackEvent('dev_server_started', {
+              project_type: 'hubspotcms',
+              port,
+              project_name: projectName,
+              $screen_name: 'Workspace',
+            });
+            // Reap prompt-stuck leftovers first: a stale preview holds the
+            // watch session and can stall the new run.
+            await killStaleHubspotPreview().catch(() => undefined);
+            s.handle = await startDevServer(
+              cwd,
+              port,
+              windowLabel,
+              createOutputHandler(projectPath),
+              hubspotPreviewCommand(themeSrc, dest, port)
+            );
+            wireExitWatcher(projectPath, s);
+            logger.info('[OpenProject] HubSpot theme preview started', { themeSrc, dest, port });
+          } catch (error) {
+            logger.error('Failed to start HubSpot theme preview', { error });
+          }
+        } else {
+          logger.info('[OpenProject] HubSpot theme detected, CLI not ready; deferring dev server', {
+            projectPath,
+          });
         }
       } else {
         try {
@@ -955,6 +1018,41 @@ export function useDevServer(currentProjectPath: string | null) {
           s.shopifyLoginDetector = null;
           s.shopifyLoginNudgePending = false;
           await stopAndRestart(shopifyThemeDevCommand(store, effectivePort));
+        } else if (s.type === 'hubspotcms') {
+          // Themes restart through `hs cms theme preview`, never the
+          // package.json fallback. CLI not ready → nothing to restart; the
+          // preview gate handles setup.
+          let ready = false;
+          try {
+            const [cli, authed] = await Promise.all([
+              checkHubspotCliStatus(),
+              checkHubspotAuthStatus(),
+            ]);
+            ready = cli.installed && authed;
+          } catch {
+            /* treated as not ready */
+          }
+          if (!ready) {
+            logger.warn('[DevServer] Restart skipped: HubSpot CLI not installed or signed in');
+            return;
+          }
+          const themeSrc = (await getHubspotThemeSrc(projectPath).catch(() => null)) ?? '.';
+          const dest =
+            (await getHubspotDest(projectPath).catch(() => null)) ??
+            defaultThemeDest(projectPath, themeSrc);
+          try {
+            await withTimeoutFallback(
+              invoke('kill_port', { port: effectivePort }),
+              5000,
+              undefined
+            );
+          } catch {
+            /* Ignore if nothing to kill */
+          }
+          // Reap prompt-stuck leftovers (they never bind the port, so
+          // kill_port can't see them).
+          await killStaleHubspotPreview().catch(() => undefined);
+          await stopAndRestart(hubspotPreviewCommand(themeSrc, dest, effectivePort));
         } else if (s.type === 'statichtml') {
           const windowLabel = getWindowLabel();
           try {

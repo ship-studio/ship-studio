@@ -46,6 +46,11 @@ fn detection_signature(project_path: &std::path::Path) -> u128 {
         // Shopify theme signals (nested paths work — metadata() takes any path)
         "layout/theme.liquid",
         "config/settings_schema.json",
+        // HubSpot CMS theme signals
+        "theme.json",
+        "fields.json",
+        "hubspot.config.yml",
+        "hubspot.config.yaml",
     ];
     let mut max_nanos: u128 = 0;
     for name in SENTINELS {
@@ -231,6 +236,55 @@ pub(crate) fn is_shopify_theme_project(project_path: &std::path::Path) -> bool {
             .exists()
 }
 
+/// Detect if this is a HubSpot CMS theme project.
+///
+/// A HubSpot theme carries both `theme.json` (theme definition) and
+/// `fields.json` (theme fields) in its root — either the project root itself
+/// or a direct subdirectory (real projects often keep the theme in a folder
+/// like `my-theme/` beside docs and agent config). Requiring the pair avoids
+/// colliding with WordPress block themes, which use `theme.json` alone. A
+/// `hubspot.config.yml` (the CLI's per-directory account config) is also
+/// conclusive on its own. Checked before the package.json fallbacks so a
+/// theme that carries a package.json isn't misclassified as Generic.
+pub(crate) fn is_hubspot_cms_project(project_path: &std::path::Path) -> bool {
+    find_hubspot_theme_src_dir(project_path).is_some()
+        || project_path.join("hubspot.config.yml").exists()
+        || project_path.join("hubspot.config.yaml").exists()
+}
+
+/// The project-relative directory holding the HubSpot theme (`"."` for the
+/// project root, or a direct child directory name). Only plain-named children
+/// are considered — the dir name is later interpolated into the preview
+/// command string, which the PTY layer splits on whitespace.
+pub(crate) fn find_hubspot_theme_src_dir(project_path: &std::path::Path) -> Option<String> {
+    let has_pair =
+        |dir: &std::path::Path| dir.join("theme.json").exists() && dir.join("fields.json").exists();
+    if has_pair(project_path) {
+        return Some(".".to_string());
+    }
+    let entries = std::fs::read_dir(project_path).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || name == "node_modules" {
+            continue;
+        }
+        if !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+        {
+            continue;
+        }
+        if has_pair(&path) {
+            return Some(name);
+        }
+    }
+    None
+}
+
 /// Check if a directory contains HTML files in its root
 pub fn has_html_files(project_path: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(project_path) {
@@ -299,6 +353,12 @@ fn detect_project_type_uncached(project_path: &std::path::Path) -> ProjectType {
     // would otherwise fall through to Generic.
     if is_shopify_theme_project(project_path) {
         return ProjectType::Shopifytheme;
+    }
+
+    // HubSpot CMS themes for the same reason — their markers are exclusive and
+    // a theme may carry a package.json for tooling.
+    if is_hubspot_cms_project(project_path) {
+        return ProjectType::Hubspotcms;
     }
 
     // Check framework-specific configs first
@@ -977,6 +1037,86 @@ mod tests {
         assert_eq!(
             detect_project_type_uncached(tmp.path()),
             ProjectType::Shopifytheme
+        );
+    }
+
+    #[test]
+    fn detects_hubspot_cms_via_theme_and_fields_json() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("theme.json"), r#"{"label":"My Theme"}"#).unwrap();
+        std::fs::write(tmp.path().join("fields.json"), "[]").unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Hubspotcms
+        );
+    }
+
+    #[test]
+    fn detects_hubspot_cms_via_config_yml() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("hubspot.config.yml"), "portals: []").unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Hubspotcms
+        );
+    }
+
+    #[test]
+    fn theme_json_alone_is_not_hubspot() {
+        // WordPress block themes also ship a theme.json — without fields.json
+        // (or a hubspot config) it must not classify as a HubSpot theme.
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("theme.json"), r#"{"version":2}"#).unwrap();
+        assert_ne!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Hubspotcms
+        );
+    }
+
+    #[test]
+    fn detects_hubspot_cms_in_nested_theme_dir() {
+        // Real projects often keep the theme in a subfolder beside docs and
+        // agent config (e.g. rti-2026/theme.json).
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("rti-2026")).unwrap();
+        std::fs::write(tmp.path().join("rti-2026/theme.json"), r#"{"label":"T"}"#).unwrap();
+        std::fs::write(tmp.path().join("rti-2026/fields.json"), "[]").unwrap();
+        std::fs::write(tmp.path().join("HUBSPOT_CONNECTION.md"), "notes").unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Hubspotcms
+        );
+        assert_eq!(
+            find_hubspot_theme_src_dir(tmp.path()),
+            Some("rti-2026".to_string())
+        );
+    }
+
+    #[test]
+    fn nested_theme_src_prefers_root_and_skips_hidden_dirs() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".claude")).unwrap();
+        std::fs::write(tmp.path().join("theme.json"), "{}").unwrap();
+        std::fs::write(tmp.path().join("fields.json"), "[]").unwrap();
+        assert_eq!(
+            find_hubspot_theme_src_dir(tmp.path()),
+            Some(".".to_string())
+        );
+    }
+
+    #[test]
+    fn hubspot_theme_with_package_json_is_not_generic() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("theme.json"), r#"{"label":"T"}"#).unwrap();
+        std::fs::write(tmp.path().join("fields.json"), "[]").unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"devDependencies":{"postcss":"8.0.0"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            detect_project_type_uncached(tmp.path()),
+            ProjectType::Hubspotcms
         );
     }
 

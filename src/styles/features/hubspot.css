@@ -1,0 +1,53 @@
+/* HubSpot CMS integration — the preview-pane setup gate (HubspotSetup)
+   and the theme-path modal (HubspotThemeModal). The gate card itself
+   reuses .preview-install-prompt; these are the HubSpot-specific
+   additions (path input, error line, external link). */
+
+.hubspot-setup-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  transition: border-color var(--transition);
+}
+
+.hubspot-setup-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.hubspot-setup-error {
+  color: var(--error);
+  margin: 0;
+}
+
+.hubspot-setup-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
+}
+
+.hubspot-theme-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+}
+
+.hubspot-theme-modal-body .hubspot-setup-input {
+  width: 100%;
+}
+
+.hubspot-theme-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
