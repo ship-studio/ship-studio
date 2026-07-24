@@ -14,6 +14,7 @@ import {
   isPreviewProofOfLife,
   IFRAME_BLANK_TIMEOUT_MS,
 } from './previewIframeWatchdog';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { logger } from '../lib/logger';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
@@ -360,6 +361,7 @@ export function usePreviewConnection({
         pathname?: string;
         status?: number;
         message?: string;
+        url?: string;
       }>
     ) => {
       if (!allowedOrigins.has(event.origin)) return;
@@ -376,6 +378,24 @@ export function usePreviewConnection({
       if (data && data.type === 'shipstudio:navigate' && typeof data.pathname === 'string') {
         const pathname: string = data.pathname || '/';
         setCurrentPage((prev) => (prev === pathname ? prev : pathname));
+      }
+      if (data && data.type === 'shipstudio:open-external' && typeof data.url === 'string') {
+        // The injected proxy script forwards window.open calls here (a no-op
+        // inside the webview otherwise — e.g. dev-tool "open in new tab"
+        // buttons). Map the proxy origin back to the real dev-server origin so
+        // the system browser talks to the server directly, then open it.
+        try {
+          const target = new URL(data.url);
+          if (target.protocol === 'http:' || target.protocol === 'https:') {
+            const external = new URL(data.url);
+            if (proxyPort && target.port === String(proxyPort)) {
+              external.port = String(port);
+            }
+            void openUrl(external.href);
+          }
+        } catch {
+          /* malformed URL from page script — ignore */
+        }
       }
       if (data && data.type === 'shipstudio:error') {
         logger.warn('[Preview] Dev server error detected via proxy', {
