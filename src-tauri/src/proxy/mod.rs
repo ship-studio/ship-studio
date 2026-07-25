@@ -33,6 +33,86 @@ const MAX_BODY_SIZE: usize = 50 * 1024 * 1024;
 /// wedged port and should fail fast instead of holding the request forever.
 const UPSTREAM_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Upstream IO as a trait object so plain-TCP and TLS-wrapped streams share
+/// one code path into hyper's client handshake.
+trait UpstreamStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> UpstreamStream for T {}
+type BoxedUpstream = Box<dyn UpstreamStream>;
+
+/// Certificate verifier that accepts anything. The TLS upstream is always a
+/// dev server on 127.0.0.1 with a locally-generated (mkcert) certificate; the
+/// point of the wrap is protocol compatibility, not authentication.
+#[derive(Debug)]
+struct AcceptAnyCert;
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAnyCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+/// Shared TLS connector for HTTPS upstreams (built once).
+static TLS_CONNECTOR: LazyLock<tokio_rustls::TlsConnector> = LazyLock::new(|| {
+    let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("rustls default protocol versions")
+    .dangerous()
+    .with_custom_certificate_verifier(std::sync::Arc::new(AcceptAnyCert))
+    .with_no_client_auth();
+    tokio_rustls::TlsConnector::from(std::sync::Arc::new(config))
+});
+
+/// Connect to the upstream dev server, wrapping in TLS when it serves HTTPS
+/// (e.g. HubSpot's CMS dev server at hslocal.net). SNI is sent as
+/// `hslocal.net`; the certificate is not verified (see AcceptAnyCert).
+async fn connect_upstream(target_port: u16, target_tls: bool) -> std::io::Result<BoxedUpstream> {
+    // Connect via hostname so both IPv4 and IPv6 are tried (Vite binds ::1).
+    let tcp = TcpStream::connect(format!("localhost:{target_port}")).await?;
+    if !target_tls {
+        return Ok(Box::new(tcp));
+    }
+    let server_name = rustls::pki_types::ServerName::try_from("hslocal.net")
+        .map_err(|e| std::io::Error::other(format!("invalid SNI name: {e}")))?;
+    let tls = TLS_CONNECTOR
+        .connect(server_name, tcp)
+        .await
+        .map_err(|e| std::io::Error::other(format!("TLS handshake failed: {e}")))?;
+    Ok(Box::new(tls))
+}
+
 /// Timeout for the upstream response headers. Must be generous: dev servers
 /// compile routes on demand and hold the request open until the compile
 /// finishes — tens of seconds on a real dependency tree (the frontend's
@@ -61,7 +141,7 @@ const HEAD_SCAN_CAP: usize = 256 * 1024;
 /// A subframe load that WebKit aborts (e.g. an auth redirect loop, issue #179)
 /// renders empty and never runs this script, so the watchdog fires and the app
 /// can surface the failure instead of showing a silent blank pane.
-const NAV_SCRIPT: &str = r#"<script>(function(){window.parent.postMessage({type:'shipstudio:alive'},'*');var n=function(){window.parent.postMessage({type:'shipstudio:navigate',pathname:location.pathname},'*')};var p=history.pushState;var r=history.replaceState;history.pushState=function(){p.apply(this,arguments);n()};history.replaceState=function(){r.apply(this,arguments);n()};window.addEventListener('popstate',n);n()})()</script>"#;
+const NAV_SCRIPT: &str = r#"<script>(function(){window.parent.postMessage({type:'shipstudio:alive'},'*');var n=function(){window.parent.postMessage({type:'shipstudio:navigate',pathname:location.pathname},'*')};var p=history.pushState;var r=history.replaceState;history.pushState=function(){p.apply(this,arguments);n()};history.replaceState=function(){r.apply(this,arguments);n()};window.addEventListener('popstate',n);n();var x=function(a){if(a.origin===location.origin){location.assign(a.href);return}if(a.protocol==='http:'||a.protocol==='https:'){window.parent.postMessage({type:'shipstudio:open-external',url:a.href},'*')}};var o=window.open;window.open=function(u,t){if(!u){return o?o.apply(window,arguments):null}var a;try{a=new URL(u,location.href)}catch(e){return null}x(a);return null};document.addEventListener('click',function(ev){var el=ev.target&&ev.target.closest?ev.target.closest('a[target]'):null;if(!el||!el.href){return}var t=(el.target||'').toLowerCase();if(t!=='_blank'&&t!=='_top'&&t!=='_parent'){return}var a;try{a=new URL(el.href,location.href)}catch(e){return}ev.preventDefault();x(a)},true);document.addEventListener('contextmenu',function(ev){ev.preventDefault();window.parent.postMessage({type:'shipstudio:context-menu',x:ev.clientX,y:ev.clientY,canGoBack:history.length>1},'*')});window.addEventListener('message',function(ev){var d=ev.data;if(d&&d.type==='shipstudio:go-back'){history.back()}})})()</script>"#;
 
 /// Visual-editor selection layer, injected into every preview HTML response but
 /// **inert until** the parent posts `ss:activate`. When active it outlines the
@@ -447,7 +527,11 @@ static PROXY_INSTANCES: LazyLock<Mutex<HashMap<String, ProxyInstance>>> =
 
 /// Start a reverse proxy for the given window, forwarding to `target_port`.
 /// Returns the proxy's listening port.
-pub async fn start_preview_proxy(window_label: String, target_port: u16) -> Result<u16, String> {
+pub async fn start_preview_proxy(
+    window_label: String,
+    target_port: u16,
+    target_tls: bool,
+) -> Result<u16, String> {
     // Stop any existing proxy for this window
     stop_preview_proxy(&window_label);
 
@@ -475,7 +559,7 @@ pub async fn start_preview_proxy(window_label: String, target_port: u16) -> Resu
                 result = listener.accept() => {
                     match result {
                         Ok((stream, addr)) => {
-                            tokio::spawn(handle_connection(stream, addr, target_port));
+                            tokio::spawn(handle_connection(stream, addr, target_port, target_tls));
                         }
                         Err(e) => {
                             tracing::error!("[Proxy] Accept error: {}", e);
@@ -531,10 +615,16 @@ pub fn stop_all_proxies() {
 }
 
 /// Handle a single incoming TCP connection.
-async fn handle_connection(stream: TcpStream, addr: SocketAddr, target_port: u16) {
+async fn handle_connection(
+    stream: TcpStream,
+    addr: SocketAddr,
+    target_port: u16,
+    target_tls: bool,
+) {
     let io = TokioIo::new(stream);
 
-    let service = service_fn(move |req: Request<Incoming>| handle_request(req, target_port));
+    let service =
+        service_fn(move |req: Request<Incoming>| handle_request(req, target_port, target_tls));
 
     if let Err(e) = http1::Builder::new()
         .preserve_header_case(true)
@@ -552,14 +642,15 @@ async fn handle_connection(stream: TcpStream, addr: SocketAddr, target_port: u16
 async fn handle_request(
     req: Request<Incoming>,
     target_port: u16,
+    target_tls: bool,
 ) -> Result<Response<ProxyBody>, hyper::Error> {
     let is_websocket = is_upgrade_request(&req);
 
     if is_websocket {
-        return handle_websocket_upgrade(req, target_port).await;
+        return handle_websocket_upgrade(req, target_port, target_tls).await;
     }
 
-    match proxy_http_request(req, target_port).await {
+    match proxy_http_request(req, target_port, target_tls).await {
         Ok(resp) => Ok(resp),
         Err(e) => {
             tracing::error!("[Proxy] Request failed: {}", e);
@@ -587,13 +678,11 @@ fn is_upgrade_request(req: &Request<Incoming>) -> bool {
 async fn proxy_http_request(
     req: Request<Incoming>,
     target_port: u16,
+    target_tls: bool,
 ) -> Result<Response<ProxyBody>, Box<dyn std::error::Error + Send + Sync>> {
-    // Connect to target via hostname so both IPv4 and IPv6 are tried.
-    // Vite-based dev servers (Astro, SvelteKit, Nuxt) bind to `localhost` which
-    // resolves to `::1` (IPv6) on macOS -- hardcoding 127.0.0.1 fails for those.
     let stream = tokio::time::timeout(
         UPSTREAM_CONNECT_TIMEOUT,
-        TcpStream::connect(format!("localhost:{target_port}")),
+        connect_upstream(target_port, target_tls),
     )
     .await??;
     let io = TokioIo::new(stream);
@@ -799,11 +888,11 @@ async fn proxy_http_request(
 async fn handle_websocket_upgrade(
     req: Request<Incoming>,
     target_port: u16,
+    target_tls: bool,
 ) -> Result<Response<ProxyBody>, hyper::Error> {
-    // Connect via hostname for IPv4/IPv6 compatibility (see proxy_http_request)
     let target_stream = match tokio::time::timeout(
         UPSTREAM_CONNECT_TIMEOUT,
-        TcpStream::connect(format!("localhost:{target_port}")),
+        connect_upstream(target_port, target_tls),
     )
     .await
     .map_err(std::io::Error::from)
@@ -1357,7 +1446,7 @@ mod e2e_tests {
             captured.clone(),
         )
         .await;
-        let proxy_port = start_preview_proxy("e2e-http".into(), upstream)
+        let proxy_port = start_preview_proxy("e2e-http".into(), upstream, false)
             .await
             .unwrap();
 
@@ -1400,7 +1489,7 @@ mod e2e_tests {
             captured.clone(),
         )
         .await;
-        let proxy_port = start_preview_proxy("e2e-ws".into(), upstream)
+        let proxy_port = start_preview_proxy("e2e-ws".into(), upstream, false)
             .await
             .unwrap();
 
@@ -1457,7 +1546,7 @@ mod e2e_tests {
             stream.write_all(tail.as_bytes()).await.unwrap();
         });
 
-        let proxy_port = start_preview_proxy("e2e-stream".into(), upstream)
+        let proxy_port = start_preview_proxy("e2e-stream".into(), upstream, false)
             .await
             .unwrap();
         let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();

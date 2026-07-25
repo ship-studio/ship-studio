@@ -361,6 +361,10 @@ pub async fn add_worktree(
         assets_root: parent_meta.assets_root.clone(),
         account_id: parent_meta.account_id.clone(),
         default_base_branch: parent_meta.default_base_branch.clone(),
+        // CMS bindings must survive into worktrees or their previews re-show
+        // the connect gate (shopify_store was previously dropped here).
+        shopify_store: parent_meta.shopify_store.clone(),
+        hubspot_dest: parent_meta.hubspot_dest.clone(),
         ..Default::default()
     };
     let port = pick_free_port(parent_meta.dev_server_port.unwrap_or(3000));

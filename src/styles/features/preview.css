@@ -1220,3 +1220,32 @@
   font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
+
+/* Right-click menu forwarded from the preview iframe (injected script). */
+.preview-context-menu {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  min-width: 180px;
+  padding: var(--spacing-xs);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.preview-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.preview-context-menu-item:hover {
+  background: var(--bg-tertiary);
+}

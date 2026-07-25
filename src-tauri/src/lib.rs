@@ -556,6 +556,13 @@ pub fn run() {
             commands::shopify::get_shopify_store,
             commands::shopify::set_shopify_store,
             commands::shopify::kill_stale_theme_dev,
+            // HubSpot CMS integration
+            commands::hubspot::check_hubspot_cli_status,
+            commands::hubspot::check_hubspot_auth_status,
+            commands::hubspot::get_hubspot_theme_src,
+            commands::hubspot::get_hubspot_dest,
+            commands::hubspot::set_hubspot_dest,
+            commands::hubspot::kill_stale_hubspot_preview,
             // Claude skills
             commands::skills::list_claude_skills,
             commands::skills::check_skills_cli,
@@ -607,6 +614,7 @@ pub fn run() {
             commands::conflicts::complete_merge,
             // Preview Proxy
             commands::proxy::start_preview_proxy,
+            commands::proxy::probe_dev_server,
             commands::proxy::stop_preview_proxy,
             // Static File Server
             commands::static_server::start_static_server,

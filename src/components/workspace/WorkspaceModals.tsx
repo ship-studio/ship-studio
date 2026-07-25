@@ -23,6 +23,7 @@ import { PluginManager } from '../plugins/PluginManager';
 import { DevCommandModal } from '../terminal/DevCommandModal';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { ShopifyStoreModal } from '../shopify/ShopifyStoreModal';
+import { HubspotThemeModal } from '../hubspot/HubspotThemeModal';
 import { GitErrorHandler } from '../branches/GitErrorHandler';
 import { SubmitReviewModal } from '../branches/SubmitReviewModal';
 import { WorktreeCreateModal } from '../branches/WorktreeCreateModal';
@@ -148,6 +149,10 @@ export interface WorkspaceModalsProps {
   // Shopify store modal — read state via useModal('shopifyStore')
   isShopifyTheme: boolean;
   onShopifyStoreSaved: () => void;
+  /** Whether the current project is a HubSpot CMS theme. */
+  isHubspotTheme: boolean;
+  /** Called after the HubSpot theme path is saved (restarts the preview). */
+  onHubspotDestSaved: () => void;
 
   // Worktree create modal — read state via useModal('worktreeCreate')
   currentBranch: string;
@@ -221,6 +226,8 @@ export function WorkspaceModals({
   isWebProject,
   isShopifyTheme,
   onShopifyStoreSaved,
+  isHubspotTheme,
+  onHubspotDestSaved,
   currentBranch,
   worktrees,
   onWorktreeCreated,
@@ -472,6 +479,10 @@ export function WorkspaceModals({
       {/* Shopify store connect/change modal */}
       {isShopifyTheme && (
         <ShopifyStoreModal projectPath={projectPath} onStoreSaved={onShopifyStoreSaved} />
+      )}
+
+      {isHubspotTheme && (
+        <HubspotThemeModal projectPath={projectPath} onDestSaved={onHubspotDestSaved} />
       )}
 
       {/* Project Settings Modal */}

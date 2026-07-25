@@ -70,6 +70,7 @@ import { pathLocale, switchPathLocale } from '../../lib/i18n';
 import { kbd } from '../../lib/shortcuts';
 import { useCommands } from '../../commands/useCommands';
 import { logger } from '../../lib/logger';
+import { hubspotExternalOrigin } from '../../lib/hubspot';
 import type { ProjectType } from '../../lib/static-server';
 import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { isEditorFramework, resolveEditorMode } from '../../lib/editorGate';
@@ -325,6 +326,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const conn = usePreviewConnection({
     port,
     projectPath,
+    externalOrigin: projectType === 'hubspotcms' ? hubspotExternalOrigin(port) : undefined,
+    tlsUpstream: projectType === 'hubspotcms',
     isDevServerRestarting,
     isStaticProject,
     onServerReady,
@@ -519,6 +522,37 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   }, [showLogs, computeMaxPanelHeight]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Right-click menu forwarded from inside the preview iframe (the injected
+  // proxy script intercepts contextmenu). Gives the preview a "back" without
+  // adding toolbar chrome: the iframe keeps its own session history, so back
+  // is just history.back() executed inside the frame.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<{ type?: string; x?: number; y?: number }>) => {
+      const data = event.data;
+      if (!data || data.type !== 'shipstudio:context-menu') return;
+      if (typeof data.x !== 'number' || typeof data.y !== 'number') return;
+      setCtxMenu({ x: data.x, y: data.y });
+    };
+    const dismiss = () => setCtxMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dismiss();
+    };
+    window.addEventListener('message', onMessage);
+    window.addEventListener('click', dismiss);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      window.removeEventListener('click', dismiss);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
+  const handlePreviewBack = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage({ type: 'shipstudio:go-back' }, '*');
+    setCtxMenu(null);
+  }, []);
   // The editor only works when Tailwind actually compiles in the project — a bare
   // `@import "tailwindcss"` without the Vite/PostCSS plugin produces dead classes.
   // Gate on a backend check so projects without Tailwind never show the edit button.
@@ -1406,6 +1440,16 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               src={conn.serverReady ? conn.currentUrl : 'about:blank'}
               className="preview-iframe"
               title="Preview"
+              // HubSpot-rendered pages carry frame-buster scripts and
+              // target=_top links that would navigate Ship Studio's own
+              // window to the site (the preview "takes over" the app). The
+              // sandbox blocks top navigation; the injected bridge routes
+              // those links in-iframe so they still work.
+              sandbox={
+                projectType === 'hubspotcms'
+                  ? 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads'
+                  : undefined
+              }
               onLoad={conn.handleIframeLoad}
               // Scale-to-fit (Chrome-DevTools style): lay the page out at the
               // true breakpoint width and shrink the rendering to the wrapper.
@@ -1423,6 +1467,21 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                   : undefined
               }
             />
+            {ctxMenu && (
+              <div
+                className="preview-context-menu"
+                style={{ left: ctxMenu.x, top: ctxMenu.y }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="preview-context-menu-item"
+                  onClick={handlePreviewBack}
+                >
+                  Back to previous screen
+                </button>
+              </div>
+            )}
             {/* Structural-edit toolbar, tracking the canvas selection box */}
             {activeEditMode && (
               <ElementToolbar

@@ -19,6 +19,7 @@ export type ProjectType =
   | 'reactnative'
   | 'flutter'
   | 'shopifytheme'
+  | 'hubspotcms'
   | 'generic'
   | 'unknown';
 

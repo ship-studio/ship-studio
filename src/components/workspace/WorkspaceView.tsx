@@ -67,6 +67,8 @@ import type { Project } from '../../lib/project';
 import { isMobileProjectType, type ProjectType } from '../../lib/static-server';
 import { ShopifySetup } from '../shopify/ShopifySetup';
 import { useShopifyTheme } from '../../hooks/useShopifyTheme';
+import { HubspotSetup } from '../hubspot/HubspotSetup';
+import { useHubspot } from '../../hooks/useHubspot';
 import { isMac } from '../../lib/setup';
 import { kbd } from '../../lib/shortcuts';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
@@ -763,6 +765,15 @@ export const WorkspaceView = memo(function WorkspaceView({
     restartDevServer: handleRestartDevServer,
   });
 
+  // HubSpot CMS themes: preview gate state + palette commands.
+  const hubspot = useHubspot({
+    projectPath: currentProject.path,
+    projectType,
+    onSendToAgent: sendToClaude,
+    showToast,
+    restartDevServer: handleRestartDevServer,
+  });
+
   // Per-turn working-tree snapshots so users can undo/redo agent edits.
   const {
     canUndo,
@@ -1447,57 +1458,69 @@ export const WorkspaceView = memo(function WorkspaceView({
                           onConnected={shopify.connect}
                         />
                       )}
-                      {workspaceTab === 'preview' && isWebProject && !shopify.showGate && (
-                        <div style={{ flex: 1, display: 'flex' }}>
-                          <Preview
-                            key={`${currentProject.path}-${devServerPort}`}
-                            ref={previewRef}
-                            port={devServerPort}
-                            projectPath={currentProject.path}
-                            isStaticProject={projectType === 'statichtml'}
-                            projectType={projectType}
-                            onServerReady={handlePreviewReady}
-                            onPageChange={setCurrentPreviewPage}
-                            isCropMode={isCropMode}
-                            onCropStart={handleCropStart}
-                            onCropComplete={handleCropComplete}
-                            onCropCancel={handleCropCancel}
-                            isBranchSwitching={isBranchSwitching}
-                            isDevServerRestarting={isRestartingDevServer}
-                            onSendToClaude={sendToClaude}
-                            showLogs={showPreviewLogs}
-                            onToggleLogs={hasDevServer ? togglePreviewLogs : undefined}
-                            devServerOutput={devServerOutput}
-                            devServerOutputVersion={devServerOutputVersion}
-                            onDevServerInput={onDevServerInput}
-                            onDevServerResize={onDevServerResize}
-                            inspectTab={inspectTab}
-                            onInspectTabChange={setInspectTab}
-                            healthPanelRef={healthPanelRef}
-                            onHealthOutput={handleHealthOutput}
-                            needsInstall={needsInstall}
-                            devServerUnexpectedExit={devServerUnexpectedExit}
-                            onRestartDevServer={() => void handleRestartDevServer()}
-                            onRunInstall={onRunInstall}
-                            onOpenInCode={openInCode}
-                            canUndo={canUndo}
-                            canRedo={canRedo}
-                            undoTitle={undoTitle}
-                            redoTitle={redoTitle}
-                            onUndo={() => void undoSnapshot()}
-                            onRedo={() => void redoSnapshot()}
-                            previewPlugins={
-                              <PluginSlot
-                                name="preview"
-                                plugins={getSlotPlugins('preview')}
-                                project={pluginProject}
-                                actions={pluginActions}
-                                theme={pluginTheme}
-                              />
-                            }
-                          />
-                        </div>
+                      {workspaceTab === 'preview' && isWebProject && hubspot.showGate && (
+                        <HubspotSetup
+                          key={currentProject.path}
+                          projectPath={currentProject.path}
+                          onSendToAgent={sendToClaude}
+                          onReady={hubspot.markReady}
+                          onConnected={hubspot.connect}
+                        />
                       )}
+                      {workspaceTab === 'preview' &&
+                        isWebProject &&
+                        !shopify.showGate &&
+                        !hubspot.showGate && (
+                          <div style={{ flex: 1, display: 'flex' }}>
+                            <Preview
+                              key={`${currentProject.path}-${devServerPort}`}
+                              ref={previewRef}
+                              port={devServerPort}
+                              projectPath={currentProject.path}
+                              isStaticProject={projectType === 'statichtml'}
+                              projectType={projectType}
+                              onServerReady={handlePreviewReady}
+                              onPageChange={setCurrentPreviewPage}
+                              isCropMode={isCropMode}
+                              onCropStart={handleCropStart}
+                              onCropComplete={handleCropComplete}
+                              onCropCancel={handleCropCancel}
+                              isBranchSwitching={isBranchSwitching}
+                              isDevServerRestarting={isRestartingDevServer}
+                              onSendToClaude={sendToClaude}
+                              showLogs={showPreviewLogs}
+                              onToggleLogs={hasDevServer ? togglePreviewLogs : undefined}
+                              devServerOutput={devServerOutput}
+                              devServerOutputVersion={devServerOutputVersion}
+                              onDevServerInput={onDevServerInput}
+                              onDevServerResize={onDevServerResize}
+                              inspectTab={inspectTab}
+                              onInspectTabChange={setInspectTab}
+                              healthPanelRef={healthPanelRef}
+                              onHealthOutput={handleHealthOutput}
+                              needsInstall={needsInstall}
+                              devServerUnexpectedExit={devServerUnexpectedExit}
+                              onRestartDevServer={() => void handleRestartDevServer()}
+                              onRunInstall={onRunInstall}
+                              onOpenInCode={openInCode}
+                              canUndo={canUndo}
+                              canRedo={canRedo}
+                              undoTitle={undoTitle}
+                              redoTitle={redoTitle}
+                              onUndo={() => void undoSnapshot()}
+                              onRedo={() => void redoSnapshot()}
+                              previewPlugins={
+                                <PluginSlot
+                                  name="preview"
+                                  plugins={getSlotPlugins('preview')}
+                                  project={pluginProject}
+                                  actions={pluginActions}
+                                  theme={pluginTheme}
+                                />
+                              }
+                            />
+                          </div>
+                        )}
                       {workspaceTab === 'preview' && mobilePreviewAvailable && (
                         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
                           <DeviceMirror
@@ -1637,6 +1660,8 @@ export const WorkspaceView = memo(function WorkspaceView({
           isWebProject={isWebProject}
           isShopifyTheme={shopify.isShopifyTheme}
           onShopifyStoreSaved={shopify.connect}
+          isHubspotTheme={hubspot.isHubspotTheme}
+          onHubspotDestSaved={hubspot.connect}
           pluginTerminal={pluginTerminal}
           pluginTerminalExited={pluginTerminalExited}
           onClosePluginTerminal={closePluginTerminal}

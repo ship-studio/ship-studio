@@ -26,6 +26,10 @@ pub enum ProjectType {
     /// Shopify Liquid theme (Online Store 2.0). Previewed via `shopify theme dev`,
     /// which renders Liquid server-side against a connected store.
     Shopifytheme,
+    /// HubSpot CMS theme (HubL). Previewed via `hs cms theme preview`, which
+    /// uploads + watches the theme and serves a local preview rendered against
+    /// the connected HubSpot account.
+    Hubspotcms,
     /// Has package.json but isn't a recognized web framework (Tauri, CLI tools, etc.)
     Generic,
     Unknown,
@@ -233,6 +237,11 @@ pub struct ProjectMetadata {
     /// connects a store via the preview-pane setup flow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shopify_store: Option<String>,
+    /// HubSpot Design Tools destination path for HubSpot CMS theme projects.
+    /// Passed to `hs cms theme preview --dest` and `hs cms upload`. `None`
+    /// falls back to the project folder name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hubspot_dest: Option<String>,
     /// ID of the Workspace (Account) this project belongs to — set the first
     /// time the project is opened. `None` for projects opened before the
     /// Workspace picker existed; these are treated as belonging to the
@@ -281,6 +290,7 @@ impl Default for ProjectMetadata {
             workspace_subpath: None,
             assets_root: None,
             shopify_store: None,
+            hubspot_dest: None,
             account_id: None,
             default_base_branch: None,
             branch_lineage: None,

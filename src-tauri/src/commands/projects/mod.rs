@@ -698,8 +698,64 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
     Ok(projects)
 }
 
+/// The default Design Tools destination for a HubSpot theme: the theme
+/// folder's name (the src dir when nested, else the project folder),
+/// normalized the same way the frontend's `defaultThemeDest` does so the
+/// preview command and the page routes always agree.
+fn hubspot_default_dest(project: &Path, src: &str) -> String {
+    // Generic theme-dir names (the boilerplate keeps its theme in `src/`)
+    // would make a meaningless Design Tools path; use the project name.
+    let base = if src != "." && src != "src" {
+        src.to_string()
+    } else {
+        project
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "theme".to_string())
+    };
+    let normalized: String = base
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_whitespace() { '-' } else { c })
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
+        .collect();
+    let normalized = normalized.trim_matches('/').to_string();
+    if normalized.is_empty() {
+        "theme".to_string()
+    } else {
+        normalized
+    }
+}
+
+/// Recursively collect a HubSpot theme's template files as preview routes.
+/// Skips `partials` directories: partials aren't standalone pages and fail to
+/// render outside a parent template.
+fn collect_hubspot_templates(dir: &Path, rel: &str, dest: &str, pages: &mut Vec<PageInfo>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if path.is_dir() {
+            if name != "partials" && !name.starts_with('.') {
+                collect_hubspot_templates(&path, &format!("{rel}{name}/"), dest, pages);
+            }
+        } else if name.ends_with(".html") {
+            pages.push(PageInfo {
+                route: format!("/template/{dest}/templates/{rel}{name}"),
+                file_path: path.to_string_lossy().to_string(),
+            });
+        }
+    }
+}
+
 /// Scans a project's pages/routes directory for page routes.
-/// Supports Next.js, SvelteKit, Astro, Nuxt, and static HTML projects.
+/// Supports Next.js, SvelteKit, Astro, Nuxt, static HTML, and HubSpot CMS
+/// theme projects.
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandError> {
@@ -739,6 +795,38 @@ pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandEr
                 return Ok(pages);
             }
             Ok(Vec::new())
+        }
+        ProjectType::Hubspotcms => {
+            // The CMS dev server renders templates at
+            // /template/<dest>/templates/<file>, where <dest> is the Design
+            // Tools path the theme uploads to. List the theme's template files
+            // so the page selector navigates the preview like any other type.
+            let Some(src) = detection::find_hubspot_theme_src_dir(&project) else {
+                return Ok(Vec::new());
+            };
+            let theme_root = if src == "." {
+                project.clone()
+            } else {
+                project.join(&src)
+            };
+            let metadata = crate::commands::git::load_project_metadata(&project);
+            let dest = metadata
+                .hubspot_dest
+                .unwrap_or_else(|| hubspot_default_dest(&project, &src));
+            let templates_dir = theme_root.join("templates");
+            let mut pages = Vec::new();
+            collect_hubspot_templates(&templates_dir, "", &dest, &mut pages);
+            detection::sort_pages(&mut pages);
+            // The dev server home ("/" = template + module index) is always
+            // navigable and belongs at the top of the selector.
+            pages.insert(
+                0,
+                PageInfo {
+                    route: "/".to_string(),
+                    file_path: theme_root.to_string_lossy().to_string(),
+                },
+            );
+            Ok(pages)
         }
         ProjectType::Nuxt => {
             let pages_dir = project.join("pages");
