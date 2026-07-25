@@ -1440,6 +1440,16 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               src={conn.serverReady ? conn.currentUrl : 'about:blank'}
               className="preview-iframe"
               title="Preview"
+              // HubSpot-rendered pages carry frame-buster scripts and
+              // target=_top links that would navigate Ship Studio's own
+              // window to the site (the preview "takes over" the app). The
+              // sandbox blocks top navigation; the injected bridge routes
+              // those links in-iframe so they still work.
+              sandbox={
+                projectType === 'hubspotcms'
+                  ? 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads'
+                  : undefined
+              }
               onLoad={conn.handleIframeLoad}
               // Scale-to-fit (Chrome-DevTools style): lay the page out at the
               // true breakpoint width and shrink the rendering to the wrapper.

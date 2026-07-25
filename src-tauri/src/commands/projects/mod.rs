@@ -726,6 +726,31 @@ fn hubspot_default_dest(project: &Path, src: &str) -> String {
     }
 }
 
+/// Recursively collect a HubSpot theme's template files as preview routes.
+/// Skips `partials` directories: partials aren't standalone pages and fail to
+/// render outside a parent template.
+fn collect_hubspot_templates(dir: &Path, rel: &str, dest: &str, pages: &mut Vec<PageInfo>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if path.is_dir() {
+            if name != "partials" && !name.starts_with('.') {
+                collect_hubspot_templates(&path, &format!("{rel}{name}/"), dest, pages);
+            }
+        } else if name.ends_with(".html") {
+            pages.push(PageInfo {
+                route: format!("/template/{dest}/templates/{rel}{name}"),
+                file_path: path.to_string_lossy().to_string(),
+            });
+        }
+    }
+}
+
 /// Scans a project's pages/routes directory for page routes.
 /// Supports Next.js, SvelteKit, Astro, Nuxt, static HTML, and HubSpot CMS
 /// theme projects.
@@ -788,21 +813,17 @@ pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandEr
                 .unwrap_or_else(|| hubspot_default_dest(&project, &src));
             let templates_dir = theme_root.join("templates");
             let mut pages = Vec::new();
-            if let Ok(entries) = std::fs::read_dir(&templates_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                        continue;
-                    };
-                    if path.is_file() && name.ends_with(".html") {
-                        pages.push(PageInfo {
-                            route: format!("/template/{dest}/templates/{name}"),
-                            file_path: path.to_string_lossy().to_string(),
-                        });
-                    }
-                }
-            }
+            collect_hubspot_templates(&templates_dir, "", &dest, &mut pages);
             detection::sort_pages(&mut pages);
+            // The dev server home ("/" = template + module index) is always
+            // navigable and belongs at the top of the selector.
+            pages.insert(
+                0,
+                PageInfo {
+                    route: "/".to_string(),
+                    file_path: theme_root.to_string_lossy().to_string(),
+                },
+            );
             Ok(pages)
         }
         ProjectType::Nuxt => {
