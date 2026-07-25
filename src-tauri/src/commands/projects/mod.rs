@@ -698,8 +698,37 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
     Ok(projects)
 }
 
+/// The default Design Tools destination for a HubSpot theme: the theme
+/// folder's name (the src dir when nested, else the project folder),
+/// normalized the same way the frontend's `defaultThemeDest` does so the
+/// preview command and the page routes always agree.
+fn hubspot_default_dest(project: &Path, src: &str) -> String {
+    let base = if src != "." {
+        src.to_string()
+    } else {
+        project
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "theme".to_string())
+    };
+    let normalized: String = base
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_whitespace() { '-' } else { c })
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
+        .collect();
+    let normalized = normalized.trim_matches('/').to_string();
+    if normalized.is_empty() {
+        "theme".to_string()
+    } else {
+        normalized
+    }
+}
+
 /// Scans a project's pages/routes directory for page routes.
-/// Supports Next.js, SvelteKit, Astro, Nuxt, and static HTML projects.
+/// Supports Next.js, SvelteKit, Astro, Nuxt, static HTML, and HubSpot CMS
+/// theme projects.
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandError> {
@@ -739,6 +768,42 @@ pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandEr
                 return Ok(pages);
             }
             Ok(Vec::new())
+        }
+        ProjectType::Hubspotcms => {
+            // The CMS dev server renders templates at
+            // /template/<dest>/templates/<file>, where <dest> is the Design
+            // Tools path the theme uploads to. List the theme's template files
+            // so the page selector navigates the preview like any other type.
+            let Some(src) = detection::find_hubspot_theme_src_dir(&project) else {
+                return Ok(Vec::new());
+            };
+            let theme_root = if src == "." {
+                project.clone()
+            } else {
+                project.join(&src)
+            };
+            let metadata = crate::commands::git::load_project_metadata(&project);
+            let dest = metadata
+                .hubspot_dest
+                .unwrap_or_else(|| hubspot_default_dest(&project, &src));
+            let templates_dir = theme_root.join("templates");
+            let mut pages = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(&templates_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                        continue;
+                    };
+                    if path.is_file() && name.ends_with(".html") {
+                        pages.push(PageInfo {
+                            route: format!("/template/{dest}/templates/{name}"),
+                            file_path: path.to_string_lossy().to_string(),
+                        });
+                    }
+                }
+            }
+            detection::sort_pages(&mut pages);
+            Ok(pages)
         }
         ProjectType::Nuxt => {
             let pages_dir = project.join("pages");
