@@ -32,6 +32,10 @@ describe('defaultThemeDest', () => {
       'rti-2026'
     );
   });
+
+  it('falls back to the project name for a generic src dir (boilerplate layout)', () => {
+    expect(defaultThemeDest('/Users/me/ShipStudio/My HubSpot Site', 'src')).toBe('my-hubspot-site');
+  });
 });
 
 describe('hubspotPreviewCommand', () => {

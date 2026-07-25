@@ -79,13 +79,14 @@ export function normalizeThemeDest(input: string): string | null {
  * Keeps the preview zero-config for the common case.
  */
 export function defaultThemeDest(projectPath: string, themeSrc?: string | null): string {
-  const base =
-    themeSrc && themeSrc !== '.'
-      ? themeSrc
-      : (projectPath
-          .replace(/[/\\]+$/, '')
-          .split(/[/\\]/)
-          .pop() ?? 'theme');
+  const projectName =
+    projectPath
+      .replace(/[/\\]+$/, '')
+      .split(/[/\\]/)
+      .pop() ?? 'theme';
+  // Generic theme-dir names (the boilerplate keeps its theme in `src/`) would
+  // make a meaningless Design Tools path; use the project name instead.
+  const base = themeSrc && themeSrc !== '.' && themeSrc !== 'src' ? themeSrc : projectName;
   return normalizeThemeDest(base) ?? 'theme';
 }
 
@@ -139,6 +140,23 @@ export const HUBSPOT_AUTH_SETUP_PROMPT =
   'create or copy a personal access key, and I paste that key back into the ' +
   'terminal. If no config exists yet it may ask to create one; accept the defaults. ' +
   'When `hs account list` shows a default account, tell me to click "Try again".';
+
+/**
+ * Agent prompt for pulling an existing theme down from the connected HubSpot
+ * account, replacing the local starter files. Used to connect a project to a
+ * site that already lives in HubSpot.
+ */
+export function buildHubspotFetchPrompt(src: string): string {
+  return (
+    'I want to work on an EXISTING theme from my HubSpot account in this project. ' +
+    'Please do the heavy lifting with the HubSpot CLI: run `hs cms ls` to list what is ' +
+    'in Design Manager, show me the available themes and ask which one I want, then ' +
+    'fetch it with `hs cms fetch <theme-path> ' +
+    src +
+    ' --overwrite` so the local theme folder matches the account. Afterward tell me to ' +
+    'restart the dev server so the preview picks it up. Do not upload or publish anything.'
+  );
+}
 
 /**
  * Agent prompt for pushing the theme to the connected HubSpot account.

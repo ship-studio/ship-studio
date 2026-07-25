@@ -703,7 +703,9 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
 /// normalized the same way the frontend's `defaultThemeDest` does so the
 /// preview command and the page routes always agree.
 fn hubspot_default_dest(project: &Path, src: &str) -> String {
-    let base = if src != "." {
+    // Generic theme-dir names (the boilerplate keeps its theme in `src/`)
+    // would make a meaningless Design Tools path; use the project name.
+    let base = if src != "." && src != "src" {
         src.to_string()
     } else {
         project

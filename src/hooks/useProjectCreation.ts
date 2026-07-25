@@ -156,6 +156,14 @@ export const TEMPLATES: Template[] = [
     skipInstall: true,
   },
   {
+    id: 'hubspot-theme',
+    name: 'HubSpot Theme',
+    description: 'A CMS theme that previews against your real HubSpot account.',
+    repo: 'https://github.com/HubSpot/cms-theme-boilerplate',
+    category: 'other',
+    skipInstall: true,
+  },
+  {
     id: 'blank',
     name: 'Blank Project',
     description: 'An empty folder. Start completely from scratch.',

@@ -5,6 +5,7 @@ import {
   getHubspotThemeSrc,
   defaultThemeDest,
   buildHubspotPushPrompt,
+  buildHubspotFetchPrompt,
 } from '../lib/hubspot';
 import type { ProjectType } from '../lib/static-server';
 import { asCommandError, formatCommandError } from '../lib/errors';
@@ -68,6 +69,19 @@ export function useHubspotCommands({
           } catch (err) {
             showToast(formatCommandError(asCommandError(err)), 'error');
           }
+        },
+      },
+      {
+        id: 'hubspot.fetchTheme',
+        title: 'Import theme from HubSpot with AI',
+        icon: <SprocketGlyph />,
+        category: 'project',
+        when: ({ kind }) => kind === 'project' && isTheme,
+        keywords: ['hubspot', 'fetch', 'import', 'download', 'existing'],
+        run: async () => {
+          const src = (await getHubspotThemeSrc(projectPath).catch(() => null)) ?? '.';
+          onSendToAgent(buildHubspotFetchPrompt(src));
+          showToast('Prompt pasted — press Enter in the terminal to run it', 'success');
         },
       },
       {
