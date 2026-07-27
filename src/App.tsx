@@ -30,6 +30,7 @@ import { useTerminalManagement } from './hooks/useTerminalManagement';
 import { usePlugins } from './hooks/usePlugins';
 import { useIntegrationStatus } from './hooks/useIntegrationStatus';
 import { useScreenshotManagement } from './hooks/useScreenshotManagement';
+import { getWordpressSiteUrl } from './lib/wordpress';
 import { useDevServer } from './hooks/useDevServer';
 import { useWorkspaceLayout } from './hooks/useWorkspaceLayout';
 import { useIsCompact } from './hooks/useIsCompact';
@@ -287,6 +288,27 @@ function AppContents({ initialProjectPath }: AppProps) {
     closeAuthTerminal,
   } = useIntegrationStatus();
 
+  // The live site a WordPress project previews — the only valid thumbnail
+  // target for those projects (see useScreenshotManagement.previewOrigin).
+  const [wordpressThumbnailOrigin, setWordpressThumbnailOrigin] = useState<string | null>(null);
+  useEffect(() => {
+    if (projectType !== 'wordpress' || !currentProject?.path) {
+      setWordpressThumbnailOrigin(null);
+      return;
+    }
+    let cancelled = false;
+    void getWordpressSiteUrl(currentProject.path)
+      .then((url) => {
+        if (!cancelled) setWordpressThumbnailOrigin(url);
+      })
+      .catch(() => {
+        if (!cancelled) setWordpressThumbnailOrigin(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectType, currentProject?.path]);
+
   // Screenshot management
   const {
     isCapturing,
@@ -314,6 +336,9 @@ function AppContents({ initialProjectPath }: AppProps) {
     // Thumbnail capture must only ever target a port that provably belongs
     // to the current project — null (skip) beats the 3000 fallback here.
     devServerPort: knownDevServerPort,
+    // WordPress projects preview a live site; nothing listens on the localhost
+    // port, so capture the site itself or the thumbnail can never succeed.
+    previewOrigin: wordpressThumbnailOrigin,
     pasteToActiveTerminal,
     currentProjectPathRef,
   });

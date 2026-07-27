@@ -30,6 +30,10 @@ interface UseScreenshotManagementParams {
    *  screenshot whatever server happens to answer it — possibly another
    *  project's — and file it under the wrong project. Null skips capture. */
   devServerPort: number | null;
+  /** Origin to capture instead of localhost, for projects whose preview is a
+   *  live site rather than a local dev server (WordPress). Nothing listens on
+   *  the localhost port for these, so capturing it would always fail. */
+  previewOrigin?: string | null;
   pasteToActiveTerminal: (text: string) => void;
   currentProjectPathRef: RefObject<string | null>;
 }
@@ -37,6 +41,7 @@ interface UseScreenshotManagementParams {
 export function useScreenshotManagement({
   previewRef,
   devServerPort,
+  previewOrigin,
   pasteToActiveTerminal,
   currentProjectPathRef,
 }: UseScreenshotManagementParams) {
@@ -46,6 +51,8 @@ export function useScreenshotManagement({
   // different project by then.
   const devServerPortRef = useRef(devServerPort);
   devServerPortRef.current = devServerPort;
+  const previewOriginRef = useRef(previewOrigin);
+  previewOriginRef.current = previewOrigin;
   // Capture state
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCropMode, setIsCropMode] = useState(false);
@@ -150,7 +157,8 @@ export function useScreenshotManagement({
         return;
       }
       const port = devServerPortRef.current;
-      if (port === null) {
+      const origin = previewOriginRef.current;
+      if (port === null && !origin) {
         logger.info('[Thumbnail] Skipping - no port affirmatively known for project', {
           projectPath,
         });
@@ -178,7 +186,7 @@ export function useScreenshotManagement({
         });
         await invoke('capture_project_thumbnail', {
           projectPath,
-          url: `http://localhost:${port}`,
+          url: origin ?? `http://localhost:${port}`,
         });
         logger.info('Thumbnail captured successfully', { projectPath, attempt });
       } catch (error) {

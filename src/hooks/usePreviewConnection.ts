@@ -14,6 +14,7 @@ import {
   isPreviewProofOfLife,
   IFRAME_BLANK_TIMEOUT_MS,
 } from './previewIframeWatchdog';
+import { probeWordpressSite } from '../lib/wordpress';
 import { logger } from '../lib/logger';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
@@ -49,9 +50,22 @@ export interface PageInfo {
   file_path: string;
 }
 
+/** A live site the preview forwards to instead of a local dev server. */
+export interface RemotePreviewTarget {
+  /** Origin as `https://host`, used for "Open in Browser" and display. */
+  origin: string;
+  host: string;
+  port: number;
+  tls: boolean;
+}
+
 interface UsePreviewConnectionParams {
   port: number;
   projectPath: string;
+  /** When set, the proxy forwards to this live site rather than localhost.
+   *  WordPress projects have no local dev server to wait for or probe, so the
+   *  readiness loop is skipped entirely — see lib/wordpress. */
+  remoteTarget?: RemotePreviewTarget | null;
   isDevServerRestarting: boolean;
   isStaticProject: boolean;
   onServerReady?: () => void;
@@ -63,6 +77,7 @@ interface UsePreviewConnectionParams {
 export function usePreviewConnection({
   port,
   projectPath,
+  remoteTarget,
   isDevServerRestarting,
   isStaticProject,
   onServerReady,
@@ -95,13 +110,15 @@ export function usePreviewConnection({
   // redirect loop — and WebKit renders an empty frame with no error anywhere.
   const [iframeBlank, setIframeBlank] = useState(false);
 
-  const devServerUrl = `http://localhost:${port}`;
+  // A remote target has no localhost server behind it; its origin stands in
+  // for the dev server everywhere the two are interchangeable.
+  const devServerUrl = remoteTarget ? remoteTarget.origin : `http://localhost:${port}`;
   const baseUrl = proxyPort ? `http://localhost:${proxyPort}` : devServerUrl;
   const currentUrl = `${baseUrl}${iframePath === '/' ? '' : iframePath}`;
   // URL safe to hand to the user's default browser: real dev server and
   // current iframe path, no proxy. The iframe needs the proxy URL (for
   // navigation tracking and script injection) but external browsers should
-  // land on the dev server directly.
+  // land on the dev server directly — or, for a remote target, on the live site.
   const externalUrl = `${devServerUrl}${iframePath === '/' ? '' : iframePath}`;
 
   const wasRestartingRef = useRef(false);
@@ -274,10 +291,26 @@ export function usePreviewConnection({
     let cancelled = false;
     const windowLabel = getWindowLabel();
 
-    invoke<number>('start_preview_proxy', { windowLabel, targetPort: port })
+    invoke<number>('start_preview_proxy', {
+      windowLabel,
+      targetPort: remoteTarget ? remoteTarget.port : port,
+      targetHost: remoteTarget ? remoteTarget.host : null,
+      targetTls: remoteTarget ? remoteTarget.tls : false,
+      // WordPress emits absolute self-URLs even on localhost (its site URL
+      // lives in the database), so its links must be rewritten to stay in
+      // the proxy. JS dev servers emit relative URLs and need no rewriting.
+      rewriteUrls: !!remoteTarget,
+    })
       .then((proxyP) => {
         if (!cancelled) {
-          logger.info('[Preview] Proxy started', { proxyPort: proxyP, targetPort: port });
+          logger.info('[Preview] Proxy started', {
+            proxyPort: proxyP,
+            // The localhost `port` is an unused placeholder for a remote
+            // target — log where the proxy actually forwards.
+            target: remoteTarget
+              ? `${remoteTarget.host}:${remoteTarget.port}`
+              : `localhost:${port}`,
+          });
           setProxyPort(proxyP);
         }
       })
@@ -290,7 +323,9 @@ export function usePreviewConnection({
       setProxyPort(null);
       invoke('stop_preview_proxy', { windowLabel }).catch(() => {});
     };
-  }, [serverReady, port]);
+    // `remoteTarget` is memoized by useWordpress, so this doesn't re-run per
+    // render; a changed site legitimately needs the proxy pointed elsewhere.
+  }, [serverReady, port, remoteTarget]);
 
   // Arm the blank-iframe watchdog on every explicit navigation: initial proxy
   // URL and page select change `currentUrl`, and refresh / same-page select bump
@@ -469,7 +504,22 @@ export function usePreviewConnection({
       readyProbeControllerRef.current = controller;
       const timeoutId = setTimeout(() => controller.abort(), SERVER_READY_TIMEOUT_MS);
       try {
-        await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
+        if (remoteTarget) {
+          // A live site is probed through the backend, not the webview: the
+          // origin is cross-origin (so a `no-cors` fetch can't distinguish
+          // "reachable" from "blocked") and may sit behind bot protection that
+          // rejects anything without browser-like headers.
+          const status = await probeWordpressSite(remoteTarget.origin);
+          if (status === null) {
+            throw new Error(`${remoteTarget.host} did not respond`);
+          }
+          logger.info('[Preview] Remote site reachable', {
+            host: remoteTarget.host,
+            status,
+          });
+        } else {
+          await fetch(devServerUrl, { mode: 'no-cors', signal: controller.signal });
+        }
 
         logger.info('[Preview] Server check succeeded', { port });
         setIsLoading(false);

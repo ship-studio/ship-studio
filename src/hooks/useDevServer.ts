@@ -77,6 +77,13 @@ import {
   killStaleThemeDev,
   shopifyThemeDevCommand,
 } from '../lib/shopify';
+import {
+  detectLocalWordpress,
+  getWordpressSiteUrl,
+  isLocalSite,
+  localServerCommand,
+  planLocalServer,
+} from '../lib/wordpress';
 import { logger } from '../lib/logger';
 import { withTimeoutFallback } from '../lib/withTimeout';
 import { trackEvent } from '../lib/analytics';
@@ -617,7 +624,7 @@ export function useDevServer(currentProjectPath: string | null) {
         // preview: the theme runs via `shopify theme dev`, and a force-static
         // site is served straight off disk regardless of its build tooling.
         const depStatus =
-          detectedType === 'shopifytheme' || forceStatic
+          detectedType === 'shopifytheme' || detectedType === 'wordpress' || forceStatic
             ? { installed: true, hasPackageJson: false }
             : await checkDependenciesInstalled(projectPath);
         if (!depStatus.installed && depStatus.hasPackageJson) {
@@ -717,6 +724,59 @@ export function useDevServer(currentProjectPath: string | null) {
           projectPath,
           projectType: detectedType,
         });
+      } else if (detectedType === 'wordpress') {
+        // Two shapes of WordPress project:
+        //
+        // - Connected to a live site: nothing to spawn. The preview
+        //   reverse-proxies the deployed site (WordPress has no vendor CLI
+        //   that renders a local theme against remote content).
+        // - A local site Ship Studio provisioned: it needs serving, and it
+        //   must be served from here. A server the agent leaves running in
+        //   the background dies with its shell session, so the preview would
+        //   work once and then 502 with nothing listening.
+        let wpSiteUrl: string | null = null;
+        try {
+          wpSiteUrl = await getWordpressSiteUrl(projectPath);
+        } catch {
+          /* not connected yet */
+        }
+        const wpPlan = planLocalServer(
+          wpSiteUrl,
+          isLocalSite(wpSiteUrl) ? await detectLocalWordpress(projectPath) : null
+        );
+        if (wpPlan.serve) {
+          const wpPort = wpPlan.port as number;
+          try {
+            s.outputBuffer = '';
+            s.healthBuffer = '';
+            s.outputVersion = 0;
+            s.healthVersion = 0;
+            bump();
+            void trackEvent('dev_server_started', {
+              project_type: 'wordpress',
+              port: wpPort,
+              project_name: projectName,
+              $screen_name: 'Workspace',
+            });
+            s.handle = await startDevServer(
+              cwd,
+              wpPort,
+              windowLabel,
+              createOutputHandler(projectPath),
+              localServerCommand(wpPort, wpPlan.installDir as string)
+            );
+            // The site's URL is baked into its database, so it must be served
+            // on the port it was installed with — not a reserved one.
+            s.port = wpPort;
+            s.portKnown = true;
+            wireExitWatcher(projectPath, s);
+            logger.info('[OpenProject] Local WordPress server started', { port: wpPort });
+          } catch (error) {
+            logger.error('Failed to start local WordPress server', { error });
+          }
+        } else {
+          logger.info(`[OpenProject] WordPress: ${wpPlan.reason}`, { projectPath });
+        }
       } else if (detectedType === 'shopifytheme') {
         // Shopify themes render through `shopify theme dev`, which needs a
         // connected store. Without one we defer — the preview pane shows the
@@ -925,6 +985,40 @@ export function useDevServer(currentProjectPath: string | null) {
         if (s.type === 'generic') {
           if (!s.customCommand) return;
           await stopAndRestart(s.customCommand);
+        } else if (s.type === 'wordpress') {
+          // WordPress restarts through `wp server`, never the package.json
+          // fallback — `npm run dev` is meaningless in a WordPress project and
+          // there is usually no package.json at all. A project connected to a
+          // live site has no local server to restart; the preview proxies the
+          // deployed site instead.
+          let wpSiteUrl: string | null = null;
+          try {
+            wpSiteUrl = await getWordpressSiteUrl(projectPath);
+          } catch {
+            /* not connected yet */
+          }
+          const plan = planLocalServer(
+            wpSiteUrl,
+            isLocalSite(wpSiteUrl) ? await detectLocalWordpress(projectPath) : null
+          );
+          if (!plan.serve) {
+            logger.info(`[DevServer] Restart skipped: ${plan.reason}`);
+            return;
+          }
+          const wpPort = plan.port as number;
+          try {
+            await withTimeoutFallback(invoke('kill_port', { port: wpPort }), 5000, undefined);
+          } catch {
+            /* Ignore if nothing to kill */
+          }
+          await stopAndRestart(localServerCommand(wpPort, plan.installDir as string));
+          // The site's URL is baked into its database, so it runs on the port
+          // it was installed with, not the reserved dev-server port that
+          // `stopAndRestart` records. Correct the bookkeeping after the fact —
+          // the command itself already carries the right `--port`.
+          s.port = wpPort;
+          s.portKnown = true;
+          bump();
         } else if (s.type === 'shopifytheme') {
           // Themes restart through `shopify theme dev`, never the package.json
           // fallback (`npm run dev` is meaningless in a theme repo). No store
