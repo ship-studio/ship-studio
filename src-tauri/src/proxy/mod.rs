@@ -31,7 +31,181 @@ const MAX_BODY_SIZE: usize = 50 * 1024 * 1024;
 /// Timeout for establishing the upstream TCP connection. Localhost either
 /// accepts immediately or refuses outright; a hang here means a firewalled or
 /// wedged port and should fail fast instead of holding the request forever.
+/// Remote upstreams (see [`ProxyTarget`]) get a longer budget — a real DNS
+/// lookup plus a TLS handshake over the network is not a localhost connect.
 const UPSTREAM_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const REMOTE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Where the proxy forwards to.
+///
+/// Normally a dev server on localhost. WordPress projects have no local dev
+/// server (WordPress needs PHP + a database, and no vendor CLI renders a local
+/// theme against remote content), so their preview targets the project's live
+/// site instead — a remote host over TLS. Remote targets additionally get
+/// their absolute self-URLs rewritten out of HTML responses; see
+/// [`rewrite_remote_origin`].
+#[derive(Clone, Debug)]
+pub struct ProxyTarget {
+    pub host: String,
+    pub port: u16,
+    pub tls: bool,
+    /// Rewrite the upstream's absolute self-URLs to root-relative ones in HTML
+    /// and `Location` headers.
+    ///
+    /// Set for WordPress, which stores its site URL in the database and emits
+    /// it fully-qualified in every link and asset — even on localhost. The
+    /// iframe is served from the proxy's own port, so those URLs are
+    /// cross-origin: the injected nav script would treat every internal link
+    /// as external and kick it out to the system browser. JS dev servers emit
+    /// relative URLs and need none of this.
+    pub rewrite_urls: bool,
+}
+
+impl ProxyTarget {
+    /// A local dev server — the default for every project type but WordPress.
+    fn local(port: u16) -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port,
+            tls: false,
+            rewrite_urls: false,
+        }
+    }
+
+    fn is_remote(&self) -> bool {
+        self.host != "localhost" && self.host != "127.0.0.1"
+    }
+
+    /// `host` or `host:port`, omitting the port when it's the scheme default —
+    /// origins routinely canonical-redirect when `Host` carries a `:443`.
+    fn authority(&self) -> String {
+        let default_port = if self.tls { 443 } else { 80 };
+        if self.port == default_port {
+            self.host.clone()
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
+
+    fn connect_timeout(&self) -> std::time::Duration {
+        if self.is_remote() {
+            REMOTE_CONNECT_TIMEOUT
+        } else {
+            UPSTREAM_CONNECT_TIMEOUT
+        }
+    }
+}
+
+/// Upstream IO as a trait object so plain-TCP and TLS-wrapped streams share
+/// one code path into hyper's client handshake.
+trait UpstreamStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> UpstreamStream for T {}
+type BoxedUpstream = Box<dyn UpstreamStream>;
+
+/// Shared TLS connector for HTTPS upstreams (built once). Certificates are
+/// verified against the webpki root store — the upstream is a site on the
+/// public internet, so unlike a localhost dev server there is a real trust
+/// decision to make here.
+static TLS_CONNECTOR: LazyLock<tokio_rustls::TlsConnector> = LazyLock::new(|| {
+    let roots = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("rustls default protocol versions")
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    tokio_rustls::TlsConnector::from(std::sync::Arc::new(config))
+});
+
+/// Connect to the upstream, wrapping in TLS when the target serves HTTPS.
+///
+/// Local targets connect via the `localhost` hostname on purpose so both IPv4
+/// and IPv6 are tried — Vite-based dev servers bind `::1` on macOS and a
+/// hardcoded 127.0.0.1 misses them.
+async fn connect_upstream(
+    target: &ProxyTarget,
+) -> Result<BoxedUpstream, Box<dyn std::error::Error + Send + Sync>> {
+    let tcp = tokio::time::timeout(
+        target.connect_timeout(),
+        TcpStream::connect((target.host.as_str(), target.port)),
+    )
+    .await??;
+
+    if !target.tls {
+        return Ok(Box::new(tcp));
+    }
+
+    let server_name = rustls::pki_types::ServerName::try_from(target.host.clone())
+        .map_err(|e| format!("invalid SNI name {}: {e}", target.host))?;
+    let tls = TLS_CONNECTOR
+        .connect(server_name, tcp)
+        .await
+        .map_err(|e| format!("TLS handshake with {} failed: {e}", target.host))?;
+    Ok(Box::new(tls))
+}
+
+/// Rewrite a remote origin's absolute self-URLs to root-relative ones.
+///
+/// WordPress emits fully-qualified URLs for links and assets (the roofing test
+/// site has 239 on its home page). Left alone, the injected nav script sees
+/// them as cross-origin and kicks every internal link out to the system
+/// browser, so clicking anything ejects you from the preview. Rewriting them
+/// to `/path` keeps navigation inside the proxy.
+///
+/// Handles the plain form (`https://host/x`), the protocol-relative form
+/// (`//host/x`) and the JSON/JS-escaped form (`https:\/\/host\/x`) that
+/// WordPress inline scripts carry. A match not followed by `/` gets one, so a
+/// bare `https://host` becomes `/` rather than an empty attribute.
+fn rewrite_origin_urls(body: &[u8], authority: &str) -> Vec<u8> {
+    let needles = [
+        format!("https://{authority}"),
+        format!("http://{authority}"),
+        format!("https:\\/\\/{authority}"),
+        format!("http:\\/\\/{authority}"),
+        format!("//{authority}"),
+    ];
+    // Longest first: "//host" is a suffix of "https://host" and would
+    // otherwise match inside it, leaving a stray "https:".
+    let mut needles: Vec<&[u8]> = needles.iter().map(|n| n.as_bytes()).collect();
+    needles.sort_by_key(|n| std::cmp::Reverse(n.len()));
+
+    let mut out = Vec::with_capacity(body.len());
+    let mut i = 0;
+    'outer: while i < body.len() {
+        for needle in &needles {
+            if body[i..].starts_with(needle) {
+                let after = i + needle.len();
+                // The match must end the hostname. Without this, our host is a
+                // prefix of any longer one — `example.com.evil.net` would be
+                // rewritten to the path `/.evil.net`, turning a link to an
+                // unrelated (possibly hostile) domain into one that looks like
+                // it belongs to the previewed site.
+                // `:` is included so an authority without a port (example.com)
+                // never matches inside one that has a port (example.com:8080).
+                if matches!(body.get(after), Some(c) if c.is_ascii_alphanumeric() || *c == b'.' || *c == b'-' || *c == b':')
+                {
+                    break;
+                }
+                // Keep the following separator; supply one when absent so the
+                // URL stays absolute-path rather than becoming empty.
+                let escaped = needle.windows(2).any(|w| w == b"\\/");
+                let next_is_sep = matches!(body.get(after), Some(b'/'))
+                    || (escaped && body[after..].starts_with(b"\\/"));
+                if !next_is_sep {
+                    out.push(b'/');
+                }
+                i = after;
+                continue 'outer;
+            }
+        }
+        out.push(body[i]);
+        i += 1;
+    }
+    out
+}
 
 /// Timeout for the upstream response headers. Must be generous: dev servers
 /// compile routes on demand and hold the request open until the compile
@@ -445,9 +619,40 @@ struct ProxyInstance {
 static PROXY_INSTANCES: LazyLock<Mutex<HashMap<String, ProxyInstance>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Rewrite a `Location` header that points back at the remote origin so the
+/// redirect stays inside the proxy. WordPress canonical-redirects constantly
+/// (trailing slashes, `?p=` permalinks); left absolute, the first one would
+/// navigate the preview iframe onto the live domain and out of the proxy.
+fn rewrite_location(
+    value: &hyper::header::HeaderValue,
+    authority: &str,
+) -> Option<hyper::header::HeaderValue> {
+    let s = value.to_str().ok()?;
+    let rewritten = String::from_utf8(rewrite_origin_urls(s.as_bytes(), authority)).ok()?;
+    if rewritten == s {
+        return None;
+    }
+    hyper::header::HeaderValue::from_str(&rewritten).ok()
+}
+
 /// Start a reverse proxy for the given window, forwarding to `target_port`.
 /// Returns the proxy's listening port.
-pub async fn start_preview_proxy(window_label: String, target_port: u16) -> Result<u16, String> {
+pub async fn start_preview_proxy(
+    window_label: String,
+    target_port: u16,
+    target_host: Option<String>,
+    target_tls: bool,
+    rewrite_urls: bool,
+) -> Result<u16, String> {
+    let target = match target_host {
+        Some(host) => ProxyTarget {
+            host,
+            port: target_port,
+            tls: target_tls,
+            rewrite_urls,
+        },
+        None => ProxyTarget::local(target_port),
+    };
     // Stop any existing proxy for this window
     stop_preview_proxy(&window_label);
 
@@ -475,7 +680,7 @@ pub async fn start_preview_proxy(window_label: String, target_port: u16) -> Resu
                 result = listener.accept() => {
                     match result {
                         Ok((stream, addr)) => {
-                            tokio::spawn(handle_connection(stream, addr, target_port));
+                            tokio::spawn(handle_connection(stream, addr, target.clone()));
                         }
                         Err(e) => {
                             tracing::error!("[Proxy] Accept error: {}", e);
@@ -531,10 +736,10 @@ pub fn stop_all_proxies() {
 }
 
 /// Handle a single incoming TCP connection.
-async fn handle_connection(stream: TcpStream, addr: SocketAddr, target_port: u16) {
+async fn handle_connection(stream: TcpStream, addr: SocketAddr, target: ProxyTarget) {
     let io = TokioIo::new(stream);
 
-    let service = service_fn(move |req: Request<Incoming>| handle_request(req, target_port));
+    let service = service_fn(move |req: Request<Incoming>| handle_request(req, target.clone()));
 
     if let Err(e) = http1::Builder::new()
         .preserve_header_case(true)
@@ -551,15 +756,15 @@ async fn handle_connection(stream: TcpStream, addr: SocketAddr, target_port: u16
 /// Handle a single HTTP request by proxying it to the target dev server.
 async fn handle_request(
     req: Request<Incoming>,
-    target_port: u16,
+    target: ProxyTarget,
 ) -> Result<Response<ProxyBody>, hyper::Error> {
     let is_websocket = is_upgrade_request(&req);
 
     if is_websocket {
-        return handle_websocket_upgrade(req, target_port).await;
+        return handle_websocket_upgrade(req, target.port).await;
     }
 
-    match proxy_http_request(req, target_port).await {
+    match proxy_http_request(req, &target).await {
         Ok(resp) => Ok(resp),
         Err(e) => {
             tracing::error!("[Proxy] Request failed: {}", e);
@@ -586,16 +791,10 @@ fn is_upgrade_request(req: &Request<Incoming>) -> bool {
 /// All other responses (JS, CSS, images, SSE streams) are forwarded as-is without buffering.
 async fn proxy_http_request(
     req: Request<Incoming>,
-    target_port: u16,
+    target: &ProxyTarget,
 ) -> Result<Response<ProxyBody>, Box<dyn std::error::Error + Send + Sync>> {
-    // Connect to target via hostname so both IPv4 and IPv6 are tried.
-    // Vite-based dev servers (Astro, SvelteKit, Nuxt) bind to `localhost` which
-    // resolves to `::1` (IPv6) on macOS -- hardcoding 127.0.0.1 fails for those.
-    let stream = tokio::time::timeout(
-        UPSTREAM_CONNECT_TIMEOUT,
-        TcpStream::connect(format!("localhost:{target_port}")),
-    )
-    .await??;
+    let target_port = target.port;
+    let stream = connect_upstream(target).await?;
     let io = TokioIo::new(stream);
 
     let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
@@ -635,9 +834,16 @@ async fn proxy_http_request(
         if key == hyper::header::ACCEPT_ENCODING {
             continue;
         }
-        // Rewrite Host to target port so dev server sees the expected origin
+        // Rewrite Host so the upstream sees the origin it expects: the dev
+        // server's port locally, or the site's own hostname when remote (a
+        // CDN-fronted host routes on Host and 404s on anything else).
         if key == hyper::header::HOST {
-            builder = builder.header(key, format!("localhost:{target_port}"));
+            builder = builder.header(key, target.authority());
+            continue;
+        }
+        // A remote upstream must not receive the webview's localhost Origin
+        // or Referer — some WAFs treat the mismatch as CSRF.
+        if target.is_remote() && (key == hyper::header::ORIGIN || key == hyper::header::REFERER) {
             continue;
         }
         // Rewrite Origin for the same reason — a CSRF/origin-checking dev
@@ -725,6 +931,21 @@ async fn proxy_http_request(
                 // Too large to inject, pass through as-is
                 full_body(body_bytes)
             }
+        } else if target.rewrite_urls {
+            // Remote upstreams need a whole-document rewrite of their absolute
+            // self-URLs, which the streaming head injector can't do — a URL can
+            // straddle a chunk boundary, and they appear throughout the body,
+            // not just before `</head>`. Buffer instead; a rendered page is
+            // hundreds of KB, not the unbounded stream a dev server can emit.
+            let body_bytes = tokio::time::timeout(HTML_BODY_TIMEOUT, resp.collect())
+                .await??
+                .to_bytes();
+            if body_bytes.len() < MAX_BODY_SIZE {
+                let rewritten = rewrite_origin_urls(&body_bytes, &target.authority());
+                full_body(Bytes::from(inject_nav_script(&rewritten)))
+            } else {
+                full_body(body_bytes)
+            }
         } else {
             // Ordinary HTML streams through the head injector — see HeadInjector.
             streaming_injected_body(resp.into_body())
@@ -744,6 +965,12 @@ async fn proxy_http_request(
             // Skip Content-Length since body size changed; skip Content-Encoding
             if key == hyper::header::CONTENT_LENGTH || key == hyper::header::CONTENT_ENCODING {
                 continue;
+            }
+            if target.rewrite_urls && key == hyper::header::LOCATION {
+                if let Some(v) = rewrite_location(value, &target.authority()) {
+                    response = response.header(key, v);
+                    continue;
+                }
             }
             // The injected body no longer matches upstream's cache validators,
             // and the iframe URL carries no cache-busting param — the webview
@@ -780,6 +1007,13 @@ async fn proxy_http_request(
         for (key, value) in &headers {
             if key == hyper::header::X_FRAME_OPTIONS {
                 continue;
+            }
+            // A bare redirect (no HTML body) still has to stay in the proxy.
+            if target.rewrite_urls && key == hyper::header::LOCATION {
+                if let Some(v) = rewrite_location(value, &target.authority()) {
+                    response = response.header(key, v);
+                    continue;
+                }
             }
             if key == hyper::header::CONTENT_SECURITY_POLICY {
                 if let Some(v) = sanitize_csp_for_preview(value) {
@@ -961,6 +1195,92 @@ async fn handle_websocket_upgrade(
     }
 
     Ok(client_response)
+}
+
+#[cfg(test)]
+mod origin_rewrite_tests {
+    use super::rewrite_origin_urls;
+
+    fn rw(input: &str) -> String {
+        String::from_utf8(rewrite_origin_urls(input.as_bytes(), "example.com")).unwrap()
+    }
+
+    #[test]
+    fn rewrites_absolute_urls_to_root_relative() {
+        assert_eq!(
+            rw(r#"<a href="https://example.com/about">"#),
+            r#"<a href="/about">"#
+        );
+        assert_eq!(
+            rw(r#"<img src="http://example.com/a.png">"#),
+            r#"<img src="/a.png">"#
+        );
+        assert_eq!(
+            rw(r#"<link href="//example.com/s.css">"#),
+            r#"<link href="/s.css">"#
+        );
+    }
+
+    #[test]
+    fn bare_origin_becomes_root_not_empty() {
+        // An empty href would reload the current URL instead of going home.
+        assert_eq!(rw(r#"<a href="https://example.com">"#), r#"<a href="/">"#);
+    }
+
+    #[test]
+    fn rewrites_json_escaped_urls() {
+        assert_eq!(
+            rw(r#"{"url":"https:\/\/example.com\/wp-json\/"}"#),
+            r#"{"url":"\/wp-json\/"}"#
+        );
+    }
+
+    #[test]
+    fn rewrites_a_local_wordpress_authority_including_its_port() {
+        // The bug this guards: WordPress stores its site URL in the database
+        // and emits it absolutely even on localhost. Matching bare "localhost"
+        // would leave a stray ":8888" behind and break every link.
+        let rw = |i: &str| {
+            String::from_utf8(rewrite_origin_urls(i.as_bytes(), "localhost:8888")).unwrap()
+        };
+        assert_eq!(
+            rw(r#"<a href="http://localhost:8888/about">"#),
+            r#"<a href="/about">"#
+        );
+        assert_eq!(rw(r#"<a href="http://localhost:8888">"#), r#"<a href="/">"#);
+        // A different port is a different origin and must be left alone.
+        assert_eq!(
+            rw(r#"<a href="http://localhost:9999/x">"#),
+            r#"<a href="http://localhost:9999/x">"#
+        );
+    }
+
+    #[test]
+    fn an_authority_without_a_port_never_matches_one_with_a_port() {
+        let rw =
+            |i: &str| String::from_utf8(rewrite_origin_urls(i.as_bytes(), "example.com")).unwrap();
+        assert_eq!(
+            rw(r#"<a href="https://example.com/x">"#),
+            r#"<a href="/x">"#
+        );
+        assert_eq!(
+            rw(r#"<a href="https://example.com:8080/x">"#),
+            r#"<a href="https://example.com:8080/x">"#
+        );
+    }
+
+    #[test]
+    fn leaves_other_hosts_alone() {
+        assert_eq!(
+            rw(r#"<a href="https://other.com/x">"#),
+            r#"<a href="https://other.com/x">"#
+        );
+        // A longer host that merely starts with ours must not be truncated.
+        assert_eq!(
+            rw(r#"<a href="https://example.com.evil.net/x">"#),
+            r#"<a href="https://example.com.evil.net/x">"#
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1357,7 +1677,7 @@ mod e2e_tests {
             captured.clone(),
         )
         .await;
-        let proxy_port = start_preview_proxy("e2e-http".into(), upstream)
+        let proxy_port = start_preview_proxy("e2e-http".into(), upstream, None, false, false)
             .await
             .unwrap();
 
@@ -1400,7 +1720,7 @@ mod e2e_tests {
             captured.clone(),
         )
         .await;
-        let proxy_port = start_preview_proxy("e2e-ws".into(), upstream)
+        let proxy_port = start_preview_proxy("e2e-ws".into(), upstream, None, false, false)
             .await
             .unwrap();
 
@@ -1457,7 +1777,7 @@ mod e2e_tests {
             stream.write_all(tail.as_bytes()).await.unwrap();
         });
 
-        let proxy_port = start_preview_proxy("e2e-stream".into(), upstream)
+        let proxy_port = start_preview_proxy("e2e-stream".into(), upstream, None, false, false)
             .await
             .unwrap();
         let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();

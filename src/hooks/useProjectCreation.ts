@@ -40,6 +40,7 @@ import { getWindowLabel } from '../lib/window';
 import { checkNpmCachePermissions } from '../lib/setup';
 import { installPlugin, VERCEL_PLUGIN_REPO } from '../lib/plugins';
 import { basename } from '../lib/paths';
+import { setWordpressPending } from '../lib/wordpress';
 
 // ---------------------------------------------------------------------------
 // Types & Constants
@@ -152,6 +153,17 @@ export const TEMPLATES: Template[] = [
     name: 'Shopify Theme',
     description: 'An online store theme that previews against your real store.',
     repo: 'https://github.com/ship-studio/shopify-theme-starter',
+    category: 'other',
+    skipInstall: true,
+  },
+  {
+    id: 'wordpress-site',
+    name: 'WordPress',
+    description: 'Connect an existing WordPress site, or have the agent build a new one.',
+    // No repo to clone: WordPress projects either point at a site you already
+    // have or are scaffolded locally by the agent. Creation makes the folder
+    // and marks it WordPress so it opens straight into the setup flow.
+    repo: '',
     category: 'other',
     skipInstall: true,
   },
@@ -407,9 +419,15 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
       const shipstudioDir = await invoke<string>('ensure_shipstudio_dir');
       const projectPath = `${shipstudioDir}/${safeName}`;
 
-      if (selectedTemplate.id === 'blank') {
-        // Blank project: just create the directory
+      if (selectedTemplate.id === 'blank' || selectedTemplate.id === 'wordpress-site') {
+        // Neither clones anything — both just need the folder. A WordPress
+        // project additionally gets a marker so detection reports `wordpress`
+        // before any theme files exist; without it the empty folder would be
+        // `unknown` and the setup flow would be unreachable.
         await invoke('create_blank_project', { projectPath });
+        if (selectedTemplate.id === 'wordpress-site') {
+          await setWordpressPending(projectPath, true);
+        }
         setCreatedProjectPath(projectPath);
         setCurrentStep('done');
       } else {

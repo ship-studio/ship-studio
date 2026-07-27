@@ -66,6 +66,8 @@ import type { AgentConfig } from '../../lib/agent';
 import type { Project } from '../../lib/project';
 import { isMobileProjectType, type ProjectType } from '../../lib/static-server';
 import { ShopifySetup } from '../shopify/ShopifySetup';
+import { WordpressSetup } from '../wordpress/WordpressSetup';
+import { useWordpress } from '../../hooks/useWordpress';
 import { useShopifyTheme } from '../../hooks/useShopifyTheme';
 import { isMac } from '../../lib/setup';
 import { kbd } from '../../lib/shortcuts';
@@ -763,6 +765,12 @@ export const WorkspaceView = memo(function WorkspaceView({
     restartDevServer: handleRestartDevServer,
   });
 
+  const wordpress = useWordpress({
+    projectPath: currentProject.path,
+    projectType,
+    restartDevServer: handleRestartDevServer,
+  });
+
   // Per-turn working-tree snapshots so users can undo/redo agent edits.
   const {
     canUndo,
@@ -1131,7 +1139,12 @@ export const WorkspaceView = memo(function WorkspaceView({
                 isWebProject || customDevCommand ? () => void handleRestartDevServer() : undefined
               }
               devServerUrl={
-                isWebProject && devServerPort > 0 ? `http://localhost:${devServerPort}` : undefined
+                // WordPress previews have no localhost server behind them —
+                // the live site is the real address to open.
+                wordpress.siteUrl ??
+                (isWebProject && devServerPort > 0
+                  ? `http://localhost:${devServerPort}`
+                  : undefined)
               }
               isProjectDevServerRunning={isProjectDevServerRunning}
               worktrees={worktree.worktrees}
@@ -1438,6 +1451,15 @@ export const WorkspaceView = memo(function WorkspaceView({
                         based on `workspaceTab`. */}
 
                       {/* Tab content */}
+                      {workspaceTab === 'preview' && isWebProject && wordpress.showGate && (
+                        <WordpressSetup
+                          key={currentProject.path}
+                          projectPath={currentProject.path}
+                          onSendToAgent={sendToClaude}
+                          onReady={wordpress.markReady}
+                          onConnected={wordpress.connect}
+                        />
+                      )}
                       {workspaceTab === 'preview' && isWebProject && shopify.showGate && (
                         <ShopifySetup
                           key={currentProject.path}
@@ -1447,57 +1469,61 @@ export const WorkspaceView = memo(function WorkspaceView({
                           onConnected={shopify.connect}
                         />
                       )}
-                      {workspaceTab === 'preview' && isWebProject && !shopify.showGate && (
-                        <div style={{ flex: 1, display: 'flex' }}>
-                          <Preview
-                            key={`${currentProject.path}-${devServerPort}`}
-                            ref={previewRef}
-                            port={devServerPort}
-                            projectPath={currentProject.path}
-                            isStaticProject={projectType === 'statichtml'}
-                            projectType={projectType}
-                            onServerReady={handlePreviewReady}
-                            onPageChange={setCurrentPreviewPage}
-                            isCropMode={isCropMode}
-                            onCropStart={handleCropStart}
-                            onCropComplete={handleCropComplete}
-                            onCropCancel={handleCropCancel}
-                            isBranchSwitching={isBranchSwitching}
-                            isDevServerRestarting={isRestartingDevServer}
-                            onSendToClaude={sendToClaude}
-                            showLogs={showPreviewLogs}
-                            onToggleLogs={hasDevServer ? togglePreviewLogs : undefined}
-                            devServerOutput={devServerOutput}
-                            devServerOutputVersion={devServerOutputVersion}
-                            onDevServerInput={onDevServerInput}
-                            onDevServerResize={onDevServerResize}
-                            inspectTab={inspectTab}
-                            onInspectTabChange={setInspectTab}
-                            healthPanelRef={healthPanelRef}
-                            onHealthOutput={handleHealthOutput}
-                            needsInstall={needsInstall}
-                            devServerUnexpectedExit={devServerUnexpectedExit}
-                            onRestartDevServer={() => void handleRestartDevServer()}
-                            onRunInstall={onRunInstall}
-                            onOpenInCode={openInCode}
-                            canUndo={canUndo}
-                            canRedo={canRedo}
-                            undoTitle={undoTitle}
-                            redoTitle={redoTitle}
-                            onUndo={() => void undoSnapshot()}
-                            onRedo={() => void redoSnapshot()}
-                            previewPlugins={
-                              <PluginSlot
-                                name="preview"
-                                plugins={getSlotPlugins('preview')}
-                                project={pluginProject}
-                                actions={pluginActions}
-                                theme={pluginTheme}
-                              />
-                            }
-                          />
-                        </div>
-                      )}
+                      {workspaceTab === 'preview' &&
+                        isWebProject &&
+                        !shopify.showGate &&
+                        !wordpress.showGate && (
+                          <div style={{ flex: 1, display: 'flex' }}>
+                            <Preview
+                              key={`${currentProject.path}-${devServerPort}`}
+                              ref={previewRef}
+                              port={devServerPort}
+                              projectPath={currentProject.path}
+                              isStaticProject={projectType === 'statichtml'}
+                              projectType={projectType}
+                              remoteTarget={wordpress.remoteTarget}
+                              onServerReady={handlePreviewReady}
+                              onPageChange={setCurrentPreviewPage}
+                              isCropMode={isCropMode}
+                              onCropStart={handleCropStart}
+                              onCropComplete={handleCropComplete}
+                              onCropCancel={handleCropCancel}
+                              isBranchSwitching={isBranchSwitching}
+                              isDevServerRestarting={isRestartingDevServer}
+                              onSendToClaude={sendToClaude}
+                              showLogs={showPreviewLogs}
+                              onToggleLogs={hasDevServer ? togglePreviewLogs : undefined}
+                              devServerOutput={devServerOutput}
+                              devServerOutputVersion={devServerOutputVersion}
+                              onDevServerInput={onDevServerInput}
+                              onDevServerResize={onDevServerResize}
+                              inspectTab={inspectTab}
+                              onInspectTabChange={setInspectTab}
+                              healthPanelRef={healthPanelRef}
+                              onHealthOutput={handleHealthOutput}
+                              needsInstall={needsInstall}
+                              devServerUnexpectedExit={devServerUnexpectedExit}
+                              onRestartDevServer={() => void handleRestartDevServer()}
+                              onRunInstall={onRunInstall}
+                              onOpenInCode={openInCode}
+                              canUndo={canUndo}
+                              canRedo={canRedo}
+                              undoTitle={undoTitle}
+                              redoTitle={redoTitle}
+                              onUndo={() => void undoSnapshot()}
+                              onRedo={() => void redoSnapshot()}
+                              previewPlugins={
+                                <PluginSlot
+                                  name="preview"
+                                  plugins={getSlotPlugins('preview')}
+                                  project={pluginProject}
+                                  actions={pluginActions}
+                                  theme={pluginTheme}
+                                />
+                              }
+                            />
+                          </div>
+                        )}
                       {workspaceTab === 'preview' && mobilePreviewAvailable && (
                         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
                           <DeviceMirror

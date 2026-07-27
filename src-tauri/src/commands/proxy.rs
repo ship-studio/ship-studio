@@ -13,10 +13,19 @@ use crate::errors::CommandError;
 pub async fn start_preview_proxy(
     window_label: String,
     target_port: u16,
+    target_host: Option<String>,
+    target_tls: Option<bool>,
+    rewrite_urls: Option<bool>,
 ) -> Result<u16, CommandError> {
-    crate::proxy::start_preview_proxy(window_label, target_port)
-        .await
-        .map_err(CommandError::from)
+    crate::proxy::start_preview_proxy(
+        window_label,
+        target_port,
+        target_host,
+        target_tls.unwrap_or(false),
+        rewrite_urls.unwrap_or(false),
+    )
+    .await
+    .map_err(CommandError::from)
 }
 
 /// Stop the preview proxy for the given window.

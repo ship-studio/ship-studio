@@ -10,7 +10,7 @@
 //! - `templates` — zip template extraction and export
 //! - `window_registry` — multi-window project management
 
-mod detection;
+pub(crate) mod detection;
 mod dev_server;
 mod metadata;
 mod pins;

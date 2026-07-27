@@ -46,6 +46,13 @@ fn detection_signature(project_path: &std::path::Path) -> u128 {
         // Shopify theme signals (nested paths work — metadata() takes any path)
         "layout/theme.liquid",
         "config/settings_schema.json",
+        // WordPress theme signals
+        "style.css",
+        "functions.php",
+        "wp-config.php",
+        // The WordPress "created but not set up yet" marker lives here, and
+        // writing it must invalidate the detection cache.
+        ".shipstudio/project.json",
     ];
     let mut max_nanos: u128 = 0;
     for name in SENTINELS {
@@ -231,6 +238,82 @@ pub(crate) fn is_shopify_theme_project(project_path: &std::path::Path) -> bool {
             .exists()
 }
 
+/// Detect if this is a WordPress project (a theme, or a full WordPress install).
+///
+/// A WordPress theme is identified by `style.css` carrying a `Theme Name:`
+/// header — the one marker WordPress itself requires, and the only reliable
+/// way to tell a theme's `style.css` from any other stylesheet. A bare
+/// `wp-config.php` (full WordPress install) is conclusive on its own.
+///
+/// Checked before the package.json fallbacks so a theme with a build step
+/// (webpack/Sass — common in real themes) isn't misclassified as Generic, and
+/// **after** HubSpot so a HubSpot theme's `theme.json` + `fields.json` pair
+/// still wins.
+pub(crate) fn is_wordpress_project(project_path: &std::path::Path) -> bool {
+    project_path.join("wp-config.php").exists()
+        || project_path.join("wp-load.php").exists()
+        || find_wordpress_theme_dir(project_path).is_some()
+}
+
+/// The project-relative directory holding the WordPress theme (`"."` for the
+/// project root, or a direct child directory name). Real projects often keep
+/// the theme in a `theme/` folder beside docs and agent config.
+pub(crate) fn find_wordpress_theme_dir(project_path: &std::path::Path) -> Option<String> {
+    if is_wordpress_theme_dir(project_path) {
+        return Some(".".to_string());
+    }
+    let entries = std::fs::read_dir(project_path).ok()?;
+    // Sort for a deterministic pick when several children qualify — read_dir
+    // order is filesystem-dependent and would otherwise flap between runs.
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().to_str().map(str::to_owned))
+        .filter(|name| !name.starts_with('.') && name != "node_modules")
+        .collect();
+    names.sort();
+    names
+        .into_iter()
+        .find(|name| is_wordpress_theme_dir(&project_path.join(name)))
+}
+
+/// Whether `dir` is itself a WordPress theme root: a `style.css` whose header
+/// declares `Theme Name:`, alongside one of the PHP files every theme has.
+/// Only the first 4KB of `style.css` is read — the header block is required to
+/// be at the top, and theme stylesheets can be megabytes of compiled CSS.
+fn is_wordpress_theme_dir(dir: &std::path::Path) -> bool {
+    if !dir.join("functions.php").exists() && !dir.join("index.php").exists() {
+        return false;
+    }
+    let Ok(file) = std::fs::File::open(dir.join("style.css")) else {
+        return false;
+    };
+    let mut head = [0u8; 4096];
+    let read = {
+        use std::io::Read;
+        let mut handle = file.take(4096);
+        match handle.read(&mut head) {
+            Ok(n) => n,
+            Err(_) => return false,
+        }
+    };
+    String::from_utf8_lossy(&head[..read])
+        .to_ascii_lowercase()
+        .contains("theme name:")
+}
+
+/// Whether `.shipstudio/project.json` marks this as a WordPress project that
+/// hasn't been set up yet (see `set_wordpress_pending`).
+fn has_pending_wordpress_marker(project_path: &std::path::Path) -> bool {
+    let metadata_path = project_path.join(".shipstudio").join("project.json");
+    let Ok(contents) = std::fs::read_to_string(&metadata_path) else {
+        return false;
+    };
+    serde_json::from_str::<crate::types::ProjectMetadata>(&contents)
+        .map(|m| m.wordpress_pending.unwrap_or(false))
+        .unwrap_or(false)
+}
+
 /// Check if a directory contains HTML files in its root
 pub fn has_html_files(project_path: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(project_path) {
@@ -299,6 +382,16 @@ fn detect_project_type_uncached(project_path: &std::path::Path) -> ProjectType {
     // would otherwise fall through to Generic.
     if is_shopify_theme_project(project_path) {
         return ProjectType::Shopifytheme;
+    }
+
+    // WordPress themes for the same reason — a `Theme Name:` header in
+    // style.css is exclusive to WordPress, and themes routinely carry a
+    // package.json for their Sass/webpack build. `wordpress_pending` covers
+    // the newly-created case, where the user has chosen WordPress but no
+    // theme files exist yet; without it the folder would detect as `unknown`
+    // and the setup flow would be unreachable.
+    if is_wordpress_project(project_path) || has_pending_wordpress_marker(project_path) {
+        return ProjectType::Wordpress;
     }
 
     // Check framework-specific configs first
@@ -1249,5 +1342,51 @@ mod tests {
             err.contains(&root.display().to_string()),
             "error must include the path, got: {err}"
         );
+    }
+}
+
+#[cfg(test)]
+mod wordpress_detection_tests {
+    use super::*;
+    use std::fs;
+
+    fn theme_at(dir: &std::path::Path) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join("style.css"), "/*\nTheme Name: Test\n*/").unwrap();
+        fs::write(dir.join("functions.php"), "<?php").unwrap();
+    }
+
+    #[test]
+    fn detects_theme_in_root_and_subdir() {
+        let tmp = std::env::temp_dir().join(format!("ss-wp-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+
+        theme_at(&tmp);
+        assert_eq!(detect_project_type_uncached(&tmp), ProjectType::Wordpress);
+        assert_eq!(find_wordpress_theme_dir(&tmp).as_deref(), Some("."));
+
+        // Real projects keep the theme in a subfolder beside docs/tooling.
+        let nested = tmp.join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        theme_at(&nested.join("theme"));
+        assert_eq!(
+            detect_project_type_uncached(&nested),
+            ProjectType::Wordpress
+        );
+        assert_eq!(find_wordpress_theme_dir(&nested).as_deref(), Some("theme"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn ignores_stylesheets_without_a_theme_header() {
+        let tmp = std::env::temp_dir().join(format!("ss-wp-neg-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        // A plain site with a style.css and no theme header is not WordPress.
+        fs::write(tmp.join("style.css"), "body { color: red }").unwrap();
+        fs::write(tmp.join("index.php"), "<?php").unwrap();
+        assert!(!is_wordpress_project(&tmp));
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

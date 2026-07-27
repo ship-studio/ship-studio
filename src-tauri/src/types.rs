@@ -26,6 +26,12 @@ pub enum ProjectType {
     /// Shopify Liquid theme (Online Store 2.0). Previewed via `shopify theme dev`,
     /// which renders Liquid server-side against a connected store.
     Shopifytheme,
+    /// WordPress theme (PHP). WordPress has no vendor CLI that renders a local
+    /// theme against remote content the way `shopify theme dev` does, so the
+    /// preview instead reverse-proxies the project's connected live site (see
+    /// `wordpress_site_url`). Local theme edits are therefore not reflected —
+    /// this shows the deployed site.
+    Wordpress,
     /// Has package.json but isn't a recognized web framework (Tauri, CLI tools, etc.)
     Generic,
     Unknown,
@@ -168,6 +174,29 @@ pub struct TerminalState {
 }
 
 /// Project metadata stored in .shipstudio/project.json
+
+/// SSH connection details for a WordPress install, as used by `wp` over SSH:
+/// `ssh -i <key_path> <user>@<host> "wp <cmd> --path=<wp_path>"`.
+///
+/// On WP Engine every field derives from the install name, so the setup flow
+/// asks for that alone; other hosts fill these in explicitly.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WordpressSsh {
+    /// SSH hostname, e.g. `myinstall.ssh.wpengine.net`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// SSH user, e.g. `myinstall`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    /// Path to the private key, e.g. `~/.ssh/myinstall_wpengine`. Stored as a
+    /// path, never key material — Ship Studio does not hold secrets.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
+    /// WordPress root on the remote host, passed as `wp --path=`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wp_path: Option<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ProjectMetadata {
     #[serde(rename = "_description")]
@@ -233,6 +262,24 @@ pub struct ProjectMetadata {
     /// connects a store via the preview-pane setup flow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shopify_store: Option<String>,
+    /// Origin of the live WordPress site this project previews, as
+    /// `https://host` (no trailing slash, no path). The preview proxy forwards
+    /// to it, so the pane shows the deployed site and its real content.
+    /// `None` until the user connects a site via the preview-pane setup flow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wordpress_site_url: Option<String>,
+    /// How to reach this WordPress install over SSH for agentic editing.
+    /// WordPress content and config live in a database on the server, not in
+    /// the repo, so the only way an agent can change them is `wp` over SSH.
+    /// Storing it here means the agent is handed a working connection instead
+    /// of rediscovering the host, user, key and path every session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wordpress_ssh: Option<WordpressSsh>,
+    /// Set when the project was created as a WordPress project but has no
+    /// theme files yet. Detection keys off this so a freshly-scaffolded empty
+    /// folder still opens into the WordPress setup flow rather than `unknown`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wordpress_pending: Option<bool>,
     /// ID of the Workspace (Account) this project belongs to — set the first
     /// time the project is opened. `None` for projects opened before the
     /// Workspace picker existed; these are treated as belonging to the
@@ -281,6 +328,9 @@ impl Default for ProjectMetadata {
             workspace_subpath: None,
             assets_root: None,
             shopify_store: None,
+            wordpress_site_url: None,
+            wordpress_ssh: None,
+            wordpress_pending: None,
             account_id: None,
             default_base_branch: None,
             branch_lineage: None,

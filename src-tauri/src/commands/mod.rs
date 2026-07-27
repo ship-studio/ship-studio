@@ -43,6 +43,7 @@ pub mod static_server;
 pub mod support;
 pub mod templates;
 pub mod window;
+pub mod wordpress;
 
 // Re-export all commands for easy access in lib.rs
 pub use accounts::*;
@@ -82,3 +83,4 @@ pub use static_server::*;
 pub use support::*;
 pub use templates::*;
 pub use window::*;
+pub use wordpress::*;

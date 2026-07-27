@@ -41,6 +41,16 @@ pub async fn capture_project_thumbnail(
         return Ok(thumbnail_path.to_string_lossy().to_string());
     }
 
+    // A remote URL (WordPress projects preview a live site, not a local dev
+    // server) has nothing listening on localhost, so the port health check
+    // below would fail every time and the project could never get a
+    // thumbnail. Playwright loads the URL directly instead.
+    let authority = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    let host = authority.split([':', '/']).next().unwrap_or(authority);
+    let is_local = host == "localhost" || host == "127.0.0.1" || host == "::1";
+
     // Quick health check: verify the dev server is still responding before launching Playwright.
     // This reduces (but doesn't eliminate) race conditions where the server dies mid-capture.
     // Extract port from URL (e.g., "http://localhost:3000" -> 3000)
@@ -56,8 +66,10 @@ pub async fn capture_project_thumbnail(
     let ipv4_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let ipv6_addr = std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port)); // ::1
 
-    let ipv4_ok = TcpStream::connect_timeout(&ipv4_addr, Duration::from_millis(500)).is_ok();
-    let ipv6_ok = TcpStream::connect_timeout(&ipv6_addr, Duration::from_millis(500)).is_ok();
+    let ipv4_ok =
+        !is_local || TcpStream::connect_timeout(&ipv4_addr, Duration::from_millis(500)).is_ok();
+    let ipv6_ok =
+        !is_local || TcpStream::connect_timeout(&ipv6_addr, Duration::from_millis(500)).is_ok();
 
     if !ipv4_ok && !ipv6_ok {
         tracing::warn!(

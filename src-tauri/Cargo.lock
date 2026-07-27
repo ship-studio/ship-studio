@@ -4515,6 +4515,7 @@ dependencies = [
  "once_cell",
  "portable-pty",
  "reqwest",
+ "rustls 0.23.36",
  "semver",
  "sentry",
  "sentry-tracing",
@@ -4535,6 +4536,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tracing",
  "tracing-appender",
@@ -4543,6 +4545,7 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+ "webpki-roots 0.26.11",
  "which",
  "zip 2.4.2",
 ]

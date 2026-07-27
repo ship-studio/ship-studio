@@ -71,6 +71,7 @@ import { kbd } from '../../lib/shortcuts';
 import { useCommands } from '../../commands/useCommands';
 import { logger } from '../../lib/logger';
 import type { ProjectType } from '../../lib/static-server';
+import type { RemotePreviewTarget } from '../../hooks/usePreviewConnection';
 import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { isEditorFramework, resolveEditorMode } from '../../lib/editorGate';
 
@@ -188,6 +189,8 @@ interface PreviewProps {
   isStaticProject?: boolean;
   /** Detected project type; gates the visual editor to Next.js for v1. */
   projectType?: ProjectType;
+  /** Live site to proxy instead of a local dev server (WordPress projects). */
+  remoteTarget?: RemotePreviewTarget | null;
   /** Callback to send prompt to Claude terminal */
   onSendToClaude?: (prompt: string) => void;
   /** Plugin components rendered in the preview toolbar */
@@ -287,6 +290,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     isDevServerRestarting = false,
     isStaticProject = false,
     projectType,
+    remoteTarget,
     onSendToClaude,
     previewPlugins,
     showLogs = false,
@@ -325,6 +329,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   const conn = usePreviewConnection({
     port,
     projectPath,
+    remoteTarget,
     isDevServerRestarting,
     isStaticProject,
     onServerReady,
