@@ -27,6 +27,18 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../lib/wordpress', async (importOriginal) => {
+  // Keep the real decision helpers (planLocalServer, isLocalSite,
+  // localServerCommand) — they are the logic under test here. Only the
+  // backend-backed reads are stubbed.
+  const actual = await importOriginal<typeof import('../lib/wordpress')>();
+  return {
+    ...actual,
+    getWordpressSiteUrl: vi.fn().mockResolvedValue(null),
+    detectLocalWordpress: vi.fn().mockResolvedValue(null),
+  };
+});
+
 vi.mock('../lib/analytics', () => ({
   trackEvent: vi.fn().mockResolvedValue(undefined),
 }));
@@ -630,5 +642,69 @@ describe('filterProbeChunk', () => {
     const result = filterProbeChunk('', chunk);
     expect(result.kept).toBe('');
     expect(result.pending).toBe('');
+  });
+});
+
+describe('WordPress projects', () => {
+  /** Point detection at wordpress and set the project's connected site. */
+  async function setup(siteUrl: string | null, installDir: string | null) {
+    const { detectProjectType } = await import('../lib/static-server');
+    const { getWordpressSiteUrl, detectLocalWordpress } = await import('../lib/wordpress');
+    vi.mocked(detectProjectType).mockResolvedValue('wordpress');
+    vi.mocked(getWordpressSiteUrl).mockResolvedValue(siteUrl);
+    vi.mocked(detectLocalWordpress).mockResolvedValue(installDir);
+    return import('../lib/project');
+  }
+
+  it('starts no server for a project that previews a live site', async () => {
+    const { startDevServer } = await setup('https://example.wpenginepowered.com', null);
+    const { result } = renderHook(() => useDevServer('/p'));
+    await act(async () => {
+      await result.current.startServerForProject('/p', 'wp', 3000, 'main');
+    });
+    expect(startDevServer).not.toHaveBeenCalled();
+  });
+
+  it('serves a local site on the port baked into its database', async () => {
+    const { startDevServer } = await setup('http://localhost:3455', 'wp');
+    const { result } = renderHook(() => useDevServer('/p'));
+    await act(async () => {
+      await result.current.startServerForProject('/p', 'wp', 3000, 'main');
+    });
+    expect(startDevServer).toHaveBeenCalled();
+    const [, port, , , command] = vi.mocked(startDevServer).mock.calls[0];
+    // 3455 from the site URL, not the 3000 reserved dev-server port —
+    // WordPress stores its URL in the database and only works on that port.
+    expect(port).toBe(3455);
+    expect(command).toContain('wp server --port=3455 --path=wp');
+  });
+
+  it('starts nothing when the site URL is stale and no install exists', async () => {
+    // Regression: a project that adopted another project's port had a
+    // localhost URL saved with an empty folder. Spawning anyway exited 1
+    // with "Directory wp does not exist" and surfaced as a crashed server.
+    const { startDevServer } = await setup('http://localhost:3455', null);
+    const { result } = renderHook(() => useDevServer('/p'));
+    await act(async () => {
+      await result.current.startServerForProject('/p', 'wp', 3000, 'main');
+    });
+    expect(startDevServer).not.toHaveBeenCalled();
+  });
+
+  it('never falls back to npm run dev on restart', async () => {
+    // Regression: the restart path had no WordPress branch and fell through
+    // to the package.json default, running `npm run dev` in a project that
+    // has no package.json.
+    const { startDevServer } = await setup('https://example.wpenginepowered.com', null);
+    const { result } = renderHook(() => useDevServer('/p'));
+    await act(async () => {
+      await result.current.startServerForProject('/p', 'wp', 3000, 'main');
+    });
+    await act(async () => {
+      await result.current.handleRestartDevServer('/p');
+    });
+    // A live-site project has nothing local to restart, so nothing should be
+    // spawned at all — and in particular not the package.json fallback.
+    expect(startDevServer).not.toHaveBeenCalled();
   });
 });
