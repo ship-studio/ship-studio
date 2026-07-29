@@ -60,7 +60,7 @@ pub fn init_sentry() {
     let _ = SENTRY_GUARD.set(guard);
 }
 
-fn scrub_string(s: &str) -> String {
+pub(crate) fn scrub_string(s: &str) -> String {
     // Strip local paths so Sentry doesn't see usernames or project folder names.
     let re_unix = regex_lite_replace(s, "/Users/", "/Users/<redacted>");
     let re_home = regex_lite_replace(&re_unix, "/home/", "/home/<redacted>");

@@ -100,6 +100,9 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           CSTAR_IDENTITY_SECRET: ${{ secrets.CSTAR_IDENTITY_SECRET }}
+          # Admin-agent bug reporting (docs/error-reporting.md). Compiled in via
+          # option_env! — if the secret is unset, reporting is a silent no-op.
+          BUG_REPORT_SECRET: ${{ secrets.BUG_REPORT_SECRET }}
           APPLE_SIGNING_IDENTITY: "Developer ID Application"
           # Notarization intentionally disabled: it requires an in-effect Apple
           # Developer agreement (was returning HTTP 403 and blocking every

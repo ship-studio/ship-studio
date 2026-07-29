@@ -14,6 +14,7 @@ pub mod agent;
 pub mod agent_bridge;
 pub mod cache;
 pub mod commands;
+pub mod error_reporting;
 pub mod errors;
 pub mod external_command;
 pub mod logging;
@@ -81,6 +82,10 @@ fn cleanup_agent_processes() {
 pub fn run() {
     // Sentry must init before the tracing subscriber so its layer can attach.
     logging::init_sentry();
+
+    // Admin-agent panic reporting chains Sentry's panic hook, so it must come
+    // after init_sentry().
+    error_reporting::install_panic_hook();
 
     // Initialize logging first
     if let Err(e) = logging::init_logging() {
@@ -738,6 +743,8 @@ pub fn run() {
             // Logging
             logging::get_log_path,
             logging::log_frontend_event,
+            // Error reporting (admin agent)
+            error_reporting::report_frontend_error,
             // Snapshots / Undo-Redo
             commands::snapshots::snapshot_start_watching,
             commands::snapshots::snapshot_stop_watching,

@@ -1,6 +1,7 @@
 import { Component, ReactNode } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { logger } from '../lib/logger';
+import { reportError } from '../lib/errorReporting';
 import { lookupBlobOwner, markPluginCrashed } from '../lib/plugin-loader';
 import { uninstallPlugin } from '../lib/plugins';
 
@@ -29,6 +30,17 @@ export class ErrorBoundary extends Component<Props, State> {
     // Auto-remove crashing plugins so they don't crash again on Continue
     const stack = error.stack ?? '';
     const blobMatch = /blob:[^\s:)]+/.exec(stack);
+
+    // Report app crashes to the admin agent — but not plugin crashes, which
+    // are third-party code and get auto-removed below.
+    if (!blobMatch) {
+      reportError({
+        message: error.message,
+        stack: `${stack}\n\nComponent stack:${errorInfo.componentStack ?? ''}`,
+        source: 'react-error-boundary',
+      });
+    }
+
     if (blobMatch) {
       const owner = lookupBlobOwner(blobMatch[0]);
       if (owner) {

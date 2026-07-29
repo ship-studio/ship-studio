@@ -47,6 +47,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Admin-agent bug reporting (docs/error-reporting.md). Compiled in via
+          # option_env! — if the secret is unset, reporting is a silent no-op.
+          BUG_REPORT_SECRET: ${{ secrets.BUG_REPORT_SECRET }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Ship Studio ${{ github.ref_name }}'

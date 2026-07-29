@@ -20,6 +20,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { exposeReactGlobals, lookupBlobOwner, markPluginCrashed } from './lib/plugin-loader';
 import { uninstallPlugin } from './lib/plugins';
 import { exposePluginContextRef } from './contexts/PluginContext';
+import { reportError } from './lib/errorReporting';
 import { OverlayScrollbars } from 'overlayscrollbars';
 import 'overlayscrollbars/overlayscrollbars.css';
 
@@ -37,7 +38,15 @@ window.addEventListener('error', (event) => {
     event.filename?.startsWith('blob:') ||
     msg.includes('Plugin context') ||
     msg.includes('plugin-sdk');
-  if (!isPluginError) return;
+  if (!isPluginError) {
+    // App bug (not third-party plugin code) — report to the admin agent.
+    reportError({
+      message: msg,
+      stack: event.error instanceof Error ? event.error.stack : undefined,
+      source: 'window-error',
+    });
+    return;
+  }
 
   event.preventDefault();
   console.error('[Ship Studio] Plugin error caught by global handler:', msg);
@@ -76,7 +85,15 @@ window.addEventListener('unhandledrejection', (event) => {
     (message.includes('handlerId') && stack.includes('user-script'))
   ) {
     event.preventDefault();
+    return;
   }
+
+  // Genuine unhandled rejection from app code — report to the admin agent.
+  reportError({
+    message,
+    stack: reason instanceof Error ? reason.stack : undefined,
+    source: 'unhandled-rejection',
+  });
 });
 
 // Patch removeChild to handle nodes relocated by OverlayScrollbars.
