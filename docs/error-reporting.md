@@ -18,23 +18,52 @@ Body fields: `message` (required), `stack`, `source`, `appVersion`,
 `fingerprint`, `context` (JSON object). Get `BUG_REPORT_SECRET` from Julian —
 never commit it.
 
-## How it's wired in the app
+## What gets reported (coverage map)
 
-All reporting funnels through **`src-tauri/src/error_reporting.rs`**:
+The goal: **anything not working as intended reaches the agent**, without
+per-site wiring. Coverage comes from choke points, not scattered calls:
 
-- `report_error(message, stack, source, fingerprint)` — the one Rust entry
-  point. Async fire-and-forget POST with a 5s timeout.
-- A panic hook (installed in `lib.rs::run()`, chained in front of Sentry's)
-  reports Rust panics with a `panic-<file>:<line>:<col>` fingerprint. The
-  panic path sends synchronously since the process may be about to die.
-- The `report_frontend_error` Tauri command relays frontend errors.
+| Surface | Choke point | Fingerprint |
+|---|---|---|
+| Rust panics | panic hook in `error_reporting.rs` (chained in front of Sentry's) | `panic-<file>:<line>:<col>` |
+| Any backend `tracing::error!` | `AdminAgentLayer` tracing layer, attached in `logging::init_logging()` | `rs-<file>:<line>` (callsite) |
+| Frontend crashes (ErrorBoundary) | `logger.logError` → forwarding | message-based |
+| Any `logger.error` / `logger.logError` | forwarding inside `Logger.log()` | message-based |
+| Uncaught JS errors / unhandled rejections | `window` handlers in `main.tsx` | message-based |
+| Error toasts (user-visible failures) | `showToast(…, 'error')` in `useToasts` | message-based |
 
-Frontend errors reach it via **`src/lib/errorReporting.ts`** (`reportError`),
-hooked into:
+Excluded on purpose: plugin crashes (`blob:` stacks — third-party code), the
+known Tauri `listeners[eventId]` noise, error logs from dependencies (the
+tracing layer only forwards `ship_studio*` targets).
 
-- the top-level React `ErrorBoundary` (skips plugin crashes — third-party code)
-- `window.onerror` and `unhandledrejection` in `main.tsx` (skips plugin errors
-  and the known Tauri `listeners[eventId]` noise)
+**The rule for new code**: if something fails in a way that isn't the user's
+expected flow, call `tracing::error!` (Rust) or `logger.error` (frontend) or
+surface an error toast — any of those automatically notifies the agent. For
+high-value catch-sites, call `report_error` directly with a stable fingerprint
+slug (see below).
+
+All reporting funnels through **`src-tauri/src/error_reporting.rs`**
+(`report_error` — async fire-and-forget POST, 5s timeout; the
+`report_frontend_error` command relays frontend reports) and
+**`src/lib/errorReporting.ts`** (`reportError`) on the frontend.
+
+## Cost controls
+
+Reports can trigger paid agent investigations, so spam protection is layered —
+all of it client-side before a single byte leaves the machine:
+
+1. **Session dedup** — one report per fingerprint per app session, on both the
+   frontend (cap 20) and Rust (cap 25) sides.
+2. **Cross-session refractory** — the same fingerprint reports at most once
+   per 24h, persisted in `bug-report-throttle.json` next to `app_state.json`.
+   A crash-looping install that relaunches every few seconds still sends one
+   report per day per bug.
+3. **Daily cap** — at most 30 reports per machine per day, whatever happens.
+4. **Server-side dedup** — same fingerprint = same agent session; repeats are
+   noted on the existing session, not new investigations.
+
+Throttle I/O fails open (a corrupt/unwritable file falls back to session dedup
+only) — cost protection must never disable crash reporting entirely.
 
 ## The rules (enforced in code — keep them when extending)
 

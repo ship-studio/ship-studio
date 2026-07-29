@@ -176,6 +176,10 @@ pub fn init_logging() -> Result<(), String> {
     // attach unconditionally.
     let subscriber = subscriber.with(sentry_tracing::layer());
 
+    // Forward error-level events to the admin agent (docs/error-reporting.md).
+    // Also a no-op outside production builds and gated/throttled internally.
+    let subscriber = subscriber.with(crate::error_reporting::AdminAgentLayer);
+
     subscriber.init();
 
     tracing::info!(

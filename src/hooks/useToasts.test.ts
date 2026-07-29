@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+
+vi.mock('../lib/errorReporting', () => ({
+  reportError: vi.fn(),
+}));
+
 import { useToasts } from './useToasts';
+import { reportError } from '../lib/errorReporting';
 
 describe('useToasts', () => {
   beforeEach(() => {
@@ -201,5 +207,30 @@ describe('useToasts', () => {
       vi.advanceTimersByTime(2000);
     });
     expect(result.current.toasts).toHaveLength(0);
+  });
+
+  it('reports error toasts to the admin agent', () => {
+    const { result } = renderHook(() => useToasts());
+
+    act(() => {
+      result.current.showToast('Failed to create branch', 'error');
+    });
+
+    expect(vi.mocked(reportError)).toHaveBeenCalledWith({
+      message: 'Failed to create branch',
+      source: 'toast',
+    });
+  });
+
+  it('does not report success or info toasts', () => {
+    vi.mocked(reportError).mockClear();
+    const { result } = renderHook(() => useToasts());
+
+    act(() => {
+      result.current.showToast('Saved', 'success');
+      result.current.showToast('FYI', 'info');
+    });
+
+    expect(vi.mocked(reportError)).not.toHaveBeenCalled();
   });
 });

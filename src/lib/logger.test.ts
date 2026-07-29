@@ -9,12 +9,18 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('./errorReporting', () => ({
+  reportError: vi.fn(),
+}));
+
 // Import after mocking
 import { logger } from './logger';
 import { invoke } from '@tauri-apps/api/core';
+import { reportError } from './errorReporting';
 
 describe('Logger', () => {
   const mockInvoke = vi.mocked(invoke);
+  const mockReportError = vi.mocked(reportError);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -179,6 +185,30 @@ describe('Logger', () => {
         message: 'Message 2',
         context: null,
       });
+    });
+  });
+
+  describe('admin agent forwarding', () => {
+    it('forwards error logs to reportError with stack and context', () => {
+      const err = new Error('forward me');
+      logger.logError(err, { projectPath: '/tmp/x' });
+
+      expect(mockReportError).toHaveBeenCalledTimes(1);
+      const arg = mockReportError.mock.calls[0][0];
+      expect(arg.message).toBe('forward me');
+      expect(arg.source).toBe('frontend-log');
+      expect(arg.stack).toContain('context:');
+    });
+
+    it('does not forward non-error levels', () => {
+      logger.warn('just a warning');
+      logger.info('just info');
+      expect(mockReportError).not.toHaveBeenCalled();
+    });
+
+    it('does not forward plugin (blob:) errors', () => {
+      logger.error('plugin exploded', { stack: 'at blob:app://x/y:1:1' });
+      expect(mockReportError).not.toHaveBeenCalled();
     });
   });
 });

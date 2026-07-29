@@ -8,6 +8,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { reportError } from './errorReporting';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -109,10 +110,33 @@ class Logger {
       this.buffer.shift();
     }
 
-    // Immediately send errors to backend
+    // Immediately send errors to backend, and report them to the admin agent
     if (level === 'error') {
       void this.sendToBackend(entry);
+      this.forwardToAdminAgent(entry);
     }
+  }
+
+  /**
+   * Forward an error-level log to the admin agent (docs/error-reporting.md).
+   * Every `logger.error`/`logger.logError` call marks something not working
+   * as intended, so each one becomes a report — deduped per session and
+   * throttled cross-session on the Rust side. Plugin errors (blob: URLs) are
+   * third-party code and excluded.
+   */
+  private forwardToAdminAgent(entry: LogEntry) {
+    const contextText = entry.context ? JSON.stringify(entry.context) : '';
+    if (entry.message.includes('blob:') || contextText.includes('blob:')) return;
+
+    const { stack, ...rest } = entry.context ?? {};
+    const parts: string[] = [];
+    if (typeof stack === 'string') parts.push(stack);
+    if (Object.keys(rest).length > 0) parts.push(`context: ${JSON.stringify(rest)}`);
+    reportError({
+      message: entry.message,
+      stack: parts.length > 0 ? parts.join('\n\n') : undefined,
+      source: 'frontend-log',
+    });
   }
 
   private async sendToBackend(entry: LogEntry) {

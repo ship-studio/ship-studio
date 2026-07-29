@@ -12,6 +12,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { reportError } from '../lib/errorReporting';
 
 /** Toast notification type */
 export type ToastType = 'success' | 'error' | 'info';
@@ -74,6 +75,12 @@ export function useToasts(): UseToastsReturn {
   }, []);
 
   const showToast = useCallback((message: string, type: ToastType = 'success') => {
+    // An error toast is, by definition, the user seeing something not work as
+    // intended — report it to the admin agent (deduped + throttled; see
+    // docs/error-reporting.md).
+    if (type === 'error') {
+      reportError({ message, source: 'toast' });
+    }
     const id = ++toastIdRef.current;
     setToasts((prev) => {
       // Keep max toasts, remove oldest if needed
