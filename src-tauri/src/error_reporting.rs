@@ -18,6 +18,8 @@
 //! - **No PII** — messages and stacks are scrubbed of home-dir paths
 //!   (usernames, project folder names) before leaving the machine, since
 //!   reports can end up in public GitHub issues.
+//! - **Opt-out respected** — turning off "Usage analytics & error reports" in
+//!   Settings disables this pipeline entirely, alongside PostHog analytics.
 
 use crate::logging::scrub_string;
 use once_cell::sync::Lazy;
@@ -26,7 +28,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const ENDPOINT: &str = "https://shipstudio-admin-agent.vercel.app/report";
 const SEND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -40,7 +42,16 @@ static REPORTED: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet:
 
 fn enabled() -> bool {
     let force = std::env::var("SHIPSTUDIO_BUG_REPORT_FORCE").ok().as_deref() == Some("1");
-    !cfg!(debug_assertions) || force
+    if cfg!(debug_assertions) && !force {
+        return false;
+    }
+    // Privacy: the Settings → "Usage analytics & error reports" toggle governs
+    // this pipeline too. Opted-out users share nothing — not even scrubbed
+    // crash reports. This is the single authoritative check; every report
+    // (frontend or backend) funnels through here.
+    crate::commands::setup::read_app_state()
+        .analytics_enabled
+        .unwrap_or(true)
 }
 
 fn secret() -> Option<&'static str> {
@@ -172,22 +183,74 @@ fn passes_persistent_throttle(path: &Path, key: &str, now: i64, today: &str) -> 
     true
 }
 
-/// Full send gate: in-session dedup, then the persistent cross-session
-/// throttle. Returns true when this occurrence should be reported.
-fn allow_report(key: &str) -> bool {
+// --- Incident collapse ------------------------------------------------------
+//
+// One failure often fires several reporting channels within milliseconds:
+// the backend logs `tracing::error!`, the `CommandError` crosses IPC (its
+// Serialize hook), and the frontend shows an error toast. Each carries a
+// different fingerprint, so dedup alone won't merge them — and each unique
+// report can trigger a paid investigation. The first channel to fire wins;
+// anything else inside the gap is suppressed *before* any dedup state is
+// recorded, so a genuine recurrence later can still report.
+
+const MIN_GAP: Duration = Duration::from_secs(5);
+static LAST_REPORT_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
+
+fn within_min_gap() -> bool {
+    match LAST_REPORT_AT.lock() {
+        Ok(guard) => matches!(*guard, Some(t) if t.elapsed() < MIN_GAP),
+        Err(_) => true, // poisoned: suppress rather than risk a storm
+    }
+}
+
+fn mark_report_sent() {
+    if let Ok(mut guard) = LAST_REPORT_AT.lock() {
+        *guard = Some(Instant::now());
+    }
+}
+
+/// Session dedup read-only check — no state is recorded.
+fn session_already_seen(key: &str) -> bool {
+    match REPORTED.lock() {
+        Ok(seen) => seen.len() >= MAX_REPORTS_PER_SESSION || seen.contains(key),
+        Err(_) => true,
+    }
+}
+
+/// Full send gate: session dedup, incident collapse, then the persistent
+/// cross-session throttle. Returns true when this occurrence should be sent.
+/// `respect_gap: false` is for panics — a crash report must never be
+/// swallowed because some lesser error fired just before it.
+fn allow_report_with_gap(key: &str, respect_gap: bool) -> bool {
+    if session_already_seen(key) {
+        return false;
+    }
+    if respect_gap && within_min_gap() {
+        return false;
+    }
     if !first_occurrence(key) {
         return false;
     }
-    let Some(path) = throttle_path() else {
-        return true;
+    let allowed = match throttle_path() {
+        None => true,
+        Some(path) => {
+            let now = chrono::Utc::now();
+            passes_persistent_throttle(
+                &path,
+                key,
+                now.timestamp(),
+                &now.format("%Y-%m-%d").to_string(),
+            )
+        }
     };
-    let now = chrono::Utc::now();
-    passes_persistent_throttle(
-        &path,
-        key,
-        now.timestamp(),
-        &now.format("%Y-%m-%d").to_string(),
-    )
+    if allowed {
+        mark_report_sent();
+    }
+    allowed
+}
+
+fn allow_report(key: &str) -> bool {
+    allow_report_with_gap(key, true)
 }
 
 fn build_body(
@@ -201,7 +264,9 @@ fn build_body(
         "stack": stack.map(scrub_string),
         "source": source,
         "appVersion": env!("CARGO_PKG_VERSION"),
-        "fingerprint": fingerprint,
+        // Scrubbed defensively like message/stack — fingerprints are meant to
+        // be static slugs, but nothing should leave unscrubbed.
+        "fingerprint": fingerprint.map(scrub_string),
         "context": {
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
@@ -247,7 +312,7 @@ fn report_panic(message: &str, location: Option<&str>) {
     }
     let Some(secret) = secret() else { return };
     let fingerprint = location.map(|l| format!("panic-{}", scrub_string(l)));
-    if !allow_report(&dedupe_key(message, "panic", fingerprint.as_deref())) {
+    if !allow_report_with_gap(&dedupe_key(message, "panic", fingerprint.as_deref()), false) {
         return;
     }
     let body = build_body(
@@ -287,6 +352,40 @@ pub fn install_panic_hook() {
         report_panic(&message, location.as_deref());
         prev(info);
     }));
+}
+
+/// Derive a stable fingerprint for a `CommandError` crossing the IPC
+/// boundary. `None` for both the skip-entirely case and variants whose
+/// messages carry the only useful identity (dedup falls back to content).
+fn command_error_fingerprint(err: &crate::errors::CommandError) -> Option<String> {
+    use crate::errors::CommandError as E;
+    match err {
+        E::Timeout { cmd, .. } => Some(format!("cmderr-timeout-{cmd}")),
+        E::Process { cmd, .. } => Some(format!("cmderr-process-{cmd}")),
+        E::Validation { field, .. } => Some(format!("cmderr-validation-{field}")),
+        E::MergeConflict { .. } => Some("cmderr-merge-conflict".to_string()),
+        E::NotAuthenticated { .. } | E::Io { .. } | E::Other { .. } => None,
+    }
+}
+
+/// Report a `CommandError` the moment it's serialized for the frontend —
+/// the one choke point that sees every backend failure a user experiences,
+/// including structured Validation errors rendered inline (no toast, no
+/// error log). Called from `CommandError`'s `Serialize` impl.
+///
+/// `NotAuthenticated` is skipped: a not-yet-connected integration is an
+/// expected state, not a malfunction.
+pub fn report_command_error(err: &crate::errors::CommandError) {
+    if matches!(err, crate::errors::CommandError::NotAuthenticated { .. }) {
+        return;
+    }
+    let fingerprint = command_error_fingerprint(err);
+    report_error(
+        &err.to_string(),
+        None,
+        "command-error",
+        fingerprint.as_deref(),
+    );
 }
 
 // --- Tracing integration ---------------------------------------------------
@@ -415,6 +514,38 @@ mod tests {
         let key = "test-unique-fingerprint-for-dedup";
         assert!(first_occurrence(key));
         assert!(!first_occurrence(key));
+    }
+
+    #[test]
+    fn command_error_fingerprints_are_stable_slugs() {
+        use crate::errors::CommandError as E;
+        assert_eq!(
+            command_error_fingerprint(&E::Validation {
+                field: "branch".into(),
+                reason: "Invalid ref name".into()
+            })
+            .as_deref(),
+            Some("cmderr-validation-branch")
+        );
+        assert_eq!(
+            command_error_fingerprint(&E::Timeout {
+                cmd: "git fetch".into(),
+                secs: 30
+            })
+            .as_deref(),
+            Some("cmderr-timeout-git fetch")
+        );
+        // Variable-message variants dedupe on content instead.
+        assert!(command_error_fingerprint(&E::Other {
+            message: "x".into()
+        })
+        .is_none());
+    }
+
+    #[test]
+    fn incident_gap_suppresses_rapid_followups() {
+        mark_report_sent();
+        assert!(within_min_gap());
     }
 
     #[test]

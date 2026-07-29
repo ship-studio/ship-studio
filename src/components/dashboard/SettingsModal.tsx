@@ -391,9 +391,11 @@ export function SettingsModal({
             </div>
             <div className="settings-row">
               <div className="settings-row-info">
-                <span className="settings-row-label">Usage analytics</span>
+                <span className="settings-row-label">Usage analytics &amp; error reports</span>
                 <span className="settings-row-description">
-                  Help improve Ship Studio by sharing usage data like feature usage, and errors.
+                  Help improve Ship Studio by sharing anonymous usage data and automatic error
+                  reports (error messages and stack traces only — never your code or file contents,
+                  and paths are anonymized). Turning this off stops all data sharing.
                 </span>
               </div>
               <button

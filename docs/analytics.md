@@ -245,4 +245,4 @@ Create these in the PostHog UI and link them here when set up:
 - `error_message` is capped at 500 chars.
 - Search queries are capped at 100 chars by `trackSearch`; the original length lands in `query_length`.
 - Person properties on `$set_once` (first_seen, first_version) never overwrite — even on re-identify.
-- **Users can disable analytics via Settings → Usage analytics.** The Rust backend short-circuits all sends when the toggle is off; the setting persists across launches.
+- **Users can disable analytics via Settings → Usage analytics & error reports.** The Rust backend short-circuits all sends when the toggle is off; the setting persists across launches. The same toggle also disables automatic bug reports to the admin agent (see `docs/error-reporting.md`) — opted-out users share no data of any kind.
