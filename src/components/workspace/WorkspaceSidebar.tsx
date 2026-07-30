@@ -81,6 +81,10 @@ interface Props {
    *  entry, and (if it was the current project) route back to home. Called
    *  by the per-row close button. */
   onCloseProject?: (projectPath: string) => void;
+  /** Unpin a pinned row. Rendered as the row's hover action when there's no
+   *  live session to close — without it, a pin whose folder was moved or
+   *  deleted outside the app could never be removed (issue #366). */
+  onUnpinProject?: (projectPath: string) => void;
   /**
    * Switch to a non-current project and focus a specific tab (by session id)
    * once the restore completes. The caller is responsible for persisting
@@ -248,6 +252,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   currentProjectName,
   onSelectProject,
   onCloseProject,
+  onUnpinProject,
   onSelectProjectTab,
   terminalTabs,
   activeTerminalTab,
@@ -618,8 +623,11 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     const isCurrent = currentFamily !== null && familyKeyOf(row.projectPath) === currentFamily;
     const expanded = isProjectExpanded(row.projectPath);
     // Only rows with a live session can be closed. Pinned rows that have
-    // never been opened this launch show status 'inactive' and get no X.
+    // never been opened this launch show status 'inactive' and instead get
+    // an unpin affordance — critically including pins whose folder no longer
+    // exists and which therefore can never become active (issue #366).
     const canClose = !!onCloseProject && row.status !== 'inactive';
+    const canUnpin = !canClose && !!onUnpinProject && pinnedPaths.has(row.projectPath);
     // Closing a family row shuts down every member session (main checkout
     // and worktrees alike) — leaving invisible hot sessions behind would
     // silently keep dev servers and PTYs running.
@@ -659,6 +667,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         onToggleExpand={() => toggleProjectExpanded(row.projectPath)}
         onSelectProject={onSelectProject}
         onClose={canClose ? closeFamily : undefined}
+        onUnpin={canUnpin ? () => onUnpinProject?.(row.projectPath) : undefined}
       >
         {expanded &&
           (isCurrent ? (
@@ -999,6 +1008,7 @@ function ProjectGroup({
   onToggleExpand,
   onSelectProject,
   onClose,
+  onUnpin,
   children,
 }: {
   row: PinnedProjectRow;
@@ -1010,6 +1020,9 @@ function ProjectGroup({
   onSelectProject: (path: string) => void;
   /** Shown as a hover-only X when defined. */
   onClose?: () => void;
+  /** Hover-only unpin action for rows with no live session (issue #366).
+   *  Ignored when `onClose` is present — one hover action per row. */
+  onUnpin?: () => void;
   children?: React.ReactNode;
 }) {
   const initials = projectInitials(row.fallbackName);
@@ -1075,6 +1088,27 @@ function ProjectGroup({
             }}
             aria-label={`Close ${row.fallbackName}`}
             title="Close project (stops dev server)"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+              <path
+                d="M1 1 L9 9 M9 1 L1 9"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
+        {!onClose && onUnpin && (
+          <button
+            type="button"
+            className="sidebar-project-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUnpin();
+            }}
+            aria-label={`Unpin ${row.fallbackName}`}
+            title="Unpin from sidebar"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
               <path

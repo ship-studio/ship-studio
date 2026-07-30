@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useClickOutside } from './useClickOutside';
+import { useCopyToClipboard } from './useCopyToClipboard';
 import {
   decideIframeWatchdogArm,
   isPreviewProofOfLife,
@@ -121,6 +122,10 @@ export function usePreviewConnection({
   // Last time the HMR watchdog auto-reloaded the preview — throttles recovery
   // so a flapping HMR socket can't put the iframe in a reload loop.
   const lastHmrRecoveryRef = useRef(0);
+  // Options-less so `copy` stays referentially stable — it's a dependency of
+  // the message-handler effect below, and per-render options would make that
+  // effect re-subscribe on every render.
+  const { copy: copyErrorText } = useCopyToClipboard();
   const isStoppedRef = useRef(false);
   isStoppedRef.current = isStopped;
   const retryCountRef = useRef(0);
@@ -402,10 +407,19 @@ export function usePreviewConnection({
         });
       }
       if (data && data.type === 'shipstudio:copy-error' && data.message) {
-        navigator.clipboard.writeText(data.message).then(
-          () => onToast?.('Error copied to clipboard', 'success'),
-          () => onToast?.('Failed to copy to clipboard', 'error')
-        );
+        void copyErrorText(data.message).then((ok) => {
+          if (ok) {
+            onToast?.('Error copied to clipboard', 'success');
+          } else {
+            // The click happened inside the preview iframe, so the app window
+            // itself may lack the user-activation the clipboard API wants
+            // (issue #357).
+            onToast?.(
+              'Failed to copy to clipboard — click the Ship Studio window, then try again',
+              'error'
+            );
+          }
+        });
       }
       if (data && data.type === 'shipstudio:send-error-to-claude' && data.message) {
         const prompt = `My dev server is returning an error:\n\n${data.message}\n\nPlease help me fix this.`;
@@ -446,6 +460,7 @@ export function usePreviewConnection({
     serverReady,
     devServerUrl,
     clearIframeWatchdogTimer,
+    copyErrorText,
   ]);
 
   // Auto-reload for static HTML projects when files change on disk

@@ -22,7 +22,7 @@ import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { useAsyncState } from '../../hooks/useAsyncState';
-import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
+import { describeClipboardError, useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 interface ConflictResolutionModalProps {
@@ -68,7 +68,8 @@ export function ConflictResolutionModal({
   const error = loadError ? loadError.message : null;
   const { copy } = useCopyToClipboard({
     onCopy: () => onToast?.('Copied to clipboard', 'success'),
-    onError: () => onToast?.('Failed to copy to clipboard', 'error'),
+    onError: (err) =>
+      onToast?.(`Failed to copy to clipboard (${describeClipboardError(err)})`, 'error'),
   });
 
   const loadConflicts = useCallback(async () => {

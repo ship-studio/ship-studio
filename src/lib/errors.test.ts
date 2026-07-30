@@ -141,6 +141,12 @@ describe('humanizeGitError', () => {
       expect: /couldn't reach GitHub/i,
     },
     {
+      // Windows Go dial error from the gh CLI — contains none of the usual
+      // timeout/refused/resolve substrings (issue #375).
+      raw: 'Post "https://api.github.com/graphql": dial tcp 20.207.73.85:443: connectex: A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond.',
+      expect: /couldn't reach GitHub/i,
+    },
+    {
       raw: 'remote: error: GH006: Protected branch update failed for refs/heads/main',
       expect: /protected, so changes can't be pushed/i,
     },

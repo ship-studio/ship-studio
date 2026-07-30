@@ -55,6 +55,12 @@ pub async fn run_with_timeout(
             // not an app malfunction — Expected keeps it out of telemetry.
             if io_err.kind() == std::io::ErrorKind::NotFound {
                 Err(CommandError::expected(message))
+            } else if let Some(oom) =
+                crate::errors::windows_out_of_memory(&io_err, Some(label.as_str()))
+            {
+                // Pagefile exhaustion is likewise the environment, not us
+                // (issue #356).
+                Err(oom)
             } else {
                 Err(CommandError::Io { message })
             }

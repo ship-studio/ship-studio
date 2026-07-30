@@ -10,7 +10,7 @@
 import { WarningIcon, CopyIcon } from '../icons';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
-import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
+import { describeClipboardError, useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 interface GitErrorHandlerProps {
@@ -85,7 +85,8 @@ Please help me understand what went wrong and how to fix it.`,
   const errorInfo = getErrorInfo();
   const { copy } = useCopyToClipboard({
     onCopy: () => onToast?.('Prompt copied to clipboard', 'success'),
-    onError: () => onToast?.('Failed to copy to clipboard', 'error'),
+    onError: (err) =>
+      onToast?.(`Failed to copy to clipboard (${describeClipboardError(err)})`, 'error'),
   });
 
   const handleCopyPrompt = () => {

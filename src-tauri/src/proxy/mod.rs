@@ -822,9 +822,16 @@ async fn handle_websocket_upgrade(
     // upgrade with BAD_GATEWAY instead of riding out the gap (issue #258). The
     // retry loop stays bounded by UPSTREAM_CONNECT_TIMEOUT overall.
     let connect_deadline = tokio::time::Instant::now() + UPSTREAM_CONNECT_TIMEOUT;
+    // Each attempt gets its own short timeout (capped to what's left of the
+    // overall budget) rather than racing the whole deadline: an unready port
+    // doesn't always refuse the connection — on Windows especially, the SYN
+    // can just go unanswered — and a single hung attempt must not eat the
+    // entire retry window (issue #353).
+    let per_attempt = std::time::Duration::from_secs(1);
     let target_stream = loop {
-        let attempt = tokio::time::timeout_at(
-            connect_deadline,
+        let remaining = connect_deadline.saturating_duration_since(tokio::time::Instant::now());
+        let attempt = tokio::time::timeout(
+            remaining.min(per_attempt),
             TcpStream::connect(format!("localhost:{target_port}")),
         )
         .await
@@ -833,11 +840,18 @@ async fn handle_websocket_upgrade(
         match attempt {
             Ok(s) => break s,
             Err(e) => {
-                let retryable = e.kind() == std::io::ErrorKind::ConnectionRefused
-                    && tokio::time::Instant::now() + std::time::Duration::from_millis(250)
-                        < connect_deadline;
+                let retryable = matches!(
+                    e.kind(),
+                    std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::TimedOut
+                ) && tokio::time::Instant::now()
+                    + std::time::Duration::from_millis(250)
+                    < connect_deadline;
                 if retryable {
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    // A timed-out attempt already consumed its slice of the
+                    // budget; only refused connections need the backoff pause.
+                    if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    }
                     continue;
                 }
                 tracing::error!("[Proxy] WebSocket target connection failed: {}", e);

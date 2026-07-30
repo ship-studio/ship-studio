@@ -304,12 +304,23 @@ pub async fn switch_branch(
         }
 
         let stderr = String::from_utf8_lossy(&checkout_output.stderr);
+        // Pre-2.24 git doesn't understand the `--end-of-options` injection
+        // guard and fails resolving it as a pathspec — turn that confusing
+        // two-line error into a clear "your git is too old" (issue #364).
+        let error_message = if stderr.contains("pathspec '--end-of-options'") {
+            "Your installed Git is too old for Ship Studio (Git 2.24 from 2019 or newer is \
+             required). Update Git — on macOS, update the Xcode Command Line Tools or run \
+             `brew install git` — then try again."
+                .to_string()
+        } else {
+            stderr.to_string()
+        };
         return Ok(SwitchResult {
             success: false,
             stashed_changes: false,
             pending_stash_from: None,
             stash_applied: false,
-            error: Some(stderr.to_string()),
+            error: Some(error_message),
         });
     }
 

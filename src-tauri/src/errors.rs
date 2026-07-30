@@ -124,8 +124,32 @@ impl Serialize for CommandError {
     }
 }
 
+/// Windows refusing a memory commit — usually a process spawn — because the
+/// paging file is too small or the machine is under memory pressure
+/// (ERROR_COMMITMENT_LIMIT, os error 1455). That's an environment condition
+/// with a user-side fix, not an app malfunction; returning `Expected` keeps
+/// it out of telemetry and swaps the bare OS string for actionable guidance
+/// (issue #356). The code is Windows-only; matching it unconditionally is
+/// safe because Unix errno values don't reach 1455.
+pub fn windows_out_of_memory(err: &std::io::Error, label: Option<&str>) -> Option<CommandError> {
+    if err.raw_os_error() != Some(1455) {
+        return None;
+    }
+    let doing = label
+        .map(|l| format!(" while running `{l}`"))
+        .unwrap_or_default();
+    Some(CommandError::expected(format!(
+        "Windows ran out of virtual memory{doing} (the paging file is too small). \
+         Close some other apps or increase the paging file size (Settings → System → About → \
+         Advanced system settings → Performance → Virtual memory), then try again."
+    )))
+}
+
 impl From<std::io::Error> for CommandError {
     fn from(err: std::io::Error) -> Self {
+        if let Some(oom) = windows_out_of_memory(&err, None) {
+            return oom;
+        }
         CommandError::Io {
             message: err.to_string(),
         }
@@ -222,5 +246,25 @@ mod tests {
             CommandError::Io { message } => assert!(message.contains("missing")),
             _ => panic!("expected Io variant"),
         }
+    }
+
+    #[test]
+    fn windows_pagefile_exhaustion_becomes_expected_with_guidance() {
+        let io_err = std::io::Error::from_raw_os_error(1455);
+        let err = windows_out_of_memory(&io_err, Some("npm install")).expect("should classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("`npm install`"), "got: {msg}");
+        assert!(msg.contains("paging file"), "got: {msg}");
+
+        // And the blanket io::Error conversion picks it up too.
+        let err: CommandError = std::io::Error::from_raw_os_error(1455).into();
+        assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn windows_out_of_memory_ignores_other_os_errors() {
+        let io_err = std::io::Error::from_raw_os_error(5);
+        assert!(windows_out_of_memory(&io_err, None).is_none());
     }
 }

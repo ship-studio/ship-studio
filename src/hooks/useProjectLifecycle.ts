@@ -318,10 +318,13 @@ export function useProjectLifecycle({
       }
     } catch (e) {
       logger.warn('[OpenProject] Failed to ensure external project registration', { error: e });
-      showToast(
-        `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`,
-        'error'
-      );
+      // Distinguish "the folder is gone" (moved/renamed/deleted outside the
+      // app — issue #365) from "the path isn't in an allowed location"; the
+      // "re-add via Select Project Folder" advice only fits the latter.
+      const message = formatCommandError(asCommandError(e)).includes('no longer exists')
+        ? `Can't open "${project.name}" — its folder no longer exists. It may have been moved, renamed, or deleted outside Ship Studio.`
+        : `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`;
+      showToast(message, 'error');
       return;
     }
 

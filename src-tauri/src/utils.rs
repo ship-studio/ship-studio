@@ -376,13 +376,23 @@ fn build_extended_path() -> String {
 /// on every call, so installing git mid-session (the onboarding wizard does
 /// exactly this) starts working without an app restart.
 pub fn git_command() -> Result<Command, crate::errors::CommandError> {
+    // Hand git the extended PATH, not for git itself (already resolved
+    // absolutely) but for whatever it spawns: pre-commit/pre-push hooks
+    // inherit this environment, and under a GUI-launched app's minimal PATH
+    // a lefthook/husky hook can't find pnpm/node/etc. even though they work
+    // fine in the user's terminal (issue #363). Same treatment `run_git_net`
+    // already applies to fetch/pull/push.
+    fn with_extended_path(mut cmd: Command) -> Command {
+        cmd.env("PATH", get_extended_path());
+        cmd
+    }
     static GIT_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     if let Some(path) = GIT_PATH.get() {
-        return Ok(create_command(path));
+        return Ok(with_extended_path(create_command(path)));
     }
     match find_executable("git") {
         Some(path) => {
-            let cmd = create_command(&path);
+            let cmd = with_extended_path(create_command(&path));
             let _ = GIT_PATH.set(path);
             Ok(cmd)
         }
@@ -766,10 +776,25 @@ pub fn normalize_separators(path: &str) -> String {
 pub fn canonicalize_tagged(
     path: impl AsRef<std::path::Path>,
     site: &str,
-) -> Result<std::path::PathBuf, String> {
+) -> Result<std::path::PathBuf, crate::errors::CommandError> {
     let path = path.as_ref();
-    dunce::canonicalize(path)
-        .map_err(|e| format!("Invalid path in {site} ('{}'): {e}", path.display()))
+    dunce::canonicalize(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            // A folder disappearing out from under the app — deleted, renamed,
+            // or moved in Finder/Explorer — is an environment change, not a
+            // malfunction: say so plainly and keep it out of telemetry
+            // (issues #365/#372, same family as #300/#342).
+            crate::errors::CommandError::expected(format!(
+                "The folder '{}' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+                path.display()
+            ))
+        } else {
+            crate::errors::CommandError::from(format!(
+                "Invalid path in {site} ('{}'): {e}",
+                path.display()
+            ))
+        }
+    })
 }
 
 /// True when a user-supplied relative path contains an actual `..` path
@@ -1131,6 +1156,36 @@ fn format_relative_time_from_now(timestamp_ms: u64, now_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod canonicalize_tagged_errors {
+        use super::*;
+
+        #[test]
+        fn missing_folder_is_expected_not_reported() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let gone = tmp.path().join("vanished-project");
+            let err = canonicalize_tagged(&gone, "test_site").unwrap_err();
+            // A folder deleted/moved outside the app is an environment change
+            // (issues #365/#372) — must be Expected so telemetry skips it.
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains("no longer exists"));
+        }
+
+        #[test]
+        fn other_failures_keep_the_diagnosable_tagged_format() {
+            // A file used as a directory component fails with NotADirectory
+            // (not NotFound) on Unix — that's still a diagnosable anomaly.
+            let tmp = tempfile::TempDir::new().unwrap();
+            let file = tmp.path().join("plain.txt");
+            std::fs::write(&file, "x").unwrap();
+            let bad = file.join("child");
+            if let Err(err) = canonicalize_tagged(&bad, "test_site") {
+                if !matches!(err, crate::errors::CommandError::Expected { .. }) {
+                    assert!(err.to_string().contains("test_site"));
+                }
+            }
+        }
+    }
 
     mod is_forbidden_project_root {
         use super::*;

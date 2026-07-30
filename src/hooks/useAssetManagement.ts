@@ -22,6 +22,7 @@ import {
   type Asset,
 } from '../lib/assets';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import { describeClipboardError, useCopyToClipboard } from './useCopyToClipboard';
 import { trackEvent, trackError, trackSearch } from '../lib/analytics';
 import { logger } from '../lib/logger';
 
@@ -52,6 +53,11 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const { copy: copyToClipboard } = useCopyToClipboard({
+    // A silent failure here left users clicking "copy path" into the void
+    // (issue #355) — surface it like every other failed action in this hook.
+    onError: (err) => onToast?.(`Failed to copy path (${describeClipboardError(err)})`, 'error'),
+  });
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -286,13 +292,10 @@ export function useAssetManagement({ projectPath, isOpen, onToast }: UseAssetMan
   const handleCopyPath = async (asset: Asset) => {
     const webPath =
       assetsRoot === DEFAULT_ASSETS_ROOT ? `/${asset.path}` : `${assetsRoot}/${asset.path}`;
-    try {
-      await navigator.clipboard.writeText(webPath);
+    if (await copyToClipboard(webPath)) {
       setCopiedPath(asset.path);
       setTimeout(() => setCopiedPath(null), 2000);
       onToast?.(`Copied ${webPath}`, 'success');
-    } catch (e) {
-      logger.error('Failed to copy path', { error: e instanceof Error ? e.message : String(e) });
     }
   };
 

@@ -117,12 +117,16 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `GitHub didn't accept the connection. Your sign-in may have expired, or your account may not have write access to this repository. Reconnect GitHub (top right) or check your access, then try again.`;
   }
 
-  // Couldn't reach GitHub at all.
+  // Couldn't reach GitHub at all. 'dial tcp'/'connectex' cover Go's dial
+  // errors from the gh CLI — the Windows connectex wording contains none of
+  // the usual timeout/refused substrings (issue #375).
   if (
     m.includes('could not resolve host') ||
     m.includes('unable to access') ||
     m.includes('connection refused') ||
     m.includes('network is unreachable') ||
+    m.includes('dial tcp') ||
+    m.includes('connectex') ||
     m.includes('timed out') ||
     m.includes('timeout')
   ) {

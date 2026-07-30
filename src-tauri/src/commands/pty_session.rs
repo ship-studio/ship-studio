@@ -453,8 +453,11 @@ pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), Comman
         .lock()
         .map_err(|e| format!("writer lock poisoned: {e}"))?;
     w.write_all(&data).map_err(|e| {
-        if e.raw_os_error() == Some(5) {
-            // Benign race, not a malfunction — keep it out of telemetry (issue #323).
+        // Benign race — a write landing just as the PTY's process exits — not
+        // a malfunction; keep it out of telemetry (issue #323). Unix surfaces
+        // it as EIO (5), Windows as ERROR_NO_DATA 232, "The pipe is being
+        // closed" (issue #354); the codes don't collide across platforms.
+        if e.raw_os_error() == Some(5) || e.raw_os_error() == Some(232) {
             CommandError::expected("terminal session has ended")
         } else {
             CommandError::from(format!("write: {e}"))
