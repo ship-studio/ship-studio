@@ -114,11 +114,52 @@ pub async fn pull_and_merge(
     Ok(combined)
 }
 
+/// Guard for destructive git operations: confirm the repository git resolves
+/// from `dir` is rooted at `dir` itself. When the project's own `.git` is
+/// missing or broken, git discovery walks *up* the tree and can land on an
+/// unrelated ancestor repo (worst case a stray `~/.git`) — at which point
+/// `clean -fd` would treat every project file as untracked and delete the lot
+/// (issue #346). Refusing with a clear message beats silent data loss.
+fn ensure_repo_rooted_at(dir: &std::path::Path) -> Result<(), CommandError> {
+    let output = crate::utils::git_command_in(dir)?
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .map_err(|e| format!("Failed to locate the repository root: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(CommandError::expected(format!(
+            "This folder isn't a git repository, so there are no changes to discard: {stderr}"
+        )));
+    }
+
+    let toplevel = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let toplevel_canon =
+        dunce::canonicalize(&toplevel).unwrap_or_else(|_| std::path::PathBuf::from(&toplevel));
+    let dir_canon = dunce::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+
+    if toplevel_canon != dir_canon {
+        return Err(CommandError::expected(format!(
+            "Refusing to discard changes: git resolves this project's repository to '{}', not the \
+             project folder itself. The project's .git folder may be missing or damaged — \
+             discarding here could delete files that belong to the wrong repository.",
+            toplevel_canon.display()
+        )));
+    }
+
+    Ok(())
+}
+
 /// Discard all uncommitted changes in the working directory
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
 pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
+
+    // `checkout .` and `clean -fd` operate on whatever repository git
+    // discovers, not the directory we were handed — verify they match first
+    // (issue #346).
+    ensure_repo_rooted_at(&validated_path)?;
 
     // Discard changes to tracked files
     let checkout_output = crate::utils::git_command_in(&validated_path)?
@@ -163,4 +204,42 @@ pub async fn commit_changes(project_path: String, message: String) -> Result<boo
         GIT_CACHE.invalidate_status(&project_path);
     }
     Ok(committed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_repo_rooted_at;
+    use std::process::Command;
+
+    fn init_repo(dir: &std::path::Path) {
+        assert!(Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir)
+            .status()
+            .expect("git init")
+            .success());
+    }
+
+    #[test]
+    fn accepts_a_directory_that_is_its_own_repo_root() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        init_repo(tmp.path());
+        assert!(ensure_repo_rooted_at(tmp.path()).is_ok());
+    }
+
+    // The #346 shape: no .git at the project itself, but an ancestor has one —
+    // git discovery walks up, and clean -fd would treat every project file as
+    // untracked garbage of the ancestor repo.
+    #[test]
+    fn refuses_when_git_resolves_an_ancestor_repo() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        init_repo(tmp.path());
+        let nested = tmp.path().join("project");
+        std::fs::create_dir(&nested).unwrap();
+        let err = ensure_repo_rooted_at(&nested).expect_err("must refuse ancestor repo");
+        assert!(
+            err.to_string().contains("Refusing to discard changes"),
+            "unexpected error: {err}"
+        );
+    }
 }

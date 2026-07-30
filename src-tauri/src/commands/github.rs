@@ -509,6 +509,20 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     Ok(format!("https://github.com/{repo_name}"))
 }
 
+/// gh's stderr when a subcommand needs auth and none is configured — "To get
+/// started with GitHub CLI, please run:  gh auth login" plus the GH_TOKEN
+/// hint. Modeled as the app's first-class NotAuthenticated state (skipped by
+/// telemetry, and the frontend shows its connect-GitHub UI) instead of
+/// surfacing the raw CLI text (issue #326).
+pub(crate) fn gh_auth_error(stderr: &str) -> Option<CommandError> {
+    if stderr.contains("gh auth login") || stderr.contains("GH_TOKEN") {
+        return Some(CommandError::NotAuthenticated {
+            service: "github".to_string(),
+        });
+    }
+    None
+}
+
 /// Lists GitHub repositories for a given owner (user or organization)
 #[tauri::command]
 #[tracing::instrument]
@@ -527,6 +541,9 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, Command
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = gh_auth_error(&stderr) {
+            return Err(err);
+        }
         return Err(CommandError::Process {
             cmd: "gh repo list".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
@@ -577,6 +594,9 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = gh_auth_error(&stderr) {
+            return Err(err);
+        }
         return Err(CommandError::Process {
             cmd: "gh api /user/repos".to_string(),
             exit_code: output.status.code().unwrap_or(-1),

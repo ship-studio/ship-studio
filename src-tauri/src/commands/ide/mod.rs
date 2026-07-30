@@ -161,7 +161,7 @@ pub async fn open_in_ide(
 
     // If a file path is provided, validate it's within the project
     let target_path = if let Some(ref fp) = file_path {
-        if fp.contains("..") {
+        if crate::utils::has_parent_dir_component(fp) {
             return Err(("Invalid path: path traversal not allowed".to_string()).into());
         }
         let full = validated_path.join(fp);

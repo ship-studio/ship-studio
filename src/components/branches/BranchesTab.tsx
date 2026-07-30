@@ -369,6 +369,9 @@ export function BranchesTab({
     } catch (e) {
       trackError('branch_publish', e, 'Workspace');
       onToast?.(humanizeGitError(e, { branch: branchName }), 'error');
+      // Same recovery as handleSwitch: the ref is gone but a stale entry is
+      // still listed — refresh to drop the phantom (issue #334).
+      if (isBranchGoneError(e)) onRefresh();
     } finally {
       setPublishingBranch(null);
     }
@@ -388,6 +391,7 @@ export function BranchesTab({
     } catch (e) {
       trackError('branch_delete', e, 'Workspace');
       onToast?.(humanizeGitError(e, { branch: branchName }), 'error');
+      if (isBranchGoneError(e)) onRefresh();
     } finally {
       setDeletingBranch(null);
       setBranchToDelete(null);
@@ -456,6 +460,8 @@ export function BranchesTab({
     } catch (e) {
       trackError('branch_create', e, 'Workspace');
       onToast?.(humanizeGitError(e), 'error');
+      // e.g. the chosen base branch was deleted elsewhere — refresh the list.
+      if (isBranchGoneError(e)) onRefresh();
     } finally {
       setIsCreatingBranch(false);
     }

@@ -131,6 +131,12 @@ describe('humanizeGitError', () => {
       expect: /didn't accept the connection/i,
     },
     {
+      // HTTPS no-write-access rejection: "Write access to repository not
+      // granted." + 403 — must classify as auth, not network (issue #343).
+      raw: "remote: Write access to repository not granted.\nfatal: unable to access 'https://github.com/acme/site.git/': The requested URL returned error: 403",
+      expect: /didn't accept the connection/i,
+    },
+    {
       raw: 'fatal: unable to access https://github.com/a/b: Could not resolve host: github.com',
       expect: /couldn't reach GitHub/i,
     },

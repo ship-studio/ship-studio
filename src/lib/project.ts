@@ -15,6 +15,7 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { logger } from './logger';
 import { readProjectFile } from './code';
+import { asCommandError, formatCommandError } from './errors';
 import { trackError } from './analytics';
 import { isWindows } from './setup';
 
@@ -387,7 +388,9 @@ export async function startDevServer(
       // Fall back to npm run dev with port forwarded via -- --port
       // (e.g. package.json genuinely missing, or not valid JSON)
       trackError('devserver_package_json', e, 'Workspace');
-      const errorMessage = e instanceof Error ? e.message : String(e);
+      // CommandError rejections are plain objects — String() renders them as
+      // "[object Object]" (issue #332); format them like the toasts do.
+      const errorMessage = formatCommandError(asCommandError(e));
       logger.error('[DevServer] Failed to read/parse package.json, falling back to npm run dev', {
         error: errorMessage,
         projectPath,

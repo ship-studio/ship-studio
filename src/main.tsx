@@ -61,10 +61,23 @@ window.addEventListener('error', (event) => {
     );
   }
 });
+// Promises are often rejected with plain objects rather than Errors (Tauri
+// IPC error payloads especially) — String() renders those as "[object
+// Object]", which both destroys the diagnostic and collapses every such
+// rejection onto one dedupe fingerprint (issue #333). Serialize the shape.
+const describeRejectionReason = (r: unknown): string => {
+  if (typeof r === 'string') return r;
+  try {
+    return JSON.stringify(r) ?? String(r);
+  } catch {
+    return String(r); // circular structures etc.
+  }
+};
+
 window.addEventListener('unhandledrejection', (event) => {
   const reason: unknown = event.reason;
-  const stack = reason instanceof Error ? reason.stack || '' : String(reason);
-  const message = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack || '' : describeRejectionReason(reason);
+  const message = reason instanceof Error ? reason.message : describeRejectionReason(reason);
 
   if (stack.includes('blob:')) {
     event.preventDefault();

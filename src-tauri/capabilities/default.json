@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for all app windows",
-  "windows": ["main", "project-*"],
+  "description": "Capability for all app windows. `window-*` covers blank windows from Window → New Window (spawn_blank_window) — they load the full app, so leaving them out silently stripped every permission: updater checks, fs reads for terminal fonts, event listeners (issues #327, #341, #328).",
+  "windows": ["main", "project-*", "window-*"],
   "permissions": [
     "core:default",
     "core:app:allow-version",

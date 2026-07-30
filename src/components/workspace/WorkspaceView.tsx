@@ -177,7 +177,7 @@ interface IntegrationProps {
   } | null;
   installTerminalExited: boolean;
   onCloseInstallTerminal: () => void;
-  onInstallTerminalExit: (exitCode: number | null) => void;
+  onInstallTerminalExit: (exitCode: number | null, outputTail: string) => void;
 }
 
 interface ScreenshotProps {

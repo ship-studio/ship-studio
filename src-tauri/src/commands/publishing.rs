@@ -14,6 +14,27 @@ use crate::types::PublishResult;
 use crate::utils::validate_project_path;
 use tracing::{debug, error, info, instrument, warn};
 
+/// GitHub's push-time auth/permission rejections. The phrasing varies by
+/// transport and failure mode: SSH's "Permission denied", the credential
+/// helper's "could not read Username", HTTPS "Permission to <repo>.git denied
+/// to <user>." (words split by the repo name — issue #321), and HTTPS
+/// "remote: Write access to repository not granted." with a 403
+/// (issue #343). All mean "reconnect GitHub or check your access", so all
+/// map to NotAuthenticated instead of an opaque process error.
+fn push_auth_error(stderr: &str) -> Option<CommandError> {
+    let lower = stderr.to_lowercase();
+    let is_auth = stderr.contains("Permission denied")
+        || stderr.contains("could not read Username")
+        || (lower.contains("permission to") && lower.contains("denied to"))
+        || lower.contains("write access to repository not granted");
+    if is_auth {
+        return Some(CommandError::NotAuthenticated {
+            service: format!("github (AUTH_ERROR: {stderr})"),
+        });
+    }
+    None
+}
+
 #[tauri::command]
 #[instrument(name = "publish_to_github", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_to_github(
@@ -82,6 +103,10 @@ pub async fn publish_to_github(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = push_auth_error(&stderr) {
+            error!(error = %stderr, branch = %branch, "Authentication error");
+            return Err(err);
+        }
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, branch = %branch, "Push to GitHub failed");
             return Err(CommandError::Process {
@@ -133,6 +158,10 @@ pub async fn publish_to_staging(
                 "PUSH_REJECTED: Staging branch has diverged. Pull changes first or resolve conflicts.\n{stderr}"
             ) });
         }
+        if let Some(err) = push_auth_error(&stderr) {
+            error!(error = %stderr, "Authentication error");
+            return Err(err);
+        }
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, "Failed to push to staging");
             return Err(CommandError::Process {
@@ -176,6 +205,10 @@ pub async fn publish_to_production(
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
+        if let Some(err) = push_auth_error(&stderr) {
+            error!(error = %stderr, "Authentication error");
+            return Err(err);
+        }
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, "Failed to push to production");
             return Err(CommandError::Process {
@@ -236,18 +269,9 @@ pub async fn publish_branch(
                 message: format!("PUSH_REJECTED:{stderr}"),
             });
         }
-        // "Permission to <owner>/<repo>.git denied to <user>." is GitHub's
-        // no-write-access rejection — the words "permission"/"denied" are split
-        // by the repo name, so it needs its own check (issue #321).
-        let lower = stderr.to_lowercase();
-        if stderr.contains("Permission denied")
-            || stderr.contains("could not read Username")
-            || (lower.contains("permission to") && lower.contains("denied to"))
-        {
+        if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, branch = %branch, "Authentication error");
-            return Err(CommandError::NotAuthenticated {
-                service: format!("github (AUTH_ERROR: {stderr})"),
-            });
+            return Err(err);
         }
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, branch = %branch, "Push failed");

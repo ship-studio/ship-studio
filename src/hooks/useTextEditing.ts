@@ -151,7 +151,12 @@ export function useTextEditing({ iframeRef, projectPath, enabled, onToast }: Par
             void trackEvent('visual_text_saved');
             onToast?.('Saved to source', 'success');
           } catch (err) {
-            logger.error('[TextEditing] text write-back failed', { error: String(err) });
+            // CommandError rejections are plain objects — String() renders
+            // them as "[object Object]" (issue #336); use the same formatter
+            // as the toast below.
+            logger.error('[TextEditing] text write-back failed', {
+              error: formatCommandError(asCommandError(err)),
+            });
             onToast?.(formatCommandError(asCommandError(err)), 'error');
             // Couldn't save — put the original text back in the preview.
             post({ type: 'ss:textRevert' });

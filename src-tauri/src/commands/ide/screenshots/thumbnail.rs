@@ -113,11 +113,21 @@ pub async fn capture_project_thumbnail(
         let temp_path_str = temp_path.to_string_lossy().to_string();
         let screenshot_arg = format!("--screenshot={temp_path_str}");
 
+        // An isolated profile dir is required, not an optimization: since the
+        // headless/headful merge, `--headless=new` on the default profile
+        // shares the singleton lock with any already-running instance of the
+        // same browser and instantly exits with code 21 — a developer's normal
+        // browser being open silently killed every thumbnail (issue #335).
+        let profile_dir = shipstudio_dir.join("thumbnail_profile");
+        let user_data_arg = format!("--user-data-dir={}", profile_dir.to_string_lossy());
+
         // Use new headless mode with explicit viewport control
         // Set background to white so any extra captured area isn't black
         let output = create_command(&browser)
             .args([
                 "--headless=new",
+                &user_data_arg,
+                "--no-first-run",
                 "--disable-gpu",
                 "--no-sandbox",
                 "--hide-scrollbars",
@@ -131,6 +141,9 @@ pub async fn capture_project_thumbnail(
             ])
             .output()
             .map_err(|e| format!("Failed to run browser: {e}"))?;
+
+        // The throwaway profile has served its purpose; don't let it grow.
+        let _ = std::fs::remove_dir_all(&profile_dir);
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

@@ -305,10 +305,22 @@ pub async fn pty_session_open(
         cmd.env(std::ffi::OsString::from(&k), std::ffi::OsString::from(&v));
     }
 
-    let mut child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| format!("spawn_command: {e}"))?;
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| {
+        let message = format!("spawn_command: {e}");
+        // portable_pty's binary-not-found phrasings. A missing/unresolvable
+        // agent CLI is an environment gap ("install X first") the frontend
+        // already turns into the agent's install hint — Expected keeps it out
+        // of telemetry, mirroring external_command.rs (issue #329).
+        let lower = message.to_lowercase();
+        if lower.contains("no viable candidates found in path")
+            || lower.contains("does not exist")
+            || lower.contains("not executable")
+        {
+            crate::errors::CommandError::expected(message)
+        } else {
+            crate::errors::CommandError::from(message)
+        }
+    })?;
     let pid = child.process_id().unwrap_or(0);
     let child_killer = child.clone_killer();
 

@@ -107,6 +107,7 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
   if (
     m.includes('permission denied') ||
     (m.includes('permission to') && m.includes('denied to')) ||
+    m.includes('write access to repository not granted') ||
     m.includes('could not read username') ||
     m.includes('authentication failed') ||
     m.includes('not authenticated') ||

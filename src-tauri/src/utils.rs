@@ -772,6 +772,41 @@ pub fn canonicalize_tagged(
         .map_err(|e| format!("Invalid path in {site} ('{}'): {e}", path.display()))
 }
 
+/// True when a user-supplied relative path contains an actual `..` path
+/// component (a traversal attempt). A naive `contains("..")` substring test
+/// also rejects legitimate names like `notes..bak` or `v1..2-draft`
+/// (issue #331); this checks whole components, and the canonicalize +
+/// `starts_with` containment checks at every call site remain the real
+/// defense against escapes.
+pub fn has_parent_dir_component(path: &str) -> bool {
+    std::path::Path::new(path)
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+/// Directories that must never be treated as a project root, no matter what
+/// marker files they contain: the user's home directory (a stray `~/.git` or
+/// `~/.gitignore` is common), anything above it, and the filesystem root.
+/// Treating one of these as a project hands project-scoped git commands
+/// (`git add -A`, `git clean -fd`) the entire home tree to walk — observed
+/// as issues #345/#346, where a registered `$HOME` "project" made Discard
+/// Changes run `git clean -fd` across the user's home directory.
+pub(crate) fn is_forbidden_project_root(path: &std::path::Path) -> bool {
+    let candidate = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    // Filesystem root ("/", "C:\") has no parent.
+    if candidate.parent().is_none() {
+        return true;
+    }
+    if let Some(home) = dirs::home_dir() {
+        let home = dunce::canonicalize(&home).unwrap_or(home);
+        // $HOME itself, or an ancestor of it (/Users, /home, C:\Users).
+        if candidate == home || home.starts_with(&candidate) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Validates that a project path is inside an allowed projects root (the
 /// configured root or the default `~/ShipStudio`) or is a registered external
 /// project. Prevents path traversal where the frontend could pass arbitrary paths.
@@ -1096,6 +1131,26 @@ fn format_relative_time_from_now(timestamp_ms: u64, now_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod is_forbidden_project_root {
+        use super::*;
+
+        #[test]
+        fn refuses_home_its_ancestors_and_fs_root() {
+            let home = dirs::home_dir().expect("home dir");
+            assert!(is_forbidden_project_root(&home));
+            if let Some(parent) = home.parent() {
+                assert!(is_forbidden_project_root(parent));
+            }
+            assert!(is_forbidden_project_root(std::path::Path::new("/")));
+        }
+
+        #[test]
+        fn allows_ordinary_directories() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            assert!(!is_forbidden_project_root(tmp.path()));
+        }
+    }
 
     mod normalize_separators {
         use super::*;
