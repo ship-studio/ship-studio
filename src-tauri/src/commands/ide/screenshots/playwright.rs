@@ -174,6 +174,17 @@ pub async fn capture_fullpage_playwright(
     width: Option<u32>,
 ) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
+
+    // Fail fast with a clean, expected error when nothing is listening on the
+    // dev-server port — otherwise Playwright's page.goto dies with a raw
+    // ERR_CONNECTION_REFUSED stack trace (issue #349). An expected state:
+    // the server may still be booting or was just restarted on another port.
+    if !super::dev_server_listening(&url) {
+        return Err(CommandError::expected(format!(
+            "The dev server isn't accepting connections at {url} yet. Wait for the preview to finish loading, then try again."
+        )));
+    }
+
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
     // Match the preview's current viewport when given (agent bridge responsive
     // checks); clamp to sane bounds so a bad value can't wedge Chromium.
@@ -318,6 +329,17 @@ pub async fn capture_viewport_playwright(
     width: Option<u32>,
 ) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
+
+    // Fail fast with a clean, expected error when nothing is listening on the
+    // dev-server port — otherwise Playwright's page.goto dies with a raw
+    // ERR_CONNECTION_REFUSED stack trace (issue #349). An expected state:
+    // the server may still be booting or was just restarted on another port.
+    if !super::dev_server_listening(&url) {
+        return Err(CommandError::expected(format!(
+            "The dev server isn't accepting connections at {url} yet. Wait for the preview to finish loading, then try again."
+        )));
+    }
+
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
     // Match the preview's current viewport when given (agent bridge responsive
     // checks); clamp to sane bounds so a bad value can't wedge Chromium.

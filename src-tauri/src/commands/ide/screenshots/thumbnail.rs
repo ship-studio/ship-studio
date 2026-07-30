@@ -3,9 +3,7 @@
 use crate::errors::CommandError;
 use crate::types::{ProjectMetadata, PROJECT_METADATA_SCHEMA_VERSION};
 use crate::utils::{create_command, validate_project_path};
-use std::net::TcpStream;
 use std::path::Path;
-use std::time::Duration;
 
 use super::node_tool_command;
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
@@ -43,35 +41,10 @@ pub async fn capture_project_thumbnail(
 
     // Quick health check: verify the dev server is still responding before launching Playwright.
     // This reduces (but doesn't eliminate) race conditions where the server dies mid-capture.
-    // Extract port from URL (e.g., "http://localhost:3000" -> 3000)
-    let port: u16 = url
-        .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .split(':')
-        .next_back()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(3000);
-
-    // Try both IPv4 and IPv6 - some dev servers (especially Vite) may only bind to IPv6
-    let ipv4_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let ipv6_addr = std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port)); // ::1
-
-    let ipv4_ok = TcpStream::connect_timeout(&ipv4_addr, Duration::from_millis(500)).is_ok();
-    let ipv6_ok = TcpStream::connect_timeout(&ipv6_addr, Duration::from_millis(500)).is_ok();
-
-    if !ipv4_ok && !ipv6_ok {
-        tracing::warn!(
-            "Dev server health check failed on both IPv4 and IPv6 for port {}",
-            port
-        );
+    if !super::dev_server_listening(&url) {
+        tracing::warn!("Dev server health check failed for {}", url);
         return Err(("Dev server not responding, skipping thumbnail capture".to_string()).into());
     }
-    tracing::info!(
-        "Dev server health check passed (IPv4: {}, IPv6: {}) on port {}",
-        ipv4_ok,
-        ipv6_ok,
-        port
-    );
 
     let shipstudio_dir = project.join(".shipstudio");
 
