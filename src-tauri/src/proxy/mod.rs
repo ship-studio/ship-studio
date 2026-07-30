@@ -821,6 +821,19 @@ async fn handle_websocket_upgrade(
     // mid dev-server restart, and a single missed connect used to hard-fail the
     // upgrade with BAD_GATEWAY instead of riding out the gap (issue #258). The
     // retry loop stays bounded by UPSTREAM_CONNECT_TIMEOUT overall.
+    // Race IPv4 and IPv6 loopback concurrently rather than connecting to
+    // "localhost": some dev servers (Vite notably) bind only one family, and
+    // the sequential address walk behind a hostname connect can burn a whole
+    // per-attempt timeout on the dead family before reaching the live one
+    // (observed on Windows CI). First successful connection wins; the error
+    // surfaces only when both families fail.
+    async fn connect_loopback(port: u16) -> std::io::Result<TcpStream> {
+        use futures_util::future::select_ok;
+        let v4 = Box::pin(TcpStream::connect(("127.0.0.1", port)));
+        let v6 = Box::pin(TcpStream::connect(("::1", port)));
+        select_ok([v4, v6]).await.map(|(stream, _)| stream)
+    }
+
     let connect_deadline = tokio::time::Instant::now() + UPSTREAM_CONNECT_TIMEOUT;
     // Each attempt gets its own short timeout (capped to what's left of the
     // overall budget) rather than racing the whole deadline: an unready port
@@ -830,13 +843,11 @@ async fn handle_websocket_upgrade(
     let per_attempt = std::time::Duration::from_secs(1);
     let target_stream = loop {
         let remaining = connect_deadline.saturating_duration_since(tokio::time::Instant::now());
-        let attempt = tokio::time::timeout(
-            remaining.min(per_attempt),
-            TcpStream::connect(format!("localhost:{target_port}")),
-        )
-        .await
-        .map_err(std::io::Error::from)
-        .and_then(|r| r);
+        let attempt =
+            tokio::time::timeout(remaining.min(per_attempt), connect_loopback(target_port))
+                .await
+                .map_err(std::io::Error::from)
+                .and_then(|r| r);
         match attempt {
             Ok(s) => break s,
             Err(e) => {
