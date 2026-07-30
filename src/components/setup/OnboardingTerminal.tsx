@@ -479,11 +479,19 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             return;
           }
           logger.error('[OnboardingTerminal] Still no output after respawn', { command });
-          const failure = `${command} did not respond.`;
-          terminalRef.current?.write(
-            `\r\n\x1b[31m${failure}\x1b[0m\r\n` +
-              `\x1b[33mMake sure "${command}" is installed and on your PATH, then close this window and try again.\x1b[0m\r\n`
-          );
+          // When the command is a shell (/bin/bash, powershell), "make sure
+          // it's installed" misdirects the user toward a nonexistent problem —
+          // the shell exists; whatever ran inside it was silent (issue #245's
+          // user-facing symptom). Point at the likely causes instead.
+          const isShell =
+            /(^|[\\/])(bash|sh|zsh|cmd(\.exe)?|powershell(\.exe)?|pwsh(\.exe)?)$/i.test(command);
+          const failure = isShell
+            ? 'The setup command produced no output.'
+            : `${command} did not respond.`;
+          const hint = isShell
+            ? 'This is usually a temporary glitch or a blocked download — check your internet connection, then close this window and try again.'
+            : `Make sure "${command}" is installed and on your PATH, then close this window and try again.`;
+          terminalRef.current?.write(`\r\n\x1b[31m${failure}\x1b[0m\r\n\x1b[33m${hint}\x1b[0m\r\n`);
           // Tell the parent the flow failed so the checklist offers a retry —
           // without this the terminal showed the message but the wizard sat
           // in "connecting" forever (issue #245).
