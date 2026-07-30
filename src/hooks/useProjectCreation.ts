@@ -156,6 +156,13 @@ export const TEMPLATES: Template[] = [
     skipInstall: true,
   },
   {
+    id: 'eve-agent',
+    name: 'Eve Agent',
+    description: "An AI agent built on Vercel's Eve framework, with a web chat UI.",
+    repo: 'https://github.com/ship-studio/eve-agent-starter',
+    category: 'other',
+  },
+  {
     id: 'blank',
     name: 'Blank Project',
     description: 'An empty folder. Start completely from scratch.',
