@@ -199,7 +199,10 @@ pub async fn get_current_branch(project_path: String) -> Result<String, CommandE
 
     let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if branch == "HEAD" {
-        return Err(("Detached HEAD state".to_string()).into());
+        // A normal git state (checked-out tag/commit, mid-rebase), not a
+        // malfunction — every caller already treats it as recoverable, so
+        // keep it out of telemetry (issue #317).
+        return Err(crate::errors::CommandError::expected("Detached HEAD state"));
     }
 
     // Cache the result

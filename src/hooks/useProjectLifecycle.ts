@@ -2,7 +2,9 @@
  * Hook for project lifecycle operations — owns the dashboard ⇄ workspace
  * navigation, orchestrating every other subsystem on project open/close.
  *
- * `handleSelectProject` phases: monorepo workspace gate (pauses for picker) →
+ * `handleSelectProject` phases: external-project registration (fatal on
+ * refusal; must precede anything that validates the path, issue #319) →
+ * monorepo workspace gate (pauses for picker) →
  * claim navigation version + duplicate-open guard → save outgoing project's
  * terminal state + read auto-accept → show workspace IMMEDIATELY (server spins
  * up in background) → restore/seed terminal tabs → duplicate-window check +
@@ -295,6 +297,33 @@ export function useProjectLifecycle({
     const totalStart = performance.now();
     let stepStart = performance.now();
 
+    // Ensure external projects are registered BEFORE anything validates the
+    // path. Projects outside ~/ShipStudio can enter the app via session
+    // restore, URL params, or direct path — without this, all
+    // validate_project_path() calls would fail. A refusal is fatal: proceeding
+    // used to land the user in a broken workspace where every backend call
+    // toasted "Security error: path ... is outside the projects directory"
+    // with no way out (issue #266). Must also run before the monorepo gate:
+    // getWorkspaceSubpath validates the path too, so an unregistered external
+    // project would otherwise always fail its first-open gate check — skipping
+    // the workspace picker and logging a spurious security error (issue #319).
+    // Idempotent local config read/write, ~ms.
+    try {
+      const wasRegistered = await invoke<boolean>('ensure_external_project_registered', {
+        path: project.path,
+      });
+      if (wasRegistered) {
+        logger.info(`[OpenProject] Auto-registered external project: ${project.path}`);
+      }
+    } catch (e) {
+      logger.warn('[OpenProject] Failed to ensure external project registration', { error: e });
+      showToast(
+        `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`,
+        'error'
+      );
+      return;
+    }
+
     // Pre-flight monorepo gate: runs BEFORE we claim a navigation slot so
     // pausing for the picker doesn't bump the version counter or set the
     // "opening" ref — both would make a concurrent open look superseded
@@ -319,34 +348,6 @@ export function useProjectLifecycle({
       return;
     }
     openingProjectPathRef.current = project.path;
-
-    // Ensure external projects are registered BEFORE the workspace opens.
-    // Projects outside ~/ShipStudio can enter the app via session restore, URL
-    // params, or direct path — without this, all validate_project_path() calls
-    // would fail. Checked up front (not mid-open) because a refusal is fatal:
-    // proceeding used to land the user in a broken workspace where every
-    // backend call toasted "Security error: path ... is outside the projects
-    // directory" with no way out (issue #266). Local config read/write, ~ms.
-    try {
-      const wasRegistered = await invoke<boolean>('ensure_external_project_registered', {
-        path: project.path,
-      });
-      if (wasRegistered) {
-        logger.info(`[OpenProject] Auto-registered external project: ${project.path}`);
-      }
-    } catch (e) {
-      logger.warn('[OpenProject] Failed to ensure external project registration', { error: e });
-      openingProjectPathRef.current = null;
-      showToast(
-        `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`,
-        'error'
-      );
-      return;
-    }
-    if (navVersion !== navigationVersionRef.current) {
-      openingProjectPathRef.current = null;
-      return; // Superseded while awaiting registration
-    }
 
     // Set the active project so every subsequent event in this session
     // auto-tags project context. The hash is sync (FNV-1a) so this never

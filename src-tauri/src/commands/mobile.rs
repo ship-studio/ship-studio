@@ -309,12 +309,27 @@ pub async fn simulator_app_running(
     udid: String,
     bundle_id: Option<String>,
 ) -> Result<bool, CommandError> {
-    let stdout = simctl_stdout(
+    let stdout = match simctl_stdout(
         &["spawn", udid.as_str(), "launchctl", "list"],
         "xcrun simctl spawn launchctl list",
         SIMCTL_TIMEOUT_SECS,
     )
-    .await?;
+    .await
+    {
+        Ok(stdout) => stdout,
+        Err(e) => {
+            // The frontend polls this every few seconds, so a tick can race a
+            // simulator that's mid-shutdown (project close, platform switch,
+            // mirror heal). CoreSimulator answers "Domain is tearing down" —
+            // the app clearly isn't running, and the poll recovers on its own
+            // once a new session boots (issue #311).
+            let msg = e.to_string();
+            if msg.contains("Domain is tearing down") || msg.contains("LaunchdSimError") {
+                return Ok(false);
+            }
+            return Err(e);
+        }
+    };
     let running = match bundle_id.as_deref() {
         Some(id) => stdout.contains(&format!("UIKitApplication:{id}")),
         None => stdout

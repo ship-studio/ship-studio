@@ -19,7 +19,12 @@ import {
   type PluginThemeData,
 } from '../../contexts/PluginContext';
 import { execPluginShell, readPluginStorage, writePluginStorage } from '../../lib/plugins';
-import { markPluginCrashed, isPluginCrashed, wasPluginUnloaded } from '../../lib/plugin-loader';
+import {
+  markPluginCrashed,
+  isPluginCrashed,
+  wasPluginUnloaded,
+  unloadPluginModule,
+} from '../../lib/plugin-loader';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { invoke } from '@tauri-apps/api/core';
@@ -179,7 +184,20 @@ export function buildContext(
       });
       throw e;
     }
-    actions.showToast(`Plugin "${pluginName}": ${formatCommandError(asCommandError(e))}`, 'error');
+    const message = formatCommandError(asCommandError(e));
+    // The plugin's backing files vanished without an in-app unlink/uninstall
+    // (dev-linked folder deleted or moved, branch switch). Deactivate it like
+    // an explicit unload — one clear toast now, and any background calls it
+    // keeps making are suppressed instead of toasting every tick (issue #315).
+    if (message.includes(`Plugin '${pluginId}' not found`)) {
+      unloadPluginModule(projectPath, pluginId);
+      actions.showToast(
+        `Plugin "${pluginName}" was deactivated because its files are no longer on disk. Unlink or reinstall it from the Plugins menu.`,
+        'error'
+      );
+      throw e;
+    }
+    actions.showToast(`Plugin "${pluginName}": ${message}`, 'error');
     throw e;
   };
 
@@ -198,8 +216,14 @@ export function buildContext(
     },
     invoke: {
       call: <T = unknown,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+        // Auto-inject the current project's path, matching how shell/storage
+        // already close over it — most allow-listed commands require it, and
+        // omitting it surfaced Tauri's raw "missing required key projectPath"
+        // under the plugin's name (issue #322). Commands that don't take it
+        // ignore extra args; an explicit args.projectPath still wins.
+        const mergedArgs = projectPath ? { projectPath, ...args } : args;
         const result: Promise<T> = allowedCommands.has(command)
-          ? invoke<T>(command, args)
+          ? invoke<T>(command, mergedArgs)
           : Promise.reject(new Error(`Plugin "${pluginId}" is not allowed to call "${command}"`));
         return result.catch(report);
       },

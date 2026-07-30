@@ -26,7 +26,7 @@ vi.mock('../lib/edit-html', () => ({
 // trackEvent would otherwise reach for a real Tauri IPC on a saved edit.
 vi.mock('../lib/analytics', () => ({ trackEvent: vi.fn().mockResolvedValue(undefined) }));
 
-import { useElementStructure } from './useElementStructure';
+import { useElementStructure, structuralEditMessage } from './useElementStructure';
 import { insertElement, duplicateElement, deleteElement } from '../lib/edit-structure';
 import { resolveElementHtml } from '../lib/edit-html';
 
@@ -198,8 +198,10 @@ describe('useElementStructure', () => {
     await act(async () => {
       await result.current.insert('after', 'div');
     });
+    // The multi-instance resolution failure is rephrased for the structural
+    // context (issues #318/#320), not passed through verbatim.
     expect(onToast).toHaveBeenCalledWith(
-      expect.stringContaining('several identical places'),
+      expect.stringContaining('appears in several places in your code'),
       'error'
     );
     expect(onToast).not.toHaveBeenCalledWith(expect.stringContaining('object Object'), 'error');
@@ -233,5 +235,35 @@ describe('useElementStructure', () => {
     const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
     await dispatch({ type: 'ss:select', signature: SIG, count: 1 }, source);
     expect(result.current.selection).toBeNull();
+  });
+});
+
+describe('structuralEditMessage', () => {
+  // The backend's resolution errors are worded for the raw-markup editor;
+  // canvas insert/duplicate/delete rephrase the known ones (issues #318/#320).
+  it('rephrases the no-class resolution failure', () => {
+    const msg = structuralEditMessage(
+      "Validation failed for 'element': This element has no class in source to anchor its markup on. Add a class to it first (the Add class action), then its markup becomes editable."
+    );
+    expect(msg).toContain('Add a class to it first');
+    expect(msg).not.toContain('markup');
+  });
+
+  it('rephrases both multi-instance failures', () => {
+    for (const raw of [
+      'This element appears in several places whose markup differs, so editing it here could change the wrong one. Ask your agent to edit it instead.',
+      'This element appears in several identical places, so editing its markup here could change the wrong one. Ask your agent to edit it instead.',
+    ]) {
+      expect(structuralEditMessage(raw)).toContain('appears in several places in your code');
+    }
+  });
+
+  it('rephrases the dynamic-class failure and passes unknown messages through', () => {
+    expect(
+      structuralEditMessage(
+        "This element can't be matched to its source markup (it has no static class to anchor on). Edit it with your agent instead."
+      )
+    ).toContain('generated dynamically');
+    expect(structuralEditMessage('disk full')).toBe('disk full');
   });
 });

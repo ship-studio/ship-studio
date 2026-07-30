@@ -65,6 +65,29 @@ interface Params {
 /** How long after a write the iframe `load` handler still replays the reselect. */
 const RESELECT_WINDOW_MS = 8000;
 
+/**
+ * The backend's element-resolution errors are worded for the raw-markup editor
+ * ("its markup becomes editable", "editing it here") — confusing when the user
+ * clicked insert/duplicate/delete on the canvas. Rephrase the known resolution
+ * failures for the structural-edit context (issues #318/#320); anything else
+ * passes through unchanged.
+ */
+export function structuralEditMessage(message: string): string {
+  if (message.includes('no class in source to anchor')) {
+    return 'This element has no class for Ship Studio to find it in your code. Add a class to it first (the Add class action), then try again.';
+  }
+  if (
+    message.includes('several places whose markup differs') ||
+    message.includes('several identical places')
+  ) {
+    return 'This element appears in several places in your code, so changing it from the canvas could affect the wrong one. Select a more specific element, or ask your agent to make this change.';
+  }
+  if (message.includes("can't be matched to its source markup")) {
+    return "This element can't be matched to its source code (its classes are generated dynamically). Ask your agent to make this change instead.";
+  }
+  return message;
+}
+
 export function useElementStructure({ iframeRef, projectPath, enabled, onToast }: Params) {
   const [selection, setSelection] = useState<StructureSelection | null>(null);
   // Inline text editing is in progress — the toolbar hides so it can't cover
@@ -176,7 +199,7 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
       } catch (err) {
         const message = formatCommandError(asCommandError(err));
         logger.error('[ElementStructure] structural edit failed', { error: message });
-        onToast?.(message, 'error');
+        onToast?.(structuralEditMessage(message), 'error');
       } finally {
         busyRef.current = false;
         setBusy(false);

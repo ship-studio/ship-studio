@@ -165,7 +165,8 @@ pub async fn open_in_ide(
             return Err(("Invalid path: path traversal not allowed".to_string()).into());
         }
         let full = validated_path.join(fp);
-        let canonical = dunce::canonicalize(&full).map_err(|e| format!("File not found: {e}"))?;
+        let canonical =
+            dunce::canonicalize(&full).map_err(|e| crate::commands::code::resolve_error(fp, &e))?;
         if !canonical.starts_with(&validated_path) {
             return Err(("Security error: path is outside project directory".to_string()).into());
         }

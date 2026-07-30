@@ -209,7 +209,11 @@ const {{ chromium }} = require('playwright');
         browser = await chromium.launch();
         const page = await browser.newPage({{ viewport: {{ width: {viewport_width}, height: 800 }} }});
 
-        await page.goto('{}', {{ waitUntil: 'networkidle', timeout: 30000 }});
+        // Dev servers keep HMR/live-reload connections open forever, so
+        // 'networkidle' may never arrive — wait for 'load', then settle
+        // best-effort without ever failing the capture on it (issues #309/#310).
+        await page.goto('{}', {{ waitUntil: 'load', timeout: 30000 }});
+        await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
         // Hide dev tools and feedback overlays
         await page.evaluate(() => {{
@@ -263,7 +267,12 @@ const {{ chromium }} = require('playwright');
     }} finally {{
         if (browser) await browser.close();
     }}
-}})();
+}})().catch((err) => {{
+    // Surface a clean one-line failure instead of Node's uncaught-exception
+    // stack dump (issues #309/#310).
+    console.error(String((err && err.message) || err));
+    process.exit(1);
+}});
 "#,
         url,
         screenshot_path_str.replace('\\', "\\\\")
@@ -342,7 +351,10 @@ const {{ chromium }} = require('playwright');
         browser = await chromium.launch();
         const page = await browser.newPage({{ viewport: {{ width: {viewport_width}, height: 800 }} }});
 
-        await page.goto('{}', {{ waitUntil: 'networkidle', timeout: 30000 }});
+        // Same wait strategy as the full-page capture: 'networkidle' may never
+        // arrive on dev servers with persistent connections (issues #309/#310).
+        await page.goto('{}', {{ waitUntil: 'load', timeout: 30000 }});
+        await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
         // Hide dev tools and feedback overlays
         await page.evaluate(() => {{
@@ -373,7 +385,12 @@ const {{ chromium }} = require('playwright');
     }} finally {{
         if (browser) await browser.close();
     }}
-}})();
+}})().catch((err) => {{
+    // Surface a clean one-line failure instead of Node's uncaught-exception
+    // stack dump (issues #309/#310).
+    console.error(String((err && err.message) || err));
+    process.exit(1);
+}});
 "#,
         url,
         screenshot_path_str.replace('\\', "\\\\")

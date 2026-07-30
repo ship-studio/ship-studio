@@ -412,6 +412,26 @@ pub(crate) fn restore_removed_project(canonical: &Path) -> Result<bool, CommandE
 
 // ============ Tauri Commands ============
 
+/// Open the projects root for scanning, naming the folder on failure. On
+/// macOS, TCC answers EPERM (os error 1) when the app lacks Files-and-Folders
+/// access to the folder (Desktop/Documents/iCloud/external volumes) — an
+/// environment gap with a user-side fix, not a malfunction (issue #307).
+fn read_projects_dir(dir: &std::path::Path) -> Result<std::fs::ReadDir, CommandError> {
+    std::fs::read_dir(dir).map_err(|e| {
+        if cfg!(target_os = "macos") && e.raw_os_error() == Some(1) {
+            CommandError::expected(format!(
+                "Ship Studio isn't allowed to read your projects folder ({}). Grant access in System Settings → Privacy & Security → Files & Folders (or Full Disk Access), then reload the dashboard.",
+                dir.display()
+            ))
+        } else {
+            CommandError::from(format!(
+                "Failed to read projects folder {}: {e}",
+                dir.display()
+            ))
+        }
+    })
+}
+
 #[tauri::command]
 #[tracing::instrument]
 pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
@@ -428,10 +448,15 @@ pub async fn list_projects() -> Result<Vec<ProjectInfo>, CommandError> {
     }
 
     let mut projects = Vec::new();
-    let entries = std::fs::read_dir(&shipstudio_dir).map_err(|e| e.to_string())?;
+    let entries = read_projects_dir(&shipstudio_dir)?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
+        let entry = entry.map_err(|e| {
+            format!(
+                "Failed to read an entry in projects folder {}: {e}",
+                shipstudio_dir.display()
+            )
+        })?;
         let path = entry.path();
         if is_valid_project(&path) {
             let canonical = canonical_or_original(&path);
@@ -561,10 +586,15 @@ pub async fn get_dashboard_projects() -> Result<Vec<DashboardProject>, CommandEr
     // stall the whole dashboard (issue #168).
     let mut projects = Vec::new();
     let mut scan_paths: Vec<PathBuf> = Vec::new();
-    let entries = std::fs::read_dir(&shipstudio_dir).map_err(|e| e.to_string())?;
+    let entries = read_projects_dir(&shipstudio_dir)?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
+        let entry = entry.map_err(|e| {
+            format!(
+                "Failed to read an entry in projects folder {}: {e}",
+                shipstudio_dir.display()
+            )
+        })?;
         let path = entry.path();
         if is_valid_project(&path) {
             let canonical = canonical_or_original(&path);

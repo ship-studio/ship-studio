@@ -434,7 +434,7 @@ pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), Comman
     // surface it as the expected "session ended" state, not a raw
     // "Input/output error (os error 5)" (issue #260).
     if !session.alive.load(std::sync::atomic::Ordering::Relaxed) {
-        return Err("terminal session has ended".to_string().into());
+        return Err(CommandError::expected("terminal session has ended"));
     }
     let mut w = session
         .writer
@@ -442,9 +442,10 @@ pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), Comman
         .map_err(|e| format!("writer lock poisoned: {e}"))?;
     w.write_all(&data).map_err(|e| {
         if e.raw_os_error() == Some(5) {
-            "terminal session has ended".to_string()
+            // Benign race, not a malfunction — keep it out of telemetry (issue #323).
+            CommandError::expected("terminal session has ended")
         } else {
-            format!("write: {e}")
+            CommandError::from(format!("write: {e}"))
         }
     })?;
     Ok(())

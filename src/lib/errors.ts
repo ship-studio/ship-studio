@@ -101,16 +101,19 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `There are newer changes on GitHub than you have locally. Pull the latest changes first, then try again.`;
   }
 
-  // GitHub wouldn't authenticate.
+  // GitHub wouldn't authenticate. GitHub's no-write-access rejection reads
+  // "Permission to <owner>/<repo>.git denied to <user>." — the words are split
+  // by the repo name, so it needs the two-part check (issue #321).
   if (
     m.includes('permission denied') ||
+    (m.includes('permission to') && m.includes('denied to')) ||
     m.includes('could not read username') ||
     m.includes('authentication failed') ||
     m.includes('not authenticated') ||
     m.includes('bad credentials') ||
     m.includes('403')
   ) {
-    return `GitHub didn't accept the connection. Your sign-in may have expired. Reconnect GitHub (top right) and try again.`;
+    return `GitHub didn't accept the connection. Your sign-in may have expired, or your account may not have write access to this repository. Reconnect GitHub (top right) or check your access, then try again.`;
   }
 
   // Couldn't reach GitHub at all.

@@ -236,7 +236,14 @@ pub async fn publish_branch(
                 message: format!("PUSH_REJECTED:{stderr}"),
             });
         }
-        if stderr.contains("Permission denied") || stderr.contains("could not read Username") {
+        // "Permission to <owner>/<repo>.git denied to <user>." is GitHub's
+        // no-write-access rejection — the words "permission"/"denied" are split
+        // by the repo name, so it needs its own check (issue #321).
+        let lower = stderr.to_lowercase();
+        if stderr.contains("Permission denied")
+            || stderr.contains("could not read Username")
+            || (lower.contains("permission to") && lower.contains("denied to"))
+        {
             error!(error = %stderr, branch = %branch, "Authentication error");
             return Err(CommandError::NotAuthenticated {
                 service: format!("github (AUTH_ERROR: {stderr})"),

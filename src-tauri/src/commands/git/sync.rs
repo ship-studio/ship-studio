@@ -9,6 +9,18 @@ use super::git_stage_and_commit;
 // the parent module so they authenticate as the project's workspace login.
 use super::run_git_net;
 
+/// Git's normal refusal to pull a branch that has never been pushed (no
+/// upstream configured) or whose upstream is gone — an anticipated state the
+/// frontend already turns into a "push it first" toast, not a malfunction.
+/// The message text is preserved verbatim so that frontend match keeps
+/// working; only the telemetry classification changes (issue #312).
+fn is_missing_upstream(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("no tracking information")
+        || lower.contains("no such ref was fetched")
+        || lower.contains("couldn't find remote ref")
+}
+
 /// Fetch all branches from remotes
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
@@ -40,6 +52,9 @@ pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if is_missing_upstream(&stderr) {
+            return Err(CommandError::expected(format!("Failed to pull: {stderr}")));
+        }
         return Err((format!("Failed to pull: {stderr}")).into());
     }
 
@@ -87,6 +102,9 @@ pub async fn pull_and_merge(
     }
 
     if !output.status.success() {
+        if is_missing_upstream(&stderr) {
+            return Err(CommandError::expected(format!("Failed to merge: {stderr}")));
+        }
         return Err((format!("Failed to merge: {stderr}")).into());
     }
 

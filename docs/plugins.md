@@ -181,6 +181,17 @@ read_plugin_storage, write_plugin_storage, read_plugin_manifest
 Declaring anything outside this list fails the install; calling anything you
 didn't declare rejects at runtime.
 
+Like `shell` and `storage`, `invoke.call` automatically fills in the current
+project's `projectPath`, so project-scoped commands work without passing it:
+
+```ts
+const branch = await invoke.call<string>('get_current_branch');
+// equivalent to invoke.call('get_current_branch', { projectPath: project.path })
+```
+
+Pass `projectPath` explicitly in `args` only to target a *different* project —
+an explicit value always wins over the injected one.
+
 ### Without the SDK
 
 Raw-JS plugins (like hello-world) can use the window globals directly:

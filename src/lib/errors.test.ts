@@ -125,6 +125,12 @@ describe('humanizeGitError', () => {
       expect: /didn't accept the connection/i,
     },
     {
+      // GitHub's no-write-access rejection splits "permission"/"denied" with
+      // the repo name — must still classify as an auth failure (issue #321).
+      raw: 'ERROR: Permission to acme/site.git denied to somebody.\nfatal: Could not read from remote repository.',
+      expect: /didn't accept the connection/i,
+    },
+    {
       raw: 'fatal: unable to access https://github.com/a/b: Could not resolve host: github.com',
       expect: /couldn't reach GitHub/i,
     },
