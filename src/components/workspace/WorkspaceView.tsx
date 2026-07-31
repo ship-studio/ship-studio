@@ -177,7 +177,7 @@ interface IntegrationProps {
   } | null;
   installTerminalExited: boolean;
   onCloseInstallTerminal: () => void;
-  onInstallTerminalExit: (exitCode: number | null) => void;
+  onInstallTerminalExit: (exitCode: number | null, outputTail: string) => void;
 }
 
 interface ScreenshotProps {
@@ -361,6 +361,9 @@ export interface WorkspaceViewProps {
   onOpenProjectPicker: () => void;
   /** Open the "Switch Workspace" picker from the sidebar footer. */
   onSwitchAccount: () => void;
+  /** Unpin a project from the sidebar (used for rows without a live session,
+   *  including pins whose folder no longer exists — issue #366). */
+  onUnpinProject?: (projectPath: string) => void;
   /** Predicate: is a dev server currently tracked for the given project path?
    *  Used by the sidebar to populate background projects' Commands section. */
   isProjectDevServerRunning: (projectPath: string) => boolean;
@@ -390,6 +393,7 @@ export const WorkspaceView = memo(function WorkspaceView({
   onSelectProjectTab,
   onGoHome,
   onSwitchAccount,
+  onUnpinProject,
   onOpenProjectPicker,
   isProjectDevServerRunning,
 }: WorkspaceViewProps) {
@@ -1093,6 +1097,7 @@ export const WorkspaceView = memo(function WorkspaceView({
               onOpenProjectPicker={onOpenProjectPicker}
               projects={projectRows}
               onCloseProject={onCloseProject}
+              onUnpinProject={onUnpinProject}
               currentProjectPath={currentProject.path}
               currentProjectName={currentProject.name}
               onSelectProject={onSelectProject}

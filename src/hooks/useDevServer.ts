@@ -767,6 +767,14 @@ export function useDevServer(currentProjectPath: string | null) {
             { projectPath }
           );
         }
+      } else if (detectedType === 'unknown') {
+        // No framework config, no package.json, no HTML — Ship Studio doesn't
+        // know how to preview this project. Spawning `npm run dev` anyway just
+        // produced a doomed spawn plus a spurious package.json read error in
+        // telemetry (issue #330).
+        logger.info('[OpenProject] Unknown project type; skipping dev server', {
+          projectPath,
+        });
       } else {
         try {
           s.outputBuffer = '';

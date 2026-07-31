@@ -3,12 +3,41 @@
 use crate::errors::CommandError;
 use crate::types::{ProjectMetadata, PROJECT_METADATA_SCHEMA_VERSION};
 use crate::utils::{create_command, validate_project_path};
-use std::net::TcpStream;
 use std::path::Path;
-use std::time::Duration;
 
 use super::node_tool_command;
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
+
+/// Best-effort cleanup of thumbnail Chromium profiles left behind by earlier
+/// captures that never reached their own cleanup (app quit, crash, kill).
+/// Removes the legacy fixed `thumbnail_profile` dir unconditionally — nothing
+/// uses that path anymore, and a stale SingletonLock inside it permanently
+/// broke every capture (issue #358) — plus any per-capture
+/// `thumbnail_profile_*` dir older than an hour. The age gate keeps this from
+/// yanking a profile out from under a concurrent capture, which only lives
+/// for seconds.
+fn sweep_stale_thumbnail_profiles(shipstudio_dir: &Path) {
+    let _ = std::fs::remove_dir_all(shipstudio_dir.join("thumbnail_profile"));
+    let Ok(entries) = std::fs::read_dir(shipstudio_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.starts_with("thumbnail_profile_") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > std::time::Duration::from_secs(60 * 60));
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
 
 /// Returns true when the project's metadata marks the thumbnail as
 /// user-supplied — auto-capture must skip these so it doesn't clobber
@@ -43,35 +72,10 @@ pub async fn capture_project_thumbnail(
 
     // Quick health check: verify the dev server is still responding before launching Playwright.
     // This reduces (but doesn't eliminate) race conditions where the server dies mid-capture.
-    // Extract port from URL (e.g., "http://localhost:3000" -> 3000)
-    let port: u16 = url
-        .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .split(':')
-        .next_back()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(3000);
-
-    // Try both IPv4 and IPv6 - some dev servers (especially Vite) may only bind to IPv6
-    let ipv4_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let ipv6_addr = std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port)); // ::1
-
-    let ipv4_ok = TcpStream::connect_timeout(&ipv4_addr, Duration::from_millis(500)).is_ok();
-    let ipv6_ok = TcpStream::connect_timeout(&ipv6_addr, Duration::from_millis(500)).is_ok();
-
-    if !ipv4_ok && !ipv6_ok {
-        tracing::warn!(
-            "Dev server health check failed on both IPv4 and IPv6 for port {}",
-            port
-        );
+    if !super::dev_server_listening(&url) {
+        tracing::warn!("Dev server health check failed for {}", url);
         return Err(("Dev server not responding, skipping thumbnail capture".to_string()).into());
     }
-    tracing::info!(
-        "Dev server health check passed (IPv4: {}, IPv6: {}) on port {}",
-        ipv4_ok,
-        ipv6_ok,
-        port
-    );
 
     let shipstudio_dir = project.join(".shipstudio");
 
@@ -113,11 +117,34 @@ pub async fn capture_project_thumbnail(
         let temp_path_str = temp_path.to_string_lossy().to_string();
         let screenshot_arg = format!("--screenshot={temp_path_str}");
 
+        // An isolated profile dir is required, not an optimization: since the
+        // headless/headful merge, `--headless=new` on the default profile
+        // shares the singleton lock with any already-running instance of the
+        // same browser and instantly exits with code 21 — a developer's normal
+        // browser being open silently killed every thumbnail (issue #335).
+        //
+        // The dir must also be unique per capture: a fixed path recreates the
+        // same singleton collision between two overlapping captures, and a
+        // capture interrupted before cleanup leaves a stale SingletonLock that
+        // blocks every subsequent capture forever (issue #358 and its many
+        // duplicates). PID + a process-wide counter is collision-free across
+        // both concurrent captures and app restarts into a dirty .shipstudio.
+        static PROFILE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        sweep_stale_thumbnail_profiles(&shipstudio_dir);
+        let profile_dir = shipstudio_dir.join(format!(
+            "thumbnail_profile_{}_{}",
+            std::process::id(),
+            PROFILE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let user_data_arg = format!("--user-data-dir={}", profile_dir.to_string_lossy());
+
         // Use new headless mode with explicit viewport control
         // Set background to white so any extra captured area isn't black
         let output = create_command(&browser)
             .args([
                 "--headless=new",
+                &user_data_arg,
+                "--no-first-run",
                 "--disable-gpu",
                 "--no-sandbox",
                 "--hide-scrollbars",
@@ -132,7 +159,25 @@ pub async fn capture_project_thumbnail(
             .output()
             .map_err(|e| format!("Failed to run browser: {e}"))?;
 
-        if !output.status.success() {
+        // The throwaway profile has served its purpose; don't let it grow.
+        let _ = std::fs::remove_dir_all(&profile_dir);
+
+        // Success is "the screenshot file exists", not "the exit code was 0":
+        // headless Chromium on Windows can write the PNG and still exit
+        // non-zero over unrelated internal warnings, and failing on the exit
+        // code alone throws away a perfectly good capture (issue #374).
+        let capture_written = std::fs::metadata(&temp_path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false);
+
+        if capture_written && !output.status.success() {
+            tracing::warn!(
+                "Browser exited with {:?} but wrote the screenshot; proceeding",
+                output.status.code()
+            );
+        }
+
+        if !capture_written {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stderr = stderr.trim();
             // Headless Chromium can die with EMPTY stderr (crash, killed by
@@ -159,27 +204,25 @@ pub async fn capture_project_thumbnail(
         }
 
         // Read the captured image and resize using the image crate (cross-platform)
-        if temp_path.exists() {
-            if let Ok(img) = image::open(&temp_path) {
-                let (width_val, height_val) = (img.width(), img.height());
+        if let Ok(img) = image::open(&temp_path) {
+            let (width_val, height_val) = (img.width(), img.height());
 
-                // If captured at 2x (Retina) or oversized, resize to 1280 width first
-                let processed = if width_val > 1280 || height_val > 800 {
-                    img.resize(1280, 800, image::imageops::FilterType::Lanczos3)
-                } else {
-                    img
-                };
-
-                // Save as thumbnail at 640px width
-                let thumb = processed.resize(640, 400, image::imageops::FilterType::Lanczos3);
-                let _ = thumb.save(&thumbnail_path);
+            // If captured at 2x (Retina) or oversized, resize to 1280 width first
+            let processed = if width_val > 1280 || height_val > 800 {
+                img.resize(1280, 800, image::imageops::FilterType::Lanczos3)
             } else {
-                // If image crate can't read it, just copy as-is
-                let _ = std::fs::copy(&temp_path, &thumbnail_path);
-            }
-            // Clean up temp file
-            let _ = std::fs::remove_file(&temp_path);
+                img
+            };
+
+            // Save as thumbnail at 640px width
+            let thumb = processed.resize(640, 400, image::imageops::FilterType::Lanczos3);
+            let _ = thumb.save(&thumbnail_path);
+        } else {
+            // If image crate can't read it, just copy as-is
+            let _ = std::fs::copy(&temp_path, &thumbnail_path);
         }
+        // Clean up temp file
+        let _ = std::fs::remove_file(&temp_path);
 
         Ok(thumbnail_path_str)
     } else {

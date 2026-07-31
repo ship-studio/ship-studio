@@ -48,7 +48,7 @@ fn assets_root_dir(repo_root: &Path, workspace: &Path) -> PathBuf {
 /// Prevents path traversal attacks.
 fn validate_asset_path(root_dir: &Path, asset_path: &str) -> Result<PathBuf, String> {
     // Check for obvious path traversal attempts
-    if asset_path.contains("..") {
+    if crate::utils::has_parent_dir_component(asset_path) {
         return Err("Invalid path: path traversal not allowed".to_string());
     }
 
@@ -252,7 +252,8 @@ pub async fn upload_asset(
     }
 
     // Validate filename
-    if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
+    if file_name.contains('/') || file_name.contains('\\') || file_name == ".." || file_name == "."
+    {
         return Err(("Invalid filename: path separators not allowed".to_string()).into());
     }
 
@@ -262,7 +263,7 @@ pub async fn upload_asset(
     } else {
         // Validate and resolve destination path
         let dest = destination.trim_start_matches('/');
-        if dest.contains("..") {
+        if crate::utils::has_parent_dir_component(dest) {
             return Err(("Invalid destination: path traversal not allowed".to_string()).into());
         }
         let dest_path = root_dir.join(dest);
@@ -341,7 +342,7 @@ pub async fn rename_asset(
     let old_path = validate_asset_path(&root_dir, &asset_path)?;
 
     // Validate new name
-    if new_name.contains('/') || new_name.contains('\\') || new_name.contains("..") {
+    if new_name.contains('/') || new_name.contains('\\') || new_name == ".." || new_name == "." {
         return Err(("Invalid name: path separators not allowed".to_string()).into());
     }
 
@@ -391,7 +392,7 @@ pub async fn create_asset_folder(
     }
 
     // Validate folder path
-    if folder_path.contains("..") {
+    if crate::utils::has_parent_dir_component(&folder_path) {
         return Err(("Invalid path: path traversal not allowed".to_string()).into());
     }
 

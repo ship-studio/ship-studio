@@ -26,6 +26,19 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.18.3', // v0.18.3
+    items: [
+      'Important safety fix: your home folder can no longer be mistaken for a project. A stray .git or .gitignore in your home directory could previously let "Discard Changes" run git cleanup across your personal files — that door is now closed at every layer, including for anyone who already had their home folder registered',
+      "New Eve Agent template: build an AI agent on Vercel's Eve framework with a web chat UI — find it under Other when creating a project",
+      'Windows opened via "Window → New Window" work fully again: update checks, terminal fonts, and live events were silently broken in them',
+      'Clearer GitHub errors: an expired sign-in or missing write access now says exactly that (with a reconnect hint) instead of dumping raw git output, across publish, pull requests, and repo lists',
+      'Windows fixes: project thumbnails no longer fail when your browser is already open, and plugin installs ride out antivirus file locks instead of dying with "Access is denied"',
+      'Onboarding no longer blames your shell when a setup download is quiet — slow connections get an accurate "check your internet" message instead of "/bin/bash did not respond"',
+      'The preview for plain HTML sites whose pages live in public/ now works, files with double dots in the name (notes..bak) are no longer blocked as "path traversal", and embedded plugin windows (like Sanity Studio) can no longer be clipped off the bottom edge of the app',
+      'Another 20+ auto-reported bugs fixed within hours: failed dependency installs now show the actual npm error, agent screenshots wait for the dev server to be ready, and a batch of confusing "[object Object]" errors now say what actually happened',
+    ],
+  },
+  {
     version: '0.18.2', // v0.18.2
     items: [
       'Another 11 auto-reported bugs fixed within hours of being detected — the automatic error reporting keeps paying for itself',

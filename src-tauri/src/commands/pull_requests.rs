@@ -57,6 +57,14 @@ pub async fn list_pull_requests(
         {
             return Ok(Vec::new());
         }
+        // Auth-not-configured is an expected state, not an error to report
+        // with gh's raw multi-line stderr (issue #326).
+        if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
+            return Err(err);
+        }
+        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+            return Err(err);
+        }
         return Err((stderr.to_string()).into());
     }
 
@@ -125,6 +133,12 @@ pub async fn create_pull_request(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
+            return Err(err);
+        }
+        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+            return Err(err);
+        }
         return Err((stderr.to_string()).into());
     }
 
@@ -150,6 +164,12 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         if is_conflict_stderr(&stderr) {
             return Err(CommandError::MergeConflict { pr_number, stderr });
+        }
+        if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
+            return Err(err);
+        }
+        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+            return Err(err);
         }
         return Err(stderr.into());
     }
@@ -182,6 +202,12 @@ pub async fn checkout_pull_request(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
+            return Err(err);
+        }
+        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+            return Err(err);
+        }
         return Err((format!("Failed to checkout PR: {stderr}")).into());
     }
 
@@ -210,6 +236,12 @@ pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
+            return Err(err);
+        }
+        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+            return Err(err);
+        }
         return Err((format!("Failed to close PR: {stderr}")).into());
     }
 

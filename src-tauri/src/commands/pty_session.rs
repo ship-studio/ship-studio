@@ -305,10 +305,22 @@ pub async fn pty_session_open(
         cmd.env(std::ffi::OsString::from(&k), std::ffi::OsString::from(&v));
     }
 
-    let mut child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| format!("spawn_command: {e}"))?;
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| {
+        let message = format!("spawn_command: {e}");
+        // portable_pty's binary-not-found phrasings. A missing/unresolvable
+        // agent CLI is an environment gap ("install X first") the frontend
+        // already turns into the agent's install hint — Expected keeps it out
+        // of telemetry, mirroring external_command.rs (issue #329).
+        let lower = message.to_lowercase();
+        if lower.contains("no viable candidates found in path")
+            || lower.contains("does not exist")
+            || lower.contains("not executable")
+        {
+            crate::errors::CommandError::expected(message)
+        } else {
+            crate::errors::CommandError::from(message)
+        }
+    })?;
     let pid = child.process_id().unwrap_or(0);
     let child_killer = child.clone_killer();
 
@@ -441,8 +453,11 @@ pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), Comman
         .lock()
         .map_err(|e| format!("writer lock poisoned: {e}"))?;
     w.write_all(&data).map_err(|e| {
-        if e.raw_os_error() == Some(5) {
-            // Benign race, not a malfunction — keep it out of telemetry (issue #323).
+        // Benign race — a write landing just as the PTY's process exits — not
+        // a malfunction; keep it out of telemetry (issue #323). Unix surfaces
+        // it as EIO (5), Windows as ERROR_NO_DATA 232, "The pipe is being
+        // closed" (issue #354); the codes don't collide across platforms.
+        if e.raw_os_error() == Some(5) || e.raw_os_error() == Some(232) {
             CommandError::expected("terminal session has ended")
         } else {
             CommandError::from(format!("write: {e}"))

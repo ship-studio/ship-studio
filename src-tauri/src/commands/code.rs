@@ -163,7 +163,7 @@ pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileCont
     let project = validate_project_path(project_path)?;
 
     // Prevent path traversal
-    if file_path.contains("..") {
+    if crate::utils::has_parent_dir_component(file_path) {
         return Err(("Invalid path: path traversal not allowed".to_string()).into());
     }
 
@@ -242,7 +242,7 @@ pub fn save_project_file(
     let project = validate_project_path(project_path)?;
 
     // Prevent path traversal
-    if file_path.contains("..") {
+    if crate::utils::has_parent_dir_component(file_path) {
         return Err(("Invalid path: path traversal not allowed".to_string()).into());
     }
 

@@ -47,7 +47,9 @@ echo "Components (.tsx limit 1200):"
 # for the agent-restart wiring (restartTerminalTab threaded to each Terminal +
 # the Agent Settings menu item) — small, on top of the Workspaces baseline.
 # Bumped by a hair for the Windows-compat pass: platform-aware shortcut labels
-# (kbd() import + two undo/redo hint lines). TerminalPanes extraction still owed.
+# (kbd() import + two undo/redo hint lines). Bumped by a hair again for the
+# dead-pin unpin wiring (issue #366): onUnpinProject threaded through to the
+# sidebar. TerminalPanes extraction still owed.
 # Bumped again (small) for plugin failure surfacing (#165): pluginFailures and
 # the hosting-plugin count threaded into PluginsDropdown, usePlugins onError
 # wired to showToast. Pure wiring; the logic lives in usePlugins/PluginsDropdown.
@@ -57,7 +59,7 @@ echo "Components (.tsx limit 1200):"
 # Bumped again (small) for worktrees: the hook call + worktree props threaded
 # to the sidebar, Branches tab, and create modal. Pure wiring; the logic lives
 # in useWorktreeWorkflow/useWorktrees.
-check_file src/components/workspace/WorkspaceView.tsx 1650
+check_file src/components/workspace/WorkspaceView.tsx 1660
 check_file src/components/dashboard/ProjectList.tsx 900
 check_file src/components/plugins/PluginManager.tsx 700
 check_file src/components/dashboard/ImportProject.tsx 500

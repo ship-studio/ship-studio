@@ -113,6 +113,14 @@ pub fn git_has_any_changes(path: &std::path::Path) -> Result<bool, String> {
 /// Stages all changes and commits with the given message.
 /// Returns true if a commit was made, false if nothing to commit.
 pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<bool, String> {
+    // Defense-in-depth backstop for #345: even if a too-broad path slipped past
+    // registration, never run `git add -A` across the home tree.
+    if crate::utils::is_forbidden_project_root(path) {
+        return Err(format!(
+            "Refusing to stage changes in '{}': it is the home directory or wider, not a project folder",
+            path.display()
+        ));
+    }
     // Stage all changes
     let add_output = crate::utils::git_command_in(path)?
         .args(["add", "-A"])

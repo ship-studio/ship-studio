@@ -491,7 +491,7 @@ function AppContents({ initialProjectPath }: AppProps) {
   // Register palette commands with real handlers — see src/commands/useAppCommands.tsx
   // `pinnedPaths` is passed after the rail hook runs; done below.
 
-  const { pinnedProjects, handleTogglePin, handleRailClick } = useProjectRail({
+  const { pinnedProjects, handleTogglePin, handleRailClick, handleRailUnpin } = useProjectRail({
     currentProjectPath: currentProject?.path ?? null,
     handleSelectProject,
     showToast,
@@ -1271,6 +1271,7 @@ function AppContents({ initialProjectPath }: AppProps) {
         projectRows={pinnedProjects.rows}
         onSelectProject={handleRailClick}
         onCloseProject={handleCloseProject}
+        onUnpinProject={handleRailUnpin}
         onSelectProjectTab={handleSelectProjectTab}
         onGoHome={handleBackToProjects}
         onOpenProjectPicker={openProjectPicker}

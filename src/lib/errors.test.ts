@@ -131,7 +131,19 @@ describe('humanizeGitError', () => {
       expect: /didn't accept the connection/i,
     },
     {
+      // HTTPS no-write-access rejection: "Write access to repository not
+      // granted." + 403 — must classify as auth, not network (issue #343).
+      raw: "remote: Write access to repository not granted.\nfatal: unable to access 'https://github.com/acme/site.git/': The requested URL returned error: 403",
+      expect: /didn't accept the connection/i,
+    },
+    {
       raw: 'fatal: unable to access https://github.com/a/b: Could not resolve host: github.com',
+      expect: /couldn't reach GitHub/i,
+    },
+    {
+      // Windows Go dial error from the gh CLI — contains none of the usual
+      // timeout/refused/resolve substrings (issue #375).
+      raw: 'Post "https://api.github.com/graphql": dial tcp 20.207.73.85:443: connectex: A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond.',
       expect: /couldn't reach GitHub/i,
     },
     {

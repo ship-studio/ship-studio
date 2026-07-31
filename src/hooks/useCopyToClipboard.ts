@@ -17,6 +17,19 @@ interface Options {
 }
 
 /**
+ * Human-readable reason for a clipboard write failure, suitable for a toast.
+ * The webview's NotAllowedError text is long and technical; the practical
+ * cause is almost always a missing user-activation or an unfocused window
+ * (issue #357), so map it to something the user can act on.
+ */
+export function describeClipboardError(error: Error): string {
+  if (error.name === 'NotAllowedError' || error.message.includes('not allowed')) {
+    return 'clipboard access was denied — click the Ship Studio window, then try again';
+  }
+  return error.message;
+}
+
+/**
  * Copy text to the OS clipboard. Prefer this over calling `navigator.clipboard`
  * directly — it centralizes error handling, tracking, and the "copied!" flag.
  */

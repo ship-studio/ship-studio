@@ -19,6 +19,33 @@ pub use playwright::*;
 pub use stitch::*;
 pub use thumbnail::*;
 
+/// Quick TCP probe of the dev-server port in `url` (IPv4 and IPv6 — some dev
+/// servers, especially Vite, bind only IPv6; 500ms timeout each). Callers use
+/// this to fail fast with a clean "dev server not ready" message instead of
+/// letting Playwright's `page.goto` blow up with an ERR_CONNECTION_REFUSED
+/// stack trace (issue #349). Port defaults to 3000 when the URL carries none.
+pub(crate) fn dev_server_listening(url: &str) -> bool {
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let port: u16 = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next_back()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000);
+
+    let ipv4_addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let ipv6_addr = std::net::SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port));
+
+    TcpStream::connect_timeout(&ipv4_addr, Duration::from_millis(500)).is_ok()
+        || TcpStream::connect_timeout(&ipv6_addr, Duration::from_millis(500)).is_ok()
+}
+
 use crate::utils::{create_command, find_executable, get_extended_path};
 use std::process::Command;
 

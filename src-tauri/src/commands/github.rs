@@ -509,6 +509,44 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     Ok(format!("https://github.com/{repo_name}"))
 }
 
+/// gh's stderr when a subcommand needs auth and none is configured — "To get
+/// started with GitHub CLI, please run:  gh auth login" plus the GH_TOKEN
+/// hint. Modeled as the app's first-class NotAuthenticated state (skipped by
+/// telemetry, and the frontend shows its connect-GitHub UI) instead of
+/// surfacing the raw CLI text (issue #326).
+pub(crate) fn gh_auth_error(stderr: &str) -> Option<CommandError> {
+    if stderr.contains("gh auth login") || stderr.contains("GH_TOKEN") {
+        return Some(CommandError::NotAuthenticated {
+            service: "github".to_string(),
+        });
+    }
+    None
+}
+
+/// gh's stderr when the machine simply can't reach GitHub (offline, DNS or
+/// firewall block, flaky network). Covers Go's `net/http` dial errors —
+/// including the Windows-specific `connectex: A connection attempt failed…`
+/// wording, which contains none of the usual "timed out"/"refused"
+/// substrings (issue #375). A connectivity blip is the environment, not a
+/// malfunction: `Expected` keeps it out of telemetry and the message is
+/// something the user can act on.
+pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    let unreachable = s.contains("dial tcp")
+        || s.contains("connectex")
+        || s.contains("could not resolve host")
+        || s.contains("no such host")
+        || s.contains("connection refused")
+        || s.contains("network is unreachable")
+        || s.contains("i/o timeout")
+        || s.contains("tls handshake timeout");
+    unreachable.then(|| {
+        CommandError::expected(
+            "Couldn't reach GitHub. Check your internet connection and try again.",
+        )
+    })
+}
+
 /// Lists GitHub repositories for a given owner (user or organization)
 #[tauri::command]
 #[tracing::instrument]
@@ -527,6 +565,9 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, Command
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = gh_auth_error(&stderr) {
+            return Err(err);
+        }
         return Err(CommandError::Process {
             cmd: "gh repo list".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
@@ -577,6 +618,9 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = gh_auth_error(&stderr) {
+            return Err(err);
+        }
         return Err(CommandError::Process {
             cmd: "gh api /user/repos".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
@@ -858,5 +902,26 @@ mod tests {
             updated_at: api.updated_at,
         };
         assert_eq!(converted.name, "alice/shared");
+    }
+
+    #[test]
+    fn gh_network_error_classifies_windows_connectex_as_expected() {
+        let stderr = r#"Post "https://api.github.com/graphql": dial tcp 20.207.73.85:443: connectex: A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond."#;
+        let err = gh_network_error(stderr).expect("should classify as network error");
+        assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn gh_network_error_classifies_dns_failure() {
+        assert!(
+            gh_network_error("error connecting to api.github.com: could not resolve host")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn gh_network_error_ignores_unrelated_stderr() {
+        assert!(gh_network_error("GraphQL: name already exists on this account").is_none());
+        assert!(gh_network_error("").is_none());
     }
 }

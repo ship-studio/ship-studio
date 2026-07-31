@@ -22,7 +22,8 @@
  * lib/setup (`checkNpmCachePermissions`), lib/plugins.
  *
  * Gotchas: `waitForPtyExit` treats a `null` exit code (process killed) as
- * SUCCESS, so a killed clone/install proceeds to the next step. The two zip
+ * SUCCESS, so a killed install proceeds to the next step; the clone step is
+ * the exception and treats `null` as an interruption (issue #342). The two zip
  * sources are mutually exclusive (`zipFile` from the browser vs `zipPath`
  * from Tauri drag-drop — selecting one clears the other), and the native
  * drag-drop listeners are only attached on the select-template step while
@@ -154,6 +155,13 @@ export const TEMPLATES: Template[] = [
     repo: 'https://github.com/ship-studio/shopify-theme-starter',
     category: 'other',
     skipInstall: true,
+  },
+  {
+    id: 'eve-agent',
+    name: 'Eve Agent',
+    description: "An AI agent built on Vercel's Eve framework, with a web chat UI.",
+    repo: 'https://github.com/ship-studio/eve-agent-starter',
+    category: 'other',
   },
   {
     id: 'blank',
@@ -425,7 +433,18 @@ export function useProjectCreation({ onComplete, onCancel }: UseProjectCreationP
           windowLabel: getWindowLabel(),
         });
 
-        await waitForPtyExit(cloneId);
+        const cloneExitCode = await waitForPtyExit(cloneId);
+
+        // A null exit code means the clone PTY was killed (window closed,
+        // app reload) — possibly before git even created the target folder.
+        // Proceeding would run remove_git_history against a path that doesn't
+        // exist (issue #342). Unlike the install step below, a killed clone
+        // can never be treated as success.
+        if (cloneExitCode === null) {
+          throw new Error(
+            'Project creation was interrupted before the template finished downloading. Please try again.'
+          );
+        }
 
         // Remove .git folder so project starts fresh (not connected to template repo)
         setCurrentStep('init');

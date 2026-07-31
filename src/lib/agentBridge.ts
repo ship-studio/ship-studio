@@ -355,6 +355,14 @@ async function captureScreenshot(
       'The preview is not running yet (no dev server URL). Ask the user to open the preview panel, or start the dev server first.'
     );
   }
+  // The URL can be stale (server crashed or restarted on another port) while
+  // serverReady is false — capturing anyway makes Playwright fail with
+  // ERR_CONNECTION_REFUSED (issue #348).
+  if (!ctx.serverReady) {
+    return errorResult(
+      'The dev server is not ready yet. Wait for the preview to finish loading, then try again.'
+    );
+  }
   const command = fullPage ? 'capture_fullpage_playwright' : 'capture_viewport_playwright';
   const path = await invoke<string>(command, {
     projectPath: ctx.projectPath,

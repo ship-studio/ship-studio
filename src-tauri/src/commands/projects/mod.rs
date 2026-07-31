@@ -204,6 +204,11 @@ pub(crate) fn is_valid_project(path: &std::path::Path) -> bool {
         "build.gradle",
         "composer.json",
     ];
+    // A home directory very often carries a stray `.git`/`.gitignore`, but it
+    // must never count as a project — see is_forbidden_project_root (#345).
+    if crate::utils::is_forbidden_project_root(path) {
+        return false;
+    }
     path.is_dir()
         && (path.join("package.json").exists()
             || detection::static_site_dir(path).is_some()

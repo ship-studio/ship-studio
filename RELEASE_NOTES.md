@@ -6,6 +6,21 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.18.3
+
+- **Safety fix: your home folder can never be treated as a project** - A stray .git or .gitignore in your home directory could let "Discard Changes" run git cleanup across personal files. Now refused at every layer, including for already-registered entries.
+
+**New Eve Agent template** - Build an AI agent on Vercel's Eve framework with a web chat UI, under Other in the create-project picker.
+
+**"Window → New Window" windows fully work again** - Update checks, terminal fonts, and live events were silently broken by a missing permission grant.
+
+**Clearer GitHub errors** - Expired sign-ins and missing write access now say so (with a reconnect hint) instead of dumping raw git output.
+
+**Windows fixes** - Thumbnails no longer fail while your browser is open; plugin installs ride out antivirus file locks.
+
+**20+ more auto-reported fixes** - Real npm errors on failed installs, screenshot readiness checks, accurate onboarding error messages, static sites served from public/, filenames containing "..", embedded plugin windows no longer clipped, and a sweep of "[object Object]" diagnostics.
+
+
 ## What's New in v0.18.2
 
 - **11 more auto-reported bugs fixed** - The automatic error reporting pipeline caught and we fixed another 11 bugs within hours of detection

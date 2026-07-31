@@ -134,7 +134,7 @@ export interface WorkspaceModalsProps {
   } | null;
   installTerminalExited: boolean;
   onCloseInstallTerminal: () => void;
-  onInstallTerminalExit: (exitCode: number | null) => void;
+  onInstallTerminalExit: (exitCode: number | null, outputTail: string) => void;
 
   // Dev command modal — read state via useModal('devCommand')
   customDevCommand: string | null;

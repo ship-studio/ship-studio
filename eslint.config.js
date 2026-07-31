@@ -100,14 +100,16 @@ export default tseslint.config(
       'src/lib/logger.ts',
       'src/lib/polling.ts',
       'src/**/*.test.{ts,tsx}',
-      // Block 5.4 — clipboard exceptions (xterm key handler, per-row copy state,
-      // postMessage handler). Rationale documented in DX_REFACTOR_PLAN.md.
+      // Block 5.4 — clipboard exceptions (xterm key handler). Rationale
+      // documented in DX_REFACTOR_PLAN.md. useAssetManagement and
+      // usePreviewConnection migrated to useCopyToClipboard (issues #355/#357).
       'src/components/terminal/Terminal.tsx',
       'src/components/setup/OnboardingTerminal.tsx',
-      'src/hooks/useAssetManagement.ts',
-      'src/hooks/usePreviewConnection.ts',
       // Block 5.7 — setInterval exceptions (library-level, state-machine timers,
       // keep-fresh caches). Rationale documented in DX_REFACTOR_PLAN.md.
+      // usePreviewConnection is here only for its server-check timers; its
+      // clipboard call migrated to useCopyToClipboard (issue #357).
+      'src/hooks/usePreviewConnection.ts',
       'src/lib/project.ts',
       'src/hooks/useCodeHealth.ts',
       'src/hooks/useScreenshotManagement.ts',

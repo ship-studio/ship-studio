@@ -95,6 +95,12 @@ pub fn is_registered_external_path(canonical: &Path) -> Result<bool, String> {
     for project in &config.projects {
         let project_path = Path::new(&project.path);
         if let Ok(project_canonical) = dunce::canonicalize(project_path) {
+            // Neutralize any pre-existing bad registration of $HOME (or wider):
+            // honoring it would make every path under the home directory pass
+            // validate_project_path via starts_with (issue #345).
+            if crate::utils::is_forbidden_project_root(&project_canonical) {
+                continue;
+            }
             if canonical.starts_with(&project_canonical) {
                 return Ok(true);
             }
@@ -122,6 +128,16 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
             .map_err(|e| format!("Invalid folder path: {e}"))?,
         None => return Ok(None), // User cancelled
     };
+
+    // The home directory (or anything above it) is never a project, even when
+    // a stray ~/.git or ~/.gitignore makes it look like one — registering it
+    // would scope destructive git ops to the whole home tree (issue #345).
+    if crate::utils::is_forbidden_project_root(&folder_path) {
+        return Err(CommandError::expected(
+            "That folder is your home directory (or a folder above it), which can't be added as a \
+             project. Pick the specific project folder instead.",
+        ));
+    }
 
     // Use the same predicate as dashboard discovery so removed projects can be
     // restored even when they were blank, git-only, or Ship Studio metadata-only.
@@ -291,6 +307,10 @@ fn clear_workspace_subpath_in_metadata(project_root: &Path) -> Result<(), String
 /// generous about *project* shapes but excludes things like ~/.ssh, ~/.aws.
 fn looks_like_project_root(path: &Path) -> bool {
     if !path.is_dir() {
+        return false;
+    }
+    // Never the home directory or above it, regardless of markers (#345).
+    if crate::utils::is_forbidden_project_root(path) {
         return false;
     }
     const MARKERS: &[&str] = &[

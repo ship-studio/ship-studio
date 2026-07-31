@@ -68,6 +68,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError, setActiveProject } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import { extractTerminalError } from '../lib/terminalDiagnostics';
 import { getProjectId } from '../lib/projectIdentity';
 import { startProjectSession, endProjectSession } from '../lib/session';
 import { basename } from '../lib/paths';
@@ -317,10 +318,13 @@ export function useProjectLifecycle({
       }
     } catch (e) {
       logger.warn('[OpenProject] Failed to ensure external project registration', { error: e });
-      showToast(
-        `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`,
-        'error'
-      );
+      // Distinguish "the folder is gone" (moved/renamed/deleted outside the
+      // app — issue #365) from "the path isn't in an allowed location"; the
+      // "re-add via Select Project Folder" advice only fits the latter.
+      const message = formatCommandError(asCommandError(e)).includes('no longer exists')
+        ? `Can't open "${project.name}" — its folder no longer exists. It may have been moved, renamed, or deleted outside Ship Studio.`
+        : `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`;
+      showToast(message, 'error');
       return;
     }
 
@@ -783,19 +787,29 @@ export function useProjectLifecycle({
     setInstallTerminalExited(false);
   };
 
-  const handleInstallTerminalExit = async (exitCode: number | null) => {
+  const handleInstallTerminalExit = async (exitCode: number | null, outputTail = '') => {
     const cfg = installTerminalConfig;
     if (!cfg) return;
     setInstallTerminalExited(true);
     // null = killed mid-run; treat as failure (don't auto-restart).
     if (exitCode !== 0) {
+      // The overlay terminal already collects the raw output tail — surface
+      // the actual npm/pnpm error instead of a bare exit code (issue #344).
+      // Home-dir paths are masked before the detail reaches analytics.
+      const detail = extractTerminalError(outputTail);
+      const scrubbedDetail = detail
+        ?.replace(/((?:\/Users|\/home|[A-Za-z]:[\\/]Users)[\\/])[^\\/\s]+/g, '$1~')
+        .slice(0, 300);
       void trackEvent('install_dependencies_failed', {
         package_manager: cfg.packageManager,
         exit_code: exitCode ?? -1,
+        error_detail: scrubbedDetail,
         $screen_name: 'Workspace',
       });
       showToast(
-        `Install exited with code ${exitCode ?? 'null'}. Check the terminal for details.`,
+        detail
+          ? `Install exited with code ${exitCode ?? 'null'}: ${detail} — check the terminal for the full output.`
+          : `Install exited with code ${exitCode ?? 'null'}. Check the terminal for details.`,
         'error'
       );
       return; // keep overlay open so user can read stderr + close manually

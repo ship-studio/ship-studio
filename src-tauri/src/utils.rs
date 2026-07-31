@@ -376,13 +376,23 @@ fn build_extended_path() -> String {
 /// on every call, so installing git mid-session (the onboarding wizard does
 /// exactly this) starts working without an app restart.
 pub fn git_command() -> Result<Command, crate::errors::CommandError> {
+    // Hand git the extended PATH, not for git itself (already resolved
+    // absolutely) but for whatever it spawns: pre-commit/pre-push hooks
+    // inherit this environment, and under a GUI-launched app's minimal PATH
+    // a lefthook/husky hook can't find pnpm/node/etc. even though they work
+    // fine in the user's terminal (issue #363). Same treatment `run_git_net`
+    // already applies to fetch/pull/push.
+    fn with_extended_path(mut cmd: Command) -> Command {
+        cmd.env("PATH", get_extended_path());
+        cmd
+    }
     static GIT_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     if let Some(path) = GIT_PATH.get() {
-        return Ok(create_command(path));
+        return Ok(with_extended_path(create_command(path)));
     }
     match find_executable("git") {
         Some(path) => {
-            let cmd = create_command(&path);
+            let cmd = with_extended_path(create_command(&path));
             let _ = GIT_PATH.set(path);
             Ok(cmd)
         }
@@ -766,10 +776,60 @@ pub fn normalize_separators(path: &str) -> String {
 pub fn canonicalize_tagged(
     path: impl AsRef<std::path::Path>,
     site: &str,
-) -> Result<std::path::PathBuf, String> {
+) -> Result<std::path::PathBuf, crate::errors::CommandError> {
     let path = path.as_ref();
-    dunce::canonicalize(path)
-        .map_err(|e| format!("Invalid path in {site} ('{}'): {e}", path.display()))
+    dunce::canonicalize(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            // A folder disappearing out from under the app — deleted, renamed,
+            // or moved in Finder/Explorer — is an environment change, not a
+            // malfunction: say so plainly and keep it out of telemetry
+            // (issues #365/#372, same family as #300/#342).
+            crate::errors::CommandError::expected(format!(
+                "The folder '{}' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+                path.display()
+            ))
+        } else {
+            crate::errors::CommandError::from(format!(
+                "Invalid path in {site} ('{}'): {e}",
+                path.display()
+            ))
+        }
+    })
+}
+
+/// True when a user-supplied relative path contains an actual `..` path
+/// component (a traversal attempt). A naive `contains("..")` substring test
+/// also rejects legitimate names like `notes..bak` or `v1..2-draft`
+/// (issue #331); this checks whole components, and the canonicalize +
+/// `starts_with` containment checks at every call site remain the real
+/// defense against escapes.
+pub fn has_parent_dir_component(path: &str) -> bool {
+    std::path::Path::new(path)
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+/// Directories that must never be treated as a project root, no matter what
+/// marker files they contain: the user's home directory (a stray `~/.git` or
+/// `~/.gitignore` is common), anything above it, and the filesystem root.
+/// Treating one of these as a project hands project-scoped git commands
+/// (`git add -A`, `git clean -fd`) the entire home tree to walk — observed
+/// as issues #345/#346, where a registered `$HOME` "project" made Discard
+/// Changes run `git clean -fd` across the user's home directory.
+pub(crate) fn is_forbidden_project_root(path: &std::path::Path) -> bool {
+    let candidate = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    // Filesystem root ("/", "C:\") has no parent.
+    if candidate.parent().is_none() {
+        return true;
+    }
+    if let Some(home) = dirs::home_dir() {
+        let home = dunce::canonicalize(&home).unwrap_or(home);
+        // $HOME itself, or an ancestor of it (/Users, /home, C:\Users).
+        if candidate == home || home.starts_with(&candidate) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Validates that a project path is inside an allowed projects root (the
@@ -1096,6 +1156,56 @@ fn format_relative_time_from_now(timestamp_ms: u64, now_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod canonicalize_tagged_errors {
+        use super::*;
+
+        #[test]
+        fn missing_folder_is_expected_not_reported() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let gone = tmp.path().join("vanished-project");
+            let err = canonicalize_tagged(&gone, "test_site").unwrap_err();
+            // A folder deleted/moved outside the app is an environment change
+            // (issues #365/#372) — must be Expected so telemetry skips it.
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains("no longer exists"));
+        }
+
+        #[test]
+        fn other_failures_keep_the_diagnosable_tagged_format() {
+            // A file used as a directory component fails with NotADirectory
+            // (not NotFound) on Unix — that's still a diagnosable anomaly.
+            let tmp = tempfile::TempDir::new().unwrap();
+            let file = tmp.path().join("plain.txt");
+            std::fs::write(&file, "x").unwrap();
+            let bad = file.join("child");
+            if let Err(err) = canonicalize_tagged(&bad, "test_site") {
+                if !matches!(err, crate::errors::CommandError::Expected { .. }) {
+                    assert!(err.to_string().contains("test_site"));
+                }
+            }
+        }
+    }
+
+    mod is_forbidden_project_root {
+        use super::*;
+
+        #[test]
+        fn refuses_home_its_ancestors_and_fs_root() {
+            let home = dirs::home_dir().expect("home dir");
+            assert!(is_forbidden_project_root(&home));
+            if let Some(parent) = home.parent() {
+                assert!(is_forbidden_project_root(parent));
+            }
+            assert!(is_forbidden_project_root(std::path::Path::new("/")));
+        }
+
+        #[test]
+        fn allows_ordinary_directories() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            assert!(!is_forbidden_project_root(tmp.path()));
+        }
+    }
 
     mod normalize_separators {
         use super::*;
