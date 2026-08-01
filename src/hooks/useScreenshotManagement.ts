@@ -23,6 +23,14 @@ function isProjectGoneError(error: unknown): boolean {
   );
 }
 
+/** Backend rejection meaning a capture for this project is already running
+ *  (the backend's per-project in-flight guard, issue #387). Not a failure —
+ *  the periodic timer will try again; retrying immediately would just keep
+ *  bouncing off the guard and end in a logged "failed after retries". */
+function isCaptureInFlightError(error: unknown): boolean {
+  return formatCommandError(asCommandError(error)).includes('already in progress');
+}
+
 /** Delay after page load before capturing screenshot (8 seconds to allow Next.js/Vite to fully compile) */
 const SCREENSHOT_DELAY_MS = 8000;
 /** Maximum number of retry attempts for thumbnail capture */
@@ -192,6 +200,10 @@ export function useScreenshotManagement({
         });
         logger.info('Thumbnail captured successfully', { projectPath, attempt });
       } catch (error) {
+        if (isCaptureInFlightError(error)) {
+          logger.info('[Thumbnail] Skipping - a capture for this project is already in progress');
+          return;
+        }
         if (isPermissionDenialError(error)) {
           // Denied at the OS level. Persist the opt-out so background capture
           // never re-triggers the macOS prompt; re-enable via Settings →

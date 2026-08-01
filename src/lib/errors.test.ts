@@ -159,6 +159,17 @@ describe('humanizeGitError', () => {
       expect: /unsaved changes that would be lost/i,
     },
     {
+      // Branch held by another worktree (e.g. an agent CLI's own
+      // .claude/worktrees) — must not surface as a raw fatal (issue #406).
+      raw: "fatal: 'worktree-kasus-trainer' is already used by worktree at '/Users/x/proj/.claude/worktrees/kasus-trainer'",
+      expect: /already checked out in another worktree/i,
+    },
+    {
+      // Newer git wording for the same refusal.
+      raw: "fatal: 'feat/x' is already checked out at '/Users/x/proj/.claude/worktrees/feat-x'",
+      expect: /already checked out in another worktree/i,
+    },
+    {
       raw: "error: pathspec 'feat/gone' did not match any file(s) known to git",
       expect: /no longer exists/i,
     },

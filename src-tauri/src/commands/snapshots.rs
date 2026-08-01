@@ -143,12 +143,16 @@ fn is_relevant_path(p: &Path, project_root: &Path) -> bool {
 /// Capture the current working tree as a stash commit. Returns the SHA, or
 /// empty string if the tree is clean (nothing to snapshot).
 fn capture_snapshot(project_path: &Path) -> Result<String, CommandError> {
-    let output = crate::utils::git_command_in(project_path)?
-        .args(["stash", "create"])
-        .output()
-        .map_err(|e| CommandError::Io {
-            message: format!("git stash create: {e}"),
-        })?;
+    // Retry on index.lock contention: this fires from the background watcher,
+    // so it routinely races user/agent-initiated git in the same repo (#377).
+    let output = crate::utils::output_retrying_index_lock(|| {
+        crate::utils::git_command_in(project_path)?
+            .args(["stash", "create"])
+            .output()
+            .map_err(|e| CommandError::Io {
+                message: format!("git stash create: {e}"),
+            })
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

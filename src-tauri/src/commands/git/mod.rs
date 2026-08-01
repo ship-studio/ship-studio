@@ -121,11 +121,18 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
             path.display()
         ));
     }
-    // Stage all changes
-    let add_output = crate::utils::git_command_in(path)?
-        .args(["add", "-A"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Stage all changes. Retried on index.lock contention — the background
+    // snapshot watcher (and any agent CLI) can hold the lock at the exact
+    // moment a commit/publish fires (#377).
+    let add_output = crate::utils::output_retrying_index_lock(|| {
+        crate::utils::git_command_in(path)?
+            .args(["add", "-A"])
+            .output()
+            .map_err(|e| crate::errors::CommandError::Io {
+                message: e.to_string(),
+            })
+    })
+    .map_err(String::from)?;
 
     if !add_output.status.success() {
         let add_stderr = String::from_utf8_lossy(&add_output.stderr).to_string();
@@ -154,11 +161,16 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
         return Ok(false);
     }
 
-    // Commit
-    let commit_output = crate::utils::git_command_in(path)?
-        .args(["commit", "-m", message])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Commit — same index.lock retry as the staging step (#377).
+    let commit_output = crate::utils::output_retrying_index_lock(|| {
+        crate::utils::git_command_in(path)?
+            .args(["commit", "-m", message])
+            .output()
+            .map_err(|e| crate::errors::CommandError::Io {
+                message: e.to_string(),
+            })
+    })
+    .map_err(String::from)?;
 
     if !commit_output.status.success() {
         // `status --porcelain` can report entries `add -A` couldn't stage (e.g.

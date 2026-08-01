@@ -379,7 +379,9 @@ export function useCssCascadeEditor({
             baselineInner.current = nextBaseline;
             setOverridden(nextOverridden);
           } catch (err) {
-            logger.error('[CssCascade] locate failed', { error: String(err) });
+            logger.error('[CssCascade] locate failed', {
+              error: formatCommandError(asCommandError(err)),
+            });
             if (selTokenRef.current === token) {
               setRows(mergeCascade(matched, new Map(), { cssModulesHint }));
               onToast(toastText(err), 'error');
@@ -432,7 +434,7 @@ export function useCssCascadeEditor({
           try {
             await createCssRule(projectPath, row.file, row.selector);
           } catch (err) {
-            if (!String(err).includes('already exists')) throw err;
+            if (!formatCommandError(asCommandError(err)).includes('already exists')) throw err;
           }
           draftKeysRef.current.delete(key);
         }
@@ -474,7 +476,9 @@ export function useCssCascadeEditor({
             /* fall through to the toast below */
           }
         }
-        logger.error('[CssCascade] write-back failed', { error: String(err) });
+        logger.error('[CssCascade] write-back failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       } finally {
         setSavingKeys((prev) => {
@@ -520,7 +524,9 @@ export function useCssCascadeEditor({
         delete baselineInner.current[key];
         void trackEvent('visual_style_saved', { mode: 'css-code', deleted: true });
       } catch (err) {
-        logger.error('[CssCascade] delete failed', { error: String(err) });
+        logger.error('[CssCascade] delete failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -551,7 +557,9 @@ export function useCssCascadeEditor({
         else onToast('Wrapped — reselect the element to keep editing.', 'success');
         void trackEvent('visual_style_saved', { mode: 'css-code', wrapped: true });
       } catch (err) {
-        logger.error('[CssCascade] wrap failed', { error: String(err) });
+        logger.error('[CssCascade] wrap failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -703,7 +711,10 @@ export function useCssCascadeEditor({
           conditional: condition != null,
         });
       } catch (err) {
-        const msg = String(err);
+        // A Tauri-rejected CommandError is a plain object — String(err) renders
+        // "[object Object]", which both broke the already-exists detection below
+        // and made the logged error useless (issue #380).
+        const msg = formatCommandError(asCommandError(err));
         // The rule already exists in source but doesn't match this element (so it
         // isn't in the cascade). Surface the real rule for editing instead of erroring
         // — typing an existing selector should just open it.
@@ -787,7 +798,9 @@ export function useCssCascadeEditor({
         saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
         void trackEvent('visual_style_saved', { mode: 'css-code', renamed: true });
       } catch (err) {
-        logger.error('[CssCascade] rename failed', { error: String(err) });
+        logger.error('[CssCascade] rename failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -850,7 +863,9 @@ export function useCssCascadeEditor({
         saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
         void trackEvent('visual_style_saved', { mode: 'css-code', renamedAtRule: true });
       } catch (err) {
-        logger.error('[CssCascade] rename at-rule failed', { error: String(err) });
+        logger.error('[CssCascade] rename at-rule failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },

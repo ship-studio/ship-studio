@@ -1,12 +1,57 @@
 //! Project thumbnail capture and retrieval.
 
 use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::{ProjectMetadata, PROJECT_METADATA_SCHEMA_VERSION};
 use crate::utils::{create_command, validate_project_path};
+use std::collections::HashSet;
 use std::path::Path;
+use std::sync::{LazyLock, Mutex};
 
 use super::node_tool_command;
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
+
+/// Ceiling for the `npx playwright screenshot` path. Generous — npx may fetch
+/// the package on first use and a dev server mid-compile is slow — but bounded:
+/// this used to be an untimed blocking `.output()` inside an async command, so
+/// a hung capture pinned a tokio worker thread forever. A few of those (multiple
+/// projects on the 5-minute capture timer, dev servers busy under the user's own
+/// Playwright runs) starved the runtime and froze every IPC call in the app
+/// (issue #387).
+const PLAYWRIGHT_THUMBNAIL_TIMEOUT_SECS: u64 = 120;
+/// Ceiling for the Chrome/Edge CLI fallback. Its virtual-time budget is 3s;
+/// the rest is browser startup + page load headroom.
+const BROWSER_THUMBNAIL_TIMEOUT_SECS: u64 = 60;
+
+/// Projects with a thumbnail capture currently in flight. The 5-minute timer,
+/// its retry ladder, and multiple windows can all invoke captures with no
+/// coordination; without this guard each overlapping call spawned another
+/// headless browser against an already-busy dev server (issue #387).
+static CAPTURES_IN_FLIGHT: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// RAII claim on a project's capture slot — released on every exit path,
+/// including timeouts and panics.
+struct CaptureClaim(String);
+
+impl CaptureClaim {
+    fn try_new(project: &Path) -> Option<Self> {
+        let key = project.to_string_lossy().to_string();
+        let mut in_flight = CAPTURES_IN_FLIGHT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        in_flight.insert(key.clone()).then(|| Self(key))
+    }
+}
+
+impl Drop for CaptureClaim {
+    fn drop(&mut self) {
+        CAPTURES_IN_FLIGHT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.0);
+    }
+}
 
 /// Best-effort cleanup of thumbnail Chromium profiles left behind by earlier
 /// captures that never reached their own cleanup (app quit, crash, kill).
@@ -61,6 +106,14 @@ pub async fn capture_project_thumbnail(
 ) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
 
+    // One capture per project at a time. Expected, not an error state: the
+    // previous capture is still running and the timer will simply try again.
+    let Some(_claim) = CaptureClaim::try_new(&project) else {
+        return Err(CommandError::expected(
+            "A thumbnail capture for this project is already in progress",
+        ));
+    };
+
     // Skip capture entirely when the user has uploaded a custom thumbnail.
     // Returns the existing thumbnail path so the caller still treats the
     // call as success (the user's image stays put).
@@ -88,7 +141,8 @@ pub async fn capture_project_thumbnail(
     let thumbnail_path_str = thumbnail_path.to_string_lossy().to_string();
 
     // Try using Playwright first (more reliable viewport control)
-    let npx_result = node_tool_command("npx")
+    let mut npx_cmd = node_tool_command("npx");
+    npx_cmd
         .args([
             "playwright",
             "screenshot",
@@ -97,15 +151,26 @@ pub async fn capture_project_thumbnail(
             &url,
             &thumbnail_path_str,
         ])
-        .current_dir(&project)
-        .output();
+        .current_dir(&project);
+    let npx_result = run_with_timeout(
+        tokio::process::Command::from(npx_cmd),
+        "npx playwright screenshot",
+        PLAYWRIGHT_THUMBNAIL_TIMEOUT_SECS,
+    )
+    .await;
 
-    if let Ok(output) = npx_result {
-        if output.status.success() && thumbnail_path.exists() {
+    match npx_result {
+        Ok(output) if output.status.success() && thumbnail_path.exists() => {
             // Resize to thumbnail width using image crate (cross-platform)
             resize_thumbnail_image(&thumbnail_path, 640);
             return Ok(thumbnail_path_str);
         }
+        Err(e) => {
+            // Timeout or spawn failure — fall through to the Chrome fallback,
+            // which has its own (shorter) budget.
+            tracing::warn!("Playwright thumbnail path failed, trying browser fallback: {e}");
+        }
+        Ok(_) => {}
     }
 
     // Fall back to Chrome/Edge CLI if Playwright not available
@@ -140,27 +205,34 @@ pub async fn capture_project_thumbnail(
 
         // Use new headless mode with explicit viewport control
         // Set background to white so any extra captured area isn't black
-        let output = create_command(&browser)
-            .args([
-                "--headless=new",
-                &user_data_arg,
-                "--no-first-run",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--hide-scrollbars",
-                "--force-device-scale-factor=1",
-                "--default-background-color=FFFFFFFF",
-                "--window-position=0,0",
-                "--window-size=1280,800",
-                "--virtual-time-budget=3000",
-                &screenshot_arg,
-                &url,
-            ])
-            .output()
-            .map_err(|e| format!("Failed to run browser: {e}"))?;
+        let mut browser_cmd = create_command(&browser);
+        browser_cmd.args([
+            "--headless=new",
+            &user_data_arg,
+            "--no-first-run",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--hide-scrollbars",
+            "--force-device-scale-factor=1",
+            "--default-background-color=FFFFFFFF",
+            "--window-position=0,0",
+            "--window-size=1280,800",
+            "--virtual-time-budget=3000",
+            &screenshot_arg,
+            &url,
+        ]);
+        let result = run_with_timeout(
+            tokio::process::Command::from(browser_cmd),
+            "headless browser thumbnail",
+            BROWSER_THUMBNAIL_TIMEOUT_SECS,
+        )
+        .await;
 
         // The throwaway profile has served its purpose; don't let it grow.
+        // On timeout the killed browser can leave it half-written — the stale
+        // sweep above mops those up on later captures.
         let _ = std::fs::remove_dir_all(&profile_dir);
+        let output = result?;
 
         // Success is "the screenshot file exists", not "the exit code was 0":
         // headless Chromium on Windows can write the PNG and still exit
@@ -311,4 +383,31 @@ pub async fn upload_project_thumbnail(
     let bytes = std::fs::read(&thumbnail_path).map_err(|e| e.to_string())?;
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:image/png;base64,{base64_data}"))
+}
+
+#[cfg(test)]
+mod capture_claim_tests {
+    use super::*;
+
+    #[test]
+    fn second_claim_for_same_project_is_rejected_until_first_drops() {
+        let project = Path::new("/tmp/shipstudio-claim-test-project");
+        let first = CaptureClaim::try_new(project);
+        assert!(first.is_some(), "first claim should succeed");
+        assert!(
+            CaptureClaim::try_new(project).is_none(),
+            "overlapping claim must be rejected while the first is alive"
+        );
+        drop(first);
+        assert!(
+            CaptureClaim::try_new(project).is_some(),
+            "slot must be released when the claim drops"
+        );
+    }
+
+    #[test]
+    fn claims_for_different_projects_are_independent() {
+        let _a = CaptureClaim::try_new(Path::new("/tmp/shipstudio-claim-test-a")).unwrap();
+        assert!(CaptureClaim::try_new(Path::new("/tmp/shipstudio-claim-test-b")).is_some());
+    }
 }

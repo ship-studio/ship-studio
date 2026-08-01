@@ -89,7 +89,9 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       const entries = await listProjectFiles(path);
       return buildFileTree(entries);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      // CommandError rejections are plain objects — String() renders
+      // "[object Object]" (issue #396); format to the real message.
+      const msg = formatCommandError(asCommandError(err));
       logger.error('Failed to load file tree', { error: msg });
       throw err;
     }
@@ -107,7 +109,9 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
     try {
       return await readProjectFile(proj, path);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      // CommandError rejections are plain objects — String() renders
+      // "[object Object]" (issue #396); format to the real message.
+      const msg = formatCommandError(asCommandError(err));
       logger.error('Failed to read file', { path, error: msg });
       throw err;
     }

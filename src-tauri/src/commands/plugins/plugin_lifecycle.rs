@@ -282,6 +282,18 @@ pub async fn install_plugin(
 
     warn_on_setup_items(&manifest);
 
+    // Validate the built bundle exists before registering anything — a repo
+    // without a committed dist/ otherwise installs "successfully" and only
+    // fails later with a confusing "Plugin bundle not found" when the app
+    // tries to load it (issue #381). Mirrors link_dev_plugin's check.
+    if !temp_dir.join("dist").join("index.js").exists() {
+        let _ = remove_dir_all_relaxed(&temp_dir);
+        return Err(CommandError::expected(
+            "This plugin can't be installed: its repository has no built bundle (dist/index.js). \
+             The plugin author needs to build it and commit the dist folder.",
+        ));
+    }
+
     // Validate manifest has required fields
     if manifest.id.is_empty() || manifest.name.is_empty() {
         let _ = remove_dir_all_relaxed(&temp_dir);

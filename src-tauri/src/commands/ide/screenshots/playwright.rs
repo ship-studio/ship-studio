@@ -223,7 +223,16 @@ const {{ chromium }} = require('playwright');
         // Dev servers keep HMR/live-reload connections open forever, so
         // 'networkidle' may never arrive — wait for 'load', then settle
         // best-effort without ever failing the capture on it (issues #309/#310).
-        await page.goto('{}', {{ waitUntil: 'load', timeout: 30000 }});
+        // A TCP-accepting port can still take >30s to serve `load` when the dev
+        // server compiles the route on first request (issue #385): give the
+        // navigation a longer budget, and retry once on timeout — the compile
+        // keeps progressing server-side, so a warmed route answers quickly.
+        try {{
+            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+        }} catch (err) {{
+            if (!String((err && err.message) || err).includes('Timeout')) throw err;
+            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+        }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
         // Hide dev tools and feedback overlays
@@ -285,6 +294,7 @@ const {{ chromium }} = require('playwright');
     process.exit(1);
 }});
 "#,
+        url,
         url,
         screenshot_path_str.replace('\\', "\\\\")
     );
@@ -374,8 +384,15 @@ const {{ chromium }} = require('playwright');
         const page = await browser.newPage({{ viewport: {{ width: {viewport_width}, height: 800 }} }});
 
         // Same wait strategy as the full-page capture: 'networkidle' may never
-        // arrive on dev servers with persistent connections (issues #309/#310).
-        await page.goto('{}', {{ waitUntil: 'load', timeout: 30000 }});
+        // arrive on dev servers with persistent connections (issues #309/#310),
+        // and a cold route compiling on first request can need >30s to reach
+        // `load` — long budget plus one retry on timeout (issue #385).
+        try {{
+            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+        }} catch (err) {{
+            if (!String((err && err.message) || err).includes('Timeout')) throw err;
+            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+        }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
         // Hide dev tools and feedback overlays
@@ -414,6 +431,7 @@ const {{ chromium }} = require('playwright');
     process.exit(1);
 }});
 "#,
+        url,
         url,
         screenshot_path_str.replace('\\', "\\\\")
     );

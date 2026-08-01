@@ -30,7 +30,12 @@ import {
   sanitizeBranchName,
 } from '../../lib/branches';
 import { gitPull } from '../../lib/git';
-import { removeWorktree, pruneWorktrees, type WorktreeInfo } from '../../lib/worktrees';
+import {
+  listWorktrees,
+  removeWorktree,
+  pruneWorktrees,
+  type WorktreeInfo,
+} from '../../lib/worktrees';
 import { openProjectInNewWindow } from '../../lib/project';
 import { BranchIcon, PlusIcon, TrashIcon, ExternalLinkIcon } from '../icons';
 import { Spinner } from '../primitives/Spinner';
@@ -283,6 +288,22 @@ export function BranchesTab({
         setPendingSwitch(branchName);
       } else {
         const raw = result.error ?? 'Failed to switch branch';
+        // The worktree redirect above works off a list that can go stale —
+        // another tool (an agent CLI managing .claude/worktrees, a manual
+        // `git worktree add`) may have claimed the branch since the list
+        // loaded. Git's refusal proves the worktree exists NOW: re-fetch and
+        // finish the redirect instead of toasting a raw fatal (issue #406).
+        if (/already used by worktree|already checked out/i.test(raw) && onOpenWorktree) {
+          const fresh = await listWorktrees(projectPath).catch(() => []);
+          const home = fresh.find((w) => !w.isCurrent && w.branch === branchName);
+          if (home) {
+            onWorktreesChanged?.();
+            onToast?.(`${branchName} is checked out in a worktree — opening it`, 'success');
+            void trackEvent('worktree_switched', { via: 'branch_switch_redirect' });
+            onOpenWorktree(home.path);
+            return;
+          }
+        }
         onToast?.(humanizeGitError(raw, { branch: branchName }), 'error');
         // The branch is gone (deleted/renamed elsewhere) but still showing in a
         // stale list — refresh to drop the phantom entry.

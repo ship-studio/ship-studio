@@ -175,8 +175,17 @@ function PluginDropdownRow({
       button.click();
       return;
     }
-    // No button — the plugin crashed (error chip) or rendered nothing.
-    // Say so instead of silently ignoring the click.
+    // No button rendered. A plugin with no toolbar slot at all (e.g. Sanity
+    // CMS, whose button lives in the preview toolbar) is working as designed —
+    // reporting it as crashed was a false alarm (issue #390).
+    if (!plugin.module.slots?.toolbar) {
+      pluginActions.showToast(
+        `${plugin.info.manifest.name} doesn't add an action to this menu — look for its controls in the preview toolbar.`
+      );
+      return;
+    }
+    // The plugin declares a toolbar slot but rendered no button — it crashed
+    // (error chip) or rendered nothing. Say so instead of ignoring the click.
     pluginActions.showToast(
       `${plugin.info.manifest.name} is unavailable — it may have crashed. Check the plugin manager.`,
       'error'

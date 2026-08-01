@@ -426,6 +426,44 @@ pub fn git_command_in(
     Ok(cmd)
 }
 
+/// True when git failed because another process held `.git/index.lock`.
+/// Concurrent git spawns against the same repo are unavoidable here: the
+/// snapshot watcher, commit/publish flows, and the user's own agent CLIs all
+/// run git independently. Git fails fast instead of waiting, so a collision
+/// surfaces as "Unable to create '….git/index.lock': File exists" — most
+/// visibly on Windows, where lock files also linger longer (AV scanning,
+/// handle-release timing) (issue #377).
+pub fn is_index_lock_contention(stderr: &str) -> bool {
+    stderr.contains("index.lock") && stderr.contains("File exists")
+}
+
+/// Run a git invocation built by `run`, retrying with a short backoff when it
+/// loses the `.git/index.lock` race. The closure rebuilds and executes the
+/// command each attempt. Non-contention failures and successes return
+/// immediately; contention is retried a couple of times, then returned as-is
+/// so the caller's normal error path reports it.
+pub fn output_retrying_index_lock<F>(
+    mut run: F,
+) -> Result<std::process::Output, crate::errors::CommandError>
+where
+    F: FnMut() -> Result<std::process::Output, crate::errors::CommandError>,
+{
+    const ATTEMPTS: u64 = 3;
+    for attempt in 1..=ATTEMPTS {
+        let output = run()?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if output.status.success() || !is_index_lock_contention(&stderr) || attempt == ATTEMPTS {
+            return Ok(output);
+        }
+        tracing::warn!(
+            attempt,
+            "git lost the index.lock race; retrying after backoff"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(200 * attempt));
+    }
+    unreachable!("loop always returns on the final attempt")
+}
+
 /// Finds an executable by checking common installation paths.
 /// This is needed because bundled macOS apps don't inherit the user's shell PATH.
 /// On Windows, checks standard Program Files and AppData locations.
@@ -1184,6 +1222,57 @@ mod tests {
                     assert!(err.to_string().contains("test_site"));
                 }
             }
+        }
+    }
+
+    mod index_lock_retry {
+        use super::*;
+
+        #[test]
+        fn recognizes_gits_lock_collision_message() {
+            let stderr = "fatal: Unable to create 'C:/Users/x/ShipStudio/p/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository";
+            assert!(is_index_lock_contention(stderr));
+            assert!(!is_index_lock_contention("fatal: not a git repository"));
+            assert!(!is_index_lock_contention(""));
+        }
+
+        #[test]
+        #[cfg(unix)]
+        fn retries_contention_then_returns_final_output() {
+            // Fails with the lock message every time — the helper must retry
+            // (3 attempts total) and then hand back the failing output rather
+            // than swallowing it.
+            let mut calls = 0;
+            let result = output_retrying_index_lock(|| {
+                calls += 1;
+                std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg("echo \"fatal: Unable to create '.git/index.lock': File exists.\" 1>&2; exit 128")
+                    .output()
+                    .map_err(|e| crate::errors::CommandError::Io {
+                        message: e.to_string(),
+                    })
+            })
+            .unwrap();
+            assert_eq!(calls, 3);
+            assert!(!result.status.success());
+        }
+
+        #[test]
+        #[cfg(unix)]
+        fn success_returns_immediately_without_retry() {
+            let mut calls = 0;
+            let result = output_retrying_index_lock(|| {
+                calls += 1;
+                std::process::Command::new("true").output().map_err(|e| {
+                    crate::errors::CommandError::Io {
+                        message: e.to_string(),
+                    }
+                })
+            })
+            .unwrap();
+            assert_eq!(calls, 1);
+            assert!(result.status.success());
         }
     }
 

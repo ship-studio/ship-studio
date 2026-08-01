@@ -148,6 +148,13 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `You have unsaved changes that would be lost. Save or discard them first, then try again.`;
   }
 
+  // The branch lives in another worktree — git refuses to check it out twice.
+  // Wording varies across git versions ("is already used by worktree at …",
+  // "is already checked out at …") — cover both (issue #406).
+  if (m.includes('already used by worktree') || m.includes('already checked out')) {
+    return `${branch} is already checked out in another worktree, so it can't be switched to here. Open it from the worktrees list instead.`;
+  }
+
   // The ref is gone — git couldn't find the branch, so it treated it as a path.
   if (
     m.includes('did not match') ||

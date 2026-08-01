@@ -123,7 +123,9 @@ export function usePlugins(
             const info = compatible[i];
             logger.error('Failed to load plugin', {
               plugin: info.manifest.id,
-              error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+              // Mirror failed.push below — String() on a CommandError object
+              // logs "[object Object]" (issue #408).
+              error: formatCommandError(asCommandError(result.reason)),
             });
             failed.push({
               id: info.manifest.id,
@@ -139,7 +141,7 @@ export function usePlugins(
         }
       } catch (e) {
         logger.error('Failed to list plugins', {
-          error: e instanceof Error ? e.message : String(e),
+          error: formatCommandError(asCommandError(e)),
         });
         if (mountedRef.current && currentPathRef.current === path) {
           setPlugins([]);

@@ -198,8 +198,18 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
         await action();
       } catch (err) {
         const message = formatCommandError(asCommandError(err));
-        logger.error('[ElementStructure] structural edit failed', { error: message });
-        onToast?.(structuralEditMessage(message), 'error');
+        const friendly = structuralEditMessage(message);
+        if (friendly === message) {
+          // Unrecognized failure — a genuine bug candidate, report it.
+          logger.error('[ElementStructure] structural edit failed', { error: message });
+        } else {
+          // A known by-design refusal (ambiguous/unanchorable element). The
+          // user already gets an accurate toast; logger.error would ship it
+          // to the bug pipeline on every occurrence even though #299 already
+          // classified these as non-reportable on the Rust side (issue #402).
+          logger.warn('[ElementStructure] structural edit refused', { error: message });
+        }
+        onToast?.(friendly, 'error');
       } finally {
         busyRef.current = false;
         setBusy(false);

@@ -150,7 +150,12 @@ pub async fn exec_plugin_shell(
     cmd.kill_on_drop(true);
     let output = tokio::time::timeout(std::time::Duration::from_secs(timeout), cmd.output())
         .await
-        .map_err(|_| format!("Plugin shell command timed out ({timeout}s)"))?
+        .map_err(|_| {
+            // Name the plugin and command — a bare "timed out (120s)" is the
+            // same message for every plugin on every platform, so telemetry
+            // can't tell a slow-but-legit install from a hung plugin (#379).
+            format!("Plugin '{plugin_id}' shell command '{command}' timed out after {timeout}s")
+        })?
         .map_err(|e| format!("Failed to execute command: {e}"))?;
 
     Ok(ShellResult {

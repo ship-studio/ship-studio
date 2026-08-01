@@ -65,6 +65,9 @@ pub async fn list_pull_requests(
         if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
             return Err(err);
         }
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
+            return Err(err);
+        }
         return Err((stderr.to_string()).into());
     }
 
@@ -139,6 +142,9 @@ pub async fn create_pull_request(
         if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
             return Err(err);
         }
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
+            return Err(err);
+        }
         return Err((stderr.to_string()).into());
     }
 
@@ -169,6 +175,9 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
             return Err(err);
         }
         if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+            return Err(err);
+        }
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
         return Err(stderr.into());
@@ -208,6 +217,9 @@ pub async fn checkout_pull_request(
         if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
             return Err(err);
         }
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
+            return Err(err);
+        }
         return Err((format!("Failed to checkout PR: {stderr}")).into());
     }
 
@@ -240,6 +252,9 @@ pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<
             return Err(err);
         }
         if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+            return Err(err);
+        }
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
         return Err((format!("Failed to close PR: {stderr}")).into());

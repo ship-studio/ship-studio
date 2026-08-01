@@ -547,6 +547,22 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// gh's own wrapper for a failing internal git call — "failed to run git:
+/// <git's stderr>" (gh's git/errors.go, GitError). Most commonly hit when gh
+/// can't resolve repo context because the project isn't a git repository. The
+/// underlying git fatal text is locale-dependent (e.g. Russian installs print
+/// a translated "not a git repository"), so matching git's own words — as
+/// report_command_error does for issue #254 — silently fails on non-English
+/// machines; gh's wrapper prefix is an untranslated Go literal and therefore
+/// stable (issue #403). A by-design refusal, not a malfunction.
+pub(crate) fn gh_git_repo_error(stderr: &str) -> Option<CommandError> {
+    stderr.contains("failed to run git:").then(|| {
+        CommandError::expected(
+            "This project isn't set up with git yet, so GitHub pull request actions aren't available.",
+        )
+    })
+}
+
 /// Lists GitHub repositories for a given owner (user or organization)
 #[tauri::command]
 #[tracing::instrument]
@@ -917,6 +933,22 @@ mod tests {
             gh_network_error("error connecting to api.github.com: could not resolve host")
                 .is_some()
         );
+    }
+
+    #[test]
+    fn gh_git_repo_error_matches_localized_git_fatal() {
+        // gh's "failed to run git:" prefix is stable English; git's own fatal
+        // text is localized (Russian here) — the classification must not
+        // depend on git's words (issue #403).
+        let stderr = "failed to run git: fatal: не найден git репозиторий (или один из родительских каталогов): .git";
+        let err = gh_git_repo_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn gh_git_repo_error_ignores_unrelated_stderr() {
+        assert!(gh_git_repo_error("GraphQL: something else went wrong").is_none());
+        assert!(gh_git_repo_error("").is_none());
     }
 
     #[test]
