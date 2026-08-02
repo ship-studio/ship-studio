@@ -7,6 +7,12 @@ use crate::utils::validate_project_path;
 
 /// Ceiling for one capture-script run (page load + scroll + shot).
 const CAPTURE_TIMEOUT_SECS: u64 = 180;
+/// Explicit budget for the `page.screenshot()` action itself. Playwright
+/// applies its default 30s action timeout when none is given, and rasterizing
+/// a tall page after the lazy-load scroll can legitimately take longer than
+/// that (issue #461) — even though the script's overall budget is far larger.
+/// Sized to leave room for navigation and scrolling within CAPTURE_TIMEOUT_SECS.
+const SCREENSHOT_ACTION_TIMEOUT_MS: u64 = 120_000;
 /// Ceiling for downloading Chromium during self-heal (~130MB).
 const BROWSER_INSTALL_TIMEOUT_SECS: u64 = 600;
 
@@ -272,8 +278,10 @@ const {{ chromium }} = require('playwright');
         }});
         await page.waitForTimeout(500);
 
-        // Take full-page screenshot
-        await page.screenshot({{ path: '{}', fullPage: true }});
+        // Take full-page screenshot. The explicit timeout replaces Playwright's
+        // 30s action default, which tall pages exceeded after the scroll-through
+        // triggered all their lazy content (issue #461).
+        await page.screenshot({{ path: '{}', fullPage: true, timeout: {SCREENSHOT_ACTION_TIMEOUT_MS} }});
         console.log('Screenshot saved successfully');
     }} finally {{
         if (browser) await browser.close();
@@ -402,8 +410,10 @@ const {{ chromium }} = require('playwright');
         // Wait for animations to complete
         await page.waitForTimeout(3000);
 
-        // Take viewport screenshot (not full page)
-        await page.screenshot({{ path: '{}' }});
+        // Take viewport screenshot (not full page). Same explicit timeout as the
+        // full-page capture — the 30s action default is too tight on slow
+        // machines (issue #461).
+        await page.screenshot({{ path: '{}', timeout: {SCREENSHOT_ACTION_TIMEOUT_MS} }});
     }} finally {{
         if (browser) await browser.close();
     }}
