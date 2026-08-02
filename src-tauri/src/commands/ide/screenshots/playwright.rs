@@ -13,6 +13,17 @@ const CAPTURE_TIMEOUT_SECS: u64 = 180;
 /// that (issue #461) — even though the script's overall budget is far larger.
 /// Sized to leave room for navigation and scrolling within CAPTURE_TIMEOUT_SECS.
 const SCREENSHOT_ACTION_TIMEOUT_MS: u64 = 120_000;
+/// Cap on lazy-load scroll steps in the full-page capture. The scroll phase
+/// runs inside the same CAPTURE_TIMEOUT_SECS process ceiling as the screenshot,
+/// so without a cap a very tall page could spend the whole budget scrolling and
+/// starve `page.screenshot()` of the time promised above. 50 steps × 300ms
+/// bounds the phase at ~15s (covering ~20,000px of lazy-load triggering);
+/// anything below that renders as-is in the full-page shot, which beats the
+/// entire capture timing out. Budget arithmetic is pinned by
+/// `screenshot_budget_fits_within_capture_ceiling`.
+const MAX_SCROLL_STEPS: u64 = 50;
+/// Pause between scroll steps, letting lazy content and animations trigger.
+const SCROLL_STEP_PAUSE_MS: u64 = 300;
 /// Ceiling for downloading Chromium during self-heal (~130MB).
 const BROWSER_INSTALL_TIMEOUT_SECS: u64 = 600;
 
@@ -253,13 +264,17 @@ const {{ chromium }} = require('playwright');
             }});
         }});
 
-        // Scroll slowly through the page to trigger lazy content and animations
+        // Scroll slowly through the page to trigger lazy content and animations.
+        // Capped so a very tall page can't spend the capture budget scrolling
+        // and starve page.screenshot() of its allowance (issue #461).
         const scrollHeight = await page.evaluate(() => document.documentElement.scrollHeight);
         const viewportHeight = 800;
+        const scrollStep = viewportHeight / 2;
+        const maxScrollY = Math.min(scrollHeight, {MAX_SCROLL_STEPS} * scrollStep);
 
-        for (let y = 0; y < scrollHeight; y += viewportHeight / 2) {{
+        for (let y = 0; y < maxScrollY; y += scrollStep) {{
             await page.evaluate((scrollY) => window.scrollTo(0, scrollY), y);
-            await page.waitForTimeout(300); // Pause for animations to trigger
+            await page.waitForTimeout({SCROLL_STEP_PAUSE_MS}); // Pause for animations to trigger
         }}
 
         // Scroll back to top and hide overlays again (they may have reappeared)
@@ -458,4 +473,31 @@ const {{ chromium }} = require('playwright');
         (format!("Playwright viewport screenshot failed. stdout: {stdout} stderr: {stderr}"))
             .into(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The full-page capture's explicitly-waited phases — goto (30s cap),
+    /// networkidle settle (5s cap), the capped scroll-through, the post-scroll
+    /// pause (500ms), and the screenshot's own budget — must fit inside the
+    /// CAPTURE_TIMEOUT_SECS process ceiling with slack for browser launch and
+    /// per-step evaluate overhead. Otherwise run_with_timeout kills Node before
+    /// page.screenshot() can use the time it was promised (issue #461).
+    #[test]
+    fn screenshot_budget_fits_within_capture_ceiling() {
+        let goto_ms = 30_000;
+        let settle_ms = 5_000 + 500;
+        let scroll_ms = MAX_SCROLL_STEPS * SCROLL_STEP_PAUSE_MS;
+        let explicit_waits_ms = goto_ms + settle_ms + scroll_ms + SCREENSHOT_ACTION_TIMEOUT_MS;
+
+        let ceiling_ms = CAPTURE_TIMEOUT_SECS * 1000;
+        let slack_ms = 5_000;
+        assert!(
+            explicit_waits_ms + slack_ms <= ceiling_ms,
+            "capture phases ({explicit_waits_ms}ms + {slack_ms}ms slack) exceed \
+             CAPTURE_TIMEOUT_SECS ({ceiling_ms}ms) — retune the constants"
+        );
+    }
 }
