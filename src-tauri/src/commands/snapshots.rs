@@ -137,6 +137,15 @@ fn is_relevant_path(p: &Path, project_root: &Path) -> bool {
             return false;
         }
     }
+    // Live log files (dev servers writing `.foo-dev.log` etc. into the
+    // project) churn constantly, and once swept into a snapshot tree they
+    // make undo/redo fail on Windows: `git read-tree -u` can't unlink a file
+    // another process holds open for writing (issue #478).
+    if let Some(name) = p.file_name().map(|n| n.to_string_lossy().to_lowercase()) {
+        if name.ends_with(".log") {
+            return false;
+        }
+    }
     true
 }
 
@@ -223,17 +232,40 @@ fn apply_snapshot(project_path: &Path, sha: &str) -> Result<(), CommandError> {
     // `stash create` produces a merge commit whose first parent is HEAD and
     // whose tree is the working tree. Apply that tree to both the index and
     // the working directory.
-    let read_tree = crate::utils::git_command_in(project_path)?
-        .args(["read-tree", "-u", "--reset", sha])
-        .output()
-        .map_err(|e| CommandError::Io {
-            message: format!("git read-tree: {e}"),
-        })?;
+    let run_read_tree = || {
+        crate::utils::git_command_in(project_path)?
+            .args(["read-tree", "-u", "--reset", sha])
+            .output()
+            .map_err(|e| CommandError::Io {
+                message: format!("git read-tree: {e}"),
+            })
+    };
+    let mut read_tree = run_read_tree()?;
     if !read_tree.status.success() {
+        let stderr = String::from_utf8_lossy(&read_tree.stderr).to_string();
+        // A file in the snapshot tree is held open for writing by another
+        // process (dev server log, editor lock) — on Windows the unlink fails
+        // with a generic "Invalid argument". The lock is often transient, so
+        // retry once after a beat; if it persists, say what's actually wrong
+        // instead of a raw exit-128 dump (issue #478).
+        if stderr.contains("unable to unlink old") {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            read_tree = run_read_tree()?;
+            if read_tree.status.success() {
+                return Ok(());
+            }
+            let file = stderr
+                .lines()
+                .find_map(|l| l.split('\'').nth(1))
+                .unwrap_or("a file");
+            return Err(CommandError::expected(format!(
+                "Undo couldn't replace '{file}' because another program is still writing to it                  (often a dev server writing a log file). Stop that process or wait a moment,                  then try again."
+            )));
+        }
         return Err(CommandError::Process {
             cmd: "git read-tree".into(),
             exit_code: read_tree.status.code().unwrap_or(-1),
-            stderr: String::from_utf8_lossy(&read_tree.stderr).to_string(),
+            stderr,
         });
     }
     Ok(())

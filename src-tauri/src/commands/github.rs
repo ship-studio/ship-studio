@@ -498,6 +498,10 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
                 "A repository named \"{repo_name}\" already exists on this account. Choose a different name."
             )));
         }
+        // Connectivity blips are the environment, not a malfunction (#420).
+        if let Some(err) = gh_network_error(&stderr) {
+            return Err(err);
+        }
         return Err(CommandError::Process {
             cmd: "gh repo create".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
@@ -515,7 +519,15 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
 /// telemetry, and the frontend shows its connect-GitHub UI) instead of
 /// surfacing the raw CLI text (issue #326).
 pub(crate) fn gh_auth_error(stderr: &str) -> Option<CommandError> {
-    if stderr.contains("gh auth login") || stderr.contains("GH_TOKEN") {
+    // "gh auth login"/GH_TOKEN = no credential at all (issue #326);
+    // "gh auth refresh"/"Requires authentication" = a credential exists but
+    // GitHub rejected it (expired/revoked token, HTTP 401) — same reconnect
+    // UX applies (issue #470).
+    if stderr.contains("gh auth login")
+        || stderr.contains("GH_TOKEN")
+        || stderr.contains("gh auth refresh")
+        || stderr.to_lowercase().contains("requires authentication")
+    {
         return Some(CommandError::NotAuthenticated {
             service: "github".to_string(),
         });
@@ -539,7 +551,15 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
         || s.contains("connection refused")
         || s.contains("network is unreachable")
         || s.contains("i/o timeout")
-        || s.contains("tls handshake timeout");
+        || s.contains("tls handshake timeout")
+        // Go's net/http error when the connection drops mid-request —
+        // flaky wifi, VPN/proxy interference (issue #434).
+        || s.contains("unexpected eof")
+        // gh's own top-level DNS-failure handler swallows the raw Go error
+        // and prints only "error connecting to <host>\ncheck your internet
+        // connection or https://githubstatus.com" (issue #473).
+        || s.contains("check your internet connection")
+        || s.contains("error connecting to ");
     unreachable.then(|| {
         CommandError::expected(
             "Couldn't reach GitHub. Check your internet connection and try again.",
@@ -582,6 +602,10 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, Command
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if let Some(err) = gh_auth_error(&stderr) {
+            return Err(err);
+        }
+        // Connectivity blips are the environment, not a malfunction (#420).
+        if let Some(err) = gh_network_error(&stderr) {
             return Err(err);
         }
         return Err(CommandError::Process {
@@ -637,6 +661,10 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
         if let Some(err) = gh_auth_error(&stderr) {
             return Err(err);
         }
+        // Connectivity blips are the environment, not a malfunction (#420).
+        if let Some(err) = gh_network_error(&stderr) {
+            return Err(err);
+        }
         return Err(CommandError::Process {
             cmd: "gh api /user/repos".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
@@ -675,15 +703,32 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
 pub async fn detect_package_manager(project_path: String) -> Result<String, CommandError> {
     let path = Path::new(&project_path);
 
+    // A lockfile names the repo's preferred manager, but the user may not have
+    // that tool: running it anyway dies with a raw "'bun' is not recognized"
+    // shell error (issues #454/#455). npm ships with Node (a hard app
+    // dependency), so fall back to it — npm can install from any repo even if
+    // it ignores the foreign lockfile.
+    fn or_npm(preferred: &str) -> String {
+        if crate::utils::find_executable(preferred).is_some() {
+            preferred.to_string()
+        } else {
+            tracing::warn!(
+                preferred,
+                "lockfile's package manager isn't installed; falling back to npm"
+            );
+            "npm".to_string()
+        }
+    }
+
     // Check in order of specificity
     if path.join("pnpm-lock.yaml").exists() {
-        return Ok("pnpm".to_string());
+        return Ok(or_npm("pnpm"));
     }
     if path.join("yarn.lock").exists() {
-        return Ok("yarn".to_string());
+        return Ok(or_npm("yarn"));
     }
     if path.join("bun.lockb").exists() {
-        return Ok("bun".to_string());
+        return Ok(or_npm("bun"));
     }
     // Default to npm
     Ok("npm".to_string())

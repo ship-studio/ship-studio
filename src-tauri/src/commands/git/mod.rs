@@ -110,6 +110,56 @@ pub fn git_has_any_changes(path: &std::path::Path) -> Result<bool, String> {
     Ok(!String::from_utf8_lossy(&status.stdout).trim().is_empty())
 }
 
+/// Append `.shipstudio/` to the repo's `.git/info/exclude` when it isn't
+/// ignored yet. Same effect as the .gitignore entry the frontend maintains,
+/// but repo-local and never committed — so the staging path can enforce it
+/// without creating a working-tree change (issue #431). Best-effort: any
+/// failure just leaves behavior as it was.
+fn ensure_shipstudio_excluded(path: &std::path::Path) {
+    // Resolve the common git dir so worktrees are handled too (their `.git`
+    // is a file pointing elsewhere, and exclude lives in the common dir).
+    let Ok(mut cmd) = crate::utils::git_command_in(path) else {
+        return;
+    };
+    let Ok(out) = cmd.args(["rev-parse", "--git-common-dir"]).output() else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let git_dir_raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if git_dir_raw.is_empty() {
+        return;
+    }
+    let git_dir = {
+        let p = std::path::Path::new(&git_dir_raw);
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            path.join(p)
+        }
+    };
+    let exclude_path = git_dir.join("info").join("exclude");
+    let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
+    let already = existing.lines().any(|l| {
+        let t = l.trim();
+        t == ".shipstudio/" || t == ".shipstudio" || t == "/.shipstudio/" || t == "/.shipstudio"
+    });
+    if already {
+        return;
+    }
+    let _ = std::fs::create_dir_all(git_dir.join("info"));
+    let sep = if existing.is_empty() || existing.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    let _ = std::fs::write(
+        &exclude_path,
+        format!("{existing}{sep}# ShipStudio metadata (added by Ship Studio)\n.shipstudio/\n"),
+    );
+}
+
 /// Stages all changes and commits with the given message.
 /// Returns true if a commit was made, false if nothing to commit.
 pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<bool, String> {
@@ -121,6 +171,15 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
             path.display()
         ));
     }
+    // Make sure .shipstudio/ is excluded BEFORE `git add -A` walks the tree:
+    // the frontend's ensure-gitignore calls are best-effort and can be skipped
+    // by timing or code path, and an unignored leftover Chrome thumbnail
+    // profile (locked Cookies DB and all) aborts the entire staging operation
+    // on Windows (issue #431). Uses .git/info/exclude rather than .gitignore
+    // so enforcing the guard never itself creates a working-tree change (a
+    // clean repo must stay "nothing to commit"). Best-effort.
+    ensure_shipstudio_excluded(path);
+
     // Stage all changes. Retried on index.lock contention — the background
     // snapshot watcher (and any agent CLI) can hold the lock at the exact
     // moment a commit/publish fires (#377).
@@ -520,6 +579,39 @@ mod tests {
             .output()
             .unwrap();
         assert!(rev.status.success(), "HEAD must exist after commit");
+    }
+
+    /// Issue #431: `git add -A` must never walk into .shipstudio (Chrome
+    /// thumbnail profiles with locked files live there). The staging path
+    /// enforces the exclusion itself via .git/info/exclude — without creating
+    /// a working-tree change.
+    #[test]
+    fn stage_and_commit_excludes_shipstudio_dir() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::create_dir_all(tmp.path().join(".shipstudio").join("thumbnail_profile")).unwrap();
+        std::fs::write(
+            tmp.path()
+                .join(".shipstudio")
+                .join("thumbnail_profile")
+                .join("Cookies"),
+            "locked-ish",
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        let committed = git_stage_and_commit(tmp.path(), "first").unwrap();
+        assert!(committed);
+        let tracked = Command::new("git")
+            .args(["ls-files"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        let listing = String::from_utf8_lossy(&tracked.stdout).to_string();
+        assert!(
+            !listing.contains(".shipstudio"),
+            ".shipstudio must not be staged, got: {listing}"
+        );
+        assert!(listing.contains("a.txt"));
     }
 
     #[test]

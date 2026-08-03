@@ -212,6 +212,13 @@ pub async fn capture_project_thumbnail(
             "--no-first-run",
             "--disable-gpu",
             "--no-sandbox",
+            // A one-shot throwaway capture gains nothing from Chromium's
+            // crash reporter, and spinning up a crashpad_handler per capture
+            // added a whole extra failure mode: its named-pipe handshake can
+            // lose a race with process teardown/AV and kill the capture with
+            // "TransactNamedPipe: The pipe has been ended" (issue #421).
+            "--disable-crash-reporter",
+            "--disable-breakpad",
             "--hide-scrollbars",
             "--force-device-scale-factor=1",
             "--default-background-color=FFFFFFFF",
@@ -255,7 +262,18 @@ pub async fn capture_project_thumbnail(
             // Headless Chromium can die with EMPTY stderr (crash, killed by
             // AV/security software) — fall back to the exit code plus a
             // stdout snippet so the report says something (issue #291).
-            let detail = if stderr.is_empty() {
+            // Crashpad/registration-protocol log lines aren't a cause — they
+            // just say the crash reporter's IPC pipe died along with the
+            // browser process. Treat a stderr made of only that noise like an
+            // empty stderr so the report carries the exit code + stdout
+            // snippet instead (issue #422).
+            let is_crashpad_noise =
+                |line: &str| line.contains("crashpad") || line.contains("TransactNamedPipe");
+            let has_real_stderr = stderr.lines().any(|l| {
+                let l = l.trim();
+                !l.is_empty() && !is_crashpad_noise(l)
+            });
+            let detail = if stderr.is_empty() || !has_real_stderr {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stdout = stdout.trim();
                 let code = output

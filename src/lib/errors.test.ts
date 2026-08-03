@@ -76,6 +76,31 @@ describe('friendlyProcessError', () => {
     expect(friendlyProcessError(new Error('clone failed'))).toBe('clone failed');
   });
 
+  it("maps Windows' \"'bun' is not recognized\" to install guidance", () => {
+    // Raw cmd.exe text when the lockfile's package manager isn't installed
+    // (issues #454/#455).
+    const raw =
+      "Process exited with code 1\n\n'bun' is not recognized as an internal or external command,\noperable program or batch file.";
+    const result = friendlyProcessError(raw);
+    expect(result).toContain('`bun`');
+    expect(result).toMatch(/isn't installed/);
+  });
+
+  it('maps POSIX "command not found" to install guidance', () => {
+    const result = friendlyProcessError('sh: pnpm: command not found');
+    expect(result).toContain('`pnpm`');
+    expect(result).toMatch(/isn't installed/);
+  });
+
+  it('matches negative exit codes via extra mappings', () => {
+    // Spawn failures emit -1 — the old /\d+/ regex silently skipped them
+    // (issues #463/#464).
+    const extra = { [-1]: 'The process never started.' };
+    expect(friendlyProcessError('Process exited with code -1', extra)).toBe(
+      'The process never started.'
+    );
+  });
+
   it('strips the "Error: " prefix from stringified errors', () => {
     expect(friendlyProcessError('Error: clone failed')).toBe('clone failed');
   });

@@ -313,7 +313,22 @@ fn opencode_config_save(
     let serialized = serde_json::to_string_pretty(root)
         .map_err(|e| format!("Failed to serialize OpenCode config: {e}"))?;
     std::fs::write(path, serialized)
-        .map_err(|e| format!("Failed to write OpenCode config {}: {e}", path.display()))?;
+        .map_err(|e| {
+            // EACCES here is machine state (config dir owned by root after a
+            // sudo install, etc.), not an app bug — give the fix, skip
+            // telemetry (issue #471).
+            if e.raw_os_error() == Some(13) || e.kind() == std::io::ErrorKind::PermissionDenied {
+                crate::errors::CommandError::expected(format!(
+                    "Ship Studio can't write OpenCode's config at {} — permission denied. The                      folder is likely owned by another user (often from a sudo install). In a                      terminal, run: sudo chown -R $(whoami) ~/.config/opencode — then try again.",
+                    path.display()
+                ))
+            } else {
+                crate::errors::CommandError::from(format!(
+                    "Failed to write OpenCode config {}: {e}",
+                    path.display()
+                ))
+            }
+        })?;
     Ok(())
 }
 

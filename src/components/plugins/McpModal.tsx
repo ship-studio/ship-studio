@@ -74,7 +74,7 @@ export function McpModal({
       setServers(result);
     } catch (err) {
       logger.error('Failed to load MCP servers', {
-        error: err instanceof Error ? err.message : String(err),
+        error: formatCommandError(asCommandError(err)),
       });
       setServers([]);
     } finally {
@@ -117,7 +117,7 @@ export function McpModal({
       setActiveTab('connected');
     } catch (err) {
       logger.error('Failed to add MCP server', {
-        error: err instanceof Error ? err.message : String(err),
+        error: formatCommandError(asCommandError(err)),
       });
       setAddError(formatCommandError(asCommandError(err)));
     } finally {
@@ -135,7 +135,7 @@ export function McpModal({
       void trackEvent('mcp_server_removed', { scope: server.scope, $screen_name: 'MCP Modal' });
       await fetchServers();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = formatCommandError(asCommandError(err));
       // CLI wording varies ("No MCP server named …", "No project-local MCP
       // server found with name: …") — match the shape, not exact phrases
       // (#295). The backend now also treats these as success (mcp.rs), so

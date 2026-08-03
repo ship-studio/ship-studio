@@ -62,6 +62,43 @@ async fn run_capture_script(
     Ok(output)
 }
 
+/// Parse the major version out of `node --version` output ("v16.17.0" -> 16).
+fn node_major_version(version_output: &str) -> Option<u32> {
+    version_output
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// Playwright 1.60+ requires Node 18+. A system Node that's too old fails the
+/// capture with Playwright's raw "You are running Node.js 16..." dump — check
+/// up front and return an actionable, expected error instead (issue #440).
+/// If the probe itself fails, let the capture proceed and surface its own error.
+async fn ensure_node_supports_playwright() -> Result<(), CommandError> {
+    let mut cmd = node_tool_command("node");
+    cmd.arg("--version");
+    let Ok(output) =
+        run_with_timeout(tokio::process::Command::from(cmd), "node --version", 10).await
+    else {
+        return Ok(());
+    };
+    if !output.status.success() {
+        return Ok(());
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if let Some(major) = node_major_version(&version) {
+        if major < 18 {
+            return Err(CommandError::expected(format!(
+                "Screenshots need Node.js 18 or newer, but your system has Node {version}.                  Update Node.js, then try again."
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Playwright versions below this hang forever in `playwright install` on
 /// Node >= 24.16 (yauzl stream regression during archive extraction — fixed
 /// in Playwright 1.60; see microsoft/playwright#41000). Old envs upgrade in
@@ -185,6 +222,8 @@ pub async fn capture_fullpage_playwright(
         )));
     }
 
+    ensure_node_supports_playwright().await?;
+
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
     // Match the preview's current viewport when given (agent bridge responsive
     // checks); clamp to sane bounds so a bad value can't wedge Chromium.
@@ -254,14 +293,17 @@ const {{ chromium }} = require('playwright');
                     el.style.setProperty('visibility', 'hidden', 'important');
                 }});
             }});
-        }});
+        // Overlay hiding is cosmetic — a dev-server reload/redirect right
+        // after `load` destroys the execution context mid-evaluate, and that
+        // must not kill the whole capture (issue #438).
+        }}).catch(() => {{}});
 
         // Scroll slowly through the page to trigger lazy content and animations
-        const scrollHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+        const scrollHeight = await page.evaluate(() => document.documentElement.scrollHeight).catch(() => 0);
         const viewportHeight = 800;
 
         for (let y = 0; y < scrollHeight; y += viewportHeight / 2) {{
-            await page.evaluate((scrollY) => window.scrollTo(0, scrollY), y);
+            await page.evaluate((scrollY) => window.scrollTo(0, scrollY), y).catch(() => {{}});
             await page.waitForTimeout(300); // Pause for animations to trigger
         }}
 
@@ -278,11 +320,14 @@ const {{ chromium }} = require('playwright');
                     el.style.setProperty('display', 'none', 'important');
                 }});
             }});
-        }});
+        }}).catch(() => {{}});
         await page.waitForTimeout(500);
 
         // Take full-page screenshot
-        await page.screenshot({{ path: '{}', fullPage: true }});
+        // fullPage stitches the entire scrollable height — on tall pages
+        // that can exceed Playwright's default 30s action timeout, and the
+        // overall script budget is 180s, so give it real headroom (issue #461).
+        await page.screenshot({{ path: '{}', fullPage: true, timeout: 120000 }});
         console.log('Screenshot saved successfully');
     }} finally {{
         if (browser) await browser.close();
@@ -350,6 +395,8 @@ pub async fn capture_viewport_playwright(
         )));
     }
 
+    ensure_node_supports_playwright().await?;
+
     let screenshots_dir = project.join(".shipstudio").join("screenshots");
     // Match the preview's current viewport when given (agent bridge responsive
     // checks); clamp to sane bounds so a bad value can't wedge Chromium.
@@ -414,7 +461,8 @@ const {{ chromium }} = require('playwright');
                     el.style.setProperty('visibility', 'hidden', 'important');
                 }});
             }});
-        }});
+        // Cosmetic — see the same guard in the full-page script (issue #438).
+        }}).catch(() => {{}});
 
         // Wait for animations to complete
         await page.waitForTimeout(3000);
@@ -466,4 +514,23 @@ const {{ chromium }} = require('playwright');
         (format!("Playwright viewport screenshot failed. stdout: {stdout} stderr: {stderr}"))
             .into(),
     )
+}
+
+#[cfg(test)]
+mod node_version_tests {
+    use super::*;
+
+    #[test]
+    fn parses_standard_node_version_output() {
+        assert_eq!(node_major_version("v16.17.0\n"), Some(16));
+        assert_eq!(node_major_version("v18.20.4"), Some(18));
+        assert_eq!(node_major_version("v22.1.0"), Some(22));
+    }
+
+    #[test]
+    fn garbage_output_is_none_not_a_false_block() {
+        // An unparseable probe must never block captures (issue #440).
+        assert_eq!(node_major_version(""), None);
+        assert_eq!(node_major_version("command not found"), None);
+    }
 }

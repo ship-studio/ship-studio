@@ -120,11 +120,11 @@ pub async fn exec_plugin_shell(
     // message naming the plugin and command, not a raw "No such file or
     // directory (os error 2)" from Command::output() (issue #256). Mirrors
     // resolve_git() in plugin_lifecycle.rs / get_gh_command() in github.rs.
-    if crate::utils::find_executable(&command).is_none() {
+    let Some(resolved_command) = crate::utils::find_executable(&command) else {
         return Err(CommandError::expected(format!(
             "Plugin '{plugin_id}' tried to run '{command}', but it isn't installed or not on PATH."
         )));
-    }
+    };
 
     // Build and execute command with timeout. The timeout is clamped: a
     // plugin passing e.g. a millisecond value as seconds (15000 → ~4 hours)
@@ -132,7 +132,11 @@ pub async fn exec_plugin_shell(
     let timeout = timeout_secs
         .unwrap_or(120)
         .min(MAX_PLUGIN_SHELL_TIMEOUT_SECS);
-    let mut std_cmd = create_command(&command);
+    // Spawn the resolved path, not the bare name: Windows resolves the
+    // executable against the PARENT's PATH, so the .env("PATH", ...) below
+    // doesn't help resolution and a bare name can still fail with "program
+    // not found" even though find_executable just located it (issue #475).
+    let mut std_cmd = create_command(&resolved_command);
     std_cmd
         .args(&args)
         .current_dir(&validated_path)

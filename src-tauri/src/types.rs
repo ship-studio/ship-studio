@@ -521,6 +521,8 @@ pub struct PullRequestInfo {
     pub author: String,
     pub state: String,
     pub mergeable: Option<bool>,
+    /// GitHub draft flag — drafts can't be merged (issue #482).
+    pub is_draft: bool,
     pub url: String,
     pub created_at: String,
 }

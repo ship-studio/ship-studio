@@ -312,6 +312,18 @@ pub async fn switch_branch(
              required). Update Git — on macOS, update the Xcode Command Line Tools or run \
              `brew install git` — then try again."
                 .to_string()
+        } else if stderr.contains("resolve your current index first")
+            || stderr.contains("needs merge")
+        {
+            // An abandoned merge left unmerged entries in the index — the
+            // conflict-resolution flow deliberately leaves git mid-merge, and
+            // closing it without finishing strands the repo there. Git's raw
+            // "you need to resolve your current index first" says nothing a
+            // user can act on (issue #417).
+            "A merge with unresolved conflicts is still in progress in this project. Finish \
+             resolving the conflicts (or discard the merge) before switching branches — the \
+             Resolve Conflicts flow will pick up where it left off."
+                .to_string()
         } else {
             stderr.to_string()
         };
@@ -580,11 +592,11 @@ pub async fn delete_branch(
 
     let current_branch = String::from_utf8_lossy(&current.stdout).trim().to_string();
     if current_branch == branch_name {
-        return Err(
-            "Cannot delete the current branch. Switch to another branch first."
-                .to_string()
-                .into(),
-        );
+        // By-design guard, not a malfunction — Expected keeps the (rare)
+        // post-merge-cleanup race out of telemetry (issue #458).
+        return Err(crate::errors::CommandError::expected(
+            "Cannot delete the current branch. Switch to another branch first.",
+        ));
     }
 
     // Delete local branch

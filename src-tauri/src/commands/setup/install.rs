@@ -203,6 +203,9 @@ pub async fn install_brew_packages(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if let Some(err) = brew_permission_error(&stderr) {
+            return Err(err);
+        }
         return Err((format!(
             "Failed to install packages: {}",
             stderr.lines().next().unwrap_or("Unknown error")
@@ -211,6 +214,26 @@ pub async fn install_brew_packages(
     }
 
     Ok(())
+}
+
+/// Homebrew's "prefix isn't writable" failure — a machine state left behind by
+/// a prior `sudo brew` or multi-user install, not an app malfunction. Surface
+/// Homebrew's own remediation instead of the bare first stderr line
+/// (issue #448).
+fn brew_permission_error(stderr: &str) -> Option<crate::errors::CommandError> {
+    if !stderr.contains("is not writable") {
+        return None;
+    }
+    // brew names the offending path in the same message; fall back to the
+    // standard prefix if the format ever changes.
+    let prefix = stderr
+        .lines()
+        .find(|l| l.contains("is not writable"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with('/')))
+        .unwrap_or("$(brew --prefix)");
+    Some(crate::errors::CommandError::expected(format!(
+        "Homebrew can't install anything because {prefix} isn't writable by your user          (usually left over from a previous sudo or multi-user install). Open Terminal and run:          sudo chown -R $(whoami) {prefix} — then retry this step."
+    )))
 }
 
 /// Pull a human-readable error line out of winget's output.

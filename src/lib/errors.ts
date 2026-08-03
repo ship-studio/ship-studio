@@ -201,7 +201,20 @@ export function friendlyProcessError(
       : typeof err === 'string'
         ? err
         : formatCommandError(asCommandError(err));
-  const codeMatch = msg.match(/Process exited with code (\d+)/);
+  // The tool itself is missing: Windows' cmd.exe says "'bun' is not
+  // recognized…", POSIX shells say "bun: command not found". Both surface a
+  // raw shell dump with no next step (issues #454/#455) — name the tool and
+  // say what to do.
+  const missingTool =
+    msg.match(/'([^']+)' is not recognized as an internal or external command/) ??
+    msg.match(/(?:^|\n|:\s)([\w.-]+): command not found/);
+  if (missingTool) {
+    const tool = missingTool[1];
+    return `This project needs \`${tool}\`, which isn't installed on this computer (or isn't on your PATH). Install ${tool} and try again — or, for package managers, delete its lockfile to fall back to npm.`;
+  }
+  // Negative codes (spawn failure / killed by signal) must match too —
+  // \d+ alone silently skipped them (issues #463/#464).
+  const codeMatch = msg.match(/Process exited with code (-?\d+)/);
   if (codeMatch) {
     const code = parseInt(codeMatch[1], 10);
     const mapped = extraExitCodeMessages?.[code] ?? PROCESS_EXIT_MESSAGES[code];

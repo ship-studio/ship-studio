@@ -152,8 +152,26 @@ pub async fn spawn_pty(
             registry.remove(&id);
         }
 
-        // Emit exit event to specific window only
-        let exit_code = result.unwrap_or(-1);
+        // Emit exit event to specific window only. A spawn/wait failure used
+        // to collapse into a bare exit code -1 with no output at all — the
+        // real io::Error ("No such file or directory", EACCES…) was fully
+        // known and silently discarded, leaving the user and telemetry with
+        // an undiagnosable "Process exited with code -1" (issues #463/#464).
+        // Emit the failure as pty-output first so runPtyToExit includes it.
+        let exit_code = match result {
+            Ok(code) => code,
+            Err(e) => {
+                let _ = app_handle.emit_to(
+                    &label,
+                    "pty-output",
+                    serde_json::json!({
+                        "id": id,
+                        "data": format!("Failed to start process: {e}\r\n"),
+                    }),
+                );
+                -1
+            }
+        };
         let _ = app_handle.emit_to(
             &label,
             "pty-exit",

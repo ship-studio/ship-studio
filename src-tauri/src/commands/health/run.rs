@@ -42,8 +42,19 @@ pub async fn run_health_script(
 
     let start = Instant::now();
 
+    // Resolve the package manager to a full path before spawning: Windows
+    // resolves executables against the PARENT's environment, so the child
+    // .env("PATH", ...) below doesn't help, and pnpm/yarn are .cmd shims a
+    // bare-name spawn misses — "program not found" despite being installed
+    // (issue #488, same class as the git fix in #296/#297).
+    let Some(resolved_pm) = crate::utils::find_executable(pm_cmd) else {
+        return Err(crate::errors::CommandError::expected(format!(
+            "This project uses {pm_cmd}, but it isn't installed or not on PATH, so health              checks can't run. Install {pm_cmd}, then try again."
+        )));
+    };
+
     // Build the command
-    let mut cmd = create_command(pm_cmd);
+    let mut cmd = create_command(&resolved_pm);
     cmd.arg("run").arg(&script_name);
     cmd.current_dir(&validated_path);
     cmd.env("PATH", get_extended_path());

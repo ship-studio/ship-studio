@@ -198,7 +198,23 @@ pub async fn open_in_ide(
             _ => return Err((format!("Unknown IDE: {}", ide)).into()),
         };
 
-        create_command(cmd)
+        // Resolve the CLI to a full path first: spawning the bare name on
+        // Windows misses .cmd shims (VS Code's `code` IS one) and fails with
+        // a context-free "program not found" even when the IDE is installed —
+        // same class as the git fix in #296/#297 (issue #462).
+        let Some(resolved) = crate::utils::find_executable(cmd) else {
+            let ide_name = if ide == "vscode" { "VS Code" } else { "Cursor" };
+            let hint = if ide == "vscode" {
+                " In VS Code, run \"Shell Command: Install 'code' command in PATH\" from the command palette, or reinstall with the CLI option enabled."
+            } else {
+                " In Cursor, install its shell command from the command palette."
+            };
+            return Err(crate::errors::CommandError::expected(format!(
+                "{ide_name}'s command-line launcher ('{cmd}') isn't on your PATH, so Ship Studio can't open the project in it.{hint}"
+            )));
+        };
+
+        create_command(&resolved)
             .arg(&target_path)
             .spawn()
             .map_err(|e| format!("Failed to open in {}: {}", ide, e))?;

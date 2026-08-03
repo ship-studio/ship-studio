@@ -52,7 +52,10 @@ export async function checkForUpdate(): Promise<{ update: Update; info: UpdateIn
     }
     return null;
   } catch (error) {
-    logger.error('[Updater] Failed to check for updates', {
+    // A failed check is expected/recoverable (offline, DNS blip) — the app
+    // keeps working and retries later. logger.error would auto-file a bug
+    // report for every routine network hiccup (issue #490).
+    logger.warn('[Updater] Failed to check for updates', {
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;

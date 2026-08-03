@@ -39,7 +39,7 @@ pub async fn list_pull_requests(
         "pr",
         "list",
         "--json",
-        "number,title,headRefName,baseRefName,author,state,mergeable,url,createdAt",
+        "number,title,headRefName,baseRefName,author,state,mergeable,isDraft,url,createdAt",
         "--limit",
         "20",
     ])
@@ -89,6 +89,10 @@ pub async fn list_pull_requests(
                     .get("mergeable")
                     .and_then(|v| v.as_str())
                     .map(|s| s == "MERGEABLE"),
+                // Draft PRs can't be merged — the UI needs to know so it can
+                // offer "mark ready" instead of a Merge that's doomed to fail
+                // with a raw GraphQL error (issue #482).
+                is_draft: pr.get("isDraft").and_then(|v| v.as_bool()).unwrap_or(false),
                 url: pr.get("url")?.as_str()?.to_string(),
                 created_at: pr.get("createdAt")?.as_str()?.to_string(),
             })
@@ -145,6 +149,16 @@ pub async fn create_pull_request(
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
+        // gh's by-design refusals for `pr create` — the frontend already
+        // rephrases both into friendly guidance (humanizeGitError), so keep
+        // the raw text but mark them Expected so they stay out of telemetry
+        // (issue #428).
+        let lower = stderr.to_lowercase();
+        if lower.contains("no commits between")
+            || (lower.contains("already exists") && lower.contains("pull request"))
+        {
+            return Err(CommandError::expected(stderr.to_string()));
+        }
         return Err((stderr.to_string()).into());
     }
 
@@ -170,6 +184,14 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         if is_conflict_stderr(&stderr) {
             return Err(CommandError::MergeConflict { pr_number, stderr });
+        }
+        // Draft PRs are refused by GitHub with a raw GraphQL error; the UI
+        // now disables Merge for drafts, but a just-converted or stale-listed
+        // PR can still race into this (issue #482).
+        if stderr.to_lowercase().contains("still a draft") {
+            return Err(CommandError::expected(
+                "This pull request is still a draft, so it can't be merged yet. Mark it as ready for review on GitHub first.",
+            ));
         }
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);

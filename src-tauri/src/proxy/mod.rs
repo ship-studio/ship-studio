@@ -906,32 +906,42 @@ async fn handle_websocket_upgrade(
     // Extract the client's OnUpgrade from request extensions (set by hyper server)
     let client_on_upgrade = parts.extensions.remove::<hyper::upgrade::OnUpgrade>();
 
-    // Build request to forward to target
-    let mut builder = Request::builder()
-        .method(parts.method)
-        .uri(parts.uri.clone())
-        .version(parts.version);
-
-    for (key, value) in &parts.headers {
-        // Rewrite Host/Origin to the dev server's own port, exactly like the
-        // HTTP path. Vite host/origin-checks its HMR WebSocket upgrade; leaking
-        // the proxy's ephemeral port here gets the HMR socket rejected on
-        // stricter setups — the preview then silently stops receiving updates
-        // until the dev server is restarted.
-        if key == hyper::header::HOST {
-            builder = builder.header(key, format!("localhost:{target_port}"));
-            continue;
-        }
-        if key == hyper::header::ORIGIN {
-            if let Some(v) = rewrite_localhost_origin(value, target_port) {
-                builder = builder.header(key, v);
+    // Build request to forward to target. The header rewrite is shared with
+    // the one-shot retry below, so it lives in a closure.
+    // Rewrite Host/Origin to the dev server's own port, exactly like the
+    // HTTP path. Vite host/origin-checks its HMR WebSocket upgrade; leaking
+    // the proxy's ephemeral port here gets the HMR socket rejected on
+    // stricter setups — the preview then silently stops receiving updates
+    // until the dev server is restarted.
+    let method = parts.method.clone();
+    let uri = parts.uri.clone();
+    let version = parts.version;
+    let headers = parts.headers.clone();
+    let build_forward = |body: ProxyBody| -> Result<Request<ProxyBody>, hyper::http::Error> {
+        let mut builder = Request::builder()
+            .method(method.clone())
+            .uri(uri.clone())
+            .version(version);
+        for (key, value) in &headers {
+            if key == hyper::header::HOST {
+                builder = builder.header(key, format!("localhost:{target_port}"));
                 continue;
             }
+            if key == hyper::header::ORIGIN {
+                if let Some(v) = rewrite_localhost_origin(value, target_port) {
+                    builder = builder.header(key, v);
+                    continue;
+                }
+            }
+            builder = builder.header(key, value);
         }
-        builder = builder.header(key, value);
-    }
+        builder.body(body)
+    };
 
-    let forwarded_req = match builder.body(body) {
+    // A WS upgrade is a bodyless GET — collapse the incoming body to empty so
+    // the request can be rebuilt for the retry below.
+    drop(body);
+    let forwarded_req = match build_forward(empty_body()) {
         Ok(r) => r,
         Err(e) => {
             tracing::error!("[Proxy] Failed to build WS forward request: {}", e);
@@ -945,20 +955,65 @@ async fn handle_websocket_upgrade(
     // Send upgrade request to target
     let target_resp = match sender.send_request(forwarded_req).await {
         Ok(r) => r,
-        Err(e) => {
-            // Include the upstream port: "invalid HTTP version parsed" here
-            // means the socket connected but returned non-HTTP bytes (wrong
-            // process on the port, dev server mid-restart, AV interference) —
-            // without the port the report is uncorrelatable (issue #293).
-            tracing::error!(
-                "[Proxy] WebSocket forward to 127.0.0.1:{} failed: {}",
+        Err(first_err) => {
+            // The TCP connect succeeded but the connection died before the
+            // upgrade completed ("connection closed before message
+            // completed"). Known dev-server-restart race: the OS accepts into
+            // the listen backlog, then the process exits before handling it —
+            // so the socket dies mid-request instead of ever refusing. The
+            // connect-refused path above already retries; give this the same
+            // grace with one reconnect + resend (issue #466).
+            tracing::warn!(
+                "[Proxy] WebSocket forward to 127.0.0.1:{} failed ({}); retrying once",
                 target_port,
-                e
+                first_err
             );
-            return Ok(Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(full_body(Bytes::from("WebSocket proxy error")))
-                .unwrap());
+            let retried: Result<Response<hyper::body::Incoming>, String> = async {
+                let remaining =
+                    connect_deadline.saturating_duration_since(tokio::time::Instant::now());
+                let remaining = remaining.max(std::time::Duration::from_millis(500));
+                let stream = tokio::time::timeout(
+                    remaining.min(std::time::Duration::from_secs(2)),
+                    connect_loopback(target_port),
+                )
+                .await
+                .map_err(|_| "reconnect timed out".to_string())?
+                .map_err(|e| e.to_string())?;
+                let (mut retry_sender, retry_conn) = hyper::client::conn::http1::Builder::new()
+                    .preserve_header_case(true)
+                    .title_case_headers(true)
+                    .handshake(TokioIo::new(stream))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                tokio::spawn(async move {
+                    if let Err(e) = retry_conn.with_upgrades().await {
+                        tracing::debug!("[Proxy] WebSocket retry client conn error: {}", e);
+                    }
+                });
+                let req = build_forward(empty_body()).map_err(|e| e.to_string())?;
+                retry_sender
+                    .send_request(req)
+                    .await
+                    .map_err(|e| e.to_string())
+            }
+            .await;
+            match retried {
+                Ok(r) => r,
+                Err(e) => {
+                    // Include the upstream port: without it the report is
+                    // uncorrelatable (issue #293).
+                    tracing::error!(
+                        "[Proxy] WebSocket forward to 127.0.0.1:{} failed after retry: {} (first attempt: {})",
+                        target_port,
+                        e,
+                        first_err
+                    );
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_GATEWAY)
+                        .body(full_body(Bytes::from("WebSocket proxy error")))
+                        .unwrap());
+                }
+            }
         }
     };
 
