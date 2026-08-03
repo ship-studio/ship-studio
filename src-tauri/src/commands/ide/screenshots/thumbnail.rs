@@ -84,6 +84,48 @@ fn sweep_stale_thumbnail_profiles(shipstudio_dir: &Path) {
     }
 }
 
+/// True for Chromium stderr lines that are subsystem chatter, never a failure
+/// cause: crashpad's IPC teardown races (issue #422), GoogleUpdater process
+/// lifecycle, GCM push-registration retries, TensorFlow Lite delegate init,
+/// and the allocator double-load warning (issues #498–#500). A headless
+/// capture emits these freely; keeping them buries the actionable line.
+fn is_chromium_noise(line: &str) -> bool {
+    const NOISE_MARKERS: &[&str] = &[
+        "crashpad",
+        "TransactNamedPipe",
+        "chrome/updater/",
+        "GoogleUpdater",
+        "google_apis/gcm",
+        "Registration response error message",
+        "TensorFlow Lite",
+        "XNNPACK delegate",
+        "Trying to load the allocator multiple times",
+    ];
+    NOISE_MARKERS.iter().any(|m| line.contains(m))
+}
+
+/// Distill headless-Chromium stderr down to the lines worth reporting:
+/// drops empty and known-noise lines and caps the result. Returns `None`
+/// when nothing real remains, so the caller falls back to exit code +
+/// stdout — same treatment as an empty stderr.
+fn browser_failure_detail(stderr: &str) -> Option<String> {
+    let real: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !is_chromium_noise(l))
+        .collect();
+    if real.is_empty() {
+        return None;
+    }
+    let joined = real.join("\n");
+    if joined.chars().count() > 600 {
+        let capped: String = joined.chars().take(600).collect();
+        Some(format!("{capped}…"))
+    } else {
+        Some(joined)
+    }
+}
+
 /// Returns true when the project's metadata marks the thumbnail as
 /// user-supplied — auto-capture must skip these so it doesn't clobber
 /// the upload on the next dev-server boot.
@@ -219,6 +261,12 @@ pub async fn capture_project_thumbnail(
             // "TransactNamedPipe: The pipe has been ended" (issue #421).
             "--disable-crash-reporter",
             "--disable-breakpad",
+            // A disposable one-shot capture has no business phoning home:
+            // background networking spins up GoogleUpdater/GCM machinery
+            // whose log spew drowned real failure signals (issues #498–#500).
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-sync",
             "--hide-scrollbars",
             "--force-device-scale-factor=1",
             "--default-background-color=FFFFFFFF",
@@ -258,37 +306,43 @@ pub async fn capture_project_thumbnail(
 
         if !capture_written {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr = stderr.trim();
             // Headless Chromium can die with EMPTY stderr (crash, killed by
             // AV/security software) — fall back to the exit code plus a
             // stdout snippet so the report says something (issue #291).
-            // Crashpad/registration-protocol log lines aren't a cause — they
-            // just say the crash reporter's IPC pipe died along with the
-            // browser process. Treat a stderr made of only that noise like an
-            // empty stderr so the report carries the exit code + stdout
-            // snippet instead (issue #422).
-            let is_crashpad_noise =
-                |line: &str| line.contains("crashpad") || line.contains("TransactNamedPipe");
-            let has_real_stderr = stderr.lines().any(|l| {
-                let l = l.trim();
-                !l.is_empty() && !is_crashpad_noise(l)
-            });
-            let detail = if stderr.is_empty() || !has_real_stderr {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stdout = stdout.trim();
-                let code = output
-                    .status
-                    .code()
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "killed by signal".to_string());
-                if stdout.is_empty() {
-                    format!("exit code {code}, no output")
-                } else {
-                    let snippet: String = stdout.chars().take(300).collect();
-                    format!("exit code {code}: {snippet}")
+            // Known-noise subsystem lines (crashpad, GoogleUpdater, GCM…)
+            // aren't a cause either — filter per line so the one real signal
+            // survives instead of drowning in them (issues #422, #498–#500).
+            let detail = match browser_failure_detail(stderr.trim()) {
+                Some(detail) => {
+                    // macOS refusing the browser's Mach IPC registration is a
+                    // distinct environment-level failure class (sandboxing /
+                    // security / MDM software) — name it instead of passing
+                    // the raw mojo log line through (issues #499, #500).
+                    if detail.contains("bootstrap_check_in") && detail.contains("Permission denied")
+                    {
+                        "macOS refused the browser's IPC registration (bootstrap_check_in: \
+                         Permission denied). This is usually caused by security or \
+                         device-management software restricting processes spawned by Ship Studio."
+                            .to_string()
+                    } else {
+                        detail
+                    }
                 }
-            } else {
-                stderr.to_string()
+                None => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stdout = stdout.trim();
+                    let code = output
+                        .status
+                        .code()
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "killed by signal".to_string());
+                    if stdout.is_empty() {
+                        format!("exit code {code}, no output")
+                    } else {
+                        let snippet: String = stdout.chars().take(300).collect();
+                        format!("exit code {code}: {snippet}")
+                    }
+                }
             };
             return Err((format!("Browser screenshot failed: {detail}")).into());
         }
@@ -401,6 +455,53 @@ pub async fn upload_project_thumbnail(
     let bytes = std::fs::read(&thumbnail_path).map_err(|e| e.to_string())?;
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:image/png;base64,{base64_data}"))
+}
+
+#[cfg(test)]
+mod browser_stderr_tests {
+    use super::*;
+
+    #[test]
+    fn crashpad_only_stderr_is_treated_as_empty() {
+        let stderr = "[1:2:0803] ERROR:crashpad_client_win.cc(123)] something\n\
+                      TransactNamedPipe: The pipe has been ended. (0x6D)";
+        assert_eq!(browser_failure_detail(stderr), None);
+    }
+
+    #[test]
+    fn real_signal_survives_macos_updater_and_gcm_noise() {
+        // Condensed from the real report behind issues #498–#500.
+        let stderr = "[78255:16006070:0803] ERROR:mojo/public/cpp/platform/named_platform_channel_mac.cc:44] bootstrap_check_in com.google.Chrome.apps.156F: Permission denied (1100)\n\
+            Trying to load the allocator multiple times. This is *not* supported.\n\
+            [78300:1:0803] ERROR:google_apis/gcm/engine/registration_request.cc(291)] Registration response error message: PHONE_REGISTRATION_ERROR\n\
+            Created TensorFlow Lite XNNPACK delegate for CPU.\n\
+            [78310:1:0803] chrome/updater/updater.cc(93)] starting GoogleUpdater wake-all";
+        let detail = browser_failure_detail(stderr).expect("bootstrap line must survive");
+        assert!(detail.contains("bootstrap_check_in"));
+        assert!(!detail.contains("GoogleUpdater"));
+        assert!(!detail.contains("PHONE_REGISTRATION_ERROR"));
+        assert!(!detail.contains("XNNPACK"));
+    }
+
+    #[test]
+    fn empty_and_whitespace_stderr_yield_none() {
+        assert_eq!(browser_failure_detail(""), None);
+        assert_eq!(browser_failure_detail("  \n\t\n"), None);
+    }
+
+    #[test]
+    fn genuine_multiline_stderr_is_preserved() {
+        let stderr = "line one: something broke\nline two: more detail";
+        assert_eq!(browser_failure_detail(stderr).as_deref(), Some(stderr));
+    }
+
+    #[test]
+    fn oversized_detail_is_capped() {
+        let stderr = "x".repeat(2000);
+        let detail = browser_failure_detail(&stderr).unwrap();
+        assert!(detail.chars().count() <= 601);
+        assert!(detail.ends_with('…'));
+    }
 }
 
 #[cfg(test)]

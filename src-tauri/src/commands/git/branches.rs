@@ -492,7 +492,17 @@ pub async fn create_branch(
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            error!(error = %stderr, "Failed to create branch");
+            // Uncommitted changes blocking the checkout is an everyday state
+            // the frontend already resolves with its commit-or-stash modal —
+            // error!() would page telemetry for it (issue #502). The raw
+            // stderr must still be returned: BranchesTab matches its wording.
+            if stderr.contains("overwritten by checkout")
+                || stderr.contains("commit your changes or stash")
+            {
+                warn!(error = %stderr, "Branch creation blocked by uncommitted changes");
+            } else {
+                error!(error = %stderr, "Failed to create branch");
+            }
             return Err((stderr.to_string()).into());
         }
     }
