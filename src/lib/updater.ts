@@ -34,6 +34,18 @@ export type UpdateState =
   | { status: 'error'; message: string };
 
 /**
+ * True when the updater plugin fetched a manifest that has no entry for the
+ * running platform ("the platform `windows-x86_64` was not found on the
+ * response `platforms` object"). Happens when a client reads a manifest that
+ * was published for another OS — e.g. Windows reading the macOS-only
+ * `latest.json` (issue #512). That's "no update available for this
+ * platform", not a failure.
+ */
+export function isPlatformMissingFromManifest(message: string): boolean {
+  return /platform .* was not found on the response/i.test(message);
+}
+
+/**
  * Check if an update is available.
  * @returns Update object if available, null otherwise
  */
@@ -52,11 +64,26 @@ export async function checkForUpdate(): Promise<{ update: Update; info: UpdateIn
     }
     return null;
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // The manifest fetched fine but simply has no entry for this platform
+    // (e.g. the Windows manifest wasn't carried forward onto the "latest"
+    // release). Treat as "no update available" rather than an error — there
+    // is nothing the user can do about it, and it resolves itself when the
+    // next platform release lands (issue #512).
+    if (isPlatformMissingFromManifest(message)) {
+      logger.warn(
+        '[Updater] Update manifest has no entry for this platform; treating as no update',
+        {
+          error: message,
+        }
+      );
+      return null;
+    }
     // A failed check is expected/recoverable (offline, DNS blip) — the app
     // keeps working and retries later. logger.error would auto-file a bug
     // report for every routine network hiccup (issue #490).
     logger.warn('[Updater] Failed to check for updates', {
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     });
     throw error;
   }

@@ -274,6 +274,60 @@ If a resolution is genuinely ambiguous, show me the options and ask before choos
     );
   }
 
+  // Files the UI can't text-merge carry no conflict blocks: binary files,
+  // and non-regular paths (submodule / file-vs-folder type-change conflicts,
+  // issue #528) which arrive with a per-file `unsupportedReason`. Render the
+  // notice before the currentConflict guard below — these entries would
+  // otherwise fall through to `return null` and leave the modal blank.
+  const fileNotice =
+    currentFile && !currentConflict
+      ? (currentFile.unsupportedReason ??
+        (currentFile.isBinary
+          ? "This is a binary file. You'll need to resolve this conflict manually."
+          : null))
+      : null;
+
+  if (currentFile && fileNotice) {
+    return (
+      <ModalFrame
+        isOpen
+        onClose={handleClose}
+        dismissable={!isApplying}
+        showCloseButton={false}
+        className="conflict-content"
+      >
+        <>
+          <div className="conflict-header">
+            <div className="conflict-header-icon">
+              <WarningIcon size={20} />
+            </div>
+            <div className="conflict-header-text">
+              <h2>This conflict can&apos;t be resolved here</h2>
+              <p className="conflict-file-info">
+                <span className="conflict-file-name">{currentFile.filePath}</span>
+              </p>
+            </div>
+          </div>
+          <div className="conflict-binary">
+            <p>{fileNotice}</p>
+            {onSendToAgent && (
+              <button className="conflict-send-btn" onClick={handleSendToAgent}>
+                Send to Agent
+              </button>
+            )}
+            <button
+              className="conflict-btn secondary"
+              onClick={() => void handleAbort()}
+              disabled={isApplying}
+            >
+              Abort Merge
+            </button>
+          </div>
+        </>
+      </ModalFrame>
+    );
+  }
+
   if (!currentFile || !currentConflict) {
     return null;
   }
