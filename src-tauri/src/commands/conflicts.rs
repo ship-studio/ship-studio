@@ -106,6 +106,36 @@ pub fn parse_conflicts(content: &str, all_lines: &[&str]) -> (Vec<ConflictBlock>
     (conflicts, ours_branch, theirs_branch)
 }
 
+/// Why a conflicted path can't be resolved as a text merge, if it can't.
+///
+/// `git diff --name-only --diff-filter=U` can list paths that aren't regular
+/// files on disk: submodule conflicts, file/directory type-change conflicts
+/// (one side of the merge turned the path into a directory), or paths that
+/// are gone locally. Reading those as text fails with an opaque I/O error
+/// ("Is a directory", issue #528), so callers skip the text-merge flow for
+/// them and surface this reason instead.
+pub fn non_text_mergeable_reason(path: &std::path::Path) -> Option<String> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() => None,
+        Ok(meta) if meta.is_dir() => Some(
+            "This conflict involves a folder (a submodule or a file/folder type change), so it \
+             can't be resolved as a text merge here. Resolve it with git in a terminal, or hand \
+             the merge to your agent."
+                .to_string(),
+        ),
+        Ok(_) => Some(
+            "This conflicted path isn't a regular text file, so it can't be resolved as a text \
+             merge here. Resolve it with git in a terminal, or hand the merge to your agent."
+                .to_string(),
+        ),
+        Err(_) => Some(
+            "This conflicted file is missing on disk, so it can't be resolved as a text merge \
+             here. Resolve it with git in a terminal, or hand the merge to your agent."
+                .to_string(),
+        ),
+    }
+}
+
 /// Get information about all conflicted files in the repository
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path))]
@@ -131,6 +161,25 @@ pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFil
     for file in files {
         let file_path = validated_path.join(file);
 
+        // Non-regular-file conflicts (submodules, file/folder type changes)
+        // can't be parsed as a text merge — record them with a per-file
+        // status instead of failing or silently dropping them (issue #528).
+        if let Some(reason) = non_text_mergeable_reason(&file_path) {
+            tracing::warn!(
+                file = %file,
+                "Conflicted path is not a regular file; skipping text-merge parsing"
+            );
+            conflicted_files.push(ConflictedFile {
+                file_path: file.to_string(),
+                is_binary: false,
+                conflicts: Vec::new(),
+                ours_branch: "current".to_string(),
+                theirs_branch: "incoming".to_string(),
+                unsupported_reason: Some(reason),
+            });
+            continue;
+        }
+
         // Check if file is binary
         let is_binary = crate::utils::git_command_in(&validated_path)?
             .args(["diff", "--numstat", file])
@@ -148,6 +197,7 @@ pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFil
                 conflicts: Vec::new(),
                 ours_branch: "current".to_string(),
                 theirs_branch: "incoming".to_string(),
+                unsupported_reason: None,
             });
             continue;
         }
@@ -155,7 +205,10 @@ pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFil
         // Read file content and parse conflicts
         let content = match std::fs::read_to_string(&file_path) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => {
+                tracing::warn!(file = %file, "Failed to read conflicted file, skipping: {e}");
+                continue;
+            }
         };
 
         let all_lines: Vec<&str> = content.lines().collect();
@@ -168,6 +221,7 @@ pub async fn get_conflict_info(project_path: String) -> Result<Vec<ConflictedFil
                 conflicts,
                 ours_branch,
                 theirs_branch,
+                unsupported_reason: None,
             });
         }
     }
@@ -187,9 +241,17 @@ pub async fn resolve_conflict(
     let validated_path = validate_project_path(&project_path)?;
     let full_path = validated_path.join(&file_path);
 
+    // A file/folder type-change or submodule conflict can't be text-merged;
+    // reading it would fail with a raw "Is a directory" I/O error (issue
+    // #528). This is a repository state, not an app bug — expected.
+    if let Some(reason) = non_text_mergeable_reason(&full_path) {
+        tracing::warn!(file = %file_path, "Conflicted path is not a regular file; refusing text-merge resolution");
+        return Err(CommandError::expected(reason));
+    }
+
     // Read the current file content
-    let content =
-        std::fs::read_to_string(&full_path).map_err(|e| format!("Failed to read file: {e}"))?;
+    let content = std::fs::read_to_string(&full_path)
+        .map_err(|e| format!("Failed to read conflicted file `{file_path}`: {e}"))?;
 
     let lines: Vec<&str> = content.lines().collect();
     let mut result = Vec::new();
@@ -254,11 +316,12 @@ pub async fn resolve_conflict(
         new_content
     };
 
-    std::fs::write(&full_path, final_content).map_err(|e| format!("Failed to write file: {e}"))?;
+    std::fs::write(&full_path, final_content)
+        .map_err(|e| format!("Failed to write resolved file `{file_path}`: {e}"))?;
 
     // Check if there are any remaining conflicts in this file
     let updated_content = std::fs::read_to_string(&full_path)
-        .map_err(|e| format!("Failed to read updated file: {e}"))?;
+        .map_err(|e| format!("Failed to read updated file `{file_path}`: {e}"))?;
 
     let has_more_conflicts = updated_content.contains("<<<<<<<");
 
@@ -397,6 +460,38 @@ mod tests {
         assert_eq!(conflicts[0].incoming_content, "b1");
         assert_eq!(conflicts[1].current_content, "a2");
         assert_eq!(conflicts[1].incoming_content, "b2");
+    }
+
+    #[test]
+    fn regular_file_is_text_mergeable() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("conflicted.txt");
+        std::fs::write(&file, "<<<<<<< HEAD\na\n=======\nb\n>>>>>>> other\n").unwrap();
+        assert_eq!(non_text_mergeable_reason(&file), None);
+    }
+
+    #[test]
+    fn directory_conflict_yields_folder_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("was-a-file");
+        std::fs::create_dir(&sub).unwrap();
+        let reason = non_text_mergeable_reason(&sub).expect("directory must not be text-merged");
+        assert!(
+            reason.contains("folder"),
+            "reason should mention folder: {reason}"
+        );
+    }
+
+    #[test]
+    fn missing_path_yields_missing_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("deleted-locally.txt");
+        let reason =
+            non_text_mergeable_reason(&gone).expect("missing path must not be text-merged");
+        assert!(
+            reason.contains("missing"),
+            "reason should mention missing: {reason}"
+        );
     }
 
     #[test]

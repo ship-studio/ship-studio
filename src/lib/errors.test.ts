@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   asCommandError,
+  describeProcessError,
   formatCommandError,
   friendlyProcessError,
   humanizeGitError,
@@ -103,6 +104,34 @@ describe('friendlyProcessError', () => {
 
   it('strips the "Error: " prefix from stringified errors', () => {
     expect(friendlyProcessError('Error: clone failed')).toBe('clone failed');
+  });
+
+  it('maps git-over-SSH publickey failures to SSH/HTTPS guidance (issue #531)', () => {
+    // gh wraps git and exits 1, so only the text identifies the failure.
+    const raw =
+      "Process exited with code 1\n\nCloning into 'laisy-full'...\ngit@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\nPlease make sure you have the correct access rights\nand the repository exists.\nfailed to run git: exit status 128";
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toMatch(/SSH/);
+    expect(info.message).toContain('gh config set git_protocol https');
+    expect(info.message).not.toContain('Cloning into');
+  });
+
+  it('maps npm E401 registry auth failures to `npm login` guidance (issue #505)', () => {
+    const raw =
+      'Process exited with code 1\n\nnpm warn deprecated something\nnpm error code E401\nnpm error Incorrect or missing password.\nnpm error To correct this please try logging in again with:\nnpm error   npm login';
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('npm login');
+    expect(info.message).not.toContain('npm warn');
+    // Legacy "npm ERR!" prefix matches too.
+    expect(describeProcessError('npm ERR! code E401').expected).toBe(true);
+  });
+
+  it('classifies recognized shapes as expected and unknown ones as not', () => {
+    expect(describeProcessError('sh: pnpm: command not found').expected).toBe(true);
+    expect(describeProcessError('Process exited with code 128').expected).toBe(true);
+    expect(describeProcessError(new Error('segfault in importer')).expected).toBe(false);
   });
 
   it('supports caller-provided extra exit-code mappings', () => {

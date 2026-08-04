@@ -26,6 +26,11 @@ export interface ConflictedFile {
   conflicts: ConflictBlock[];
   oursBranch: string;
   theirsBranch: string;
+  /**
+   * Set when the conflicted path can't be resolved as a text merge (submodule
+   * or file/folder type-change conflicts). `conflicts` is empty for these.
+   */
+  unsupportedReason?: string;
 }
 
 /**
@@ -47,6 +52,7 @@ export async function getConflictInfo(projectPath: string): Promise<ConflictedFi
       }>;
       ours_branch: string;
       theirs_branch: string;
+      unsupported_reason?: string | null;
     }>
   >('get_conflict_info', { projectPath });
 
@@ -64,6 +70,7 @@ export async function getConflictInfo(projectPath: string): Promise<ConflictedFi
     })),
     oursBranch: file.ours_branch,
     theirsBranch: file.theirs_branch,
+    unsupportedReason: file.unsupported_reason ?? undefined,
   }));
 }
 

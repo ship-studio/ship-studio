@@ -810,6 +810,19 @@ async fn proxy_http_request(
     }
 }
 
+/// Connect failures that mean "the dev server isn't listening right now":
+/// refused (nothing bound to the port) or silent (SYN unanswered mid-restart,
+/// surfaced as a per-attempt timeout). Both are normal states while a dev
+/// server restarts or is stopped — an environment condition, not a proxy bug —
+/// so exhausting the retry budget on them logs at warn level instead of
+/// auto-filing an error report (issue #532).
+fn ws_upstream_unavailable(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::TimedOut
+    )
+}
+
 /// Handle WebSocket upgrade by forwarding the upgrade to the target and piping
 /// the upgraded connections bidirectionally.
 async fn handle_websocket_upgrade(
@@ -841,6 +854,7 @@ async fn handle_websocket_upgrade(
     // can just go unanswered — and a single hung attempt must not eat the
     // entire retry window (issue #353).
     let per_attempt = std::time::Duration::from_secs(1);
+    let mut attempts: u32 = 0;
     let target_stream = loop {
         let remaining = connect_deadline.saturating_duration_since(tokio::time::Instant::now());
         let attempt =
@@ -848,15 +862,14 @@ async fn handle_websocket_upgrade(
                 .await
                 .map_err(std::io::Error::from)
                 .and_then(|r| r);
+        attempts += 1;
         match attempt {
             Ok(s) => break s,
             Err(e) => {
-                let retryable = matches!(
-                    e.kind(),
-                    std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::TimedOut
-                ) && tokio::time::Instant::now()
-                    + std::time::Duration::from_millis(250)
-                    < connect_deadline;
+                let unavailable = ws_upstream_unavailable(e.kind());
+                let retryable = unavailable
+                    && tokio::time::Instant::now() + std::time::Duration::from_millis(250)
+                        < connect_deadline;
                 if retryable {
                     // A timed-out attempt already consumed its slice of the
                     // budget; only refused connections need the backoff pause.
@@ -865,7 +878,27 @@ async fn handle_websocket_upgrade(
                     }
                     continue;
                 }
-                tracing::error!("[Proxy] WebSocket target connection failed: {}", e);
+                if unavailable {
+                    // The whole connect budget elapsed with the port refusing
+                    // or silent: the dev server is restarting slowly or
+                    // stopped. Expected state — closing the upgrade with 502
+                    // makes the browser-side HMR client retry on its own, so
+                    // this must not auto-file a bug report (issue #532).
+                    tracing::warn!(
+                        "[Proxy] WebSocket target localhost:{} unavailable after {} connect attempts over {:?}: {}",
+                        target_port,
+                        attempts,
+                        UPSTREAM_CONNECT_TIMEOUT,
+                        e
+                    );
+                } else {
+                    tracing::error!(
+                        "[Proxy] WebSocket target connection failed (port {}, attempt {}): {}",
+                        target_port,
+                        attempts,
+                        e
+                    );
+                }
                 return Ok(Response::builder()
                     .status(StatusCode::BAD_GATEWAY)
                     .body(full_body(Bytes::from("WebSocket proxy error")))
@@ -1149,10 +1182,27 @@ mod injector_tests {
 mod tests {
     use super::{
         is_auth_redirect_loop, is_document_navigation, redact_handshake_values,
-        rewrite_localhost_origin, sanitize_csp_for_preview,
+        rewrite_localhost_origin, sanitize_csp_for_preview, ws_upstream_unavailable,
     };
     use hyper::header::HeaderValue;
     use hyper::StatusCode;
+
+    #[test]
+    fn ws_connect_failure_classification() {
+        // Dev-server-restart states: expected, logged at warn (issue #532).
+        assert!(ws_upstream_unavailable(
+            std::io::ErrorKind::ConnectionRefused
+        ));
+        assert!(ws_upstream_unavailable(std::io::ErrorKind::TimedOut));
+        // Anything else is a genuine proxy problem and stays at error level.
+        assert!(!ws_upstream_unavailable(
+            std::io::ErrorKind::PermissionDenied
+        ));
+        assert!(!ws_upstream_unavailable(
+            std::io::ErrorKind::AddrNotAvailable
+        ));
+        assert!(!ws_upstream_unavailable(std::io::ErrorKind::Other));
+    }
 
     #[test]
     fn localhost_origin_is_rewritten_to_target_port() {
