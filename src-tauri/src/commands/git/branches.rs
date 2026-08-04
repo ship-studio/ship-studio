@@ -308,10 +308,21 @@ pub async fn switch_branch(
         // guard and fails resolving it as a pathspec — turn that confusing
         // two-line error into a clear "your git is too old" (issue #364).
         let error_message = if stderr.contains("pathspec '--end-of-options'") {
-            "Your installed Git is too old for Ship Studio (Git 2.24 from 2019 or newer is \
-             required). Update Git — on macOS, update the Xcode Command Line Tools or run \
-             `brew install git` — then try again."
-                .to_string()
+            // Remediation must match the OS the app is running on — telling a
+            // Windows user to `brew install git` is a dead end (issue #513).
+            let remediation = if cfg!(target_os = "windows") {
+                "run `winget install --id Git.Git` or download the installer from \
+                 git-scm.com/download/win"
+            } else if cfg!(target_os = "linux") {
+                "install it with your distribution's package manager (e.g. `apt install git`, \
+                 `dnf install git`, or `pacman -S git`)"
+            } else {
+                "update the Xcode Command Line Tools or run `brew install git`"
+            };
+            format!(
+                "Your installed Git is too old for Ship Studio (Git 2.24 from 2019 or newer \
+                 is required). Update Git — {remediation} — then try again."
+            )
         } else if stderr.contains("resolve your current index first")
             || stderr.contains("needs merge")
         {
