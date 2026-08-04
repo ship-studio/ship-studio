@@ -5,8 +5,12 @@ use crate::errors::CommandError;
 use crate::external_command::run_with_timeout;
 use crate::utils::validate_project_path;
 
-/// Ceiling for one capture-script run (page load + scroll + shot).
-const CAPTURE_TIMEOUT_SECS: u64 = 180;
+/// Ceiling for one capture-script run (page load + scroll + shot). Must cover
+/// the script's own worst-case inner budgets — two 60s goto attempts, the
+/// capped scroll pass, and the 120s full-page stitch — or we kill captures
+/// that were progressing legitimately and would have failed (or succeeded)
+/// with a far better error on their own (issue #527).
+const CAPTURE_TIMEOUT_SECS: u64 = 300;
 /// Ceiling for downloading Chromium during self-heal (~130MB).
 const BROWSER_INSTALL_TIMEOUT_SECS: u64 = 600;
 
@@ -60,6 +64,21 @@ async fn run_capture_script(
 
     // Other failures pass through — callers report status + stderr in detail.
     Ok(output)
+}
+
+/// Map a failed capture-script run to a `CommandError`. A connection refused
+/// that survived the in-script retry means the dev server went away mid-flight
+/// (crashed, restarted on another port) — an expected state exactly like the
+/// pre-capture readiness miss (#349), not an app malfunction (issue #514).
+fn capture_script_error(what: &str, url: &str, output: &std::process::Output) -> CommandError {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("ERR_CONNECTION_REFUSED") {
+        return CommandError::expected(format!(
+            "The dev server at {url} stopped responding while the screenshot was being captured. Wait for the preview to finish reloading, then try again."
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    (format!("{what} failed. stdout: {stdout} stderr: {stderr}")).into()
 }
 
 /// Parse the major version out of `node --version` output ("v16.17.0" -> 16).
@@ -269,7 +288,16 @@ const {{ chromium }} = require('playwright');
         try {{
             await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
         }} catch (err) {{
-            if (!String((err && err.message) || err).includes('Timeout')) throw err;
+            const msg = String((err && err.message) || err);
+            // A refused connection here, right after the Rust-side TCP
+            // readiness check passed, means the dev server died or is
+            // restarting in the gap between check and capture (issue #514) —
+            // give it a short beat before the one retry.
+            if (msg.includes('ERR_CONNECTION_REFUSED')) {{
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+            }} else if (!msg.includes('Timeout')) {{
+                throw err;
+            }}
             await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
         }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
@@ -298,11 +326,14 @@ const {{ chromium }} = require('playwright');
         // must not kill the whole capture (issue #438).
         }}).catch(() => {{}});
 
-        // Scroll slowly through the page to trigger lazy content and animations
+        // Scroll slowly through the page to trigger lazy content and animations.
+        // Capped: an infinite-scroll page would otherwise walk forever and eat
+        // the whole outer budget (issue #527).
         const scrollHeight = await page.evaluate(() => document.documentElement.scrollHeight).catch(() => 0);
         const viewportHeight = 800;
+        const maxScrollSteps = 40;
 
-        for (let y = 0; y < scrollHeight; y += viewportHeight / 2) {{
+        for (let step = 0, y = 0; y < scrollHeight && step < maxScrollSteps; step++, y += viewportHeight / 2) {{
             await page.evaluate((scrollY) => window.scrollTo(0, scrollY), y).catch(() => {{}});
             await page.waitForTimeout(300); // Pause for animations to trigger
         }}
@@ -367,10 +398,7 @@ const {{ chromium }} = require('playwright');
         return Ok(screenshot_path_str);
     }
 
-    // If failed, return error with details
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Err((format!("Playwright screenshot failed. stdout: {stdout} stderr: {stderr}")).into())
+    Err(capture_script_error("Playwright screenshot", &url, &output))
 }
 
 /// Capture a viewport screenshot using Playwright.
@@ -437,7 +465,16 @@ const {{ chromium }} = require('playwright');
         try {{
             await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
         }} catch (err) {{
-            if (!String((err && err.message) || err).includes('Timeout')) throw err;
+            const msg = String((err && err.message) || err);
+            // A refused connection here, right after the Rust-side TCP
+            // readiness check passed, means the dev server died or is
+            // restarting in the gap between check and capture (issue #514) —
+            // give it a short beat before the one retry.
+            if (msg.includes('ERR_CONNECTION_REFUSED')) {{
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+            }} else if (!msg.includes('Timeout')) {{
+                throw err;
+            }}
             await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
         }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
@@ -507,13 +544,47 @@ const {{ chromium }} = require('playwright');
         return Ok(screenshot_path_str);
     }
 
-    // If failed, return error with details
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Err(
-        (format!("Playwright viewport screenshot failed. stdout: {stdout} stderr: {stderr}"))
-            .into(),
-    )
+    Err(capture_script_error(
+        "Playwright viewport screenshot",
+        &url,
+        &output,
+    ))
+}
+
+#[cfg(test)]
+mod capture_error_tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+
+    fn failed_output(stderr: &str) -> std::process::Output {
+        std::process::Output {
+            status: std::process::ExitStatus::from_raw(256),
+            stdout: Vec::new(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    #[test]
+    fn connection_refused_after_retry_is_expected_not_telemetry() {
+        // Issue #514: the server dying between readiness check and capture is
+        // an expected race, not an app bug.
+        let output =
+            failed_output("page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:3000/");
+        match capture_script_error("Playwright screenshot", "http://localhost:3000", &output) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("stopped responding"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn other_failures_stay_real_errors_with_detail() {
+        let output = failed_output("SyntaxError: something broke");
+        let err = capture_script_error("Playwright screenshot", "http://localhost:3000", &output);
+        assert!(!matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("something broke"));
+    }
 }
 
 #[cfg(test)]

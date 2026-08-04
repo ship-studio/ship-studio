@@ -336,7 +336,18 @@ pub async fn capture_project_thumbnail(
                         .code()
                         .map(|c| c.to_string())
                         .unwrap_or_else(|| "killed by signal".to_string());
-                    if stdout.is_empty() {
+                    if output.status.success() && stdout.is_empty() {
+                        // Exit 0 + silence + no file: the browser thinks it
+                        // succeeded but nothing landed on disk — seen on
+                        // Windows when rendering fails internally or security
+                        // software intercepts the write (issue #526). Name the
+                        // shape so reports are diagnosable, instead of the
+                        // meaningless "exit code 0, no output".
+                        format!(
+                            "browser exited successfully but wrote no screenshot file at {} — page render failed silently or the file write was blocked",
+                            temp_path.display()
+                        )
+                    } else if stdout.is_empty() {
                         format!("exit code {code}, no output")
                     } else {
                         let snippet: String = stdout.chars().take(300).collect();

@@ -35,9 +35,10 @@ pub async fn run_with_timeout(
     debug!(cmd = %label, timeout_secs, "spawning external command");
 
     // When the timeout fires, the output() future is dropped — without
-    // kill_on_drop the child would keep running (and e.g. a timed-out
-    // `git diff` keeps grinding a big repo in the background, issue #608;
-    // same class as run_git_net's #556).
+    // kill_on_drop the child would keep running (a timed-out headless-browser
+    // capture lingered forever, issue #510; a timed-out `git diff` keeps
+    // grinding a big repo in the background, issue #608; same class as
+    // run_git_net's #556).
     cmd.kill_on_drop(true);
 
     // Retry transient EAGAIN spawn failures in place (issue #616): the
@@ -612,6 +613,31 @@ mod tests {
             &capped[capped.len().saturating_sub(40)..]
         );
         assert!(capped.chars().count() <= MAX_ERROR_OUTPUT_CHARS + "… (truncated)".len());
+    }
+
+    #[tokio::test]
+    async fn timed_out_child_is_killed_not_orphaned() {
+        // The child would touch the marker at t=2s; the 1s timeout must kill
+        // it (issue #510), so after waiting past t=2s the marker can't exist.
+        let marker = std::env::temp_dir().join(format!(
+            "shipstudio-kill-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("sleep 2 && touch '{}'", marker.display()));
+        let err = run_with_timeout(cmd, "orphan probe", 1).await.unwrap_err();
+        assert!(matches!(err, CommandError::Timeout { .. }));
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        assert!(
+            !marker.exists(),
+            "child survived the timeout and touched the marker"
+        );
+        let _ = std::fs::remove_file(&marker);
     }
 
     #[tokio::test]
