@@ -37,16 +37,26 @@ const MIN_SNAPSHOT_HEIGHT = 150;
  */
 export function previewSnapshotRect(doc: Document = document): SnapshotRect | null {
   const iframe = doc.querySelector<HTMLIFrameElement>(PREVIEW_IFRAME_SELECTOR);
-  if (!iframe) return null;
+  if (!iframe) {
+    logger.info('[Thumbnail] Native snapshot declined: no preview iframe mounted');
+    return null;
+  }
 
   const rect = iframe.getBoundingClientRect();
-  if (rect.width < MIN_SNAPSHOT_WIDTH || rect.height < MIN_SNAPSHOT_HEIGHT) return null;
+  if (rect.width < MIN_SNAPSHOT_WIDTH || rect.height < MIN_SNAPSHOT_HEIGHT) {
+    logger.info('[Thumbnail] Native snapshot declined: preview too small', {
+      width: rect.width,
+      height: rect.height,
+    });
+    return null;
+  }
 
   const win = doc.defaultView;
   if (!win) return null;
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;
   if (centerX < 0 || centerY < 0 || centerX > win.innerWidth || centerY > win.innerHeight) {
+    logger.info('[Thumbnail] Native snapshot declined: preview center off-screen');
     return null;
   }
 
@@ -55,7 +65,12 @@ export function previewSnapshotRect(doc: Document = document): SnapshotRect | nu
   // overlay (modal, dropdown, edit-mode chrome) is covering it. A null
   // result (jsdom, exotic edge cases) is treated as clear.
   const topmost = doc.elementFromPoint(centerX, centerY);
-  if (topmost && topmost !== iframe) return null;
+  if (topmost && topmost !== iframe) {
+    logger.info('[Thumbnail] Native snapshot declined: preview covered by overlay', {
+      coveredBy: `${topmost.tagName.toLowerCase()}.${String(topmost.className).slice(0, 60)}`,
+    });
+    return null;
+  }
 
   return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
 }
@@ -66,7 +81,10 @@ export function previewSnapshotRect(doc: Document = document): SnapshotRect | nu
  * headless capture path. Never throws.
  */
 export async function captureThumbnailFromPreview(projectPath: string): Promise<boolean> {
-  if (document.hidden) return false;
+  if (document.hidden) {
+    logger.info('[Thumbnail] Native snapshot declined: window hidden/occluded');
+    return false;
+  }
   const rect = previewSnapshotRect();
   if (!rect) return false;
 
@@ -82,6 +100,9 @@ export async function captureThumbnailFromPreview(projectPath: string): Promise<
       message.includes('not supported on this platform') ||
       message.includes('already in progress') ||
       message.includes('too small or invalid');
+    if (quietFallback) {
+      logger.info('[Thumbnail] Native snapshot declined by backend', { reason: message });
+    }
     if (!quietFallback) {
       logger.warn('[Thumbnail] Native webview snapshot failed, falling back to headless', {
         error: message,

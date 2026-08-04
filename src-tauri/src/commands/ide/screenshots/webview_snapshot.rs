@@ -134,7 +134,16 @@ async fn snapshot_webview_region(
 
                 let block = block2::RcBlock::new(
                     move |image: *mut AnyObject, error: *mut AnyObject| {
-                        let _ = tx.send(png_bytes_from_snapshot(image, error));
+                        // A panic here unwinds across the Objective-C block
+                        // boundary and aborts the entire app — degrade any
+                        // internal error to a failed capture instead.
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                            || png_bytes_from_snapshot(image, error),
+                        ))
+                        .unwrap_or_else(|_| {
+                            Err("internal panic during snapshot conversion".to_string())
+                        });
+                        let _ = tx.send(result);
                     },
                 );
                 let _: () = msg_send![wk, takeSnapshotWithConfiguration: config, completionHandler: &*block];
@@ -203,12 +212,15 @@ unsafe fn png_bytes_from_snapshot(
     if png.is_null() {
         return Err("PNG encoding of the snapshot failed".to_string());
     }
-    let bytes: *const u8 = msg_send![png, bytes];
+    // NB: -[NSData bytes] returns `const void *` (objc type code `^v`) — typing
+    // this as `*const u8` (code `*`) trips objc2's encoding verification and
+    // panics in debug builds.
+    let bytes: *const std::ffi::c_void = msg_send![png, bytes];
     let len: usize = msg_send![png, length];
     if bytes.is_null() || len == 0 {
         return Err("PNG encoding produced empty data".to_string());
     }
-    Ok(std::slice::from_raw_parts(bytes, len).to_vec())
+    Ok(std::slice::from_raw_parts(bytes.cast::<u8>(), len).to_vec())
 }
 
 #[cfg(not(target_os = "macos"))]
