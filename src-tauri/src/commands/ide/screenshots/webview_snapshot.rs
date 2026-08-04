@@ -82,14 +82,92 @@ pub async fn capture_thumbnail_from_webview(
             .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
     }
     let thumbnail_path = shipstudio_dir.join("thumbnail.png");
-    std::fs::write(&thumbnail_path, &png_bytes)
-        .map_err(|e| format!("Failed to write thumbnail: {e}"))?;
+    // The iframe's layout box can extend a few CSS pixels past its rendered
+    // page, leaking a sliver of the app's dark background into the snapshot
+    // edge (observed: ~10px of --bg-primary on the right). Trim near-uniform
+    // edge slivers before saving; the per-edge cap keeps real content safe.
+    match image::load_from_memory(&png_bytes) {
+        Ok(img) => {
+            let trimmed = trim_uniform_edges(img);
+            trimmed
+                .save(&thumbnail_path)
+                .map_err(|e| format!("Failed to save thumbnail: {e}"))?;
+        }
+        Err(_) => {
+            std::fs::write(&thumbnail_path, &png_bytes)
+                .map_err(|e| format!("Failed to write thumbnail: {e}"))?;
+        }
+    }
     // A Retina snapshot comes back at 2x pixels; normalize to the same 640px
     // width the headless path produces so the dashboard renders consistently.
     crate::commands::ide::resize_thumbnail_image(&thumbnail_path, 640);
 
     tracing::info!("Thumbnail captured via native webview snapshot");
     Ok(thumbnail_path.to_string_lossy().to_string())
+}
+
+/// Max per-channel spread within a row/column for it to count as a uniform
+/// sliver (tolerates anti-aliased boundary pixels; real content spreads far
+/// wider — the observed background sliver measured spread ≤ 12).
+const EDGE_UNIFORMITY_SPREAD: u8 = 16;
+/// Per-edge trim cap as a fraction of the dimension. Big enough for the
+/// observed ~10px background sliver, small enough that a legitimately
+/// uniform page region only ever loses an invisible sliver of itself.
+const EDGE_TRIM_CAP_FRACTION: f32 = 0.03;
+
+/// Trim near-uniform slivers from the snapshot's edges. Each edge is trimmed
+/// while its outermost row/column is a single flat color, up to the cap.
+fn trim_uniform_edges(img: image::DynamicImage) -> image::DynamicImage {
+    let rgb = img.to_rgb8();
+    let (w, h) = rgb.dimensions();
+    if w < 40 || h < 40 {
+        return img;
+    }
+
+    let col_uniform = |x: u32, y0: u32, y1: u32| -> bool {
+        let (mut min, mut max) = ([255u8; 3], [0u8; 3]);
+        for y in y0..y1 {
+            let p = rgb.get_pixel(x, y).0;
+            for c in 0..3 {
+                min[c] = min[c].min(p[c]);
+                max[c] = max[c].max(p[c]);
+            }
+        }
+        (0..3).all(|c| max[c] - min[c] <= EDGE_UNIFORMITY_SPREAD)
+    };
+    let row_uniform = |y: u32, x0: u32, x1: u32| -> bool {
+        let (mut min, mut max) = ([255u8; 3], [0u8; 3]);
+        for x in x0..x1 {
+            let p = rgb.get_pixel(x, y).0;
+            for c in 0..3 {
+                min[c] = min[c].min(p[c]);
+                max[c] = max[c].max(p[c]);
+            }
+        }
+        (0..3).all(|c| max[c] - min[c] <= EDGE_UNIFORMITY_SPREAD)
+    };
+
+    let cap_x = ((w as f32) * EDGE_TRIM_CAP_FRACTION) as u32;
+    let cap_y = ((h as f32) * EDGE_TRIM_CAP_FRACTION) as u32;
+
+    let (mut left, mut right, mut top, mut bottom) = (0u32, 0u32, 0u32, 0u32);
+    while right < cap_x && col_uniform(w - 1 - right, 0, h) {
+        right += 1;
+    }
+    while left < cap_x && col_uniform(left, 0, h) {
+        left += 1;
+    }
+    while bottom < cap_y && row_uniform(h - 1 - bottom, 0, w) {
+        bottom += 1;
+    }
+    while top < cap_y && row_uniform(top, 0, w) {
+        top += 1;
+    }
+
+    if left + right == 0 && top + bottom == 0 {
+        return img;
+    }
+    img.crop_imm(left, top, w - left - right, h - top - bottom)
 }
 
 #[cfg(target_os = "macos")]
@@ -233,6 +311,65 @@ async fn snapshot_webview_region(
     Err(CommandError::expected(
         "Native webview snapshot is not supported on this platform yet",
     ))
+}
+
+#[cfg(test)]
+mod trim_tests {
+    use super::*;
+    use image::{DynamicImage, Rgb, RgbImage};
+
+    /// Noisy "content" image: checkerboard so no row/column is uniform.
+    fn content_image(w: u32, h: u32) -> RgbImage {
+        RgbImage::from_fn(w, h, |x, y| {
+            if (x + y) % 2 == 0 {
+                Rgb([240, 238, 230])
+            } else {
+                Rgb([40, 60, 90])
+            }
+        })
+    }
+
+    #[test]
+    fn dark_right_sliver_is_trimmed() {
+        // Reproduces the observed bug: ~10px of app background (30,30,30)
+        // on the right edge of an 800x600 snapshot.
+        let mut img = content_image(800, 600);
+        for x in 790..800 {
+            for y in 0..600 {
+                img.put_pixel(x, y, Rgb([30, 30, 30]));
+            }
+        }
+        let out = trim_uniform_edges(DynamicImage::ImageRgb8(img));
+        assert_eq!(out.width(), 790, "sliver columns must be removed");
+        assert_eq!(out.height(), 600);
+    }
+
+    #[test]
+    fn clean_content_is_untouched() {
+        let out = trim_uniform_edges(DynamicImage::ImageRgb8(content_image(640, 480)));
+        assert_eq!((out.width(), out.height()), (640, 480));
+    }
+
+    #[test]
+    fn uniform_page_only_loses_capped_sliver() {
+        // A fully flat page (e.g. a solid splash screen) must survive — the
+        // per-edge cap stops the trim from eating the whole image.
+        let img = RgbImage::from_pixel(600, 400, Rgb([250, 250, 250]));
+        let out = trim_uniform_edges(DynamicImage::ImageRgb8(img));
+        assert!(out.width() >= 564, "width {} trimmed past cap", out.width());
+        assert!(
+            out.height() >= 376,
+            "height {} trimmed past cap",
+            out.height()
+        );
+    }
+
+    #[test]
+    fn tiny_images_are_left_alone() {
+        let img = RgbImage::from_pixel(30, 30, Rgb([30, 30, 30]));
+        let out = trim_uniform_edges(DynamicImage::ImageRgb8(img));
+        assert_eq!((out.width(), out.height()), (30, 30));
+    }
 }
 
 #[cfg(test)]
