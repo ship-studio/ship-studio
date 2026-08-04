@@ -32,10 +32,10 @@ static CAPTURES_IN_FLIGHT: LazyLock<Mutex<HashSet<String>>> =
 
 /// RAII claim on a project's capture slot — released on every exit path,
 /// including timeouts and panics.
-struct CaptureClaim(String);
+pub(super) struct CaptureClaim(String);
 
 impl CaptureClaim {
-    fn try_new(project: &Path) -> Option<Self> {
+    pub(super) fn try_new(project: &Path) -> Option<Self> {
         let key = project.to_string_lossy().to_string();
         let mut in_flight = CAPTURES_IN_FLIGHT
             .lock()
@@ -129,7 +129,7 @@ fn browser_failure_detail(stderr: &str) -> Option<String> {
 /// Returns true when the project's metadata marks the thumbnail as
 /// user-supplied — auto-capture must skip these so it doesn't clobber
 /// the upload on the next dev-server boot.
-fn is_thumbnail_locked(project: &Path) -> bool {
+pub(super) fn is_thumbnail_locked(project: &Path) -> bool {
     let metadata_path = project.join(".shipstudio").join("project.json");
     let Ok(contents) = std::fs::read_to_string(&metadata_path) else {
         return false;

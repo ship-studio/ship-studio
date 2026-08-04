@@ -8,16 +8,19 @@
 //! - `playwright` — Playwright environment management, full-page and viewport captures
 //! - `stitch` — stitch multiple screenshots into a single full-page image
 //! - `thumbnail` — project thumbnail capture and retrieval
+//! - `webview_snapshot` — native in-app preview snapshot (no headless browser)
 
 mod base;
 mod playwright;
 mod stitch;
 mod thumbnail;
+mod webview_snapshot;
 
 pub use base::*;
 pub use playwright::*;
 pub use stitch::*;
 pub use thumbnail::*;
+pub use webview_snapshot::*;
 
 /// Quick TCP probe of the dev-server port in `url` (IPv4 and IPv6 — some dev
 /// servers, especially Vite, bind only IPv6; 500ms timeout each). Callers use

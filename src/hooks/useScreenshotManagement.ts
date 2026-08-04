@@ -13,6 +13,7 @@ import { trackEvent } from '../lib/analytics';
 import { getThumbnailsEnabled, setThumbnailsEnabled } from '../lib/settings';
 import { decideAutoCapture, isPermissionDenialError } from '../lib/thumbnailGate';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import { captureThumbnailFromPreview } from '../lib/previewSnapshot';
 
 /** Backend rejection meaning the project's root directory no longer exists
  *  (deleted, renamed, or moved while its session stayed hot). Permanent for
@@ -185,6 +186,17 @@ export function useScreenshotManagement({
           pendingConsentCaptureRef.current = { projectPath, sessionId };
           setShowThumbnailConsent(true);
         }
+        return;
+      }
+      // Preferred path: snapshot the preview straight out of the app's own
+      // webview — no headless browser, none of its failure modes. Falls
+      // through to the headless path when unavailable (non-macOS, preview
+      // hidden/covered, backend error). Never throws.
+      if (await captureThumbnailFromPreview(projectPath)) {
+        logger.info('[Thumbnail] Captured via native webview snapshot', {
+          projectPath,
+          attempt,
+        });
         return;
       }
       try {
