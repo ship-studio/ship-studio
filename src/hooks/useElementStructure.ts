@@ -59,7 +59,7 @@ interface Params {
   projectPath: string;
   /** Active whenever either styling editor's edit mode is on. */
   enabled: boolean;
-  onToast?: (message: string, type?: 'success' | 'error') => void;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 /** How long after a write the iframe `load` handler still replays the reselect. */
@@ -209,7 +209,12 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
           // classified these as non-reportable on the Rust side (issue #402).
           logger.warn('[ElementStructure] structural edit refused', { error: message });
         }
-        onToast?.(friendly, 'error');
+        // Recognized refusals also skip the 'error' toast type: error toasts
+        // re-enter telemetry through useToasts' `source: 'toast'` reporting
+        // path, re-reporting what the logger.warn branch above deliberately
+        // kept out (issues #437/#515). 'info' keeps the toast visible without
+        // filing a bug.
+        onToast?.(friendly, friendly === message ? 'error' : 'info');
       } finally {
         busyRef.current = false;
         setBusy(false);

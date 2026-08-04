@@ -24,7 +24,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button } from '../primitives/Button';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { humanizeGitError } from '../../lib/errors';
 
 /** Props for the GitHubButton component */
 interface GitHubButtonProps {
@@ -317,8 +317,13 @@ export function GitHubButton({
                     setIsCreatingRepo(false);
                   }, 3000);
                 } catch (e) {
-                  setError(formatCommandError(asCommandError(e)));
-                  onToast?.('Failed to create repository', 'error');
+                  // Include the humanized cause in the toast: a static string
+                  // collapses every failure mode (auth, name collision,
+                  // network…) into one undiagnosable telemetry fingerprint
+                  // (issue #511).
+                  const detail = humanizeGitError(e);
+                  setError(detail);
+                  onToast?.(`Failed to create repository: ${detail}`, 'error');
                   setIsLoading(false);
                   setIsCreatingRepo(false);
                 }

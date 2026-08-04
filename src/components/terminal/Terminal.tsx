@@ -1163,10 +1163,22 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           return true; // Allow all other keys
         });
       } catch (err) {
-        logger.error('[Terminal] Failed to spawn PTY', {
+        const spawnError = formatCommandError(asCommandError(err));
+        // The backend classifies "agent binary can't be resolved" spawn
+        // failures as Expected (issue #329), but Expected serializes across
+        // IPC identically to Other, so re-check the same message patterns
+        // pty_session_open recognizes. The user already gets the friendly
+        // notFoundMessage/installHint below — logger.error would additionally
+        // file a bug report for a machine that simply lacks the CLI (#522).
+        const lower = spawnError.toLowerCase();
+        const binaryNotFound =
+          lower.includes('no viable candidates found in path') ||
+          lower.includes('does not exist') ||
+          lower.includes('not executable');
+        logger[binaryNotFound ? 'warn' : 'error']('[Terminal] Failed to spawn PTY', {
           agent: agent.id,
           binary: agent.binaryName,
-          error: formatCommandError(asCommandError(err)),
+          error: spawnError,
           retry: retryCount,
         });
 
@@ -1178,9 +1190,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           );
           setTimeout(() => void setupPty(retryCount + 1), 1000);
         } else {
-          term.write(
-            `\x1b[31m${agent.notFoundMessage}: ${formatCommandError(asCommandError(err))}\x1b[0m\r\n`
-          );
+          term.write(`\x1b[31m${agent.notFoundMessage}: ${spawnError}\x1b[0m\r\n`);
           term.write(`\x1b[33m${agent.installHint}\x1b[0m\r\n`);
         }
       }

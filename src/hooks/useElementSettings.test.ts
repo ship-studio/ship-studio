@@ -28,8 +28,12 @@ vi.mock('../lib/edit-html', () => ({
 }));
 // trackEvent would otherwise reach for a real Tauri IPC on a saved edit.
 vi.mock('../lib/analytics', () => ({ trackEvent: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../lib/logger', () => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
 
 import { useElementSettings } from './useElementSettings';
+import { logger } from '../lib/logger';
 import {
   resolveClassnameSource,
   applyClassnameEdit,
@@ -131,6 +135,14 @@ describe('useElementSettings addClass', () => {
       expect.stringContaining("Couldn't tell which <div> in source"),
       'error'
     );
+    // The log carries the same formatted message — a plain CommandError object
+    // through String(err) would log "[object Object]" (issues #516/#517).
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    const errorLog = logger.error as Fn;
+    const logged = (errorLog.mock.calls as Array<[string, { error: string }]>).find(
+      ([msg]) => msg === '[ElementSettings] add class failed'
+    );
+    expect(logged?.[1].error).toContain("Couldn't tell which <div>");
     // Nothing was written — the class list stays empty.
     expect(result.current.classes).toEqual([]);
   });

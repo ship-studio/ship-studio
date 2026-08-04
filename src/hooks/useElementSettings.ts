@@ -158,7 +158,7 @@ export function useElementSettings({
         setAttributes(parseAttributes(newHtml));
         void trackEvent('visual_style_saved', { mode: 'css-code', attr_edit: true });
       } catch (err) {
-        logger.error('[ElementSettings] attribute edit failed', { error: String(err) });
+        logger.error('[ElementSettings] attribute edit failed', { error: toastText(err) });
         onToast(toastText(err), 'error');
       } finally {
         setBusy(false);
@@ -189,7 +189,7 @@ export function useElementSettings({
         setAttributes(parseAttributes(newHtml));
         void trackEvent('visual_style_saved', { mode: 'css-code', attr_edit: true });
       } catch (err) {
-        logger.error('[ElementSettings] attribute rename failed', { error: String(err) });
+        logger.error('[ElementSettings] attribute rename failed', { error: toastText(err) });
         onToast(toastText(err), 'error');
       } finally {
         setBusy(false);
@@ -259,7 +259,7 @@ export function useElementSettings({
           void trackEvent('visual_class_added', { mode: 'css-code' });
         }
       } catch (err) {
-        logger.error('[ElementSettings] add class failed', { error: String(err) });
+        logger.error('[ElementSettings] add class failed', { error: toastText(err) });
         onToast(toastText(err), 'error');
       } finally {
         setBusy(false);
@@ -278,7 +278,7 @@ export function useElementSettings({
           void trackEvent('visual_class_removed', { mode: 'css-code' });
         }
       } catch (err) {
-        logger.error('[ElementSettings] remove class failed', { error: String(err) });
+        logger.error('[ElementSettings] remove class failed', { error: toastText(err) });
         onToast(toastText(err), 'error');
       } finally {
         setBusy(false);
