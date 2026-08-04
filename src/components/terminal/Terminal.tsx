@@ -1163,12 +1163,27 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           return true; // Allow all other keys
         });
       } catch (err) {
-        logger.error('[Terminal] Failed to spawn PTY', {
-          agent: agent.id,
-          binary: agent.binaryName,
-          error: formatCommandError(asCommandError(err)),
-          retry: retryCount,
-        });
+        const formatted = formatCommandError(asCommandError(err));
+        const lower = formatted.toLowerCase();
+        const isExpected =
+          lower.includes('no viable candidates found in path') ||
+          lower.includes('does not exist') ||
+          lower.includes('not executable');
+        if (isExpected) {
+          logger.warn('[Terminal] Failed to spawn PTY (expected — binary not found)', {
+            agent: agent.id,
+            binary: agent.binaryName,
+            error: formatted,
+            retry: retryCount,
+          });
+        } else {
+          logger.error('[Terminal] Failed to spawn PTY', {
+            agent: agent.id,
+            binary: agent.binaryName,
+            error: formatted,
+            retry: retryCount,
+          });
+        }
 
         if (!mounted) return;
 
