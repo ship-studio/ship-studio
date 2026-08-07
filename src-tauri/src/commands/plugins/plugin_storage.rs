@@ -44,8 +44,11 @@ pub fn read_plugin_storage(
         return Ok(serde_json::Value::Object(serde_json::Map::new()));
     }
 
-    let content = fs::read_to_string(&storage_path)
-        .map_err(|e| format!("Failed to read plugin storage: {e}"))?;
+    // classify_fs_error: macOS TCC's EPERM (project under Desktop/Documents/
+    // iCloud …) becomes an actionable Expected, not telemetry noise (#605).
+    let content = fs::read_to_string(&storage_path).map_err(|e| {
+        crate::utils::classify_fs_error("read this project's plugin storage", &storage_path, &e)
+    })?;
 
     serde_json::from_str(&content).map_err(|e| CommandError::Other {
         message: format!("Failed to parse plugin storage: {e}"),
@@ -71,15 +74,16 @@ pub fn write_plugin_storage(
 
     // Ensure parent directory exists
     if let Some(parent) = storage_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create storage directory: {e}"))?;
+        fs::create_dir_all(parent).map_err(|e| {
+            crate::utils::classify_fs_error("create this project's plugin storage folder", parent, &e)
+        })?;
     }
 
     let content = serde_json::to_string_pretty(&data)
         .map_err(|e| format!("Failed to serialize storage data: {e}"))?;
 
-    fs::write(&storage_path, content).map_err(|e| CommandError::Io {
-        message: format!("Failed to write plugin storage: {e}"),
+    fs::write(&storage_path, content).map_err(|e| {
+        crate::utils::classify_fs_error("write this project's plugin storage", &storage_path, &e)
     })
 }
 

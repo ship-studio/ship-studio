@@ -464,6 +464,33 @@ where
     unreachable!("loop always returns on the final attempt")
 }
 
+/// Classify a filesystem `io::Error` for a user-facing command error.
+///
+/// macOS TCC's EPERM denial (`os error 1` — Privacy & Security blocking
+/// Desktop/Documents/Downloads/iCloud/external volumes) is an environment
+/// condition with a user-side fix, so it becomes an actionable `Expected`
+/// with the Files & Folders remediation instead of a bare "Operation not
+/// permitted" telemetry bug — the same treatment `read_projects_dir` got in
+/// #307, shared here so every fs call site classifies identically (issues
+/// #545, #605). Anything else stays a labeled `Io` for diagnosability.
+pub fn classify_fs_error(
+    action: &str,
+    path: &std::path::Path,
+    e: &std::io::Error,
+) -> crate::errors::CommandError {
+    if cfg!(target_os = "macos") && e.raw_os_error() == Some(1) {
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio isn't allowed to {action} ({}). Grant access in System Settings → \
+             Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
+            path.display()
+        ))
+    } else {
+        crate::errors::CommandError::Io {
+            message: format!("Failed to {action} ({}): {e}", path.display()),
+        }
+    }
+}
+
 /// Finds an executable by checking common installation paths.
 /// This is needed because bundled macOS apps don't inherit the user's shell PATH.
 /// On Windows, checks standard Program Files and AppData locations.
@@ -1221,6 +1248,47 @@ mod tests {
                 if !matches!(err, crate::errors::CommandError::Expected { .. }) {
                     assert!(err.to_string().contains("test_site"));
                 }
+            }
+        }
+    }
+
+    mod classify_fs_errors {
+        use super::*;
+
+        // The #545/#605 shape: TCC denying a read under ~/Desktop etc.
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn macos_eperm_becomes_expected_with_privacy_remediation() {
+            let e = std::io::Error::from_raw_os_error(1);
+            let err = classify_fs_error(
+                "read this project's plugin storage",
+                std::path::Path::new("/Users/x/Desktop/proj/.shipstudio"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("Privacy & Security"), "got: {msg}");
+            assert!(msg.contains("plugin storage"), "got: {msg}");
+            assert!(msg.contains("/Users/x/Desktop/proj"), "got: {msg}");
+        }
+
+        #[test]
+        fn other_io_errors_stay_labeled_io() {
+            let e = std::io::Error::new(std::io::ErrorKind::InvalidData, "corrupt");
+            let err = classify_fs_error(
+                "read this project's plugin registry",
+                std::path::Path::new("/p/registry.json"),
+                &e,
+            );
+            match err {
+                crate::errors::CommandError::Io { message } => {
+                    assert!(message.contains("plugin registry"), "got: {message}");
+                    assert!(message.contains("corrupt"), "got: {message}");
+                }
+                other => panic!("expected Io, got {other:?}"),
             }
         }
     }
