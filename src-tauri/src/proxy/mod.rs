@@ -1001,7 +1001,15 @@ async fn handle_websocket_upgrade(
                 target_port,
                 first_err
             );
-            let retried: Result<Response<hyper::body::Incoming>, String> = async {
+            // The reconnect's failure is kept as an io::Error so the final
+            // branch can classify refused/timed-out retries as the expected
+            // dev-server-restart state, exactly like the initial connect loop
+            // (issue #552). tokio's timeout Elapsed converts to ErrorKind::
+            // TimedOut — the same "SYN unanswered mid-restart" classification
+            // the loop above applies. Non-I/O arms (handshake, request build)
+            // are wrapped as ErrorKind::Other, which never classifies as
+            // expected.
+            let retried: Result<Response<hyper::body::Incoming>, std::io::Error> = async {
                 let remaining =
                     connect_deadline.saturating_duration_since(tokio::time::Instant::now());
                 let remaining = remaining.max(std::time::Duration::from_millis(500));
@@ -1010,28 +1018,46 @@ async fn handle_websocket_upgrade(
                     connect_loopback(target_port),
                 )
                 .await
-                .map_err(|_| "reconnect timed out".to_string())?
-                .map_err(|e| e.to_string())?;
+                .map_err(std::io::Error::from)
+                .and_then(|r| r)?;
                 let (mut retry_sender, retry_conn) = hyper::client::conn::http1::Builder::new()
                     .preserve_header_case(true)
                     .title_case_headers(true)
                     .handshake(TokioIo::new(stream))
                     .await
-                    .map_err(|e| e.to_string())?;
+                    .map_err(std::io::Error::other)?;
                 tokio::spawn(async move {
                     if let Err(e) = retry_conn.with_upgrades().await {
                         tracing::debug!("[Proxy] WebSocket retry client conn error: {}", e);
                     }
                 });
-                let req = build_forward(empty_body()).map_err(|e| e.to_string())?;
+                let req = build_forward(empty_body()).map_err(std::io::Error::other)?;
                 retry_sender
                     .send_request(req)
                     .await
-                    .map_err(|e| e.to_string())
+                    .map_err(std::io::Error::other)
             }
             .await;
             match retried {
                 Ok(r) => r,
+                Err(e) if ws_upstream_unavailable(e.kind()) => {
+                    // The retry's reconnect was refused or silent: the dev
+                    // server is still down/restarting — the same expected
+                    // state the initial connect loop logs at warn (issue
+                    // #532), so the retry path must not auto-file a bug
+                    // report either (issue #552). The browser-side HMR client
+                    // retries on its own after the 502.
+                    tracing::warn!(
+                        "[Proxy] WebSocket target 127.0.0.1:{} still unavailable on retry: {} (first attempt: {})",
+                        target_port,
+                        e,
+                        first_err
+                    );
+                    return Ok(Response::builder()
+                        .status(StatusCode::BAD_GATEWAY)
+                        .body(full_body(Bytes::from("WebSocket proxy error")))
+                        .unwrap());
+                }
                 Err(e) => {
                     // Include the upstream port: without it the report is
                     // uncorrelatable (issue #293).
@@ -1202,6 +1228,38 @@ mod tests {
             std::io::ErrorKind::AddrNotAvailable
         ));
         assert!(!ws_upstream_unavailable(std::io::ErrorKind::Other));
+    }
+
+    /// The one-shot WS retry path (issue #466) must feed the SAME
+    /// classification as the initial connect loop (issue #552): its error is
+    /// kept as an io::Error, with a refused reconnect keeping its kind, a
+    /// tokio timeout mapping to TimedOut, and non-I/O arms wrapped as Other
+    /// so they can never be misclassified as "expected".
+    #[tokio::test]
+    async fn ws_retry_errors_keep_their_classification() {
+        // A reconnect refusal keeps ConnectionRefused → expected (warn).
+        let refused = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        assert!(ws_upstream_unavailable(refused.kind()));
+
+        // The retry's reconnect timeout (tokio Elapsed → io::Error, the same
+        // `map_err(std::io::Error::from)` the initial loop uses) → TimedOut →
+        // expected (warn).
+        let elapsed: Result<(), _> = tokio::time::timeout(
+            std::time::Duration::from_millis(1),
+            std::future::pending::<()>(),
+        )
+        .await
+        .map_err(std::io::Error::from);
+        assert_eq!(
+            elapsed.unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut,
+            "tokio Elapsed must convert to TimedOut for the expected-state classification"
+        );
+
+        // Handshake / request-build failures are wrapped via io::Error::other
+        // → NOT classified as expected: they stay at error level.
+        let other = std::io::Error::other("handshake failed");
+        assert!(!ws_upstream_unavailable(other.kind()));
     }
 
     #[test]
