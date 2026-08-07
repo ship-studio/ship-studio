@@ -154,11 +154,83 @@ export function useTextEditing({ iframeRef, projectPath, enabled, onToast }: Par
             // CommandError rejections are plain objects — String() renders
             // them as "[object Object]" (issue #336); use the same formatter
             // as the toast below.
-            logger.error('[TextEditing] text write-back failed', {
-              error: formatCommandError(asCommandError(err)),
-            });
-            onToast?.(formatCommandError(asCommandError(err)), 'error');
-            // Couldn't save — put the original text back in the preview.
+            const cmdErr = asCommandError(err);
+            // `old_text` Validation is the drift guard: the file changed between
+            // selection and save (a formatter, HMR re-write, an agent edit), so
+            // the baseline no longer matches. Don't discard the user's typed
+            // copy over that (issue #557) — re-resolve the element against the
+            // CURRENT source and re-apply the edit to the fresh location and
+            // baseline. The guard itself stays intact: the retry writes against
+            // a just-read baseline, it never forces a stale one through.
+            const isDrift = cmdErr.type === 'Validation' && cmdErr.field === 'old_text';
+            if (isDrift && sig) {
+              try {
+                const res = await resolveTextSource(projectPath, sig);
+                const stale = textTargetRef.current;
+                const sameTarget =
+                  res.status === 'resolved' &&
+                  stale != null &&
+                  res.file === stale.file &&
+                  res.line === stale.line &&
+                  res.column === stale.column &&
+                  res.text === stale.text;
+                // An identical re-resolve would just fail the same way — only
+                // retry when the fresh source actually differs.
+                if (res.status === 'resolved' && !sameTarget) {
+                  if (res.text !== next) {
+                    await applyTextEdit(
+                      projectPath,
+                      res.file,
+                      res.line,
+                      res.column,
+                      res.text,
+                      next
+                    );
+                  }
+                  textTargetRef.current = {
+                    file: res.file,
+                    line: res.line,
+                    column: res.column,
+                    text: next,
+                  };
+                  setTextResolution((prev) =>
+                    prev?.status === 'resolved'
+                      ? { ...prev, file: res.file, line: res.line, column: res.column, text: next }
+                      : prev
+                  );
+                  post({ type: 'ss:commit' });
+                  // Recovered drift is an expected environment state, not a bug
+                  // — warn, don't auto-file a report.
+                  logger.warn('[TextEditing] stale text save recovered by re-resolving', {
+                    error: formatCommandError(cmdErr),
+                  });
+                  void trackEvent('visual_text_saved');
+                  onToast?.('Saved to source', 'success');
+                  return;
+                }
+              } catch {
+                /* recovery failed — fall through to the non-silent failure below */
+              }
+            }
+            // Couldn't save. Never silent: toast the failure, then put the
+            // original text back in the preview (leaving the unsaved text up
+            // would look saved when it isn't).
+            if (isDrift) {
+              // Still stale after the retry — the source genuinely moved away
+              // from this element. Expected state; warn, don't auto-file.
+              logger.warn('[TextEditing] text write-back rejected as stale after retry', {
+                error: formatCommandError(cmdErr),
+              });
+              onToast?.(
+                "Couldn't save your text — the source file changed since you selected this element. The edit was undone; reselect the element and try again.",
+                'error'
+              );
+            } else {
+              logger.error('[TextEditing] text write-back failed', {
+                error: formatCommandError(cmdErr),
+              });
+              onToast?.(formatCommandError(cmdErr), 'error');
+            }
             post({ type: 'ss:textRevert' });
           }
         })();
