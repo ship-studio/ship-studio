@@ -203,11 +203,13 @@ pub async fn generate_pr_description(
     let validated_path = validate_project_path(&project_path)?;
 
     let agent = get_active_agent();
+    // A missing agent binary is an "install X first" environment state, not a
+    // malfunction — Expected keeps it out of telemetry (issue #548).
     let agent_path = find_agent_binary().ok_or_else(|| {
-        format!(
+        CommandError::expected(format!(
             "{} CLI is not installed. Install {} to use AI generation.",
             agent.display_name, agent.display_name
-        )
+        ))
     })?;
 
     info!(
@@ -489,8 +491,11 @@ pub async fn generate_commit_message_for_path(
         .into());
     }
 
-    let agent_path = find_agent_binary()
-        .ok_or_else(|| format!("{} CLI is not installed", agent.display_name))?;
+    // Same "install X first" state as generate_pr_description — Expected,
+    // never telemetry (issue #548); resolve_commit_message falls back anyway.
+    let agent_path = find_agent_binary().ok_or_else(|| {
+        CommandError::expected(format!("{} CLI is not installed", agent.display_name))
+    })?;
 
     // Cheap guard: if nothing changed, skip the agent call entirely.
     let status = git_status_porcelain(path)?;
