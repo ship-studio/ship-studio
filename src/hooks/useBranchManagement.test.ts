@@ -364,10 +364,17 @@ describe('useBranchManagement', () => {
       });
 
       const [message, type] = vi.mocked(params.showToast).mock.calls[0];
-      expect(type).toBe('error');
+      // Expected, by-design refusal — info toast + warn log, never the error
+      // channels that auto-file bug reports (issue #600).
+      expect(type).toBe('info');
       expect(message).toContain("isn't on GitHub yet");
       expect(message).toContain('no tracking information');
       expect(result.current.showConflictResolution).toBe(false);
+      const { logger } = await import('../lib/logger');
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+      expect(vi.mocked(logger.warn)).toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+      expect(vi.mocked(logger.error)).not.toHaveBeenCalled();
     });
 
     it('explains that git stopped safely when local changes would be overwritten', async () => {
@@ -384,10 +391,16 @@ describe('useBranchManagement', () => {
       });
 
       const [message, type] = vi.mocked(params.showToast).mock.calls[0];
-      expect(type).toBe('error');
+      // Expected refusal — git stopped safely; info toast + warn log (#600).
+      expect(type).toBe('info');
       expect(message).toContain('nothing was touched');
       expect(message).toContain('would be overwritten by merge');
       expect(result.current.showConflictResolution).toBe(false);
+      const { logger } = await import('../lib/logger');
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+      expect(vi.mocked(logger.warn)).toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+      expect(vi.mocked(logger.error)).not.toHaveBeenCalled();
     });
 
     it('surfaces other failures verbatim with a Pull failed prefix', async () => {
@@ -495,6 +508,32 @@ describe('useBranchManagement', () => {
         'Couldn\'t switch to "feature/x": your local changes would be overwritten',
         'error'
       );
+    });
+
+    it('humanizes a worktree-collision switch failure instead of leaking the raw fatal', async () => {
+      // Raw git stderr when the branch is claimed by another worktree (e.g. an
+      // agent CLI's own scratch worktree) — must not reach the toast verbatim
+      // (issue #607; same wording humanizeGitError learned for #406).
+      vi.mocked(branches.switchBranch).mockResolvedValue({
+        success: false,
+        stashedChanges: false,
+        pendingStashFrom: null,
+        stashApplied: false,
+        error:
+          "fatal: 'user/mccu-merged' is already used by worktree at '/private/tmp/scratchpad/bmerge'",
+      });
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handleResolveConflicts('user/mccu-merged', 'main');
+      });
+
+      const [message, type] = vi.mocked(params.showToast).mock.calls[1]; // [0] is the "Preparing..." toast
+      expect(type).toBe('error');
+      expect(message).toContain('already checked out in another worktree');
+      expect(message).not.toContain('fatal:');
+      expect(message).not.toContain('/private/tmp');
     });
 
     it('explains when git reported a switch failure with no detail', async () => {
