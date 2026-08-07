@@ -1056,6 +1056,33 @@ fn remove_dir_all_robust(path: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Blocking rename with the same lock-retry treatment as
+/// [`remove_dir_all_robust`]: a transient Windows sharing violation
+/// (antivirus scan, Search indexer, a just-suspended session's child not
+/// fully exited) failed the single unretried `fs::rename` immediately with
+/// "os error 32" (issue #559). Call from `spawn_blocking` — the sleeps can
+/// hold a thread for seconds.
+fn rename_robust(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut delay = std::time::Duration::from_millis(100);
+    let mut retries = 10;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if retries > 0 && is_retryable_delete_error(&e) => {
+                tracing::info!(
+                    "rename blocked by a file lock ({}), retrying: {}",
+                    from.display(),
+                    e
+                );
+                retries -= 1;
+                std::thread::sleep(delay);
+                delay = (delay * 2).min(std::time::Duration::from_secs(1));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 /// Deletes a project directory. Only allows deletion from ~/ShipStudio.
 /// External projects cannot be deleted — use unregister_external_project instead.
 #[tauri::command]
@@ -1315,11 +1342,26 @@ pub async fn rename_project(
         return Ok(old_path);
     }
     if new_path.exists() {
-        return Err((format!("A project named \"{new_name}\" already exists.")).into());
+        // A by-design validation refusal the user corrects by picking another
+        // name — Expected keeps it out of telemetry (issue #599).
+        return Err(CommandError::expected(format!(
+            "A project named \"{new_name}\" already exists."
+        )));
     }
 
-    std::fs::rename(project_path, &new_path)
-        .map_err(|e| format!("Failed to rename project: {e}"))?;
+    // Robust rename: retry transient Windows file locks (antivirus, Search
+    // indexer, a just-suspended session's children still winding down) with
+    // the same backoff schedule delete_project uses — a single unretried
+    // rename surfaced "os error 32" straight to the user (issues #253/#559).
+    // spawn_blocking keeps the retry sleeps off the async runtime.
+    {
+        let src = project_path.to_path_buf();
+        let dst = new_path.clone();
+        tokio::task::spawn_blocking(move || rename_robust(&src, &dst))
+            .await
+            .map_err(|e| format!("Project rename task failed: {e}"))?
+            .map_err(|e| format!("Failed to rename project: {e}"))?;
+    }
 
     let new_path_str = new_path.to_string_lossy().to_string();
 
@@ -1762,6 +1804,54 @@ mod tests {
         let err = load_removed_projects_config().expect_err("invalid registry should fail closed");
 
         assert!(err.contains("Failed to parse removed projects config"));
+    }
+
+    // The #559/#253 shape: Windows sharing/lock violations are the transient
+    // states the rename/delete retry loops exist for; anything else must fail
+    // immediately.
+    #[test]
+    fn retryable_delete_error_matches_windows_lock_codes() {
+        assert!(is_retryable_delete_error(
+            &std::io::Error::from_raw_os_error(32) // ERROR_SHARING_VIOLATION
+        ));
+        assert!(is_retryable_delete_error(
+            &std::io::Error::from_raw_os_error(33) // ERROR_LOCK_VIOLATION
+        ));
+        assert!(is_retryable_delete_error(
+            &std::io::Error::from_raw_os_error(5) // ERROR_ACCESS_DENIED
+        ));
+        assert!(is_retryable_delete_error(&std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied"
+        )));
+        assert!(!is_retryable_delete_error(&std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "gone"
+        )));
+    }
+
+    #[test]
+    fn rename_robust_renames_a_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("old-name");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("file.txt"), "hi").unwrap();
+        let dst = tmp.path().join("new-name");
+
+        rename_robust(&src, &dst).unwrap();
+
+        assert!(!src.exists());
+        assert_eq!(std::fs::read_to_string(dst.join("file.txt")).unwrap(), "hi");
+    }
+
+    #[test]
+    fn rename_robust_surfaces_non_retryable_errors_immediately() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        let dst = tmp.path().join("dst");
+        let err = rename_robust(&missing, &dst).unwrap_err();
+        // NotFound is not a lock — must not burn ~8s of retries.
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
     #[test]
