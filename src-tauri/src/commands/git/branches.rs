@@ -590,6 +590,17 @@ pub async fn push_branch(project_path: String, branch_name: String) -> Result<()
     Ok(())
 }
 
+/// Git refusing `branch -D` because the branch is checked out in another
+/// worktree — a by-design guard, not a malfunction (issue #562). Wording
+/// varies across git versions: newer git says "cannot delete branch '…' used
+/// by worktree at '…'", older git says "Cannot delete branch '…' checked out
+/// at '…'".
+fn is_worktree_delete_refusal(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("cannot delete branch")
+        && (lower.contains("used by worktree") || lower.contains("checked out at"))
+}
+
 /// Delete a branch (local and optionally remote)
 #[tauri::command]
 #[instrument(name = "delete_branch", skip(project_path), fields(project = %project_path, branch = %branch_name))]
@@ -635,6 +646,19 @@ pub async fn delete_branch(
 
     if !local_output.status.success() {
         let stderr = String::from_utf8_lossy(&local_output.stderr);
+        // Git refuses to delete a branch that's checked out in another
+        // worktree — a by-design guard exactly like the current-branch case
+        // above, not a malfunction. Replace the raw stderr (which leaks the
+        // other worktree's absolute path into the toast) with a clear,
+        // actionable message naming the branch (issue #562).
+        if is_worktree_delete_refusal(&stderr) {
+            warn!(error = %stderr, "Branch delete blocked: checked out in another worktree");
+            return Err(crate::errors::CommandError::expected(format!(
+                "The branch '{branch_name}' is checked out in another worktree, so it can't be \
+                 deleted. Remove that worktree first (Branches → Worktrees), then delete the \
+                 branch."
+            )));
+        }
         if !stderr.contains("not found") {
             return Err((stderr.to_string()).into());
         }
@@ -690,4 +714,35 @@ pub async fn delete_branch(
 
     info!("Branch deleted successfully");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_worktree_delete_refusal;
+
+    // The #562 shape: deleting a branch that another worktree has checked out.
+    #[test]
+    fn worktree_delete_refusal_matches_current_git_wording() {
+        let stderr = "error: cannot delete branch 'acss-prog/data-fetch-stats' used by worktree at '/Users/x/ShipStudio/acss-poc'";
+        assert!(is_worktree_delete_refusal(stderr));
+    }
+
+    #[test]
+    fn worktree_delete_refusal_matches_older_git_wording() {
+        let stderr =
+            "error: Cannot delete branch 'feature/x' checked out at '/Users/x/ShipStudio/proj'";
+        assert!(is_worktree_delete_refusal(stderr));
+    }
+
+    #[test]
+    fn worktree_delete_refusal_ignores_other_delete_failures() {
+        assert!(!is_worktree_delete_refusal(
+            "error: branch 'ghost' not found."
+        ));
+        // Checkout refusal (a *switch* problem, not a delete refusal).
+        assert!(!is_worktree_delete_refusal(
+            "fatal: 'feature/x' is already used by worktree at '/tmp/w'"
+        ));
+        assert!(!is_worktree_delete_refusal(""));
+    }
 }
