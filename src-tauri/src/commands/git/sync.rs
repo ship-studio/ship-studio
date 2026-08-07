@@ -28,7 +28,7 @@ fn is_missing_upstream(stderr: &str) -> bool {
 /// malfunction (issue #521, same class as #312/#502). The raw stderr is
 /// preserved verbatim in the returned message because the frontend
 /// regex-matches its wording (`/would be overwritten by (merge|checkout)/i`).
-fn is_overwrite_refusal(stderr: &str) -> bool {
+pub(crate) fn is_overwrite_refusal(stderr: &str) -> bool {
     let lower = stderr.to_lowercase();
     lower.contains("would be overwritten by merge")
         || lower.contains("would be overwritten by checkout")
@@ -332,6 +332,14 @@ mod tests {
             "fatal: refusing to merge unrelated histories"
         ));
         assert!(!is_overwrite_refusal(""));
+    }
+
+    // The #601 shape: `gh pr checkout` refusing over uncommitted local edits —
+    // same underlying git message, surfaced through gh's stderr.
+    #[test]
+    fn overwrite_refusal_matches_pr_checkout_refusal() {
+        let stderr = "error: Your local changes to the following files would be overwritten by checkout:\n\thome/home-v1.html\nPlease commit your changes or stash them before you switch branches.\nAborting\n";
+        assert!(is_overwrite_refusal(stderr));
     }
 
     // The #609 shape: a real merge conflict is an anticipated state with

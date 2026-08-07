@@ -242,6 +242,18 @@ pub async fn checkout_pull_request(
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
+        // Git refusing to check out over uncommitted local edits ("would be
+        // overwritten by checkout" / "commit your changes or stash") is an
+        // anticipated user state, not a malfunction — same classification the
+        // branch-switch and merge paths already apply (issue #601, same class
+        // as #312/#502/#521).
+        if crate::commands::git::is_overwrite_refusal(&stderr) {
+            tracing::warn!(error = %stderr, "PR checkout blocked by uncommitted local changes");
+            return Err(CommandError::expected(
+                "You have unsaved changes that would be lost by checking out this pull request. \
+                 Commit or stash them first, then try again.",
+            ));
+        }
         return Err((format!("Failed to checkout PR: {stderr}")).into());
     }
 
