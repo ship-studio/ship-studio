@@ -89,10 +89,29 @@ pub async fn run_to_stdout(
         return Err(CommandError::Process {
             cmd: label_for_err,
             exit_code: output.status.code().unwrap_or(-1),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            stderr: truncate_output(&String::from_utf8_lossy(&output.stderr)),
         });
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Cap on CLI output forwarded into user-facing error messages (and thus into
+/// telemetry). A crashing subprocess can dump arbitrarily much — a Go runtime
+/// stack trace, a full agent session transcript — and nothing past the head is
+/// useful in an error dialog (issues #578, #610).
+pub const MAX_ERROR_OUTPUT_CHARS: usize = 2048;
+
+/// Trim `text` and cap it at [`MAX_ERROR_OUTPUT_CHARS`], keeping the head (the
+/// useful part — CLIs print the actual error first, then detail/backtrace) and
+/// appending a truncation marker. Use this whenever raw stderr/stdout is
+/// embedded into a `CommandError`.
+pub fn truncate_output(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= MAX_ERROR_OUTPUT_CHARS {
+        return trimmed.to_string();
+    }
+    let head: String = trimmed.chars().take(MAX_ERROR_OUTPUT_CHARS).collect();
+    format!("{}… (truncated)", head.trim_end())
 }
 
 #[cfg(test)]
@@ -131,6 +150,23 @@ mod tests {
             CommandError::Timeout { secs, .. } => assert_eq!(secs, 1),
             other => panic!("expected Timeout, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn truncate_output_passes_short_text_through_trimmed() {
+        assert_eq!(truncate_output("  short error  \n"), "short error");
+        assert_eq!(truncate_output(""), "");
+    }
+
+    // The #610/#578 shape: a crash dump / session transcript on stderr must be
+    // capped, keeping the head where the actual error line lives.
+    #[test]
+    fn truncate_output_caps_long_text_preserving_head() {
+        let long = format!("fatal error: the real cause\n{}", "x".repeat(10_000));
+        let capped = truncate_output(&long);
+        assert!(capped.starts_with("fatal error: the real cause"));
+        assert!(capped.ends_with("… (truncated)"), "got tail: {}", &capped[capped.len().saturating_sub(40)..]);
+        assert!(capped.chars().count() <= MAX_ERROR_OUTPUT_CHARS + "… (truncated)".len());
     }
 
     #[tokio::test]

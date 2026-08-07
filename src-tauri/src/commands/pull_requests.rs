@@ -4,7 +4,7 @@
 
 use crate::commands::github::get_gh_command_for_project;
 use crate::errors::CommandError;
-use crate::external_command::run_with_timeout;
+use crate::external_command::{run_with_timeout, truncate_output};
 use crate::types::PullRequestInfo;
 use crate::utils::validate_project_path;
 
@@ -68,7 +68,7 @@ pub async fn list_pull_requests(
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
-        return Err((stderr.to_string()).into());
+        return Err(truncate_output(&stderr).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -159,7 +159,7 @@ pub async fn create_pull_request(
         {
             return Err(CommandError::expected(stderr.to_string()));
         }
-        return Err((stderr.to_string()).into());
+        return Err(truncate_output(&stderr).into());
     }
 
     // Output contains the PR URL
@@ -202,7 +202,7 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
-        return Err(stderr.into());
+        return Err(truncate_output(&stderr).into());
     }
 
     Ok(())
@@ -242,7 +242,7 @@ pub async fn checkout_pull_request(
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
-        return Err((format!("Failed to checkout PR: {stderr}")).into());
+        return Err(format!("Failed to checkout PR: {}", truncate_output(&stderr)).into());
     }
 
     // Return the branch name that was checked out
@@ -279,7 +279,7 @@ pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
-        return Err((format!("Failed to close PR: {stderr}")).into());
+        return Err(format!("Failed to close PR: {}", truncate_output(&stderr)).into());
     }
 
     Ok(())

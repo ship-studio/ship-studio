@@ -5,7 +5,7 @@
 use crate::cache::TtlCache;
 use crate::commands::git::git_stage_and_commit;
 use crate::errors::CommandError;
-use crate::external_command::run_with_timeout;
+use crate::external_command::{run_with_timeout, truncate_output};
 use crate::types::{
     GitHubCliStatus, GitHubLanguage, GitHubRepo, ProjectGitHubStatus, PushToGitHubOptions,
 };
@@ -470,7 +470,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
             return Err(CommandError::Process {
                 cmd: "git commit".to_string(),
                 exit_code: output.status.code().unwrap_or(-1),
-                stderr: stderr.to_string(),
+                stderr: truncate_output(&stderr),
             });
         }
     }
@@ -506,7 +506,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
         return Err(CommandError::Process {
             cmd: "gh repo create".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
-            stderr: stderr.to_string(),
+            stderr: truncate_output(&stderr),
         });
     }
 
@@ -592,12 +592,42 @@ pub(crate) fn gh_malformed_request_error(stderr: &str) -> Option<CommandError> {
         })
 }
 
+/// gh (a Go binary) crashing with a Go runtime panic/fatal error — stderr is
+/// the runtime's full crash dump ("fatal error: …\n\nruntime stack:\n…" or
+/// "panic: …\n\ngoroutine N [running]:\n…"), dozens of stack-trace lines that
+/// are useless to a user. The known real-world case is the runtime failing to
+/// reserve its heap arena at startup on a memory-starved Windows machine
+/// (issue #610, the child-process sibling of errors.rs's
+/// `windows_out_of_memory` for our own spawns, #356). The environment killed
+/// the child, not the app — `Expected` keeps the dump out of telemetry and the
+/// message is something the user can act on. The matched literals are
+/// untranslated Go-runtime strings, stable across Go versions.
+pub(crate) fn gh_crash_error(stderr: &str) -> Option<CommandError> {
+    if stderr.contains("out of memory allocating heap arena map") {
+        return Some(CommandError::expected(
+            "The GitHub CLI (gh) couldn't start because the system is low on memory. \
+             Close some other apps (on Windows, increasing the paging file size can also help) \
+             and try again.",
+        ));
+    }
+    let go_crash = (stderr.contains("fatal error:") && stderr.contains("runtime stack:"))
+        || (stderr.contains("panic:") && stderr.contains("goroutine "));
+    go_crash.then(|| {
+        CommandError::expected(
+            "The GitHub CLI (gh) crashed unexpectedly. Try again — if it keeps happening, \
+             reinstalling the GitHub CLI may help.",
+        )
+    })
+}
+
 /// A `gh` invocation that hits GitHub can fail these ways regardless of which
-/// subcommand ran: a connectivity blip or GitHub's transient HTTP 400.
-/// One-stop classification for the shared cases — call sites still layer
-/// their own auth / subcommand-specific checks on top.
+/// subcommand ran: a connectivity blip, GitHub's transient HTTP 400, or gh
+/// itself crashing. One-stop classification for the shared cases — call sites
+/// still layer their own auth / subcommand-specific checks on top.
 pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
-    gh_network_error(stderr).or_else(|| gh_malformed_request_error(stderr))
+    gh_network_error(stderr)
+        .or_else(|| gh_malformed_request_error(stderr))
+        .or_else(|| gh_crash_error(stderr))
 }
 
 /// gh's own wrapper for a failing internal git call — "failed to run git:
@@ -645,7 +675,7 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, Command
         return Err(CommandError::Process {
             cmd: "gh repo list".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
-            stderr: stderr.to_string(),
+            stderr: truncate_output(&stderr),
         });
     }
 
@@ -703,7 +733,7 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
         return Err(CommandError::Process {
             cmd: "gh api /user/repos".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
-            stderr: stderr.to_string(),
+            stderr: truncate_output(&stderr),
         });
     }
 
@@ -1063,6 +1093,36 @@ mod tests {
             .is_some());
         assert!(gh_common_error("GraphQL: something app-specific went wrong").is_none());
         assert!(gh_common_error("").is_none());
+    }
+
+    // The #610 shape: gh's Go runtime failing to reserve its heap arena at
+    // startup on a memory-starved Windows box — stderr is a full crash dump.
+    #[test]
+    fn gh_crash_error_classifies_heap_arena_oom_as_expected() {
+        let stderr = "fatal error: out of memory allocating heap arena map\n\nruntime stack:\nruntime.throw(...)\n\tC:/hostedtoolcache/windows/go/1.26.4/x64/src/runtime/panic.go:1229\nruntime.(*mheap).sysAlloc(...)\nruntime.cpuinit(...)\nruntime.schedinit(...)\nruntime.rt0_go()";
+        let err = gh_crash_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("low on memory"), "got: {msg}");
+        assert!(!msg.contains("runtime stack"), "must not forward the dump");
+    }
+
+    #[test]
+    fn gh_crash_error_classifies_generic_go_panic() {
+        let stderr = "panic: runtime error: invalid memory address or nil pointer dereference\n\ngoroutine 1 [running]:\ngithub.com/cli/cli/v2/pkg/cmd/root.NewCmdRoot(...)";
+        let err = gh_crash_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let fatal = "fatal error: concurrent map read and map write\n\nruntime stack:\nruntime.throw(...)";
+        assert!(gh_crash_error(fatal).is_some());
+    }
+
+    #[test]
+    fn gh_crash_error_ignores_non_crash_stderr() {
+        // git's "fatal:" prefix is not a Go "fatal error:" crash.
+        assert!(gh_crash_error("fatal: not a git repository").is_none());
+        // "panic:"/"fatal error:" alone without a runtime dump shouldn't match.
+        assert!(gh_crash_error("request failed: panic: see logs").is_none());
+        assert!(gh_crash_error("").is_none());
     }
 
     // The #592 shape: a mid-request TCP reset returned to gh's GraphQL client.
