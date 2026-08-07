@@ -224,22 +224,33 @@ pub async fn discard_changes(project_path: String) -> Result<(), CommandError> {
     // (issue #346).
     ensure_repo_rooted_at(&validated_path)?;
 
-    // Discard changes to tracked files
-    let checkout_output = crate::utils::git_command_in(&validated_path)?
-        .args(["checkout", "."])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Discard changes to tracked files. `checkout .` writes to the index, so
+    // it can lose the .git lock race against the background snapshot watcher
+    // or a concurrent commit exactly like add/commit — retry on contention the
+    // same way git_stage_and_commit does (issues #377/#597).
+    let checkout_output = crate::utils::output_retrying_index_lock(|| {
+        crate::utils::git_command_in(&validated_path)?
+            .args(["checkout", "."])
+            .output()
+            .map_err(|e| crate::errors::CommandError::Io {
+                message: e.to_string(),
+            })
+    })?;
 
     if !checkout_output.status.success() {
         let stderr = String::from_utf8_lossy(&checkout_output.stderr);
         return Err((format!("Failed to discard changes: {stderr}")).into());
     }
 
-    // Remove untracked files
-    let clean_output = crate::utils::git_command_in(&validated_path)?
-        .args(["clean", "-fd"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Remove untracked files — same lock-retry as above (#597).
+    let clean_output = crate::utils::output_retrying_index_lock(|| {
+        crate::utils::git_command_in(&validated_path)?
+            .args(["clean", "-fd"])
+            .output()
+            .map_err(|e| crate::errors::CommandError::Io {
+                message: e.to_string(),
+            })
+    })?;
 
     if !clean_output.status.success() {
         let stderr = String::from_utf8_lossy(&clean_output.stderr);
