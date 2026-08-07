@@ -19,7 +19,7 @@ import { WarningIcon } from '../icons';
 import { createBranch, switchBranch } from '../../lib/branches';
 import { commitChanges, stashChanges } from '../../lib/git';
 import { generateCommitMessage } from '../../lib/ai';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { asCommandError, formatCommandError, humanizeGitError } from '../../lib/errors';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
@@ -63,16 +63,32 @@ export function CreateBranchConflictModal({
   /** Create the branch (tree is clean by now) and switch to it. */
   const finishCreate = async (extra?: string) => {
     await createBranch(projectPath, targetBranch, baseBranch);
-    const result = await switchBranch(projectPath, targetBranch, false);
+    // The working tree can pick up new changes between the stash/commit step
+    // and this switch (dev-server config writes, background tooling), making
+    // the switch fail again with "Uncommitted changes" — a dead end inside the
+    // very modal meant to resolve it. Retry once with auto-stash, mirroring
+    // UnsavedChangesModal's #273/PR #281 fix (issue #564).
+    let result = await switchBranch(projectPath, targetBranch, false);
+    if (!result.success && result.error?.includes('Uncommitted changes')) {
+      result = await switchBranch(projectPath, targetBranch, true);
+    }
     if (result.success) {
       onCreated(targetBranch);
       onToast(`Created and switched to ${targetBranch}${extra ? ` — ${extra}` : ''}`, 'success');
       onClose();
     } else {
-      // Keep whatever detail git gave us; only explain when it gave none.
-      const detail =
-        result.error || '(git reported failure with no detail — check for uncommitted changes)';
-      onToast(`Created "${targetBranch}", but couldn't switch to it: ${detail}`, 'error');
+      // Even the auto-stash retry failed. The branch exists — re-running this
+      // modal's actions would only trip over the existing branch, so don't
+      // dead-end here: humanize the failure, point at the path forward
+      // (Branches tab), and close.
+      const detail = result.error
+        ? humanizeGitError(result.error, { branch: targetBranch })
+        : '(git reported failure with no detail)';
+      onToast(
+        `Created "${targetBranch}", but couldn't switch to it: ${detail} You can switch to it from the Branches tab.${extra ? ` (${extra})` : ''}`,
+        'error'
+      );
+      onClose();
     }
   };
 
