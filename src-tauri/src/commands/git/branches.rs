@@ -518,9 +518,14 @@ pub async fn create_branch(
                 || stderr.contains("commit your changes or stash")
             {
                 warn!(error = %stderr, "Branch creation blocked by uncommitted changes");
-            } else {
-                error!(error = %stderr, "Failed to create branch");
+                // Everyday user state, not a malfunction — Expected keeps it
+                // out of telemetry while preserving the stderr text verbatim
+                // (BranchesTab/humanizeGitError match its wording). Covers
+                // both the tracked-file and untracked-file ("untracked working
+                // tree files would be overwritten") variants (issue #566).
+                return Err(crate::errors::CommandError::expected(stderr.to_string()));
             }
+            error!(error = %stderr, "Failed to create branch");
             return Err((stderr.to_string()).into());
         }
     }
