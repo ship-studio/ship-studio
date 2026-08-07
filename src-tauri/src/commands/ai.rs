@@ -33,8 +33,14 @@ const GIT_TIMEOUT_SECS: u64 = 60;
 /// How the active agent can answer a one-shot prompt without a TTY.
 enum HeadlessInvocation {
     /// A real print mode (Claude `--print -p`, Cursor `-p --print`): the
-    /// answer is the process' stdout.
-    PrintMode(Vec<String>),
+    /// answer is the process' stdout. When `stdin_prompt` is set the prompt is
+    /// fed via stdin instead of argv — a prompt carrying a ~40KB diff as a
+    /// single argv element can blow the OS's combined argv+env exec limit
+    /// (E2BIG, "Argument list too long", issue #595).
+    PrintMode {
+        args: Vec<String>,
+        stdin_prompt: Option<String>,
+    },
     /// Codex `exec`: stdout is a session transcript (which echoes the prompt —
     /// unsafe to parse), so the final message is captured via
     /// `--output-last-message` into a temp file instead.
@@ -55,8 +61,17 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
             .iter()
             .map(|f| f.to_string())
             .collect();
-        args.push(prompt.to_string());
-        return Some(HeadlessInvocation::PrintMode(args));
+        // Claude's `-p`/`--print` reads the query from stdin when no
+        // positional argument is given — use that to dodge the argv size
+        // ceiling (issue #595). Cursor's print mode isn't verified to accept
+        // a stdin prompt, so it keeps the positional argument.
+        let stdin_prompt = if agent.id == "claude-code" {
+            Some(prompt.to_string())
+        } else {
+            args.push(prompt.to_string());
+            None
+        };
+        return Some(HeadlessInvocation::PrintMode { args, stdin_prompt });
     }
     if agent.id == "codex" {
         let output_file = std::env::temp_dir().join(format!(
@@ -100,10 +115,12 @@ async fn run_agent_headless(
             agent.display_name
         )
     })?;
-    let (args, output_file) = match &invocation {
-        HeadlessInvocation::PrintMode(args) => (args.clone(), None),
+    let (args, output_file, stdin_prompt) = match &invocation {
+        HeadlessInvocation::PrintMode { args, stdin_prompt } => {
+            (args.clone(), None, stdin_prompt.clone())
+        }
         HeadlessInvocation::CodexExec { args, output_file } => {
-            (args.clone(), Some(output_file.clone()))
+            (args.clone(), Some(output_file.clone()), None)
         }
     };
 
@@ -111,17 +128,22 @@ async fn run_agent_headless(
     cmd.args(&args)
         .env("PATH", get_extended_path())
         .envs(extra_envs)
+        .current_dir(cwd);
+    let label = format!("{} CLI", agent.display_name);
+    let output = if let Some(prompt_data) = &stdin_prompt {
+        // The prompt travels via stdin (piped, written in full, then closed so
+        // the CLI sees EOF) instead of argv — see HeadlessInvocation::PrintMode
+        // (issue #595).
+        let tokio_cmd = tokio::process::Command::from(cmd);
+        crate::external_command::run_with_timeout_stdin(tokio_cmd, prompt_data, label, timeout_secs)
+            .await
+    } else {
         // No TTY here: an EOF'd stdin keeps agents that read it (Codex exec)
         // from waiting on input that will never come.
-        .stdin(std::process::Stdio::null())
-        .current_dir(cwd);
-    let tokio_cmd = tokio::process::Command::from(cmd);
-    let output = run_with_timeout(
-        tokio_cmd,
-        format!("{} CLI", agent.display_name),
-        timeout_secs,
-    )
-    .await;
+        cmd.stdin(std::process::Stdio::null());
+        let tokio_cmd = tokio::process::Command::from(cmd);
+        run_with_timeout(tokio_cmd, label, timeout_secs).await
+    };
 
     // The temp file must not outlive the call, success or not.
     let read_and_cleanup = |file: &Option<PathBuf>| -> Option<String> {
@@ -597,12 +619,30 @@ mod tests {
 
     #[test]
     fn headless_invocation_uses_print_mode_when_available() {
+        // Claude: the prompt must NOT be an argv element (E2BIG on large
+        // diffs, issue #595) — it travels via stdin.
         let inv = headless_invocation(&crate::agent::CLAUDE_CODE, "hello").unwrap();
         match inv {
-            HeadlessInvocation::PrintMode(args) => {
-                assert_eq!(args, vec!["--print", "-p", "hello"]);
+            HeadlessInvocation::PrintMode { args, stdin_prompt } => {
+                assert_eq!(args, vec!["--print", "-p"]);
+                assert_eq!(stdin_prompt.as_deref(), Some("hello"));
             }
             HeadlessInvocation::CodexExec { .. } => panic!("Claude should use print mode"),
+        }
+    }
+
+    #[test]
+    fn headless_invocation_cursor_keeps_argv_prompt() {
+        // Cursor's print mode isn't verified to read the prompt from stdin,
+        // so it keeps the positional argument (and the E2BIG exposure —
+        // revisit if a report ever lands for Cursor).
+        let inv = headless_invocation(&crate::agent::CURSOR, "hello").unwrap();
+        match inv {
+            HeadlessInvocation::PrintMode { args, stdin_prompt } => {
+                assert_eq!(args, vec!["-p", "--print", "hello"]);
+                assert!(stdin_prompt.is_none());
+            }
+            HeadlessInvocation::CodexExec { .. } => panic!("Cursor should use print mode"),
         }
     }
 
@@ -622,7 +662,7 @@ mod tests {
                 // Prompt is the final argument.
                 assert_eq!(args.last().unwrap(), "hello");
             }
-            HeadlessInvocation::PrintMode(_) => panic!("Codex should use exec mode"),
+            HeadlessInvocation::PrintMode { .. } => panic!("Codex should use exec mode"),
         }
     }
 
