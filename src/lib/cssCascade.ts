@@ -12,6 +12,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { asCommandError } from './errors';
 
 /** One declaration of a matched rule, as the iframe cascade walker reports it. */
 export interface CascadeDecl {
@@ -267,6 +268,19 @@ export function mediaChipLabel(row: Pick<CascadeRow, 'mediaText' | 'mediaMinPx'>
   if (min) return `≥${Math.round(parseFloat(min[1]))}`;
   if (row.mediaMinPx != null) return `≥${row.mediaMinPx}`;
   return text || null;
+}
+
+/**
+ * True when a css write-back rejection means the source went stale under the
+ * editor — recoverable by re-locating the rule and retrying. Covers BOTH backend
+ * shapes from `edit_css.rs`: body drift ("source changed since you selected it")
+ * and the zero-match case ("rule no longer matches"), which arises when the rule
+ * was renamed/rewritten since the card was seeded (issue #584). Anything else
+ * (Io, Process, non-stale Validation) is a real failure — don't retry it.
+ */
+export function isStaleCssRuleError(err: unknown): boolean {
+  const e = asCommandError(err);
+  return e.type === 'Validation' && /source changed|no longer matches/i.test(e.reason);
 }
 
 /** A stable key for a row — used both as the React key and the iframe preview key. */
