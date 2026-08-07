@@ -426,15 +426,22 @@ pub fn git_command_in(
     Ok(cmd)
 }
 
-/// True when git failed because another process held `.git/index.lock`.
+/// True when git failed because another process held one of its lock files.
 /// Concurrent git spawns against the same repo are unavoidable here: the
 /// snapshot watcher, commit/publish flows, and the user's own agent CLIs all
 /// run git independently. Git fails fast instead of waiting, so a collision
-/// surfaces as "Unable to create '….git/index.lock': File exists" — most
-/// visibly on Windows, where lock files also linger longer (AV scanning,
-/// handle-release timing) (issue #377).
+/// surfaces as "Unable to create '….lock': File exists" — most visibly on
+/// Windows, where lock files also linger longer (AV scanning, handle-release
+/// timing) (issue #377).
+///
+/// The same concurrency produces the same message for *every* git lock file,
+/// not just `.git/index.lock`: `git commit` also takes `HEAD.lock` and
+/// `refs/heads/<branch>.lock` when it updates the ref, and ref updates take
+/// `packed-refs.lock` — so the match is on the shared `….lock': File exists`
+/// shape rather than the literal `index.lock` (issue #567).
 pub fn is_index_lock_contention(stderr: &str) -> bool {
-    stderr.contains("index.lock") && stderr.contains("File exists")
+    (stderr.contains(".lock") && stderr.contains("File exists"))
+        || stderr.contains("Another git process seems to be running")
 }
 
 /// Run a git invocation built by `run`, retrying with a short backoff when it
@@ -1234,6 +1241,27 @@ mod tests {
             assert!(is_index_lock_contention(stderr));
             assert!(!is_index_lock_contention("fatal: not a git repository"));
             assert!(!is_index_lock_contention(""));
+        }
+
+        /// Issue #567: the same concurrency that produces index.lock collisions
+        /// also produces HEAD.lock / refs/heads/*.lock / packed-refs.lock
+        /// collisions — all must be retried, not just the index.lock wording.
+        #[test]
+        fn recognizes_head_and_ref_lock_collisions() {
+            let head = "fatal: cannot lock ref 'HEAD': Unable to create '/Users/x/acss-poc/.git/HEAD.lock': File exists.\n\nAnother git process seems to be running in this repository, e.g.\nan editor opened by 'git commit'.";
+            assert!(is_index_lock_contention(head));
+            let branch_ref = "fatal: cannot lock ref 'refs/heads/main': Unable to create '/repo/.git/refs/heads/main.lock': File exists.";
+            assert!(is_index_lock_contention(branch_ref));
+            let packed = "fatal: Unable to create '/repo/.git/packed-refs.lock': File exists.";
+            assert!(is_index_lock_contention(packed));
+            // Unrelated failures that merely mention a lock-ish word must not
+            // trigger retries.
+            assert!(!is_index_lock_contention(
+                "error: could not write config file .git/config: File exists"
+            ));
+            assert!(!is_index_lock_contention(
+                "fatal: pathspec 'package-lock.json' did not match any files"
+            ));
         }
 
         #[test]
