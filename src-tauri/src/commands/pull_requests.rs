@@ -62,7 +62,7 @@ pub async fn list_pull_requests(
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
@@ -143,7 +143,7 @@ pub async fn create_pull_request(
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
@@ -196,7 +196,7 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
@@ -236,7 +236,7 @@ pub async fn checkout_pull_request(
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
@@ -273,7 +273,7 @@ pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {

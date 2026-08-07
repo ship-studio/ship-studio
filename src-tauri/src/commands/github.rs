@@ -498,8 +498,9 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
                 "A repository named \"{repo_name}\" already exists on this account. Choose a different name."
             )));
         }
-        // Connectivity blips are the environment, not a malfunction (#420).
-        if let Some(err) = gh_network_error(&stderr) {
+        // Connectivity blips and GitHub's transient API 400s are the
+        // environment/GitHub, not a malfunction (#420, #602).
+        if let Some(err) = gh_common_error(&stderr) {
             return Err(err);
         }
         return Err(CommandError::Process {
@@ -572,6 +573,33 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// gh's passthrough of GitHub's generic HTTP 400 GraphQL response — "HTTP 400:
+/// We received a malformed request from your client. Sorry about that. Please
+/// try resubmitting your request…". GitHub emits this when the API can't parse
+/// the request body (e.g. odd Unicode in a PR title/body getting serialized
+/// into the GraphQL payload) — a transient API-side failure with a built-in
+/// retry suggestion, not an app malfunction (issue #602). `Expected` keeps it
+/// out of telemetry.
+pub(crate) fn gh_malformed_request_error(stderr: &str) -> Option<CommandError> {
+    stderr
+        .to_lowercase()
+        .contains("we received a malformed request")
+        .then(|| {
+            CommandError::expected(
+                "GitHub couldn't process the request (a temporary GitHub API error). \
+                 Try again in a moment.",
+            )
+        })
+}
+
+/// A `gh` invocation that hits GitHub can fail these ways regardless of which
+/// subcommand ran: a connectivity blip or GitHub's transient HTTP 400.
+/// One-stop classification for the shared cases — call sites still layer
+/// their own auth / subcommand-specific checks on top.
+pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
+    gh_network_error(stderr).or_else(|| gh_malformed_request_error(stderr))
+}
+
 /// gh's own wrapper for a failing internal git call — "failed to run git:
 /// <git's stderr>" (gh's git/errors.go, GitError). Most commonly hit when gh
 /// can't resolve repo context because the project isn't a git repository. The
@@ -609,8 +637,9 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, Command
         if let Some(err) = gh_auth_error(&stderr) {
             return Err(err);
         }
-        // Connectivity blips are the environment, not a malfunction (#420).
-        if let Some(err) = gh_network_error(&stderr) {
+        // Connectivity blips and GitHub's transient API 400s are the
+        // environment/GitHub, not a malfunction (#420, #602).
+        if let Some(err) = gh_common_error(&stderr) {
             return Err(err);
         }
         return Err(CommandError::Process {
@@ -666,8 +695,9 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
         if let Some(err) = gh_auth_error(&stderr) {
             return Err(err);
         }
-        // Connectivity blips are the environment, not a malfunction (#420).
-        if let Some(err) = gh_network_error(&stderr) {
+        // Connectivity blips and GitHub's transient API 400s are the
+        // environment/GitHub, not a malfunction (#420, #602).
+        if let Some(err) = gh_common_error(&stderr) {
             return Err(err);
         }
         return Err(CommandError::Process {
@@ -1005,6 +1035,34 @@ mod tests {
     fn gh_network_error_ignores_unrelated_stderr() {
         assert!(gh_network_error("GraphQL: name already exists on this account").is_none());
         assert!(gh_network_error("").is_none());
+    }
+
+    // The #602 shape: GitHub's generic HTTP 400 GraphQL response passed
+    // through verbatim by gh — a transient API-side failure, not app text.
+    #[test]
+    fn gh_malformed_request_classifies_github_http_400_as_expected() {
+        let stderr = "HTTP 400: We received a malformed request from your client. Sorry about that. Please try resubmitting your request and contact us if the problem persists. (https://api.github.com/graphql)";
+        let err = gh_malformed_request_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        // The user-facing message must carry a retry suggestion.
+        assert!(err.to_string().contains("Try again"), "got: {err}");
+    }
+
+    #[test]
+    fn gh_malformed_request_ignores_unrelated_stderr() {
+        assert!(gh_malformed_request_error("HTTP 404: Not Found").is_none());
+        assert!(gh_malformed_request_error("").is_none());
+    }
+
+    // gh_common_error is the one-stop classifier every gh call site funnels
+    // through — it must cover each shared family and stay quiet otherwise.
+    #[test]
+    fn gh_common_error_covers_shared_families() {
+        assert!(gh_common_error("dial tcp 1.2.3.4:443: connect: connection refused").is_some());
+        assert!(gh_common_error("HTTP 400: We received a malformed request from your client.")
+            .is_some());
+        assert!(gh_common_error("GraphQL: something app-specific went wrong").is_none());
+        assert!(gh_common_error("").is_none());
     }
 
     // The #592 shape: a mid-request TCP reset returned to gh's GraphQL client.
