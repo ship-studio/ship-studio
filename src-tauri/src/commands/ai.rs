@@ -177,7 +177,11 @@ async fn run_agent_headless(
                 format!("exit code {:?}: {snippet}", output.status.code())
             }
         } else {
-            stderr.trim().to_string()
+            // Cap like the stdout branch: an agent CLI can dump a whole
+            // session transcript (prompt, diff, paths) to stderr on failure —
+            // forwarding it unbounded is both noise and a data-exposure risk.
+            // The head carries the actual error (issue #578).
+            crate::external_command::truncate_output(&stderr)
         };
         error!("{} CLI failed: {}", agent.display_name, detail);
         return Err(format!("{} CLI failed: {}", agent.display_name, detail).into());
