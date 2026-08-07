@@ -515,8 +515,26 @@ pub async fn generate_commit_message_for_path(
         HashMap::new(),
         COMMIT_MSG_CLI_TIMEOUT_SECS,
     )
-    .await?;
+    .await
+    .map_err(soften_commit_timeout)?;
     parse_commit_message(&response).map_err(CommandError::from)
+}
+
+/// The 30s commit-message budget covers the whole CLI run (spawn, the agent's
+/// own startup/auth checks, generation), so a cold start or slow disk can blow
+/// it even for a tiny prompt — and the publish flow already swallows the error
+/// and falls back to [`DEFAULT_COMMIT_MESSAGE`]. That's a best-effort feature
+/// degrading as designed, not a malfunction: map `Timeout` to `Expected` (kept
+/// out of telemetry) and log at warn (issue #565). Other errors pass through
+/// unchanged.
+fn soften_commit_timeout(err: CommandError) -> CommandError {
+    match err {
+        CommandError::Timeout { cmd, secs } => {
+            warn!(cmd = %cmd, secs, "commit-message generation timed out; falling back to the default message");
+            CommandError::expected(format!("`{cmd}` timed out after {secs}s"))
+        }
+        other => other,
+    }
 }
 
 fn git_status_porcelain(path: &std::path::Path) -> Result<String, CommandError> {
@@ -676,6 +694,29 @@ mod tests {
         // Opencode has no headless mode — callers must show a friendly error
         // instead of spawning an interactive session ("stdin is not a terminal").
         assert!(headless_invocation(&crate::agent::OPENCODE, "hello").is_none());
+    }
+
+    // The #565 shape: a commit-message CLI timeout is best-effort noise (the
+    // caller falls back to the default message) — Expected, not telemetry.
+    #[test]
+    fn soften_commit_timeout_maps_timeout_to_expected() {
+        let softened = soften_commit_timeout(CommandError::Timeout {
+            cmd: "Claude Code CLI".into(),
+            secs: 30,
+        });
+        assert!(matches!(softened, CommandError::Expected { .. }));
+        assert_eq!(
+            softened.to_string(),
+            "`Claude Code CLI` timed out after 30s"
+        );
+    }
+
+    #[test]
+    fn soften_commit_timeout_passes_other_errors_through() {
+        let other = soften_commit_timeout(CommandError::Other {
+            message: "boom".into(),
+        });
+        assert!(matches!(other, CommandError::Other { .. }));
     }
 
     #[test]
