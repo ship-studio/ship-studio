@@ -173,6 +173,55 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
 }
 
 /**
+ * True when {@link humanizeGitError} recognized the failure as one of the
+ * known, user-actionable git/GitHub conditions (nothing to review, conflicts,
+ * out of date, auth, network, protected branch, existing PR, unsaved changes,
+ * worktree collision, missing ref, not a repo).
+ *
+ * The backend classifies many of these as `CommandError::Expected`, but that
+ * variant deliberately serializes identically to `Other` across IPC, so the
+ * frontend can't read the tag — this is the client-side mirror. Callers use it
+ * to route recognized conditions to info toasts / warn logs instead of the
+ * error channels that auto-file bug reports (issue #538).
+ */
+export function isRecognizedGitFailure(value: unknown, ctx: GitErrorContext = {}): boolean {
+  return humanizeGitError(value, ctx) !== formatCommandError(asCommandError(value));
+}
+
+/**
+ * Phrases from `register_external_project`'s by-design refusals of a folder
+ * pick (backend returns `CommandError::expected` for them, issue #416 — but
+ * Expected serializes identically to Other across IPC, so the frontend
+ * re-checks the guidance phrases). These are user-guidance states, not bugs:
+ * callers log them at warn level and toast them as info (issues #518/#535).
+ */
+const EXPECTED_IMPORT_REFUSAL_PHRASES = [
+  'Please select that folder instead',
+  'Please select the specific project folder',
+  "doesn't appear to be a project",
+  'already inside your projects folder',
+  'already registered',
+  'your home directory',
+];
+
+/** True when an import-local-folder failure message is one of the backend's
+ *  by-design refusals (see {@link EXPECTED_IMPORT_REFUSAL_PHRASES}). */
+export function isExpectedProjectImportRefusal(message: string): boolean {
+  return EXPECTED_IMPORT_REFUSAL_PHRASES.some((phrase) => message.includes(phrase));
+}
+
+/**
+ * True when a caught error means the selected agent's CLI isn't installed —
+ * the backend's `find_agent_binary` returns `CommandError::expected("<Agent>
+ * binary not found")` for exactly this (issue #250), but Expected can't cross
+ * the IPC boundary, so match the message shape. A missing CLI is a
+ * user-environment state, not a bug: log it at warn level (issue #594).
+ */
+export function isAgentNotInstalledError(value: unknown): boolean {
+  return /binary not found/i.test(formatCommandError(asCommandError(value)));
+}
+
+/**
  * Exit-code → actionable-message mappings shared by the PTY-driven flows
  * (project creation, GitHub import) that run `git clone` / package installs.
  */
