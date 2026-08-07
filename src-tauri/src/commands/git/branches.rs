@@ -68,6 +68,13 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
         // Include git's stderr — a bare "Failed to list branches" is
         // undiagnosable from telemetry (issue #252).
         let stderr = String::from_utf8_lossy(&output.stderr);
+        // Environment gaps (unaccepted Xcode license, missing CLT, macOS TCC
+        // denial) mean git itself can't run — an expected machine state with a
+        // user-side fix, not an app malfunction (issues #603/#546).
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            warn!(error = %stderr.trim(), "git blocked by an environment gap while listing branches");
+            return Err(gap);
+        }
         return Err((format!("Failed to list branches: {}", stderr.trim())).into());
     }
 

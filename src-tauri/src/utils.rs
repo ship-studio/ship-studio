@@ -471,6 +471,47 @@ where
     unreachable!("loop always returns on the final attempt")
 }
 
+/// Classify git stderr that signals a *machine/environment* gap — git itself
+/// couldn't run (or couldn't read the project), through no fault of the app.
+/// Returns a `CommandError::expected` with actionable guidance so these don't
+/// page telemetry as malfunctions, or `None` for anything else.
+///
+/// Covered signatures:
+/// - macOS Xcode CLT license not accepted — git is a CLT shim on macOS, so
+///   every git call fails with the license text until the user accepts it
+///   (issue #603).
+/// - macOS Xcode CLT missing/broken (`xcrun: error: invalid active developer
+///   path`) — same shim, e.g. after a macOS upgrade removed the CLT.
+/// - macOS TCC denial (`Unable to read current working directory: Operation
+///   not permitted`) — the sandbox refused the app read access to the project
+///   folder, so spawned git can't even resolve its cwd (issue #546).
+pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> {
+    if stderr.contains("You have not agreed to the Xcode license agreements") {
+        return Some(crate::errors::CommandError::expected(
+            "Xcode's license hasn't been accepted yet, so git can't run. Open Terminal, run \
+             `sudo xcodebuild -license accept`, then try again.",
+        ));
+    }
+    if stderr.contains("invalid active developer path")
+        || stderr.contains("no developer tools were found")
+    {
+        return Some(crate::errors::CommandError::expected(
+            "The Xcode Command Line Tools (which provide git on macOS) are missing or broken. \
+             Run `xcode-select --install` in Terminal, then try again.",
+        ));
+    }
+    if stderr.contains("Unable to read current working directory")
+        && stderr.contains("Operation not permitted")
+    {
+        return Some(crate::errors::CommandError::expected(
+            "Ship Studio isn't allowed to read this project's folder — macOS blocked access. \
+             Grant access in System Settings → Privacy & Security → Files & Folders (or give \
+             Ship Studio Full Disk Access), then try again.",
+        ));
+    }
+    None
+}
+
 /// Finds an executable by checking common installation paths.
 /// This is needed because bundled macOS apps don't inherit the user's shell PATH.
 /// On Windows, checks standard Program Files and AppData locations.
@@ -1301,6 +1342,56 @@ mod tests {
             .unwrap();
             assert_eq!(calls, 1);
             assert!(result.status.success());
+        }
+    }
+
+    mod git_environment_gap {
+        use super::*;
+
+        /// Issue #603: unaccepted Xcode CLT license makes every git call fail
+        /// on macOS — an environment gap, not an app malfunction.
+        #[test]
+        fn classifies_unaccepted_xcode_license_as_expected() {
+            let stderr = "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and Apple SDKs license.";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(
+                err.to_string().contains("sudo xcodebuild -license accept"),
+                "message must carry the remediation, got: {err}"
+            );
+        }
+
+        /// Missing/broken CLT (e.g. after a macOS upgrade) fails through the
+        /// same git shim with the xcrun wording.
+        #[test]
+        fn classifies_missing_developer_tools_as_expected() {
+            let stderr = "xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools), missing xcrun at: /Library/Developer/CommandLineTools/usr/bin/xcrun";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains("xcode-select --install"));
+        }
+
+        /// Issue #546: macOS TCC denying the app read access to the project
+        /// folder surfaces as git's own getcwd failure on stderr.
+        #[test]
+        fn classifies_macos_tcc_denial_as_expected() {
+            let stderr =
+                "fatal: Unable to read current working directory: Operation not permitted";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains("Privacy & Security"));
+        }
+
+        #[test]
+        fn leaves_ordinary_git_failures_unclassified() {
+            assert!(git_environment_gap("fatal: not a git repository").is_none());
+            assert!(git_environment_gap("").is_none());
+            // "Operation not permitted" on some other operation isn't the TCC
+            // getcwd signature — don't over-match.
+            assert!(
+                git_environment_gap("error: unable to unlink old 'a.txt': Operation not permitted")
+                    .is_none()
+            );
         }
     }
 
