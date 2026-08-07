@@ -10,8 +10,9 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, info, instrument, warn};
 
 // Network git ops (fetch, push --delete) go through the workspace-scoped helper
-// in the parent module so they authenticate as the project's workspace login.
-use super::run_git_net;
+// in the parent module so they authenticate as the project's workspace login;
+// their failures classify through classify_git_net_error (issue #560).
+use super::{classify_git_net_error, run_git_net};
 
 /// Tracks the last time `git fetch` was run per project path.
 /// Prevents redundant network I/O when the frontend polls `list_branches` frequently.
@@ -568,8 +569,17 @@ pub async fn push_branch(project_path: String, branch_name: String) -> Result<()
         let stderr = String::from_utf8_lossy(&output.stderr);
         // An already-published, unchanged branch is a success, not an error.
         if !stderr.contains("Everything up-to-date") {
+            // run_git_net routes credential resolution through gh, so auth
+            // and connectivity failures wear gh/git wording — classify them
+            // as the expected states they are instead of raw telemetry-
+            // reported stderr (issue #560). Classified = environment, so log
+            // at warn (error! auto-files bug reports).
+            if let Some(err) = classify_git_net_error(&stderr) {
+                warn!(error = %stderr, "Publishing branch hit an expected gh/git failure");
+                return Err(err);
+            }
             error!(error = %stderr, "Failed to publish branch");
-            return Err((stderr.to_string()).into());
+            return Err(crate::external_command::truncate_output(&stderr).into());
         }
     }
 
@@ -645,8 +655,18 @@ pub async fn delete_branch(
         if !remote_output.status.success() {
             let stderr = String::from_utf8_lossy(&remote_output.stderr);
             if !stderr.contains("remote ref does not exist") {
+                // Same expected gh/git failure classification as push_branch
+                // (issue #560).
+                if let Some(err) = classify_git_net_error(&stderr) {
+                    warn!(error = %stderr, "Remote branch delete hit an expected gh/git failure");
+                    return Err(err);
+                }
                 error!(error = %stderr, "Failed to delete remote branch");
-                return Err((format!("Failed to delete remote branch: {stderr}")).into());
+                return Err(format!(
+                    "Failed to delete remote branch: {}",
+                    crate::external_command::truncate_output(&stderr)
+                )
+                .into());
             }
         }
 

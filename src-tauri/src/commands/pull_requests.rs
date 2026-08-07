@@ -125,7 +125,12 @@ pub async fn create_pull_request(
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         // Ignore "everything up-to-date" which isn't a real error
         if !stderr.contains("Everything up-to-date") {
-            return Err((format!("Failed to push branch: {stderr}")).into());
+            // A push that failed on auth or connectivity is an expected
+            // environment state, same as push_branch (issue #560).
+            if let Some(err) = crate::commands::git::classify_git_net_error(&stderr) {
+                return Err(err);
+            }
+            return Err(format!("Failed to push branch: {}", truncate_output(&stderr)).into());
         }
     }
 

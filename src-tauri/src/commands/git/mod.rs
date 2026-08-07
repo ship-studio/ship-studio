@@ -88,6 +88,18 @@ pub(crate) async fn run_git_net(
     run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
 }
 
+/// Classify a failed [`run_git_net`] invocation's stderr into the expected
+/// gh/git environment states: auth not configured, a connectivity blip,
+/// GitHub's transient HTTP 400, or gh itself crashing. `run_git_net` routes
+/// credential resolution through `gh`, so its failures wear the same wording
+/// the gh classifiers in `commands::github` already cover — call sites must
+/// route through this instead of forwarding raw stderr (issue #560). Returns
+/// `None` for anything genuinely unexplained.
+pub(crate) fn classify_git_net_error(stderr: &str) -> Option<CommandError> {
+    crate::commands::github::gh_auth_error(stderr)
+        .or_else(|| crate::commands::github::gh_common_error(stderr))
+}
+
 // ============ Git Helper Functions ============
 
 /// Checks if there are uncommitted changes (staged or unstaged tracked files).
@@ -480,6 +492,31 @@ mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::TempDir;
+
+    // The #560 shape: a connectivity blip during `git push` (credentials
+    // resolved via gh, so the error text is gh's GraphQL dial failure) must
+    // classify Expected instead of surfacing as raw stderr; auth failures map
+    // to NotAuthenticated; genuinely unexplained pushes stay unclassified.
+    #[test]
+    fn classify_git_net_error_covers_network_auth_and_passthrough() {
+        let net = r#"Post "https://api.github.com/graphql": dial tcp 20.205.243.168:443: connect: connection refused"#;
+        assert!(matches!(
+            classify_git_net_error(net),
+            Some(CommandError::Expected { .. })
+        ));
+        // git's own DNS wording (no gh involved) is covered too.
+        assert!(classify_git_net_error("fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com").is_some());
+        assert!(matches!(
+            classify_git_net_error("To get started with GitHub CLI, please run:  gh auth login"),
+            Some(CommandError::NotAuthenticated { .. })
+        ));
+        // A real push rejection must NOT be swallowed as expected.
+        assert!(classify_git_net_error(
+            "! [rejected] main -> main (non-fast-forward)\nerror: failed to push some refs"
+        )
+        .is_none());
+        assert!(classify_git_net_error("").is_none());
+    }
 
     /// Initialize a fresh git repo in `dir` with a local user identity so
     /// commits work in CI environments without global git config.
