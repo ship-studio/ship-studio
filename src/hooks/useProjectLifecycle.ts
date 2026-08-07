@@ -67,7 +67,7 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError, setActiveProject } from '../lib/analytics';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import { asCommandError, formatCommandError, isExpectedProjectImportRefusal } from '../lib/errors';
 import { extractTerminalError } from '../lib/terminalDiagnostics';
 import { getProjectId } from '../lib/projectIdentity';
 import { startProjectSession, endProjectSession } from '../lib/session';
@@ -911,20 +911,16 @@ export function useProjectLifecycle({
       // register_external_project throws CommandError::Expected for by-design
       // refusals of the user's folder pick (issue #416), but Expected serializes
       // across IPC identically to Other, so re-check its known guidance phrases
-      // here. Those get logger.warn — the user already sees an accurate toast,
-      // and logger.error would file a bug report for correct behavior (#518).
-      const expectedRefusal =
-        message.includes('Please select that folder instead') ||
-        message.includes('Please select the specific project folder') ||
-        message.includes("doesn't appear to be a project") ||
-        message.includes('already inside your projects folder') ||
-        message.includes('already registered') ||
-        message.includes('your home directory');
+      // (shared list in lib/errors). Those get logger.warn — the user already
+      // sees an accurate toast, and logger.error would file a bug report for
+      // correct behavior (#518) — and an *info* toast: error toasts re-report
+      // through the toast telemetry pipeline too (#535).
+      const expectedRefusal = isExpectedProjectImportRefusal(message);
       logger[expectedRefusal ? 'warn' : 'error']('[ImportLocalFolder] failed', { error: message });
       const friendly = message.includes('already registered')
         ? "This folder is already in Ship Studio. To work on a different workspace from the same folder, clone the repo again via 'Import from GitHub' (each clone is independent), or duplicate the folder on disk first."
         : message;
-      showToast(friendly, 'error');
+      showToast(friendly, expectedRefusal ? 'info' : 'error');
     }
   };
 

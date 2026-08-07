@@ -49,6 +49,7 @@ import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError, humanizeGitError } from '../../lib/errors';
+import { logger } from '../../lib/logger';
 
 /** A Tauri-rejected `CommandError` is an object — `String(err)` renders it as
  *  "[object Object]". Format it to the real human message (the git stderr). */
@@ -136,7 +137,8 @@ export function BranchesTab({
   onCreateWorktree,
 }: BranchesTabProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+  const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
+    showToast(message, type);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [deletingBranch, setDeletingBranch] = useState<string | null>(null);
   const [publishingBranch, setPublishingBranch] = useState<string | null>(null);
@@ -433,7 +435,23 @@ export function BranchesTab({
       onRefresh();
     } catch (e) {
       trackError('branch_revert', e, 'Workspace');
-      onToast?.(`Failed to revert: ${errText(e)}`, 'error');
+      if (/no tracking information/i.test(errText(e))) {
+        // Expected: the branch has never been pushed, so there's no GitHub
+        // version to pull — git's normal refusal, not an app malfunction
+        // (the backend classifies it Expected too). The discard above already
+        // ran, so local edits ARE gone — say so honestly. Info toast + warn
+        // log, never the error channels that auto-file bug reports (#539).
+        logger.warn('[BranchesTab] Revert pull skipped: branch has no upstream', {
+          error: errText(e),
+        });
+        onToast?.(
+          `Your local changes were discarded, but ${currentBranch} has never been pushed to GitHub, so there was no GitHub version to pull. Send the branch to GitHub first if you want a copy to revert to next time.`,
+          'info'
+        );
+        onRefresh();
+      } else {
+        onToast?.(`Failed to revert: ${humanizeGitError(e, { branch: currentBranch })}`, 'error');
+      }
     } finally {
       setIsReverting(false);
     }

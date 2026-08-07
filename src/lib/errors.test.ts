@@ -5,7 +5,10 @@ import {
   formatCommandError,
   friendlyProcessError,
   humanizeGitError,
+  isAgentNotInstalledError,
+  isExpectedProjectImportRefusal,
   isMergeConflictError,
+  isRecognizedGitFailure,
   type CommandError,
 } from './errors';
 
@@ -252,6 +255,22 @@ describe('humanizeGitError', () => {
     );
   });
 
+  it('isRecognizedGitFailure mirrors whether humanizeGitError classified the error', () => {
+    // Recognized, by-design refusals (backend marks these Expected, but the
+    // tag can't cross IPC — issue #538).
+    expect(isRecognizedGitFailure('GraphQL: No commits between develop and feat/empty')).toBe(true);
+    expect(
+      isRecognizedGitFailure('GraphQL: A pull request already exists for julian:feat/x.')
+    ).toBe(true);
+    expect(isRecognizedGitFailure('remote: Permission denied (publickey).')).toBe(true);
+    expect(
+      isRecognizedGitFailure({ type: 'Process', cmd: 'gh', exit_code: 1, stderr: 'dial tcp: nope' })
+    ).toBe(true);
+    // Unrecognized failures fall through — those stay on the error channels.
+    expect(isRecognizedGitFailure('some completely novel git failure')).toBe(false);
+    expect(isRecognizedGitFailure(new Error('segfault in gh'))).toBe(false);
+  });
+
   it('accepts CommandError objects, not just strings', () => {
     const err: CommandError = {
       type: 'Timeout',
@@ -260,5 +279,45 @@ describe('humanizeGitError', () => {
     } as unknown as CommandError;
     // Timeout formats to a "timed out" message → the network case.
     expect(humanizeGitError(err)).toMatch(/couldn't reach GitHub/i);
+  });
+});
+
+describe('isExpectedProjectImportRefusal', () => {
+  // The backend's by-design refusals of a folder pick (issue #416) — each of
+  // these is user guidance, not a bug, and must classify as expected so the
+  // import flow logs at warn and toasts as info (issues #518/#535).
+  const expectedMessages = [
+    'This folder is inside a git repository rooted at /x. Please select that folder instead.',
+    'This looks like a monorepo. Please select the specific project folder you want to work on.',
+    "This folder doesn't appear to be a project (no package.json, index.html, or .git found).",
+    'This project is already inside your projects folder. It will appear automatically.',
+    'This folder is already registered.',
+    "That's your home directory — pick the project folder itself.",
+  ];
+
+  it.each(expectedMessages)('classifies as expected: %s', (message) => {
+    expect(isExpectedProjectImportRefusal(message)).toBe(true);
+  });
+
+  it('does not classify genuine failures as expected', () => {
+    expect(isExpectedProjectImportRefusal('EACCES: permission denied, open config.json')).toBe(
+      false
+    );
+    expect(isExpectedProjectImportRefusal('I/O error: disk full')).toBe(false);
+  });
+});
+
+describe('isAgentNotInstalledError', () => {
+  it("matches the backend's `<Agent> binary not found` Expected message", () => {
+    expect(isAgentNotInstalledError('Codex binary not found')).toBe(true);
+    expect(isAgentNotInstalledError('OpenCode binary not found')).toBe(true);
+    expect(isAgentNotInstalledError({ type: 'Other', message: 'Claude binary not found' })).toBe(
+      true
+    );
+  });
+
+  it('does not match other failures', () => {
+    expect(isAgentNotInstalledError('Failed to add MCP server: connection refused')).toBe(false);
+    expect(isAgentNotInstalledError(new Error('spawn ENOENT'))).toBe(false);
   });
 });
