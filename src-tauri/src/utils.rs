@@ -491,6 +491,30 @@ pub fn classify_fs_error(
     }
 }
 
+/// Resolve `cmd` inside a single directory.
+///
+/// On Windows, executable (`.exe`) and batch (`.cmd`) shims are checked
+/// BEFORE an extensionless sibling: Node installs `npm`/`npx` both as
+/// `.cmd` batch shims AND as extensionless POSIX-shell scripts (for Git
+/// Bash) in the same directory. Preferring the bare name resolved the shell
+/// script, which `CreateProcess` cannot execute — every spawn then failed
+/// with "%1 is not a valid Win32 application" (os error 193, issue #590).
+/// `.cmd`/`.bat` are fine: Rust ≥ 1.77 spawns them through `cmd.exe` itself.
+fn resolve_executable_in_dir(dir: &std::path::Path, cmd: &str) -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    for ext in ["exe", "cmd", "bat"] {
+        let with_ext = dir.join(format!("{cmd}.{ext}"));
+        if with_ext.is_file() {
+            return Some(with_ext);
+        }
+    }
+    let bare = dir.join(cmd);
+    if bare.is_file() {
+        return Some(bare);
+    }
+    None
+}
+
 /// Finds an executable by checking common installation paths.
 /// This is needed because bundled macOS apps don't inherit the user's shell PATH.
 /// On Windows, checks standard Program Files and AppData locations.
@@ -508,16 +532,8 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
         if dir.is_empty() {
             continue;
         }
-        let candidate = std::path::Path::new(dir).join(cmd);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        #[cfg(windows)]
-        for ext in ["exe", "cmd"] {
-            let win = std::path::Path::new(dir).join(format!("{cmd}.{ext}"));
-            if win.is_file() {
-                return Some(win);
-            }
+        if let Some(found) = resolve_executable_in_dir(std::path::Path::new(dir), cmd) {
+            return Some(found);
         }
     }
 
@@ -1290,6 +1306,48 @@ mod tests {
                 }
                 other => panic!("expected Io, got {other:?}"),
             }
+        }
+    }
+
+    mod resolve_executable {
+        use super::*;
+
+        #[test]
+        fn resolves_bare_name() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("mytool"), "#!/bin/sh\n").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "mytool").unwrap();
+            assert_eq!(found, tmp.path().join("mytool"));
+        }
+
+        #[test]
+        fn misses_cleanly_when_absent() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            assert!(resolve_executable_in_dir(tmp.path(), "ghost-tool").is_none());
+        }
+
+        // The #590 shape: nodejs ships BOTH an extensionless POSIX-shell
+        // `npm` and `npm.cmd` in the same directory. Resolving the shell
+        // script makes CreateProcess fail with os error 193 — the batch
+        // shim must win.
+        #[test]
+        #[cfg(windows)]
+        fn prefers_cmd_shim_over_extensionless_shell_script() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("npm"), "#!/bin/sh\n").unwrap();
+            std::fs::write(tmp.path().join("npm.cmd"), "@echo off\r\n").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "npm").unwrap();
+            assert_eq!(found, tmp.path().join("npm.cmd"));
+        }
+
+        #[test]
+        #[cfg(windows)]
+        fn prefers_exe_over_cmd_shim() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("tool.cmd"), "@echo off\r\n").unwrap();
+            std::fs::write(tmp.path().join("tool.exe"), "MZ").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "tool").unwrap();
+            assert_eq!(found, tmp.path().join("tool.exe"));
         }
     }
 
