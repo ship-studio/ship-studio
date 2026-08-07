@@ -38,7 +38,9 @@ base64 = "0.22"
 url = "2"
 tauri-plugin-screenshots = "2.2.0"
 tauri-plugin-fs = "2"
-image = { version = "0.25.9", default-features = false, features = ["png"] }
+# jpeg/gif/webp: custom thumbnail uploads decode whatever the user drags in
+# (saved back out as PNG); png-only rejected every JPEG upload (issue #561).
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 tauri-plugin-updater = "2.9.0"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-deep-link = "2"

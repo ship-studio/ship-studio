@@ -96,21 +96,27 @@ pub(crate) async fn run_git_net(
 // ============ Git Helper Functions ============
 
 /// Checks if there are uncommitted changes (staged or unstaged tracked files).
-pub fn git_has_uncommitted_changes(path: &std::path::Path) -> Result<bool, String> {
-    let status = crate::utils::git_command_in(path)?
-        .args(["status", "--porcelain", "-uno"])
-        .output()
-        .map_err(|e| e.to_string())?;
+///
+/// Spawns are labeled and retried on transient EAGAIN — a bare "Resource
+/// temporarily unavailable (os error 35)" with no call-site context was
+/// reaching telemetry from these frequently-polled helpers (issue #555).
+pub fn git_has_uncommitted_changes(
+    path: &std::path::Path,
+) -> Result<bool, crate::errors::CommandError> {
+    let mut cmd = crate::utils::git_command_in(path)?;
+    cmd.args(["status", "--porcelain", "-uno"]);
+    let status =
+        crate::external_command::spawn_with_pressure_retry("git status", || cmd.output())?;
 
     Ok(!String::from_utf8_lossy(&status.stdout).trim().is_empty())
 }
 
 /// Checks if there are any changes (including untracked) in the working directory.
-pub fn git_has_any_changes(path: &std::path::Path) -> Result<bool, String> {
-    let status = crate::utils::git_command_in(path)?
-        .args(["status", "--porcelain"])
-        .output()
-        .map_err(|e| e.to_string())?;
+pub fn git_has_any_changes(path: &std::path::Path) -> Result<bool, crate::errors::CommandError> {
+    let mut cmd = crate::utils::git_command_in(path)?;
+    cmd.args(["status", "--porcelain"]);
+    let status =
+        crate::external_command::spawn_with_pressure_retry("git status", || cmd.output())?;
 
     Ok(!String::from_utf8_lossy(&status.stdout).trim().is_empty())
 }
@@ -189,12 +195,9 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
     // snapshot watcher (and any agent CLI) can hold the lock at the exact
     // moment a commit/publish fires (#377).
     let add_output = crate::utils::output_retrying_index_lock(|| {
-        crate::utils::git_command_in(path)?
-            .args(["add", "-A"])
-            .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+        let mut cmd = crate::utils::git_command_in(path)?;
+        cmd.args(["add", "-A"]);
+        crate::external_command::spawn_with_pressure_retry("git add", || cmd.output())
     })
     .map_err(String::from)?;
 
@@ -206,10 +209,13 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
         // changes are fine (issue #275). Retry with --sparse, which stages
         // out-of-cone paths instead of refusing.
         if add_stderr.contains("outside of your sparse-checkout definition") {
-            let sparse_output = crate::utils::git_command_in(path)?
-                .args(["add", "-A", "--sparse"])
-                .output()
-                .map_err(|e| e.to_string())?;
+            let mut sparse_cmd = crate::utils::git_command_in(path)?;
+            sparse_cmd.args(["add", "-A", "--sparse"]);
+            let sparse_output = crate::external_command::spawn_with_pressure_retry(
+                "git add --sparse",
+                || sparse_cmd.output(),
+            )
+            .map_err(String::from)?;
             if !sparse_output.status.success() {
                 return Err(String::from_utf8_lossy(&sparse_output.stderr).to_string());
             }
@@ -227,12 +233,9 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
 
     // Commit — same index.lock retry as the staging step (#377).
     let commit_output = crate::utils::output_retrying_index_lock(|| {
-        crate::utils::git_command_in(path)?
-            .args(["commit", "-m", message])
-            .output()
-            .map_err(|e| crate::errors::CommandError::Io {
-                message: e.to_string(),
-            })
+        let mut cmd = crate::utils::git_command_in(path)?;
+        cmd.args(["commit", "-m", message]);
+        crate::external_command::spawn_with_pressure_retry("git commit", || cmd.output())
     })
     .map_err(String::from)?;
 

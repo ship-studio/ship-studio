@@ -95,6 +95,95 @@ pub async fn run_to_stdout(
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+// ===== Transient spawn resource pressure (EAGAIN) =====
+//
+// Under macOS process/thread-table pressure, `fork()`/`posix_spawn()` can
+// transiently fail with EAGAIN ("Resource temporarily unavailable", os error
+// 35 on macOS/BSD, 11 on Linux). This surfaced as bare, unlabeled OS error
+// strings from many independent spawn sites (issues #555, #573, #585, #586,
+// #587). The helpers below give every spawn site one shared treatment:
+// a couple of short-backoff retries, and — if the pressure persists — a
+// human-readable `Expected` error instead of telemetry noise.
+
+/// True when a rendered error message is the transient EAGAIN spawn failure.
+///
+/// Message-based (rather than `raw_os_error`-based) so it works uniformly for
+/// `std::io::Error` and for portable_pty's `anyhow`-shaped errors, which only
+/// expose the underlying OS error through their `Display` text. The raw-code
+/// fallbacks are Unix-gated: on Windows os error 35/11 mean unrelated things.
+pub fn is_spawn_resource_pressure(message: &str) -> bool {
+    message.contains("Resource temporarily unavailable")
+        || (cfg!(unix) && (message.contains("(os error 35)") || message.contains("(os error 11)")))
+}
+
+/// The persistent-EAGAIN error: process-table/resource pressure is an
+/// environment condition with a user-side fix, not an app malfunction —
+/// `Expected` keeps it out of telemetry and swaps the raw OS string for
+/// actionable guidance.
+pub fn spawn_resource_pressure_error(label: &str) -> CommandError {
+    CommandError::expected(format!(
+        "Couldn't start `{label}` — your system is temporarily low on process resources. \
+         Close some apps or terminal tabs and try again."
+    ))
+}
+
+/// Run a spawn closure, retrying a couple of times with a short backoff when
+/// it fails with EAGAIN (see module comment above). Any other failure — and
+/// an EAGAIN that survives every retry — is returned unchanged so the
+/// caller's existing error mapping still applies; pair with
+/// [`is_spawn_resource_pressure`] / [`spawn_resource_pressure_error`] to
+/// classify the persistent case.
+///
+/// Blocking (uses `std::thread::sleep`); total added wait is ≤ 300ms and only
+/// on the rare EAGAIN path, matching `output_retrying_index_lock`'s tradeoff.
+pub fn retry_spawn_on_pressure<T, E: std::fmt::Display>(
+    label: &str,
+    mut spawn: impl FnMut() -> Result<T, E>,
+) -> Result<T, E> {
+    const ATTEMPTS: u64 = 3;
+    for attempt in 1..=ATTEMPTS {
+        match spawn() {
+            Ok(v) => return Ok(v),
+            Err(e) if attempt < ATTEMPTS && is_spawn_resource_pressure(&e.to_string()) => {
+                warn!(
+                    cmd = %label,
+                    attempt,
+                    error = %e,
+                    "spawn hit transient resource pressure (EAGAIN); retrying"
+                );
+                std::thread::sleep(Duration::from_millis(100 * attempt));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("loop returns on the final attempt")
+}
+
+/// Convenience for `std::process` spawn sites: run the spawn with the EAGAIN
+/// retry, then map any failure into a labeled `CommandError` — persistent
+/// EAGAIN becomes the human `Expected` message, a missing binary stays
+/// `Expected` (mirroring [`run_with_timeout`], #296), Windows pagefile
+/// exhaustion keeps its typed guidance (#356), and anything else is a
+/// labeled `Io` so telemetry can attribute the call site.
+pub fn spawn_with_pressure_retry<T>(
+    label: &str,
+    spawn: impl FnMut() -> std::io::Result<T>,
+) -> Result<T, CommandError> {
+    retry_spawn_on_pressure(label, spawn).map_err(|io_err| {
+        if is_spawn_resource_pressure(&io_err.to_string()) {
+            return spawn_resource_pressure_error(label);
+        }
+        let message = format!("`{label}`: {io_err}");
+        if io_err.kind() == std::io::ErrorKind::NotFound {
+            CommandError::expected(message)
+        } else if let Some(oom) = crate::errors::windows_out_of_memory(&io_err, Some(label)) {
+            oom
+        } else {
+            CommandError::Io { message }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,6 +220,133 @@ mod tests {
             CommandError::Timeout { secs, .. } => assert_eq!(secs, 1),
             other => panic!("expected Timeout, got {other:?}"),
         }
+    }
+
+    /// Builds an io::Error whose Display matches the reported telemetry shapes
+    /// deterministically on every platform (from_raw_os_error(35) renders
+    /// differently on Windows CI).
+    fn eagain() -> std::io::Error {
+        std::io::Error::other("Resource temporarily unavailable (os error 35)")
+    }
+
+    // The #555/#573/#585/#586/#587 shapes: bare EAGAIN text from macOS spawns.
+    #[test]
+    fn spawn_pressure_matches_reported_eagain_shapes() {
+        assert!(is_spawn_resource_pressure(
+            "Resource temporarily unavailable (os error 35)"
+        ));
+        assert!(is_spawn_resource_pressure(
+            "spawn_command: Resource temporarily unavailable (os error 35)"
+        ));
+        assert!(is_spawn_resource_pressure(
+            "Failed to execute command: Resource temporarily unavailable (os error 35)"
+        ));
+        // Linux renders EAGAIN as os error 11.
+        #[cfg(unix)]
+        assert!(is_spawn_resource_pressure(
+            "Resource temporarily unavailable (os error 11)"
+        ));
+    }
+
+    #[test]
+    fn spawn_pressure_rejects_other_errors() {
+        assert!(!is_spawn_resource_pressure(
+            "No such file or directory (os error 2)"
+        ));
+        assert!(!is_spawn_resource_pressure(
+            "Operation not permitted (os error 1)"
+        ));
+        assert!(!is_spawn_resource_pressure(""));
+        // Don't match a larger error code that merely contains "35"/"11".
+        assert!(!is_spawn_resource_pressure("something (os error 110)"));
+        assert!(!is_spawn_resource_pressure("something (os error 355)"));
+    }
+
+    #[test]
+    fn retry_spawn_recovers_after_transient_eagain() {
+        let mut calls = 0;
+        let result: Result<i32, std::io::Error> = retry_spawn_on_pressure("git status", || {
+            calls += 1;
+            if calls < 3 {
+                Err(eagain())
+            } else {
+                Ok(42)
+            }
+        });
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn retry_spawn_does_not_retry_non_eagain_failures() {
+        let mut calls = 0;
+        let result: Result<(), std::io::Error> = retry_spawn_on_pressure("git status", || {
+            calls += 1;
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No such file or directory (os error 2)",
+            ))
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn persistent_eagain_becomes_expected_with_human_message() {
+        let mut calls = 0;
+        let err = spawn_with_pressure_retry::<()>("open safari", || {
+            calls += 1;
+            Err(eagain())
+        })
+        .unwrap_err();
+        assert_eq!(calls, 3, "must exhaust the retries first");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("`open safari`"), "got: {msg}");
+        assert!(msg.contains("low on process resources"), "got: {msg}");
+        // The raw OS string must not leak into the user-facing message.
+        assert!(!msg.contains("os error 35"), "got: {msg}");
+    }
+
+    #[test]
+    fn spawn_with_pressure_retry_keeps_not_found_expected_and_labeled() {
+        let err = spawn_with_pressure_retry::<()>("gh api user", || {
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
+        })
+        .unwrap_err();
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("`gh api user`"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spawn_with_pressure_retry_labels_other_io_errors() {
+        let err = spawn_with_pressure_retry::<()>("gh api user", || {
+            Err(std::io::Error::other("boom"))
+        })
+        .unwrap_err();
+        match err {
+            CommandError::Io { message } => {
+                assert!(message.contains("`gh api user`"), "got: {message}");
+                assert!(message.contains("boom"), "got: {message}");
+            }
+            other => panic!("expected Io, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spawn_with_pressure_retry_passes_success_through_untouched() {
+        let mut calls = 0;
+        let out = spawn_with_pressure_retry("echo", || {
+            calls += 1;
+            Ok(7)
+        })
+        .unwrap();
+        assert_eq!(out, 7);
+        assert_eq!(calls, 1, "no gratuitous retries on success");
     }
 
     #[tokio::test]

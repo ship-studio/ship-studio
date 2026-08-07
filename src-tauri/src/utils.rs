@@ -512,6 +512,57 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
     None
 }
 
+/// Classify a filesystem `io::Error` for a user-facing command error.
+///
+/// macOS TCC's EPERM denial (`os error 1` — Privacy & Security blocking
+/// Desktop/Documents/Downloads/iCloud/external volumes) is an environment
+/// condition with a user-side fix, so it becomes an actionable `Expected`
+/// with the Files & Folders remediation instead of a bare "Operation not
+/// permitted" telemetry bug — the same treatment `read_projects_dir` got in
+/// #307, shared here so every fs call site classifies identically (issues
+/// #545, #605). Anything else stays a labeled `Io` for diagnosability.
+pub fn classify_fs_error(
+    action: &str,
+    path: &std::path::Path,
+    e: &std::io::Error,
+) -> crate::errors::CommandError {
+    if cfg!(target_os = "macos") && e.raw_os_error() == Some(1) {
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio isn't allowed to {action} ({}). Grant access in System Settings → \
+             Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
+            path.display()
+        ))
+    } else {
+        crate::errors::CommandError::Io {
+            message: format!("Failed to {action} ({}): {e}", path.display()),
+        }
+    }
+}
+
+/// Resolve `cmd` inside a single directory.
+///
+/// On Windows, executable (`.exe`) and batch (`.cmd`) shims are checked
+/// BEFORE an extensionless sibling: Node installs `npm`/`npx` both as
+/// `.cmd` batch shims AND as extensionless POSIX-shell scripts (for Git
+/// Bash) in the same directory. Preferring the bare name resolved the shell
+/// script, which `CreateProcess` cannot execute — every spawn then failed
+/// with "%1 is not a valid Win32 application" (os error 193, issue #590).
+/// `.cmd`/`.bat` are fine: Rust ≥ 1.77 spawns them through `cmd.exe` itself.
+fn resolve_executable_in_dir(dir: &std::path::Path, cmd: &str) -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    for ext in ["exe", "cmd", "bat"] {
+        let with_ext = dir.join(format!("{cmd}.{ext}"));
+        if with_ext.is_file() {
+            return Some(with_ext);
+        }
+    }
+    let bare = dir.join(cmd);
+    if bare.is_file() {
+        return Some(bare);
+    }
+    None
+}
+
 /// Finds an executable by checking common installation paths.
 /// This is needed because bundled macOS apps don't inherit the user's shell PATH.
 /// On Windows, checks standard Program Files and AppData locations.
@@ -529,16 +580,8 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
         if dir.is_empty() {
             continue;
         }
-        let candidate = std::path::Path::new(dir).join(cmd);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        #[cfg(windows)]
-        for ext in ["exe", "cmd"] {
-            let win = std::path::Path::new(dir).join(format!("{cmd}.{ext}"));
-            if win.is_file() {
-                return Some(win);
-            }
+        if let Some(found) = resolve_executable_in_dir(std::path::Path::new(dir), cmd) {
+            return Some(found);
         }
     }
 
@@ -1270,6 +1313,89 @@ mod tests {
                     assert!(err.to_string().contains("test_site"));
                 }
             }
+        }
+    }
+
+    mod classify_fs_errors {
+        use super::*;
+
+        // The #545/#605 shape: TCC denying a read under ~/Desktop etc.
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn macos_eperm_becomes_expected_with_privacy_remediation() {
+            let e = std::io::Error::from_raw_os_error(1);
+            let err = classify_fs_error(
+                "read this project's plugin storage",
+                std::path::Path::new("/Users/x/Desktop/proj/.shipstudio"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("Privacy & Security"), "got: {msg}");
+            assert!(msg.contains("plugin storage"), "got: {msg}");
+            assert!(msg.contains("/Users/x/Desktop/proj"), "got: {msg}");
+        }
+
+        #[test]
+        fn other_io_errors_stay_labeled_io() {
+            let e = std::io::Error::new(std::io::ErrorKind::InvalidData, "corrupt");
+            let err = classify_fs_error(
+                "read this project's plugin registry",
+                std::path::Path::new("/p/registry.json"),
+                &e,
+            );
+            match err {
+                crate::errors::CommandError::Io { message } => {
+                    assert!(message.contains("plugin registry"), "got: {message}");
+                    assert!(message.contains("corrupt"), "got: {message}");
+                }
+                other => panic!("expected Io, got {other:?}"),
+            }
+        }
+    }
+
+    mod resolve_executable {
+        use super::*;
+
+        #[test]
+        fn resolves_bare_name() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("mytool"), "#!/bin/sh\n").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "mytool").unwrap();
+            assert_eq!(found, tmp.path().join("mytool"));
+        }
+
+        #[test]
+        fn misses_cleanly_when_absent() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            assert!(resolve_executable_in_dir(tmp.path(), "ghost-tool").is_none());
+        }
+
+        // The #590 shape: nodejs ships BOTH an extensionless POSIX-shell
+        // `npm` and `npm.cmd` in the same directory. Resolving the shell
+        // script makes CreateProcess fail with os error 193 — the batch
+        // shim must win.
+        #[test]
+        #[cfg(windows)]
+        fn prefers_cmd_shim_over_extensionless_shell_script() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("npm"), "#!/bin/sh\n").unwrap();
+            std::fs::write(tmp.path().join("npm.cmd"), "@echo off\r\n").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "npm").unwrap();
+            assert_eq!(found, tmp.path().join("npm.cmd"));
+        }
+
+        #[test]
+        #[cfg(windows)]
+        fn prefers_exe_over_cmd_shim() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("tool.cmd"), "@echo off\r\n").unwrap();
+            std::fs::write(tmp.path().join("tool.exe"), "MZ").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "tool").unwrap();
+            assert_eq!(found, tmp.path().join("tool.exe"));
         }
     }
 

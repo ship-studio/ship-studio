@@ -183,11 +183,11 @@ pub async fn open_in_ide(
             _ => return Err((format!("Unknown IDE: {ide}")).into()),
         };
 
-        // Use 'open -a' on macOS which is more reliable
-        create_command("open")
-            .args(["-a", app_name, &target_path])
-            .spawn()
-            .map_err(|e| format!("Failed to open in {ide}: {e}"))?;
+        // Use 'open -a' on macOS which is more reliable. Retried on transient
+        // EAGAIN and labeled so a spawn failure is attributable (issue #585).
+        let mut cmd = create_command("open");
+        cmd.args(["-a", app_name, &target_path]);
+        crate::external_command::spawn_with_pressure_retry(&format!("open {ide}"), || cmd.spawn())?;
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -214,10 +214,11 @@ pub async fn open_in_ide(
             )));
         };
 
-        create_command(&resolved)
-            .arg(&target_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open in {}: {}", ide, e))?;
+        let mut launch = create_command(&resolved);
+        launch.arg(&target_path);
+        crate::external_command::spawn_with_pressure_retry(&format!("open {ide}"), || {
+            launch.spawn()
+        })?;
     }
 
     Ok(())
@@ -279,10 +280,15 @@ pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), 
             .map(|(_, name, _)| *name)
             .ok_or_else(|| format!("Unknown browser: {browser_id}"))?;
 
-        create_command("open")
-            .args(["-a", app_name, &url])
-            .spawn()
-            .map_err(|e| format!("Failed to open in {browser_id}: {e}"))?;
+        // Retried on transient EAGAIN (process-table pressure) and classified
+        // Expected when it persists — a bare "Failed to open in safari:
+        // Resource temporarily unavailable (os error 35)" was reaching
+        // telemetry as an app malfunction (issue #585).
+        let mut cmd = create_command("open");
+        cmd.args(["-a", app_name, &url]);
+        crate::external_command::spawn_with_pressure_retry(&format!("open {browser_id}"), || {
+            cmd.spawn()
+        })?;
 
         Ok(())
     }
@@ -298,10 +304,11 @@ pub async fn open_url_in_browser(url: String, browser_id: String) -> Result<(), 
         let browser_exe = find_windows_browser(relative_path)
             .ok_or_else(|| format!("Browser not found: {}", browser_id))?;
 
-        create_command(browser_exe)
-            .arg(&url)
-            .spawn()
-            .map_err(|e| format!("Failed to open in {}: {}", browser_id, e))?;
+        let mut cmd = create_command(browser_exe);
+        cmd.arg(&url);
+        crate::external_command::spawn_with_pressure_retry(&format!("open {browser_id}"), || {
+            cmd.spawn()
+        })?;
 
         Ok(())
     }

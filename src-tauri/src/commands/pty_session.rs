@@ -305,8 +305,19 @@ pub async fn pty_session_open(
         cmd.env(std::ffi::OsString::from(&k), std::ffi::OsString::from(&v));
     }
 
-    let mut child = pair.slave.spawn_command(cmd).map_err(|e| {
-        let message = format!("spawn_command: {e}");
+    // Retried on transient EAGAIN (process-table pressure) — and labeled with
+    // the spawned command, so the three spawn_command sites in this codebase
+    // no longer collapse into one indistinguishable telemetry bucket (#587).
+    let mut child = crate::external_command::retry_spawn_on_pressure(&command, || {
+        pair.slave.spawn_command(cmd.clone())
+    })
+    .map_err(|e| {
+        let message = format!("spawn_command `{command}`: {e}");
+        // A persistent EAGAIN is the environment (resource pressure), not an
+        // app malfunction — Expected with a human message (issue #587).
+        if crate::external_command::is_spawn_resource_pressure(&message) {
+            return crate::external_command::spawn_resource_pressure_error(&command);
+        }
         // portable_pty's binary-not-found phrasings. A missing/unresolvable
         // agent CLI is an environment gap ("install X first") the frontend
         // already turns into the agent's install hint — Expected keeps it out

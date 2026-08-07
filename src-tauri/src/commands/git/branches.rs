@@ -58,11 +58,13 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
         });
     }
 
-    // Get all branches (local and remote)
-    let output = crate::utils::git_command_in(&validated_path)?
-        .args(["branch", "-a", "--format=%(refname:short)|%(objectname:short)|%(committerdate:unix)|%(authorname)|%(HEAD)"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Get all branches (local and remote). Labeled + EAGAIN-retried: this is
+    // polled frequently, so a transient spawn failure used to reach telemetry
+    // as a bare "os error 35" with no call-site context (issue #555).
+    let mut branch_cmd = crate::utils::git_command_in(&validated_path)?;
+    branch_cmd.args(["branch", "-a", "--format=%(refname:short)|%(objectname:short)|%(committerdate:unix)|%(authorname)|%(HEAD)"]);
+    let output =
+        crate::external_command::spawn_with_pressure_retry("git branch -a", || branch_cmd.output())?;
 
     if !output.status.success() {
         // Include git's stderr — a bare "Failed to list branches" is
@@ -195,10 +197,10 @@ pub async fn get_current_branch(project_path: String) -> Result<String, CommandE
 
     let validated_path = validate_project_path(&project_path)?;
 
-    let output = crate::utils::git_command_in(&validated_path)?
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut head_cmd = crate::utils::git_command_in(&validated_path)?;
+    head_cmd.args(["rev-parse", "--abbrev-ref", "HEAD"]);
+    let output =
+        crate::external_command::spawn_with_pressure_retry("git rev-parse", || head_cmd.output())?;
 
     if !output.status.success() {
         return Err(("Not a git repository".to_string()).into());
@@ -247,15 +249,17 @@ pub async fn switch_branch(
     let has_changes = git_has_any_changes(&validated_path)?;
 
     if has_changes && auto_stash {
-        let stash_output = crate::utils::git_command_in(&validated_path)?
-            .args([
-                "stash",
-                "push",
-                "-m",
-                &format!("Auto-stash by Ship Studio (from {current_branch})"),
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
+        let mut stash_cmd = crate::utils::git_command_in(&validated_path)?;
+        stash_cmd.args([
+            "stash",
+            "push",
+            "-m",
+            &format!("Auto-stash by Ship Studio (from {current_branch})"),
+        ]);
+        let stash_output = crate::external_command::spawn_with_pressure_retry(
+            "git stash push",
+            || stash_cmd.output(),
+        )?;
 
         if stash_output.status.success() {
             let stdout = String::from_utf8_lossy(&stash_output.stdout);
@@ -288,10 +292,11 @@ pub async fn switch_branch(
     }
 
     // Try to checkout the branch
-    let checkout_output = crate::utils::git_command_in(&validated_path)?
-        .args(["checkout", "--end-of-options", &branch_name])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut checkout_cmd = crate::utils::git_command_in(&validated_path)?;
+    checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
+    let checkout_output = crate::external_command::spawn_with_pressure_retry("git checkout", || {
+        checkout_cmd.output()
+    })?;
 
     if !checkout_output.status.success() {
         // Checkout failed - restore the stash if we made one
@@ -443,10 +448,10 @@ pub async fn create_branch(
     }
 
     // Get the current branch name
-    let current_branch_output = crate::utils::git_command_in(&validated_path)?
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut head_cmd = crate::utils::git_command_in(&validated_path)?;
+    head_cmd.args(["rev-parse", "--abbrev-ref", "HEAD"]);
+    let current_branch_output =
+        crate::external_command::spawn_with_pressure_retry("git rev-parse", || head_cmd.output())?;
 
     let current_branch = String::from_utf8_lossy(&current_branch_output.stdout)
         .trim()
@@ -464,10 +469,11 @@ pub async fn create_branch(
 
     if is_from_current {
         // Create branch from current HEAD (preserves local changes)
-        let output = crate::utils::git_command_in(&validated_path)?
-            .args(["checkout", "-b", &branch_name])
-            .output()
-            .map_err(|e| e.to_string())?;
+        let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
+        co_cmd.args(["checkout", "-b", &branch_name]);
+        let output = crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
+            co_cmd.output()
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -503,10 +509,11 @@ pub async fn create_branch(
             format!("origin/{plain}")
         };
 
-        let output = crate::utils::git_command_in(&validated_path)?
-            .args(["checkout", "-b", &branch_name, &base_ref])
-            .output()
-            .map_err(|e| e.to_string())?;
+        let mut co_cmd = crate::utils::git_command_in(&validated_path)?;
+        co_cmd.args(["checkout", "-b", &branch_name, &base_ref]);
+        let output = crate::external_command::spawn_with_pressure_retry("git checkout -b", || {
+            co_cmd.output()
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -629,10 +636,10 @@ pub async fn delete_branch(
     }
 
     // Get current branch to make sure we're not on it
-    let current = crate::utils::git_command_in(&validated_path)?
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut head_cmd = crate::utils::git_command_in(&validated_path)?;
+    head_cmd.args(["rev-parse", "--abbrev-ref", "HEAD"]);
+    let current =
+        crate::external_command::spawn_with_pressure_retry("git rev-parse", || head_cmd.output())?;
 
     let current_branch = String::from_utf8_lossy(&current.stdout).trim().to_string();
     if current_branch == branch_name {
@@ -644,10 +651,10 @@ pub async fn delete_branch(
     }
 
     // Delete local branch
-    let local_output = crate::utils::git_command_in(&validated_path)?
-        .args(["branch", "-D", "--", &branch_name])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut del_cmd = crate::utils::git_command_in(&validated_path)?;
+    del_cmd.args(["branch", "-D", "--", &branch_name]);
+    let local_output =
+        crate::external_command::spawn_with_pressure_retry("git branch -D", || del_cmd.output())?;
 
     if !local_output.status.success() {
         let stderr = String::from_utf8_lossy(&local_output.stderr);

@@ -333,7 +333,9 @@ pub(crate) fn get_plugins_dir(project_path: &str) -> Result<PathBuf, String> {
 }
 
 /// Read the plugin registry for a project
-pub(crate) fn read_registry(project_path: &str) -> Result<Registry, String> {
+pub(crate) fn read_registry(
+    project_path: &str,
+) -> Result<Registry, crate::errors::CommandError> {
     let plugins_dir = get_plugins_dir(project_path)?;
     let registry_path = plugins_dir.join("registry.json");
 
@@ -341,22 +343,33 @@ pub(crate) fn read_registry(project_path: &str) -> Result<Registry, String> {
         return Ok(Registry::default());
     }
 
-    let content =
-        fs::read_to_string(&registry_path).map_err(|e| format!("Failed to read registry: {e}"))?;
+    // classify_fs_error: macOS TCC's EPERM (project under Desktop/Documents/
+    // iCloud …) becomes an actionable Expected, not telemetry noise (#545).
+    let content = fs::read_to_string(&registry_path).map_err(|e| {
+        crate::utils::classify_fs_error("read this project's plugin registry", &registry_path, &e)
+    })?;
 
-    serde_json::from_str(&content).map_err(|e| format!("Failed to parse registry: {e}"))
+    serde_json::from_str(&content)
+        .map_err(|e| crate::errors::CommandError::from(format!("Failed to parse registry: {e}")))
 }
 
 /// Write the plugin registry for a project
-pub(crate) fn write_registry(project_path: &str, registry: &Registry) -> Result<(), String> {
+pub(crate) fn write_registry(
+    project_path: &str,
+    registry: &Registry,
+) -> Result<(), crate::errors::CommandError> {
     let plugins_dir = get_plugins_dir(project_path)?;
-    fs::create_dir_all(&plugins_dir).map_err(|e| format!("Failed to create plugins dir: {e}"))?;
+    fs::create_dir_all(&plugins_dir).map_err(|e| {
+        crate::utils::classify_fs_error("create this project's plugins folder", &plugins_dir, &e)
+    })?;
 
     let registry_path = plugins_dir.join("registry.json");
     let content = serde_json::to_string_pretty(registry)
         .map_err(|e| format!("Failed to serialize registry: {e}"))?;
 
-    fs::write(&registry_path, content).map_err(|e| format!("Failed to write registry: {e}"))
+    fs::write(&registry_path, content).map_err(|e| {
+        crate::utils::classify_fs_error("write this project's plugin registry", &registry_path, &e)
+    })
 }
 
 /// Read a plugin's manifest from its directory
