@@ -84,7 +84,12 @@ pub(crate) async fn run_git_net(
         .env("GIT_TERMINAL_PROMPT", "0")
         .envs(workspace_env);
 
-    let tokio_cmd = tokio::process::Command::from(cmd);
+    let mut tokio_cmd = tokio::process::Command::from(cmd);
+    // Reap the child when the timeout drops the future — otherwise a hung
+    // git (and its gh credential-helper subprocess) would keep running in the
+    // background, holding .git locks and stalling the next push/fetch too
+    // (issue #556; same pattern as projects/mod.rs et al.).
+    tokio_cmd.kill_on_drop(true);
     run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
 }
 
