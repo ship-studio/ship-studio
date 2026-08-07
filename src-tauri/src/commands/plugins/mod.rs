@@ -333,9 +333,7 @@ pub(crate) fn get_plugins_dir(project_path: &str) -> Result<PathBuf, String> {
 }
 
 /// Read the plugin registry for a project
-pub(crate) fn read_registry(
-    project_path: &str,
-) -> Result<Registry, crate::errors::CommandError> {
+pub(crate) fn read_registry(project_path: &str) -> Result<Registry, crate::errors::CommandError> {
     let plugins_dir = get_plugins_dir(project_path)?;
     let registry_path = plugins_dir.join("registry.json");
 

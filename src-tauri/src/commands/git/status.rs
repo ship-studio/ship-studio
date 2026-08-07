@@ -21,7 +21,10 @@ fn truncate_stderr(stderr: &str) -> String {
         return stderr.to_string();
     }
     // Cut on a char boundary at or below MAX so multi-byte text can't panic.
-    let cut = (0..=MAX).rev().find(|i| stderr.is_char_boundary(*i)).unwrap_or(0);
+    let cut = (0..=MAX)
+        .rev()
+        .find(|i| stderr.is_char_boundary(*i))
+        .unwrap_or(0);
     format!("{}…", &stderr[..cut])
 }
 

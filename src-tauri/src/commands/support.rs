@@ -44,9 +44,8 @@ fn get_github_user() -> Result<(String, String, String), CommandError> {
         "--jq",
         r#"[.login, .email // "", .name // ""] | @tsv"#,
     ]);
-    let output = crate::external_command::spawn_with_pressure_retry("gh api user", || {
-        cmd.output()
-    })?;
+    let output =
+        crate::external_command::spawn_with_pressure_retry("gh api user", || cmd.output())?;
 
     if !output.status.success() {
         return Err(CommandError::expected(

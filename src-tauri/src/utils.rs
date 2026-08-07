@@ -1501,8 +1501,7 @@ mod tests {
         /// folder surfaces as git's own getcwd failure on stderr.
         #[test]
         fn classifies_macos_tcc_denial_as_expected() {
-            let stderr =
-                "fatal: Unable to read current working directory: Operation not permitted";
+            let stderr = "fatal: Unable to read current working directory: Operation not permitted";
             let err = git_environment_gap(stderr).expect("must classify");
             assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
             assert!(err.to_string().contains("Privacy & Security"));
@@ -1514,10 +1513,10 @@ mod tests {
             assert!(git_environment_gap("").is_none());
             // "Operation not permitted" on some other operation isn't the TCC
             // getcwd signature — don't over-match.
-            assert!(
-                git_environment_gap("error: unable to unlink old 'a.txt': Operation not permitted")
-                    .is_none()
-            );
+            assert!(git_environment_gap(
+                "error: unable to unlink old 'a.txt': Operation not permitted"
+            )
+            .is_none());
         }
     }
 

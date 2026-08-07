@@ -75,7 +75,11 @@ pub fn write_plugin_storage(
     // Ensure parent directory exists
     if let Some(parent) = storage_path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
-            crate::utils::classify_fs_error("create this project's plugin storage folder", parent, &e)
+            crate::utils::classify_fs_error(
+                "create this project's plugin storage folder",
+                parent,
+                &e,
+            )
         })?;
     }
 

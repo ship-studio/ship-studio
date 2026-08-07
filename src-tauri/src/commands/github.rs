@@ -1089,8 +1089,10 @@ mod tests {
     #[test]
     fn gh_common_error_covers_shared_families() {
         assert!(gh_common_error("dial tcp 1.2.3.4:443: connect: connection refused").is_some());
-        assert!(gh_common_error("HTTP 400: We received a malformed request from your client.")
-            .is_some());
+        assert!(
+            gh_common_error("HTTP 400: We received a malformed request from your client.")
+                .is_some()
+        );
         assert!(gh_common_error("GraphQL: something app-specific went wrong").is_none());
         assert!(gh_common_error("").is_none());
     }
@@ -1112,7 +1114,8 @@ mod tests {
         let stderr = "panic: runtime error: invalid memory address or nil pointer dereference\n\ngoroutine 1 [running]:\ngithub.com/cli/cli/v2/pkg/cmd/root.NewCmdRoot(...)";
         let err = gh_crash_error(stderr).expect("should classify as expected");
         assert!(matches!(err, CommandError::Expected { .. }));
-        let fatal = "fatal error: concurrent map read and map write\n\nruntime stack:\nruntime.throw(...)";
+        let fatal =
+            "fatal error: concurrent map read and map write\n\nruntime stack:\nruntime.throw(...)";
         assert!(gh_crash_error(fatal).is_some());
     }
 

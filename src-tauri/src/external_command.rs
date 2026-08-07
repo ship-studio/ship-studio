@@ -481,10 +481,9 @@ mod tests {
 
     #[test]
     fn spawn_with_pressure_retry_labels_other_io_errors() {
-        let err = spawn_with_pressure_retry::<()>("gh api user", || {
-            Err(std::io::Error::other("boom"))
-        })
-        .unwrap_err();
+        let err =
+            spawn_with_pressure_retry::<()>("gh api user", || Err(std::io::Error::other("boom")))
+                .unwrap_err();
         match err {
             CommandError::Io { message } => {
                 assert!(message.contains("`gh api user`"), "got: {message}");
@@ -519,7 +518,11 @@ mod tests {
         let long = format!("fatal error: the real cause\n{}", "x".repeat(10_000));
         let capped = truncate_output(&long);
         assert!(capped.starts_with("fatal error: the real cause"));
-        assert!(capped.ends_with("… (truncated)"), "got tail: {}", &capped[capped.len().saturating_sub(40)..]);
+        assert!(
+            capped.ends_with("… (truncated)"),
+            "got tail: {}",
+            &capped[capped.len().saturating_sub(40)..]
+        );
         assert!(capped.chars().count() <= MAX_ERROR_OUTPUT_CHARS + "… (truncated)".len());
     }
 

@@ -117,8 +117,7 @@ pub fn git_has_uncommitted_changes(
 ) -> Result<bool, crate::errors::CommandError> {
     let mut cmd = crate::utils::git_command_in(path)?;
     cmd.args(["status", "--porcelain", "-uno"]);
-    let status =
-        crate::external_command::spawn_with_pressure_retry("git status", || cmd.output())?;
+    let status = crate::external_command::spawn_with_pressure_retry("git status", || cmd.output())?;
 
     Ok(!String::from_utf8_lossy(&status.stdout).trim().is_empty())
 }
@@ -127,8 +126,7 @@ pub fn git_has_uncommitted_changes(
 pub fn git_has_any_changes(path: &std::path::Path) -> Result<bool, crate::errors::CommandError> {
     let mut cmd = crate::utils::git_command_in(path)?;
     cmd.args(["status", "--porcelain"]);
-    let status =
-        crate::external_command::spawn_with_pressure_retry("git status", || cmd.output())?;
+    let status = crate::external_command::spawn_with_pressure_retry("git status", || cmd.output())?;
 
     Ok(!String::from_utf8_lossy(&status.stdout).trim().is_empty())
 }
@@ -223,11 +221,11 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
         if add_stderr.contains("outside of your sparse-checkout definition") {
             let mut sparse_cmd = crate::utils::git_command_in(path)?;
             sparse_cmd.args(["add", "-A", "--sparse"]);
-            let sparse_output = crate::external_command::spawn_with_pressure_retry(
-                "git add --sparse",
-                || sparse_cmd.output(),
-            )
-            .map_err(String::from)?;
+            let sparse_output =
+                crate::external_command::spawn_with_pressure_retry("git add --sparse", || {
+                    sparse_cmd.output()
+                })
+                .map_err(String::from)?;
             if !sparse_output.status.success() {
                 return Err(String::from_utf8_lossy(&sparse_output.stderr).to_string());
             }

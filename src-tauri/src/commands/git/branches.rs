@@ -63,9 +63,14 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
     // polled frequently, so a transient spawn failure used to reach telemetry
     // as a bare "os error 35" with no call-site context (issue #555).
     let mut branch_cmd = crate::utils::git_command_in(&validated_path)?;
-    branch_cmd.args(["branch", "-a", "--format=%(refname:short)|%(objectname:short)|%(committerdate:unix)|%(authorname)|%(HEAD)"]);
-    let output =
-        crate::external_command::spawn_with_pressure_retry("git branch -a", || branch_cmd.output())?;
+    branch_cmd.args([
+        "branch",
+        "-a",
+        "--format=%(refname:short)|%(objectname:short)|%(committerdate:unix)|%(authorname)|%(HEAD)",
+    ]);
+    let output = crate::external_command::spawn_with_pressure_retry("git branch -a", || {
+        branch_cmd.output()
+    })?;
 
     if !output.status.success() {
         // Include git's stderr — a bare "Failed to list branches" is
@@ -257,10 +262,10 @@ pub async fn switch_branch(
             "-m",
             &format!("Auto-stash by Ship Studio (from {current_branch})"),
         ]);
-        let stash_output = crate::external_command::spawn_with_pressure_retry(
-            "git stash push",
-            || stash_cmd.output(),
-        )?;
+        let stash_output =
+            crate::external_command::spawn_with_pressure_retry("git stash push", || {
+                stash_cmd.output()
+            })?;
 
         if stash_output.status.success() {
             let stdout = String::from_utf8_lossy(&stash_output.stdout);
@@ -295,9 +300,10 @@ pub async fn switch_branch(
     // Try to checkout the branch
     let mut checkout_cmd = crate::utils::git_command_in(&validated_path)?;
     checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
-    let checkout_output = crate::external_command::spawn_with_pressure_retry("git checkout", || {
-        checkout_cmd.output()
-    })?;
+    let checkout_output =
+        crate::external_command::spawn_with_pressure_retry("git checkout", || {
+            checkout_cmd.output()
+        })?;
 
     if !checkout_output.status.success() {
         // Checkout failed - restore the stash if we made one

@@ -1291,18 +1291,17 @@ pub fn claude_connect_start(
 
     // Labeled + retried on transient EAGAIN; a persistent one is classified
     // Expected instead of a bare "spawn_command: os error 35" (issue #587).
-    let mut child =
-        crate::external_command::retry_spawn_on_pressure("claude setup-token", || {
-            pair.slave.spawn_command(cmd.clone())
-        })
-        .map_err(|e| {
-            let message = format!("spawn_command `claude setup-token`: {e}");
-            if crate::external_command::is_spawn_resource_pressure(&message) {
-                crate::external_command::spawn_resource_pressure_error("claude setup-token")
-            } else {
-                CommandError::from(message)
-            }
-        })?;
+    let mut child = crate::external_command::retry_spawn_on_pressure("claude setup-token", || {
+        pair.slave.spawn_command(cmd.clone())
+    })
+    .map_err(|e| {
+        let message = format!("spawn_command `claude setup-token`: {e}");
+        if crate::external_command::is_spawn_resource_pressure(&message) {
+            crate::external_command::spawn_resource_pressure_error("claude setup-token")
+        } else {
+            CommandError::from(message)
+        }
+    })?;
     let child_killer = child.clone_killer();
 
     let session = Arc::new(ConnectSession {
