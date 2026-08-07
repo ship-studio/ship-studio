@@ -35,6 +35,14 @@ fn is_overwrite_refusal(stderr: &str) -> bool {
         || lower.contains("commit your changes or stash")
 }
 
+/// Git reporting that a merge/pull produced conflicts. Matched on the combined
+/// stdout+stderr because git splits the "CONFLICT (content): …" lines and the
+/// final "Automatic merge failed; fix conflicts and then commit the result."
+/// across the two streams depending on version.
+fn is_merge_conflict_output(combined: &str) -> bool {
+    combined.contains("CONFLICT") || combined.contains("Automatic merge failed")
+}
+
 /// Classify a failed `git clean -fd` whose *only* failures are files another
 /// process is holding open (e.g. a running wrangler dev server's SQLite state
 /// on Windows — issue #520). Returns the affected paths when every reported
@@ -152,9 +160,14 @@ pub async fn pull_and_merge(
     let stderr = String::from_utf8_lossy(&output.stderr);
     let combined = format!("{stdout}{stderr}");
 
-    // Check for merge conflicts
-    if combined.contains("CONFLICT") || combined.contains("Automatic merge failed") {
-        return Err((format!("MERGE_CONFLICT:{combined}")).into());
+    // Check for merge conflicts. A conflict is a fully anticipated state with
+    // dedicated resolution UI (the frontend even calls pull_and_merge on
+    // purpose to reproduce one) — Expected keeps it out of telemetry (issue
+    // #609). The `MERGE_CONFLICT:` prefix and the raw git output are the
+    // frontend contract: useBranchManagement string-matches the prefix.
+    if is_merge_conflict_output(&combined) {
+        warn!("Merge produced conflicts; handing off to the resolution flow");
+        return Err(CommandError::expected(format!("MERGE_CONFLICT:{combined}")));
     }
 
     if !output.status.success() {
@@ -302,7 +315,9 @@ pub async fn commit_changes(project_path: String, message: String) -> Result<boo
 
 #[cfg(test)]
 mod tests {
-    use super::{clean_locked_paths, ensure_repo_rooted_at, is_overwrite_refusal};
+    use super::{
+        clean_locked_paths, ensure_repo_rooted_at, is_merge_conflict_output, is_overwrite_refusal,
+    };
     use std::process::Command;
 
     // The #521 shape: git refusing to merge over uncommitted local edits.
@@ -317,6 +332,23 @@ mod tests {
             "fatal: refusing to merge unrelated histories"
         ));
         assert!(!is_overwrite_refusal(""));
+    }
+
+    // The #609 shape: a real merge conflict is an anticipated state with
+    // dedicated resolution UI, classified Expected upstream.
+    #[test]
+    fn merge_conflict_output_matches_gits_conflict_report() {
+        let combined = "Auto-merging pnpm-lock.yaml\nCONFLICT (content): Merge conflict in pnpm-lock.yaml\nAutomatic merge failed; fix conflicts and then commit the result.\n";
+        assert!(is_merge_conflict_output(combined));
+        // Either half alone must still match (git splits across streams).
+        assert!(is_merge_conflict_output(
+            "CONFLICT (content): Merge conflict in a.txt"
+        ));
+        assert!(is_merge_conflict_output(
+            "Automatic merge failed; fix conflicts and then commit the result."
+        ));
+        assert!(!is_merge_conflict_output("Already up to date.\n"));
+        assert!(!is_merge_conflict_output(""));
     }
 
     // The #520 shape: a running dev server (wrangler) holding untracked files
