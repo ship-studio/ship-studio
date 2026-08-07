@@ -152,15 +152,48 @@ pub async fn exec_plugin_shell(
     // to completion in the background (issue #294).
     let mut cmd = tokio::process::Command::from(std_cmd);
     cmd.kill_on_drop(true);
-    let output = tokio::time::timeout(std::time::Duration::from_secs(timeout), cmd.output())
-        .await
-        .map_err(|_| {
-            // Name the plugin and command — a bare "timed out (120s)" is the
-            // same message for every plugin on every platform, so telemetry
-            // can't tell a slow-but-legit install from a hung plugin (#379).
-            format!("Plugin '{plugin_id}' shell command '{command}' timed out after {timeout}s")
-        })?
-        .map_err(|e| format!("Failed to execute command: {e}"))?;
+    let mut attempt: u64 = 0;
+    let output = loop {
+        attempt += 1;
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout), cmd.output()).await {
+            Err(_) => {
+                // Name the plugin and command — a bare "timed out (120s)" is the
+                // same message for every plugin on every platform, so telemetry
+                // can't tell a slow-but-legit install from a hung plugin (#379).
+                return Err(CommandError::from(format!(
+                    "Plugin '{plugin_id}' shell command '{command}' timed out after {timeout}s"
+                )));
+            }
+            Ok(Ok(output)) => break output,
+            Ok(Err(e)) => {
+                let rendered = e.to_string();
+                // Transient EAGAIN (process-table pressure): retry briefly,
+                // and classify a persistent one as an Expected environment
+                // condition instead of telemetry noise (issue #573).
+                if crate::external_command::is_spawn_resource_pressure(&rendered) {
+                    if attempt < 3 {
+                        tracing::warn!(
+                            plugin_id = %plugin_id,
+                            command = %command,
+                            attempt,
+                            "plugin shell spawn hit transient resource pressure (EAGAIN); retrying"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(100 * attempt)).await;
+                        continue;
+                    }
+                    return Err(crate::external_command::spawn_resource_pressure_error(
+                        &command,
+                    ));
+                }
+                // Name the plugin and command here too — this final branch
+                // used to drop both, leaving a bare unattributable OS error
+                // as the only telemetry signal (issue #573).
+                return Err(CommandError::from(format!(
+                    "Plugin '{plugin_id}' shell command '{command}' failed to start: {rendered}"
+                )));
+            }
+        }
+    };
 
     Ok(ShellResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
