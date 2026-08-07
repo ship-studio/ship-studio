@@ -5,7 +5,7 @@
 use crate::cache::TtlCache;
 use crate::commands::git::git_stage_and_commit;
 use crate::errors::CommandError;
-use crate::external_command::run_with_timeout;
+use crate::external_command::{run_with_timeout, truncate_output};
 use crate::types::{
     GitHubCliStatus, GitHubLanguage, GitHubRepo, ProjectGitHubStatus, PushToGitHubOptions,
 };
@@ -470,7 +470,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
             return Err(CommandError::Process {
                 cmd: "git commit".to_string(),
                 exit_code: output.status.code().unwrap_or(-1),
-                stderr: stderr.to_string(),
+                stderr: truncate_output(&stderr),
             });
         }
     }
@@ -498,14 +498,15 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
                 "A repository named \"{repo_name}\" already exists on this account. Choose a different name."
             )));
         }
-        // Connectivity blips are the environment, not a malfunction (#420).
-        if let Some(err) = gh_network_error(&stderr) {
+        // Connectivity blips and GitHub's transient API 400s are the
+        // environment/GitHub, not a malfunction (#420, #602).
+        if let Some(err) = gh_common_error(&stderr) {
             return Err(err);
         }
         return Err(CommandError::Process {
             cmd: "gh repo create".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
-            stderr: stderr.to_string(),
+            stderr: truncate_output(&stderr),
         });
     }
 
@@ -555,6 +556,11 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
         // Go's net/http error when the connection drops mid-request —
         // flaky wifi, VPN/proxy interference (issue #434).
         || s.contains("unexpected eof")
+        // Mid-request TCP reset ("read tcp …: read: connection reset by
+        // peer") — the read-time counterpart of "dial tcp"'s connect-time
+        // failures (issue #592).
+        || s.contains("connection reset by peer")
+        || s.contains("read tcp")
         // gh's own top-level DNS-failure handler swallows the raw Go error
         // and prints only "error connecting to <host>\ncheck your internet
         // connection or https://githubstatus.com" (issue #473).
@@ -565,6 +571,63 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
             "Couldn't reach GitHub. Check your internet connection and try again.",
         )
     })
+}
+
+/// gh's passthrough of GitHub's generic HTTP 400 GraphQL response — "HTTP 400:
+/// We received a malformed request from your client. Sorry about that. Please
+/// try resubmitting your request…". GitHub emits this when the API can't parse
+/// the request body (e.g. odd Unicode in a PR title/body getting serialized
+/// into the GraphQL payload) — a transient API-side failure with a built-in
+/// retry suggestion, not an app malfunction (issue #602). `Expected` keeps it
+/// out of telemetry.
+pub(crate) fn gh_malformed_request_error(stderr: &str) -> Option<CommandError> {
+    stderr
+        .to_lowercase()
+        .contains("we received a malformed request")
+        .then(|| {
+            CommandError::expected(
+                "GitHub couldn't process the request (a temporary GitHub API error). \
+                 Try again in a moment.",
+            )
+        })
+}
+
+/// gh (a Go binary) crashing with a Go runtime panic/fatal error — stderr is
+/// the runtime's full crash dump ("fatal error: …\n\nruntime stack:\n…" or
+/// "panic: …\n\ngoroutine N [running]:\n…"), dozens of stack-trace lines that
+/// are useless to a user. The known real-world case is the runtime failing to
+/// reserve its heap arena at startup on a memory-starved Windows machine
+/// (issue #610, the child-process sibling of errors.rs's
+/// `windows_out_of_memory` for our own spawns, #356). The environment killed
+/// the child, not the app — `Expected` keeps the dump out of telemetry and the
+/// message is something the user can act on. The matched literals are
+/// untranslated Go-runtime strings, stable across Go versions.
+pub(crate) fn gh_crash_error(stderr: &str) -> Option<CommandError> {
+    if stderr.contains("out of memory allocating heap arena map") {
+        return Some(CommandError::expected(
+            "The GitHub CLI (gh) couldn't start because the system is low on memory. \
+             Close some other apps (on Windows, increasing the paging file size can also help) \
+             and try again.",
+        ));
+    }
+    let go_crash = (stderr.contains("fatal error:") && stderr.contains("runtime stack:"))
+        || (stderr.contains("panic:") && stderr.contains("goroutine "));
+    go_crash.then(|| {
+        CommandError::expected(
+            "The GitHub CLI (gh) crashed unexpectedly. Try again — if it keeps happening, \
+             reinstalling the GitHub CLI may help.",
+        )
+    })
+}
+
+/// A `gh` invocation that hits GitHub can fail these ways regardless of which
+/// subcommand ran: a connectivity blip, GitHub's transient HTTP 400, or gh
+/// itself crashing. One-stop classification for the shared cases — call sites
+/// still layer their own auth / subcommand-specific checks on top.
+pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
+    gh_network_error(stderr)
+        .or_else(|| gh_malformed_request_error(stderr))
+        .or_else(|| gh_crash_error(stderr))
 }
 
 /// gh's own wrapper for a failing internal git call — "failed to run git:
@@ -604,14 +667,15 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, Command
         if let Some(err) = gh_auth_error(&stderr) {
             return Err(err);
         }
-        // Connectivity blips are the environment, not a malfunction (#420).
-        if let Some(err) = gh_network_error(&stderr) {
+        // Connectivity blips and GitHub's transient API 400s are the
+        // environment/GitHub, not a malfunction (#420, #602).
+        if let Some(err) = gh_common_error(&stderr) {
             return Err(err);
         }
         return Err(CommandError::Process {
             cmd: "gh repo list".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
-            stderr: stderr.to_string(),
+            stderr: truncate_output(&stderr),
         });
     }
 
@@ -661,14 +725,15 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
         if let Some(err) = gh_auth_error(&stderr) {
             return Err(err);
         }
-        // Connectivity blips are the environment, not a malfunction (#420).
-        if let Some(err) = gh_network_error(&stderr) {
+        // Connectivity blips and GitHub's transient API 400s are the
+        // environment/GitHub, not a malfunction (#420, #602).
+        if let Some(err) = gh_common_error(&stderr) {
             return Err(err);
         }
         return Err(CommandError::Process {
             cmd: "gh api /user/repos".to_string(),
             exit_code: output.status.code().unwrap_or(-1),
-            stderr: stderr.to_string(),
+            stderr: truncate_output(&stderr),
         });
     }
 
@@ -1000,5 +1065,74 @@ mod tests {
     fn gh_network_error_ignores_unrelated_stderr() {
         assert!(gh_network_error("GraphQL: name already exists on this account").is_none());
         assert!(gh_network_error("").is_none());
+    }
+
+    // The #602 shape: GitHub's generic HTTP 400 GraphQL response passed
+    // through verbatim by gh — a transient API-side failure, not app text.
+    #[test]
+    fn gh_malformed_request_classifies_github_http_400_as_expected() {
+        let stderr = "HTTP 400: We received a malformed request from your client. Sorry about that. Please try resubmitting your request and contact us if the problem persists. (https://api.github.com/graphql)";
+        let err = gh_malformed_request_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        // The user-facing message must carry a retry suggestion.
+        assert!(err.to_string().contains("Try again"), "got: {err}");
+    }
+
+    #[test]
+    fn gh_malformed_request_ignores_unrelated_stderr() {
+        assert!(gh_malformed_request_error("HTTP 404: Not Found").is_none());
+        assert!(gh_malformed_request_error("").is_none());
+    }
+
+    // gh_common_error is the one-stop classifier every gh call site funnels
+    // through — it must cover each shared family and stay quiet otherwise.
+    #[test]
+    fn gh_common_error_covers_shared_families() {
+        assert!(gh_common_error("dial tcp 1.2.3.4:443: connect: connection refused").is_some());
+        assert!(gh_common_error("HTTP 400: We received a malformed request from your client.")
+            .is_some());
+        assert!(gh_common_error("GraphQL: something app-specific went wrong").is_none());
+        assert!(gh_common_error("").is_none());
+    }
+
+    // The #610 shape: gh's Go runtime failing to reserve its heap arena at
+    // startup on a memory-starved Windows box — stderr is a full crash dump.
+    #[test]
+    fn gh_crash_error_classifies_heap_arena_oom_as_expected() {
+        let stderr = "fatal error: out of memory allocating heap arena map\n\nruntime stack:\nruntime.throw(...)\n\tC:/hostedtoolcache/windows/go/1.26.4/x64/src/runtime/panic.go:1229\nruntime.(*mheap).sysAlloc(...)\nruntime.cpuinit(...)\nruntime.schedinit(...)\nruntime.rt0_go()";
+        let err = gh_crash_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("low on memory"), "got: {msg}");
+        assert!(!msg.contains("runtime stack"), "must not forward the dump");
+    }
+
+    #[test]
+    fn gh_crash_error_classifies_generic_go_panic() {
+        let stderr = "panic: runtime error: invalid memory address or nil pointer dereference\n\ngoroutine 1 [running]:\ngithub.com/cli/cli/v2/pkg/cmd/root.NewCmdRoot(...)";
+        let err = gh_crash_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let fatal = "fatal error: concurrent map read and map write\n\nruntime stack:\nruntime.throw(...)";
+        assert!(gh_crash_error(fatal).is_some());
+    }
+
+    #[test]
+    fn gh_crash_error_ignores_non_crash_stderr() {
+        // git's "fatal:" prefix is not a Go "fatal error:" crash.
+        assert!(gh_crash_error("fatal: not a git repository").is_none());
+        // "panic:"/"fatal error:" alone without a runtime dump shouldn't match.
+        assert!(gh_crash_error("request failed: panic: see logs").is_none());
+        assert!(gh_crash_error("").is_none());
+    }
+
+    // The #592 shape: a mid-request TCP reset returned to gh's GraphQL client.
+    // "dial tcp" only covers connect-time failures; the read-time wording is
+    // distinct and must classify as the same connectivity blip.
+    #[test]
+    fn gh_network_error_classifies_connection_reset_by_peer() {
+        let stderr = r#"Post "https://api.github.com/graphql": read tcp 198.18.0.1:59334->140.82.121.6:443: read: connection reset by peer"#;
+        let err = gh_network_error(stderr).expect("should classify as network error");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("Couldn't reach GitHub"));
     }
 }
