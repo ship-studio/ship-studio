@@ -88,7 +88,9 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
       });
       setAnimations(rows);
     } catch (err) {
-      logger.error('[CssAnimations] load failed', { error: String(err) });
+      logger.error('[CssAnimations] load failed', {
+        error: formatCommandError(asCommandError(err)),
+      });
       onToast(toastText(err), 'error');
     } finally {
       setLoading(false);
@@ -118,7 +120,9 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         baselineRef.current[selector] = newInner;
         void trackEvent('visual_style_saved', { mode: 'css-code', keyframes: true });
       } catch (err) {
-        logger.error('[CssAnimations] save failed', { error: String(err) });
+        logger.error('[CssAnimations] save failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -167,7 +171,9 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         setAnimations((prev) => [...prev, { selector, name, file, body }]);
         void trackEvent('visual_style_saved', { mode: 'css-code', keyframes_added: true });
       } catch (err) {
-        logger.error('[CssAnimations] create failed', { error: String(err) });
+        logger.error('[CssAnimations] create failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -204,7 +210,9 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         );
         void trackEvent('visual_style_saved', { mode: 'css-code', keyframes_renamed: true });
       } catch (err) {
-        logger.error('[CssAnimations] rename failed', { error: String(err) });
+        logger.error('[CssAnimations] rename failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -223,7 +231,9 @@ export function useCssAnimations({ projectPath, enabled, onToast }: Params) {
         delete baselineRef.current[selector];
         void trackEvent('visual_style_saved', { mode: 'css-code', keyframes_deleted: true });
       } catch (err) {
-        logger.error('[CssAnimations] delete failed', { error: String(err) });
+        logger.error('[CssAnimations] delete failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
