@@ -29,6 +29,7 @@ import {
   mergeCascade,
   rulesToLocate,
   rowKey,
+  isStaleCssRuleError,
   type MatchedRule,
   type RuleLocation,
   type CascadeRow,
@@ -450,10 +451,13 @@ export function useCssCascadeEditor({
         post({ type: 'ss:commitRulePreview', ruleKey: key });
         void trackEvent('visual_style_saved', { mode: 'css-code' });
       } catch (err) {
-        // The source drifted from our baseline (a prior save's formatting, an HMR
-        // re-read, an external edit). Re-read the current source and retry ONCE so
-        // editing stays "instant" instead of hitting a drift wall.
-        if (/source changed/i.test(toastText(err))) {
+        // The source went stale under the card: body drift (a prior save's
+        // formatting, an HMR re-read, an external edit) OR the rule no longer
+        // matching at all (renamed/rewritten since the card was seeded —
+        // issue #584). Both are recoverable: re-locate the rule in the current
+        // source and retry ONCE so editing stays "instant" instead of hitting
+        // a drift wall and dropping the edit.
+        if (isStaleCssRuleError(err)) {
           try {
             const locs = await locateCssRules(projectPath, [
               { selector: row.selector, mediaText: row.mediaText, href: null },
@@ -462,7 +466,9 @@ export function useCssCascadeEditor({
             if (loc && loc.status === 'resolved') {
               await applyCssRuleText(
                 projectPath,
-                row.file,
+                // The re-located rule may live in a different file than the
+                // (stale) card — write where the rule actually is now.
+                loc.file,
                 row.selector,
                 row.mediaText,
                 loc.inner_text,
@@ -475,6 +481,15 @@ export function useCssCascadeEditor({
           } catch {
             /* fall through to the toast below */
           }
+          // Still stale after re-locating: the rule is genuinely gone from
+          // source. Expected environment state (an agent/external edit) — warn
+          // so it doesn't auto-file a bug report; the toast below still tells
+          // the user their edit didn't land.
+          logger.warn('[CssCascade] write-back rejected as stale after retry', {
+            error: formatCommandError(asCommandError(err)),
+          });
+          onToast(toastText(err), 'error');
+          return;
         }
         logger.error('[CssCascade] write-back failed', {
           error: formatCommandError(asCommandError(err)),
