@@ -555,6 +555,11 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
         // Go's net/http error when the connection drops mid-request —
         // flaky wifi, VPN/proxy interference (issue #434).
         || s.contains("unexpected eof")
+        // Mid-request TCP reset ("read tcp …: read: connection reset by
+        // peer") — the read-time counterpart of "dial tcp"'s connect-time
+        // failures (issue #592).
+        || s.contains("connection reset by peer")
+        || s.contains("read tcp")
         // gh's own top-level DNS-failure handler swallows the raw Go error
         // and prints only "error connecting to <host>\ncheck your internet
         // connection or https://githubstatus.com" (issue #473).
@@ -1000,5 +1005,16 @@ mod tests {
     fn gh_network_error_ignores_unrelated_stderr() {
         assert!(gh_network_error("GraphQL: name already exists on this account").is_none());
         assert!(gh_network_error("").is_none());
+    }
+
+    // The #592 shape: a mid-request TCP reset returned to gh's GraphQL client.
+    // "dial tcp" only covers connect-time failures; the read-time wording is
+    // distinct and must classify as the same connectivity blip.
+    #[test]
+    fn gh_network_error_classifies_connection_reset_by_peer() {
+        let stderr = r#"Post "https://api.github.com/graphql": read tcp 198.18.0.1:59334->140.82.121.6:443: read: connection reset by peer"#;
+        let err = gh_network_error(stderr).expect("should classify as network error");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("Couldn't reach GitHub"));
     }
 }
