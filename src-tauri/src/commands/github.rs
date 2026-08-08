@@ -38,12 +38,18 @@ const GITHUB_CLI_TIMEOUT_SECS: u64 = 15;
 
 /// Run a gh command with a timeout via the shared external_command helper.
 /// Returns CommandError so callers can discriminate timeout vs IO vs process.
+///
+/// `label` names the specific invocation ("gh auth status", "gh repo create
+/// --push", …): the timeout error message and its telemetry fingerprint are
+/// derived from it, so a bare "gh" would collapse every distinct hang into one
+/// undiagnosable bucket (issue #611).
 async fn run_command_with_timeout(
     cmd: Command,
+    label: &str,
     timeout_secs: u64,
 ) -> Result<std::process::Output, CommandError> {
     let tokio_cmd = tokio::process::Command::from(cmd);
-    run_with_timeout(tokio_cmd, "gh", timeout_secs).await
+    run_with_timeout(tokio_cmd, label, timeout_secs).await
 }
 
 /// Returns a Command for gh with extended PATH set, scoped to the globally
@@ -127,7 +133,13 @@ pub async fn check_github_cli_status() -> GitHubCliStatus {
     let start = std::time::Instant::now();
     let mut auth_cmd = get_gh_command();
     auth_cmd.args(["auth", "status"]);
-    let authenticated = match run_command_with_timeout(auth_cmd, GITHUB_CLI_TIMEOUT_SECS).await {
+    let authenticated = match run_command_with_timeout(
+        auth_cmd,
+        "gh auth status",
+        GITHUB_CLI_TIMEOUT_SECS,
+    )
+    .await
+    {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -187,7 +199,7 @@ pub async fn get_github_username(project_path: Option<String>) -> Result<String,
     }
 
     cmd.args(["api", "user", "--jq", ".login"]);
-    let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
+    let output = run_command_with_timeout(cmd, "gh api user", GITHUB_CLI_TIMEOUT_SECS).await?;
 
     if !output.status.success() {
         return Err(CommandError::NotAuthenticated {
@@ -207,7 +219,7 @@ pub async fn get_github_orgs(project_path: Option<String>) -> Result<Vec<String>
     // login so org choices match the account the repo will be created under.
     let (mut cmd, _account_id) = gh_command_and_account(project_path.as_deref())?;
     cmd.args(["api", "user/orgs", "--jq", ".[].login"]);
-    let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
+    let output = run_command_with_timeout(cmd, "gh api user/orgs", GITHUB_CLI_TIMEOUT_SECS).await?;
 
     if !output.status.success() {
         // Return empty list if we can't get orgs (user might not have any)
@@ -257,7 +269,13 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
         .args(["remote", "get-url", "origin"])
         .env("PATH", get_extended_path());
 
-    let remote_url = match run_command_with_timeout(remote_cmd, GITHUB_CLI_TIMEOUT_SECS).await {
+    let remote_url = match run_command_with_timeout(
+        remote_cmd,
+        "git remote get-url origin",
+        GITHUB_CLI_TIMEOUT_SECS,
+    )
+    .await
+    {
         Ok(output) if output.status.success() => {
             let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
             debug!(elapsed_ms = step_start.elapsed().as_millis() as u64, remote_url = %url, "git remote get-url origin completed");
@@ -306,7 +324,9 @@ pub async fn get_project_github_status(project_path: String) -> ProjectGitHubSta
         .args(["repo", "view", &github_repo, "--json", "url"])
         .current_dir(&project);
 
-    let result = match run_command_with_timeout(gh_cmd, GITHUB_CLI_TIMEOUT_SECS).await {
+    let result = match run_command_with_timeout(gh_cmd, "gh repo view", GITHUB_CLI_TIMEOUT_SECS)
+        .await
+    {
         Ok(output) if output.status.success() => {
             debug!(elapsed_ms = step_start.elapsed().as_millis() as u64, github_repo = %github_repo, "gh repo view completed successfully");
             // Parse the URL from JSON response
@@ -485,7 +505,7 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
         ])
         .current_dir(&validated_path);
     // Longer timeout: create+push can take a while for bigger repos.
-    let output = run_command_with_timeout(gh_cmd, 60).await?;
+    let output = run_command_with_timeout(gh_cmd, "gh repo create --push", 60).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -660,7 +680,7 @@ pub async fn list_github_repos(owner: String) -> Result<Vec<GitHubRepo>, Command
         "--limit",
         "100",
     ]);
-    let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
+    let output = run_command_with_timeout(cmd, "gh repo list", GITHUB_CLI_TIMEOUT_SECS).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -718,7 +738,8 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
         "/user/repos?affiliation=collaborator&per_page=100&sort=updated",
         "--paginate",
     ]);
-    let output = run_command_with_timeout(cmd, GITHUB_CLI_TIMEOUT_SECS).await?;
+    let output =
+        run_command_with_timeout(cmd, "gh api user/repos", GITHUB_CLI_TIMEOUT_SECS).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

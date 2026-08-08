@@ -34,7 +34,30 @@ pub async fn run_with_timeout(
     let label = cmd_label.into();
     debug!(cmd = %label, timeout_secs, "spawning external command");
 
-    let result = tokio::time::timeout(Duration::from_secs(timeout_secs), cmd.output()).await;
+    // Retry transient EAGAIN spawn failures in place (issue #616): the
+    // process-table pressure that produces them usually clears within
+    // milliseconds, and background polling callers (e.g. `gh pr list`) would
+    // otherwise surface a scary one-off error for a self-healing condition.
+    // The retries run inside the caller's timeout budget.
+    let run = async {
+        const ATTEMPTS: u64 = 3;
+        for attempt in 1..=ATTEMPTS {
+            match cmd.output().await {
+                Err(e) if attempt < ATTEMPTS && is_spawn_resource_pressure(&e.to_string()) => {
+                    warn!(
+                        cmd = %label,
+                        attempt,
+                        error = %e,
+                        "spawn hit transient resource pressure (EAGAIN); retrying"
+                    );
+                    tokio::time::sleep(Duration::from_millis(100 * attempt)).await;
+                }
+                other => return other,
+            }
+        }
+        unreachable!("loop returns on the final attempt")
+    };
+    let result = tokio::time::timeout(Duration::from_secs(timeout_secs), run).await;
 
     match result {
         Ok(Ok(output)) => {
@@ -47,23 +70,7 @@ pub async fn run_with_timeout(
         }
         Ok(Err(io_err)) => {
             warn!(cmd = %label, error = %io_err, "external command spawn failed");
-            // Name the command: Windows renders a PATH miss as the bare
-            // "program not found", which is useless without knowing WHICH
-            // program (issue #296) — Timeout/Process already carry the label.
-            let message = format!("`{label}`: {io_err}");
-            // A missing binary is an environment gap ("install X first"),
-            // not an app malfunction — Expected keeps it out of telemetry.
-            if io_err.kind() == std::io::ErrorKind::NotFound {
-                Err(CommandError::expected(message))
-            } else if let Some(oom) =
-                crate::errors::windows_out_of_memory(&io_err, Some(label.as_str()))
-            {
-                // Pagefile exhaustion is likewise the environment, not us
-                // (issue #356).
-                Err(oom)
-            } else {
-                Err(CommandError::Io { message })
-            }
+            Err(map_spawn_io_error(&label, &io_err))
         }
         Err(_) => {
             warn!(cmd = %label, timeout_secs, "external command timed out");
@@ -72,6 +79,29 @@ pub async fn run_with_timeout(
                 secs: timeout_secs,
             })
         }
+    }
+}
+
+/// Shared mapping of a spawn-time `io::Error` into a `CommandError`, used by
+/// both timeout runners:
+/// - The error names the command: Windows renders a PATH miss as the bare
+///   "program not found", which is useless without knowing WHICH program
+///   (issue #296) — Timeout/Process already carry the label.
+/// - A missing binary is an environment gap ("install X first"), not an app
+///   malfunction — Expected keeps it out of telemetry.
+/// - Windows pagefile exhaustion is likewise the environment (issue #356).
+/// - Persistent EAGAIN after the in-place retries is process-table pressure —
+///   an environment state with a user-side fix (issue #616).
+fn map_spawn_io_error(label: &str, io_err: &std::io::Error) -> CommandError {
+    let message = format!("`{label}`: {io_err}");
+    if io_err.kind() == std::io::ErrorKind::NotFound {
+        CommandError::expected(message)
+    } else if let Some(oom) = crate::errors::windows_out_of_memory(io_err, Some(label)) {
+        oom
+    } else if is_spawn_resource_pressure(&io_err.to_string()) {
+        spawn_resource_pressure_error(label)
+    } else {
+        CommandError::Io { message }
     }
 }
 
@@ -132,21 +162,10 @@ pub async fn run_with_timeout_stdin(
             );
             Ok(output)
         }
-        // Same io-error mapping as run_with_timeout: missing binary and
-        // Windows pagefile exhaustion are environment states, not
-        // malfunctions (issues #296, #356).
+        // Same io-error mapping as run_with_timeout (issues #296, #356, #616).
         Ok(Err(io_err)) => {
             warn!(cmd = %label, error = %io_err, "external command spawn failed");
-            let message = format!("`{label}`: {io_err}");
-            if io_err.kind() == std::io::ErrorKind::NotFound {
-                Err(CommandError::expected(message))
-            } else if let Some(oom) =
-                crate::errors::windows_out_of_memory(&io_err, Some(label.as_str()))
-            {
-                Err(oom)
-            } else {
-                Err(CommandError::Io { message })
-            }
+            Err(map_spawn_io_error(&label, &io_err))
         }
         Err(_) => {
             warn!(cmd = %label, timeout_secs, "external command timed out");
@@ -362,6 +381,40 @@ mod tests {
         // Don't match a larger error code that merely contains "35"/"11".
         assert!(!is_spawn_resource_pressure("something (os error 110)"));
         assert!(!is_spawn_resource_pressure("something (os error 355)"));
+    }
+
+    // The #616 shape: `I/O error: `gh pr list`: Resource temporarily
+    // unavailable (os error 35)` from run_with_timeout-backed polling must
+    // classify Expected (with the human message), not a reported Io.
+    #[test]
+    fn map_spawn_io_error_covers_all_families() {
+        let eagain = std::io::Error::other("Resource temporarily unavailable (os error 35)");
+        match map_spawn_io_error("gh pr list", &eagain) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("`gh pr list`"), "got: {message}");
+                assert!(
+                    message.contains("low on process resources"),
+                    "got: {message}"
+                );
+                assert!(!message.contains("os error 35"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+
+        let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "not found");
+        assert!(matches!(
+            map_spawn_io_error("gh", &missing),
+            CommandError::Expected { .. }
+        ));
+
+        let plain = std::io::Error::other("boom");
+        match map_spawn_io_error("gh api user", &plain) {
+            CommandError::Io { message } => {
+                assert!(message.contains("`gh api user`"), "got: {message}");
+                assert!(message.contains("boom"), "got: {message}");
+            }
+            other => panic!("expected Io, got {other:?}"),
+        }
     }
 
     #[test]

@@ -171,10 +171,13 @@ pub async fn publish_to_staging(
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, "Push rejected - staging branch has diverged");
             // Retain the legacy PUSH_REJECTED sentinel so the frontend can
-            // still discriminate this case via substring match.
-            return Err(CommandError::Other { message: format!(
+            // still discriminate this case via substring match. A concurrent
+            // push landing first is a benign race with dedicated UI, not a
+            // malfunction — Expected keeps it out of telemetry (issue #617,
+            // same class as #312/#521/#609).
+            return Err(CommandError::expected(format!(
                 "PUSH_REJECTED: Staging branch has diverged. Pull changes first or resolve conflicts.\n{stderr}"
-            ) });
+            )));
         }
         if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, "Authentication error");
@@ -289,9 +292,11 @@ pub async fn publish_branch(
         // Check for common errors
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, branch = %branch, "Push rejected");
-            return Err(CommandError::Other {
-                message: format!("PUSH_REJECTED:{stderr}"),
-            });
+            // Someone else pushed first — an anticipated race the frontend
+            // already handles via the PUSH_REJECTED sentinel (GitErrorHandler's
+            // push_rejected case). Expected serializes identically to Other on
+            // the wire, so the substring match keeps working (issue #617).
+            return Err(CommandError::expected(format!("PUSH_REJECTED:{stderr}")));
         }
         if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, branch = %branch, "Authentication error");
