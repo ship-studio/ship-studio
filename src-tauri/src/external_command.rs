@@ -34,6 +34,12 @@ pub async fn run_with_timeout(
     let label = cmd_label.into();
     debug!(cmd = %label, timeout_secs, "spawning external command");
 
+    // When the timeout fires, the output() future is dropped — without
+    // kill_on_drop the child would keep running (and e.g. a timed-out
+    // `git diff` keeps grinding a big repo in the background, issue #608;
+    // same class as run_git_net's #556).
+    cmd.kill_on_drop(true);
+
     // Retry transient EAGAIN spawn failures in place (issue #616): the
     // process-table pressure that produces them usually clears within
     // milliseconds, and background polling callers (e.g. `gh pr list`) would
@@ -128,7 +134,9 @@ pub async fn run_with_timeout_stdin(
 
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stderr(std::process::Stdio::piped())
+        // Reap the child if the timeout drops the future mid-run (#608).
+        .kill_on_drop(true);
 
     let data = stdin_data.as_bytes().to_vec();
     let run = async move {
@@ -330,6 +338,33 @@ mod tests {
             }
             other => panic!("expected Expected, got {other:?}"),
         }
+    }
+
+    /// The #608/#556 leak shape: when the timeout fires, the child must be
+    /// killed, not left running. `sh` would touch the marker after 2s if it
+    /// survived; kill_on_drop must prevent that.
+    #[tokio::test]
+    async fn timed_out_child_is_killed_not_orphaned() {
+        let dir = std::env::temp_dir().join(format!("ss-kill-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("survived-marker");
+        let _ = std::fs::remove_file(&marker);
+
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg(format!("sleep 2; touch {}", marker.display()));
+        let err = run_with_timeout(cmd, "sh sleep-touch", 1)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CommandError::Timeout { .. }));
+
+        // Give a hypothetical surviving child ample time to reach the touch.
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        assert!(
+            !marker.exists(),
+            "timed-out child survived and wrote its marker — kill_on_drop regressed"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

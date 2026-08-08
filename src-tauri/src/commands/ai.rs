@@ -25,10 +25,17 @@ const COMMIT_MSG_CLI_TIMEOUT_SECS: u64 = 30;
 /// Fallback commit message used when AI generation is unavailable or fails.
 pub const DEFAULT_COMMIT_MESSAGE: &str = "Update from Ship Studio";
 
-/// Timeout for the local git context-gathering ops (branch/log/diff). Bounds a
-/// pathological repo (a huge diff) and keeps the work off the blocking path —
-/// these run via async tokio process, not std `.output()` on the executor.
+/// Timeout for the fast local git context-gathering ops (branch name, commit
+/// log) — always cheap regardless of repo size.
 const GIT_TIMEOUT_SECS: u64 = 60;
+
+/// Timeout for the diff-shaped ops (`git diff`, `git diff --stat`), whose cost
+/// scales with repo and diff size: a three-dot diff computes the merge-base
+/// and diffs the whole range, which can legitimately exceed 60s on a big repo
+/// on Windows (slower filesystem, antivirus scanning — issue #608, same theme
+/// as #421/#461/#527). The timed-out child is killed by run_with_timeout's
+/// kill_on_drop, so a slow diff can no longer leak a running git process.
+const GIT_DIFF_TIMEOUT_SECS: u64 = 180;
 
 /// How the active agent can answer a one-shot prompt without a TTY.
 enum HeadlessInvocation {
@@ -307,7 +314,7 @@ async fn get_diff_stat(path: &std::path::Path, base: &str) -> Result<String, Com
     let output = run_with_timeout(
         tokio::process::Command::from(cmd),
         "git diff --stat",
-        GIT_TIMEOUT_SECS,
+        GIT_DIFF_TIMEOUT_SECS,
     )
     .await?;
 
@@ -320,7 +327,7 @@ async fn get_diff(path: &std::path::Path, base: &str) -> Result<String, CommandE
     let output = run_with_timeout(
         tokio::process::Command::from(cmd),
         "git diff",
-        GIT_TIMEOUT_SECS,
+        GIT_DIFF_TIMEOUT_SECS,
     )
     .await?;
 
