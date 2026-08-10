@@ -557,11 +557,25 @@ const {{ chromium }} = require('playwright');
 #[cfg(test)]
 mod capture_error_tests {
     use super::*;
-    use std::os::unix::process::ExitStatusExt;
+
+    /// A non-zero ExitStatus, built via the platform's own extension trait so
+    /// these tests compile and run on Windows CI too.
+    fn failed_status() -> std::process::ExitStatus {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(256)
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(1)
+        }
+    }
 
     fn failed_output(stderr: &str) -> std::process::Output {
         std::process::Output {
-            status: std::process::ExitStatus::from_raw(256),
+            status: failed_status(),
             stdout: Vec::new(),
             stderr: stderr.as_bytes().to_vec(),
         }
