@@ -504,8 +504,11 @@ const {{ chromium }} = require('playwright');
         // Wait for animations to complete
         await page.waitForTimeout(3000);
 
-        // Take viewport screenshot (not full page)
-        await page.screenshot({{ path: '{}' }});
+        // Take viewport screenshot (not full page). Explicit timeout replaces
+        // Playwright's 30s action default, which slow machines exceeded — the
+        // full-page capture already has this, the viewport one was missed
+        // (issue #568).
+        await page.screenshot({{ path: '{}', timeout: 120000 }});
     }} finally {{
         if (browser) await browser.close();
     }}

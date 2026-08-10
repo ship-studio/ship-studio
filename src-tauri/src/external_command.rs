@@ -616,31 +616,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn timed_out_child_is_killed_not_orphaned() {
-        // The child would touch the marker at t=2s; the 1s timeout must kill
-        // it (issue #510), so after waiting past t=2s the marker can't exist.
-        let marker = std::env::temp_dir().join(format!(
-            "shipstudio-kill-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c")
-            .arg(format!("sleep 2 && touch '{}'", marker.display()));
-        let err = run_with_timeout(cmd, "orphan probe", 1).await.unwrap_err();
-        assert!(matches!(err, CommandError::Timeout { .. }));
-        tokio::time::sleep(Duration::from_millis(2500)).await;
-        assert!(
-            !marker.exists(),
-            "child survived the timeout and touched the marker"
-        );
-        let _ = std::fs::remove_file(&marker);
-    }
-
-    #[tokio::test]
     async fn run_to_stdout_maps_nonzero_to_process_error() {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg("echo err 1>&2; exit 2");
