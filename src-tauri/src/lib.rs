@@ -701,6 +701,7 @@ pub fn run() {
             commands::code::list_project_files,
             commands::code::read_project_file,
             commands::code::save_project_file,
+            commands::code::search_project_code,
             // Assets
             commands::assets::get_assets_root,
             commands::assets::set_assets_root,

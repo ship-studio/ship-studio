@@ -28,6 +28,28 @@ pub struct FileContent {
     pub language: String,
 }
 
+/// A single match within a file during code search.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct CodeSearchMatch {
+    pub line_number: usize,
+    pub line_text: String,
+    pub match_start: usize,
+    pub match_end: usize,
+}
+
+/// Code search results grouped by file path.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct CodeSearchResult {
+    pub file_path: String,
+    pub matches: Vec<CodeSearchMatch>,
+}
+
+/// Maximum total line matches to return across all files.
+const MAX_TOTAL_SEARCH_MATCHES: usize = 500;
+
+/// Maximum files with matches to return.
+const MAX_SEARCH_FILES: usize = 100;
+
 /// Maximum number of file entries to return.
 const MAX_ENTRIES: usize = 10_000;
 
@@ -270,6 +292,122 @@ pub fn save_project_file(
     Ok(())
 }
 
+/// Search across project code files for a string query, respecting .gitignore and SKIP_DIRS.
+#[tauri::command]
+#[tracing::instrument(fields(project = %project_path, query = %query))]
+pub fn search_project_code(
+    project_path: &str,
+    query: &str,
+    case_sensitive: Option<bool>,
+) -> Result<Vec<CodeSearchResult>, CommandError> {
+    let project = validate_project_path(project_path)?;
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let is_case_sensitive = case_sensitive.unwrap_or(false);
+    let target_query = if is_case_sensitive {
+        trimmed.to_string()
+    } else {
+        trimmed.to_lowercase()
+    };
+
+    let walker = WalkBuilder::new(&project)
+        .hidden(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .max_depth(Some(20))
+        .filter_entry(|entry| {
+            let name = entry.file_name().to_string_lossy();
+            !SKIP_DIRS.contains(&name.as_ref())
+        })
+        .build();
+
+    let mut results = Vec::new();
+    let mut total_matches = 0;
+
+    for result in walker {
+        if results.len() >= MAX_SEARCH_FILES || total_matches >= MAX_TOTAL_SEARCH_MATCHES {
+            break;
+        }
+
+        let entry = match result {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let relative = match path.strip_prefix(&project) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        if should_skip_path(relative) {
+            continue;
+        }
+
+        let metadata = match path.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        if metadata.len() > MAX_FILE_SIZE || metadata.len() == 0 {
+            continue;
+        }
+
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+
+        let check_len = bytes.len().min(8192);
+        if bytes[..check_len].contains(&0) {
+            continue; // Skip binary files
+        }
+
+        let content = String::from_utf8_lossy(&bytes);
+        let mut file_matches = Vec::new();
+
+        for (idx, line) in content.lines().enumerate() {
+            if total_matches >= MAX_TOTAL_SEARCH_MATCHES {
+                break;
+            }
+
+            let search_line = if is_case_sensitive {
+                line.to_string()
+            } else {
+                line.to_lowercase()
+            };
+
+            if let Some(pos) = search_line.find(&target_query) {
+                file_matches.push(CodeSearchMatch {
+                    line_number: idx + 1,
+                    line_text: line.to_string(),
+                    match_start: pos,
+                    match_end: pos + trimmed.len(),
+                });
+                total_matches += 1;
+            }
+        }
+
+        if !file_matches.is_empty() {
+            let relative_str = normalize_separators(&relative.to_string_lossy());
+            results.push(CodeSearchResult {
+                file_path: relative_str,
+                matches: file_matches,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 /// Infer the Shiki language identifier from a file path.
 ///
 /// Checks the filename first for well-known extensionless files (Dockerfile, Makefile, etc.),
@@ -423,5 +561,35 @@ mod tests {
 
         let real: PathBuf = ["src", "app", "page.tsx"].iter().collect();
         assert!(!should_skip_path(&real));
+    }
+
+    #[test]
+    fn test_search_project_code() {
+        let root = crate::utils::projects_root().expect("projects root");
+        let dir = root.join(format!(
+            "shipstudio-code-search-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let project = dir.to_string_lossy().to_string();
+
+        let file1 = dir.join("foo.txt");
+        std::fs::write(&file1, "hello world\nanother line\nWORLD again").unwrap();
+
+        let file2 = dir.join("bar.js");
+        std::fs::write(&file2, "const x = 'hello';").unwrap();
+
+        let results = search_project_code(&project, "world", Some(false)).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].file_path, "foo.txt");
+        assert_eq!(results[0].matches.len(), 2);
+        assert_eq!(results[0].matches[0].line_number, 1);
+        assert_eq!(results[0].matches[1].line_number, 3);
+
+        let case_results = search_project_code(&project, "world", Some(true)).unwrap();
+        assert_eq!(case_results[0].matches.len(), 1);
+        assert_eq!(case_results[0].matches[0].line_number, 1);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
