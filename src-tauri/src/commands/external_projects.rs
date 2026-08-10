@@ -167,23 +167,23 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
             }
         }
 
+        // All of these are by-design guidance about the user's folder pick,
+        // not malfunctions — Expected keeps them out of telemetry (issue #416).
         if nested_projects.len() == 1 {
-            return Err((format!(
+            return Err(CommandError::expected(format!(
                 "The project appears to be inside the \"{}\" subfolder. Please select that folder instead.",
                 nested_projects[0]
-            )).into());
+            )));
         } else if nested_projects.len() > 1 {
-            return Err((format!(
+            return Err(CommandError::expected(format!(
                 "This folder contains multiple projects inside it: {}. Please select the specific project folder you want to import.",
                 nested_projects.join(", ")
-            )).into());
+            )));
         }
 
-        return Err(
+        return Err(CommandError::expected(
             "Selected folder doesn't appear to be a project — no project files found (package.json, .html, .git, or a language manifest like Cargo.toml, go.mod, pyproject.toml…)."
-                .to_string()
-                .into(),
-        );
+        ));
     }
 
     // Canonicalize the path
@@ -200,11 +200,9 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
             return Ok(Some(canonical_str));
         }
 
-        return Err(
-            "This project is already inside your projects folder. It will appear automatically."
-                .to_string()
-                .into(),
-        );
+        return Err(CommandError::expected(
+            "This project is already inside your projects folder. It will appear automatically.",
+        ));
     }
 
     // Check if already registered
@@ -214,7 +212,9 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
             .map(|c| c == canonical)
             .unwrap_or(false)
     }) {
-        return Err(("This project is already registered.".to_string()).into());
+        return Err(CommandError::expected(
+            "This project is already registered.",
+        ));
     }
 
     // Register

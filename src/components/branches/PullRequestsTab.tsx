@@ -150,8 +150,18 @@ export function PullRequestsTab({
       const result = await switchBranch(projectPath, postMergeInfo.baseBranch, true);
       if (result.success) {
         onBranchSwitch?.(postMergeInfo.baseBranch);
-        // Delete the merged branch
-        await deleteBranch(projectPath, postMergeInfo.branchName, true);
+        // Delete the merged branch. The switch above can report success while
+        // HEAD hasn't landed on the base branch yet, making the delete's
+        // "current branch" guard fire even though the user did everything
+        // right — re-assert the switch and retry once (issue #458).
+        try {
+          await deleteBranch(projectPath, postMergeInfo.branchName, true);
+        } catch (e) {
+          const msg = formatCommandError(asCommandError(e));
+          if (!msg.includes('Cannot delete the current branch')) throw e;
+          await switchBranch(projectPath, postMergeInfo.baseBranch, true);
+          await deleteBranch(projectPath, postMergeInfo.branchName, true);
+        }
         void trackEvent('post_merge_cleanup', {
           deleted_branch: postMergeInfo.branchName,
           $screen_name: 'Workspace',
@@ -488,7 +498,9 @@ function PrCard({
   };
 
   const hasConflicts = pr.mergeable === false;
-  const canMerge = pr.state === 'OPEN' && pr.mergeable !== false;
+  // Drafts are refused by GitHub with a raw GraphQL error — don't offer a
+  // Merge that's doomed to fail (issue #482).
+  const canMerge = pr.state === 'OPEN' && pr.mergeable !== false && !pr.isDraft;
 
   return (
     <div className={`pr-card${isCheckedOut ? ' pr-card-checked-out' : ''}`}>
@@ -497,6 +509,11 @@ function PrCard({
           <div className={`pr-card-status ${pr.state.toLowerCase()}`} />
           <div className="pr-card-title">{pr.title}</div>
           <span className="pr-card-number">#{pr.number}</span>
+          {pr.isDraft && (
+            <span className="pr-card-number" title="Draft pull requests can't be merged yet">
+              Draft
+            </span>
+          )}
           {isCheckedOut && <span className="pr-card-current-label">you are here</span>}
         </div>
 

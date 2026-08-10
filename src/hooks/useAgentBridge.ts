@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { listen } from '@tauri-apps/api/event';
 import {
   executeBridgeTool,
@@ -89,7 +90,11 @@ export function useAgentBridge({
       try {
         url = await getAgentBridgeUrl(projectPath);
       } catch (err) {
-        logger.error('[AgentBridge] Failed to get bridge URL', { error: String(err) });
+        logger.error('[AgentBridge] Failed to get bridge URL', {
+          // CommandError rejections are plain objects — String() logs
+          // "[object Object]" (issue #405).
+          error: formatCommandError(asCommandError(err)),
+        });
         return;
       }
       if (cancelled) return;
@@ -103,7 +108,7 @@ export function useAgentBridge({
         () => logger.info('[AgentBridge] Preview MCP server registration ensured', { projectPath }),
         (err) => {
           logger.warn('[AgentBridge] Could not register preview MCP server', {
-            error: String(err),
+            error: formatCommandError(asCommandError(err)),
           });
         }
       );
@@ -136,7 +141,7 @@ export function useAgentBridge({
             await respondToBridgeRequest(request.requestId, result);
           } catch (err) {
             logger.error('[AgentBridge] Failed to deliver tool response', {
-              error: String(err),
+              error: formatCommandError(asCommandError(err)),
             });
           }
         })();
@@ -149,7 +154,9 @@ export function useAgentBridge({
       }
       // Listener is live — let tool calls route here instead of failing fast.
       setAgentBridgeAttached(projectPath, true).catch((err: unknown) => {
-        logger.warn('[AgentBridge] Failed to mark preview attached', { error: String(err) });
+        logger.warn('[AgentBridge] Failed to mark preview attached', {
+          error: formatCommandError(asCommandError(err)),
+        });
       });
     };
 

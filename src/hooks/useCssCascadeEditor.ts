@@ -29,6 +29,7 @@ import {
   mergeCascade,
   rulesToLocate,
   rowKey,
+  isStaleCssRuleError,
   type MatchedRule,
   type RuleLocation,
   type CascadeRow,
@@ -379,7 +380,9 @@ export function useCssCascadeEditor({
             baselineInner.current = nextBaseline;
             setOverridden(nextOverridden);
           } catch (err) {
-            logger.error('[CssCascade] locate failed', { error: String(err) });
+            logger.error('[CssCascade] locate failed', {
+              error: formatCommandError(asCommandError(err)),
+            });
             if (selTokenRef.current === token) {
               setRows(mergeCascade(matched, new Map(), { cssModulesHint }));
               onToast(toastText(err), 'error');
@@ -432,7 +435,7 @@ export function useCssCascadeEditor({
           try {
             await createCssRule(projectPath, row.file, row.selector);
           } catch (err) {
-            if (!String(err).includes('already exists')) throw err;
+            if (!formatCommandError(asCommandError(err)).includes('already exists')) throw err;
           }
           draftKeysRef.current.delete(key);
         }
@@ -448,10 +451,13 @@ export function useCssCascadeEditor({
         post({ type: 'ss:commitRulePreview', ruleKey: key });
         void trackEvent('visual_style_saved', { mode: 'css-code' });
       } catch (err) {
-        // The source drifted from our baseline (a prior save's formatting, an HMR
-        // re-read, an external edit). Re-read the current source and retry ONCE so
-        // editing stays "instant" instead of hitting a drift wall.
-        if (/source changed/i.test(toastText(err))) {
+        // The source went stale under the card: body drift (a prior save's
+        // formatting, an HMR re-read, an external edit) OR the rule no longer
+        // matching at all (renamed/rewritten since the card was seeded —
+        // issue #584). Both are recoverable: re-locate the rule in the current
+        // source and retry ONCE so editing stays "instant" instead of hitting
+        // a drift wall and dropping the edit.
+        if (isStaleCssRuleError(err)) {
           try {
             const locs = await locateCssRules(projectPath, [
               { selector: row.selector, mediaText: row.mediaText, href: null },
@@ -460,7 +466,9 @@ export function useCssCascadeEditor({
             if (loc && loc.status === 'resolved') {
               await applyCssRuleText(
                 projectPath,
-                row.file,
+                // The re-located rule may live in a different file than the
+                // (stale) card — write where the rule actually is now.
+                loc.file,
                 row.selector,
                 row.mediaText,
                 loc.inner_text,
@@ -473,8 +481,19 @@ export function useCssCascadeEditor({
           } catch {
             /* fall through to the toast below */
           }
+          // Still stale after re-locating: the rule is genuinely gone from
+          // source. Expected environment state (an agent/external edit) — warn
+          // so it doesn't auto-file a bug report; the toast below still tells
+          // the user their edit didn't land.
+          logger.warn('[CssCascade] write-back rejected as stale after retry', {
+            error: formatCommandError(asCommandError(err)),
+          });
+          onToast(toastText(err), 'error');
+          return;
         }
-        logger.error('[CssCascade] write-back failed', { error: String(err) });
+        logger.error('[CssCascade] write-back failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       } finally {
         setSavingKeys((prev) => {
@@ -520,7 +539,9 @@ export function useCssCascadeEditor({
         delete baselineInner.current[key];
         void trackEvent('visual_style_saved', { mode: 'css-code', deleted: true });
       } catch (err) {
-        logger.error('[CssCascade] delete failed', { error: String(err) });
+        logger.error('[CssCascade] delete failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -551,7 +572,9 @@ export function useCssCascadeEditor({
         else onToast('Wrapped — reselect the element to keep editing.', 'success');
         void trackEvent('visual_style_saved', { mode: 'css-code', wrapped: true });
       } catch (err) {
-        logger.error('[CssCascade] wrap failed', { error: String(err) });
+        logger.error('[CssCascade] wrap failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -703,7 +726,10 @@ export function useCssCascadeEditor({
           conditional: condition != null,
         });
       } catch (err) {
-        const msg = String(err);
+        // A Tauri-rejected CommandError is a plain object — String(err) renders
+        // "[object Object]", which both broke the already-exists detection below
+        // and made the logged error useless (issue #380).
+        const msg = formatCommandError(asCommandError(err));
         // The rule already exists in source but doesn't match this element (so it
         // isn't in the cascade). Surface the real rule for editing instead of erroring
         // — typing an existing selector should just open it.
@@ -787,7 +813,9 @@ export function useCssCascadeEditor({
         saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
         void trackEvent('visual_style_saved', { mode: 'css-code', renamed: true });
       } catch (err) {
-        logger.error('[CssCascade] rename failed', { error: String(err) });
+        logger.error('[CssCascade] rename failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },
@@ -850,7 +878,9 @@ export function useCssCascadeEditor({
         saveTimers.current[newKey] = setTimeout(() => void saveRule(newKey), SAVE_DEBOUNCE_MS);
         void trackEvent('visual_style_saved', { mode: 'css-code', renamedAtRule: true });
       } catch (err) {
-        logger.error('[CssCascade] rename at-rule failed', { error: String(err) });
+        logger.error('[CssCascade] rename at-rule failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },

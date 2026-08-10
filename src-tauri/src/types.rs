@@ -521,6 +521,8 @@ pub struct PullRequestInfo {
     pub author: String,
     pub state: String,
     pub mergeable: Option<bool>,
+    /// GitHub draft flag — drafts can't be merged (issue #482).
+    pub is_draft: bool,
     pub url: String,
     pub created_at: String,
 }
@@ -555,6 +557,11 @@ pub struct ConflictedFile {
     pub conflicts: Vec<ConflictBlock>,
     pub ours_branch: String,
     pub theirs_branch: String,
+    /// Set when the conflicted path can't be resolved as a text merge in the
+    /// UI (submodule or file/folder type-change conflicts, issue #528).
+    /// `conflicts` is empty for such entries; the frontend shows this reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported_reason: Option<String>,
 }
 
 // ============ Folders ============

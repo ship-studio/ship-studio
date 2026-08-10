@@ -860,7 +860,9 @@ export const WorkspaceView = memo(function WorkspaceView({
       const index = num - 1;
       const tab = terminalTabs[index];
       if (!tab) {
-        showToast(`No terminal tab ${num} — you have ${terminalTabs.length} open`, 'error');
+        // Guidance about a keystroke, not a malfunction — 'info' skips the
+        // error-report pipeline (issue #437).
+        showToast(`No terminal tab ${num} — you have ${terminalTabs.length} open`, 'info');
         return;
       }
       setActiveTerminalTab(tab.id);

@@ -9,6 +9,7 @@
  * @module lib/plugin-loader
  */
 
+import { asCommandError, formatCommandError } from './errors';
 import { readPluginBundle } from './plugins';
 import { trackError } from './analytics';
 import { logger } from './logger';
@@ -120,7 +121,7 @@ export async function loadPluginModule(
       } catch (e) {
         trackError('plugin_onactivate', e, 'Workspace');
         logger.error(`Plugin ${pluginId} onActivate failed`, {
-          error: e instanceof Error ? e.message : String(e),
+          error: formatCommandError(asCommandError(e)),
         });
         onError?.(pluginModule.name, e);
       }
@@ -131,7 +132,7 @@ export async function loadPluginModule(
     // Clean up blob URL on failure
     URL.revokeObjectURL(blobUrl);
     blobUrlCache.delete(key);
-    throw new Error(`Failed to load plugin ${pluginId}: ${String(e)}`);
+    throw new Error(`Failed to load plugin ${pluginId}: ${formatCommandError(asCommandError(e))}`);
   }
 }
 
@@ -152,7 +153,7 @@ export function unloadPluginModule(
     } catch (e) {
       trackError('plugin_ondeactivate', e, 'Workspace');
       logger.error(`Plugin ${pluginId} onDeactivate failed`, {
-        error: e instanceof Error ? e.message : String(e),
+        error: formatCommandError(asCommandError(e)),
       });
       onError?.(mod.name, e);
     }

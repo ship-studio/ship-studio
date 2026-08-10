@@ -32,7 +32,12 @@ vi.mock('../lib/customClasses', () => ({
   classifyApplyTokens: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock('../lib/logger', () => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+
 import { useVisualEditor } from './useVisualEditor';
+import { logger } from '../lib/logger';
 import {
   resolveClassnameSource,
   applyClassnameEdit,
@@ -236,6 +241,64 @@ describe('useVisualEditor addFirstClass (class-less elements)', () => {
     const calls = post.mock.calls as Array<[{ type?: string; className?: string }]>;
     expect(calls.some((c) => c[0]?.type === 'ss:mutate' && c[0]?.className === 'mt-4')).toBe(true);
     expect(calls.some((c) => c[0]?.type === 'ss:commit')).toBe(true);
+  });
+});
+
+describe('useVisualEditor failure logging (issues #543/#544)', () => {
+  /** Calls to logger.error, as [message, context] tuples. */
+  function errorLogs() {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the mock's calls, not invoking it bound
+    return vi.mocked(logger.error).mock.calls;
+  }
+
+  it('write-back failure logs the real CommandError, not "[object Object]" (#544)', async () => {
+    // A rejected Tauri command delivers a plain tagged CommandError object —
+    // NOT an Error instance — so naive String(err) renders "[object Object]".
+
+    (applyClassnameEdit as Fn).mockRejectedValue({
+      type: 'Validation',
+      field: 'old_class',
+      reason: 'source no longer matches — reselect the element',
+    });
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('p-3', iframeRef.current!.contentWindow!);
+
+    act(() => result.current.applyEnum('p-8', { padding: '2rem' }));
+    await act(async () => {
+      await result.current.commit();
+    });
+
+    const call = errorLogs().find(([msg]) => msg === '[VisualEditor] write-back failed');
+    expect(call).toBeDefined();
+    expect(call?.[1]).toEqual({
+      error: 'Validation failed for `old_class`: source no longer matches — reselect the element',
+    });
+    expect(JSON.stringify(errorLogs())).not.toContain('[object Object]');
+  });
+
+  it('add-first-class failure logs the real CommandError, not "[object Object]" (#543)', async () => {
+    (resolveClassnameSource as Fn).mockResolvedValue({ status: 'no_class' });
+
+    (insertClassAttr as Fn).mockRejectedValue({
+      type: 'Validation',
+      field: 'element',
+      reason: 'could not anchor the open tag',
+    });
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('', iframeRef.current!.contentWindow!);
+
+    await act(async () => {
+      await result.current.addFirstClass('mt-4');
+    });
+
+    const call = errorLogs().find(([msg]) => msg === '[VisualEditor] add first class failed');
+    expect(call).toBeDefined();
+    expect(call?.[1]).toEqual({
+      error: 'Validation failed for `element`: could not anchor the open tag',
+    });
+    expect(JSON.stringify(errorLogs())).not.toContain('[object Object]');
   });
 });
 

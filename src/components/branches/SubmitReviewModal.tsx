@@ -24,6 +24,7 @@ import {
   formatCommandError,
   humanizeGitError,
   isMergeConflictError,
+  isRecognizedGitFailure,
 } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { ModalFrame } from '../primitives/ModalFrame';
@@ -89,7 +90,8 @@ export function SubmitReviewModal({
   onClose,
 }: SubmitReviewModalProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+  const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
+    showToast(message, type);
   const [baseBranch, setBaseBranch] = useState(baseBranches[0] || 'main');
 
   // Default the merge target to the project's configured default base branch
@@ -190,8 +192,21 @@ export function SubmitReviewModal({
       }
     } catch (e) {
       trackError('pr_create', e, 'Submit Review');
-      setError(humanizeGitError(e, { branch: branchName, base: baseBranch }));
-      onToast?.('Failed to create pull request', 'error');
+      const humanized = humanizeGitError(e, { branch: branchName, base: baseBranch });
+      setError(humanized);
+      if (isRecognizedGitFailure(e)) {
+        // A known, by-design refusal (nothing to review, PR already exists,
+        // auth, network, …) — the backend already classified these Expected
+        // and skipped its report; an unconditional 'error' toast here would
+        // re-report the same incident through the toast telemetry pipeline
+        // (issue #538). Surface the humanized cause as info + warn log.
+        logger.warn('[SubmitReview] PR creation refused for a recognized reason', {
+          error: formatCommandError(asCommandError(e)),
+        });
+        onToast?.(humanized, 'info');
+      } else {
+        onToast?.('Failed to create pull request', 'error');
+      }
     } finally {
       setIsSubmitting(false);
       setProgressLabel('Create Pull Request');

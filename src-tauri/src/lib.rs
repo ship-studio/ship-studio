@@ -499,6 +499,7 @@ pub fn run() {
             commands::ide::check_preview_can_scroll,
             commands::ide::open_studio_window,
             commands::ide::capture_project_thumbnail,
+            commands::ide::capture_thumbnail_from_webview,
             commands::ide::capture_fullpage_playwright,
             commands::ide::capture_viewport_playwright,
             commands::ide::get_project_thumbnail,

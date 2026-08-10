@@ -167,7 +167,7 @@ export function useCssEditor({ iframeRef, projectPath, enabled, onToast }: Param
             setSelection({ signature: sig, resolution, instanceCount });
           }
         } catch (err) {
-          logger.error('[CssEditor] resolve failed', { error: String(err) });
+          logger.error('[CssEditor] resolve failed', { error: toastText(err) });
           if (selTokenRef.current === token) {
             // A real failure — do NOT fall back to `not_found`, which would
             // wrongly offer "create rule" for a class that may already exist.
@@ -204,7 +204,7 @@ export function useCssEditor({ iframeRef, projectPath, enabled, onToast }: Param
           setSelection((prev) => (prev ? { ...prev, resolution } : prev));
         }
       } catch (err) {
-        logger.error('[CssEditor] reresolve failed', { error: String(err) });
+        logger.error('[CssEditor] reresolve failed', { error: toastText(err) });
       }
     },
     [projectPath]
@@ -357,7 +357,7 @@ export function useCssEditor({ iframeRef, projectPath, enabled, onToast }: Param
         editsCommittedRef.current += 1;
         void trackEvent('visual_style_saved', { mode: 'css', removed: value === null });
       } catch (err) {
-        logger.error('[CssEditor] write-back failed', { error: String(err) });
+        logger.error('[CssEditor] write-back failed', { error: toastText(err) });
         onToast(toastText(err), 'error');
       } finally {
         setSaving(false);
@@ -387,7 +387,7 @@ export function useCssEditor({ iframeRef, projectPath, enabled, onToast }: Param
         editsCommittedRef.current += changes.length;
         void trackEvent('visual_style_saved', { mode: 'css', bulk: changes.length });
       } catch (err) {
-        logger.error('[CssEditor] bulk write-back failed', { error: String(err) });
+        logger.error('[CssEditor] bulk write-back failed', { error: toastText(err) });
         onToast(toastText(err), 'error');
       } finally {
         setSaving(false);
@@ -410,7 +410,7 @@ export function useCssEditor({ iframeRef, projectPath, enabled, onToast }: Param
         void trackEvent('visual_style_saved', { mode: 'css', created_rule: true });
         onToast(`Created ${selector}`, 'success');
       } catch (err) {
-        logger.error('[CssEditor] create rule failed', { error: String(err) });
+        logger.error('[CssEditor] create rule failed', { error: toastText(err) });
         onToast(toastText(err), 'error');
       }
     },

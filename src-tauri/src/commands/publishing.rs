@@ -35,6 +35,21 @@ fn push_auth_error(stderr: &str) -> Option<CommandError> {
     None
 }
 
+/// Push-time "the remote repo doesn't exist" rejections — the linked repo was
+/// deleted, renamed, transferred, or made inaccessible outside the app.
+/// Environment, not malfunction: telemetry-flooding this on every publish
+/// attempt for a stale remote helps nobody (issue #435).
+fn push_missing_remote_error(stderr: &str) -> Option<CommandError> {
+    let lower = stderr.to_lowercase();
+    let missing = lower.contains("repository not found")
+        || (lower.contains("repository") && lower.contains("not found") && lower.contains("fatal"));
+    missing.then(|| {
+        CommandError::expected(
+            "The linked GitHub repository couldn't be found — it may have been deleted, renamed,              or you may no longer have access. Check the repository on GitHub or reconnect it,              then try again.",
+        )
+    })
+}
+
 #[tauri::command]
 #[instrument(name = "publish_to_github", skip(project_path, commit_message), fields(project = %project_path))]
 pub async fn publish_to_github(
@@ -107,6 +122,9 @@ pub async fn publish_to_github(
             error!(error = %stderr, branch = %branch, "Authentication error");
             return Err(err);
         }
+        if let Some(err) = push_missing_remote_error(&stderr) {
+            return Err(err);
+        }
         if !stderr.contains("Everything up-to-date") {
             error!(error = %stderr, branch = %branch, "Push to GitHub failed");
             return Err(CommandError::Process {
@@ -153,13 +171,19 @@ pub async fn publish_to_staging(
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, "Push rejected - staging branch has diverged");
             // Retain the legacy PUSH_REJECTED sentinel so the frontend can
-            // still discriminate this case via substring match.
-            return Err(CommandError::Other { message: format!(
+            // still discriminate this case via substring match. A concurrent
+            // push landing first is a benign race with dedicated UI, not a
+            // malfunction — Expected keeps it out of telemetry (issue #617,
+            // same class as #312/#521/#609).
+            return Err(CommandError::expected(format!(
                 "PUSH_REJECTED: Staging branch has diverged. Pull changes first or resolve conflicts.\n{stderr}"
-            ) });
+            )));
         }
         if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, "Authentication error");
+            return Err(err);
+        }
+        if let Some(err) = push_missing_remote_error(&stderr) {
             return Err(err);
         }
         if !stderr.contains("Everything up-to-date") {
@@ -207,6 +231,9 @@ pub async fn publish_to_production(
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, "Authentication error");
+            return Err(err);
+        }
+        if let Some(err) = push_missing_remote_error(&stderr) {
             return Err(err);
         }
         if !stderr.contains("Everything up-to-date") {
@@ -265,12 +292,17 @@ pub async fn publish_branch(
         // Check for common errors
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, branch = %branch, "Push rejected");
-            return Err(CommandError::Other {
-                message: format!("PUSH_REJECTED:{stderr}"),
-            });
+            // Someone else pushed first — an anticipated race the frontend
+            // already handles via the PUSH_REJECTED sentinel (GitErrorHandler's
+            // push_rejected case). Expected serializes identically to Other on
+            // the wire, so the substring match keeps working (issue #617).
+            return Err(CommandError::expected(format!("PUSH_REJECTED:{stderr}")));
         }
         if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, branch = %branch, "Authentication error");
+            return Err(err);
+        }
+        if let Some(err) = push_missing_remote_error(&stderr) {
             return Err(err);
         }
         if !stderr.contains("Everything up-to-date") {

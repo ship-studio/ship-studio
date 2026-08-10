@@ -4,7 +4,7 @@
 
 use crate::commands::github::get_gh_command_for_project;
 use crate::errors::CommandError;
-use crate::external_command::run_with_timeout;
+use crate::external_command::{run_with_timeout, truncate_output};
 use crate::types::PullRequestInfo;
 use crate::utils::validate_project_path;
 
@@ -39,7 +39,7 @@ pub async fn list_pull_requests(
         "pr",
         "list",
         "--json",
-        "number,title,headRefName,baseRefName,author,state,mergeable,url,createdAt",
+        "number,title,headRefName,baseRefName,author,state,mergeable,isDraft,url,createdAt",
         "--limit",
         "20",
     ])
@@ -62,10 +62,13 @@ pub async fn list_pull_requests(
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
-        return Err((stderr.to_string()).into());
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
+            return Err(err);
+        }
+        return Err(truncate_output(&stderr).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -86,6 +89,10 @@ pub async fn list_pull_requests(
                     .get("mergeable")
                     .and_then(|v| v.as_str())
                     .map(|s| s == "MERGEABLE"),
+                // Draft PRs can't be merged — the UI needs to know so it can
+                // offer "mark ready" instead of a Merge that's doomed to fail
+                // with a raw GraphQL error (issue #482).
+                is_draft: pr.get("isDraft").and_then(|v| v.as_bool()).unwrap_or(false),
                 url: pr.get("url")?.as_str()?.to_string(),
                 created_at: pr.get("createdAt")?.as_str()?.to_string(),
             })
@@ -118,7 +125,12 @@ pub async fn create_pull_request(
         let stderr = String::from_utf8_lossy(&push_output.stderr);
         // Ignore "everything up-to-date" which isn't a real error
         if !stderr.contains("Everything up-to-date") {
-            return Err((format!("Failed to push branch: {stderr}")).into());
+            // A push that failed on auth or connectivity is an expected
+            // environment state, same as push_branch (issue #560).
+            if let Some(err) = crate::commands::git::classify_git_net_error(&stderr) {
+                return Err(err);
+            }
+            return Err(format!("Failed to push branch: {}", truncate_output(&stderr)).into());
         }
     }
 
@@ -136,10 +148,23 @@ pub async fn create_pull_request(
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
-        return Err((stderr.to_string()).into());
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
+            return Err(err);
+        }
+        // gh's by-design refusals for `pr create` — the frontend already
+        // rephrases both into friendly guidance (humanizeGitError), so keep
+        // the raw text but mark them Expected so they stay out of telemetry
+        // (issue #428).
+        let lower = stderr.to_lowercase();
+        if lower.contains("no commits between")
+            || (lower.contains("already exists") && lower.contains("pull request"))
+        {
+            return Err(CommandError::expected(stderr.to_string()));
+        }
+        return Err(truncate_output(&stderr).into());
     }
 
     // Output contains the PR URL
@@ -165,13 +190,24 @@ pub async fn merge_pull_request(project_path: String, pr_number: i32) -> Result<
         if is_conflict_stderr(&stderr) {
             return Err(CommandError::MergeConflict { pr_number, stderr });
         }
+        // Draft PRs are refused by GitHub with a raw GraphQL error; the UI
+        // now disables Merge for drafts, but a just-converted or stale-listed
+        // PR can still race into this (issue #482).
+        if stderr.to_lowercase().contains("still a draft") {
+            return Err(CommandError::expected(
+                "This pull request is still a draft, so it can't be merged yet. Mark it as ready for review on GitHub first.",
+            ));
+        }
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
-        return Err(stderr.into());
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
+            return Err(err);
+        }
+        return Err(truncate_output(&stderr).into());
     }
 
     Ok(())
@@ -205,10 +241,25 @@ pub async fn checkout_pull_request(
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
-        return Err((format!("Failed to checkout PR: {stderr}")).into());
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
+            return Err(err);
+        }
+        // Git refusing to check out over uncommitted local edits ("would be
+        // overwritten by checkout" / "commit your changes or stash") is an
+        // anticipated user state, not a malfunction — same classification the
+        // branch-switch and merge paths already apply (issue #601, same class
+        // as #312/#502/#521).
+        if crate::commands::git::is_overwrite_refusal(&stderr) {
+            tracing::warn!(error = %stderr, "PR checkout blocked by uncommitted local changes");
+            return Err(CommandError::expected(
+                "You have unsaved changes that would be lost by checking out this pull request. \
+                 Commit or stash them first, then try again.",
+            ));
+        }
+        return Err(format!("Failed to checkout PR: {}", truncate_output(&stderr)).into());
     }
 
     // Return the branch name that was checked out
@@ -239,10 +290,13 @@ pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<
         if let Some(err) = crate::commands::github::gh_auth_error(&stderr) {
             return Err(err);
         }
-        if let Some(err) = crate::commands::github::gh_network_error(&stderr) {
+        if let Some(err) = crate::commands::github::gh_common_error(&stderr) {
             return Err(err);
         }
-        return Err((format!("Failed to close PR: {stderr}")).into());
+        if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
+            return Err(err);
+        }
+        return Err(format!("Failed to close PR: {}", truncate_output(&stderr)).into());
     }
 
     Ok(())

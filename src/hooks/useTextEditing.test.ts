@@ -23,8 +23,13 @@ vi.mock('../lib/edit', async (importActual) => {
 // trackEvent would otherwise reach for a real Tauri IPC on a saved edit.
 vi.mock('../lib/analytics', () => ({ trackEvent: vi.fn().mockResolvedValue(undefined) }));
 
+vi.mock('../lib/logger', () => ({
+  logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+
 import { useTextEditing } from './useTextEditing';
 import { resolveTextSource, applyTextEdit } from '../lib/edit';
+import { logger } from '../lib/logger';
 
 type Fn = ReturnType<typeof vi.fn>;
 
@@ -128,6 +133,148 @@ describe('useTextEditing', () => {
     await dispatch({ type: 'ss:textCommit', text: 'Old copy' }, src);
     expect(applyTextEdit).not.toHaveBeenCalled();
     expect(posts(iframeRef)).toContainEqual({ type: 'ss:commit' });
+  });
+
+  describe('stale-save recovery (issue #557)', () => {
+    /** The drift guard's exact rejection shape from apply_text_edit. */
+    const DRIFT_REJECTION = {
+      type: 'Validation',
+      field: 'old_text',
+      reason: 'source no longer matches — reselect the element',
+    };
+
+    /** Extra microtask flushes: the recovery path chains re-resolve + re-apply. */
+    const settle = () =>
+      act(async () => {
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+    it('re-resolves and re-applies the typed text when the drift guard rejects a stale save', async () => {
+      (applyTextEdit as Fn).mockRejectedValueOnce(DRIFT_REJECTION).mockResolvedValueOnce(undefined);
+      (resolveTextSource as Fn)
+        // Select-time resolve: the (about-to-be-stale) baseline.
+        .mockResolvedValueOnce({
+          status: 'resolved',
+          file: 'src/pages/index.astro',
+          line: 7,
+          column: 3,
+          text: 'Old copy',
+        })
+        // Recovery resolve: a formatter/HMR write moved the text and reflowed it.
+        .mockResolvedValueOnce({
+          status: 'resolved',
+          file: 'src/pages/index.astro',
+          line: 9,
+          column: 5,
+          text: 'Old copy, reflowed',
+        });
+      const { iframeRef, onToast } = setup();
+      const src = iframeRef.current!.contentWindow!;
+      await dispatch({ type: 'ss:select', signature: SIG, leafText: true }, src);
+      await dispatch({ type: 'ss:textCommit', text: 'New copy' }, src);
+      await settle();
+
+      // The retry wrote the user's text against the FRESH location + baseline —
+      // the typed copy was not discarded.
+      expect(applyTextEdit).toHaveBeenCalledTimes(2);
+      expect((applyTextEdit as Fn).mock.calls[1]).toEqual([
+        '/proj',
+        'src/pages/index.astro',
+        9,
+        5,
+        'Old copy, reflowed',
+        'New copy',
+      ]);
+      expect(posts(iframeRef)).toContainEqual({ type: 'ss:commit' });
+      expect(posts(iframeRef)).not.toContainEqual({ type: 'ss:textRevert' });
+      expect(onToast).toHaveBeenCalledWith('Saved to source', 'success');
+      // Recovered drift is an expected state — it must not auto-file a report.
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- asserting on the mock, not invoking it bound
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('re-baselines without writing when the fresh source already holds the typed text', async () => {
+      (applyTextEdit as Fn).mockRejectedValueOnce(DRIFT_REJECTION);
+      (resolveTextSource as Fn)
+        .mockResolvedValueOnce({
+          status: 'resolved',
+          file: 'src/pages/index.astro',
+          line: 7,
+          column: 3,
+          text: 'Old copy',
+        })
+        // e.g. the first write actually landed but its response was lost.
+        .mockResolvedValueOnce({
+          status: 'resolved',
+          file: 'src/pages/index.astro',
+          line: 7,
+          column: 3,
+          text: 'New copy',
+        });
+      const { iframeRef, onToast } = setup();
+      const src = iframeRef.current!.contentWindow!;
+      await dispatch({ type: 'ss:select', signature: SIG, leafText: true }, src);
+      await dispatch({ type: 'ss:textCommit', text: 'New copy' }, src);
+      await settle();
+
+      expect(applyTextEdit).toHaveBeenCalledTimes(1); // no second write needed
+      expect(posts(iframeRef)).toContainEqual({ type: 'ss:commit' });
+      expect(posts(iframeRef)).not.toContainEqual({ type: 'ss:textRevert' });
+      expect(onToast).toHaveBeenCalledWith('Saved to source', 'success');
+    });
+
+    it('is never silent when recovery fails: explains, reverts, and does not auto-file', async () => {
+      (applyTextEdit as Fn).mockRejectedValue(DRIFT_REJECTION);
+      (resolveTextSource as Fn)
+        .mockResolvedValueOnce({
+          status: 'resolved',
+          file: 'src/pages/index.astro',
+          line: 7,
+          column: 3,
+          text: 'Old copy',
+        })
+        // The element's text is gone from source — nothing to re-apply against.
+        .mockResolvedValueOnce({ status: 'read_only', reason: 'no longer found' });
+      const { iframeRef, onToast } = setup();
+      const src = iframeRef.current!.contentWindow!;
+      await dispatch({ type: 'ss:select', signature: SIG, leafText: true }, src);
+      await dispatch({ type: 'ss:textCommit', text: 'New copy' }, src);
+      await settle();
+
+      expect(applyTextEdit).toHaveBeenCalledTimes(1);
+      expect(posts(iframeRef)).toContainEqual({ type: 'ss:textRevert' });
+      expect(onToast).toHaveBeenCalledWith(
+        expect.stringContaining("Couldn't save your text"),
+        'error'
+      );
+      // Expected environment state (the file changed underneath us) — warn only.
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- asserting on the mock, not invoking it bound
+      expect(logger.warn).toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- asserting on the mock, not invoking it bound
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('does not retry when the source has not actually drifted (identical re-resolve)', async () => {
+      // A Validation rejection whose re-resolve returns the SAME target would
+      // fail identically — the hook must not write the same thing twice.
+      (applyTextEdit as Fn).mockRejectedValue(DRIFT_REJECTION);
+      (resolveTextSource as Fn).mockResolvedValue({
+        status: 'resolved',
+        file: 'src/pages/index.astro',
+        line: 7,
+        column: 3,
+        text: 'Old copy',
+      });
+      const { iframeRef, onToast } = setup();
+      const src = iframeRef.current!.contentWindow!;
+      await dispatch({ type: 'ss:select', signature: SIG, leafText: true }, src);
+      await dispatch({ type: 'ss:textCommit', text: 'New copy' }, src);
+      await settle();
+
+      expect(applyTextEdit).toHaveBeenCalledTimes(1);
+      expect(posts(iframeRef)).toContainEqual({ type: 'ss:textRevert' });
+      expect(onToast).toHaveBeenCalledWith(expect.any(String), 'error');
+    });
   });
 
   it('ignores messages that do not originate from the preview iframe', async () => {

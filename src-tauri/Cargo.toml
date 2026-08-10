@@ -1,6 +1,6 @@
 [package]
 name = "ship-studio"
-version = "0.18.3"
+version = "0.18.5"
 description = "Ship Studio — a desktop app for shipping web projects with AI coding agents."
 authors = ["Julian Galluzzo", "Ship Studio contributors"]
 license = "MIT"
@@ -38,7 +38,9 @@ base64 = "0.22"
 url = "2"
 tauri-plugin-screenshots = "2.2.0"
 tauri-plugin-fs = "2"
-image = { version = "0.25.9", default-features = false, features = ["png"] }
+# jpeg/gif/webp: custom thumbnail uploads decode whatever the user drags in
+# (saved back out as PNG); png-only rejected every JPEG upload (issue #561).
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 tauri-plugin-updater = "2.9.0"
 tauri-plugin-process = "2.3.1"
 tauri-plugin-deep-link = "2"
@@ -80,5 +82,5 @@ tempfile = "3"
 # macOS-specific dependencies for WebKit JavaScript evaluation
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
-objc2-foundation = { version = "0.2", features = ["NSString"] }
+objc2-foundation = { version = "0.2", features = ["NSString", "NSGeometry"] }
 block2 = "0.5"

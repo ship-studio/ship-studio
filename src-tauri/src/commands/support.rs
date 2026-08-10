@@ -33,19 +33,24 @@ pub struct SupportIdentity {
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
 /// Fetch the current GitHub user profile via `gh api user`.
-fn get_github_user() -> Result<(String, String, String), String> {
-    let output = get_gh_command()
-        .args([
-            "api",
-            "user",
-            "--jq",
-            r#"[.login, .email // "", .name // ""] | @tsv"#,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run gh: {e}"))?;
+fn get_github_user() -> Result<(String, String, String), CommandError> {
+    // Labeled + retried on transient EAGAIN; a persistent one is classified
+    // Expected instead of surfacing "Failed to run gh: Resource temporarily
+    // unavailable (os error 35)" as an app malfunction (issue #586).
+    let mut cmd = get_gh_command();
+    cmd.args([
+        "api",
+        "user",
+        "--jq",
+        r#"[.login, .email // "", .name // ""] | @tsv"#,
+    ]);
+    let output =
+        crate::external_command::spawn_with_pressure_retry("gh api user", || cmd.output())?;
 
     if !output.status.success() {
-        return Err("GitHub CLI not authenticated. Please connect GitHub first.".to_string());
+        return Err(CommandError::expected(
+            "GitHub CLI not authenticated. Please connect GitHub first.",
+        ));
     }
 
     let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -56,7 +61,7 @@ fn get_github_user() -> Result<(String, String, String), String> {
     let name = parts.get(2).unwrap_or(&"").to_string();
 
     if login.is_empty() {
-        return Err("Could not determine GitHub username".to_string());
+        return Err(CommandError::from("Could not determine GitHub username"));
     }
 
     let email = if email.is_empty() {

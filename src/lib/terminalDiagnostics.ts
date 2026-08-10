@@ -95,6 +95,13 @@ export function extractTerminalError(tail: string): string | null {
   const lines = toVisibleLines(tail);
   if (lines.length === 0) return null;
 
+  // pnpm's build-script gate: the install "fails" because pnpm wants explicit
+  // approval to run dependency postinstall scripts. Surfacing the raw notice
+  // with no next step left users stuck (issue #469) — say what to actually do.
+  if (lines.some((line) => line.includes('approve-builds'))) {
+    return 'pnpm blocked dependency build scripts pending your approval. In the terminal, run `pnpm approve-builds`, approve the listed packages, then retry the install';
+  }
+
   const errorLines = lines.filter(
     (line) => ERROR_LINE_PATTERN.test(line) && !NOISE_LINE_PATTERN.test(line)
   );

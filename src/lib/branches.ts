@@ -340,6 +340,8 @@ export interface PullRequestInfo {
   state: string;
   /** Whether the PR can be merged */
   mergeable: boolean | null;
+  /** Whether the PR is a GitHub draft (drafts can't be merged) */
+  isDraft: boolean;
   /** URL to the PR on GitHub */
   url: string;
   /** ISO timestamp of creation */
@@ -361,6 +363,7 @@ export async function listPullRequests(projectPath: string): Promise<PullRequest
       author: string;
       state: string;
       mergeable: boolean | null;
+      is_draft: boolean;
       url: string;
       created_at: string;
     }>
@@ -374,6 +377,7 @@ export async function listPullRequests(projectPath: string): Promise<PullRequest
     author: pr.author,
     state: pr.state,
     mergeable: pr.mergeable,
+    isDraft: pr.is_draft,
     url: pr.url,
     createdAt: pr.created_at,
   }));

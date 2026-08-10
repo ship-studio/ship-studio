@@ -50,7 +50,9 @@ export function useCssVariables({ iframeRef, projectPath, enabled, onToast }: Pa
       const defs = await getCssVariables(projectPath);
       setVariables(defs.map((v) => ({ ...v, editable: v.selector === ':root' })));
     } catch (err) {
-      logger.error('[CssVariables] load failed', { error: String(err) });
+      logger.error('[CssVariables] load failed', {
+        error: formatCommandError(asCommandError(err)),
+      });
       onToast(toastText(err), 'error');
     } finally {
       setLoading(false);
@@ -82,7 +84,9 @@ export function useCssVariables({ iframeRef, projectPath, enabled, onToast }: Pa
           post({ type: 'ss:clearVar', name });
           void trackEvent('visual_style_saved', { mode: 'css-code', variable: true });
         } catch (err) {
-          logger.error('[CssVariables] save failed', { error: String(err) });
+          logger.error('[CssVariables] save failed', {
+            error: formatCommandError(asCommandError(err)),
+          });
           onToast(toastText(err), 'error');
         }
       }, SAVE_DEBOUNCE_MS);
@@ -120,7 +124,9 @@ export function useCssVariables({ iframeRef, projectPath, enabled, onToast }: Pa
         void trackEvent('visual_style_saved', { mode: 'css-code', variable_added: true });
         await reload();
       } catch (err) {
-        logger.error('[CssVariables] add failed', { error: String(err) });
+        logger.error('[CssVariables] add failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast(toastText(err), 'error');
       }
     },

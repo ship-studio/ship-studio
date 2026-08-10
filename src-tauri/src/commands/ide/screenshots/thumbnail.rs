@@ -1,12 +1,57 @@
 //! Project thumbnail capture and retrieval.
 
 use crate::errors::CommandError;
+use crate::external_command::run_with_timeout;
 use crate::types::{ProjectMetadata, PROJECT_METADATA_SCHEMA_VERSION};
 use crate::utils::{create_command, validate_project_path};
+use std::collections::HashSet;
 use std::path::Path;
+use std::sync::{LazyLock, Mutex};
 
 use super::node_tool_command;
 use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
+
+/// Ceiling for the `npx playwright screenshot` path. Generous — npx may fetch
+/// the package on first use and a dev server mid-compile is slow — but bounded:
+/// this used to be an untimed blocking `.output()` inside an async command, so
+/// a hung capture pinned a tokio worker thread forever. A few of those (multiple
+/// projects on the 5-minute capture timer, dev servers busy under the user's own
+/// Playwright runs) starved the runtime and froze every IPC call in the app
+/// (issue #387).
+const PLAYWRIGHT_THUMBNAIL_TIMEOUT_SECS: u64 = 120;
+/// Ceiling for the Chrome/Edge CLI fallback. Its virtual-time budget is 3s;
+/// the rest is browser startup + page load headroom.
+const BROWSER_THUMBNAIL_TIMEOUT_SECS: u64 = 60;
+
+/// Projects with a thumbnail capture currently in flight. The 5-minute timer,
+/// its retry ladder, and multiple windows can all invoke captures with no
+/// coordination; without this guard each overlapping call spawned another
+/// headless browser against an already-busy dev server (issue #387).
+static CAPTURES_IN_FLIGHT: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// RAII claim on a project's capture slot — released on every exit path,
+/// including timeouts and panics.
+pub(super) struct CaptureClaim(String);
+
+impl CaptureClaim {
+    pub(super) fn try_new(project: &Path) -> Option<Self> {
+        let key = project.to_string_lossy().to_string();
+        let mut in_flight = CAPTURES_IN_FLIGHT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        in_flight.insert(key.clone()).then(|| Self(key))
+    }
+}
+
+impl Drop for CaptureClaim {
+    fn drop(&mut self) {
+        CAPTURES_IN_FLIGHT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.0);
+    }
+}
 
 /// Best-effort cleanup of thumbnail Chromium profiles left behind by earlier
 /// captures that never reached their own cleanup (app quit, crash, kill).
@@ -39,10 +84,52 @@ fn sweep_stale_thumbnail_profiles(shipstudio_dir: &Path) {
     }
 }
 
+/// True for Chromium stderr lines that are subsystem chatter, never a failure
+/// cause: crashpad's IPC teardown races (issue #422), GoogleUpdater process
+/// lifecycle, GCM push-registration retries, TensorFlow Lite delegate init,
+/// and the allocator double-load warning (issues #498–#500). A headless
+/// capture emits these freely; keeping them buries the actionable line.
+fn is_chromium_noise(line: &str) -> bool {
+    const NOISE_MARKERS: &[&str] = &[
+        "crashpad",
+        "TransactNamedPipe",
+        "chrome/updater/",
+        "GoogleUpdater",
+        "google_apis/gcm",
+        "Registration response error message",
+        "TensorFlow Lite",
+        "XNNPACK delegate",
+        "Trying to load the allocator multiple times",
+    ];
+    NOISE_MARKERS.iter().any(|m| line.contains(m))
+}
+
+/// Distill headless-Chromium stderr down to the lines worth reporting:
+/// drops empty and known-noise lines and caps the result. Returns `None`
+/// when nothing real remains, so the caller falls back to exit code +
+/// stdout — same treatment as an empty stderr.
+fn browser_failure_detail(stderr: &str) -> Option<String> {
+    let real: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !is_chromium_noise(l))
+        .collect();
+    if real.is_empty() {
+        return None;
+    }
+    let joined = real.join("\n");
+    if joined.chars().count() > 600 {
+        let capped: String = joined.chars().take(600).collect();
+        Some(format!("{capped}…"))
+    } else {
+        Some(joined)
+    }
+}
+
 /// Returns true when the project's metadata marks the thumbnail as
 /// user-supplied — auto-capture must skip these so it doesn't clobber
 /// the upload on the next dev-server boot.
-fn is_thumbnail_locked(project: &Path) -> bool {
+pub(super) fn is_thumbnail_locked(project: &Path) -> bool {
     let metadata_path = project.join(".shipstudio").join("project.json");
     let Ok(contents) = std::fs::read_to_string(&metadata_path) else {
         return false;
@@ -60,6 +147,14 @@ pub async fn capture_project_thumbnail(
     url: String,
 ) -> Result<String, CommandError> {
     let project = validate_project_path(&project_path)?;
+
+    // One capture per project at a time. Expected, not an error state: the
+    // previous capture is still running and the timer will simply try again.
+    let Some(_claim) = CaptureClaim::try_new(&project) else {
+        return Err(CommandError::expected(
+            "A thumbnail capture for this project is already in progress",
+        ));
+    };
 
     // Skip capture entirely when the user has uploaded a custom thumbnail.
     // Returns the existing thumbnail path so the caller still treats the
@@ -88,7 +183,8 @@ pub async fn capture_project_thumbnail(
     let thumbnail_path_str = thumbnail_path.to_string_lossy().to_string();
 
     // Try using Playwright first (more reliable viewport control)
-    let npx_result = node_tool_command("npx")
+    let mut npx_cmd = node_tool_command("npx");
+    npx_cmd
         .args([
             "playwright",
             "screenshot",
@@ -97,15 +193,26 @@ pub async fn capture_project_thumbnail(
             &url,
             &thumbnail_path_str,
         ])
-        .current_dir(&project)
-        .output();
+        .current_dir(&project);
+    let npx_result = run_with_timeout(
+        tokio::process::Command::from(npx_cmd),
+        "npx playwright screenshot",
+        PLAYWRIGHT_THUMBNAIL_TIMEOUT_SECS,
+    )
+    .await;
 
-    if let Ok(output) = npx_result {
-        if output.status.success() && thumbnail_path.exists() {
+    match npx_result {
+        Ok(output) if output.status.success() && thumbnail_path.exists() => {
             // Resize to thumbnail width using image crate (cross-platform)
             resize_thumbnail_image(&thumbnail_path, 640);
             return Ok(thumbnail_path_str);
         }
+        Err(e) => {
+            // Timeout or spawn failure — fall through to the Chrome fallback,
+            // which has its own (shorter) budget.
+            tracing::warn!("Playwright thumbnail path failed, trying browser fallback: {e}");
+        }
+        Ok(_) => {}
     }
 
     // Fall back to Chrome/Edge CLI if Playwright not available
@@ -140,27 +247,47 @@ pub async fn capture_project_thumbnail(
 
         // Use new headless mode with explicit viewport control
         // Set background to white so any extra captured area isn't black
-        let output = create_command(&browser)
-            .args([
-                "--headless=new",
-                &user_data_arg,
-                "--no-first-run",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--hide-scrollbars",
-                "--force-device-scale-factor=1",
-                "--default-background-color=FFFFFFFF",
-                "--window-position=0,0",
-                "--window-size=1280,800",
-                "--virtual-time-budget=3000",
-                &screenshot_arg,
-                &url,
-            ])
-            .output()
-            .map_err(|e| format!("Failed to run browser: {e}"))?;
+        let mut browser_cmd = create_command(&browser);
+        browser_cmd.args([
+            "--headless=new",
+            &user_data_arg,
+            "--no-first-run",
+            "--disable-gpu",
+            "--no-sandbox",
+            // A one-shot throwaway capture gains nothing from Chromium's
+            // crash reporter, and spinning up a crashpad_handler per capture
+            // added a whole extra failure mode: its named-pipe handshake can
+            // lose a race with process teardown/AV and kill the capture with
+            // "TransactNamedPipe: The pipe has been ended" (issue #421).
+            "--disable-crash-reporter",
+            "--disable-breakpad",
+            // A disposable one-shot capture has no business phoning home:
+            // background networking spins up GoogleUpdater/GCM machinery
+            // whose log spew drowned real failure signals (issues #498–#500).
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-sync",
+            "--hide-scrollbars",
+            "--force-device-scale-factor=1",
+            "--default-background-color=FFFFFFFF",
+            "--window-position=0,0",
+            "--window-size=1280,800",
+            "--virtual-time-budget=3000",
+            &screenshot_arg,
+            &url,
+        ]);
+        let result = run_with_timeout(
+            tokio::process::Command::from(browser_cmd),
+            "headless browser thumbnail",
+            BROWSER_THUMBNAIL_TIMEOUT_SECS,
+        )
+        .await;
 
         // The throwaway profile has served its purpose; don't let it grow.
+        // On timeout the killed browser can leave it half-written — the stale
+        // sweep above mops those up on later captures.
         let _ = std::fs::remove_dir_all(&profile_dir);
+        let output = result?;
 
         // Success is "the screenshot file exists", not "the exit code was 0":
         // headless Chromium on Windows can write the PNG and still exit
@@ -179,26 +306,54 @@ pub async fn capture_project_thumbnail(
 
         if !capture_written {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let stderr = stderr.trim();
             // Headless Chromium can die with EMPTY stderr (crash, killed by
             // AV/security software) — fall back to the exit code plus a
             // stdout snippet so the report says something (issue #291).
-            let detail = if stderr.is_empty() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stdout = stdout.trim();
-                let code = output
-                    .status
-                    .code()
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "killed by signal".to_string());
-                if stdout.is_empty() {
-                    format!("exit code {code}, no output")
-                } else {
-                    let snippet: String = stdout.chars().take(300).collect();
-                    format!("exit code {code}: {snippet}")
+            // Known-noise subsystem lines (crashpad, GoogleUpdater, GCM…)
+            // aren't a cause either — filter per line so the one real signal
+            // survives instead of drowning in them (issues #422, #498–#500).
+            let detail = match browser_failure_detail(stderr.trim()) {
+                Some(detail) => {
+                    // macOS refusing the browser's Mach IPC registration is a
+                    // distinct environment-level failure class (sandboxing /
+                    // security / MDM software) — name it instead of passing
+                    // the raw mojo log line through (issues #499, #500).
+                    if detail.contains("bootstrap_check_in") && detail.contains("Permission denied")
+                    {
+                        "macOS refused the browser's IPC registration (bootstrap_check_in: \
+                         Permission denied). This is usually caused by security or \
+                         device-management software restricting processes spawned by Ship Studio."
+                            .to_string()
+                    } else {
+                        detail
+                    }
                 }
-            } else {
-                stderr.to_string()
+                None => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stdout = stdout.trim();
+                    let code = output
+                        .status
+                        .code()
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "killed by signal".to_string());
+                    if output.status.success() && stdout.is_empty() {
+                        // Exit 0 + silence + no file: the browser thinks it
+                        // succeeded but nothing landed on disk — seen on
+                        // Windows when rendering fails internally or security
+                        // software intercepts the write (issue #526). Name the
+                        // shape so reports are diagnosable, instead of the
+                        // meaningless "exit code 0, no output".
+                        format!(
+                            "browser exited successfully but wrote no screenshot file at {} — page render failed silently or the file write was blocked",
+                            temp_path.display()
+                        )
+                    } else if stdout.is_empty() {
+                        format!("exit code {code}, no output")
+                    } else {
+                        let snippet: String = stdout.chars().take(300).collect();
+                        format!("exit code {code}: {snippet}")
+                    }
+                }
             };
             return Err((format!("Browser screenshot failed: {detail}")).into());
         }
@@ -311,4 +466,78 @@ pub async fn upload_project_thumbnail(
     let bytes = std::fs::read(&thumbnail_path).map_err(|e| e.to_string())?;
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:image/png;base64,{base64_data}"))
+}
+
+#[cfg(test)]
+mod browser_stderr_tests {
+    use super::*;
+
+    #[test]
+    fn crashpad_only_stderr_is_treated_as_empty() {
+        let stderr = "[1:2:0803] ERROR:crashpad_client_win.cc(123)] something\n\
+                      TransactNamedPipe: The pipe has been ended. (0x6D)";
+        assert_eq!(browser_failure_detail(stderr), None);
+    }
+
+    #[test]
+    fn real_signal_survives_macos_updater_and_gcm_noise() {
+        // Condensed from the real report behind issues #498–#500.
+        let stderr = "[78255:16006070:0803] ERROR:mojo/public/cpp/platform/named_platform_channel_mac.cc:44] bootstrap_check_in com.google.Chrome.apps.156F: Permission denied (1100)\n\
+            Trying to load the allocator multiple times. This is *not* supported.\n\
+            [78300:1:0803] ERROR:google_apis/gcm/engine/registration_request.cc(291)] Registration response error message: PHONE_REGISTRATION_ERROR\n\
+            Created TensorFlow Lite XNNPACK delegate for CPU.\n\
+            [78310:1:0803] chrome/updater/updater.cc(93)] starting GoogleUpdater wake-all";
+        let detail = browser_failure_detail(stderr).expect("bootstrap line must survive");
+        assert!(detail.contains("bootstrap_check_in"));
+        assert!(!detail.contains("GoogleUpdater"));
+        assert!(!detail.contains("PHONE_REGISTRATION_ERROR"));
+        assert!(!detail.contains("XNNPACK"));
+    }
+
+    #[test]
+    fn empty_and_whitespace_stderr_yield_none() {
+        assert_eq!(browser_failure_detail(""), None);
+        assert_eq!(browser_failure_detail("  \n\t\n"), None);
+    }
+
+    #[test]
+    fn genuine_multiline_stderr_is_preserved() {
+        let stderr = "line one: something broke\nline two: more detail";
+        assert_eq!(browser_failure_detail(stderr).as_deref(), Some(stderr));
+    }
+
+    #[test]
+    fn oversized_detail_is_capped() {
+        let stderr = "x".repeat(2000);
+        let detail = browser_failure_detail(&stderr).unwrap();
+        assert!(detail.chars().count() <= 601);
+        assert!(detail.ends_with('…'));
+    }
+}
+
+#[cfg(test)]
+mod capture_claim_tests {
+    use super::*;
+
+    #[test]
+    fn second_claim_for_same_project_is_rejected_until_first_drops() {
+        let project = Path::new("/tmp/shipstudio-claim-test-project");
+        let first = CaptureClaim::try_new(project);
+        assert!(first.is_some(), "first claim should succeed");
+        assert!(
+            CaptureClaim::try_new(project).is_none(),
+            "overlapping claim must be rejected while the first is alive"
+        );
+        drop(first);
+        assert!(
+            CaptureClaim::try_new(project).is_some(),
+            "slot must be released when the claim drops"
+        );
+    }
+
+    #[test]
+    fn claims_for_different_projects_are_independent() {
+        let _a = CaptureClaim::try_new(Path::new("/tmp/shipstudio-claim-test-a")).unwrap();
+        assert!(CaptureClaim::try_new(Path::new("/tmp/shipstudio-claim-test-b")).is_some());
+    }
 }

@@ -199,17 +199,31 @@ describe('useElementStructure', () => {
       await result.current.insert('after', 'div');
     });
     // The multi-instance resolution failure is rephrased for the structural
-    // context (issues #318/#320), not passed through verbatim.
+    // context (issues #318/#320), not passed through verbatim — and as a
+    // recognized by-design refusal it toasts as 'info', not 'error', so it
+    // doesn't re-enter telemetry via the toast pipeline (issue #515).
     expect(onToast).toHaveBeenCalledWith(
       expect.stringContaining('appears in several places in your code'),
-      'error'
+      'info'
     );
-    expect(onToast).not.toHaveBeenCalledWith(expect.stringContaining('object Object'), 'error');
+    expect(onToast).not.toHaveBeenCalledWith(expect.stringContaining('object Object'), 'info');
     act(() => {
       vi.advanceTimersByTime(2000);
     });
     expect(posts(iframeRef).find((p) => p.type === 'ss:reselect')).toBeUndefined();
     vi.useRealTimers();
+  });
+
+  it('an unrecognized failure keeps the reportable error toast type', async () => {
+    const { result, iframeRef, onToast } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: SIG, count: 1 }, source);
+    (insertElement as Fn).mockRejectedValue({ type: 'Io', message: 'disk full' });
+
+    await act(async () => {
+      await result.current.insert('after', 'div');
+    });
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining('disk full'), 'error');
   });
 
   it('selectAndRun selects the tree node first, then runs the queued action', async () => {

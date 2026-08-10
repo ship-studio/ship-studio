@@ -305,8 +305,19 @@ pub async fn pty_session_open(
         cmd.env(std::ffi::OsString::from(&k), std::ffi::OsString::from(&v));
     }
 
-    let mut child = pair.slave.spawn_command(cmd).map_err(|e| {
-        let message = format!("spawn_command: {e}");
+    // Retried on transient EAGAIN (process-table pressure) — and labeled with
+    // the spawned command, so the three spawn_command sites in this codebase
+    // no longer collapse into one indistinguishable telemetry bucket (#587).
+    let mut child = crate::external_command::retry_spawn_on_pressure(&command, || {
+        pair.slave.spawn_command(cmd.clone())
+    })
+    .map_err(|e| {
+        let message = format!("spawn_command `{command}`: {e}");
+        // A persistent EAGAIN is the environment (resource pressure), not an
+        // app malfunction — Expected with a human message (issue #587).
+        if crate::external_command::is_spawn_resource_pressure(&message) {
+            return crate::external_command::spawn_resource_pressure_error(&command);
+        }
         // portable_pty's binary-not-found phrasings. A missing/unresolvable
         // agent CLI is an environment gap ("install X first") the frontend
         // already turns into the agent's install hint — Expected keeps it out
@@ -466,6 +477,26 @@ pub fn pty_session_write(session_id: String, data: Vec<u8>) -> Result<(), Comman
     Ok(())
 }
 
+/// Does a failed `master.resize()` mean the PTY is already being torn down
+/// because its process exited? Same benign race as the write path (issues
+/// #323/#354), observed via the resize API instead (issue #508). Unlike
+/// `write_all`'s `std::io::Error`, portable_pty's resize error is an
+/// `anyhow::Error` built from a formatted string with no io::Error in its
+/// chain, so `raw_os_error()` is unavailable and we classify by message:
+/// - Windows ConPTY formats the raw HRESULT; `-2147024664` is `0x800700E8`,
+///   i.e. `HRESULT_FROM_WIN32(232)` — ERROR_NO_DATA, "The pipe is being
+///   closed".
+/// - Unix formats the ioctl(TIOCSWINSZ) errno via io::Error's Debug repr;
+///   EIO (5) is the closed-master signature.
+fn is_resize_on_dead_pty(msg: &str) -> bool {
+    // Windows: ERROR_NO_DATA as a raw HRESULT.
+    msg.contains("HRESULT: -2147024664")
+        // Unix: EIO from ioctl on the closed master, in io::Error's Debug
+        // ("Os { code: 5, ...") or Display ("os error 5") forms.
+        || (msg.contains("TIOCSWINSZ")
+            && (msg.contains("code: 5,") || msg.contains("(os error 5)")))
+}
+
 #[tauri::command]
 #[tracing::instrument]
 pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<(), CommandError> {
@@ -478,6 +509,12 @@ pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<()
     let Some(session) = session else {
         return Err("unknown session".to_string().into());
     };
+    // A resize racing the child's exit — e.g. a ResizeObserver tick landing
+    // just as the process dies — is the expected "session ended" state, not a
+    // malfunction; mirror pty_session_write (issues #260/#354, #508).
+    if !session.alive.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err(CommandError::expected("terminal session has ended"));
+    }
     let (rows, cols) = clamp_pty_size(rows, cols);
     let master = session
         .master
@@ -490,7 +527,14 @@ pub fn pty_session_resize(session_id: String, cols: u16, rows: u16) -> Result<()
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|e| format!("resize: {e}"))?;
+        .map_err(|e| {
+            let msg = format!("{e}");
+            if is_resize_on_dead_pty(&msg) {
+                CommandError::expected("terminal session has ended")
+            } else {
+                CommandError::from(format!("resize: {msg}"))
+            }
+        })?;
     Ok(())
 }
 
@@ -761,6 +805,38 @@ mod tests {
         assert_eq!(clamp_pty_size(24, 1), (24, 2));
         assert_eq!(clamp_pty_size(24, 80), (24, 80));
         assert_eq!(clamp_pty_size(u16::MAX, u16::MAX), (u16::MAX, u16::MAX));
+    }
+
+    // The #508 shape: ConPTY resize hitting ERROR_NO_DATA ("pipe is being
+    // closed") because the process just exited — same benign race as the
+    // write path's os-error-232 case.
+    #[test]
+    fn resize_on_dead_pty_matches_windows_error_no_data() {
+        assert!(is_resize_on_dead_pty(
+            "resize: failed to resize console to 50x23: HRESULT: -2147024664"
+        ));
+        assert!(is_resize_on_dead_pty(
+            "failed to resize console to 50x23: HRESULT: -2147024664"
+        ));
+        // A different HRESULT is a real failure and must stay reportable.
+        assert!(!is_resize_on_dead_pty(
+            "failed to resize console to 50x23: HRESULT: -2147024809"
+        ));
+    }
+
+    #[test]
+    fn resize_on_dead_pty_matches_unix_eio() {
+        assert!(is_resize_on_dead_pty(
+            "failed to ioctl(TIOCSWINSZ): Os { code: 5, kind: Uncategorized, message: \"Input/output error\" }"
+        ));
+        assert!(is_resize_on_dead_pty(
+            "failed to ioctl(TIOCSWINSZ): Input/output error (os error 5)"
+        ));
+        // EBADF or other errnos are not the session-ended race.
+        assert!(!is_resize_on_dead_pty(
+            "failed to ioctl(TIOCSWINSZ): Os { code: 9, kind: Uncategorized, message: \"Bad file descriptor\" }"
+        ));
+        assert!(!is_resize_on_dead_pty(""));
     }
 
     #[test]

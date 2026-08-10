@@ -84,30 +84,101 @@ pub(crate) async fn run_git_net(
         .env("GIT_TERMINAL_PROMPT", "0")
         .envs(workspace_env);
 
-    let tokio_cmd = tokio::process::Command::from(cmd);
+    let mut tokio_cmd = tokio::process::Command::from(cmd);
+    // Reap the child when the timeout drops the future — otherwise a hung
+    // git (and its gh credential-helper subprocess) would keep running in the
+    // background, holding .git locks and stalling the next push/fetch too
+    // (issue #556; same pattern as projects/mod.rs et al.).
+    tokio_cmd.kill_on_drop(true);
     run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
+}
+
+/// Classify a failed [`run_git_net`] invocation's stderr into the expected
+/// gh/git environment states: auth not configured, a connectivity blip,
+/// GitHub's transient HTTP 400, or gh itself crashing. `run_git_net` routes
+/// credential resolution through `gh`, so its failures wear the same wording
+/// the gh classifiers in `commands::github` already cover — call sites must
+/// route through this instead of forwarding raw stderr (issue #560). Returns
+/// `None` for anything genuinely unexplained.
+pub(crate) fn classify_git_net_error(stderr: &str) -> Option<CommandError> {
+    crate::commands::github::gh_auth_error(stderr)
+        .or_else(|| crate::commands::github::gh_common_error(stderr))
 }
 
 // ============ Git Helper Functions ============
 
 /// Checks if there are uncommitted changes (staged or unstaged tracked files).
-pub fn git_has_uncommitted_changes(path: &std::path::Path) -> Result<bool, String> {
-    let status = crate::utils::git_command_in(path)?
-        .args(["status", "--porcelain", "-uno"])
-        .output()
-        .map_err(|e| e.to_string())?;
+///
+/// Spawns are labeled and retried on transient EAGAIN — a bare "Resource
+/// temporarily unavailable (os error 35)" with no call-site context was
+/// reaching telemetry from these frequently-polled helpers (issue #555).
+pub fn git_has_uncommitted_changes(
+    path: &std::path::Path,
+) -> Result<bool, crate::errors::CommandError> {
+    let mut cmd = crate::utils::git_command_in(path)?;
+    cmd.args(["status", "--porcelain", "-uno"]);
+    let status = crate::external_command::spawn_with_pressure_retry("git status", || cmd.output())?;
 
     Ok(!String::from_utf8_lossy(&status.stdout).trim().is_empty())
 }
 
 /// Checks if there are any changes (including untracked) in the working directory.
-pub fn git_has_any_changes(path: &std::path::Path) -> Result<bool, String> {
-    let status = crate::utils::git_command_in(path)?
-        .args(["status", "--porcelain"])
-        .output()
-        .map_err(|e| e.to_string())?;
+pub fn git_has_any_changes(path: &std::path::Path) -> Result<bool, crate::errors::CommandError> {
+    let mut cmd = crate::utils::git_command_in(path)?;
+    cmd.args(["status", "--porcelain"]);
+    let status = crate::external_command::spawn_with_pressure_retry("git status", || cmd.output())?;
 
     Ok(!String::from_utf8_lossy(&status.stdout).trim().is_empty())
+}
+
+/// Append `.shipstudio/` to the repo's `.git/info/exclude` when it isn't
+/// ignored yet. Same effect as the .gitignore entry the frontend maintains,
+/// but repo-local and never committed — so the staging path can enforce it
+/// without creating a working-tree change (issue #431). Best-effort: any
+/// failure just leaves behavior as it was.
+fn ensure_shipstudio_excluded(path: &std::path::Path) {
+    // Resolve the common git dir so worktrees are handled too (their `.git`
+    // is a file pointing elsewhere, and exclude lives in the common dir).
+    let Ok(mut cmd) = crate::utils::git_command_in(path) else {
+        return;
+    };
+    let Ok(out) = cmd.args(["rev-parse", "--git-common-dir"]).output() else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    let git_dir_raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if git_dir_raw.is_empty() {
+        return;
+    }
+    let git_dir = {
+        let p = std::path::Path::new(&git_dir_raw);
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            path.join(p)
+        }
+    };
+    let exclude_path = git_dir.join("info").join("exclude");
+    let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
+    let already = existing.lines().any(|l| {
+        let t = l.trim();
+        t == ".shipstudio/" || t == ".shipstudio" || t == "/.shipstudio/" || t == "/.shipstudio"
+    });
+    if already {
+        return;
+    }
+    let _ = std::fs::create_dir_all(git_dir.join("info"));
+    let sep = if existing.is_empty() || existing.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    let _ = std::fs::write(
+        &exclude_path,
+        format!("{existing}{sep}# ShipStudio metadata (added by Ship Studio)\n.shipstudio/\n"),
+    );
 }
 
 /// Stages all changes and commits with the given message.
@@ -121,11 +192,24 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
             path.display()
         ));
     }
-    // Stage all changes
-    let add_output = crate::utils::git_command_in(path)?
-        .args(["add", "-A"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Make sure .shipstudio/ is excluded BEFORE `git add -A` walks the tree:
+    // the frontend's ensure-gitignore calls are best-effort and can be skipped
+    // by timing or code path, and an unignored leftover Chrome thumbnail
+    // profile (locked Cookies DB and all) aborts the entire staging operation
+    // on Windows (issue #431). Uses .git/info/exclude rather than .gitignore
+    // so enforcing the guard never itself creates a working-tree change (a
+    // clean repo must stay "nothing to commit"). Best-effort.
+    ensure_shipstudio_excluded(path);
+
+    // Stage all changes. Retried on index.lock contention — the background
+    // snapshot watcher (and any agent CLI) can hold the lock at the exact
+    // moment a commit/publish fires (#377).
+    let add_output = crate::utils::output_retrying_index_lock(|| {
+        let mut cmd = crate::utils::git_command_in(path)?;
+        cmd.args(["add", "-A"]);
+        crate::external_command::spawn_with_pressure_retry("git add", || cmd.output())
+    })
+    .map_err(String::from)?;
 
     if !add_output.status.success() {
         let add_stderr = String::from_utf8_lossy(&add_output.stderr).to_string();
@@ -135,10 +219,13 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
         // changes are fine (issue #275). Retry with --sparse, which stages
         // out-of-cone paths instead of refusing.
         if add_stderr.contains("outside of your sparse-checkout definition") {
-            let sparse_output = crate::utils::git_command_in(path)?
-                .args(["add", "-A", "--sparse"])
-                .output()
-                .map_err(|e| e.to_string())?;
+            let mut sparse_cmd = crate::utils::git_command_in(path)?;
+            sparse_cmd.args(["add", "-A", "--sparse"]);
+            let sparse_output =
+                crate::external_command::spawn_with_pressure_retry("git add --sparse", || {
+                    sparse_cmd.output()
+                })
+                .map_err(String::from)?;
             if !sparse_output.status.success() {
                 return Err(String::from_utf8_lossy(&sparse_output.stderr).to_string());
             }
@@ -154,11 +241,13 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
         return Ok(false);
     }
 
-    // Commit
-    let commit_output = crate::utils::git_command_in(path)?
-        .args(["commit", "-m", message])
-        .output()
-        .map_err(|e| e.to_string())?;
+    // Commit — same index.lock retry as the staging step (#377).
+    let commit_output = crate::utils::output_retrying_index_lock(|| {
+        let mut cmd = crate::utils::git_command_in(path)?;
+        cmd.args(["commit", "-m", message]);
+        crate::external_command::spawn_with_pressure_retry("git commit", || cmd.output())
+    })
+    .map_err(String::from)?;
 
     if !commit_output.status.success() {
         // `status --porcelain` can report entries `add -A` couldn't stage (e.g.
@@ -410,6 +499,31 @@ mod tests {
     use std::process::Command;
     use tempfile::TempDir;
 
+    // The #560 shape: a connectivity blip during `git push` (credentials
+    // resolved via gh, so the error text is gh's GraphQL dial failure) must
+    // classify Expected instead of surfacing as raw stderr; auth failures map
+    // to NotAuthenticated; genuinely unexplained pushes stay unclassified.
+    #[test]
+    fn classify_git_net_error_covers_network_auth_and_passthrough() {
+        let net = r#"Post "https://api.github.com/graphql": dial tcp 20.205.243.168:443: connect: connection refused"#;
+        assert!(matches!(
+            classify_git_net_error(net),
+            Some(CommandError::Expected { .. })
+        ));
+        // git's own DNS wording (no gh involved) is covered too.
+        assert!(classify_git_net_error("fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com").is_some());
+        assert!(matches!(
+            classify_git_net_error("To get started with GitHub CLI, please run:  gh auth login"),
+            Some(CommandError::NotAuthenticated { .. })
+        ));
+        // A real push rejection must NOT be swallowed as expected.
+        assert!(classify_git_net_error(
+            "! [rejected] main -> main (non-fast-forward)\nerror: failed to push some refs"
+        )
+        .is_none());
+        assert!(classify_git_net_error("").is_none());
+    }
+
     /// Initialize a fresh git repo in `dir` with a local user identity so
     /// commits work in CI environments without global git config.
     fn init_repo(dir: &std::path::Path) {
@@ -508,6 +622,39 @@ mod tests {
             .output()
             .unwrap();
         assert!(rev.status.success(), "HEAD must exist after commit");
+    }
+
+    /// Issue #431: `git add -A` must never walk into .shipstudio (Chrome
+    /// thumbnail profiles with locked files live there). The staging path
+    /// enforces the exclusion itself via .git/info/exclude — without creating
+    /// a working-tree change.
+    #[test]
+    fn stage_and_commit_excludes_shipstudio_dir() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::create_dir_all(tmp.path().join(".shipstudio").join("thumbnail_profile")).unwrap();
+        std::fs::write(
+            tmp.path()
+                .join(".shipstudio")
+                .join("thumbnail_profile")
+                .join("Cookies"),
+            "locked-ish",
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        let committed = git_stage_and_commit(tmp.path(), "first").unwrap();
+        assert!(committed);
+        let tracked = Command::new("git")
+            .args(["ls-files"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        let listing = String::from_utf8_lossy(&tracked.stdout).to_string();
+        assert!(
+            !listing.contains(".shipstudio"),
+            ".shipstudio must not be staged, got: {listing}"
+        );
+        assert!(listing.contains("a.txt"));
     }
 
     #[test]

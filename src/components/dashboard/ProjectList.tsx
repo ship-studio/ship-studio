@@ -408,10 +408,17 @@ export function ProjectList({
       void trackEvent('project_renamed', { $screen_name: 'Dashboard' });
       await loadAll();
     } catch (error) {
-      trackError('project_rename', error, 'Dashboard');
-      logger.error('Failed to rename project', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      const message = formatCommandError(asCommandError(error));
+      // Anticipated refusals (name taken, project open elsewhere) are rendered
+      // inline by the modal — they're user states, not malfunctions.
+      const isExpectedRefusal =
+        message.includes('already exists') || message.includes('Close this project');
+      if (isExpectedRefusal) {
+        logger.warn('Rename refused', { error: message });
+      } else {
+        trackError('project_rename', error, 'Dashboard');
+        logger.error('Failed to rename project', { error: message });
+      }
       throw error;
     }
   };

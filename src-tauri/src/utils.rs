@@ -426,6 +426,143 @@ pub fn git_command_in(
     Ok(cmd)
 }
 
+/// True when git failed because another process held one of its lock files.
+/// Concurrent git spawns against the same repo are unavoidable here: the
+/// snapshot watcher, commit/publish flows, and the user's own agent CLIs all
+/// run git independently. Git fails fast instead of waiting, so a collision
+/// surfaces as "Unable to create '….lock': File exists" — most visibly on
+/// Windows, where lock files also linger longer (AV scanning, handle-release
+/// timing) (issue #377).
+///
+/// The same concurrency produces the same message for *every* git lock file,
+/// not just `.git/index.lock`: `git commit` also takes `HEAD.lock` and
+/// `refs/heads/<branch>.lock` when it updates the ref, and ref updates take
+/// `packed-refs.lock` — so the match is on the shared `….lock': File exists`
+/// shape rather than the literal `index.lock` (issue #567).
+pub fn is_index_lock_contention(stderr: &str) -> bool {
+    (stderr.contains(".lock") && stderr.contains("File exists"))
+        || stderr.contains("Another git process seems to be running")
+}
+
+/// Run a git invocation built by `run`, retrying with a short backoff when it
+/// loses the `.git/index.lock` race. The closure rebuilds and executes the
+/// command each attempt. Non-contention failures and successes return
+/// immediately; contention is retried a couple of times, then returned as-is
+/// so the caller's normal error path reports it.
+pub fn output_retrying_index_lock<F>(
+    mut run: F,
+) -> Result<std::process::Output, crate::errors::CommandError>
+where
+    F: FnMut() -> Result<std::process::Output, crate::errors::CommandError>,
+{
+    const ATTEMPTS: u64 = 3;
+    for attempt in 1..=ATTEMPTS {
+        let output = run()?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if output.status.success() || !is_index_lock_contention(&stderr) || attempt == ATTEMPTS {
+            return Ok(output);
+        }
+        tracing::warn!(
+            attempt,
+            "git lost the index.lock race; retrying after backoff"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(200 * attempt));
+    }
+    unreachable!("loop always returns on the final attempt")
+}
+
+/// Classify git stderr that signals a *machine/environment* gap — git itself
+/// couldn't run (or couldn't read the project), through no fault of the app.
+/// Returns a `CommandError::expected` with actionable guidance so these don't
+/// page telemetry as malfunctions, or `None` for anything else.
+///
+/// Covered signatures:
+/// - macOS Xcode CLT license not accepted — git is a CLT shim on macOS, so
+///   every git call fails with the license text until the user accepts it
+///   (issue #603).
+/// - macOS Xcode CLT missing/broken (`xcrun: error: invalid active developer
+///   path`) — same shim, e.g. after a macOS upgrade removed the CLT.
+/// - macOS TCC denial (`Unable to read current working directory: Operation
+///   not permitted`) — the sandbox refused the app read access to the project
+///   folder, so spawned git can't even resolve its cwd (issue #546).
+pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> {
+    if stderr.contains("You have not agreed to the Xcode license agreements") {
+        return Some(crate::errors::CommandError::expected(
+            "Xcode's license hasn't been accepted yet, so git can't run. Open Terminal, run \
+             `sudo xcodebuild -license accept`, then try again.",
+        ));
+    }
+    if stderr.contains("invalid active developer path")
+        || stderr.contains("no developer tools were found")
+    {
+        return Some(crate::errors::CommandError::expected(
+            "The Xcode Command Line Tools (which provide git on macOS) are missing or broken. \
+             Run `xcode-select --install` in Terminal, then try again.",
+        ));
+    }
+    if stderr.contains("Unable to read current working directory")
+        && stderr.contains("Operation not permitted")
+    {
+        return Some(crate::errors::CommandError::expected(
+            "Ship Studio isn't allowed to read this project's folder — macOS blocked access. \
+             Grant access in System Settings → Privacy & Security → Files & Folders (or give \
+             Ship Studio Full Disk Access), then try again.",
+        ));
+    }
+    None
+}
+
+/// Classify a filesystem `io::Error` for a user-facing command error.
+///
+/// macOS TCC's EPERM denial (`os error 1` — Privacy & Security blocking
+/// Desktop/Documents/Downloads/iCloud/external volumes) is an environment
+/// condition with a user-side fix, so it becomes an actionable `Expected`
+/// with the Files & Folders remediation instead of a bare "Operation not
+/// permitted" telemetry bug — the same treatment `read_projects_dir` got in
+/// #307, shared here so every fs call site classifies identically (issues
+/// #545, #605). Anything else stays a labeled `Io` for diagnosability.
+pub fn classify_fs_error(
+    action: &str,
+    path: &std::path::Path,
+    e: &std::io::Error,
+) -> crate::errors::CommandError {
+    if cfg!(target_os = "macos") && e.raw_os_error() == Some(1) {
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio isn't allowed to {action} ({}). Grant access in System Settings → \
+             Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
+            path.display()
+        ))
+    } else {
+        crate::errors::CommandError::Io {
+            message: format!("Failed to {action} ({}): {e}", path.display()),
+        }
+    }
+}
+
+/// Resolve `cmd` inside a single directory.
+///
+/// On Windows, executable (`.exe`) and batch (`.cmd`) shims are checked
+/// BEFORE an extensionless sibling: Node installs `npm`/`npx` both as
+/// `.cmd` batch shims AND as extensionless POSIX-shell scripts (for Git
+/// Bash) in the same directory. Preferring the bare name resolved the shell
+/// script, which `CreateProcess` cannot execute — every spawn then failed
+/// with "%1 is not a valid Win32 application" (os error 193, issue #590).
+/// `.cmd`/`.bat` are fine: Rust ≥ 1.77 spawns them through `cmd.exe` itself.
+fn resolve_executable_in_dir(dir: &std::path::Path, cmd: &str) -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    for ext in ["exe", "cmd", "bat"] {
+        let with_ext = dir.join(format!("{cmd}.{ext}"));
+        if with_ext.is_file() {
+            return Some(with_ext);
+        }
+    }
+    let bare = dir.join(cmd);
+    if bare.is_file() {
+        return Some(bare);
+    }
+    None
+}
+
 /// Finds an executable by checking common installation paths.
 /// This is needed because bundled macOS apps don't inherit the user's shell PATH.
 /// On Windows, checks standard Program Files and AppData locations.
@@ -443,16 +580,8 @@ pub fn find_executable(cmd: &str) -> Option<std::path::PathBuf> {
         if dir.is_empty() {
             continue;
         }
-        let candidate = std::path::Path::new(dir).join(cmd);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        #[cfg(windows)]
-        for ext in ["exe", "cmd"] {
-            let win = std::path::Path::new(dir).join(format!("{cmd}.{ext}"));
-            if win.is_file() {
-                return Some(win);
-            }
+        if let Some(found) = resolve_executable_in_dir(std::path::Path::new(dir), cmd) {
+            return Some(found);
         }
     }
 
@@ -1184,6 +1313,210 @@ mod tests {
                     assert!(err.to_string().contains("test_site"));
                 }
             }
+        }
+    }
+
+    mod classify_fs_errors {
+        use super::*;
+
+        // The #545/#605 shape: TCC denying a read under ~/Desktop etc.
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn macos_eperm_becomes_expected_with_privacy_remediation() {
+            let e = std::io::Error::from_raw_os_error(1);
+            let err = classify_fs_error(
+                "read this project's plugin storage",
+                std::path::Path::new("/Users/x/Desktop/proj/.shipstudio"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("Privacy & Security"), "got: {msg}");
+            assert!(msg.contains("plugin storage"), "got: {msg}");
+            assert!(msg.contains("/Users/x/Desktop/proj"), "got: {msg}");
+        }
+
+        #[test]
+        fn other_io_errors_stay_labeled_io() {
+            let e = std::io::Error::new(std::io::ErrorKind::InvalidData, "corrupt");
+            let err = classify_fs_error(
+                "read this project's plugin registry",
+                std::path::Path::new("/p/registry.json"),
+                &e,
+            );
+            match err {
+                crate::errors::CommandError::Io { message } => {
+                    assert!(message.contains("plugin registry"), "got: {message}");
+                    assert!(message.contains("corrupt"), "got: {message}");
+                }
+                other => panic!("expected Io, got {other:?}"),
+            }
+        }
+    }
+
+    mod resolve_executable {
+        use super::*;
+
+        #[test]
+        fn resolves_bare_name() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("mytool"), "#!/bin/sh\n").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "mytool").unwrap();
+            assert_eq!(found, tmp.path().join("mytool"));
+        }
+
+        #[test]
+        fn misses_cleanly_when_absent() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            assert!(resolve_executable_in_dir(tmp.path(), "ghost-tool").is_none());
+        }
+
+        // The #590 shape: nodejs ships BOTH an extensionless POSIX-shell
+        // `npm` and `npm.cmd` in the same directory. Resolving the shell
+        // script makes CreateProcess fail with os error 193 — the batch
+        // shim must win.
+        #[test]
+        #[cfg(windows)]
+        fn prefers_cmd_shim_over_extensionless_shell_script() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("npm"), "#!/bin/sh\n").unwrap();
+            std::fs::write(tmp.path().join("npm.cmd"), "@echo off\r\n").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "npm").unwrap();
+            assert_eq!(found, tmp.path().join("npm.cmd"));
+        }
+
+        #[test]
+        #[cfg(windows)]
+        fn prefers_exe_over_cmd_shim() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            std::fs::write(tmp.path().join("tool.cmd"), "@echo off\r\n").unwrap();
+            std::fs::write(tmp.path().join("tool.exe"), "MZ").unwrap();
+            let found = resolve_executable_in_dir(tmp.path(), "tool").unwrap();
+            assert_eq!(found, tmp.path().join("tool.exe"));
+        }
+    }
+
+    mod index_lock_retry {
+        use super::*;
+
+        #[test]
+        fn recognizes_gits_lock_collision_message() {
+            let stderr = "fatal: Unable to create 'C:/Users/x/ShipStudio/p/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository";
+            assert!(is_index_lock_contention(stderr));
+            assert!(!is_index_lock_contention("fatal: not a git repository"));
+            assert!(!is_index_lock_contention(""));
+        }
+
+        /// Issue #567: the same concurrency that produces index.lock collisions
+        /// also produces HEAD.lock / refs/heads/*.lock / packed-refs.lock
+        /// collisions — all must be retried, not just the index.lock wording.
+        #[test]
+        fn recognizes_head_and_ref_lock_collisions() {
+            let head = "fatal: cannot lock ref 'HEAD': Unable to create '/Users/x/acss-poc/.git/HEAD.lock': File exists.\n\nAnother git process seems to be running in this repository, e.g.\nan editor opened by 'git commit'.";
+            assert!(is_index_lock_contention(head));
+            let branch_ref = "fatal: cannot lock ref 'refs/heads/main': Unable to create '/repo/.git/refs/heads/main.lock': File exists.";
+            assert!(is_index_lock_contention(branch_ref));
+            let packed = "fatal: Unable to create '/repo/.git/packed-refs.lock': File exists.";
+            assert!(is_index_lock_contention(packed));
+            // Unrelated failures that merely mention a lock-ish word must not
+            // trigger retries.
+            assert!(!is_index_lock_contention(
+                "error: could not write config file .git/config: File exists"
+            ));
+            assert!(!is_index_lock_contention(
+                "fatal: pathspec 'package-lock.json' did not match any files"
+            ));
+        }
+
+        #[test]
+        #[cfg(unix)]
+        fn retries_contention_then_returns_final_output() {
+            // Fails with the lock message every time — the helper must retry
+            // (3 attempts total) and then hand back the failing output rather
+            // than swallowing it.
+            let mut calls = 0;
+            let result = output_retrying_index_lock(|| {
+                calls += 1;
+                std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg("echo \"fatal: Unable to create '.git/index.lock': File exists.\" 1>&2; exit 128")
+                    .output()
+                    .map_err(|e| crate::errors::CommandError::Io {
+                        message: e.to_string(),
+                    })
+            })
+            .unwrap();
+            assert_eq!(calls, 3);
+            assert!(!result.status.success());
+        }
+
+        #[test]
+        #[cfg(unix)]
+        fn success_returns_immediately_without_retry() {
+            let mut calls = 0;
+            let result = output_retrying_index_lock(|| {
+                calls += 1;
+                std::process::Command::new("true").output().map_err(|e| {
+                    crate::errors::CommandError::Io {
+                        message: e.to_string(),
+                    }
+                })
+            })
+            .unwrap();
+            assert_eq!(calls, 1);
+            assert!(result.status.success());
+        }
+    }
+
+    mod git_environment_gap {
+        use super::*;
+
+        /// Issue #603: unaccepted Xcode CLT license makes every git call fail
+        /// on macOS — an environment gap, not an app malfunction.
+        #[test]
+        fn classifies_unaccepted_xcode_license_as_expected() {
+            let stderr = "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window to review and agree to the Xcode and Apple SDKs license.";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(
+                err.to_string().contains("sudo xcodebuild -license accept"),
+                "message must carry the remediation, got: {err}"
+            );
+        }
+
+        /// Missing/broken CLT (e.g. after a macOS upgrade) fails through the
+        /// same git shim with the xcrun wording.
+        #[test]
+        fn classifies_missing_developer_tools_as_expected() {
+            let stderr = "xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools), missing xcrun at: /Library/Developer/CommandLineTools/usr/bin/xcrun";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains("xcode-select --install"));
+        }
+
+        /// Issue #546: macOS TCC denying the app read access to the project
+        /// folder surfaces as git's own getcwd failure on stderr.
+        #[test]
+        fn classifies_macos_tcc_denial_as_expected() {
+            let stderr = "fatal: Unable to read current working directory: Operation not permitted";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains("Privacy & Security"));
+        }
+
+        #[test]
+        fn leaves_ordinary_git_failures_unclassified() {
+            assert!(git_environment_gap("fatal: not a git repository").is_none());
+            assert!(git_environment_gap("").is_none());
+            // "Operation not permitted" on some other operation isn't the TCC
+            // getcwd signature — don't over-match.
+            assert!(git_environment_gap(
+                "error: unable to unlink old 'a.txt': Operation not permitted"
+            )
+            .is_none());
         }
     }
 

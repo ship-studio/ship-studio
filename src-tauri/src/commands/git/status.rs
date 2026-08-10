@@ -12,6 +12,22 @@ use super::run_git_net;
 
 use super::git_has_uncommitted_changes;
 
+/// Cap git stderr carried inside an error message so a pathological failure
+/// (e.g. a hook dumping its whole log) can't flood the toast/telemetry, while
+/// keeping enough text to diagnose the actual cause (issue #547).
+fn truncate_stderr(stderr: &str) -> String {
+    const MAX: usize = 500;
+    if stderr.len() <= MAX {
+        return stderr.to_string();
+    }
+    // Cut on a char boundary at or below MAX so multi-byte text can't panic.
+    let cut = (0..=MAX)
+        .rev()
+        .find(|i| stderr.is_char_boundary(*i))
+        .unwrap_or(0);
+    format!("{}…", &stderr[..cut])
+}
+
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn check_git_has_changes(project_path: String) -> Result<bool, CommandError> {
@@ -87,7 +103,22 @@ pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
         .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
-        return Err(("Failed to get git status".to_string()).into());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Environment gaps (unaccepted Xcode license, missing CLT, macOS TCC
+        // denial) are expected machine states with a user-side fix, not app
+        // malfunctions (issues #603/#546).
+        if let Some(gap) = crate::utils::git_environment_gap(&stderr) {
+            warn!(error = %stderr.trim(), "git blocked by an environment gap while getting status");
+            return Err(gap);
+        }
+        // Include (truncated) stderr — a bare "Failed to get git status" is
+        // undiagnosable and buckets unrelated root causes under one
+        // fingerprint (issue #547, same class as #252).
+        return Err((format!(
+            "Failed to get git status: {}",
+            truncate_stderr(stderr.trim())
+        ))
+        .into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -330,4 +361,32 @@ pub async fn reset_to_branch(project_path: String, branch: String) -> Result<(),
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_stderr;
+
+    #[test]
+    fn truncate_stderr_passes_short_text_through() {
+        let msg = "fatal: this repository is corrupt";
+        assert_eq!(truncate_stderr(msg), msg);
+        assert_eq!(truncate_stderr(""), "");
+    }
+
+    #[test]
+    fn truncate_stderr_caps_long_text_with_ellipsis() {
+        let long = "x".repeat(2000);
+        let out = truncate_stderr(&long);
+        assert!(out.len() < 600, "must be capped, got {} bytes", out.len());
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_stderr_respects_char_boundaries() {
+        // Multi-byte chars straddling the cap must not panic.
+        let long = "é".repeat(600);
+        let out = truncate_stderr(&long);
+        assert!(out.ends_with('…'));
+    }
 }

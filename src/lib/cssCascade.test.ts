@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   rulesToLocate,
+  isStaleCssRuleError,
   mergeCascade,
   formatRuleCss,
   rowKey,
@@ -189,5 +190,37 @@ describe('rowKey', () => {
     )[0];
     expect(rowKey(a)).toBe(rowKey({ ...a }));
     expect(rowKey(a)).not.toBe(rowKey({ ...a, index: 1 }));
+  });
+});
+
+describe('isStaleCssRuleError (issue #584)', () => {
+  it('recognizes BOTH stale shapes from edit_css.rs', () => {
+    // Body drift: exactly one rule matches but its body moved on.
+    expect(
+      isStaleCssRuleError({
+        type: 'Validation',
+        field: 'css',
+        reason: 'source changed since you selected it — reselect to edit',
+      })
+    ).toBe(true);
+    // Zero-match: the selector no longer matches any source rule. This shape
+    // used to fall through the string-specific "source changed" retry check
+    // and drop the edit with no recovery.
+    expect(
+      isStaleCssRuleError({
+        type: 'Validation',
+        field: 'selector',
+        reason: 'rule no longer matches — reselect the element',
+      })
+    ).toBe(true);
+  });
+
+  it('does not classify real failures as stale (no retry for those)', () => {
+    expect(
+      isStaleCssRuleError({ type: 'Validation', field: 'file', reason: 'outside the project' })
+    ).toBe(false);
+    expect(isStaleCssRuleError({ type: 'Io', message: 'disk full' })).toBe(false);
+    expect(isStaleCssRuleError(new Error('rule no longer matches'))).toBe(false); // not a Validation error
+    expect(isStaleCssRuleError('boom')).toBe(false);
   });
 });

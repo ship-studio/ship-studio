@@ -276,16 +276,32 @@ pub async fn install_plugin(
         Ok(m) => m,
         Err(e) => {
             let _ = remove_dir_all_relaxed(&temp_dir);
-            return Err((format!("Invalid plugin: {e}")).into());
+            // Repo-content problems (manifest not at root, bad JSON) are the
+            // plugin author's input, not an app malfunction (issue #472).
+            return Err(CommandError::expected(format!("Invalid plugin: {e}")));
         }
     };
 
     warn_on_setup_items(&manifest);
 
+    // Validate the built bundle exists before registering anything — a repo
+    // without a committed dist/ otherwise installs "successfully" and only
+    // fails later with a confusing "Plugin bundle not found" when the app
+    // tries to load it (issue #381). Mirrors link_dev_plugin's check.
+    if !temp_dir.join("dist").join("index.js").exists() {
+        let _ = remove_dir_all_relaxed(&temp_dir);
+        return Err(CommandError::expected(
+            "This plugin can't be installed: its repository has no built bundle (dist/index.js). \
+             The plugin author needs to build it and commit the dist folder.",
+        ));
+    }
+
     // Validate manifest has required fields
     if manifest.id.is_empty() || manifest.name.is_empty() {
         let _ = remove_dir_all_relaxed(&temp_dir);
-        return Err(("Plugin manifest must have 'id' and 'name' fields".to_string()).into());
+        return Err(CommandError::expected(
+            "Plugin manifest must have 'id' and 'name' fields",
+        ));
     }
 
     // Validate plugin ID is safe for filesystem
@@ -295,19 +311,22 @@ pub async fn install_plugin(
         || manifest.id.starts_with('.')
     {
         let _ = remove_dir_all_relaxed(&temp_dir);
-        return Err(("Plugin ID contains invalid characters".to_string()).into());
+        return Err(CommandError::expected(
+            "Plugin ID contains invalid characters",
+        ));
     }
 
-    // Check min_app_version compatibility
+    // Check min_app_version compatibility — a version/content mismatch is a
+    // by-design refusal, not an app malfunction (issue #472).
     if let Err(e) = check_min_app_version(&manifest, &app) {
         let _ = remove_dir_all_relaxed(&temp_dir);
-        return Err(e.into());
+        return Err(CommandError::expected(e));
     }
 
-    // Validate required_commands are all in the allowed set
+    // Validate required_commands are all in the allowed set (same: #472).
     if let Err(e) = validate_required_commands(&manifest) {
         let _ = remove_dir_all_relaxed(&temp_dir);
-        return Err(e.into());
+        return Err(CommandError::expected(e));
     }
 
     // Read the commit hash and strip `.git` while still in the temp dir, BEFORE

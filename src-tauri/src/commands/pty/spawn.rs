@@ -144,7 +144,30 @@ pub async fn spawn_pty(
 
             // Wait for process to exit
             let status = child.wait().map_err(|e| e.to_string())?;
-            Ok(status.code().unwrap_or(-1))
+            match status.code() {
+                Some(code) => Ok(code),
+                None => {
+                    // Unix: code() is None when a signal terminated the
+                    // process (OOM-killer SIGKILL, crash, kill …). This used
+                    // to collapse to a silent -1 with zero context — emit the
+                    // signal as pty-output first so runPtyToExit can attach
+                    // it, same as the spawn-failure path below (issue #589).
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::ExitStatusExt;
+                        let detail = describe_signal_termination(status.signal());
+                        let _ = app_handle.emit_to(
+                            &label,
+                            "pty-output",
+                            serde_json::json!({
+                                "id": id,
+                                "data": format!("{detail}\r\n"),
+                            }),
+                        );
+                    }
+                    Ok(-1)
+                }
+            }
         })();
 
         // Remove from registry when process exits
@@ -152,8 +175,26 @@ pub async fn spawn_pty(
             registry.remove(&id);
         }
 
-        // Emit exit event to specific window only
-        let exit_code = result.unwrap_or(-1);
+        // Emit exit event to specific window only. A spawn/wait failure used
+        // to collapse into a bare exit code -1 with no output at all — the
+        // real io::Error ("No such file or directory", EACCES…) was fully
+        // known and silently discarded, leaving the user and telemetry with
+        // an undiagnosable "Process exited with code -1" (issues #463/#464).
+        // Emit the failure as pty-output first so runPtyToExit includes it.
+        let exit_code = match result {
+            Ok(code) => code,
+            Err(e) => {
+                let _ = app_handle.emit_to(
+                    &label,
+                    "pty-output",
+                    serde_json::json!({
+                        "id": id,
+                        "data": format!("Failed to start process: {e}\r\n"),
+                    }),
+                );
+                -1
+            }
+        };
         let _ = app_handle.emit_to(
             &label,
             "pty-exit",
@@ -165,6 +206,34 @@ pub async fn spawn_pty(
     });
 
     Ok(id)
+}
+
+/// Human-readable description of a signal-terminated child. `signal` is
+/// `ExitStatus::signal()` — `Some(n)` for the terminating signal, `None` if
+/// the platform couldn't report one. Names the common signals and hints at
+/// the usual culprit (the OOM killer sends SIGKILL to e.g. a pnpm install
+/// that exhausts memory — issue #589).
+#[cfg_attr(not(unix), allow(dead_code))]
+fn describe_signal_termination(signal: Option<i32>) -> String {
+    let Some(sig) = signal else {
+        return "Process was terminated abnormally (no exit code reported)".to_string();
+    };
+    let name = match sig {
+        1 => " (SIGHUP)",
+        2 => " (SIGINT)",
+        6 => " (SIGABRT)",
+        9 => " (SIGKILL)",
+        11 => " (SIGSEGV)",
+        13 => " (SIGPIPE)",
+        15 => " (SIGTERM)",
+        _ => "",
+    };
+    let hint = match sig {
+        9 => " — likely killed by the operating system, e.g. because it ran out of memory",
+        11 => " — the program crashed (segmentation fault)",
+        _ => "",
+    };
+    format!("Process was terminated by signal {sig}{name}{hint}")
 }
 
 /// Register an externally-spawned PTY process (like dev servers from tauri-pty).
@@ -224,5 +293,39 @@ pub fn unregister_external_pty(pty_id: u32) -> Result<(), CommandError> {
         Ok(())
     } else {
         Err(("Failed to lock PTY registry".to_string()).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::describe_signal_termination;
+
+    // The #589 shape: pnpm install OOM-killed mid-import surfaced only as
+    // "Process exited with code -1". SIGKILL must name the likely OOM cause.
+    #[test]
+    fn sigkill_mentions_signal_name_and_oom_hint() {
+        let msg = describe_signal_termination(Some(9));
+        assert!(msg.contains("signal 9"), "got: {msg}");
+        assert!(msg.contains("SIGKILL"), "got: {msg}");
+        assert!(msg.contains("out of memory"), "got: {msg}");
+    }
+
+    #[test]
+    fn sigsegv_mentions_crash() {
+        let msg = describe_signal_termination(Some(11));
+        assert!(msg.contains("SIGSEGV"), "got: {msg}");
+        assert!(msg.contains("crashed"), "got: {msg}");
+    }
+
+    #[test]
+    fn unknown_signal_still_reports_the_number() {
+        let msg = describe_signal_termination(Some(31));
+        assert!(msg.contains("terminated by signal 31"), "got: {msg}");
+    }
+
+    #[test]
+    fn missing_signal_info_gets_a_generic_but_honest_message() {
+        let msg = describe_signal_termination(None);
+        assert!(msg.contains("terminated abnormally"), "got: {msg}");
     }
 }

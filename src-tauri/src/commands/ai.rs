@@ -25,16 +25,29 @@ const COMMIT_MSG_CLI_TIMEOUT_SECS: u64 = 30;
 /// Fallback commit message used when AI generation is unavailable or fails.
 pub const DEFAULT_COMMIT_MESSAGE: &str = "Update from Ship Studio";
 
-/// Timeout for the local git context-gathering ops (branch/log/diff). Bounds a
-/// pathological repo (a huge diff) and keeps the work off the blocking path —
-/// these run via async tokio process, not std `.output()` on the executor.
+/// Timeout for the fast local git context-gathering ops (branch name, commit
+/// log) — always cheap regardless of repo size.
 const GIT_TIMEOUT_SECS: u64 = 60;
+
+/// Timeout for the diff-shaped ops (`git diff`, `git diff --stat`), whose cost
+/// scales with repo and diff size: a three-dot diff computes the merge-base
+/// and diffs the whole range, which can legitimately exceed 60s on a big repo
+/// on Windows (slower filesystem, antivirus scanning — issue #608, same theme
+/// as #421/#461/#527). The timed-out child is killed by run_with_timeout's
+/// kill_on_drop, so a slow diff can no longer leak a running git process.
+const GIT_DIFF_TIMEOUT_SECS: u64 = 180;
 
 /// How the active agent can answer a one-shot prompt without a TTY.
 enum HeadlessInvocation {
     /// A real print mode (Claude `--print -p`, Cursor `-p --print`): the
-    /// answer is the process' stdout.
-    PrintMode(Vec<String>),
+    /// answer is the process' stdout. When `stdin_prompt` is set the prompt is
+    /// fed via stdin instead of argv — a prompt carrying a ~40KB diff as a
+    /// single argv element can blow the OS's combined argv+env exec limit
+    /// (E2BIG, "Argument list too long", issue #595).
+    PrintMode {
+        args: Vec<String>,
+        stdin_prompt: Option<String>,
+    },
     /// Codex `exec`: stdout is a session transcript (which echoes the prompt —
     /// unsafe to parse), so the final message is captured via
     /// `--output-last-message` into a temp file instead.
@@ -55,8 +68,17 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
             .iter()
             .map(|f| f.to_string())
             .collect();
-        args.push(prompt.to_string());
-        return Some(HeadlessInvocation::PrintMode(args));
+        // Claude's `-p`/`--print` reads the query from stdin when no
+        // positional argument is given — use that to dodge the argv size
+        // ceiling (issue #595). Cursor's print mode isn't verified to accept
+        // a stdin prompt, so it keeps the positional argument.
+        let stdin_prompt = if agent.id == "claude-code" {
+            Some(prompt.to_string())
+        } else {
+            args.push(prompt.to_string());
+            None
+        };
+        return Some(HeadlessInvocation::PrintMode { args, stdin_prompt });
     }
     if agent.id == "codex" {
         let output_file = std::env::temp_dir().join(format!(
@@ -100,10 +122,12 @@ async fn run_agent_headless(
             agent.display_name
         )
     })?;
-    let (args, output_file) = match &invocation {
-        HeadlessInvocation::PrintMode(args) => (args.clone(), None),
+    let (args, output_file, stdin_prompt) = match &invocation {
+        HeadlessInvocation::PrintMode { args, stdin_prompt } => {
+            (args.clone(), None, stdin_prompt.clone())
+        }
         HeadlessInvocation::CodexExec { args, output_file } => {
-            (args.clone(), Some(output_file.clone()))
+            (args.clone(), Some(output_file.clone()), None)
         }
     };
 
@@ -111,17 +135,22 @@ async fn run_agent_headless(
     cmd.args(&args)
         .env("PATH", get_extended_path())
         .envs(extra_envs)
+        .current_dir(cwd);
+    let label = format!("{} CLI", agent.display_name);
+    let output = if let Some(prompt_data) = &stdin_prompt {
+        // The prompt travels via stdin (piped, written in full, then closed so
+        // the CLI sees EOF) instead of argv — see HeadlessInvocation::PrintMode
+        // (issue #595).
+        let tokio_cmd = tokio::process::Command::from(cmd);
+        crate::external_command::run_with_timeout_stdin(tokio_cmd, prompt_data, label, timeout_secs)
+            .await
+    } else {
         // No TTY here: an EOF'd stdin keeps agents that read it (Codex exec)
         // from waiting on input that will never come.
-        .stdin(std::process::Stdio::null())
-        .current_dir(cwd);
-    let tokio_cmd = tokio::process::Command::from(cmd);
-    let output = run_with_timeout(
-        tokio_cmd,
-        format!("{} CLI", agent.display_name),
-        timeout_secs,
-    )
-    .await;
+        cmd.stdin(std::process::Stdio::null());
+        let tokio_cmd = tokio::process::Command::from(cmd);
+        run_with_timeout(tokio_cmd, label, timeout_secs).await
+    };
 
     // The temp file must not outlive the call, success or not.
     let read_and_cleanup = |file: &Option<PathBuf>| -> Option<String> {
@@ -155,7 +184,11 @@ async fn run_agent_headless(
                 format!("exit code {:?}: {snippet}", output.status.code())
             }
         } else {
-            stderr.trim().to_string()
+            // Cap like the stdout branch: an agent CLI can dump a whole
+            // session transcript (prompt, diff, paths) to stderr on failure —
+            // forwarding it unbounded is both noise and a data-exposure risk.
+            // The head carries the actual error (issue #578).
+            crate::external_command::truncate_output(&stderr)
         };
         error!("{} CLI failed: {}", agent.display_name, detail);
         return Err(format!("{} CLI failed: {}", agent.display_name, detail).into());
@@ -181,11 +214,13 @@ pub async fn generate_pr_description(
     let validated_path = validate_project_path(&project_path)?;
 
     let agent = get_active_agent();
+    // A missing agent binary is an "install X first" environment state, not a
+    // malfunction — Expected keeps it out of telemetry (issue #548).
     let agent_path = find_agent_binary().ok_or_else(|| {
-        format!(
+        CommandError::expected(format!(
             "{} CLI is not installed. Install {} to use AI generation.",
             agent.display_name, agent.display_name
-        )
+        ))
     })?;
 
     info!(
@@ -279,7 +314,7 @@ async fn get_diff_stat(path: &std::path::Path, base: &str) -> Result<String, Com
     let output = run_with_timeout(
         tokio::process::Command::from(cmd),
         "git diff --stat",
-        GIT_TIMEOUT_SECS,
+        GIT_DIFF_TIMEOUT_SECS,
     )
     .await?;
 
@@ -292,7 +327,7 @@ async fn get_diff(path: &std::path::Path, base: &str) -> Result<String, CommandE
     let output = run_with_timeout(
         tokio::process::Command::from(cmd),
         "git diff",
-        GIT_TIMEOUT_SECS,
+        GIT_DIFF_TIMEOUT_SECS,
     )
     .await?;
 
@@ -467,8 +502,11 @@ pub async fn generate_commit_message_for_path(
         .into());
     }
 
-    let agent_path = find_agent_binary()
-        .ok_or_else(|| format!("{} CLI is not installed", agent.display_name))?;
+    // Same "install X first" state as generate_pr_description — Expected,
+    // never telemetry (issue #548); resolve_commit_message falls back anyway.
+    let agent_path = find_agent_binary().ok_or_else(|| {
+        CommandError::expected(format!("{} CLI is not installed", agent.display_name))
+    })?;
 
     // Cheap guard: if nothing changed, skip the agent call entirely.
     let status = git_status_porcelain(path)?;
@@ -488,8 +526,26 @@ pub async fn generate_commit_message_for_path(
         HashMap::new(),
         COMMIT_MSG_CLI_TIMEOUT_SECS,
     )
-    .await?;
+    .await
+    .map_err(soften_commit_timeout)?;
     parse_commit_message(&response).map_err(CommandError::from)
+}
+
+/// The 30s commit-message budget covers the whole CLI run (spawn, the agent's
+/// own startup/auth checks, generation), so a cold start or slow disk can blow
+/// it even for a tiny prompt — and the publish flow already swallows the error
+/// and falls back to [`DEFAULT_COMMIT_MESSAGE`]. That's a best-effort feature
+/// degrading as designed, not a malfunction: map `Timeout` to `Expected` (kept
+/// out of telemetry) and log at warn (issue #565). Other errors pass through
+/// unchanged.
+fn soften_commit_timeout(err: CommandError) -> CommandError {
+    match err {
+        CommandError::Timeout { cmd, secs } => {
+            warn!(cmd = %cmd, secs, "commit-message generation timed out; falling back to the default message");
+            CommandError::expected(format!("`{cmd}` timed out after {secs}s"))
+        }
+        other => other,
+    }
 }
 
 fn git_status_porcelain(path: &std::path::Path) -> Result<String, CommandError> {
@@ -597,12 +653,30 @@ mod tests {
 
     #[test]
     fn headless_invocation_uses_print_mode_when_available() {
+        // Claude: the prompt must NOT be an argv element (E2BIG on large
+        // diffs, issue #595) — it travels via stdin.
         let inv = headless_invocation(&crate::agent::CLAUDE_CODE, "hello").unwrap();
         match inv {
-            HeadlessInvocation::PrintMode(args) => {
-                assert_eq!(args, vec!["--print", "-p", "hello"]);
+            HeadlessInvocation::PrintMode { args, stdin_prompt } => {
+                assert_eq!(args, vec!["--print", "-p"]);
+                assert_eq!(stdin_prompt.as_deref(), Some("hello"));
             }
             HeadlessInvocation::CodexExec { .. } => panic!("Claude should use print mode"),
+        }
+    }
+
+    #[test]
+    fn headless_invocation_cursor_keeps_argv_prompt() {
+        // Cursor's print mode isn't verified to read the prompt from stdin,
+        // so it keeps the positional argument (and the E2BIG exposure —
+        // revisit if a report ever lands for Cursor).
+        let inv = headless_invocation(&crate::agent::CURSOR, "hello").unwrap();
+        match inv {
+            HeadlessInvocation::PrintMode { args, stdin_prompt } => {
+                assert_eq!(args, vec!["-p", "--print", "hello"]);
+                assert!(stdin_prompt.is_none());
+            }
+            HeadlessInvocation::CodexExec { .. } => panic!("Cursor should use print mode"),
         }
     }
 
@@ -622,7 +696,7 @@ mod tests {
                 // Prompt is the final argument.
                 assert_eq!(args.last().unwrap(), "hello");
             }
-            HeadlessInvocation::PrintMode(_) => panic!("Codex should use exec mode"),
+            HeadlessInvocation::PrintMode { .. } => panic!("Codex should use exec mode"),
         }
     }
 
@@ -631,6 +705,29 @@ mod tests {
         // Opencode has no headless mode — callers must show a friendly error
         // instead of spawning an interactive session ("stdin is not a terminal").
         assert!(headless_invocation(&crate::agent::OPENCODE, "hello").is_none());
+    }
+
+    // The #565 shape: a commit-message CLI timeout is best-effort noise (the
+    // caller falls back to the default message) — Expected, not telemetry.
+    #[test]
+    fn soften_commit_timeout_maps_timeout_to_expected() {
+        let softened = soften_commit_timeout(CommandError::Timeout {
+            cmd: "Claude Code CLI".into(),
+            secs: 30,
+        });
+        assert!(matches!(softened, CommandError::Expected { .. }));
+        assert_eq!(
+            softened.to_string(),
+            "`Claude Code CLI` timed out after 30s"
+        );
+    }
+
+    #[test]
+    fn soften_commit_timeout_passes_other_errors_through() {
+        let other = soften_commit_timeout(CommandError::Other {
+            message: "boom".into(),
+        });
+        assert!(matches!(other, CommandError::Other { .. }));
     }
 
     #[test]

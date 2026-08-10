@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { usePreviewConnection } from './usePreviewConnection';
 import { IFRAME_BLANK_TIMEOUT_MS } from './previewIframeWatchdog';
+import { logger } from '../lib/logger';
 
 // The hook reaches for Tauri IPC, the proxy, analytics, and a logger on the
 // readiness path; stub them all so the test exercises only the fetch-probe loop.
@@ -412,6 +413,58 @@ describe('usePreviewConnection stale-404 detection (issue #243)', () => {
     expect(result.current.serverReady).toBe(false);
     // Crashed, not stale — the restart affordance for stale is separate.
     expect(result.current.serverStale).toBe(false);
+
+    await act(async () => {
+      unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+});
+
+describe('usePreviewConnection page-list load failures (issue #541)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it('logs the real CommandError message, not "[object Object]"', async () => {
+    // `list_pages` rejects with a plain tagged CommandError object — the shape
+    // Tauri delivers for Result<_, CommandError> rejections. It is NOT an
+    // Error instance, so naive String() would render "[object Object]".
+    const { invoke } = await import('@tauri-apps/api/core');
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === 'start_preview_proxy') return Promise.resolve(8080);
+      if (cmd === 'list_pages')
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- deliberately a plain CommandError object, the shape under test
+        return Promise.reject({ type: 'Io', message: 'permission denied walking pages dir' });
+      return Promise.resolve(undefined);
+    });
+    const server = installSlowServerFetch();
+    const { unmount } = renderHook(() => usePreviewConnection(baseParams));
+
+    // Reach serverReady so the page-list polling kicks in and hits the reject.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    await act(async () => {
+      server.finishCompile();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the mock's calls, not invoking it bound
+    const errorCalls = vi.mocked(logger.error).mock.calls;
+    const pageCall = errorCalls.find(([msg]) => msg === 'Failed to load pages');
+    expect(pageCall).toBeDefined();
+    expect(pageCall?.[1]).toEqual({ error: 'I/O error: permission denied walking pages dir' });
+    // The regression this guards against: a useless opaque log line.
+    expect(JSON.stringify(errorCalls)).not.toContain('[object Object]');
 
     await act(async () => {
       unmount();

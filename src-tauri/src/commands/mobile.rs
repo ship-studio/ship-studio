@@ -327,6 +327,15 @@ pub async fn simulator_app_running(
             if msg.contains("Domain is tearing down") || msg.contains("LaunchdSimError") {
                 return Ok(false);
             }
+            // Same teardown race, slower failure mode: CoreSimulator doesn't
+            // always answer fast — sometimes the spawn just hangs until the
+            // timeout instead of returning the teardown error. The poller
+            // already tolerates a false tick and retries, so a timeout here
+            // is "not running right now", not a reportable malfunction
+            // (issue #411, gap left by #311).
+            if matches!(e, CommandError::Timeout { .. }) {
+                return Ok(false);
+            }
             return Err(e);
         }
     };

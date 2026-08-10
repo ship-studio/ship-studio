@@ -358,7 +358,9 @@ export function useVisualEditor({
             }
           }
         } catch (err) {
-          logger.error('[VisualEditor] resolve failed', { error: String(err) });
+          logger.error('[VisualEditor] resolve failed', {
+            error: formatCommandError(asCommandError(err)),
+          });
           onToast?.(formatCommandError(asCommandError(err)), 'error');
           setSelection({
             signature: sig,
@@ -379,7 +381,9 @@ export function useVisualEditor({
             // Ignore if the selection changed underneath us.
             if (usageTokenRef.current === usageToken) setImageTarget(imgRes);
           } catch (err) {
-            logger.error('[VisualEditor] image resolve failed', { error: String(err) });
+            logger.error('[VisualEditor] image resolve failed', {
+              error: formatCommandError(asCommandError(err)),
+            });
             if (usageTokenRef.current === usageToken)
               setImageTarget({
                 status: 'read_only',
@@ -409,7 +413,9 @@ export function useVisualEditor({
     try {
       setCustomClasses(await listCustomClasses(projectPath));
     } catch (err) {
-      logger.error('[VisualEditor] list custom classes failed', { error: String(err) });
+      logger.error('[VisualEditor] list custom classes failed', {
+        error: formatCommandError(asCommandError(err)),
+      });
     }
   }, [projectPath]);
 
@@ -537,7 +543,9 @@ export function useVisualEditor({
           // their live state via ss:commit rather than discarding it.
           if (!opts?.silent) onToast?.('Class saved', 'success');
         } catch (err) {
-          logger.error('[VisualEditor] class write-back failed', { error: String(err) });
+          logger.error('[VisualEditor] class write-back failed', {
+            error: formatCommandError(asCommandError(err)),
+          });
           onToast?.(formatCommandError(asCommandError(err)), 'error');
         }
         return;
@@ -585,7 +593,9 @@ export function useVisualEditor({
         });
         if (!opts?.silent) onToast?.('Saved to source', 'success');
       } catch (err) {
-        logger.error('[VisualEditor] write-back failed', { error: String(err) });
+        logger.error('[VisualEditor] write-back failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
@@ -657,7 +667,9 @@ export function useVisualEditor({
         recordCommit('visual_class_added', { mode: 'tailwind', first: true });
         onToast?.('Class added', 'success');
       } catch (err) {
-        logger.error('[VisualEditor] add first class failed', { error: String(err) });
+        logger.error('[VisualEditor] add first class failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
@@ -803,7 +815,9 @@ export function useVisualEditor({
         recordCommit('visual_image_saved');
         onToast?.('Image replaced', 'success');
       } catch (err) {
-        logger.error('[VisualEditor] image write-back failed', { error: String(err) });
+        logger.error('[VisualEditor] image write-back failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
         onToast?.(formatCommandError(asCommandError(err)), 'error');
         throw err;
       }

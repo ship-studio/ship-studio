@@ -148,6 +148,13 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `You have unsaved changes that would be lost. Save or discard them first, then try again.`;
   }
 
+  // The branch lives in another worktree — git refuses to check it out twice.
+  // Wording varies across git versions ("is already used by worktree at …",
+  // "is already checked out at …") — cover both (issue #406).
+  if (m.includes('already used by worktree') || m.includes('already checked out')) {
+    return `${branch} is already checked out in another worktree, so it can't be switched to here. Open it from the worktrees list instead.`;
+  }
+
   // The ref is gone — git couldn't find the branch, so it treated it as a path.
   if (
     m.includes('did not match') ||
@@ -166,6 +173,55 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
 }
 
 /**
+ * True when {@link humanizeGitError} recognized the failure as one of the
+ * known, user-actionable git/GitHub conditions (nothing to review, conflicts,
+ * out of date, auth, network, protected branch, existing PR, unsaved changes,
+ * worktree collision, missing ref, not a repo).
+ *
+ * The backend classifies many of these as `CommandError::Expected`, but that
+ * variant deliberately serializes identically to `Other` across IPC, so the
+ * frontend can't read the tag — this is the client-side mirror. Callers use it
+ * to route recognized conditions to info toasts / warn logs instead of the
+ * error channels that auto-file bug reports (issue #538).
+ */
+export function isRecognizedGitFailure(value: unknown, ctx: GitErrorContext = {}): boolean {
+  return humanizeGitError(value, ctx) !== formatCommandError(asCommandError(value));
+}
+
+/**
+ * Phrases from `register_external_project`'s by-design refusals of a folder
+ * pick (backend returns `CommandError::expected` for them, issue #416 — but
+ * Expected serializes identically to Other across IPC, so the frontend
+ * re-checks the guidance phrases). These are user-guidance states, not bugs:
+ * callers log them at warn level and toast them as info (issues #518/#535).
+ */
+const EXPECTED_IMPORT_REFUSAL_PHRASES = [
+  'Please select that folder instead',
+  'Please select the specific project folder',
+  "doesn't appear to be a project",
+  'already inside your projects folder',
+  'already registered',
+  'your home directory',
+];
+
+/** True when an import-local-folder failure message is one of the backend's
+ *  by-design refusals (see {@link EXPECTED_IMPORT_REFUSAL_PHRASES}). */
+export function isExpectedProjectImportRefusal(message: string): boolean {
+  return EXPECTED_IMPORT_REFUSAL_PHRASES.some((phrase) => message.includes(phrase));
+}
+
+/**
+ * True when a caught error means the selected agent's CLI isn't installed —
+ * the backend's `find_agent_binary` returns `CommandError::expected("<Agent>
+ * binary not found")` for exactly this (issue #250), but Expected can't cross
+ * the IPC boundary, so match the message shape. A missing CLI is a
+ * user-environment state, not a bug: log it at warn level (issue #594).
+ */
+export function isAgentNotInstalledError(value: unknown): boolean {
+  return /binary not found/i.test(formatCommandError(asCommandError(value)));
+}
+
+/**
  * Exit-code → actionable-message mappings shared by the PTY-driven flows
  * (project creation, GitHub import) that run `git clone` / package installs.
  */
@@ -174,9 +230,22 @@ const PROCESS_EXIT_MESSAGES: Record<number, string> = {
   128: "Git authentication failed. Make sure you're signed into GitHub.",
 };
 
+/** Result of {@link describeProcessError}. */
+export interface ProcessErrorInfo {
+  /** User-facing, actionable message. */
+  message: string;
+  /**
+   * True when the failure is a recognized user-environment state (stale
+   * credentials, missing tool, auth setup) rather than an app bug. Callers
+   * should log these at warn level — `logger.error` auto-files bug reports,
+   * and these aren't bugs.
+   */
+  expected: boolean;
+}
+
 /**
  * Map a caught error from a PTY-driven process (clone, install, …) to a
- * user-friendly message.
+ * user-friendly message plus an expected/unexpected classification.
  *
  * Handles Error instances, plain strings, and CommandError objects from
  * `invoke()` rejections — the latter are plain objects (NOT `instanceof
@@ -184,22 +253,81 @@ const PROCESS_EXIT_MESSAGES: Record<number, string> = {
  * "Process exited with code N" messages are mapped to actionable advice;
  * callers can extend the exit-code map for flow-specific codes.
  */
-export function friendlyProcessError(
+export function describeProcessError(
   err: unknown,
   extraExitCodeMessages?: Record<number, string>
-): string {
+): ProcessErrorInfo {
   const msg =
     err instanceof Error
       ? err.message
       : typeof err === 'string'
         ? err
         : formatCommandError(asCommandError(err));
-  const codeMatch = msg.match(/Process exited with code (\d+)/);
+  const lower = msg.toLowerCase();
+  // Git-over-SSH auth failure. `gh repo clone` wraps git and exits with its
+  // own code 1, so the exit-code-128 mapping below never matches — the raw
+  // shell dump ("Permission denied (publickey)…") reached the user instead
+  // (issue #531). The wording mirrors humanizeGitError's auth branch but
+  // points at the SSH-specific fixes.
+  if (
+    lower.includes('permission denied (publickey)') ||
+    lower.includes('host key verification failed') ||
+    lower.includes('could not read from remote repository')
+  ) {
+    return {
+      expected: true,
+      message:
+        "GitHub couldn't authenticate this computer over SSH, so the repository couldn't be reached. Either set up an SSH key for your GitHub account (github.com/settings/keys), or switch to HTTPS by running `gh config set git_protocol https` in a terminal, then try again.",
+    };
+  }
+  // npm registry auth failure (E401). npm exits with the generic code 1, so
+  // the exit-code table can't catch it — match the error text instead
+  // (issue #505).
+  if (
+    /npm (?:error|err!) code e401/.test(lower) ||
+    lower.includes('incorrect or missing password') ||
+    lower.includes('this command requires you to be logged in') ||
+    lower.includes('unable to authenticate, your authentication token seems to be invalid')
+  ) {
+    return {
+      expected: true,
+      message:
+        "npm couldn't sign in to the package registry — your saved npm login or token is expired or incorrect. Open a terminal and run `npm login` (or refresh the token in your .npmrc if this project uses a private registry), then try again.",
+    };
+  }
+  // The tool itself is missing: Windows' cmd.exe says "'bun' is not
+  // recognized…", POSIX shells say "bun: command not found". Both surface a
+  // raw shell dump with no next step (issues #454/#455) — name the tool and
+  // say what to do.
+  const missingTool =
+    msg.match(/'([^']+)' is not recognized as an internal or external command/) ??
+    msg.match(/(?:^|\n|:\s)([\w.-]+): command not found/);
+  if (missingTool) {
+    const tool = missingTool[1];
+    return {
+      expected: true,
+      message: `This project needs \`${tool}\`, which isn't installed on this computer (or isn't on your PATH). Install ${tool} and try again — or, for package managers, delete its lockfile to fall back to npm.`,
+    };
+  }
+  // Negative codes (spawn failure / killed by signal) must match too —
+  // \d+ alone silently skipped them (issues #463/#464).
+  const codeMatch = msg.match(/Process exited with code (-?\d+)/);
   if (codeMatch) {
     const code = parseInt(codeMatch[1], 10);
     const mapped = extraExitCodeMessages?.[code] ?? PROCESS_EXIT_MESSAGES[code];
-    if (mapped) return mapped;
+    if (mapped) return { expected: true, message: mapped };
   }
   // Strip the "Error: " prefix that comes from Error.toString()
-  return msg.replace(/^Error:\s*/, '');
+  return { expected: false, message: msg.replace(/^Error:\s*/, '') };
+}
+
+/**
+ * Message-only convenience over {@link describeProcessError} for call sites
+ * that don't need the expected/unexpected classification.
+ */
+export function friendlyProcessError(
+  err: unknown,
+  extraExitCodeMessages?: Record<number, string>
+): string {
+  return describeProcessError(err, extraExitCodeMessages).message;
 }

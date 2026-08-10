@@ -30,7 +30,12 @@ import {
   sanitizeBranchName,
 } from '../../lib/branches';
 import { gitPull } from '../../lib/git';
-import { removeWorktree, pruneWorktrees, type WorktreeInfo } from '../../lib/worktrees';
+import {
+  listWorktrees,
+  removeWorktree,
+  pruneWorktrees,
+  type WorktreeInfo,
+} from '../../lib/worktrees';
 import { openProjectInNewWindow } from '../../lib/project';
 import { BranchIcon, PlusIcon, TrashIcon, ExternalLinkIcon } from '../icons';
 import { Spinner } from '../primitives/Spinner';
@@ -44,6 +49,7 @@ import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError, humanizeGitError } from '../../lib/errors';
+import { logger } from '../../lib/logger';
 
 /** A Tauri-rejected `CommandError` is an object — `String(err)` renders it as
  *  "[object Object]". Format it to the real human message (the git stderr). */
@@ -131,7 +137,8 @@ export function BranchesTab({
   onCreateWorktree,
 }: BranchesTabProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+  const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
+    showToast(message, type);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
   const [deletingBranch, setDeletingBranch] = useState<string | null>(null);
   const [publishingBranch, setPublishingBranch] = useState<string | null>(null);
@@ -283,6 +290,22 @@ export function BranchesTab({
         setPendingSwitch(branchName);
       } else {
         const raw = result.error ?? 'Failed to switch branch';
+        // The worktree redirect above works off a list that can go stale —
+        // another tool (an agent CLI managing .claude/worktrees, a manual
+        // `git worktree add`) may have claimed the branch since the list
+        // loaded. Git's refusal proves the worktree exists NOW: re-fetch and
+        // finish the redirect instead of toasting a raw fatal (issue #406).
+        if (/already used by worktree|already checked out/i.test(raw) && onOpenWorktree) {
+          const fresh = await listWorktrees(projectPath).catch(() => []);
+          const home = fresh.find((w) => !w.isCurrent && w.branch === branchName);
+          if (home) {
+            onWorktreesChanged?.();
+            onToast?.(`${branchName} is checked out in a worktree — opening it`, 'success');
+            void trackEvent('worktree_switched', { via: 'branch_switch_redirect' });
+            onOpenWorktree(home.path);
+            return;
+          }
+        }
         onToast?.(humanizeGitError(raw, { branch: branchName }), 'error');
         // The branch is gone (deleted/renamed elsewhere) but still showing in a
         // stale list — refresh to drop the phantom entry.
@@ -412,7 +435,23 @@ export function BranchesTab({
       onRefresh();
     } catch (e) {
       trackError('branch_revert', e, 'Workspace');
-      onToast?.(`Failed to revert: ${errText(e)}`, 'error');
+      if (/no tracking information/i.test(errText(e))) {
+        // Expected: the branch has never been pushed, so there's no GitHub
+        // version to pull — git's normal refusal, not an app malfunction
+        // (the backend classifies it Expected too). The discard above already
+        // ran, so local edits ARE gone — say so honestly. Info toast + warn
+        // log, never the error channels that auto-file bug reports (#539).
+        logger.warn('[BranchesTab] Revert pull skipped: branch has no upstream', {
+          error: errText(e),
+        });
+        onToast?.(
+          `Your local changes were discarded, but ${currentBranch} has never been pushed to GitHub, so there was no GitHub version to pull. Send the branch to GitHub first if you want a copy to revert to next time.`,
+          'info'
+        );
+        onRefresh();
+      } else {
+        onToast?.(`Failed to revert: ${humanizeGitError(e, { branch: currentBranch })}`, 'error');
+      }
     } finally {
       setIsReverting(false);
     }

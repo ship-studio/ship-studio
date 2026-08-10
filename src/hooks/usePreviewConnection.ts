@@ -16,6 +16,7 @@ import {
   IFRAME_BLANK_TIMEOUT_MS,
 } from './previewIframeWatchdog';
 import { logger } from '../lib/logger';
+import { asCommandError, formatCommandError } from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
 
@@ -217,8 +218,10 @@ export function usePreviewConnection({
       const pageList = await invoke<PageInfo[]>('list_pages', { projectPath });
       setPages(pageList);
     } catch (error) {
+      // `list_pages` rejects with a plain CommandError object (not an Error
+      // instance) — String() renders it as "[object Object]" (issue #541).
       logger.error('Failed to load pages', {
-        error: error instanceof Error ? error.message : String(error),
+        error: formatCommandError(asCommandError(error)),
       });
     }
   }, [projectPath]);
@@ -305,7 +308,9 @@ export function usePreviewConnection({
         }
       })
       .catch((err) => {
-        logger.error('[Preview] Failed to start proxy, using direct URL', { error: err });
+        logger.error('[Preview] Failed to start proxy, using direct URL', {
+          error: formatCommandError(asCommandError(err)),
+        });
       });
 
     return () => {
@@ -509,7 +514,7 @@ export function usePreviewConnection({
         setHasError(false);
         setServerReady(true);
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
+        const errorMsg = formatCommandError(asCommandError(err));
         logger.info('[Preview] Server check failed', {
           retry: retryCount,
           maxRetries: SERVER_MAX_RETRIES,

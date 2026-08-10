@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   asCommandError,
+  describeProcessError,
   formatCommandError,
   friendlyProcessError,
   humanizeGitError,
+  isAgentNotInstalledError,
+  isExpectedProjectImportRefusal,
   isMergeConflictError,
+  isRecognizedGitFailure,
   type CommandError,
 } from './errors';
 
@@ -76,8 +80,61 @@ describe('friendlyProcessError', () => {
     expect(friendlyProcessError(new Error('clone failed'))).toBe('clone failed');
   });
 
+  it("maps Windows' \"'bun' is not recognized\" to install guidance", () => {
+    // Raw cmd.exe text when the lockfile's package manager isn't installed
+    // (issues #454/#455).
+    const raw =
+      "Process exited with code 1\n\n'bun' is not recognized as an internal or external command,\noperable program or batch file.";
+    const result = friendlyProcessError(raw);
+    expect(result).toContain('`bun`');
+    expect(result).toMatch(/isn't installed/);
+  });
+
+  it('maps POSIX "command not found" to install guidance', () => {
+    const result = friendlyProcessError('sh: pnpm: command not found');
+    expect(result).toContain('`pnpm`');
+    expect(result).toMatch(/isn't installed/);
+  });
+
+  it('matches negative exit codes via extra mappings', () => {
+    // Spawn failures emit -1 — the old /\d+/ regex silently skipped them
+    // (issues #463/#464).
+    const extra = { [-1]: 'The process never started.' };
+    expect(friendlyProcessError('Process exited with code -1', extra)).toBe(
+      'The process never started.'
+    );
+  });
+
   it('strips the "Error: " prefix from stringified errors', () => {
     expect(friendlyProcessError('Error: clone failed')).toBe('clone failed');
+  });
+
+  it('maps git-over-SSH publickey failures to SSH/HTTPS guidance (issue #531)', () => {
+    // gh wraps git and exits 1, so only the text identifies the failure.
+    const raw =
+      "Process exited with code 1\n\nCloning into 'laisy-full'...\ngit@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.\nPlease make sure you have the correct access rights\nand the repository exists.\nfailed to run git: exit status 128";
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toMatch(/SSH/);
+    expect(info.message).toContain('gh config set git_protocol https');
+    expect(info.message).not.toContain('Cloning into');
+  });
+
+  it('maps npm E401 registry auth failures to `npm login` guidance (issue #505)', () => {
+    const raw =
+      'Process exited with code 1\n\nnpm warn deprecated something\nnpm error code E401\nnpm error Incorrect or missing password.\nnpm error To correct this please try logging in again with:\nnpm error   npm login';
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('npm login');
+    expect(info.message).not.toContain('npm warn');
+    // Legacy "npm ERR!" prefix matches too.
+    expect(describeProcessError('npm ERR! code E401').expected).toBe(true);
+  });
+
+  it('classifies recognized shapes as expected and unknown ones as not', () => {
+    expect(describeProcessError('sh: pnpm: command not found').expected).toBe(true);
+    expect(describeProcessError('Process exited with code 128').expected).toBe(true);
+    expect(describeProcessError(new Error('segfault in importer')).expected).toBe(false);
   });
 
   it('supports caller-provided extra exit-code mappings', () => {
@@ -159,6 +216,17 @@ describe('humanizeGitError', () => {
       expect: /unsaved changes that would be lost/i,
     },
     {
+      // Branch held by another worktree (e.g. an agent CLI's own
+      // .claude/worktrees) — must not surface as a raw fatal (issue #406).
+      raw: "fatal: 'worktree-kasus-trainer' is already used by worktree at '/Users/x/proj/.claude/worktrees/kasus-trainer'",
+      expect: /already checked out in another worktree/i,
+    },
+    {
+      // Newer git wording for the same refusal.
+      raw: "fatal: 'feat/x' is already checked out at '/Users/x/proj/.claude/worktrees/feat-x'",
+      expect: /already checked out in another worktree/i,
+    },
+    {
       raw: "error: pathspec 'feat/gone' did not match any file(s) known to git",
       expect: /no longer exists/i,
     },
@@ -187,6 +255,22 @@ describe('humanizeGitError', () => {
     );
   });
 
+  it('isRecognizedGitFailure mirrors whether humanizeGitError classified the error', () => {
+    // Recognized, by-design refusals (backend marks these Expected, but the
+    // tag can't cross IPC — issue #538).
+    expect(isRecognizedGitFailure('GraphQL: No commits between develop and feat/empty')).toBe(true);
+    expect(
+      isRecognizedGitFailure('GraphQL: A pull request already exists for julian:feat/x.')
+    ).toBe(true);
+    expect(isRecognizedGitFailure('remote: Permission denied (publickey).')).toBe(true);
+    expect(
+      isRecognizedGitFailure({ type: 'Process', cmd: 'gh', exit_code: 1, stderr: 'dial tcp: nope' })
+    ).toBe(true);
+    // Unrecognized failures fall through — those stay on the error channels.
+    expect(isRecognizedGitFailure('some completely novel git failure')).toBe(false);
+    expect(isRecognizedGitFailure(new Error('segfault in gh'))).toBe(false);
+  });
+
   it('accepts CommandError objects, not just strings', () => {
     const err: CommandError = {
       type: 'Timeout',
@@ -195,5 +279,45 @@ describe('humanizeGitError', () => {
     } as unknown as CommandError;
     // Timeout formats to a "timed out" message → the network case.
     expect(humanizeGitError(err)).toMatch(/couldn't reach GitHub/i);
+  });
+});
+
+describe('isExpectedProjectImportRefusal', () => {
+  // The backend's by-design refusals of a folder pick (issue #416) — each of
+  // these is user guidance, not a bug, and must classify as expected so the
+  // import flow logs at warn and toasts as info (issues #518/#535).
+  const expectedMessages = [
+    'This folder is inside a git repository rooted at /x. Please select that folder instead.',
+    'This looks like a monorepo. Please select the specific project folder you want to work on.',
+    "This folder doesn't appear to be a project (no package.json, index.html, or .git found).",
+    'This project is already inside your projects folder. It will appear automatically.',
+    'This folder is already registered.',
+    "That's your home directory — pick the project folder itself.",
+  ];
+
+  it.each(expectedMessages)('classifies as expected: %s', (message) => {
+    expect(isExpectedProjectImportRefusal(message)).toBe(true);
+  });
+
+  it('does not classify genuine failures as expected', () => {
+    expect(isExpectedProjectImportRefusal('EACCES: permission denied, open config.json')).toBe(
+      false
+    );
+    expect(isExpectedProjectImportRefusal('I/O error: disk full')).toBe(false);
+  });
+});
+
+describe('isAgentNotInstalledError', () => {
+  it("matches the backend's `<Agent> binary not found` Expected message", () => {
+    expect(isAgentNotInstalledError('Codex binary not found')).toBe(true);
+    expect(isAgentNotInstalledError('OpenCode binary not found')).toBe(true);
+    expect(isAgentNotInstalledError({ type: 'Other', message: 'Claude binary not found' })).toBe(
+      true
+    );
+  });
+
+  it('does not match other failures', () => {
+    expect(isAgentNotInstalledError('Failed to add MCP server: connection refused')).toBe(false);
+    expect(isAgentNotInstalledError(new Error('spawn ENOENT'))).toBe(false);
   });
 });

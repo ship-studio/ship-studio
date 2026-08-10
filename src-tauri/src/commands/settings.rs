@@ -151,7 +151,21 @@ pub fn set_projects_root(path: String) -> Result<(), CommandError> {
         }
         // Confirm the folder is writable (creating projects needs write access).
         let probe = pb.join(".shipstudio-write-test");
-        std::fs::write(&probe, b"test").map_err(|e| format!("Folder isn't writable: {e}"))?;
+        std::fs::write(&probe, b"test").map_err(|e| {
+            // "Folder isn't writable" for every failure was misleading: on
+            // Windows, a folder that vanished between the is_dir() check and
+            // this write (removable/network drive, concurrent delete) reports
+            // os error 2 NotFound — a permissions message with no path made
+            // that undiagnosable (issue #397).
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!(
+                    "The folder '{trimmed}' is no longer accessible — it may have been \
+                     deleted, renamed, or be on a disconnected drive ({e})"
+                )
+            } else {
+                format!("Folder '{trimmed}' isn't writable: {e}")
+            }
+        })?;
         let _ = std::fs::remove_file(&probe);
         Some(trimmed.to_string())
     };
