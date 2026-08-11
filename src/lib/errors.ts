@@ -130,6 +130,15 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `GitHub didn't accept the connection. Your sign-in may have expired, or your account may not have write access to this repository. Reconnect GitHub (top right) or check your access, then try again.`;
   }
 
+  // TLS certificate verification failed — a corporate proxy/antivirus doing
+  // HTTPS inspection with an untrusted CA, or a broken certificate store.
+  // Must be checked BEFORE the generic network branch: "check your internet
+  // connection" can't fix a trust chain (issue #658, mirroring gh_tls_error
+  // in src-tauri/src/commands/github.rs).
+  if (m.includes('failed to verify certificate') || m.includes('x509:')) {
+    return `GitHub's secure connection couldn't be verified. This usually means a corporate proxy, VPN, or antivirus is inspecting HTTPS traffic on this computer, or the system's certificate store is out of date. Install your proxy's certificate or update your system, then try again.`;
+  }
+
   // Couldn't reach GitHub at all. 'dial tcp'/'connectex' cover Go's dial
   // errors from the gh CLI — the Windows connectex wording contains none of
   // the usual timeout/refused substrings (issue #375).

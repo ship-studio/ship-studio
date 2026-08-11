@@ -277,6 +277,12 @@ describe('humanizeGitError', () => {
       expect: /couldn't reach GitHub/i,
     },
     {
+      // TLS interception by a corporate proxy/AV — must get trust-store
+      // guidance, not "check your internet connection" (issue #658).
+      raw: 'Post "https://api.github.com/graphql": tls: failed to verify certificate: x509: certificate signed by unknown authority',
+      expect: /secure connection couldn't be verified/i,
+    },
+    {
       raw: "error: pathspec 'feat/gone' did not match any file(s) known to git",
       expect: /no longer exists/i,
     },

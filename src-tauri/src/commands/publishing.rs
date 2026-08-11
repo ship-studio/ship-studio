@@ -49,7 +49,8 @@ fn push_auth_error(stderr: &str) -> Option<CommandError> {
 ///   frontend's `sanitizeBranchName` now caps generated names too).
 ///
 /// Must run BEFORE any generic "rejected"/"non-fast-forward" check.
-fn push_pre_receive_error(stderr: &str) -> Option<CommandError> {
+/// (`pub(crate)`: also used by `create_pull_request`'s auto-push, issue #654.)
+pub(crate) fn push_pre_receive_error(stderr: &str) -> Option<CommandError> {
     let lower = stderr.to_lowercase();
     if lower.contains("exceeds github's file size limit") || lower.contains("gh001") {
         // Best-effort: name the offending file(s) from lines like

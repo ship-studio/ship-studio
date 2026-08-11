@@ -102,6 +102,22 @@ pub async fn list_pull_requests(
     Ok(prs)
 }
 
+/// git's stderr for an ordinary push rejection — the remote branch moved ahead
+/// of the local one ("! [rejected] … (non-fast-forward)", "failed to push some
+/// refs … fetch first", "the tip of your current branch is behind"). A benign,
+/// by-design race, not an app malfunction: the user pulls and retries. Same
+/// phrases the publishing paths treat as Expected (issues #617/#560/#654).
+/// `classify_git_net_error` deliberately returns `None` for these, and
+/// `push_pre_receive_error` must run first so GH001/GH005 keep their specific
+/// remedies.
+fn is_push_rejection(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("non-fast-forward")
+        || lower.contains("rejected")
+        || lower.contains("fetch first")
+        || lower.contains("tip of your current branch is behind")
+}
+
 /// Create a new pull request.
 /// Automatically pushes the branch to the remote first if needed.
 #[tauri::command]
@@ -136,6 +152,26 @@ pub async fn create_pull_request(
             // environment state, same as push_branch (issue #560).
             if let Some(err) = crate::commands::git::classify_git_net_error(&stderr) {
                 return Err(err);
+            }
+            // Pre-receive refusals with their own remedy (file over 100 MB,
+            // ref too long) — must run before the generic rejection check,
+            // same ordering as the publishing paths (issues #626/#636).
+            if let Some(err) = crate::commands::publishing::push_pre_receive_error(&stderr) {
+                return Err(err);
+            }
+            // An ordinary non-fast-forward race ("someone pushed first") is
+            // by-design git behavior, not a malfunction — the same case the
+            // publishing paths already classify as Expected (issue #654).
+            // Keep the exact "Failed to push branch: <stderr>" shape: the
+            // SubmitReviewModal runs it through humanizeGitError, which
+            // matches "rejected"/"non-fast-forward" in the raw text and
+            // renders the pull-first guidance. (No PUSH_REJECTED sentinel
+            // here — only PublishBranchDropdown consumes that.)
+            if is_push_rejection(&stderr) {
+                return Err(CommandError::expected(format!(
+                    "Failed to push branch: {}",
+                    truncate_output(&stderr)
+                )));
             }
             return Err(format!("Failed to push branch: {}", truncate_output(&stderr)).into());
         }
@@ -334,5 +370,28 @@ mod tests {
         assert!(is_conflict_stderr("Pull request is not mergeable"));
         assert!(is_conflict_stderr("merge commit cannot be cleanly created"));
         assert!(!is_conflict_stderr("could not find pull request"));
+    }
+
+    /// An everyday non-fast-forward race on create_pull_request's auto-push is
+    /// by-design git behavior — it must classify as a push rejection so the
+    /// command returns Expected instead of telemetry noise (issue #654).
+    #[test]
+    fn is_push_rejection_matches_non_fast_forward_stderr() {
+        let stderr = "To https://github.com/o/r.git\n ! [rejected]        HEAD -> feat/x (non-fast-forward)\nerror: failed to push some refs to 'https://github.com/o/r.git'\nhint: Updates were rejected because the tip of your current branch is behind\nhint: its remote counterpart.";
+        assert!(is_push_rejection(stderr));
+        assert!(is_push_rejection(
+            "error: failed to push some refs\nhint: (e.g., 'git pull ...') before pushing again. fetch first"
+        ));
+    }
+
+    #[test]
+    fn is_push_rejection_ignores_unrelated_push_failures() {
+        assert!(!is_push_rejection(
+            "remote: Permission denied (publickey).\nfatal: Could not read from remote repository."
+        ));
+        assert!(!is_push_rejection(
+            "fatal: unable to access: could not resolve host"
+        ));
+        assert!(!is_push_rejection(""));
     }
 }

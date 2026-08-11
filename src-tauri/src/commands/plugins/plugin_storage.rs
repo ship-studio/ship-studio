@@ -91,6 +91,20 @@ pub fn write_plugin_storage(
     })
 }
 
+/// A plugin's shell command hitting its timeout. `Expected`, not `Other`: the
+/// host can't know whether a timeout is fatal to the plugin — plugins run
+/// background polls (e.g. the Vercel plugin's 3-second `git remote -v` /
+/// `git rev-parse` ticks) that deliberately `.catch(() => null)` a slow tick,
+/// yet `CommandError`'s Serialize hook auto-reported every timeout at the IPC
+/// boundary before any frontend `.catch()` could run (issues #661/#662). The
+/// plugin decides what's fatal; the message is unchanged so plugins that do
+/// surface it keep the same text.
+fn plugin_shell_timeout_error(plugin_id: &str, command: &str, timeout: u64) -> CommandError {
+    CommandError::expected(format!(
+        "Plugin '{plugin_id}' shell command '{command}' timed out after {timeout}s"
+    ))
+}
+
 /// Execute a shell command in a plugin's context
 ///
 /// Security: validates project_path, uses extended PATH, enforces configurable timeout (default 120s).
@@ -168,9 +182,7 @@ pub async fn exec_plugin_shell(
                 // Name the plugin and command — a bare "timed out (120s)" is the
                 // same message for every plugin on every platform, so telemetry
                 // can't tell a slow-but-legit install from a hung plugin (#379).
-                return Err(CommandError::from(format!(
-                    "Plugin '{plugin_id}' shell command '{command}' timed out after {timeout}s"
-                )));
+                return Err(plugin_shell_timeout_error(&plugin_id, &command, timeout));
             }
             Ok(Ok(output)) => break output,
             Ok(Err(e)) => {
@@ -370,4 +382,24 @@ pub fn unlink_dev_plugin(project_path: String, plugin_id: String) -> Result<(), 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Plugin shell timeouts must be Expected — the reporting hook fires the
+    /// moment the error serializes across IPC, before any plugin-side
+    /// `.catch()` runs, so anything else auto-reports background-poll ticks
+    /// as bugs (issues #661/#662). The message must stay byte-identical to
+    /// the pre-classification one for plugins that surface it.
+    #[test]
+    fn plugin_shell_timeout_error_is_expected_with_same_message() {
+        let err = plugin_shell_timeout_error("vercel", "git", 10);
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert_eq!(
+            format!("{err}"),
+            "Plugin 'vercel' shell command 'git' timed out after 10s"
+        );
+    }
 }

@@ -106,6 +106,56 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
     None
 }
 
+/// Known "environment, not our bug" failure states from the agent CLI itself,
+/// matched against the failure detail (stderr, or the exit-code + stdout
+/// snippet when stderr is empty — the session-limit refusal arrives on
+/// stdout). These are conditions Ship Studio can't fix and shouldn't
+/// telemetry-report as bugs; `Expected` keeps them out (same precedent as the
+/// missing-binary case above, issue #548).
+///
+/// - Subscription session/usage/rate limits — "You've hit your session limit
+///   · resets 4:40pm (Asia/Dubai)", usage-limit and rate-limit wordings
+///   (issue #653). The raw detail is appended so the CLI's reset time
+///   survives into the message.
+/// - Expired/missing sign-in — "OAuth token has expired · Please run /login"
+///   family (issue #653's session-expired sibling).
+/// - Untrusted workspace — Claude Code refusing headless runs in a folder the
+///   user never opened interactively: "this workspace has not been trusted.
+///   Run Claude Code interactively here once and accept the trust dialog, or
+///   set projects[…].hasTrustDialogAccepted: true in ~/.claude.json". The raw
+///   compound error (trust warning + stdin race + "--print needs input") is a
+///   confusing wall of text, so it gets a plain remedy instead (issue #660).
+fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandError> {
+    let lower = detail.to_lowercase();
+    if lower.contains("session limit")
+        || lower.contains("usage limit")
+        || lower.contains("rate limit")
+        || lower.contains("quota exceeded")
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} hit its usage limit, so AI generation isn't available right now. \
+             The limit resets automatically — try again later. ({detail})"
+        )));
+    }
+    if lower.contains("please run /login")
+        || lower.contains("oauth token has expired")
+        || lower.contains("session expired")
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} isn't signed in anymore (its session expired). Open an agent \
+             terminal and sign in again — for Claude Code, run /login — then try again."
+        )));
+    }
+    if lower.contains("has not been trusted") || lower.contains("hastrustdialogaccepted") {
+        return Some(CommandError::expected(format!(
+            "{agent_name} hasn't trusted this project's folder yet, so it won't run \
+             non-interactively here. Open an agent terminal in this project once and accept \
+             the trust prompt, then try again."
+        )));
+    }
+    None
+}
+
 /// Run the active agent headlessly with `prompt` in `cwd` and return its final
 /// answer text. `extra_envs` is injected on top of the extended PATH.
 async fn run_agent_headless(
@@ -190,6 +240,16 @@ async fn run_agent_headless(
             // The head carries the actual error (issue #578).
             crate::external_command::truncate_output(&stderr)
         };
+        // Known environment states (usage limit, expired sign-in, untrusted
+        // workspace) are the CLI working as designed — warn, not error, and
+        // Expected so they stay out of telemetry (issues #653/#660).
+        if let Some(err) = classify_agent_cli_failure(&agent.display_name, &detail) {
+            warn!(
+                "{} CLI failed with an expected condition: {}",
+                agent.display_name, detail
+            );
+            return Err(err);
+        }
         error!("{} CLI failed: {}", agent.display_name, detail);
         return Err(format!("{} CLI failed: {}", agent.display_name, detail).into());
     }
@@ -698,6 +758,66 @@ mod tests {
             }
             HeadlessInvocation::PrintMode { .. } => panic!("Codex should use exec mode"),
         }
+    }
+
+    // The CLI's subscription session/usage-limit refusal is the environment,
+    // not a bug — Expected, with the reset time preserved (issue #653).
+    #[test]
+    fn classify_agent_cli_failure_session_limit_is_expected() {
+        let detail =
+            "exit code Some(1): You've hit your session limit · resets 4:40pm (Asia/Dubai)";
+        let err = classify_agent_cli_failure("Claude Code", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("usage limit"), "got: {msg}");
+        // The CLI's own reset time must survive into the message.
+        assert!(msg.contains("resets 4:40pm"), "got: {msg}");
+    }
+
+    #[test]
+    fn classify_agent_cli_failure_usage_and_rate_limit_wordings() {
+        assert!(
+            classify_agent_cli_failure("Claude Code", "Claude AI usage limit reached").is_some()
+        );
+        assert!(classify_agent_cli_failure("Codex", "Rate limit exceeded, retry later").is_some());
+    }
+
+    // Expired sign-in ("run /login") is user-fixable, not a malfunction.
+    #[test]
+    fn classify_agent_cli_failure_expired_login_is_expected() {
+        let err = classify_agent_cli_failure(
+            "Claude Code",
+            "OAuth token has expired · Please obtain a new token or run /login",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("sign in again"));
+    }
+
+    // The untrusted-workspace compound error (trust warning + stdin race +
+    // "--print needs input") must become one plain remedy (issue #660).
+    #[test]
+    fn classify_agent_cli_failure_untrusted_workspace_is_expected() {
+        let detail = "Ignoring 16 permissions.allow entries from .claude/settings.local.json: \
+                      this workspace has not been trusted. Run Claude Code interactively here once \
+                      and accept the trust dialog, or set projects[\"<project>\"].hasTrustDialogAccepted: \
+                      true in ~/.claude.json.\nError: Input must be provided either through stdin or \
+                      as a prompt argument when using --print";
+        let err = classify_agent_cli_failure("Claude Code", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("trust"), "got: {msg}");
+        assert!(msg.contains("Open an agent terminal"), "got: {msg}");
+    }
+
+    // Genuine unexplained failures must keep flowing to telemetry.
+    #[test]
+    fn classify_agent_cli_failure_ignores_unknown_failures() {
+        assert!(
+            classify_agent_cli_failure("Claude Code", "exit code Some(1), no output").is_none()
+        );
+        assert!(classify_agent_cli_failure("Claude Code", "segmentation fault").is_none());
+        assert!(classify_agent_cli_failure("Claude Code", "").is_none());
     }
 
     #[test]
