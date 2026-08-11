@@ -68,7 +68,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError, setActiveProject } from '../lib/analytics';
 import { asCommandError, formatCommandError, isExpectedProjectImportRefusal } from '../lib/errors';
-import { extractTerminalError } from '../lib/terminalDiagnostics';
+import { describeExitStatus, extractTerminalError } from '../lib/terminalDiagnostics';
 import { getProjectId } from '../lib/projectIdentity';
 import { startProjectSession, endProjectSession } from '../lib/session';
 import { basename } from '../lib/paths';
@@ -806,10 +806,14 @@ export function useProjectLifecycle({
         error_detail: scrubbedDetail,
         $screen_name: 'Workspace',
       });
+      // describeExitStatus: abnormal Windows statuses (negative NTSTATUS /
+      // libuv codes, or their huge u32 wraps from older backends) render as
+      // hex instead of a nonsense number like 4294963238 (issue #622).
+      const exitDesc = describeExitStatus(exitCode);
       showToast(
         detail
-          ? `Install exited with code ${exitCode ?? 'null'}: ${detail} — check the terminal for the full output.`
-          : `Install exited with code ${exitCode ?? 'null'}. Check the terminal for details.`,
+          ? `Install exited with ${exitDesc}: ${detail} — check the terminal for the full output.`
+          : `Install exited with ${exitDesc}. Check the terminal for details.`,
         'error'
       );
       return; // keep overlay open so user can read stderr + close manually

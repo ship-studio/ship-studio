@@ -50,17 +50,9 @@ pub async fn set_custom_dev_command(
 
     metadata.custom_dev_command = command;
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Gets whether this project is forced to serve as a static site, overriding
@@ -104,17 +96,9 @@ pub async fn set_force_static_serve(project_path: String, force: bool) -> Result
 
     metadata.force_static_serve = if force { Some(true) } else { None };
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Gets the dev server port for a project (returns None if not configured, meaning use default 3000)
@@ -159,17 +143,9 @@ pub async fn set_dev_server_port(project_path: String, port: u16) -> Result<(), 
 
     metadata.dev_server_port = Some(port);
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Gets the active workspace subpath for a monorepo project, or None if the
@@ -237,17 +213,9 @@ pub async fn set_workspace_subpath(
 
     metadata.workspace_subpath = subpath;
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Result of checking whether a project's npm/pnpm/yarn dependencies are installed.

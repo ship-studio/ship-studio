@@ -160,6 +160,31 @@ fn most_recent_subdir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
         .map(|entry| entry.path())
 }
 
+/// pnpm's self-managed global bin directories (issue #570): `$PNPM_HOME` when
+/// set (pnpm's own bin dir is configurable), plus the per-platform defaults
+/// its standalone installer / `pnpm setup` uses — macOS `~/Library/pnpm`,
+/// Linux `~/.local/share/pnpm`, Windows `%LOCALAPPDATA%\pnpm`. Mirrors
+/// `claude.rs::candidate_paths_for`. Pure on its inputs so it's testable;
+/// existence isn't checked — a nonexistent PATH entry is harmless, matching
+/// the other entries here.
+fn pnpm_home_dirs(home: &std::path::Path, pnpm_home: Option<&str>) -> Vec<String> {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Some(ph) = pnpm_home {
+        let ph = ph.trim();
+        if !ph.is_empty() {
+            dirs.push(ph.to_string());
+        }
+    }
+    let home_str = home.to_string_lossy();
+    if cfg!(windows) {
+        dirs.push(format!("{home_str}\\AppData\\Local\\pnpm"));
+    } else {
+        dirs.push(format!("{home_str}/Library/pnpm")); // macOS default
+        dirs.push(format!("{home_str}/.local/share/pnpm")); // Linux default
+    }
+    dirs
+}
+
 /// Computes the extended PATH (uncached). Called by `get_extended_path()`.
 fn build_extended_path() -> String {
     let current_path = std::env::var("PATH").unwrap_or_default();
@@ -243,6 +268,11 @@ fn build_extended_path() -> String {
             windows_paths.push(format!("{}\\AppData\\Local\\Programs\\Git\\bin", home_str));
             windows_paths.push(format!("{}\\AppData\\Roaming\\npm", home_str));
             windows_paths.push(format!(r"{}\.local\bin", home_str));
+            // pnpm's self-managed install dir ($PNPM_HOME, default
+            // %LOCALAPPDATA%\pnpm) — see the Unix branch (issue #570).
+            for dir in pnpm_home_dirs(&home, std::env::var("PNPM_HOME").ok().as_deref()) {
+                windows_paths.push(dir);
+            }
         }
 
         windows_paths
@@ -265,6 +295,15 @@ fn build_extended_path() -> String {
         paths.push(format!("{home_str}/.opencode/bin")); // Opencode installer location
         paths.push(format!("{home_str}/.bun/bin")); // Bun-installed tools
         paths.push(format!("{home_str}/n/bin"));
+        // pnpm's self-managed install dirs (standalone installer / `pnpm
+        // setup`): $PNPM_HOME when set, else the platform defaults. Without
+        // these, a repo's husky/lefthook hook that shells out to pnpm fails
+        // with "command not found" under git_command()'s PATH (issue #570) —
+        // the same gap claude.rs::candidate_paths_for already closed for
+        // agent-CLI detection.
+        for dir in pnpm_home_dirs(&home, std::env::var("PNPM_HOME").ok().as_deref()) {
+            paths.push(dir);
+        }
 
         // Add NVM current/default version if it exists
         // First try the default alias, then fall back to finding the latest version
@@ -520,7 +559,18 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
 /// with the Files & Folders remediation instead of a bare "Operation not
 /// permitted" telemetry bug — the same treatment `read_projects_dir` got in
 /// #307, shared here so every fs call site classifies identically (issues
-/// #545, #605). Anything else stays a labeled `Io` for diagnosability.
+/// #545, #605, #625).
+///
+/// Two more environment shapes classify Expected here:
+/// - Windows `ERROR_ACCESS_DENIED` (os error 5, localized text — "Acceso
+///   denegado." on a Spanish install): typically the file being briefly
+///   locked by antivirus, another program, or cloud sync (issue #596).
+/// - A read-only filesystem (Unix EROFS os error 30 / Windows
+///   ERROR_WRITE_PROTECT os error 19): the volume itself refuses writes —
+///   e.g. a project opened off a read-only disk image or locked SD card
+///   (issue #625).
+///
+/// Anything else stays a labeled `Io` for diagnosability.
 pub fn classify_fs_error(
     action: &str,
     path: &std::path::Path,
@@ -530,6 +580,21 @@ pub fn classify_fs_error(
         crate::errors::CommandError::expected(format!(
             "Ship Studio isn't allowed to {action} ({}). Grant access in System Settings → \
              Privacy & Security → Files & Folders (or Full Disk Access), then try again.",
+            path.display()
+        ))
+    } else if cfg!(windows) && e.raw_os_error() == Some(5) {
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't {action} ({}) — Windows denied access. The file may be \
+             briefly locked by antivirus, another program, or cloud sync (e.g. OneDrive). \
+             Try again in a moment.",
+            path.display()
+        ))
+    } else if (cfg!(unix) && e.raw_os_error() == Some(30))
+        || (cfg!(windows) && e.raw_os_error() == Some(19))
+    {
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't {action} ({}) — the disk or volume is read-only. Move \
+             the project to a writable location, then try again.",
             path.display()
         ))
     } else {
@@ -1354,6 +1419,134 @@ mod tests {
                 }
                 other => panic!("expected Io, got {other:?}"),
             }
+        }
+
+        // The #596 shape: localized Windows ERROR_ACCESS_DENIED on an fs op
+        // ("Acceso denegado. (os error 5)") — matched by code, not text.
+        #[test]
+        #[cfg(windows)]
+        fn windows_access_denied_becomes_expected() {
+            let e = std::io::Error::from_raw_os_error(5);
+            let err = classify_fs_error(
+                "write project metadata",
+                std::path::Path::new("C:\\p\\.shipstudio\\project.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("denied access"), "got: {msg}");
+            assert!(msg.contains("project.json"), "got: {msg}");
+        }
+
+        // The #625 shape: EROFS on a project.json write (read-only volume).
+        #[test]
+        #[cfg(unix)]
+        fn read_only_filesystem_becomes_expected() {
+            let e = std::io::Error::from_raw_os_error(30);
+            let err = classify_fs_error(
+                "write project metadata",
+                std::path::Path::new("/p/.shipstudio/project.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("read-only"), "got: {msg}");
+            assert!(msg.contains("project.json"), "got: {msg}");
+        }
+
+        // Unix EPERM outside macOS (and any other permission error not
+        // covered by a specific branch) must stay a labeled Io — the TCC
+        // guidance would be wrong on Linux.
+        #[test]
+        #[cfg(all(unix, not(target_os = "macos")))]
+        fn linux_eperm_stays_labeled_io() {
+            let e = std::io::Error::from_raw_os_error(1);
+            let err = classify_fs_error(
+                "write project metadata",
+                std::path::Path::new("/p/.shipstudio/project.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Io { .. }),
+                "got: {err:?}"
+            );
+        }
+    }
+
+    mod pnpm_home_dirs_tests {
+        use super::*;
+
+        #[test]
+        fn includes_pnpm_home_when_set() {
+            let home = std::path::Path::new(if cfg!(windows) {
+                "C:\\Users\\x"
+            } else {
+                "/Users/x"
+            });
+            let dirs = pnpm_home_dirs(home, Some("/custom/pnpm-home"));
+            assert_eq!(dirs.first().map(String::as_str), Some("/custom/pnpm-home"));
+            // Defaults still follow so a stale/empty PNPM_HOME doesn't hide them.
+            assert!(dirs.len() > 1);
+        }
+
+        #[test]
+        fn blank_pnpm_home_is_ignored() {
+            let home = std::path::Path::new(if cfg!(windows) {
+                "C:\\Users\\x"
+            } else {
+                "/Users/x"
+            });
+            let with_blank = pnpm_home_dirs(home, Some("  "));
+            let without = pnpm_home_dirs(home, None);
+            assert_eq!(with_blank, without);
+        }
+
+        #[test]
+        #[cfg(not(windows))]
+        fn unix_defaults_cover_macos_and_linux_locations() {
+            let dirs = pnpm_home_dirs(std::path::Path::new("/Users/x"), None);
+            assert!(
+                dirs.contains(&"/Users/x/Library/pnpm".to_string()),
+                "{dirs:?}"
+            );
+            assert!(
+                dirs.contains(&"/Users/x/.local/share/pnpm".to_string()),
+                "{dirs:?}"
+            );
+        }
+
+        #[test]
+        #[cfg(windows)]
+        fn windows_default_is_local_app_data_pnpm() {
+            let dirs = pnpm_home_dirs(std::path::Path::new("C:\\Users\\x"), None);
+            assert!(
+                dirs.contains(&"C:\\Users\\x\\AppData\\Local\\pnpm".to_string()),
+                "{dirs:?}"
+            );
+        }
+
+        // The #570 regression guard: the extended PATH handed to git (and thus
+        // to pre-commit hooks) must contain pnpm's self-managed install dirs.
+        #[test]
+        fn build_extended_path_includes_pnpm_dirs() {
+            let path = build_extended_path();
+            let expected = if cfg!(windows) {
+                "\\AppData\\Local\\pnpm"
+            } else if cfg!(target_os = "macos") {
+                "/Library/pnpm"
+            } else {
+                "/.local/share/pnpm"
+            };
+            assert!(
+                path.contains(expected),
+                "extended PATH missing pnpm dir: {path}"
+            );
         }
     }
 

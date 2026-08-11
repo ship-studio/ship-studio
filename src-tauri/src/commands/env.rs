@@ -43,7 +43,12 @@ pub async fn read_env_file(file_path: String) -> Result<Vec<EnvVar>, CommandErro
     // Constrain reads to files inside ShipStudio/registered projects so this
     // can't be used to exfiltrate arbitrary files (~/.aws/credentials, etc.).
     let safe_path = validate_project_file_path(&file_path)?;
-    let contents = std::fs::read_to_string(&safe_path).map_err(|e| e.to_string())?;
+    // classify_fs_error: labels the op/path and turns environment denials —
+    // macOS TCC EPERM, Windows access-denied (a .env briefly locked by an
+    // editor/antivirus/OneDrive) — into Expected instead of a bare
+    // unattributable OS string in telemetry (issue #596).
+    let contents = std::fs::read_to_string(&safe_path)
+        .map_err(|e| crate::utils::classify_fs_error("read this .env file", &safe_path, &e))?;
     let mut vars = Vec::new();
 
     for line in contents.lines() {
@@ -137,7 +142,9 @@ pub async fn write_env_file(file_path: String, vars: Vec<EnvVar>) -> Result<(), 
         contents.push_str(&format!("{}={}\n", var.key, value));
     }
 
-    std::fs::write(&safe_path, contents).map_err(|e| e.to_string())?;
+    // classify_fs_error: see read_env_file (issue #596).
+    std::fs::write(&safe_path, contents)
+        .map_err(|e| crate::utils::classify_fs_error("write this .env file", &safe_path, &e))?;
     Ok(())
 }
 
@@ -173,7 +180,9 @@ pub async fn create_env_file(
         return Err((format!("{file_name} already exists")).into());
     }
 
-    std::fs::write(&env_path, "").map_err(|e| e.to_string())?;
+    // classify_fs_error: see read_env_file (issue #596).
+    std::fs::write(&env_path, "")
+        .map_err(|e| crate::utils::classify_fs_error("create this .env file", &env_path, &e))?;
     Ok(env_path.to_string_lossy().to_string())
 }
 
@@ -183,6 +192,8 @@ pub async fn delete_env_file(file_path: String) -> Result<(), CommandError> {
     // Validate the file is inside ShipStudio (or a registered external project)
     // and operate on the canonicalized path to avoid `..`/symlink escapes.
     let safe_path = validate_project_file_path(&file_path)?;
-    std::fs::remove_file(&safe_path).map_err(|e| e.to_string())?;
+    // classify_fs_error: see read_env_file (issue #596).
+    std::fs::remove_file(&safe_path)
+        .map_err(|e| crate::utils::classify_fs_error("delete this .env file", &safe_path, &e))?;
     Ok(())
 }

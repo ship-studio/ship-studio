@@ -193,6 +193,29 @@ pub async fn exec_plugin_shell(
                         &command,
                     ));
                 }
+                // Windows ERROR_FILENAME_EXCED_RANGE (os error 206): the
+                // resolved absolute path (#475) plus args can exceed the
+                // legacy MAX_PATH limit on long profiles (OneDrive-redirected
+                // homes, fnm multishell dirs). Environment limit with a
+                // user-side fix, so Expected (issue #549).
+                if crate::external_command::is_windows_path_too_long(&rendered) {
+                    return Err(CommandError::expected(format!(
+                        "Plugin '{plugin_id}' couldn't run '{command}' — Windows rejected the \
+                         command because its path or arguments exceed the path-length limit \
+                         (os error 206). Enable Windows long-path support, or move the \
+                         tool/project to a shorter path, then try again."
+                    )));
+                }
+                // Access denied (Windows os error 5 — localized text — or Unix
+                // EACCES/EPERM): typically antivirus briefly locking the
+                // binary. Environment, not an app malfunction (issue #596).
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    return Err(CommandError::expected(format!(
+                        "Plugin '{plugin_id}' couldn't run '{command}' — the operating system \
+                         denied access. This is usually security/antivirus software briefly \
+                         locking the program, or missing file permissions. Try again in a moment."
+                    )));
+                }
                 // Name the plugin and command here too — this final branch
                 // used to drop both, leaving a bare unattributable OS error
                 // as the only telemetry signal (issue #573).
