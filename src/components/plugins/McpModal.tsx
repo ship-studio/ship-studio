@@ -19,6 +19,7 @@ import {
   removeMcpServer,
   validateMcpAddCommand,
   isMcpUnsupportedCliError,
+  isMcpInvalidInputError,
 } from '../../lib/mcp';
 import { trackEvent, trackSearch } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
@@ -117,8 +118,9 @@ export function McpModal({
     // Validate before shelling out: a name with no command/URL would only
     // fail at the CLI level with a raw "missing required argument
     // 'commandOrUrl'" usage error (issue #588). Inline feedback, no toast,
-    // no log — the user just hasn't finished typing the command.
-    const validationError = validateMcpAddCommand(addCommand.trim(), agentBinaryName);
+    // no log — the user just hasn't finished typing the command. The agentId
+    // selects OpenCode's stricter flag-unaware grammar (issue #655).
+    const validationError = validateMcpAddCommand(addCommand.trim(), agentBinaryName, agentId);
     if (validationError) {
       setAddError(validationError);
       setAddSuccess(false);
@@ -154,6 +156,14 @@ export function McpModal({
         setAddError(
           `${agentDisplayName} doesn't appear to be installed on this computer, so its MCP servers can't be managed. Install ${agentDisplayName} first, then try again.`
         );
+      } else if (isMcpInvalidInputError(err)) {
+        // The backend's own input-shape validation (OpenCode config path) —
+        // a user-input problem the frontend pre-flight didn't catch, not an
+        // app bug. Inline feedback + warn, no auto-filed report (issue #655).
+        logger.warn('Failed to add MCP server: input rejected by agent parser', {
+          error: message,
+        });
+        setAddError(message);
       } else {
         logger.error('Failed to add MCP server', { error: message });
         setAddError(message);
