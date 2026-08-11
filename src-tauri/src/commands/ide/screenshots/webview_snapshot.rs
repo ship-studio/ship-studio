@@ -106,6 +106,26 @@ pub async fn capture_thumbnail_from_webview(
     Ok(thumbnail_path.to_string_lossy().to_string())
 }
 
+/// Ceiling for the snapshot completion handler to fire. WebKit renders
+/// snapshots in-process off the live layer tree — normally milliseconds —
+/// so this only guards a wedged web process / blocked main thread.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const WEBVIEW_SNAPSHOT_TIMEOUT_SECS: u64 = 10;
+
+/// Error for a snapshot whose completion handler never fired within the
+/// ceiling: the web process (or the app's main thread) was wedged at capture
+/// time. Classified Expected — a transient environmental state, not an app
+/// malfunction; the frontend falls back to the headless capture path whenever
+/// this command fails (issue #652).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn snapshot_timeout_error() -> CommandError {
+    CommandError::expected(format!(
+        "The app's preview didn't respond to the snapshot request within \
+         {WEBVIEW_SNAPSHOT_TIMEOUT_SECS}s — the webview may be busy rendering. The thumbnail \
+         will be captured with the standard fallback path instead."
+    ))
+}
+
 /// Max per-channel spread within a row/column for it to count as a uniform
 /// sliver (tolerates anti-aliased boundary pixels; real content spreads far
 /// wider — the observed background sliver measured spread ≤ 12).
@@ -232,7 +252,12 @@ async fn snapshot_webview_region(
 
     // WebKit renders snapshots in-process off the live layer tree — normally
     // milliseconds. The ceiling only guards a wedged web process.
-    match tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(WEBVIEW_SNAPSHOT_TIMEOUT_SECS),
+        rx.recv(),
+    )
+    .await
+    {
         Ok(Some(Ok(bytes))) => Ok(bytes),
         Ok(Some(Err(message))) => Err(CommandError::from(format!(
             "Webview snapshot failed: {message}"
@@ -240,9 +265,14 @@ async fn snapshot_webview_region(
         Ok(None) => Err(CommandError::from(
             "Webview snapshot callback dropped without a result".to_string(),
         )),
-        Err(_) => Err(CommandError::from(
-            "Webview snapshot timed out after 10s".to_string(),
-        )),
+        // Nothing leaks on this path: the snapshot targets the app's own live
+        // webview (no hidden window or capture webview is ever created), the
+        // per-project CaptureClaim releases when this command returns, and
+        // the pending Obj-C completion block only holds the channel sender —
+        // if WebKit eventually finishes, its send lands in this dropped
+        // channel and is discarded, so a late snapshot can never write a
+        // stale thumbnail over the fallback's result.
+        Err(_) => Err(snapshot_timeout_error()),
     }
 }
 
@@ -369,6 +399,25 @@ mod trim_tests {
         let img = RgbImage::from_pixel(30, 30, Rgb([30, 30, 30]));
         let out = trim_uniform_edges(DynamicImage::ImageRgb8(img));
         assert_eq!((out.width(), out.height()), (30, 30));
+    }
+}
+
+#[cfg(test)]
+mod timeout_error_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_timeout_is_expected_not_telemetry() {
+        // Issue #652: the completion handler never firing means the web
+        // process / main thread was wedged at capture time — a transient
+        // environmental state the frontend falls back from, not an app bug.
+        match snapshot_timeout_error() {
+            CommandError::Expected { message } => {
+                assert!(message.contains("didn't respond"), "got: {message}");
+                assert!(message.contains("10s"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
     }
 }
 
