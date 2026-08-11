@@ -14,6 +14,11 @@ vi.mock('../lib/project', () => ({
   getWorkspaceSubpath: vi.fn().mockResolvedValue(null),
   resolveWorkspacePath: (path: string, subpath: string | null) =>
     subpath ? `${path}/${subpath}` : path,
+  checkDependenciesInstalled: vi.fn().mockResolvedValue({
+    installed: true,
+    hasPackageJson: true,
+    workspaceHasPackageJson: true,
+  }),
 }));
 
 vi.mock('../lib/static-server', () => ({
@@ -57,6 +62,11 @@ describe('useDevServer', () => {
     vi.mocked(project.getCustomDevCommand).mockResolvedValue(null);
     vi.mocked(project.getForceStaticServe).mockResolvedValue(false);
     vi.mocked(project.getWorkspaceSubpath).mockResolvedValue(null);
+    vi.mocked(project.checkDependenciesInstalled).mockResolvedValue({
+      installed: true,
+      hasPackageJson: true,
+      workspaceHasPackageJson: true,
+    });
   });
 
   it('initializes with default state', () => {
@@ -319,6 +329,97 @@ describe('useDevServer', () => {
         'main',
         expect.any(Function)
       );
+    });
+
+    it('skips the dev server when a framework config exists but no package.json (issue #593)', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      const { startDevServer, checkDependenciesInstalled } = await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('nextjs');
+      vi.mocked(checkDependenciesInstalled).mockResolvedValue({
+        installed: true,
+        hasPackageJson: false,
+        workspaceHasPackageJson: false,
+      });
+
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
+      });
+
+      expect(result.current.projectType).toBe('nextjs');
+      expect(startDevServer).not.toHaveBeenCalled();
+    });
+
+    it('skips the dev server when the workspace subpath has no package.json even though the repo root does (issue #656)', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      const { startDevServer, checkDependenciesInstalled, getWorkspaceSubpath } =
+        await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('nextjs');
+      vi.mocked(getWorkspaceSubpath).mockResolvedValue('apps/web');
+      // Root has a package.json (so the OR-based flag is true), but the picked
+      // workspace subpath does not — the spawn at the subpath would be doomed.
+      vi.mocked(checkDependenciesInstalled).mockResolvedValue({
+        installed: true,
+        hasPackageJson: true,
+        workspaceHasPackageJson: false,
+      });
+
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
+      });
+
+      expect(result.current.projectType).toBe('nextjs');
+      expect(startDevServer).not.toHaveBeenCalled();
+    });
+
+    it('starts the dev server at the workspace subpath when it has its own package.json', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      const { startDevServer, checkDependenciesInstalled, getWorkspaceSubpath } =
+        await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('nextjs');
+      vi.mocked(getWorkspaceSubpath).mockResolvedValue('apps/web');
+      vi.mocked(checkDependenciesInstalled).mockResolvedValue({
+        installed: true,
+        hasPackageJson: true,
+        workspaceHasPackageJson: true,
+      });
+
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
+      });
+
+      expect(startDevServer).toHaveBeenCalledWith(
+        '/path/to/project/apps/web',
+        3000,
+        'main',
+        expect.any(Function)
+      );
+    });
+
+    it('still starts the dev server when the backend predates workspaceHasPackageJson', async () => {
+      const { detectProjectType } = await import('../lib/static-server');
+      const { startDevServer, checkDependenciesInstalled, getWorkspaceSubpath } =
+        await import('../lib/project');
+      vi.mocked(detectProjectType).mockResolvedValue('nextjs');
+      vi.mocked(getWorkspaceSubpath).mockResolvedValue('apps/web');
+      // Older backend: field absent from the payload.
+      vi.mocked(checkDependenciesInstalled).mockResolvedValue({
+        installed: true,
+        hasPackageJson: true,
+      } as never);
+
+      const { result } = renderHook(() => useDevServer('/path/to/project'));
+
+      await act(async () => {
+        await result.current.startServerForProject('/path/to/project', 'my-project', 3000, 'main');
+      });
+
+      expect(startDevServer).toHaveBeenCalled();
     });
 
     it('does not start a web dev server for native mobile projects', async () => {
