@@ -115,6 +115,22 @@ fn map_spawn_io_error(label: &str, io_err: &std::io::Error) -> CommandError {
         spawn_access_denied_error(label)
     } else if is_windows_path_too_long(&io_err.to_string()) {
         windows_path_too_long_error(label)
+    } else if io_err.kind() == std::io::ErrorKind::InvalidInput
+        && io_err
+            .to_string()
+            .contains("batch file arguments are invalid")
+    {
+        // Windows-only: Rust's std routes `.bat`/`.cmd` scripts through
+        // `cmd.exe` (the BatBadBut mitigation) and refuses to spawn when an
+        // argument can't be safely cmd-escaped (embedded double quotes,
+        // newlines). npm-installed CLIs resolve to `.cmd` shims on Windows, so
+        // an argument carrying free-form text (an AI prompt embedding a git
+        // diff) hit this as an unactionable raw Io error (issue #663). It's an
+        // input-shape limitation of the environment, not an app malfunction.
+        CommandError::expected(format!(
+            "`{label}` couldn't be launched: one of its arguments contains characters \
+             (quotes or line breaks) that Windows can't pass to a .cmd script."
+        ))
     } else {
         CommandError::Io { message }
     }
@@ -561,6 +577,31 @@ mod tests {
             }
             other => panic!("expected Expected, got {other:?}"),
         }
+    }
+
+    // The #663 shape: Rust's BatBadBut mitigation refuses to spawn a .cmd
+    // with an argument it can't safely cmd-escape — an environment/input
+    // limitation, so Expected with a human message, not a reported raw Io.
+    #[test]
+    fn map_spawn_io_error_classifies_batch_argument_rejection_as_expected() {
+        let e = std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "batch file arguments are invalid",
+        );
+        match map_spawn_io_error("Codex CLI", &e) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("`Codex CLI`"), "got: {message}");
+                assert!(message.contains(".cmd script"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+
+        // Other InvalidInput failures stay unclassified.
+        let unrelated = std::io::Error::new(std::io::ErrorKind::InvalidInput, "bad handle");
+        assert!(matches!(
+            map_spawn_io_error("Codex CLI", &unrelated),
+            CommandError::Io { .. }
+        ));
     }
 
     // The #616 shape: `I/O error: `gh pr list`: Resource temporarily

@@ -50,10 +50,17 @@ enum HeadlessInvocation {
     },
     /// Codex `exec`: stdout is a session transcript (which echoes the prompt —
     /// unsafe to parse), so the final message is captured via
-    /// `--output-last-message` into a temp file instead.
+    /// `--output-last-message` into a temp file instead. The prompt travels
+    /// via stdin (the positional argument is `-`, which `codex exec` documents
+    /// as "read instructions from stdin"): besides the E2BIG ceiling, on
+    /// Windows Codex resolves to a `.cmd` shim, and Rust's std refuses to
+    /// spawn a `.cmd` when an argument can't be safely cmd.exe-escaped —
+    /// a prompt embedding a raw git diff (quotes, newlines) failed the whole
+    /// generation with "batch file arguments are invalid" (issue #663).
     CodexExec {
         args: Vec<String>,
         output_file: PathBuf,
+        stdin_prompt: String,
     },
 }
 
@@ -91,7 +98,9 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
         ));
         // --skip-git-repo-check: worktrees/external folders can trip Codex's
         // trusted-directory heuristic even though we always run in a validated
-        // project path.
+        // project path. The trailing `-` makes Codex read the prompt from
+        // stdin — never argv (issues #595's E2BIG class and #663's Windows
+        // .cmd escaping failure).
         let args = vec![
             "exec".to_string(),
             "--skip-git-repo-check".to_string(),
@@ -99,9 +108,13 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
             "never".to_string(),
             "--output-last-message".to_string(),
             output_file.to_string_lossy().to_string(),
-            prompt.to_string(),
+            "-".to_string(),
         ];
-        return Some(HeadlessInvocation::CodexExec { args, output_file });
+        return Some(HeadlessInvocation::CodexExec {
+            args,
+            output_file,
+            stdin_prompt: prompt.to_string(),
+        });
     }
     None
 }
@@ -176,9 +189,15 @@ async fn run_agent_headless(
         HeadlessInvocation::PrintMode { args, stdin_prompt } => {
             (args.clone(), None, stdin_prompt.clone())
         }
-        HeadlessInvocation::CodexExec { args, output_file } => {
-            (args.clone(), Some(output_file.clone()), None)
-        }
+        HeadlessInvocation::CodexExec {
+            args,
+            output_file,
+            stdin_prompt,
+        } => (
+            args.clone(),
+            Some(output_file.clone()),
+            Some(stdin_prompt.clone()),
+        ),
     };
 
     let mut cmd = create_command(agent_path);
@@ -190,13 +209,13 @@ async fn run_agent_headless(
     let output = if let Some(prompt_data) = &stdin_prompt {
         // The prompt travels via stdin (piped, written in full, then closed so
         // the CLI sees EOF) instead of argv — see HeadlessInvocation::PrintMode
-        // (issue #595).
+        // (issue #595) and HeadlessInvocation::CodexExec (issue #663).
         let tokio_cmd = tokio::process::Command::from(cmd);
         crate::external_command::run_with_timeout_stdin(tokio_cmd, prompt_data, label, timeout_secs)
             .await
     } else {
-        // No TTY here: an EOF'd stdin keeps agents that read it (Codex exec)
-        // from waiting on input that will never come.
+        // No TTY here: an EOF'd stdin keeps agents that read it from waiting
+        // on input that will never come.
         cmd.stdin(std::process::Stdio::null());
         let tokio_cmd = tokio::process::Command::from(cmd);
         run_with_timeout(tokio_cmd, label, timeout_secs).await
@@ -742,9 +761,18 @@ mod tests {
 
     #[test]
     fn headless_invocation_codex_captures_last_message_to_file() {
-        let inv = headless_invocation(&crate::agent::CODEX, "hello").unwrap();
+        // The prompt must NOT be an argv element: on Windows Codex is a .cmd
+        // shim, and Rust refuses to spawn a .cmd when an argument (a prompt
+        // embedding a raw diff) can't be safely cmd.exe-escaped — "batch file
+        // arguments are invalid" (issue #663). `-` tells `codex exec` to read
+        // the prompt from stdin instead.
+        let inv = headless_invocation(&crate::agent::CODEX, "hello \"quoted\"\nmultiline").unwrap();
         match inv {
-            HeadlessInvocation::CodexExec { args, output_file } => {
+            HeadlessInvocation::CodexExec {
+                args,
+                output_file,
+                stdin_prompt,
+            } => {
                 assert_eq!(args[0], "exec");
                 assert!(args.contains(&"--skip-git-repo-check".to_string()));
                 let file_arg = args
@@ -753,8 +781,10 @@ mod tests {
                     .map(|i| &args[i + 1])
                     .expect("has --output-last-message");
                 assert_eq!(file_arg, &output_file.to_string_lossy().to_string());
-                // Prompt is the final argument.
-                assert_eq!(args.last().unwrap(), "hello");
+                // The final argument is the stdin sentinel, never the prompt.
+                assert_eq!(args.last().unwrap(), "-");
+                assert!(!args.iter().any(|a| a.contains("hello")));
+                assert_eq!(stdin_prompt, "hello \"quoted\"\nmultiline");
             }
             HeadlessInvocation::PrintMode { .. } => panic!("Codex should use exec mode"),
         }

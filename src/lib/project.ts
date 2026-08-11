@@ -793,17 +793,30 @@ export function resolveWorkspacePath(projectPath: string, subpath: string | null
 export interface DependencyStatus {
   /** True when `node_modules` is present (or the project has no package.json). */
   installed: boolean;
-  /** True when the project has a `package.json` at all. */
+  /** True when the project has a `package.json` at all (repo root OR workspace subpath). */
   hasPackageJson: boolean;
+  /**
+   * True when a `package.json` exists at the resolved dev-server cwd — the
+   * workspace subpath for monorepo projects, the repo root otherwise. This is
+   * the flag that answers "will `npm run dev` at the cwd find a package.json";
+   * `hasPackageJson` only answers "does an install make sense somewhere"
+   * (issue #656).
+   */
+  workspaceHasPackageJson: boolean;
 }
 
 /** Check whether dependencies are installed for a project. */
 export async function checkDependenciesInstalled(projectPath: string): Promise<DependencyStatus> {
-  const raw = await invoke<{ installed: boolean; has_package_json: boolean }>(
-    'check_dependencies_installed',
-    { projectPath }
-  );
-  return { installed: raw.installed, hasPackageJson: raw.has_package_json };
+  const raw = await invoke<{
+    installed: boolean;
+    has_package_json: boolean;
+    workspace_has_package_json: boolean;
+  }>('check_dependencies_installed', { projectPath });
+  return {
+    installed: raw.installed,
+    hasPackageJson: raw.has_package_json,
+    workspaceHasPackageJson: raw.workspace_has_package_json,
+  };
 }
 
 /**

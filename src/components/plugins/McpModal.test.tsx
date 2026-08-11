@@ -151,6 +151,48 @@ describe('McpModal error flows', () => {
     expect(logger.error as Fn).not.toHaveBeenCalled();
   });
 
+  it("rejects an OpenCode name-only Add inline via OpenCode's own grammar (#655)", async () => {
+    render(<McpModal agentId="opencode" agentDisplayName="OpenCode" agentBinaryName="opencode" />);
+    const input = await openAddTab();
+
+    // A quoted name is one shell token — the generic whitespace-based
+    // validator saw two tokens and waved it through to the CLI.
+    fireEvent.change(input, { target: { value: '"my server"' } });
+    clickAddSubmit();
+
+    expect(await screen.findByText(/need a command or a --url/i)).toBeInTheDocument();
+    expect(addMcpServer).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).not.toHaveBeenCalled();
+  });
+
+  it("logs the backend's own input-shape rejection at warn, not error (#655)", async () => {
+    vi.mocked(addMcpServer).mockRejectedValue({
+      type: 'Other',
+      message:
+        'OpenCode MCP servers need a command or a --url, e.g. `my-server -- npx -y @some/mcp-server`',
+    });
+
+    render(<McpModal agentId="opencode" agentDisplayName="OpenCode" agentBinaryName="opencode" />);
+    const input = await openAddTab();
+
+    // Passes frontend validation but (hypothetically) still bounces off the
+    // backend parser — must be classified as user input, not an app bug.
+    fireEvent.change(input, { target: { value: 'my-server -- npx -y @some/mcp-server' } });
+    clickAddSubmit();
+
+    expect(await screen.findByText(/need a command or a --url/i)).toBeInTheDocument();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalledWith(
+      'Failed to add MCP server: input rejected by agent parser',
+      expect.objectContaining({ error: expect.stringContaining('need a command') as unknown })
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
+  });
+
   it('keeps logger.error for genuinely unrecognized add failures', async () => {
     vi.mocked(addMcpServer).mockRejectedValue({
       type: 'Other',

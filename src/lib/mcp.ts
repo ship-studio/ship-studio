@@ -66,6 +66,57 @@ export function isMcpUnsupportedCliError(value: unknown): boolean {
   );
 }
 
+/**
+ * True when an `mcp add` failure is the backend's own input-shape validation
+ * (OpenCode's config-file path in `opencode_mcp_entry`,
+ * src-tauri/src/commands/mcp.rs) — the user hasn't finished typing the
+ * command, not an app bug. The backend classifies these `Expected`, but the
+ * frontend's generic catch branch still logged them as errors, auto-filing
+ * bug reports for typos (issue #655).
+ */
+export function isMcpInvalidInputError(value: unknown): boolean {
+  const message = formatCommandError(asCommandError(value));
+  return (
+    /need a command or a --url/i.test(message) ||
+    /--url needs a value/i.test(message) ||
+    /No arguments provided for mcp add/i.test(message)
+  );
+}
+
+/**
+ * Split a raw `mcp add` argument string like a shell would — whitespace
+ * separates tokens, single/double quotes group, `\"` and `\\` escape inside
+ * double quotes. Mirrors the backend's `shell_split`
+ * (src-tauri/src/commands/mcp.rs) so frontend validation tokenizes exactly
+ * like the parser that will actually consume the input.
+ */
+function shellSplitArgs(input: string): string[] {
+  const args: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i];
+    if (c === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (c === '"' && !inSingle) {
+      inDouble = !inDouble;
+    } else if ((c === ' ' || c === '\t') && !inSingle && !inDouble) {
+      if (current) {
+        args.push(current);
+        current = '';
+      }
+    } else if (c === '\\' && inDouble && (input[i + 1] === '"' || input[i + 1] === '\\')) {
+      current += input[i + 1];
+      i++;
+    } else {
+      current += c;
+    }
+  }
+  if (current) args.push(current);
+  return args;
+}
+
 /** Flags of `mcp add` that consume the next token as their value. */
 const MCP_ADD_VALUE_FLAGS = new Set([
   '--transport',
@@ -88,13 +139,42 @@ const MCP_ADD_VALUE_FLAGS = new Set([
  * (`--transport http name url`), and either a `--url <value>`, a URL token,
  * or a command (bare token / `-- command...`) satisfies the requirement.
  *
+ * For OpenCode (`agentId === 'opencode'`) the generic flag-aware grammar is
+ * wrong: OpenCode's `mcp add` is interactive-only, so the backend writes its
+ * config file directly via `opencode_mcp_entry`, whose parser has no flag
+ * awareness at all — first token is the name, the rest is either
+ * `--url <value>` or the command (optionally after `--`). Mirror that exact
+ * rule so what the frontend waves through matches what the backend accepts,
+ * and only reject what OpenCode definitely rejects (issue #655).
+ *
  * @returns A user-facing error message, or `null` when the input looks valid.
  */
-export function validateMcpAddCommand(rawArgs: string, agentBinaryName = 'claude'): string | null {
+export function validateMcpAddCommand(
+  rawArgs: string,
+  agentBinaryName = 'claude',
+  agentId?: string
+): string | null {
   let text = rawArgs.trim();
   // Strip the optional "<binary> mcp add" prefix exactly like the backend.
   if (text.startsWith(agentBinaryName)) text = text.slice(agentBinaryName.length).trimStart();
   if (text.startsWith('mcp add')) text = text.slice('mcp add'.length).trimStart();
+
+  if (agentId === 'opencode') {
+    // Same tokenization + shape rule as `opencode_mcp_entry`
+    // (src-tauri/src/commands/mcp.rs).
+    const [, ...rest] = shellSplitArgs(text);
+    if (rest[0] === '--url') {
+      if (rest.length < 2) {
+        return 'Give --url a value, e.g. `my-server --url https://example.com/mcp`.';
+      }
+      return null;
+    }
+    const command = rest[0] === '--' ? rest.slice(1) : rest;
+    if (command.length === 0) {
+      return 'OpenCode MCP servers need a command or a --url: add a command after the name (e.g. `my-server -- npx -y @some/mcp-server`) or a URL (e.g. `my-server --url https://example.com/mcp`).';
+    }
+    return null;
+  }
 
   const invalid =
     'Include what the server runs or connects to: a command after the name (e.g. `my-server -- npx -y @some/mcp-server`) or a URL (e.g. `my-server --url https://example.com/mcp`).';
