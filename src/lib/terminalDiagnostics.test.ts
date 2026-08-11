@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createPtyChunkDecoder,
+  describeExitStatus,
   detectAlreadyLoggedIn,
   extractTerminalError,
   isNetworkError,
@@ -224,5 +225,30 @@ describe('detectAlreadyLoggedIn', () => {
     expect(detectAlreadyLoggedIn('You are not logged in. Run /login to sign in.\n')).toBeNull();
     expect(detectAlreadyLoggedIn('error: OAuth token exchange failed\n')).toBeNull();
     expect(detectAlreadyLoggedIn('')).toBeNull();
+  });
+});
+
+describe('describeExitStatus', () => {
+  it('renders ordinary exit codes as "code N"', () => {
+    expect(describeExitStatus(0)).toBe('code 0');
+    expect(describeExitStatus(1)).toBe('code 1');
+    expect(describeExitStatus(127)).toBe('code 127');
+    expect(describeExitStatus(3010)).toBe('code 3010'); // Windows reboot-required
+  });
+
+  it('renders null (killed mid-run) as "code null"', () => {
+    expect(describeExitStatus(null)).toBe('code null');
+  });
+
+  // The #622 shape: a raw u32-wrapped negative status from older backends.
+  it('renders huge u32-wrapped Windows statuses as hex', () => {
+    expect(describeExitStatus(4294963238)).toBe('status 0xFFFFF026'); // -4058 = UV_ENOENT
+    expect(describeExitStatus(3221225477)).toBe('status 0xC0000005'); // ACCESS_VIOLATION
+  });
+
+  // The post-fix backend shape: the same statuses arriving as signed i32.
+  it('renders negative signed statuses as the same hex', () => {
+    expect(describeExitStatus(-4058)).toBe('status 0xFFFFF026');
+    expect(describeExitStatus(-1073741819)).toBe('status 0xC0000005');
   });
 });

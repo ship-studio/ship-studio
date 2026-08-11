@@ -93,6 +93,42 @@ pub(crate) async fn run_git_net(
     run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
 }
 
+/// [`run_git_net`] plus a bounded retry when git loses the `.git/index.lock`
+/// race — the async counterpart of `utils::output_retrying_index_lock`
+/// (which wraps a synchronous closure and can't be reused here).
+///
+/// Pull/merge mutate the index just like add/commit/checkout, so they can
+/// collide with the background snapshot watcher's debounced `git stash
+/// create` (or any agent CLI running git) exactly like the already-covered
+/// call sites (#377/#567/#597) — `git_pull`/`pull_and_merge` were the
+/// remaining gap (issue #639). Non-contention failures and successes return
+/// immediately; contention is retried with a short backoff, then returned
+/// as-is so the caller's normal error path reports it.
+pub(crate) async fn run_git_net_retrying_index_lock(
+    args: &[&str],
+    cwd: &std::path::Path,
+    label: &str,
+) -> Result<std::process::Output, CommandError> {
+    const ATTEMPTS: u64 = 3;
+    for attempt in 1..=ATTEMPTS {
+        let output = run_git_net(args, cwd, label).await?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if output.status.success()
+            || !crate::utils::is_index_lock_contention(&stderr)
+            || attempt == ATTEMPTS
+        {
+            return Ok(output);
+        }
+        tracing::warn!(
+            attempt,
+            label,
+            "git lost the index.lock race; retrying after backoff"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200 * attempt)).await;
+    }
+    unreachable!("loop always returns on the final attempt")
+}
+
 /// Classify a failed [`run_git_net`] invocation's stderr into the expected
 /// gh/git environment states: auth not configured, a connectivity blip,
 /// GitHub's transient HTTP 400, or gh itself crashing. `run_git_net` routes
@@ -181,16 +217,52 @@ fn ensure_shipstudio_excluded(path: &std::path::Path) {
     );
 }
 
+/// Marker strings that identify a failed `git commit` as the project's own
+/// commit-hook chain refusing the commit (husky / lint-staged / the pre-commit
+/// framework), rather than git itself failing. Git contributes no wording of
+/// its own when a hook exits non-zero — the output IS the hook runner's — so
+/// these are the runners' stable banner/marker literals (issue #604).
+fn is_hook_failure_output(output: &str) -> bool {
+    output.contains("husky")
+        || output.contains("lint-staged")
+        || output.contains("pre-commit")
+        || output.contains("[STARTED]")
+        || output.contains("[FAILED]")
+        || output.contains("hook exited with code")
+}
+
+/// Last `max_bytes` of hook output, cut at a line boundary — the failure
+/// reason (a failing test, a type error) is almost always at the tail, and
+/// the full dump is unreadable in a toast (issue #604).
+fn tail_of_output(output: &str, max_bytes: usize) -> &str {
+    let trimmed = output.trim_end();
+    if trimmed.len() <= max_bytes {
+        return trimmed;
+    }
+    let start = trimmed.len() - max_bytes;
+    // Snap forward to the next line start so we never cut mid-line (or mid
+    // UTF-8 sequence).
+    match trimmed[start..].find('\n') {
+        Some(nl) => &trimmed[start + nl + 1..],
+        None => trimmed
+            .char_indices()
+            .find(|(i, _)| *i >= start)
+            .map(|(i, _)| &trimmed[i..])
+            .unwrap_or(""),
+    }
+}
+
 /// Stages all changes and commits with the given message.
 /// Returns true if a commit was made, false if nothing to commit.
-pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<bool, String> {
+pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<bool, CommandError> {
     // Defense-in-depth backstop for #345: even if a too-broad path slipped past
     // registration, never run `git add -A` across the home tree.
     if crate::utils::is_forbidden_project_root(path) {
         return Err(format!(
             "Refusing to stage changes in '{}': it is the home directory or wider, not a project folder",
             path.display()
-        ));
+        )
+        .into());
     }
     // Make sure .shipstudio/ is excluded BEFORE `git add -A` walks the tree:
     // the frontend's ensure-gitignore calls are best-effort and can be skipped
@@ -208,8 +280,7 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
         let mut cmd = crate::utils::git_command_in(path)?;
         cmd.args(["add", "-A"]);
         crate::external_command::spawn_with_pressure_retry("git add", || cmd.output())
-    })
-    .map_err(String::from)?;
+    })?;
 
     if !add_output.status.success() {
         let add_stderr = String::from_utf8_lossy(&add_output.stderr).to_string();
@@ -224,13 +295,14 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
             let sparse_output =
                 crate::external_command::spawn_with_pressure_retry("git add --sparse", || {
                     sparse_cmd.output()
-                })
-                .map_err(String::from)?;
+                })?;
             if !sparse_output.status.success() {
-                return Err(String::from_utf8_lossy(&sparse_output.stderr).to_string());
+                return Err(String::from_utf8_lossy(&sparse_output.stderr)
+                    .to_string()
+                    .into());
             }
         } else {
-            return Err(add_stderr);
+            return Err(add_stderr.into());
         }
     }
 
@@ -246,8 +318,7 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
         let mut cmd = crate::utils::git_command_in(path)?;
         cmd.args(["commit", "-m", message]);
         crate::external_command::spawn_with_pressure_retry("git commit", || cmd.output())
-    })
-    .map_err(String::from)?;
+    })?;
 
     if !commit_output.status.success() {
         // `status --porcelain` can report entries `add -A` couldn't stage (e.g.
@@ -259,12 +330,28 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
             return Ok(false);
         }
         let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        // The project's own pre-commit hook chain (husky → lint-staged →
+        // tsc/tests) refusing the commit is the project working as configured,
+        // not an app malfunction — the raw dump (hundreds of lines of runner
+        // logs) was surfaced verbatim as a "generic" publish error (issue
+        // #604). Say what happened, keep only the tail where the actual
+        // failure lives, and classify Expected so it stays out of telemetry.
+        // Hook output lands on either stream depending on the runner.
+        let combined = format!("{stdout}{stderr}");
+        if is_hook_failure_output(&combined) {
+            let tail = tail_of_output(&combined, 1000);
+            return Err(CommandError::expected(format!(
+                "This project's pre-commit checks blocked the commit — they run the project's \
+                 own lint/tests before every commit. Fix what they reported (the end of their \
+                 output is below), then try again.\n\n{tail}"
+            )));
+        }
         let detail = if stderr.trim().is_empty() {
             stdout.to_string()
         } else {
             stderr.to_string()
         };
-        return Err(detail);
+        return Err(detail.into());
     }
 
     Ok(true)
@@ -524,6 +611,60 @@ mod tests {
         assert!(classify_git_net_error("").is_none());
     }
 
+    /// The #639 shape: a pull/merge losing the `.git/index.lock` race against
+    /// the background snapshot watcher must retry instead of failing outright.
+    /// Simulated with a real repo whose index.lock is held at first and
+    /// released while the retry backoff is in flight (`git add` exercises the
+    /// same lock path without needing a remote).
+    #[tokio::test]
+    async fn run_git_net_retrying_index_lock_recovers_when_lock_released() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+        let lock = tmp.path().join(".git").join("index.lock");
+        std::fs::write(&lock, "").unwrap();
+
+        // Release the lock while the helper is backing off (attempt 1 fails
+        // immediately; attempt 3 runs at ~600ms).
+        let lock_clone = lock.clone();
+        let releaser = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            let _ = std::fs::remove_file(&lock_clone);
+        });
+
+        let out = run_git_net_retrying_index_lock(&["add", "-A"], tmp.path(), "add")
+            .await
+            .expect("git add should run");
+        releaser.await.unwrap();
+        assert!(
+            out.status.success(),
+            "must succeed once the lock is released: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Non-contention failures must pass through immediately, un-retried.
+    #[tokio::test]
+    async fn run_git_net_retrying_index_lock_passes_other_failures_through() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        let started = std::time::Instant::now();
+        let out = run_git_net_retrying_index_lock(
+            &["checkout", "no-such-branch-xyz"],
+            tmp.path(),
+            "checkout",
+        )
+        .await
+        .expect("git should run");
+        assert!(!out.status.success());
+        // A retried run would take ≥ 600ms of backoff sleeps alone — a single
+        // un-retried git spawn stays well under that even on a slow machine.
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(500),
+            "non-contention failures must not be retried"
+        );
+    }
+
     /// Initialize a fresh git repo in `dir` with a local user identity so
     /// commits work in CI environments without global git config.
     fn init_repo(dir: &std::path::Path) {
@@ -655,6 +796,68 @@ mod tests {
             ".shipstudio must not be staged, got: {listing}"
         );
         assert!(listing.contains("a.txt"));
+    }
+
+    // The #604 shape: husky → lint-staged → tsc/vitest output dumped verbatim
+    // as a "generic" publish error when the hook refused the commit.
+    #[test]
+    fn hook_failure_output_matches_hook_runner_markers() {
+        let lint_staged = "Already up to date\nDone in 252ms using pnpm v11.9.0\n[STARTED] Backing up original state...\n[COMPLETED] Backed up original state in git stash\n[STARTED] Running tasks for staged files...\n[FAILED] tsc --noEmit\nsrc/App.tsx(10,3): error TS2322: Type 'string' is not assignable to type 'number'.";
+        assert!(is_hook_failure_output(lint_staged));
+        assert!(is_hook_failure_output(
+            "husky - pre-commit script failed (code 1)"
+        ));
+        assert!(is_hook_failure_output(
+            ".git/hooks/pre-commit: line 3: pnpm: command not found"
+        ));
+        // Ordinary git commit failures must NOT classify as hook failures.
+        assert!(!is_hook_failure_output(
+            "fatal: unable to auto-detect email address"
+        ));
+        assert!(!is_hook_failure_output(
+            "error: gpg failed to sign the data"
+        ));
+        assert!(!is_hook_failure_output(""));
+    }
+
+    #[test]
+    fn tail_of_output_keeps_the_end_at_a_line_boundary() {
+        let long: String = (0..200).map(|i| format!("line {i}\n")).collect();
+        let tail = tail_of_output(&long, 100);
+        assert!(tail.len() <= 100);
+        assert!(tail.starts_with("line "), "must start at a line boundary");
+        assert!(tail.ends_with("line 199"), "must keep the very end");
+        // Short output passes through whole.
+        assert_eq!(tail_of_output("short\n", 100), "short");
+    }
+
+    /// End-to-end: a repo with a failing pre-commit hook must produce the
+    /// short Expected explanation, not the raw hook dump as an Other error.
+    #[cfg(unix)]
+    #[test]
+    fn stage_and_commit_classifies_hook_refusal_as_expected() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        init_repo(tmp.path());
+        let hooks = tmp.path().join(".git").join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        let hook = hooks.join("pre-commit");
+        std::fs::write(
+            &hook,
+            "#!/bin/sh\necho '[STARTED] Running tasks for staged files...'\necho '[FAILED] tsc --noEmit'\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
+
+        let err = git_stage_and_commit(tmp.path(), "blocked").expect_err("hook must block commit");
+        assert!(
+            matches!(err, crate::errors::CommandError::Expected { .. }),
+            "hook refusal must classify Expected, got: {err:?}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("pre-commit checks blocked"), "got: {msg}");
+        assert!(msg.contains("[FAILED] tsc --noEmit"), "must keep the tail");
     }
 
     #[test]

@@ -477,3 +477,39 @@ describe('lib/project', () => {
     });
   });
 });
+
+// Imported separately: hasMergeConflictMarkers is a pure helper, no IPC.
+import { hasMergeConflictMarkers } from './project';
+
+describe('hasMergeConflictMarkers', () => {
+  // The #577 shape: a merge conflict left in package.json makes it start
+  // with '<' and JSON.parse fails with "Unrecognized token '<'".
+  it('detects a standard conflict block', () => {
+    const conflicted = [
+      '{',
+      '<<<<<<< HEAD',
+      '  "name": "app",',
+      '=======',
+      '  "name": "my-app",',
+      '>>>>>>> feature/rename',
+      '}',
+    ].join('\n');
+    expect(hasMergeConflictMarkers(conflicted)).toBe(true);
+  });
+
+  it('detects a marker with CRLF line endings and a bare marker line', () => {
+    expect(hasMergeConflictMarkers('{\r\n<<<<<<< HEAD\r\n}\r\n')).toBe(true);
+    expect(hasMergeConflictMarkers('{\n<<<<<<<\n}\n')).toBe(true);
+  });
+
+  it('does not fire on valid package.json content', () => {
+    expect(hasMergeConflictMarkers('{ "scripts": { "dev": "vite" } }')).toBe(false);
+    expect(hasMergeConflictMarkers('')).toBe(false);
+  });
+
+  it('does not fire on < characters that are not line-leading markers', () => {
+    // e.g. a description containing arrows, or fewer than seven '<'.
+    expect(hasMergeConflictMarkers('{ "description": "a <<<<<<< b" }')).toBe(false);
+    expect(hasMergeConflictMarkers('<<< not a marker\n')).toBe(false);
+  });
+});

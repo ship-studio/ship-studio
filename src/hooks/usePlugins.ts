@@ -13,13 +13,71 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listPlugins, PluginInfo } from '../lib/plugins';
+import { listPlugins, updatePlugin, PluginInfo } from '../lib/plugins';
 import { loadPluginModule, unloadPluginModule, PluginModule } from '../lib/plugin-loader';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { logger } from '../lib/logger';
 
 /** API versions the host supports. Plugins with unsupported versions are skipped. */
 const SUPPORTED_API_VERSIONS = [0, 1];
+
+/**
+ * Plugins we already tried to self-heal this app session, keyed
+ * `projectPath:pluginId` — a failed heal must not retry (and re-clone) on
+ * every reload.
+ */
+const attemptedSelfHeals = new Set<string>();
+
+/** The load failure produced by a registry entry whose built bundle is gone. */
+function isMissingBundleError(message: string): boolean {
+  return message.includes('Plugin bundle not found');
+}
+
+/**
+ * Load a plugin's module, self-healing a missing bundle by re-installing from
+ * the plugin's source repository (issue #624).
+ *
+ * Installs made before the install-time bundle check existed (issue #381)
+ * could register a plugin with a valid manifest but no dist/index.js; nothing
+ * ever repaired those entries, so they failed identically on every session
+ * forever. One re-install from source (which now validates the bundle) fixes
+ * them for good. Tried at most once per plugin per session.
+ */
+async function loadModuleWithSelfHeal(
+  path: string,
+  info: PluginInfo,
+  onLifecycleError: (pluginName: string, error: unknown) => void
+): Promise<PluginModule> {
+  try {
+    return await loadPluginModule(path, info.manifest.id, onLifecycleError);
+  } catch (e) {
+    const message = formatCommandError(asCommandError(e));
+    const healKey = `${path}:${info.manifest.id}`;
+    const canHeal =
+      !info.is_dev &&
+      info.source_url &&
+      isMissingBundleError(message) &&
+      !attemptedSelfHeals.has(healKey);
+    if (!canHeal) {
+      throw e;
+    }
+    attemptedSelfHeals.add(healKey);
+    logger.warn('Plugin bundle missing; re-installing from source to self-heal', {
+      plugin: info.manifest.id,
+    });
+    try {
+      await updatePlugin(path, info.manifest.id);
+    } catch (healError) {
+      logger.warn('Plugin self-heal re-install failed', {
+        plugin: info.manifest.id,
+        error: formatCommandError(asCommandError(healError)),
+      });
+      // Surface the original missing-bundle state, not the update error.
+      throw e;
+    }
+    return await loadPluginModule(path, info.manifest.id, onLifecycleError);
+  }
+}
 
 /** A fully loaded plugin: manifest + JS module */
 export interface LoadedPlugin {
@@ -109,7 +167,7 @@ export function usePlugins(
 
         const results = await Promise.allSettled(
           compatible.map((info) =>
-            loadPluginModule(path, info.manifest.id, handleLifecycleError).then((module) => ({
+            loadModuleWithSelfHeal(path, info, handleLifecycleError).then((module) => ({
               info,
               module,
             }))
@@ -121,16 +179,35 @@ export function usePlugins(
             loaded.push(result.value);
           } else {
             const info = compatible[i];
+            const message = formatCommandError(asCommandError(result.reason));
+            if (isMissingBundleError(message)) {
+              // A missing bundle that survived the self-heal is a broken
+              // install the user has to redo — an expected machine state,
+              // not an app malfunction, so warn (no auto-filed report;
+              // issue #624) and tell them what to do instead of showing
+              // the raw path.
+              logger.warn('Plugin bundle missing after self-heal attempt', {
+                plugin: info.manifest.id,
+                error: message,
+              });
+              failed.push({
+                id: info.manifest.id,
+                name: info.manifest.name,
+                reason:
+                  'This plugin is missing its built files and could not be repaired automatically. Uninstall and reinstall it from the Plugin Manager.',
+              });
+              return;
+            }
             logger.error('Failed to load plugin', {
               plugin: info.manifest.id,
               // Mirror failed.push below — String() on a CommandError object
               // logs "[object Object]" (issue #408).
-              error: formatCommandError(asCommandError(result.reason)),
+              error: message,
             });
             failed.push({
               id: info.manifest.id,
               name: info.manifest.name,
-              reason: formatCommandError(asCommandError(result.reason)),
+              reason: message,
             });
           }
         });

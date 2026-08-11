@@ -139,17 +139,9 @@ pub async fn set_shopify_store(
 
     metadata.shopify_store = store;
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    crate::commands::projects::save_project_metadata(&project, &metadata)
 }
 
 #[cfg(test)]

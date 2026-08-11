@@ -488,6 +488,18 @@ pub async fn update_plugin(
         return Err((format!("Git clone failed: {stderr}")).into());
     }
 
+    // Validate the built bundle exists — same guard as install_plugin (issue
+    // #381). Without it an update from a repo whose dist/ was removed would
+    // leave a registered-but-unloadable plugin, exactly the broken state the
+    // self-heal path (issue #624) exists to repair.
+    if !plugin_dir.join("dist").join("index.js").exists() {
+        let _ = remove_dir_all_relaxed(&plugin_dir);
+        return Err(CommandError::expected(
+            "This plugin can't be updated: its repository has no built bundle (dist/index.js). \
+             The plugin author needs to build it and commit the dist folder.",
+        ));
+    }
+
     // Read commit hash before removing .git
     let commit_hash = read_git_head(&plugin_dir);
 

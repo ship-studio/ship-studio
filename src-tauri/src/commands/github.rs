@@ -540,14 +540,21 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
 /// telemetry, and the frontend shows its connect-GitHub UI) instead of
 /// surfacing the raw CLI text (issue #326).
 pub(crate) fn gh_auth_error(stderr: &str) -> Option<CommandError> {
+    let lower = stderr.to_lowercase();
     // "gh auth login"/GH_TOKEN = no credential at all (issue #326);
     // "gh auth refresh"/"Requires authentication" = a credential exists but
     // GitHub rejected it (expired/revoked token, HTTP 401) — same reconnect
-    // UX applies (issue #470).
+    // UX applies (issue #470). "could not read Username/Password" = git fell
+    // back to an interactive credential prompt because no usable credential
+    // helper answered — no tty in a GUI-spawned process, so it dies with
+    // "Device not configured"/"terminal prompts disabled"; the same reconnect
+    // UX fixes it (issue #638, mirroring publishing.rs's push_auth_error).
     if stderr.contains("gh auth login")
         || stderr.contains("GH_TOKEN")
         || stderr.contains("gh auth refresh")
-        || stderr.to_lowercase().contains("requires authentication")
+        || lower.contains("requires authentication")
+        || lower.contains("could not read username")
+        || lower.contains("could not read password")
     {
         return Some(CommandError::NotAuthenticated {
             service: "github".to_string(),
@@ -585,7 +592,13 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
         // and prints only "error connecting to <host>\ncheck your internet
         // connection or https://githubstatus.com" (issue #473).
         || s.contains("check your internet connection")
-        || s.contains("error connecting to ");
+        || s.contains("error connecting to ")
+        // Go's bare net/http `EOF` — the connection closed before any response
+        // byte, without the "unexpected" prefix #434 covered. A naked "eof"
+        // substring would false-positive on ordinary words ("thereof"), so
+        // match the error-position shape `…: EOF` at the end of a line
+        // (issue #642).
+        || s.lines().any(|l| l.trim_end().ends_with(": eof"));
     unreachable.then(|| {
         CommandError::expected(
             "Couldn't reach GitHub. Check your internet connection and try again.",
@@ -610,6 +623,55 @@ pub(crate) fn gh_malformed_request_error(stderr: &str) -> Option<CommandError> {
                  Try again in a moment.",
             )
         })
+}
+
+/// GitHub's API answering with a transient server-side 5xx — gh passes the
+/// response text through ("HTTP 504: We couldn't respond to your request in
+/// time…", "HTTP 502: Bad Gateway", …). The request reached GitHub and
+/// GitHub fell over; nothing the app did wrong and nothing the user can do
+/// but retry — the sibling of the HTTP 400 case below (issues #627/#602).
+/// `Expected` keeps it out of telemetry.
+pub(crate) fn gh_server_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    let is_5xx = s.contains("http 500")
+        || s.contains("http 502")
+        || s.contains("http 503")
+        || s.contains("http 504")
+        || s.contains("bad gateway")
+        || s.contains("service unavailable")
+        || s.contains("gateway timeout")
+        // The prose GitHub uses for its GraphQL 504s ("We couldn't respond to
+        // your request in time. Sorry about that. Please try resubmitting…").
+        || s.contains("respond to your request in time");
+    is_5xx.then(|| {
+        CommandError::expected(
+            "GitHub's API is temporarily unavailable (a GitHub server error). \
+             Try again in a moment.",
+        )
+    })
+}
+
+/// gh failing before it even runs a subcommand because it can't read its own
+/// config file — "failed to load config: open …/.config/gh/config.yml:
+/// permission denied" / "failed to create root command: failed to read
+/// configuration: …". A local file-permissions problem (typically a prior
+/// sudo run left the directory root-owned), not a Ship Studio bug and not a
+/// GitHub sign-in failure — reconnecting can't fix a file the OS won't let gh
+/// read (issue #631). Recurs on every gh call for the affected user, so
+/// `Expected` keeps it from flooding telemetry, and the message names the
+/// real fix (same precedent as the ~/.npm chown guidance in errors.ts).
+pub(crate) fn gh_config_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    let config_unreadable = (s.contains("failed to read configuration")
+        || s.contains("failed to load config"))
+        && s.contains("permission denied");
+    config_unreadable.then(|| {
+        CommandError::expected(
+            "The GitHub CLI (gh) can't read its own settings because of a file-permissions \
+             problem on this computer — this isn't a GitHub sign-in issue. Open a terminal and \
+             run `sudo chown -R $(whoami) ~/.config/gh`, then try again.",
+        )
+    })
 }
 
 /// gh (a Go binary) crashing with a Go runtime panic/fatal error — stderr is
@@ -641,12 +703,15 @@ pub(crate) fn gh_crash_error(stderr: &str) -> Option<CommandError> {
 }
 
 /// A `gh` invocation that hits GitHub can fail these ways regardless of which
-/// subcommand ran: a connectivity blip, GitHub's transient HTTP 400, or gh
-/// itself crashing. One-stop classification for the shared cases — call sites
-/// still layer their own auth / subcommand-specific checks on top.
+/// subcommand ran: a connectivity blip, GitHub's transient HTTP 400 or 5xx,
+/// an unreadable gh config file, or gh itself crashing. One-stop
+/// classification for the shared cases — call sites still layer their own
+/// auth / subcommand-specific checks on top.
 pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
     gh_network_error(stderr)
         .or_else(|| gh_malformed_request_error(stderr))
+        .or_else(|| gh_server_error(stderr))
+        .or_else(|| gh_config_error(stderr))
         .or_else(|| gh_crash_error(stderr))
 }
 
@@ -1158,5 +1223,84 @@ mod tests {
         let err = gh_network_error(stderr).expect("should classify as network error");
         assert!(matches!(err, CommandError::Expected { .. }));
         assert!(err.to_string().contains("Couldn't reach GitHub"));
+    }
+
+    // The #642 shape: Go's bare "EOF" (no "unexpected" prefix, which #434
+    // already covered) — the connection closed before any response byte.
+    #[test]
+    fn gh_network_error_classifies_bare_eof() {
+        let stderr = r#"Post "https://api.github.com/graphql": EOF"#;
+        let err = gh_network_error(stderr).expect("should classify as network error");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        // The "unexpected EOF" variant keeps matching too.
+        assert!(
+            gh_network_error(r#"Post "https://api.github.com/graphql": unexpected EOF"#).is_some()
+        );
+        // Bare "eof" inside an ordinary word must NOT match.
+        assert!(gh_network_error("GraphQL: field thereof is deprecated").is_none());
+    }
+
+    // The #627 shape: GitHub's API answering a transient 5xx (504 from the
+    // GraphQL endpoint) — server-side, retryable, not an app malfunction.
+    #[test]
+    fn gh_server_error_classifies_github_5xx_as_expected() {
+        let terse = "HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)";
+        let err = gh_server_error(terse).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("Try again"), "got: {err}");
+        // The prose 504 variant GitHub sends for GraphQL timeouts.
+        let prose = "HTTP 504: We couldn't respond to your request in time. Sorry about that. Please try resubmitting your request and contact us if the problem persists. (https://api.github.com/graphql)";
+        assert!(gh_server_error(prose).is_some());
+        assert!(
+            gh_server_error("HTTP 502: Bad Gateway (https://api.github.com/graphql)").is_some()
+        );
+        assert!(gh_server_error("HTTP 503: Service Unavailable").is_some());
+    }
+
+    #[test]
+    fn gh_server_error_ignores_non_5xx_stderr() {
+        assert!(gh_server_error("HTTP 404: Not Found (https://api.github.com/graphql)").is_none());
+        assert!(gh_server_error("HTTP 400: We received a malformed request").is_none());
+        assert!(gh_server_error("GraphQL: name already exists on this account").is_none());
+        assert!(gh_server_error("").is_none());
+    }
+
+    // The #631 shape: gh dying at startup because its own config file is
+    // unreadable — a local file-permissions problem, not a sign-in failure.
+    #[test]
+    fn gh_config_error_classifies_unreadable_config_as_expected() {
+        let stderr = "warning: failed to load config: open /Users/x/.config/gh/config.yml: permission denied\nfailed to create root command: failed to read configuration: open /Users/x/.config/gh/config.yml: permission denied";
+        let err = gh_config_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("chown"), "must name the real fix, got: {msg}");
+        assert!(
+            msg.contains("isn't a GitHub sign-in issue"),
+            "must steer away from the reconnect flow, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn gh_config_error_ignores_other_permission_or_config_errors() {
+        // A repo-access permission denial is auth, not a config-file problem.
+        assert!(gh_config_error("remote: Permission denied (publickey)").is_none());
+        // A config parse error without a permissions component stays unclassified.
+        assert!(gh_config_error("failed to read configuration: invalid yaml").is_none());
+        assert!(gh_config_error("").is_none());
+    }
+
+    // The #638 shape: git falling back to an interactive credential prompt in
+    // a tty-less GUI process — an auth-setup state, not an app bug.
+    #[test]
+    fn gh_auth_error_classifies_credential_prompt_failure() {
+        let stderr =
+            "fatal: could not read Username for 'https://github.com': Device not configured";
+        let err = gh_auth_error(stderr).expect("should classify as auth error");
+        assert!(matches!(err, CommandError::NotAuthenticated { .. }));
+        assert!(gh_auth_error(
+            "fatal: could not read Password for 'https://user@github.com': terminal prompts disabled"
+        )
+        .is_some());
+        assert!(gh_auth_error("fatal: not a git repository").is_none());
     }
 }

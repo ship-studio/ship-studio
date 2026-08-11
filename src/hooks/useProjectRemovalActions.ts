@@ -48,7 +48,7 @@ export function useProjectRemovalActions({
     } catch (unpinError) {
       trackError(`project_unpin_after_${action}`, unpinError, 'Dashboard');
       logger.error(`Failed to unpin project after ${action}`, {
-        error: unpinError instanceof Error ? unpinError.message : String(unpinError),
+        error: formatCommandError(asCommandError(unpinError)),
       });
     }
   };
@@ -64,8 +64,11 @@ export function useProjectRemovalActions({
       await loadAll();
     } catch (error) {
       trackError('project_delete', error, 'Dashboard');
+      // CommandError rejections are plain tagged objects, not Error instances —
+      // String(error) renders them as "[object Object]" (issue #633). Format
+      // them the same way the user-facing alert below already does.
       logger.error('Failed to delete project', {
-        error: error instanceof Error ? error.message : String(error),
+        error: formatCommandError(asCommandError(error)),
       });
       alert('Failed to delete project: ' + formatCommandError(asCommandError(error)));
     } finally {
@@ -89,7 +92,7 @@ export function useProjectRemovalActions({
     } catch (error) {
       trackError('project_remove_from_app', error, 'Dashboard');
       logger.error('Failed to remove project from Ship Studio', {
-        error: error instanceof Error ? error.message : String(error),
+        error: formatCommandError(asCommandError(error)),
       });
       showToast(`Failed to remove project: ${formatCommandError(asCommandError(error))}`, 'error');
     } finally {

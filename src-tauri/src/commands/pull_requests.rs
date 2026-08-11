@@ -114,12 +114,19 @@ pub async fn create_pull_request(
 ) -> Result<String, CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
-    // Push the branch to the remote first (gh pr create requires this)
-    let mut push_cmd = crate::utils::git_command_in(&validated_path)?;
-    push_cmd.args(["push", "-u", "origin", "HEAD"]).envs(
-        crate::commands::accounts::get_env_vars_for_project(&validated_path),
-    );
-    let push_output = run_net(push_cmd, "git push").await?;
+    // Push the branch to the remote first (gh pr create requires this).
+    // Through run_git_net — not a hand-built command — so HTTPS credentials
+    // resolve via `gh auth git-credential` and GIT_TERMINAL_PROMPT=0 is set,
+    // exactly like push_branch. The hand-built version inherited whatever
+    // credential helper the machine had (often none usable in a GUI-spawned
+    // process), and git's interactive fallback died with "could not read
+    // Username for 'https://github.com': Device not configured" (issue #638).
+    let push_output = crate::commands::git::run_git_net(
+        &["push", "-u", "origin", "HEAD"],
+        &validated_path,
+        "push",
+    )
+    .await?;
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);

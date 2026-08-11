@@ -8,6 +8,7 @@ import {
   isAgentNotInstalledError,
   isExpectedProjectImportRefusal,
   isMergeConflictError,
+  isProjectFolderGoneError,
   isRecognizedGitFailure,
   type CommandError,
 } from './errors';
@@ -131,6 +132,37 @@ describe('friendlyProcessError', () => {
     expect(describeProcessError('npm ERR! code E401').expected).toBe(true);
   });
 
+  it('maps HTTPS credential-prompt failures to gh auth guidance (issue #637)', () => {
+    const raw =
+      "Process exited with code 1\n\nCloning into 'ogeh-ai-website'...\nfatal: could not read Password for 'https://user@github.com': Device not configured\nfailed to run git: exit status 128";
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('gh auth login');
+    expect(info.message).not.toContain('Cloning into');
+    // The Username variant (and GIT_TERMINAL_PROMPT=0's wording) match too.
+    expect(
+      describeProcessError(
+        "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+      ).expected
+    ).toBe(true);
+  });
+
+  it('maps GitHub API 5xx responses to a friendly retry message (issue #620)', () => {
+    const raw =
+      'Process exited with code 1\n\nHTTP 504: We couldn’t respond to your request in time. Sorry about that. Please try resubmitting your request and contact us if the problem persists. (https://api.github.com/graphql)';
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toMatch(/temporarily unavailable/i);
+    // The terse variant classifies too.
+    expect(
+      describeProcessError('HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)')
+        .expected
+    ).toBe(true);
+    expect(describeProcessError('HTTP 502: Bad Gateway (https://api.github.com)').expected).toBe(
+      true
+    );
+  });
+
   it('classifies recognized shapes as expected and unknown ones as not', () => {
     expect(describeProcessError('sh: pnpm: command not found').expected).toBe(true);
     expect(describeProcessError('Process exited with code 128').expected).toBe(true);
@@ -227,6 +259,24 @@ describe('humanizeGitError', () => {
       expect: /already checked out in another worktree/i,
     },
     {
+      // gh failing before any subcommand because its own config file is
+      // unreadable — a local file-permissions problem, NOT a sign-in failure;
+      // must not fall into the generic "permission denied" auth branch
+      // (issue #631).
+      raw: 'warning: failed to load config: open /Users/x/.config/gh/config.yml: permission denied\nfailed to create root command: failed to read configuration: open /Users/x/.config/gh/config.yml: permission denied',
+      expect: /can't read its own settings.*chown/is,
+    },
+    {
+      // Go's bare net/http "EOF" — connection closed before any response byte
+      // (issue #642; the "unexpected EOF" variant was #434).
+      raw: 'Post "https://api.github.com/graphql": EOF',
+      expect: /couldn't reach GitHub/i,
+    },
+    {
+      raw: 'Post "https://api.github.com/graphql": unexpected EOF',
+      expect: /couldn't reach GitHub/i,
+    },
+    {
       raw: "error: pathspec 'feat/gone' did not match any file(s) known to git",
       expect: /no longer exists/i,
     },
@@ -319,5 +369,32 @@ describe('isAgentNotInstalledError', () => {
   it('does not match other failures', () => {
     expect(isAgentNotInstalledError('Failed to add MCP server: connection refused')).toBe(false);
     expect(isAgentNotInstalledError(new Error('spawn ENOENT'))).toBe(false);
+  });
+});
+
+describe('isProjectFolderGoneError', () => {
+  it("matches canonicalize_tagged's folder-gone message (#365/#629)", () => {
+    expect(
+      isProjectFolderGoneError({
+        type: 'Other',
+        message:
+          "The folder '/Users/me/ShipStudio/demo' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+      })
+    ).toBe(true);
+  });
+
+  it("matches validate_project_path's invalid-path rejection", () => {
+    expect(
+      isProjectFolderGoneError('Invalid path in validate_project_path: /Users/me/ShipStudio/demo')
+    ).toBe(true);
+  });
+
+  it('does not match a branch-gone message or unrelated failures', () => {
+    // humanizeGitError's missing-ref wording also says "no longer exists" —
+    // the helper must key on the backend's fuller folder-gone phrase.
+    expect(
+      isProjectFolderGoneError('feature/x no longer exists. It may have been deleted or renamed.')
+    ).toBe(false);
+    expect(isProjectFolderGoneError(new Error('connection refused'))).toBe(false);
   });
 });

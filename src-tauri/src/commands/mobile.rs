@@ -273,12 +273,37 @@ async fn simctl_stdout(
 #[tracing::instrument]
 pub async fn list_booted_simulators() -> Result<Vec<MobileSimulator>, CommandError> {
     tracing::info!("list_booted_simulators: invoked");
-    let stdout = simctl_stdout(
-        &["list", "devices", "booted", "--json"],
-        "xcrun simctl list booted",
-        SIMCTL_TIMEOUT_SECS,
-    )
-    .await?;
+    // CoreSimulator can be transiently slow to answer (same flakiness class as
+    // #311/#411's `launchctl list` call), and this lookup sits on the critical
+    // path of every preview connect — so retry a hung call once, and if it
+    // still times out classify it as Expected: a wedged CoreSimulator is a
+    // machine state with a user-side fix, not an app malfunction (issue #554).
+    let mut stdout = None;
+    for attempt in 0..2 {
+        match simctl_stdout(
+            &["list", "devices", "booted", "--json"],
+            "xcrun simctl list booted",
+            SIMCTL_TIMEOUT_SECS,
+        )
+        .await
+        {
+            Ok(out) => {
+                stdout = Some(out);
+                break;
+            }
+            Err(CommandError::Timeout { .. }) if attempt == 0 => {
+                tracing::warn!("xcrun simctl list booted timed out; retrying once");
+            }
+            Err(CommandError::Timeout { .. }) => {
+                return Err(CommandError::expected(
+                    "The iOS Simulator took too long to respond. Try again — and if it \
+                     keeps happening, quit and reopen Simulator.app.",
+                ));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    let stdout = stdout.expect("loop either sets stdout or returns");
     let sims = parse_booted_simulators(&stdout)?;
     tracing::info!("list_booted_simulators: {} booted", sims.len());
     Ok(sims)
@@ -565,10 +590,27 @@ async fn ensure_emulator(preferred: Option<String>) -> Result<(AndroidDevice, bo
         .ok_or("No Android Virtual Device found. Create an emulator (AVD) to preview on.")?;
 
     // Boot detached — the emulator runs for the session; teardown uses `adb emu kill`.
+    // Its stdout/stderr go to a log file (not /dev/null) so a boot timeout can
+    // say WHY — missing acceleration, corrupted AVD, wrong-arch system image —
+    // instead of a bare one-liner (issue #583).
     let mut emu = emulator_command();
     emu.args(["-avd", &avd, "-no-snapshot-save", "-no-boot-anim"]);
-    emu.stdout(std::process::Stdio::null());
-    emu.stderr(std::process::Stdio::null());
+    let log_path = emulator_log_path(&avd);
+    match std::fs::File::create(&log_path).and_then(|out| out.try_clone().map(|err| (out, err))) {
+        Ok((out, err)) => {
+            emu.stdout(out);
+            emu.stderr(err);
+        }
+        Err(e) => {
+            tracing::warn!(
+                log = %log_path.display(),
+                error = %e,
+                "couldn't create emulator log file; boot output will be discarded"
+            );
+            emu.stdout(std::process::Stdio::null());
+            emu.stderr(std::process::Stdio::null());
+        }
+    }
     emu.spawn()
         .map_err(|e| format!("Failed to launch the Android emulator: {e}"))?;
 
@@ -585,11 +627,51 @@ async fn ensure_emulator(preferred: Option<String>) -> Result<(AndroidDevice, bo
             }
         }
         if waited >= ANDROID_BOOT_WAIT_TIMEOUT_SECS {
-            return Err("The Android emulator did not finish booting in time.".into());
+            return Err(match read_log_tail(&log_path, EMULATOR_LOG_TAIL_LINES) {
+                Some(tail) => format!(
+                    "The Android emulator did not finish booting in time. Emulator output:\n{tail}"
+                )
+                .into(),
+                None => "The Android emulator did not finish booting in time.".into(),
+            });
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         waited += 2;
     }
+}
+
+/// Lines of emulator output to keep when reporting a boot failure — the error
+/// (bad acceleration, corrupted image) is almost always at the end.
+const EMULATOR_LOG_TAIL_LINES: usize = 15;
+
+/// Where the emulator's boot output for `avd` is written. In the OS temp dir
+/// (best-effort diagnostics, not user data); the AVD name is sanitized since
+/// it becomes a filename component.
+fn emulator_log_path(avd: &str) -> std::path::PathBuf {
+    let safe: String = avd
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    std::env::temp_dir().join(format!("shipstudio-emulator-{safe}.log"))
+}
+
+/// Read the last `max_lines` lines of a log file, capped for embedding in an
+/// error message. `None` when the file is missing or empty.
+fn read_log_tail(path: &std::path::Path, max_lines: usize) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut tail: Vec<&str> = trimmed.lines().rev().take(max_lines).collect();
+    tail.reverse();
+    Some(crate::external_command::truncate_output(&tail.join("\n")))
 }
 
 /// Whether the emulator's OS has finished booting (`getprop sys.boot_completed`).
@@ -2509,6 +2591,45 @@ async fn start_android_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #583: the boot-timeout error must carry the emulator's own
+    /// output tail — the last lines are where the actual failure is.
+    #[test]
+    fn read_log_tail_returns_last_lines() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let log = tmp.path().join("emu.log");
+        let lines: Vec<String> = (1..=30).map(|i| format!("line {i}")).collect();
+        std::fs::write(&log, lines.join("\n")).unwrap();
+        let tail = read_log_tail(&log, 15).unwrap();
+        assert!(tail.starts_with("line 16"), "got: {tail}");
+        assert!(tail.ends_with("line 30"), "got: {tail}");
+        assert!(!tail.contains("line 15\n"), "got: {tail}");
+    }
+
+    #[test]
+    fn read_log_tail_none_for_missing_or_empty() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert!(read_log_tail(&tmp.path().join("nope.log"), 15).is_none());
+        let empty = tmp.path().join("empty.log");
+        std::fs::write(&empty, "  \n").unwrap();
+        assert!(read_log_tail(&empty, 15).is_none());
+    }
+
+    #[test]
+    fn read_log_tail_caps_oversized_output() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let log = tmp.path().join("big.log");
+        std::fs::write(&log, "x".repeat(10_000)).unwrap();
+        let tail = read_log_tail(&log, 15).unwrap();
+        assert!(tail.ends_with("(truncated)"), "got tail len {}", tail.len());
+    }
+
+    #[test]
+    fn emulator_log_path_sanitizes_avd_name() {
+        let path = emulator_log_path("Pixel 8 / API 35");
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(name, "shipstudio-emulator-Pixel_8___API_35.log");
+    }
 
     #[test]
     fn friendly_runtime_formats_ios_version() {

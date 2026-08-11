@@ -107,6 +107,14 @@ fn map_spawn_io_error(label: &str, io_err: &std::io::Error) -> CommandError {
         oom
     } else if is_spawn_resource_pressure(&io_err.to_string()) {
         spawn_resource_pressure_error(label)
+    } else if io_err.kind() == std::io::ErrorKind::PermissionDenied {
+        // Windows ERROR_ACCESS_DENIED (os error 5, localized text — e.g.
+        // "Acceso denegado.") and Unix EACCES/EPERM: an AV scanner or file
+        // lock blocking the spawn is the user's environment, not an app
+        // malfunction (issue #596).
+        spawn_access_denied_error(label)
+    } else if is_windows_path_too_long(&io_err.to_string()) {
+        windows_path_too_long_error(label)
     } else {
         CommandError::Io { message }
     }
@@ -206,35 +214,82 @@ pub async fn run_to_stdout(
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-// ===== Transient spawn resource pressure (EAGAIN) =====
+// ===== Transient spawn resource pressure (EAGAIN / EMFILE / ENFILE) =====
 //
 // Under macOS process/thread-table pressure, `fork()`/`posix_spawn()` can
 // transiently fail with EAGAIN ("Resource temporarily unavailable", os error
 // 35 on macOS/BSD, 11 on Linux). This surfaced as bare, unlabeled OS error
 // strings from many independent spawn sites (issues #555, #573, #585, #586,
-// #587). The helpers below give every spawn site one shared treatment:
-// a couple of short-backoff retries, and — if the pressure persists — a
-// human-readable `Expected` error instead of telemetry noise.
+// #587). File-descriptor exhaustion is the same condition wearing a different
+// errno: EMFILE ("Too many open files", os error 24) when this process hits
+// its fd budget, ENFILE ("Too many open files in system", os error 23) when
+// the whole machine does — both transient, both self-healing, both previously
+// reaching telemetry raw (issue #574). The helpers below give every spawn
+// site one shared treatment: a couple of short-backoff retries, and — if the
+// pressure persists — a human-readable `Expected` error instead of telemetry
+// noise.
 
-/// True when a rendered error message is the transient EAGAIN spawn failure.
+/// True when a rendered error message is a transient resource-pressure spawn
+/// failure: EAGAIN (process-table pressure) or EMFILE/ENFILE (fd exhaustion,
+/// issue #574).
 ///
 /// Message-based (rather than `raw_os_error`-based) so it works uniformly for
 /// `std::io::Error` and for portable_pty's `anyhow`-shaped errors, which only
 /// expose the underlying OS error through their `Display` text. The raw-code
-/// fallbacks are Unix-gated: on Windows os error 35/11 mean unrelated things.
+/// fallbacks are Unix-gated: on Windows os errors 35/11/23/24 mean unrelated
+/// things (ERROR_CRC, ERROR_BAD_LENGTH, …).
 pub fn is_spawn_resource_pressure(message: &str) -> bool {
     message.contains("Resource temporarily unavailable")
-        || (cfg!(unix) && (message.contains("(os error 35)") || message.contains("(os error 11)")))
+        || message.contains("Too many open files")
+        || (cfg!(unix)
+            && (message.contains("(os error 35)")
+                || message.contains("(os error 11)")
+                || message.contains("(os error 23)")
+                || message.contains("(os error 24)")))
 }
 
-/// The persistent-EAGAIN error: process-table/resource pressure is an
+/// The persistent resource-pressure error: process-table/fd pressure is an
 /// environment condition with a user-side fix, not an app malfunction —
 /// `Expected` keeps it out of telemetry and swaps the raw OS string for
 /// actionable guidance.
 pub fn spawn_resource_pressure_error(label: &str) -> CommandError {
     CommandError::expected(format!(
-        "Couldn't start `{label}` — your system is temporarily low on process resources. \
-         Close some apps or terminal tabs and try again."
+        "Couldn't start `{label}` — your system is temporarily low on process resources \
+         or open files. Close some apps or terminal tabs and try again."
+    ))
+}
+
+/// The access-denied spawn error (issue #596): the OS refused to run the
+/// program. On Windows this is `ERROR_ACCESS_DENIED` (os error 5, whose text
+/// is localized — "Acceso denegado." on a Spanish install); on Unix,
+/// EACCES/EPERM. Typically antivirus/security software briefly locking the
+/// binary, or missing file permissions — the user's environment, so
+/// `Expected` keeps it out of telemetry.
+pub fn spawn_access_denied_error(label: &str) -> CommandError {
+    CommandError::expected(format!(
+        "Couldn't start `{label}` — the operating system denied access. This is usually \
+         security/antivirus software briefly locking the program, or missing file \
+         permissions. Try again in a moment."
+    ))
+}
+
+/// True when a rendered error message is Windows `ERROR_FILENAME_EXCED_RANGE`
+/// (os error 206, "The filename or extension is too long") — `CreateProcess`
+/// rejecting an over-long resolved executable path or command line (issue
+/// #549). The text is localized on non-English Windows, so match the os-error
+/// code, and only on Windows: 206 means something unrelated elsewhere.
+pub fn is_windows_path_too_long(message: &str) -> bool {
+    cfg!(windows) && message.contains("(os error 206)")
+}
+
+/// The Windows path-too-long error (issue #549): an environment limit
+/// (legacy MAX_PATH without the long-path opt-in) with user-side fixes, so
+/// `Expected` swaps the raw OS string for actionable guidance.
+pub fn windows_path_too_long_error(label: &str) -> CommandError {
+    CommandError::expected(format!(
+        "Couldn't start `{label}` — Windows rejected the command because its path or \
+         arguments exceed the path-length limit (os error 206). Enable Windows \
+         long-path support, or move the tool/project to a shorter path, then try again."
     ))
 }
 
@@ -274,8 +329,9 @@ pub fn retry_spawn_on_pressure<T, E: std::fmt::Display>(
 /// retry, then map any failure into a labeled `CommandError` — persistent
 /// EAGAIN becomes the human `Expected` message, a missing binary stays
 /// `Expected` (mirroring [`run_with_timeout`], #296), Windows pagefile
-/// exhaustion keeps its typed guidance (#356), and anything else is a
-/// labeled `Io` so telemetry can attribute the call site.
+/// exhaustion keeps its typed guidance (#356), access-denied and path-too-long
+/// spawns classify Expected (#596, #549), and anything else is a labeled `Io`
+/// so telemetry can attribute the call site.
 pub fn spawn_with_pressure_retry<T>(
     label: &str,
     spawn: impl FnMut() -> std::io::Result<T>,
@@ -284,14 +340,7 @@ pub fn spawn_with_pressure_retry<T>(
         if is_spawn_resource_pressure(&io_err.to_string()) {
             return spawn_resource_pressure_error(label);
         }
-        let message = format!("`{label}`: {io_err}");
-        if io_err.kind() == std::io::ErrorKind::NotFound {
-            CommandError::expected(message)
-        } else if let Some(oom) = crate::errors::windows_out_of_memory(&io_err, Some(label)) {
-            oom
-        } else {
-            CommandError::Io { message }
-        }
+        map_spawn_io_error(label, &io_err)
     })
 }
 
@@ -417,6 +466,101 @@ mod tests {
         // Don't match a larger error code that merely contains "35"/"11".
         assert!(!is_spawn_resource_pressure("something (os error 110)"));
         assert!(!is_spawn_resource_pressure("something (os error 355)"));
+        assert!(!is_spawn_resource_pressure("something (os error 230)"));
+        assert!(!is_spawn_resource_pressure("something (os error 240)"));
+    }
+
+    // The #574 shape: fd exhaustion is the same transient resource pressure
+    // as EAGAIN and must get the same retry+classify treatment.
+    #[test]
+    fn spawn_pressure_matches_fd_exhaustion_shapes() {
+        // EMFILE — per-process fd budget exhausted.
+        assert!(is_spawn_resource_pressure(
+            "Too many open files (os error 24)"
+        ));
+        // ENFILE — system-wide open-file table exhausted.
+        assert!(is_spawn_resource_pressure(
+            "Too many open files in system (os error 23)"
+        ));
+        assert!(is_spawn_resource_pressure(
+            "Failed to execute command: Too many open files in system (os error 23)"
+        ));
+        // Localized strerror text still matches via the Unix-gated os codes.
+        #[cfg(unix)]
+        {
+            assert!(is_spawn_resource_pressure("¡demasiados! (os error 23)"));
+            assert!(is_spawn_resource_pressure("¡demasiados! (os error 24)"));
+        }
+    }
+
+    // On Windows, os errors 23/24 are ERROR_CRC / ERROR_BAD_LENGTH — the raw
+    // code fallbacks must not classify them as fd pressure there.
+    #[test]
+    #[cfg(windows)]
+    fn spawn_pressure_ignores_windows_crc_codes() {
+        assert!(!is_spawn_resource_pressure("Data error (os error 23)"));
+        assert!(!is_spawn_resource_pressure("Bad length (os error 24)"));
+    }
+
+    // The #596 shape: a localized Windows "Acceso denegado. (os error 5)"
+    // spawn failure must classify Expected (kind-based, so the localized
+    // Display text doesn't matter), with the label preserved.
+    #[test]
+    fn map_spawn_io_error_classifies_access_denied_as_expected() {
+        let denied = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "Acceso denegado. (os error 5)",
+        );
+        match map_spawn_io_error("git status", &denied) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("`git status`"), "got: {message}");
+                assert!(message.contains("denied access"), "got: {message}");
+                assert!(!message.contains("Acceso denegado"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spawn_with_pressure_retry_classifies_access_denied_as_expected() {
+        let err = spawn_with_pressure_retry::<()>("npm install", || {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Access is denied. (os error 5)",
+            ))
+        })
+        .unwrap_err();
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("`npm install`"));
+    }
+
+    // The #549 shape: ERROR_FILENAME_EXCED_RANGE is Windows-only; elsewhere
+    // os error 206 means something unrelated and must stay unclassified.
+    #[test]
+    #[cfg(not(windows))]
+    fn path_too_long_never_matches_off_windows() {
+        assert!(!is_windows_path_too_long(
+            "The filename or extension is too long. (os error 206)"
+        ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn path_too_long_matches_error_206_on_windows() {
+        // Localized text still matches — the check is on the os-error code.
+        assert!(is_windows_path_too_long(
+            "El nombre de archivo o la extensión es demasiado largo. (os error 206)"
+        ));
+        assert!(!is_windows_path_too_long("some other failure (os error 2)"));
+
+        let e = std::io::Error::from_raw_os_error(206);
+        match map_spawn_io_error("npx tool", &e) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("`npx tool`"), "got: {message}");
+                assert!(message.contains("long-path"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
     }
 
     // The #616 shape: `I/O error: `gh pr list`: Resource temporarily

@@ -614,6 +614,10 @@ export function useDevServer(currentProjectPath: string | null) {
       // Shopify themes are exempt: `shopify theme dev` needs no npm install,
       // and a theme's optional package.json (Tailwind tooling, or one an
       // agent added) must not block the preview behind an install gate.
+      // Whether the project has a package.json at all — a framework detected
+      // via its config file alone can't run a dev script (issue #593).
+      // null = unknown (dependency check failed or was exempt).
+      let hasPackageJson: boolean | null = null;
       try {
         // Shopify themes and force-static projects don't need an npm install to
         // preview: the theme runs via `shopify theme dev`, and a force-static
@@ -622,6 +626,9 @@ export function useDevServer(currentProjectPath: string | null) {
           detectedType === 'shopifytheme' || forceStatic
             ? { installed: true, hasPackageJson: false }
             : await checkDependenciesInstalled(projectPath);
+        if (detectedType !== 'shopifytheme' && !forceStatic) {
+          hasPackageJson = depStatus.hasPackageJson;
+        }
         if (!depStatus.installed && depStatus.hasPackageJson) {
           const packageManager = await detectPackageManager(projectPath).catch((err) => {
             logger.warn(
@@ -775,6 +782,18 @@ export function useDevServer(currentProjectPath: string | null) {
         logger.info('[OpenProject] Unknown project type; skipping dev server', {
           projectPath,
         });
+      } else if (hasPackageJson === false && cwd === projectPath) {
+        // A framework detected from its config file alone (next.config.js /
+        // vite.config.ts / …) with no package.json: there's no dev script to
+        // run, so spawning `npm run dev` is doomed and produced a spurious
+        // "File not found: package.json" error in telemetry (issue #593).
+        // Mirrors the `unknown`-type skip above. Monorepo subpaths (cwd !==
+        // projectPath) are exempt: the root check doesn't reflect the
+        // workspace directory the server actually runs in.
+        logger.info(
+          '[OpenProject] Framework config found but no package.json; skipping dev server',
+          { projectPath, projectType: detectedType }
+        );
       } else {
         try {
           s.outputBuffer = '';

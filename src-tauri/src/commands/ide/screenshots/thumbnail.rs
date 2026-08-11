@@ -19,8 +19,9 @@ use crate::commands::ide::{find_chromium_browser, resize_thumbnail_image};
 /// Playwright runs) starved the runtime and froze every IPC call in the app
 /// (issue #387).
 const PLAYWRIGHT_THUMBNAIL_TIMEOUT_SECS: u64 = 120;
-/// Ceiling for the Chrome/Edge CLI fallback. Its virtual-time budget is 3s;
-/// the rest is browser startup + page load headroom.
+/// Per-attempt ceiling for the Chrome/Edge CLI fallback. The virtual-time
+/// budget is 3s (15s on the one retry — issue #647); the rest is browser
+/// startup + page load headroom.
 const BROWSER_THUMBNAIL_TIMEOUT_SECS: u64 = 60;
 
 /// Projects with a thumbnail capture currently in flight. The 5-minute timer,
@@ -123,6 +124,39 @@ fn browser_failure_detail(stderr: &str) -> Option<String> {
         Some(format!("{capped}…"))
     } else {
         Some(joined)
+    }
+}
+
+/// True for Chromium's ProcessSingleton failure: it couldn't lock the profile
+/// directory it was told to use ("Failed to create ... SingletonLock: File
+/// exists", "Failed to create a ProcessSingleton for your profile directory").
+/// With per-capture profile dirs plus the stale sweep this should be rare —
+/// but when it does happen (e.g. a crashed capture's lock surviving inside a
+/// dirty profile) it's a transient environment state the next capture clears,
+/// not an app malfunction (issue #644).
+fn is_profile_singleton_error(stderr: &str) -> bool {
+    stderr.contains("ProcessSingleton") || stderr.contains("SingletonLock")
+}
+
+/// Map an `image` crate failure decoding user-uploaded thumbnail bytes to an
+/// actionable error. "The image format could not be determined" means the
+/// magic bytes matched no decoder we ship — commonly HEIC, the default photo
+/// format on macOS/iOS, plus BMP/TIFF/AVIF/ICO — a fact about the user's
+/// file, not an app malfunction (issue #649). A decode failure mid-stream
+/// means the file is corrupt or truncated. Both are expected user-input
+/// states; only genuinely unexplained failures stay reportable.
+fn humanize_image_decode_error(err: image::ImageError) -> CommandError {
+    match err {
+        image::ImageError::Unsupported(_) => CommandError::expected(
+            "That file isn't a recognized image format. Please upload a PNG, JPEG, GIF, or \
+             WEBP image — HEIC photos (the iPhone/macOS default) need converting to one of \
+             those first.",
+        ),
+        image::ImageError::Decoding(_) => CommandError::expected(
+            "That image couldn't be read — the file appears to be corrupted or truncated. \
+             Try re-exporting it as PNG or JPEG, then upload again.",
+        ),
+        other => format!("Could not read uploaded image: {other}").into(),
     }
 }
 
@@ -238,64 +272,90 @@ pub async fn capture_project_thumbnail(
         // both concurrent captures and app restarts into a dirty .shipstudio.
         static PROFILE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         sweep_stale_thumbnail_profiles(&shipstudio_dir);
-        let profile_dir = shipstudio_dir.join(format!(
-            "thumbnail_profile_{}_{}",
-            std::process::id(),
-            PROFILE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        let user_data_arg = format!("--user-data-dir={}", profile_dir.to_string_lossy());
 
-        // Use new headless mode with explicit viewport control
-        // Set background to white so any extra captured area isn't black
-        let mut browser_cmd = create_command(&browser);
-        browser_cmd.args([
-            "--headless=new",
-            &user_data_arg,
-            "--no-first-run",
-            "--disable-gpu",
-            "--no-sandbox",
-            // A one-shot throwaway capture gains nothing from Chromium's
-            // crash reporter, and spinning up a crashpad_handler per capture
-            // added a whole extra failure mode: its named-pipe handshake can
-            // lose a race with process teardown/AV and kill the capture with
-            // "TransactNamedPipe: The pipe has been ended" (issue #421).
-            "--disable-crash-reporter",
-            "--disable-breakpad",
-            // A disposable one-shot capture has no business phoning home:
-            // background networking spins up GoogleUpdater/GCM machinery
-            // whose log spew drowned real failure signals (issues #498–#500).
-            "--disable-background-networking",
-            "--disable-component-update",
-            "--disable-sync",
-            "--hide-scrollbars",
-            "--force-device-scale-factor=1",
-            "--default-background-color=FFFFFFFF",
-            "--window-position=0,0",
-            "--window-size=1280,800",
-            "--virtual-time-budget=3000",
-            &screenshot_arg,
-            &url,
-        ]);
-        let result = run_with_timeout(
-            tokio::process::Command::from(browser_cmd),
-            "headless browser thumbnail",
-            BROWSER_THUMBNAIL_TIMEOUT_SECS,
-        )
-        .await;
+        // Two attempts with an escalating virtual-time budget. 3s of virtual
+        // time covers a warmed dev server; a route compiling on first request
+        // (slow Windows machines especially) can exhaust it before the page
+        // ever paints — the browser then exits 0 without writing any file
+        // (issue #526). That shape is detectable, so retry it once with a
+        // much longer budget before giving up (issue #647).
+        let mut capture_written;
+        let budgets = [3000u32, 15000u32];
+        let last_attempt = budgets.len() - 1;
+        let mut attempt = 0;
+        let output = loop {
+            let budget_ms = budgets[attempt];
+            let profile_dir = shipstudio_dir.join(format!(
+                "thumbnail_profile_{}_{}",
+                std::process::id(),
+                PROFILE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            let user_data_arg = format!("--user-data-dir={}", profile_dir.to_string_lossy());
+            let virtual_time_arg = format!("--virtual-time-budget={budget_ms}");
 
-        // The throwaway profile has served its purpose; don't let it grow.
-        // On timeout the killed browser can leave it half-written — the stale
-        // sweep above mops those up on later captures.
-        let _ = std::fs::remove_dir_all(&profile_dir);
-        let output = result?;
+            // Use new headless mode with explicit viewport control
+            // Set background to white so any extra captured area isn't black
+            let mut browser_cmd = create_command(&browser);
+            browser_cmd.args([
+                "--headless=new",
+                &user_data_arg,
+                "--no-first-run",
+                "--disable-gpu",
+                "--no-sandbox",
+                // A one-shot throwaway capture gains nothing from Chromium's
+                // crash reporter, and spinning up a crashpad_handler per capture
+                // added a whole extra failure mode: its named-pipe handshake can
+                // lose a race with process teardown/AV and kill the capture with
+                // "TransactNamedPipe: The pipe has been ended" (issue #421).
+                "--disable-crash-reporter",
+                "--disable-breakpad",
+                // A disposable one-shot capture has no business phoning home:
+                // background networking spins up GoogleUpdater/GCM machinery
+                // whose log spew drowned real failure signals (issues #498–#500).
+                "--disable-background-networking",
+                "--disable-component-update",
+                "--disable-sync",
+                "--hide-scrollbars",
+                "--force-device-scale-factor=1",
+                "--default-background-color=FFFFFFFF",
+                "--window-position=0,0",
+                "--window-size=1280,800",
+                &virtual_time_arg,
+                &screenshot_arg,
+                &url,
+            ]);
+            let result = run_with_timeout(
+                tokio::process::Command::from(browser_cmd),
+                "headless browser thumbnail",
+                BROWSER_THUMBNAIL_TIMEOUT_SECS,
+            )
+            .await;
 
-        // Success is "the screenshot file exists", not "the exit code was 0":
-        // headless Chromium on Windows can write the PNG and still exit
-        // non-zero over unrelated internal warnings, and failing on the exit
-        // code alone throws away a perfectly good capture (issue #374).
-        let capture_written = std::fs::metadata(&temp_path)
-            .map(|m| m.len() > 0)
-            .unwrap_or(false);
+            // The throwaway profile has served its purpose; don't let it grow.
+            // On timeout the killed browser can leave it half-written — the
+            // stale sweep above mops those up on later captures.
+            let _ = std::fs::remove_dir_all(&profile_dir);
+            let out = result?;
+
+            // Success is "the screenshot file exists", not "the exit code was
+            // 0": headless Chromium on Windows can write the PNG and still
+            // exit non-zero over unrelated internal warnings, and failing on
+            // the exit code alone throws away a perfectly good capture
+            // (issue #374).
+            capture_written = std::fs::metadata(&temp_path)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false);
+
+            let silent_success_without_file = out.status.success() && !capture_written;
+            if !silent_success_without_file || attempt == last_attempt {
+                break out;
+            }
+            attempt += 1;
+            tracing::warn!(
+                "Browser exited 0 without writing {} — retrying with a longer virtual-time budget (issue #647)",
+                temp_path.display()
+            );
+        };
 
         if capture_written && !output.status.success() {
             tracing::warn!(
@@ -306,6 +366,18 @@ pub async fn capture_project_thumbnail(
 
         if !capture_written {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            // Chrome refusing to start because it couldn't lock the profile
+            // dir (stale SingletonLock from a crashed capture, or an
+            // overlapping capture racing on the same profile) is a transient
+            // environment state the per-capture dirs + stale sweep clear on
+            // the next run — expected, not telemetry (issue #644).
+            if is_profile_singleton_error(&stderr) {
+                return Err(CommandError::expected(
+                    "The capture browser couldn't lock its temporary profile directory \
+                     (a leftover lock from an interrupted capture). Stale profiles are \
+                     cleaned up automatically — the next capture attempt should succeed.",
+                ));
+            }
             // Headless Chromium can die with EMPTY stderr (crash, killed by
             // AV/security software) — fall back to the exit code plus a
             // stdout snippet so the report says something (issue #291).
@@ -337,16 +409,20 @@ pub async fn capture_project_thumbnail(
                         .map(|c| c.to_string())
                         .unwrap_or_else(|| "killed by signal".to_string());
                     if output.status.success() && stdout.is_empty() {
-                        // Exit 0 + silence + no file: the browser thinks it
-                        // succeeded but nothing landed on disk — seen on
-                        // Windows when rendering fails internally or security
-                        // software intercepts the write (issue #526). Name the
-                        // shape so reports are diagnosable, instead of the
-                        // meaningless "exit code 0, no output".
-                        format!(
-                            "browser exited successfully but wrote no screenshot file at {} — page render failed silently or the file write was blocked",
+                        // Exit 0 + silence + no file, even after the
+                        // longer-budget retry above: the page didn't render in
+                        // time (dev server still compiling the route) or
+                        // security software blocked the file write
+                        // (issues #526/#647). A recurring environment
+                        // condition, not an app malfunction — the capture
+                        // timer will simply try again later.
+                        return Err(CommandError::expected(format!(
+                            "The capture browser finished without writing a screenshot at {} — \
+                             the page probably didn't render in time (the dev server may still \
+                             be compiling), or security software blocked the file write. The \
+                             thumbnail will be retried automatically.",
                             temp_path.display()
-                        )
+                        )));
                     } else if stdout.is_empty() {
                         format!("exit code {code}, no output")
                     } else {
@@ -398,7 +474,11 @@ pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String
     if thumbnail_path.exists() {
         // Return as base64 data URL for easy display
         use base64::Engine;
-        let data = std::fs::read(&thumbnail_path).map_err(|e| e.to_string())?;
+        // classify_fs_error: labels the op/path and turns environment denials
+        // (TCC, Windows access-denied) into Expected (issues #596, #625).
+        let data = std::fs::read(&thumbnail_path).map_err(|e| {
+            crate::utils::classify_fs_error("read this project's thumbnail", &thumbnail_path, &e)
+        })?;
         let base64_data = base64::engine::general_purpose::STANDARD.encode(&data);
         Ok(Some(format!("data:image/png;base64,{base64_data}")))
     } else {
@@ -425,16 +505,22 @@ pub async fn upload_project_thumbnail(
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
+        std::fs::create_dir_all(&shipstudio_dir).map_err(|e| {
+            crate::utils::classify_fs_error(
+                "create this project's .shipstudio folder",
+                &shipstudio_dir,
+                &e,
+            )
+        })?;
     }
 
     // Decode through the `image` crate — gives us format detection + a
     // hard reject for non-image input. Then re-encode as PNG at the same
     // 640px width as the auto-capture path so the dashboard renders
-    // consistently regardless of source.
-    let img = image::load_from_memory(&image_data)
-        .map_err(|e| format!("Could not read uploaded image: {e}"))?;
+    // consistently regardless of source. Unrecognized/corrupt input gets a
+    // human message naming the supported formats instead of the crate's raw
+    // "format could not be determined" (issue #649).
+    let img = image::load_from_memory(&image_data).map_err(humanize_image_decode_error)?;
     let resized = img.resize(640, 400, image::imageops::FilterType::Lanczos3);
 
     let thumbnail_path = shipstudio_dir.join("thumbnail.png");
@@ -447,8 +533,9 @@ pub async fn upload_project_thumbnail(
     // sibling tauri command directly so we stay synchronous on disk.
     let metadata_path = shipstudio_dir.join("project.json");
     let mut metadata: ProjectMetadata = if metadata_path.exists() {
-        let contents = std::fs::read_to_string(&metadata_path)
-            .map_err(|e| format!("Failed to read project metadata: {e}"))?;
+        let contents = std::fs::read_to_string(&metadata_path).map_err(|e| {
+            crate::utils::classify_fs_error("read project metadata", &metadata_path, &e)
+        })?;
         let mut existing: ProjectMetadata = serde_json::from_str(&contents)
             .map_err(|e| format!("Failed to parse project metadata: {e}"))?;
         existing.migrate();
@@ -458,12 +545,13 @@ pub async fn upload_project_thumbnail(
     };
     metadata.custom_thumbnail = Some(true);
     metadata.schema_version = PROJECT_METADATA_SCHEMA_VERSION;
-    let serialized = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, serialized)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    crate::commands::projects::save_project_metadata(&project, &metadata)?;
 
-    let bytes = std::fs::read(&thumbnail_path).map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(&thumbnail_path).map_err(|e| {
+        crate::utils::classify_fs_error("read this project's thumbnail", &thumbnail_path, &e)
+    })?;
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:image/png;base64,{base64_data}"))
 }
@@ -512,6 +600,62 @@ mod browser_stderr_tests {
         let detail = browser_failure_detail(&stderr).unwrap();
         assert!(detail.chars().count() <= 601);
         assert!(detail.ends_with('…'));
+    }
+}
+
+#[cfg(test)]
+mod singleton_classification_tests {
+    use super::*;
+
+    #[test]
+    fn stale_singleton_lock_stderr_is_recognized() {
+        // Condensed from the real report behind issue #644.
+        let stderr = "[0810/163833.123:ERROR:chrome/browser/process_singleton_posix.cc:347] Failed to create /Users/x/ShipStudio/p/.shipstudio/thumbnail_profile/SingletonLock: File exists (17)\n\
+            [0810/163833.456:ERROR:chrome/app/chrome_main_delegate.cc:520] Failed to create a ProcessSingleton for your profile directory.";
+        assert!(is_profile_singleton_error(stderr));
+    }
+
+    #[test]
+    fn unrelated_stderr_is_not_a_singleton_error() {
+        assert!(!is_profile_singleton_error(""));
+        assert!(!is_profile_singleton_error(
+            "ERROR:gpu_init.cc(523)] Passthrough is not supported"
+        ));
+    }
+}
+
+#[cfg(test)]
+mod upload_decode_error_tests {
+    use super::*;
+
+    #[test]
+    fn unrecognized_format_is_expected_and_names_supported_formats() {
+        // Bytes matching no decoder's magic signature — the shape a HEIC
+        // upload produces (issue #649).
+        let err = image::load_from_memory(&[0u8; 32]).expect_err("garbage must not decode");
+        match humanize_image_decode_error(err) {
+            CommandError::Expected { message } => {
+                for fmt in ["PNG", "JPEG", "GIF", "WEBP"] {
+                    assert!(message.contains(fmt), "missing {fmt} in: {message}");
+                }
+                assert!(message.contains("HEIC"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn truncated_png_is_expected_corruption_message() {
+        // Valid PNG magic, garbage after — recognized format, broken file.
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        bytes.extend_from_slice(&[0u8; 16]);
+        let err = image::load_from_memory(&bytes).expect_err("truncated png must not decode");
+        match humanize_image_decode_error(err) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("corrupted or truncated"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
     }
 }
 

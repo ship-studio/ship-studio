@@ -17,12 +17,12 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { WebglAddon } from '@xterm/addon-webgl';
+import { attachWebglRenderer } from '../../lib/terminalWebgl';
 import {
   openPtySession,
   attachPtySession,
   writePtySessionLogged,
-  resizePtySession,
+  resizePtySessionLogged,
   killPtySession,
   detachPtySession,
   onPtySessionData,
@@ -447,20 +447,20 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Use WebGL renderer for GPU-accelerated rendering (reduces flickering).
     // Gated by a user setting — some macOS beta / GPU-driver combinations render corrupted
     // glyphs through WebGL, so users can opt out via Settings → Preferences.
+    // attachWebglRenderer only keeps the addon loaded while the pane has
+    // layout — background panes stay mounted (and streaming) while zero-sized,
+    // which made the glyph atlas throw from getImageData (issue #383).
+    let disposeWebgl: (() => void) | null = null;
+    let webglTornDown = false;
     void (async () => {
       const gpuEnabled = await getTerminalGpuEnabled();
       if (!gpuEnabled) {
         logger.info('[Terminal] GPU rendering disabled by user, using canvas renderer');
         return;
       }
-      try {
-        const webglAddon = new WebglAddon();
-        webglAddon.onContextLoss(() => {
-          webglAddon.dispose();
-        });
-        term.loadAddon(webglAddon);
-      } catch {
-        logger.warn('[Terminal] WebGL not available, using canvas renderer');
+      // The effect can tear down while the settings read is in flight.
+      if (!webglTornDown) {
+        disposeWebgl = attachWebglRenderer(term, container);
       }
     })();
 
@@ -1225,7 +1225,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
           fitAddonRef.current.fit();
           const { sessionId } = ptyRef.current;
-          void resizePtySession(sessionId, terminalRef.current.cols, terminalRef.current.rows);
+          resizePtySessionLogged(sessionId, terminalRef.current.cols, terminalRef.current.rows);
         }
       });
     });
@@ -1233,6 +1233,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     return () => {
       mounted = false;
+      webglTornDown = true;
+      disposeWebgl?.();
       resizeObserver.disconnect();
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       if (startupTimer) clearTimeout(startupTimer);
@@ -1300,7 +1302,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         if (fitAddonRef.current && terminalRef.current && ptyRef.current) {
           fitAddonRef.current.fit();
           const { sessionId } = ptyRef.current;
-          void resizePtySession(sessionId, terminalRef.current.cols, terminalRef.current.rows);
+          resizePtySessionLogged(sessionId, terminalRef.current.cols, terminalRef.current.rows);
         }
       },
     }),

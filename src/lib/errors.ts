@@ -101,6 +101,19 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `There are newer changes on GitHub than you have locally. Pull the latest changes first, then try again.`;
   }
 
+  // The gh CLI can't read its own config file — a local file-permissions
+  // problem (e.g. a prior sudo run left ~/.config/gh root-owned), not a
+  // GitHub sign-in failure. Must be checked BEFORE the generic "permission
+  // denied" auth branch below, which would send the user to "reconnect
+  // GitHub" — advice that can't fix a file the OS won't let gh read
+  // (issue #631).
+  if (
+    (m.includes('failed to read configuration') || m.includes('failed to load config')) &&
+    m.includes('permission denied')
+  ) {
+    return `The GitHub CLI (gh) can't read its own settings because of a file-permissions problem on this computer — this isn't a GitHub sign-in issue. Open a terminal and run \`sudo chown -R $(whoami) ~/.config/gh\`, then try again.`;
+  }
+
   // GitHub wouldn't authenticate. GitHub's no-write-access rejection reads
   // "Permission to <owner>/<repo>.git denied to <user>." — the words are split
   // by the repo name, so it needs the two-part check (issue #321).
@@ -128,7 +141,13 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     m.includes('dial tcp') ||
     m.includes('connectex') ||
     m.includes('timed out') ||
-    m.includes('timeout')
+    m.includes('timeout') ||
+    // Go's net/http closing the connection mid-request. The bare `…: EOF`
+    // variant needs the end-of-line anchor — a naked "eof" substring would
+    // false-positive on ordinary words like "thereof" (issues #434/#642,
+    // mirroring gh_network_error in src-tauri/src/commands/github.rs).
+    m.includes('unexpected eof') ||
+    /:\s*eof\s*$/m.test(m)
   ) {
     return `Couldn't reach GitHub. Check your internet connection and try again.`;
   }
@@ -222,6 +241,23 @@ export function isAgentNotInstalledError(value: unknown): boolean {
 }
 
 /**
+ * True when a caught backend error means a project's root folder is gone —
+ * deleted, renamed, or moved outside Ship Studio while its session stayed
+ * open. The backend classifies this `CommandError::expected` (see
+ * `canonicalize_tagged` in `src-tauri/src/utils.rs`, issues #365/#372), but
+ * Expected serializes identically to Other across IPC, so callers re-check
+ * the message shape. Permanent for that path — retrying can never succeed,
+ * so callers should stop polling / suppress repeat surfacing (issue #629).
+ */
+export function isProjectFolderGoneError(value: unknown): boolean {
+  const message = formatCommandError(asCommandError(value));
+  return (
+    message.includes('no longer exists — it may have been moved') ||
+    message.includes('Invalid path in validate_project_path')
+  );
+}
+
+/**
  * Exit-code → actionable-message mappings shared by the PTY-driven flows
  * (project creation, GitHub import) that run `git clone` / package installs.
  */
@@ -278,6 +314,39 @@ export function describeProcessError(
       expected: true,
       message:
         "GitHub couldn't authenticate this computer over SSH, so the repository couldn't be reached. Either set up an SSH key for your GitHub account (github.com/settings/keys), or switch to HTTPS by running `gh config set git_protocol https` in a terminal, then try again.",
+    };
+  }
+  // Git-over-HTTPS credential failure: no usable credential helper, so git
+  // fell back to an interactive username/password prompt — which a GUI-spawned
+  // process can't answer ("Device not configured" / "terminal prompts
+  // disabled"). The HTTPS counterpart of the SSH branch above: a
+  // user-credential-setup state, not an app bug (issue #637).
+  if (
+    lower.includes('could not read username for') ||
+    lower.includes('could not read password for')
+  ) {
+    return {
+      expected: true,
+      message:
+        "GitHub couldn't authenticate this computer over HTTPS — git needed to ask for a password, and there's no saved credential to use. Open a terminal and run `gh auth login`, then `gh auth setup-git`, and try again.",
+    };
+  }
+  // GitHub's own API returning a transient 5xx (e.g. "HTTP 504: We couldn't
+  // respond to your request in time…" from api.github.com/graphql during
+  // `gh repo clone`). gh exits with the generic code 1, so only the wording
+  // identifies it — a GitHub-side blip with a built-in retry suggestion, not
+  // an app bug (issue #620).
+  if (
+    /http 5\d\d/.test(lower) ||
+    lower.includes('respond to your request in time') ||
+    lower.includes('gateway timeout') ||
+    lower.includes('service unavailable') ||
+    lower.includes('bad gateway')
+  ) {
+    return {
+      expected: true,
+      message:
+        "GitHub's API is temporarily unavailable — this happens during brief GitHub outages. Wait a moment and try again.",
     };
   }
   // npm registry auth failure (E401). npm exits with the generic code 1, so

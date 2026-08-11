@@ -7,7 +7,9 @@ use crate::utils::validate_project_path;
 use super::git_stage_and_commit;
 // Network git ops (fetch, pull, merge) go through the workspace-scoped helper in
 // the parent module so they authenticate as the project's workspace login.
-use super::run_git_net;
+// Pull/merge mutate the index, so they additionally retry on .git/index.lock
+// contention like the commit/snapshot/discard paths (issue #639).
+use super::{run_git_net, run_git_net_retrying_index_lock};
 use tracing::warn;
 
 /// Git's normal refusal to pull a branch that has never been pushed (no
@@ -112,7 +114,9 @@ pub async fn fetch_all_branches(project_path: String) -> Result<(), CommandError
 pub async fn git_pull(project_path: String) -> Result<(), CommandError> {
     let validated_path = validate_project_path(&project_path)?;
 
-    let output = run_git_net(&["pull", "--ff-only"], &validated_path, "pull --ff-only").await?;
+    let output =
+        run_git_net_retrying_index_lock(&["pull", "--ff-only"], &validated_path, "pull --ff-only")
+            .await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -146,9 +150,9 @@ pub async fn pull_and_merge(
 
     let output = if let Some(branch) = merge_branch {
         let merge_ref = format!("origin/{branch}");
-        run_git_net(&["merge", &merge_ref], &validated_path, "merge").await?
+        run_git_net_retrying_index_lock(&["merge", &merge_ref], &validated_path, "merge").await?
     } else {
-        run_git_net(
+        run_git_net_retrying_index_lock(
             &["pull", "--no-rebase"],
             &validated_path,
             "pull --no-rebase",

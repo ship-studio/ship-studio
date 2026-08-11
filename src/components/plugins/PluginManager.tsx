@@ -107,6 +107,51 @@ export function PluginManager({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Plugins already background-checked for updates this modal-open, so a
+  // refetch (toggle, uninstall, …) doesn't re-hit the network per plugin.
+  const autoCheckedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isOpen) autoCheckedRef.current = new Set();
+  }, [isOpen]);
+
+  // Proactively check installed plugins for updates in the background
+  // (issue #572): fixed plugin releases otherwise never reach users who
+  // don't think to click "Check for update" on each plugin — a stale broken
+  // bundle (e.g. the Vercel plugin's POSIX-only `cat` on Windows) kept
+  // failing indefinitely. Failures are silent: this is a nicety, and an
+  // offline machine shouldn't toast or file reports over it.
+  const autoCheckUpdates = useCallback(
+    async (installed: PluginInfo[]) => {
+      if (!projectPath) return;
+      const candidates = installed.filter(
+        (p) => !p.is_dev && p.source_url && !autoCheckedRef.current.has(p.manifest.id)
+      );
+      await Promise.allSettled(
+        candidates.map(async (p) => {
+          autoCheckedRef.current.add(p.manifest.id);
+          try {
+            const result = await checkPluginUpdate(projectPath, p.manifest.id);
+            setUpdateStates((prev) => {
+              // Never clobber an in-flight manual action.
+              const current = prev[p.manifest.id];
+              if (current === 'updating' || current === 'checking') return prev;
+              return {
+                ...prev,
+                [p.manifest.id]: result.has_update ? 'available' : 'up_to_date',
+              };
+            });
+          } catch (err) {
+            logger.warn('Background plugin update check failed', {
+              plugin: p.manifest.id,
+              error: formatCommandError(asCommandError(err)),
+            });
+          }
+        })
+      );
+    },
+    [projectPath]
+  );
+
   // Fetch installed plugins when modal opens
   const fetchPlugins = useCallback(async () => {
     if (!projectPath) {
@@ -117,6 +162,7 @@ export function PluginManager({
     try {
       const result = await listPlugins(projectPath);
       setPlugins(result);
+      void autoCheckUpdates(result);
     } catch (err) {
       trackError('plugin_list_load', err, 'Plugin Manager');
       logger.error('Failed to load plugins', {
@@ -126,7 +172,7 @@ export function PluginManager({
     } finally {
       setIsLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, autoCheckUpdates]);
 
   useEffect(() => {
     if (!isOpen) return;

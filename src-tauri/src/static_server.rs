@@ -445,9 +445,46 @@ fn resolve_file_path(project_root: &Path, url_path: &str) -> Option<PathBuf> {
     None
 }
 
+/// Transient file-descriptor pressure: EMFILE (os error 24, this process's fd
+/// budget) or ENFILE (os error 23, the system-wide open-file table). Both are
+/// usually momentary — another process releases descriptors within
+/// milliseconds — so a read that fails with them deserves a retry, not an
+/// instant 500 (issue #575). The raw-code fallbacks are Unix-gated: on
+/// Windows os errors 23/24 mean unrelated things.
+fn is_fd_pressure(e: &std::io::Error) -> bool {
+    let rendered = e.to_string();
+    rendered.contains("Too many open files")
+        || (cfg!(unix) && matches!(e.raw_os_error(), Some(23) | Some(24)))
+}
+
+/// Run `op`, retrying a couple of times with a short backoff when it fails
+/// with transient fd pressure (see [`is_fd_pressure`]). Any other failure —
+/// and fd pressure that survives every retry — is returned unchanged.
+async fn with_fd_pressure_retry<T, F, Fut>(mut op: F) -> std::io::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::io::Result<T>>,
+{
+    const ATTEMPTS: u64 = 3;
+    for attempt in 1..=ATTEMPTS {
+        match op().await {
+            Err(e) if attempt < ATTEMPTS && is_fd_pressure(&e) => {
+                tracing::warn!(
+                    attempt,
+                    error = %e,
+                    "[StaticServer] read hit transient fd pressure (EMFILE/ENFILE); retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(75 * attempt)).await;
+            }
+            other => return other,
+        }
+    }
+    unreachable!("loop returns on the final attempt")
+}
+
 /// Read a file from disk and return it as an HTTP response with the correct MIME type.
 async fn serve_file(file_path: &Path) -> Result<Response<ServerBody>, hyper::Error> {
-    match tokio::fs::read(file_path).await {
+    match with_fd_pressure_retry(|| tokio::fs::read(file_path)).await {
         Ok(contents) => {
             let mime = file_path
                 .extension()
@@ -464,11 +501,26 @@ async fn serve_file(file_path: &Path) -> Result<Response<ServerBody>, hyper::Err
                 .unwrap())
         }
         Err(e) => {
-            tracing::error!(
-                "[StaticServer] Failed to read file {}: {}",
-                file_path.display(),
-                e
-            );
+            // Log the raw os error code distinctly so fd-pressure failures
+            // (23/24) are easy to filter from other read failures (#575).
+            // Pressure that survived every retry is machine-wide fd
+            // exhaustion — an environment condition, not a server bug — so
+            // it logs at warn instead of auto-filing an error report.
+            if is_fd_pressure(&e) {
+                tracing::warn!(
+                    "[StaticServer] Failed to read file {} after fd-pressure retries (os error {:?}): {}",
+                    file_path.display(),
+                    e.raw_os_error(),
+                    e
+                );
+            } else {
+                tracing::error!(
+                    "[StaticServer] Failed to read file {} (os error {:?}): {}",
+                    file_path.display(),
+                    e.raw_os_error(),
+                    e
+                );
+            }
             let body = "<html><body><h1>500 - Internal Server Error</h1></body></html>";
             Ok(Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -484,6 +536,87 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    // ===== #575: fd-pressure classification + bounded read retry =====
+
+    #[test]
+    fn fd_pressure_matches_emfile_and_enfile_shapes() {
+        // ENFILE — the reported #575 shape (system-wide table exhausted).
+        assert!(is_fd_pressure(&std::io::Error::other(
+            "Too many open files in system (os error 23)"
+        )));
+        // EMFILE — per-process budget exhausted.
+        assert!(is_fd_pressure(&std::io::Error::other(
+            "Too many open files (os error 24)"
+        )));
+        // Raw-code fallback for localized strerror text (Unix only).
+        #[cfg(unix)]
+        {
+            assert!(is_fd_pressure(&std::io::Error::from_raw_os_error(23)));
+            assert!(is_fd_pressure(&std::io::Error::from_raw_os_error(24)));
+        }
+    }
+
+    #[test]
+    fn fd_pressure_rejects_other_errors() {
+        assert!(!is_fd_pressure(&std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No such file or directory (os error 2)"
+        )));
+        assert!(!is_fd_pressure(&std::io::Error::other(
+            "Operation not permitted (os error 1)"
+        )));
+    }
+
+    #[tokio::test]
+    async fn fd_retry_recovers_after_transient_pressure() {
+        let calls = std::cell::Cell::new(0u32);
+        let result = with_fd_pressure_retry(|| {
+            calls.set(calls.get() + 1);
+            let n = calls.get();
+            async move {
+                if n < 3 {
+                    Err(std::io::Error::other(
+                        "Too many open files in system (os error 23)",
+                    ))
+                } else {
+                    Ok(vec![1u8, 2, 3])
+                }
+            }
+        })
+        .await;
+        assert_eq!(result.unwrap(), vec![1, 2, 3]);
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[tokio::test]
+    async fn fd_retry_gives_up_after_bounded_attempts() {
+        let calls = std::cell::Cell::new(0u32);
+        let result: std::io::Result<Vec<u8>> = with_fd_pressure_retry(|| {
+            calls.set(calls.get() + 1);
+            async { Err(std::io::Error::other("Too many open files (os error 24)")) }
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls.get(), 3, "must be bounded, not infinite");
+    }
+
+    #[tokio::test]
+    async fn fd_retry_does_not_retry_other_errors() {
+        let calls = std::cell::Cell::new(0u32);
+        let result: std::io::Result<Vec<u8>> = with_fd_pressure_retry(|| {
+            calls.set(calls.get() + 1);
+            async {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "No such file or directory (os error 2)",
+                ))
+            }
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls.get(), 1);
+    }
 
     #[test]
     fn test_get_mime_type() {

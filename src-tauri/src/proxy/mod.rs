@@ -33,6 +33,17 @@ const MAX_BODY_SIZE: usize = 50 * 1024 * 1024;
 /// wedged port and should fail fast instead of holding the request forever.
 const UPSTREAM_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Overall connect budget for the WebSocket (HMR) upgrade's retry loop.
+/// Windows gets a longer budget: dev-server cold starts and restarts are
+/// measurably slower there (filesystem/AV overhead), and recurring reports
+/// showed the shared 5s budget being fully exhausted mid-restart even after
+/// the #353 per-attempt fix (issue #623). Waiting longer only delays the 502
+/// on a genuinely-down server — the browser-side HMR client retries after the
+/// 502 either way — while riding out a slow restart avoids the failure
+/// entirely.
+const WS_UPSTREAM_CONNECT_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(if cfg!(windows) { 12 } else { 5 });
+
 /// Timeout for the upstream response headers. Must be generous: dev servers
 /// compile routes on demand and hold the request open until the compile
 /// finishes — tens of seconds on a real dependency tree (the frontend's
@@ -847,7 +858,7 @@ async fn handle_websocket_upgrade(
         select_ok([v4, v6]).await.map(|(stream, _)| stream)
     }
 
-    let connect_deadline = tokio::time::Instant::now() + UPSTREAM_CONNECT_TIMEOUT;
+    let connect_deadline = tokio::time::Instant::now() + WS_UPSTREAM_CONNECT_TIMEOUT;
     // Each attempt gets its own short timeout (capped to what's left of the
     // overall budget) rather than racing the whole deadline: an unready port
     // doesn't always refuse the connection — on Windows especially, the SYN
@@ -888,7 +899,7 @@ async fn handle_websocket_upgrade(
                         "[Proxy] WebSocket target localhost:{} unavailable after {} connect attempts over {:?}: {}",
                         target_port,
                         attempts,
-                        UPSTREAM_CONNECT_TIMEOUT,
+                        WS_UPSTREAM_CONNECT_TIMEOUT,
                         e
                     );
                 } else {

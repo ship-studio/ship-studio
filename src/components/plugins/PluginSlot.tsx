@@ -25,11 +25,21 @@ import {
   wasPluginUnloaded,
   unloadPluginModule,
 } from '../../lib/plugin-loader';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { invoke } from '@tauri-apps/api/core';
 import { WarningIcon } from '../icons';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
+
+/**
+ * Project paths whose root folder was detected missing mid-session (deleted,
+ * renamed, or moved outside Ship Studio). Session-scoped one-shot guard: the
+ * first plugin rejection for that project shows one info toast; a plugin that
+ * keeps polling in the background is then only warn-logged instead of
+ * toasting on every tick (issue #629 — same repeated-toast shape #315 fixed
+ * for a plugin's own folder disappearing).
+ */
+const projectGoneNotified = new Set<string>();
 
 interface PluginSlotProps {
   /** Slot name (e.g., "toolbar", "sidebar") */
@@ -195,6 +205,23 @@ export function buildContext(
         `Plugin "${pluginName}" was deactivated because its files are no longer on disk. Unlink or reinstall it from the Plugins menu.`,
         'error'
       );
+      throw e;
+    }
+    // The *project's* folder is gone (deleted/renamed/moved outside the app
+    // while its session stayed open) — an Expected environment change the
+    // backend deliberately keeps out of telemetry, and permanent for this
+    // path. One info toast per project, then only a local warn log, so a
+    // plugin polling on its own interval can't toast every tick (issue #629).
+    if (isProjectFolderGoneError(e)) {
+      if (projectGoneNotified.has(projectPath)) {
+        logger.warn(
+          `Plugin "${pluginId}" call rejected — project folder is gone; toast suppressed`,
+          { projectPath, error: message }
+        );
+      } else {
+        projectGoneNotified.add(projectPath);
+        actions.showToast(`Plugin "${pluginName}": ${message}`, 'info');
+      }
       throw e;
     }
     actions.showToast(`Plugin "${pluginName}": ${message}`, 'error');

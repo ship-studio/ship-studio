@@ -8,7 +8,9 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { createAttachGate } from './ptySession';
+import { mockIPC } from '@tauri-apps/api/mocks';
+import { createAttachGate, resizePtySessionLogged } from './ptySession';
+import { logger } from './logger';
 
 const bytes = (s: string): Uint8Array => new TextEncoder().encode(s);
 const text = (b: Uint8Array): string => new TextDecoder().decode(b);
@@ -91,5 +93,43 @@ describe('createAttachGate', () => {
     expect(delivered).toEqual(['a']);
     gate.push(1, bytes('b'));
     expect(delivered).toEqual(['a', 'b']);
+  });
+});
+
+describe('resizePtySessionLogged (#646)', () => {
+  it('swallows a resize-vs-exit race and warn-logs it instead of rejecting unhandled', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    // The backend's Expected classification for a resize that raced the PTY
+    // exiting — previously became a genuine unhandled promise rejection that
+    // the global handler auto-reported as a bug.
+    mockIPC(() => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- deliberately a plain CommandError object, the shape under test
+      throw { type: 'Other', message: 'terminal session has ended' };
+    });
+
+    resizePtySessionLogged('sess-1', 80, 24);
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+    const [message, context] = warnSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(message).toContain('resize failed');
+    expect(context).toMatchObject({
+      sessionId: 'sess-1',
+      cols: 80,
+      rows: 24,
+      error: 'terminal session has ended',
+    });
+  });
+
+  it('does not log when the resize succeeds', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    mockIPC(() => undefined);
+
+    resizePtySessionLogged('sess-2', 100, 40);
+
+    // Flush the fire-and-forget promise chain.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
