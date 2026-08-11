@@ -474,7 +474,11 @@ pub async fn get_project_thumbnail(project_path: String) -> Result<Option<String
     if thumbnail_path.exists() {
         // Return as base64 data URL for easy display
         use base64::Engine;
-        let data = std::fs::read(&thumbnail_path).map_err(|e| e.to_string())?;
+        // classify_fs_error: labels the op/path and turns environment denials
+        // (TCC, Windows access-denied) into Expected (issues #596, #625).
+        let data = std::fs::read(&thumbnail_path).map_err(|e| {
+            crate::utils::classify_fs_error("read this project's thumbnail", &thumbnail_path, &e)
+        })?;
         let base64_data = base64::engine::general_purpose::STANDARD.encode(&data);
         Ok(Some(format!("data:image/png;base64,{base64_data}")))
     } else {
@@ -501,8 +505,13 @@ pub async fn upload_project_thumbnail(
     let project = validate_project_path(&project_path)?;
     let shipstudio_dir = project.join(".shipstudio");
     if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
+        std::fs::create_dir_all(&shipstudio_dir).map_err(|e| {
+            crate::utils::classify_fs_error(
+                "create this project's .shipstudio folder",
+                &shipstudio_dir,
+                &e,
+            )
+        })?;
     }
 
     // Decode through the `image` crate — gives us format detection + a
@@ -524,8 +533,9 @@ pub async fn upload_project_thumbnail(
     // sibling tauri command directly so we stay synchronous on disk.
     let metadata_path = shipstudio_dir.join("project.json");
     let mut metadata: ProjectMetadata = if metadata_path.exists() {
-        let contents = std::fs::read_to_string(&metadata_path)
-            .map_err(|e| format!("Failed to read project metadata: {e}"))?;
+        let contents = std::fs::read_to_string(&metadata_path).map_err(|e| {
+            crate::utils::classify_fs_error("read project metadata", &metadata_path, &e)
+        })?;
         let mut existing: ProjectMetadata = serde_json::from_str(&contents)
             .map_err(|e| format!("Failed to parse project metadata: {e}"))?;
         existing.migrate();
@@ -535,12 +545,13 @@ pub async fn upload_project_thumbnail(
     };
     metadata.custom_thumbnail = Some(true);
     metadata.schema_version = PROJECT_METADATA_SCHEMA_VERSION;
-    let serialized = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, serialized)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    crate::commands::projects::save_project_metadata(&project, &metadata)?;
 
-    let bytes = std::fs::read(&thumbnail_path).map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(&thumbnail_path).map_err(|e| {
+        crate::utils::classify_fs_error("read this project's thumbnail", &thumbnail_path, &e)
+    })?;
     let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:image/png;base64,{base64_data}"))
 }

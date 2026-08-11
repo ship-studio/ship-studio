@@ -134,13 +134,7 @@ async fn read(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<V
     // promise on every iteration during teardown, flooding the Tauri
     // IPC bridge and (on macOS WebKit) eventually crashing the network
     // process.
-    let session = state
-        .sessions
-        .read()
-        .await
-        .get(&pid)
-        .ok_or("EOF")?
-        .clone();
+    let session = state.sessions.read().await.get(&pid).ok_or("EOF")?.clone();
     tokio::task::spawn_blocking(move || {
         let mut buf = vec![0u8; 4096];
         let mut reader = session.reader.blocking_lock();
@@ -209,12 +203,7 @@ async fn kill(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<(
     // the top of `read`. Without the removal, the frontend's read loop
     // keeps polling an Arc<Session> whose child is dead, generating a
     // cascade of rejected invoke() calls during project switches.
-    let session = state
-        .sessions
-        .write()
-        .await
-        .remove(&pid)
-        .ok_or("EOF")?;
+    let session = state.sessions.write().await.remove(&pid).ok_or("EOF")?;
     session
         .child_killer
         .lock()
@@ -225,7 +214,7 @@ async fn kill(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<(
 }
 
 #[tauri::command]
-async fn exitstatus(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<u32, String> {
+async fn exitstatus(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Result<i32, String> {
     let session = state
         .sessions
         .read()
@@ -242,7 +231,13 @@ async fn exitstatus(pid: PtyHandler, state: tauri::State<'_, PluginState>) -> Re
             .wait()
             .map_err(|e| e.to_string())?
             .exit_code();
-        Ok::<u32, String>(exitstatus)
+        // portable_pty reports the raw Windows exit DWORD as a u32. Abnormal
+        // terminations carry a *signed* 32-bit status (an NTSTATUS, or node's
+        // negative libuv errno — e.g. -4058/UV_ENOENT), which as a bare u32
+        // renders as a nonsense huge number like 4294963238 in the frontend's
+        // failure toast (issue #622). Reinterpret as i32 so those arrive as
+        // their small negative selves; normal small exit codes are unchanged.
+        Ok::<i32, String>(exitstatus as i32)
     })
     .await
     .map_err(|e: tokio::task::JoinError| e.to_string())?

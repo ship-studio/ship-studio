@@ -306,6 +306,17 @@ export async function getSystemEnv(): Promise<Record<string, string>> {
 }
 
 /**
+ * True when file content contains an unresolved git merge-conflict marker
+ * (a line starting with `<<<<<<<`). Used to explain a package.json that
+ * fails to parse because a merge conflict was left in it (issue #577) —
+ * git's conflict markers are the overwhelmingly common way a JSON file
+ * comes to start with `<`.
+ */
+export function hasMergeConflictMarkers(content: string): boolean {
+  return /^<{7}( |\r?$)/m.test(content);
+}
+
+/**
  * Start the development server for a project.
  * Intelligently handles different frameworks (Vite, Next.js, etc.)
  * by parsing the dev script and ensuring the correct port is used.
@@ -357,44 +368,70 @@ export async function startDevServer(
       // /Applications/XAMPP lost dev-script parsing (issue #264). It also
       // sidesteps Windows mixed-separator concatenation (issue #257).
       const file = await readProjectFile(projectPath, 'package.json');
-      const pkg = JSON.parse(file.content) as { scripts?: { dev?: string } };
-      const devScript = pkg.scripts?.dev;
-
-      if (devScript) {
-        // Parse the dev script and replace any hardcoded port with our desired port
-        // Use npx to run the command so local binaries are found
-        // Returns null if the script contains shell syntax (&&, ||, |, ;, or env vars)
-        const npxArgs = parseDevScriptForNpx(devScript, port);
-        if (npxArgs) {
-          command = 'npx';
-          args = npxArgs;
-          logger.info('[DevServer] Parsed dev script successfully', {
-            original: devScript,
-            command,
-            args: args.join(' '),
-            port,
-          });
-        } else {
-          // Script has shell syntax - use npm run dev which respects the PORT env var
-          logger.info('[DevServer] Using npm run dev for shell script', {
-            original: devScript,
-            port,
-          });
-        }
+      if (hasMergeConflictMarkers(file.content)) {
+        // An unresolved git merge conflict in package.json: JSON.parse would
+        // throw "Unrecognized token '<'" and telemetry recorded an app bug
+        // for what is a user-actionable repo state (issue #577). Surface the
+        // real cause in the dev-server log instead — the npm fallback below
+        // still spawns (and prints npm's own EJSONPARSE), so the user sees
+        // both messages where they're looking.
+        logger.warn(
+          '[DevServer] package.json contains unresolved merge conflict markers; falling back to npm run dev',
+          { projectPath }
+        );
+        onOutput?.(
+          '[Ship Studio] package.json has an unresolved merge conflict — resolve it (Branches → Resolve conflicts) and restart the dev server.\r\n'
+        );
       } else {
-        logger.warn('[DevServer] No dev script found in package.json, using npm run dev');
+        const pkg = JSON.parse(file.content) as { scripts?: { dev?: string } };
+        const devScript = pkg.scripts?.dev;
+
+        if (devScript) {
+          // Parse the dev script and replace any hardcoded port with our desired port
+          // Use npx to run the command so local binaries are found
+          // Returns null if the script contains shell syntax (&&, ||, |, ;, or env vars)
+          const npxArgs = parseDevScriptForNpx(devScript, port);
+          if (npxArgs) {
+            command = 'npx';
+            args = npxArgs;
+            logger.info('[DevServer] Parsed dev script successfully', {
+              original: devScript,
+              command,
+              args: args.join(' '),
+              port,
+            });
+          } else {
+            // Script has shell syntax - use npm run dev which respects the PORT env var
+            logger.info('[DevServer] Using npm run dev for shell script', {
+              original: devScript,
+              port,
+            });
+          }
+        } else {
+          logger.warn('[DevServer] No dev script found in package.json, using npm run dev');
+        }
       }
     } catch (e) {
       // Fall back to npm run dev with port forwarded via -- --port
       // (e.g. package.json genuinely missing, or not valid JSON)
-      trackError('devserver_package_json', e, 'Workspace');
       // CommandError rejections are plain objects — String() renders them as
       // "[object Object]" (issue #332); format them like the toasts do.
       const errorMessage = formatCommandError(asCommandError(e));
-      logger.error('[DevServer] Failed to read/parse package.json, falling back to npm run dev', {
-        error: errorMessage,
-        projectPath,
-      });
+      if (errorMessage.includes('File not found: package.json')) {
+        // A project with no package.json at all (framework detected from its
+        // config file alone) is a known project state, not an app bug —
+        // useDevServer skips the spawn for the common case (issue #593), and
+        // remaining paths (restarts, monorepo cwd) must not page telemetry.
+        logger.warn('[DevServer] No package.json found; falling back to npm run dev', {
+          projectPath,
+        });
+      } else {
+        trackError('devserver_package_json', e, 'Workspace');
+        logger.error('[DevServer] Failed to read/parse package.json, falling back to npm run dev', {
+          error: errorMessage,
+          projectPath,
+        });
+      }
     }
   }
 

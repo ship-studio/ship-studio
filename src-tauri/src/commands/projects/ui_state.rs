@@ -42,17 +42,9 @@ pub async fn mark_project_opened(project_path: String) -> Result<(), CommandErro
     // Workspace happened to be active when you opened them — a data-integrity
     // bug. Do not reintroduce it.
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Gets the branch prefix username preference (defaults to true if not set)
@@ -96,17 +88,9 @@ pub async fn set_branch_prefix_preference(
 
     metadata.branch_prefix_username = Some(prefix);
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Gets whether the main branch warning banner should be hidden for this project
@@ -150,17 +134,9 @@ pub async fn set_hide_main_branch_warning(
 
     metadata.hide_main_branch_warning = Some(hidden);
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Gets the auto-accept mode preference for a project
@@ -202,17 +178,9 @@ pub async fn set_auto_accept_mode(project_path: String, enabled: bool) -> Result
 
     metadata.auto_accept_mode = Some(enabled);
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Gets the saved terminal tab state for a project
@@ -228,8 +196,9 @@ pub async fn get_terminal_state(
         return Ok(None);
     }
 
-    let contents = std::fs::read_to_string(&metadata_path)
-        .map_err(|e| format!("Failed to read project metadata: {e}"))?;
+    let contents = std::fs::read_to_string(&metadata_path).map_err(|e| {
+        crate::utils::classify_fs_error("read project metadata", &metadata_path, &e)
+    })?;
     let metadata: ProjectMetadata = serde_json::from_str(&contents)
         .map_err(|e| format!("Failed to parse project metadata: {e}"))?;
 
@@ -258,17 +227,9 @@ pub async fn set_terminal_state(
 
     metadata.terminal_state = Some(state);
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents_str = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents_str)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// Reassigns a project to a different Workspace (Account) by updating
@@ -376,17 +337,9 @@ fn write_project_account_id(
         Some(account_id.to_string())
     };
 
-    if !shipstudio_dir.exists() {
-        std::fs::create_dir_all(&shipstudio_dir)
-            .map_err(|e| format!("Failed to create .shipstudio directory: {e}"))?;
-    }
-
-    let contents = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("Failed to serialize project metadata: {e}"))?;
-    std::fs::write(&metadata_path, contents)
-        .map_err(|e| format!("Failed to write project metadata: {e}"))?;
-
-    Ok(())
+    // classify_fs_error routing: TCC/access-denied/read-only failures
+    // classify Expected instead of paging telemetry (issue #625).
+    super::metadata::save_project_metadata(&project, &metadata)
 }
 
 /// The Workspace (Account) a project effectively belongs to, given the set of
