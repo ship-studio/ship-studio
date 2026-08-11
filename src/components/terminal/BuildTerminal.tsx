@@ -21,13 +21,13 @@ import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { WebglAddon } from '@xterm/addon-webgl';
+import { attachWebglRenderer } from '../../lib/terminalWebgl';
 import { createWebLinksAddon } from '../../lib/terminalLinks';
 import {
   openPtySession,
   attachPtySession,
   writePtySessionLogged,
-  resizePtySession,
+  resizePtySessionLogged,
   detachPtySession,
   onPtySessionData,
   onPtySessionExit,
@@ -136,17 +136,14 @@ export function BuildTerminal({
     });
 
     // GPU renderer, gated by the same user setting Terminal honors.
+    // attachWebglRenderer keeps the addon loaded only while the pane has
+    // layout — a zero-size/hidden pane made the glyph atlas throw from
+    // getImageData (issue #383).
     void (async () => {
       if (cancelled) return;
       const gpuEnabled = await getTerminalGpuEnabled();
       if (cancelled || !gpuEnabled) return;
-      try {
-        const webgl = new WebglAddon();
-        webgl.onContextLoss(() => webgl.dispose());
-        term.loadAddon(webgl);
-      } catch {
-        /* canvas fallback */
-      }
+      disposers.push(attachWebglRenderer(term, container));
     })();
 
     // Initial fit after layout settles; focus is owned by the isActive effect.
@@ -193,7 +190,7 @@ export function BuildTerminal({
         if (cancelled) return;
         // Layout may have settled while the open was in flight (those resize
         // callbacks were skipped) — sync the PTY to the current size once.
-        void resizePtySession(sessionId, Math.max(term.cols, 2), Math.max(term.rows, 2));
+        resizePtySessionLogged(sessionId, Math.max(term.cols, 2), Math.max(term.rows, 2));
 
         const gate = createAttachGate((bytes) => {
           term.write(bytes);
@@ -255,7 +252,7 @@ export function BuildTerminal({
       if (cancelled) return;
       safeFit();
       if (sessionOpened) {
-        void resizePtySession(sessionId, term.cols, term.rows);
+        resizePtySessionLogged(sessionId, term.cols, term.rows);
       }
     });
     resizeObserver.observe(container);

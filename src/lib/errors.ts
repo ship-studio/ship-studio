@@ -222,6 +222,23 @@ export function isAgentNotInstalledError(value: unknown): boolean {
 }
 
 /**
+ * True when a caught backend error means a project's root folder is gone —
+ * deleted, renamed, or moved outside Ship Studio while its session stayed
+ * open. The backend classifies this `CommandError::expected` (see
+ * `canonicalize_tagged` in `src-tauri/src/utils.rs`, issues #365/#372), but
+ * Expected serializes identically to Other across IPC, so callers re-check
+ * the message shape. Permanent for that path — retrying can never succeed,
+ * so callers should stop polling / suppress repeat surfacing (issue #629).
+ */
+export function isProjectFolderGoneError(value: unknown): boolean {
+  const message = formatCommandError(asCommandError(value));
+  return (
+    message.includes('no longer exists — it may have been moved') ||
+    message.includes('Invalid path in validate_project_path')
+  );
+}
+
+/**
  * Exit-code → actionable-message mappings shared by the PTY-driven flows
  * (project creation, GitHub import) that run `git clone` / package installs.
  */

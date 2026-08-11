@@ -85,7 +85,8 @@ export function PublishBranchDropdown({
   excludeClickOutsideSelector,
 }: PublishBranchDropdownProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+  const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
+    showToast(message, type);
   const [isOpen, setIsOpen] = useState(false);
   const [publishState, setPublishState] = useState<PublishState>({ status: 'idle' });
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -181,10 +182,25 @@ export function PublishBranchDropdown({
         errorType = 'auth_error';
       }
 
-      logger.error('Publish failed', { branch: currentBranch, errorType, message });
-      trackError('git_push', e, 'Workspace');
+      // push_rejected ("someone else pushed first") and merge_conflict are
+      // fully anticipated states with dedicated recovery UI (GitErrorHandler +
+      // the dropdown's own error panel) — the backend already classifies them
+      // Expected (#617). Keep them out of the reporting channels: logger.error
+      // and error toasts both auto-file bug reports (issue #643); mirror
+      // handlePullLatest's warn/info treatment of the pull-side equivalents.
+      const expectedFailure = errorType === 'push_rejected' || errorType === 'merge_conflict';
+      if (expectedFailure) {
+        logger.warn('Publish refused (expected state)', {
+          branch: currentBranch,
+          errorType,
+          message,
+        });
+      } else {
+        logger.error('Publish failed', { branch: currentBranch, errorType, message });
+        trackError('git_push', e, 'Workspace');
+      }
       setPublishState({ status: 'error', message, errorType });
-      onToast?.(`Push failed: ${message}`, 'error');
+      onToast?.(`Push failed: ${message}`, expectedFailure ? 'info' : 'error');
 
       // Notify parent about the error for GitErrorHandler
       if (onPublishError) {

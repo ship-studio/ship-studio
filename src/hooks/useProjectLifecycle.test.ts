@@ -78,6 +78,7 @@ vi.mock('../lib/session', () => ({
   endProjectSession: vi.fn(() => null),
 }));
 
+import { invoke } from '@tauri-apps/api/core';
 import { registerExternalProject } from '../lib/external-projects';
 import { logger } from '../lib/logger';
 
@@ -174,5 +175,61 @@ describe('handleImportLocalFolder — expected-refusal routing (#518/#535)', () 
     expect(params.showToast).toHaveBeenCalledWith('I/O error: disk exploded', 'error');
     // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
     expect(logger.error as Fn).toHaveBeenCalled();
+  });
+});
+
+describe('handleSelectProject — folder-gone toast routing (#640)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** Make ensure_external_project_registered reject; everything else resolves. */
+  function rejectRegistration(message: string) {
+    vi.mocked(invoke).mockImplementation((cmd: string) =>
+      cmd === 'ensure_external_project_registered'
+        ? // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- deliberately a plain CommandError object, the shape under test
+          Promise.reject({ type: 'Other', message })
+        : Promise.resolve(undefined)
+    );
+  }
+
+  it('shows the Expected "folder no longer exists" case as an info toast', async () => {
+    rejectRegistration(
+      "The folder '/x/legal-invoice' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio"
+    );
+    const params = createParams();
+    const { result } = renderHook(() => useProjectLifecycle(params));
+
+    await act(async () => {
+      await result.current.handleSelectProject({
+        name: 'legal-invoice',
+        path: '/x/legal-invoice',
+        thumbnail: null,
+      });
+    });
+
+    const [message, type] = vi.mocked(params.showToast).mock.calls[0];
+    expect(message).toContain('its folder no longer exists');
+    expect(type).toBe('info');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
+  });
+
+  it('keeps the unrecognized-location refusal as an error toast', async () => {
+    rejectRegistration('Invalid path in validate_project_path: /x/elsewhere');
+    const params = createParams();
+    const { result } = renderHook(() => useProjectLifecycle(params));
+
+    await act(async () => {
+      await result.current.handleSelectProject({
+        name: 'elsewhere',
+        path: '/x/elsewhere',
+        thumbnail: null,
+      });
+    });
+
+    const [message, type] = vi.mocked(params.showToast).mock.calls[0];
+    expect(message).toContain("isn't a recognized project location");
+    expect(type).toBe('error');
   });
 });
