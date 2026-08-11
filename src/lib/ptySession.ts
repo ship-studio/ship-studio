@@ -112,13 +112,32 @@ export function writePtySessionLogged(sessionId: string, data: string): void {
   });
 }
 
-/** Resize the PTY backing a session. */
+/** Resize the PTY backing a session. Rejects on failure — fire-and-forget
+ *  layout paths (ResizeObserver ticks, pane switches) should use
+ *  {@link resizePtySessionLogged} instead. */
 export async function resizePtySession(
   sessionId: string,
   cols: number,
   rows: number
 ): Promise<void> {
   await invoke('pty_session_resize', { sessionId, cols, rows });
+}
+
+/** Fire-and-forget variant of {@link resizePtySession} for paths where
+ *  nothing awaits the resize. A resize can race the PTY exiting ("terminal
+ *  session has ended" — Expected on the backend); a bare `void` call turns
+ *  that benign race into an unhandled rejection that the global handler
+ *  auto-reports as a bug (issue #646). Mirror of writePtySessionLogged:
+ *  log at warn, never toast. */
+export function resizePtySessionLogged(sessionId: string, cols: number, rows: number): void {
+  resizePtySession(sessionId, cols, rows).catch((err: unknown) => {
+    logger.warn('[ptySession] resize failed — ignored', {
+      sessionId,
+      cols,
+      rows,
+      error: formatCommandError(asCommandError(err)),
+    });
+  });
 }
 
 /** Kill a session's PTY and drop its registry entry. Idempotent. */

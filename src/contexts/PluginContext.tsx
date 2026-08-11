@@ -22,7 +22,7 @@ export interface PluginProjectData {
 
 /** App actions plugins can trigger */
 export interface PluginAppActions {
-  showToast: (message: string, type?: 'success' | 'error') => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   refreshGitStatus: () => void;
   refreshBranches: () => void;
   focusTerminal: () => void;

@@ -1432,7 +1432,10 @@ pub fn claude_connect_write(session_id: String, data: Vec<u8>) -> Result<(), Com
         map.get(&session_id).cloned()
     };
     let Some(session) = session else {
-        return Err("unknown connect session".to_string().into());
+        // A keystroke/resize can land after the connect PTY exited (the waiter
+        // thread pruned the registry) or after the modal was closed — a benign,
+        // expected race the frontend already ignores, not a bug (issue #563).
+        return Err(CommandError::expected("unknown connect session"));
     };
     let mut w = session
         .writer
@@ -1453,7 +1456,10 @@ pub fn claude_connect_resize(session_id: String, cols: u16, rows: u16) -> Result
         map.get(&session_id).cloned()
     };
     let Some(session) = session else {
-        return Err("unknown connect session".to_string().into());
+        // A keystroke/resize can land after the connect PTY exited (the waiter
+        // thread pruned the registry) or after the modal was closed — a benign,
+        // expected race the frontend already ignores, not a bug (issue #563).
+        return Err(CommandError::expected("unknown connect session"));
     };
     let master = session
         .master
@@ -1763,7 +1769,10 @@ pub fn workspace_connect_write(session_id: String, data: Vec<u8>) -> Result<(), 
         map.get(&session_id).cloned()
     };
     let Some(session) = session else {
-        return Err("unknown connect session".to_string().into());
+        // A keystroke/resize can land after the connect PTY exited (the waiter
+        // thread pruned the registry) or after the modal was closed — a benign,
+        // expected race the frontend already ignores, not a bug (issue #563).
+        return Err(CommandError::expected("unknown connect session"));
     };
     let mut w = session
         .writer
@@ -1788,7 +1797,10 @@ pub fn workspace_connect_resize(
         map.get(&session_id).cloned()
     };
     let Some(session) = session else {
-        return Err("unknown connect session".to_string().into());
+        // A keystroke/resize can land after the connect PTY exited (the waiter
+        // thread pruned the registry) or after the modal was closed — a benign,
+        // expected race the frontend already ignores, not a bug (issue #563).
+        return Err(CommandError::expected("unknown connect session"));
     };
     let master = session
         .master

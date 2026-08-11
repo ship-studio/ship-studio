@@ -8,6 +8,7 @@ import {
   isAgentNotInstalledError,
   isExpectedProjectImportRefusal,
   isMergeConflictError,
+  isProjectFolderGoneError,
   isRecognizedGitFailure,
   type CommandError,
 } from './errors';
@@ -368,5 +369,32 @@ describe('isAgentNotInstalledError', () => {
   it('does not match other failures', () => {
     expect(isAgentNotInstalledError('Failed to add MCP server: connection refused')).toBe(false);
     expect(isAgentNotInstalledError(new Error('spawn ENOENT'))).toBe(false);
+  });
+});
+
+describe('isProjectFolderGoneError', () => {
+  it("matches canonicalize_tagged's folder-gone message (#365/#629)", () => {
+    expect(
+      isProjectFolderGoneError({
+        type: 'Other',
+        message:
+          "The folder '/Users/me/ShipStudio/demo' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+      })
+    ).toBe(true);
+  });
+
+  it("matches validate_project_path's invalid-path rejection", () => {
+    expect(
+      isProjectFolderGoneError('Invalid path in validate_project_path: /Users/me/ShipStudio/demo')
+    ).toBe(true);
+  });
+
+  it('does not match a branch-gone message or unrelated failures', () => {
+    // humanizeGitError's missing-ref wording also says "no longer exists" —
+    // the helper must key on the backend's fuller folder-gone phrase.
+    expect(
+      isProjectFolderGoneError('feature/x no longer exists. It may have been deleted or renamed.')
+    ).toBe(false);
+    expect(isProjectFolderGoneError(new Error('connection refused'))).toBe(false);
   });
 });

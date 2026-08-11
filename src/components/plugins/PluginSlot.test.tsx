@@ -110,6 +110,32 @@ describe('buildContext failure reporting', () => {
     expect(showToast).not.toHaveBeenCalled();
   });
 
+  it('one-shots the project-folder-gone toast as info instead of erroring every poll (#629)', async () => {
+    mockIPC(() => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- deliberately a plain CommandError object, the shape under test
+      throw {
+        type: 'Other',
+        message:
+          "The folder '/p/gone' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio",
+      };
+    });
+    const { actions, showToast } = makeActions();
+    const gone = { ...project, path: '/p/gone' };
+    const ctx = buildContext('vercel', 'Vercel', gone, actions, theme, []);
+
+    // First background call: one friendly info toast (Expected condition —
+    // must not go through the error-toast telemetry pipeline).
+    await expect(ctx.shell.exec('vercel', ['ls'])).rejects.toBeTruthy();
+    expect(showToast).toHaveBeenCalledTimes(1);
+    expect(showToast.mock.calls[0][0]).toContain('no longer exists');
+    expect(showToast.mock.calls[0][1]).toBe('info');
+
+    // Subsequent polls for the same project: suppressed entirely.
+    await expect(ctx.storage.read()).rejects.toBeTruthy();
+    await expect(ctx.shell.exec('vercel', ['ls'])).rejects.toBeTruthy();
+    expect(showToast).toHaveBeenCalledTimes(1);
+  });
+
   it('does not toast when the call succeeds', async () => {
     mockIPC((cmd) => {
       if (cmd === 'read_plugin_storage') return { key: 'value' };

@@ -321,10 +321,15 @@ export function useProjectLifecycle({
       // Distinguish "the folder is gone" (moved/renamed/deleted outside the
       // app — issue #365) from "the path isn't in an allowed location"; the
       // "re-add via Select Project Folder" advice only fits the latter.
-      const message = formatCommandError(asCommandError(e)).includes('no longer exists')
+      const folderGone = formatCommandError(asCommandError(e)).includes('no longer exists');
+      const message = folderGone
         ? `Can't open "${project.name}" — its folder no longer exists. It may have been moved, renamed, or deleted outside Ship Studio.`
         : `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`;
-      showToast(message, 'error');
+      // A folder deleted/moved outside the app is a user-caused environment
+      // change the backend already classifies Expected — info toast, NOT
+      // 'error': error toasts auto-file bug reports (issue #640, same
+      // pattern as #535's import-refusal gating below).
+      showToast(message, folderGone ? 'info' : 'error');
       return;
     }
 

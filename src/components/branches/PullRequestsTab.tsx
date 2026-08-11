@@ -53,7 +53,8 @@ export function PullRequestsTab({
   onResolveConflicts,
 }: PullRequestsTabProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+  const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
+    showToast(message, type);
 
   const fetchPrsFn = useCallback(async (path: string) => {
     try {
@@ -132,7 +133,10 @@ export function PullRequestsTab({
       // button does, instead of dumping gh's raw multi-line stderr into a
       // toast (issue #278).
       if (isMergeConflictError(e) && onResolveConflicts) {
-        onToast?.('This pull request has merge conflicts', 'error');
+        // Expected, by-design state with dedicated follow-up UI (the conflict
+        // resolver opens right below) — info toast, NOT 'error': error toasts
+        // auto-file bug reports and this isn't a bug (issue #632).
+        onToast?.('This pull request has merge conflicts', 'info');
         onResolveConflicts(headRef, baseRef);
       } else {
         onToast?.(`Failed to merge: ${formatCommandError(asCommandError(e))}`, 'error');
