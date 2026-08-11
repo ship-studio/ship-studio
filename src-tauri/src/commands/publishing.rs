@@ -35,6 +35,57 @@ fn push_auth_error(stderr: &str) -> Option<CommandError> {
     None
 }
 
+/// GitHub pre-receive rejections that contain the literal word "rejected" but
+/// are NOT the benign "someone else pushed first" race: the broad
+/// `stderr.contains("rejected")` arms below matched them and told the user to
+/// "pull changes first" — advice that can't fix either condition. Both are
+/// user-fixable states with one specific remedy, so they get their own
+/// message and stay out of telemetry (`Expected`).
+///
+/// - `GH001` / "exceeds GitHub's file size limit": a file over 100 MB — the
+///   fix is removing the file or switching to Git LFS (issue #626).
+/// - `GH005` / "refs longer than 255 bytes": the branch name itself is too
+///   long for GitHub — the fix is renaming the branch (issue #636; the
+///   frontend's `sanitizeBranchName` now caps generated names too).
+///
+/// Must run BEFORE any generic "rejected"/"non-fast-forward" check.
+fn push_pre_receive_error(stderr: &str) -> Option<CommandError> {
+    let lower = stderr.to_lowercase();
+    if lower.contains("exceeds github's file size limit") || lower.contains("gh001") {
+        // Best-effort: name the offending file(s) from lines like
+        // "remote: error: File Archiv.zip is 120.17 MB; this exceeds GitHub's
+        // file size limit of 100.00 MB".
+        let files: Vec<&str> = stderr
+            .lines()
+            .filter(|l| l.to_lowercase().contains("file size limit"))
+            .filter_map(|l| l.split("File ").nth(1))
+            .filter_map(|rest| rest.split(" is ").next())
+            .filter(|name| !name.is_empty())
+            .collect();
+        let detail = if files.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", files.join(", "))
+        };
+        return Some(CommandError::expected(format!(
+            "GitHub rejected this push because a file is larger than its 100 MB limit{detail}. \
+             Remove the file from the branch (or use Git LFS for large files) and push again — \
+             pulling changes won't help."
+        )));
+    }
+    if lower.contains("gh005")
+        || lower.contains("refs longer than")
+        || lower.contains("ref too long")
+    {
+        return Some(CommandError::expected(
+            "GitHub rejected this push because the branch name is too long (GitHub limits refs \
+             to 255 bytes). Rename the branch to something shorter and push again — pulling \
+             changes won't help.",
+        ));
+    }
+    None
+}
+
 /// Push-time "the remote repo doesn't exist" rejections — the linked repo was
 /// deleted, renamed, transferred, or made inaccessible outside the app.
 /// Environment, not malfunction: telemetry-flooding this on every publish
@@ -118,6 +169,13 @@ pub async fn publish_to_github(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        // Large-file / ref-too-long pre-receive declines carry a specific fix
+        // of their own (issues #626/#636) — and without this arm they'd fall
+        // through to the auto-reported generic Process error below.
+        if let Some(err) = push_pre_receive_error(&stderr) {
+            warn!(error = %stderr, branch = %branch, "Push declined by GitHub pre-receive check");
+            return Err(err);
+        }
         if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, branch = %branch, "Authentication error");
             return Err(err);
@@ -168,6 +226,14 @@ pub async fn publish_to_staging(
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
+        // Pre-receive declines (GH001 large file, GH005 ref too long) contain
+        // the word "rejected" but are NOT the diverged-branch race — check
+        // them first or the user gets "pull changes first" advice that can't
+        // fix anything (issues #626/#636).
+        if let Some(err) = push_pre_receive_error(&stderr) {
+            warn!(error = %stderr, "Push declined by GitHub pre-receive check");
+            return Err(err);
+        }
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, "Push rejected - staging branch has diverged");
             // Retain the legacy PUSH_REJECTED sentinel so the frontend can
@@ -229,6 +295,12 @@ pub async fn publish_to_production(
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
+        // Pre-receive declines have their own fix and would otherwise be
+        // auto-reported as a generic Process error (issues #626/#636).
+        if let Some(err) = push_pre_receive_error(&stderr) {
+            warn!(error = %stderr, "Push declined by GitHub pre-receive check");
+            return Err(err);
+        }
         if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, "Authentication error");
             return Err(err);
@@ -289,6 +361,14 @@ pub async fn publish_branch(
 
     if !push_output.status.success() {
         let stderr = String::from_utf8_lossy(&push_output.stderr);
+        // Pre-receive declines (GH001 large file, GH005 ref too long) contain
+        // the word "rejected" but are NOT the concurrent-push race — check
+        // them first or the frontend shows the "someone else pushed, pull
+        // first" modal for a problem pulling can't fix (issues #626/#636).
+        if let Some(err) = push_pre_receive_error(&stderr) {
+            warn!(error = %stderr, branch = %branch, "Push declined by GitHub pre-receive check");
+            return Err(err);
+        }
         // Check for common errors
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, branch = %branch, "Push rejected");
@@ -324,8 +404,55 @@ pub async fn publish_branch(
 
 #[cfg(test)]
 mod tests {
+    use super::push_pre_receive_error;
     use crate::commands::git::run_git_net;
+    use crate::errors::CommandError;
     use std::path::Path;
+
+    // The #626 shape: GH001 large-file decline contains "rejected" but is not
+    // the concurrent-push race — it must classify Expected with LFS guidance
+    // and name the offending file.
+    #[test]
+    fn pre_receive_error_classifies_gh001_large_file() {
+        let stderr = "remote: error: Trace: 3539f6eaf2da6d14bbb65f8b9db2f684f713c6d5732665c678bdc1bb29d18696\nremote: error: See https://gh.io/lfs for more information.\nremote: error: File Archiv.zip is 120.17 MB; this exceeds GitHub's file size limit of 100.00 MB\nremote: error: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.\n ! [remote rejected] feat/x -> feat/x (pre-receive hook declined)\nerror: failed to push some refs to 'https://github.com/o/r.git'";
+        let err = push_pre_receive_error(stderr).expect("must classify GH001");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("100 MB"), "got: {msg}");
+        assert!(msg.contains("Archiv.zip"), "must name the file, got: {msg}");
+        assert!(msg.contains("LFS"), "must point at Git LFS, got: {msg}");
+        assert!(
+            !msg.contains("PUSH_REJECTED"),
+            "must not trigger the pull-first modal"
+        );
+    }
+
+    // The #636 shape: GH005 ref-too-long decline — the only fix is renaming
+    // the branch, not pulling.
+    #[test]
+    fn pre_receive_error_classifies_gh005_ref_too_long() {
+        let stderr = "remote: error: GH005: Sorry, refs longer than 255 bytes are not allowed.\nremote: ref too long: \"refs/heads/user/some-extremely-long-generated-branch-name\"\n ! [remote rejected] x -> x (pre-receive hook declined)\nerror: failed to push some refs to 'https://github.com/o/r.git'";
+        let err = push_pre_receive_error(stderr).expect("must classify GH005");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("branch name is too long"), "got: {msg}");
+        assert!(msg.contains("Rename"), "must suggest renaming, got: {msg}");
+    }
+
+    // An ordinary non-fast-forward race must NOT classify — it stays on the
+    // existing PUSH_REJECTED path with its dedicated pull-first UI.
+    #[test]
+    fn pre_receive_error_ignores_ordinary_push_race() {
+        let stderr = " ! [rejected] main -> main (non-fast-forward)\nerror: failed to push some refs to 'https://github.com/o/r.git'\nhint: Updates were rejected because the tip of your current branch is behind";
+        assert!(push_pre_receive_error(stderr).is_none());
+        assert!(push_pre_receive_error("").is_none());
+        // Other pre-receive declines (branch protection etc.) fall through to
+        // the existing arms too.
+        assert!(push_pre_receive_error(
+            "remote: error: GH006: Protected branch update failed for refs/heads/main"
+        )
+        .is_none());
+    }
 
     /// The network git helper must actually execute git through the timeout path
     /// (the whole point of A8 — replacing blocking `.output()` so a hung remote

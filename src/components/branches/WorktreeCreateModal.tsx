@@ -16,7 +16,7 @@ import { Spinner } from '../primitives/Spinner';
 import { useModal } from '../../contexts/ModalContext';
 import { sanitizeBranchName, type BranchInfo } from '../../lib/branches';
 import { addWorktree, worktreeFolderName, type WorktreeInfo } from '../../lib/worktrees';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { humanizeGitError } from '../../lib/errors';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { basename } from '../../lib/paths';
 
@@ -95,7 +95,12 @@ function WorktreeCreateForm({
       onCreated(result.path);
     } catch (err) {
       void trackError('worktree_create_failed', err);
-      setError(formatCommandError(asCommandError(err)));
+      // Humanize known git refusals — most importantly "already used by
+      // worktree"/"already checked out", which slips past the stale-list
+      // guard above when the branch got checked out elsewhere after the
+      // worktree list was loaded (issue #635, same condition as #406).
+      // Falls back to the formatted raw error when nothing matches.
+      setError(humanizeGitError(err, { branch: effectiveBranch }));
       setIsCreating(false);
     }
   };

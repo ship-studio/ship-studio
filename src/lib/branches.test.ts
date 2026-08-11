@@ -71,4 +71,35 @@ describe('sanitizeBranchName', () => {
   it('handles the issue #166 repro', () => {
     expect(sanitizeBranchName('adjust h2')).toBe('adjust-h2');
   });
+
+  // Issue #636: free-text-derived names blew past GitHub's 255-byte ref limit
+  // (GH005) and the push failure was misreported as a push race.
+  describe('length cap', () => {
+    it('caps long names at 120 bytes without leaving trailing junk', () => {
+      const longInput =
+        'Facebook did not provide video data. Open Facebook in the selected browser (chrome), ' +
+        'sign in, and confirm this video plays there, then retry. The video may also be private, ' +
+        'age restricted, deleted, or unavailable in this account/region';
+      const result = sanitizeBranchName(longInput);
+      expect(new TextEncoder().encode(result).length).toBeLessThanOrEqual(120);
+      expect(result.length).toBeGreaterThan(0);
+      // No trailing separator left at the cut point.
+      expect(result).not.toMatch(/[-/.]$/);
+    });
+
+    it('leaves names at or under the cap untouched', () => {
+      const exact = 'a'.repeat(120);
+      expect(sanitizeBranchName(exact)).toBe(exact);
+    });
+
+    it('counts bytes, not characters, and never splits a multi-byte character', () => {
+      // é is 2 bytes in UTF-8 → 100 chars = 200 bytes, over the cap.
+      const result = sanitizeBranchName('é'.repeat(100));
+      const bytes = new TextEncoder().encode(result).length;
+      expect(bytes).toBeLessThanOrEqual(120);
+      // Round-trips cleanly — no U+FFFD from a half-cut sequence.
+      expect(result).not.toContain('�');
+      expect(result).toBe('é'.repeat(result.length));
+    });
+  });
 });

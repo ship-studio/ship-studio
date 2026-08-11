@@ -371,11 +371,14 @@ pub async fn ensure_external_project_registered(
     // only auto-register paths that actually look like a project root. The
     // picker flow remains the way to add anything that doesn't.
     if !looks_like_project_root(&canonical) {
-        return Err(format!(
+        // A by-design security refusal, not a malfunction — Expected keeps it
+        // out of bug telemetry (issue #598, same classification #416 applied
+        // to the folder-picker guidance branches in this file). Serializes
+        // identically to Other, so the frontend sees the same message.
+        return Err(CommandError::expected(format!(
             "Refusing to auto-register '{}': it does not look like a project directory. Add it via the folder picker instead.",
             canonical.display()
-        )
-        .into());
+        )));
     }
 
     // Register it

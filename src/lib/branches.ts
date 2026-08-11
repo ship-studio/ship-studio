@@ -139,6 +139,17 @@ export async function discardChanges(projectPath: string): Promise<void> {
 }
 
 /**
+ * Byte cap for sanitized branch names. GitHub rejects refs longer than 255
+ * bytes (`GH005: Sorry, refs longer than 255 bytes are not allowed.`), and the
+ * limit applies to the full `refs/heads/<name>` string — auto-generated names
+ * derived from free text (task/issue descriptions) blew past it and the push
+ * failure was misreported as a push race (issue #636). 120 leaves generous
+ * headroom for the `refs/heads/` prefix and any `user/`-style namespacing a
+ * caller prepends.
+ */
+const MAX_BRANCH_NAME_BYTES = 120;
+
+/**
  * Sanitize user input into a valid git branch name.
  *
  * Rather than rejecting names like "adjust h2", we normalize them into
@@ -148,6 +159,8 @@ export async function discardChanges(projectPath: string): Promise<void> {
  * - collapses `..` runs into a single `.`
  * - collapses repeated `-` / `/`
  * - strips leading `-`, `/` and `.`, trailing `/` and `.`, and a trailing `.lock`
+ * - caps the result at {@link MAX_BRANCH_NAME_BYTES} bytes (GitHub's ref limit
+ *   is 255 bytes; free-text-derived names could exceed it — issue #636)
  *
  * An input with nothing salvageable returns an empty string — callers must
  * treat that the same as an empty input.
@@ -166,12 +179,21 @@ export function sanitizeBranchName(name: string): string {
     .replace(/-+/g, '-') // collapse repeated dashes
     .replace(/\/+/g, '/'); // collapse repeated slashes
 
+  // Cap the byte length (git ref limits are in bytes, not characters).
+  // Truncate on the encoded bytes, then drop any replacement character left
+  // by cutting a multi-byte sequence in half.
+  if (new TextEncoder().encode(sanitized).length > MAX_BRANCH_NAME_BYTES) {
+    const bytes = new TextEncoder().encode(sanitized).slice(0, MAX_BRANCH_NAME_BYTES);
+    sanitized = new TextDecoder().decode(bytes).replace(/�+$/, '');
+  }
+
   // Stripping one thing can expose another (e.g. "name..lock" → "name.lock"
-  // → "name"), so repeat until stable.
+  // → "name"), so repeat until stable. Also tidies whatever the byte cap cut
+  // mid-word (a trailing `-`/`/`/`.` left at the cut point).
   for (;;) {
     const next = sanitized
       .replace(/^[-/.]+/, '') // leading dashes/slashes/dots (git rejects leading "-")
-      .replace(/[/.]+$/, '') // trailing slashes/dots
+      .replace(/[-/.]+$/, '') // trailing dashes/slashes/dots
       .replace(/\.lock$/, ''); // git refuses refs ending in ".lock"
     if (next === sanitized) break;
     sanitized = next;
