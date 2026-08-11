@@ -3,7 +3,7 @@
 //! Handles creating new projects from zip templates and exporting
 //! existing projects as zip template files.
 
-use super::detection::static_site_dir;
+use super::detection::has_html_files;
 use crate::errors::CommandError;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -69,20 +69,88 @@ pub async fn extract_template_zip(
         return Err(e);
     }
 
-    // Verify it's a valid project (has package.json, HTML files at the root
-    // or in public/, or a Shopify theme layout)
-    if !project_path.join("package.json").exists()
-        && static_site_dir(&project_path).is_none()
-        && !project_path.join("layout").join("theme.liquid").exists()
-    {
+    // Verify it's a valid project (has package.json, HTML files, or a Shopify
+    // theme layout — searched a few levels deep, since templates routinely
+    // nest these under src/, dist/, or a wrapper directory; issue #641).
+    if !contains_project_markers(&project_path, TEMPLATE_MARKER_SEARCH_DEPTH) {
+        // Log what was actually extracted so a report can distinguish "the
+        // template really is invalid" from "extraction produced an unexpected
+        // layout" (issue #641).
+        let top_entries: Vec<String> = std::fs::read_dir(&project_path)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        tracing::warn!(
+            entries = ?top_entries,
+            "template validation failed; extracted top-level entries"
+        );
         // Clean up invalid project
         std::fs::remove_dir_all(&project_path).ok();
-        return Err("Invalid template: no package.json, .html files, or Shopify theme layout found. Please use a valid project template."
-            .to_string()
-            .into());
+        // The zip's content is the user's input, not an app malfunction.
+        return Err(CommandError::expected(
+            "Invalid template: no package.json, .html files, or Shopify theme layout found. Please use a valid project template.",
+        ));
     }
 
     Ok(project_path.to_string_lossy().to_string())
+}
+
+/// How many directory levels below the extraction root to search for project
+/// markers. Covers an unstripped wrapper dir plus common nesting like
+/// `src/index.html` or `wrapper/dist/index.html`.
+const TEMPLATE_MARKER_SEARCH_DEPTH: usize = 3;
+
+/// Whether `dir` (or any subdirectory up to `depth` levels down) contains a
+/// recognizable project marker: a `package.json`, any `.html` file, or a
+/// Shopify theme's `layout/theme.liquid`.
+///
+/// Root-only checks used to reject legitimately-structured templates whose
+/// project files sit one level deeper — e.g. when root-stripping didn't kick
+/// in, or when the site lives in `src/`/`dist/` (issue #641). Heavy and
+/// hidden directories are skipped.
+fn contains_project_markers(dir: &std::path::Path, depth: usize) -> bool {
+    if dir.join("package.json").exists()
+        || dir.join("layout").join("theme.liquid").exists()
+        || has_html_files(dir)
+    {
+        return true;
+    }
+    if depth == 0 {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        // `file_type()` doesn't follow symlinks, so a symlinked dir can't
+        // recurse out of the extracted tree (or loop).
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || name == "node_modules" {
+            continue;
+        }
+        if contains_project_markers(&entry.path(), depth - 1) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Zip entries that are packaging junk, not template content: macOS resource
+/// forks (`__MACOSX/`), Finder metadata (`.DS_Store`), and AppleDouble
+/// sidecar files (`._*`). Finder's "Compress" adds these next to the real
+/// root directory, which used to defeat the shared-root detection below and
+/// leave every file nested one level too deep (issue #641).
+fn is_junk_zip_entry(name: &str) -> bool {
+    name.split('/')
+        .any(|segment| segment == "__MACOSX" || segment == ".DS_Store" || segment.starts_with("._"))
 }
 
 /// Extract a zip archive into `project_path`, streaming each entry to disk
@@ -99,38 +167,44 @@ fn extract_archive_to<R: std::io::Read + std::io::Seek>(
         return Err(("Zip file is empty".to_string()).into());
     }
 
-    // Detect if zip has a single root directory (GitHub-style download)
-    // by checking the first entry
-    let first_entry_name = archive
-        .by_index(0)
-        .map_err(|e| format!("Failed to read zip entry: {e}"))?
-        .name()
-        .to_string();
-
-    let root_prefix = if first_entry_name.contains('/') {
-        // Get the root directory name (e.g., "repo-main/")
-        let parts: Vec<&str> = first_entry_name.split('/').collect();
-        if parts.len() > 1 && !parts[0].is_empty() {
-            Some(format!("{}/", parts[0]))
-        } else {
-            None
+    // Detect whether every real entry shares a single root directory
+    // (GitHub-style download). Packaging junk (__MACOSX/, .DS_Store, ._*)
+    // is ignored here — macOS zips add it at top level next to the real
+    // root, and counting it used to silently disable root-stripping, which
+    // then failed validation on a perfectly valid template (issue #641).
+    let mut shared_root: Option<String> = None;
+    let mut single_root = true;
+    for i in 0..archive.len() {
+        let name = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read zip entry #{i}: {e}"))?
+            .name()
+            .to_string();
+        if is_junk_zip_entry(&name) {
+            continue;
         }
+        match name.split_once('/') {
+            Some((top, _)) if !top.is_empty() => match &shared_root {
+                None => shared_root = Some(top.to_string()),
+                Some(root) if root == top => {}
+                Some(_) => {
+                    single_root = false;
+                    break;
+                }
+            },
+            // A top-level file (or a weird leading-slash name): no single root.
+            _ => {
+                single_root = false;
+                break;
+            }
+        }
+    }
+    let root_prefix = if single_root {
+        shared_root.map(|root| format!("{root}/"))
     } else {
         None
     };
-
-    // Verify all entries have the same root prefix if we detected one
-    let strip_root = if let Some(ref prefix) = root_prefix {
-        let all_have_prefix = (0..archive.len()).all(|i| {
-            archive
-                .by_index(i)
-                .map(|f| f.name().starts_with(prefix))
-                .unwrap_or(false)
-        });
-        all_have_prefix
-    } else {
-        false
-    };
+    let strip_root = root_prefix.is_some();
 
     // Create project directory
     std::fs::create_dir_all(project_path).map_err(|e| {
@@ -147,6 +221,11 @@ fn extract_archive_to<R: std::io::Read + std::io::Seek>(
             .map_err(|e| format!("Failed to read zip entry #{i}: {e}"))?;
 
         let mut outpath = file.name().to_string();
+
+        // Never materialize packaging junk (issue #641).
+        if is_junk_zip_entry(&outpath) {
+            continue;
+        }
 
         // Strip root directory if present
         if strip_root {
@@ -352,4 +431,144 @@ pub async fn export_project_as_template(
         .map_err(|e| format!("Failed to finalize zip file: {e}"))?;
 
     Ok(Some(save_path.to_string_lossy().to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{contains_project_markers, extract_archive_to, is_junk_zip_entry};
+    use std::io::Write;
+    use tempfile::TempDir;
+    use zip::write::SimpleFileOptions;
+
+    /// Build an in-memory zip with the given (name, content) entries.
+    /// Directory entries are names ending in '/'.
+    fn make_zip(entries: &[(&str, &str)]) -> std::io::Cursor<Vec<u8>> {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut cursor);
+            let options = SimpleFileOptions::default();
+            for (name, content) in entries {
+                if name.ends_with('/') {
+                    writer.add_directory(name.to_string(), options).unwrap();
+                } else {
+                    writer.start_file(name.to_string(), options).unwrap();
+                    writer.write_all(content.as_bytes()).unwrap();
+                }
+            }
+            writer.finish().unwrap();
+        }
+        cursor.set_position(0);
+        cursor
+    }
+
+    #[test]
+    fn strips_shared_root_directory() {
+        let tmp = TempDir::new().unwrap();
+        let dest = tmp.path().join("proj");
+        let zip = make_zip(&[
+            ("repo-main/", ""),
+            ("repo-main/package.json", "{}"),
+            ("repo-main/src/app.js", "x"),
+        ]);
+        extract_archive_to(zip, &dest).unwrap();
+        assert!(dest.join("package.json").exists());
+        assert!(dest.join("src/app.js").exists());
+    }
+
+    /// Issue #641: macOS Finder zips carry __MACOSX/, .DS_Store, and ._*
+    /// sidecar entries at top level next to the real root. These must not
+    /// defeat root-stripping (which then made a valid template fail
+    /// validation), and must not be extracted.
+    #[test]
+    fn junk_entries_do_not_defeat_root_stripping() {
+        let tmp = TempDir::new().unwrap();
+        let dest = tmp.path().join("proj");
+        let zip = make_zip(&[
+            ("repo-main/", ""),
+            ("repo-main/package.json", "{}"),
+            ("__MACOSX/repo-main/._package.json", "junk"),
+            (".DS_Store", "junk"),
+            ("repo-main/.DS_Store", "junk"),
+        ]);
+        extract_archive_to(zip, &dest).unwrap();
+        assert!(
+            dest.join("package.json").exists(),
+            "root must be stripped despite junk siblings"
+        );
+        assert!(!dest.join("__MACOSX").exists());
+        assert!(!dest.join(".DS_Store").exists());
+    }
+
+    #[test]
+    fn mixed_roots_are_not_stripped() {
+        let tmp = TempDir::new().unwrap();
+        let dest = tmp.path().join("proj");
+        let zip = make_zip(&[
+            ("repo-main/package.json", "{}"),
+            ("README.txt", "top-level stray file"),
+        ]);
+        extract_archive_to(zip, &dest).unwrap();
+        // No single shared root → files land where the zip put them.
+        assert!(dest.join("repo-main/package.json").exists());
+        assert!(dest.join("README.txt").exists());
+    }
+
+    #[test]
+    fn junk_entry_detection() {
+        assert!(is_junk_zip_entry("__MACOSX/repo/._file"));
+        assert!(is_junk_zip_entry(".DS_Store"));
+        assert!(is_junk_zip_entry("repo/.DS_Store"));
+        assert!(is_junk_zip_entry("repo/._index.html"));
+        assert!(!is_junk_zip_entry("repo/index.html"));
+        assert!(!is_junk_zip_entry("repo/_private/file.js"));
+    }
+
+    #[test]
+    fn markers_found_at_root() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("package.json"), "{}").unwrap();
+        assert!(contains_project_markers(tmp.path(), 3));
+    }
+
+    /// Issue #641: html nested under src/ or dist/ (or a wrapper dir that
+    /// wasn't stripped) must still count as a valid template.
+    #[test]
+    fn markers_found_in_nested_directories() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+        std::fs::write(tmp.path().join("src/index.html"), "<html></html>").unwrap();
+        assert!(contains_project_markers(tmp.path(), 3));
+
+        let tmp2 = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp2.path().join("wrapper/dist")).unwrap();
+        std::fs::write(tmp2.path().join("wrapper/dist/index.html"), "x").unwrap();
+        assert!(contains_project_markers(tmp2.path(), 3));
+
+        let tmp3 = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp3.path().join("theme/layout")).unwrap();
+        std::fs::write(tmp3.path().join("theme/layout/theme.liquid"), "x").unwrap();
+        assert!(contains_project_markers(tmp3.path(), 3));
+    }
+
+    #[test]
+    fn markers_respect_depth_limit_and_skip_heavy_dirs() {
+        let tmp = TempDir::new().unwrap();
+        // Beyond the depth limit → not found.
+        let deep = tmp.path().join("a/b/c/d");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("index.html"), "x").unwrap();
+        assert!(!contains_project_markers(tmp.path(), 3));
+
+        // node_modules must never make a template "valid".
+        let tmp2 = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp2.path().join("node_modules/pkg")).unwrap();
+        std::fs::write(tmp2.path().join("node_modules/pkg/package.json"), "{}").unwrap();
+        assert!(!contains_project_markers(tmp2.path(), 3));
+    }
+
+    #[test]
+    fn empty_dir_has_no_markers() {
+        let tmp = TempDir::new().unwrap();
+        assert!(!contains_project_markers(tmp.path(), 3));
+    }
 }
