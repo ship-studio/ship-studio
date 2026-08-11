@@ -6,11 +6,12 @@ use crate::external_command::run_with_timeout;
 use crate::utils::validate_project_path;
 
 /// Ceiling for one capture-script run (page load + scroll + shot). Must cover
-/// the script's own worst-case inner budgets — two 60s goto attempts, the
-/// capped scroll pass, and the 120s full-page stitch — or we kill captures
-/// that were progressing legitimately and would have failed (or succeeded)
-/// with a far better error on their own (issue #527).
-const CAPTURE_TIMEOUT_SECS: u64 = 300;
+/// the script's own worst-case inner budgets — a 60s first goto attempt plus
+/// the 120s retry (issue #606), the capped scroll pass, and the 120s
+/// screenshot/stitch — or we kill captures that were progressing legitimately
+/// and would have failed (or succeeded) with a far better error on their own
+/// (issue #527).
+const CAPTURE_TIMEOUT_SECS: u64 = 360;
 /// Ceiling for downloading Chromium during self-heal (~130MB).
 const BROWSER_INSTALL_TIMEOUT_SECS: u64 = 600;
 
@@ -66,6 +67,19 @@ async fn run_capture_script(
     Ok(output)
 }
 
+/// True when stderr shows the process (Node itself, or a child) failing at
+/// the dynamic-linker level — the binary can spawn but can't resolve a shared
+/// library it was linked against. Classic case: Homebrew upgrades `icu4c` out
+/// from under a `node` that wasn't relinked, and every `node` invocation dies
+/// with a raw `dyld[...]: Library not loaded` dump (issue #645). A broken
+/// local toolchain, not an app malfunction.
+fn is_broken_loader_error(stderr: &str) -> bool {
+    stderr.contains("Library not loaded")
+        || stderr.contains("dyld[")
+        || stderr.contains("dyld: ")
+        || stderr.contains("error while loading shared libraries")
+}
+
 /// Map a failed capture-script run to a `CommandError`. A connection refused
 /// that survived the in-script retry means the dev server went away mid-flight
 /// (crashed, restarted on another port) — an expected state exactly like the
@@ -75,6 +89,39 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
     if stderr.contains("ERR_CONNECTION_REFUSED") {
         return CommandError::expected(format!(
             "The dev server at {url} stopped responding while the screenshot was being captured. Wait for the preview to finish reloading, then try again."
+        ));
+    }
+    // Node itself failing to start (dyld can't resolve a linked library) is a
+    // broken local Node install — e.g. Homebrew upgraded icu4c without node
+    // being relinked. Actionable for the user, not an app bug (issue #645).
+    if is_broken_loader_error(&stderr) {
+        return CommandError::expected(
+            "Your system Node.js installation appears broken (it failed to start because a \
+             library it depends on is missing). Reinstall Node.js — e.g. `brew reinstall node` \
+             — then try again.",
+        );
+    }
+    // The headless browser process dying at startup ("Target crashed" before
+    // any navigation) is an environment-level failure — GPU/driver quirks or
+    // security software killing the fresh Chromium process — that a retry
+    // usually clears. Persistent occurrences are still not app bugs
+    // (issue #558).
+    if stderr.contains("Target crashed") {
+        return CommandError::expected(
+            "The screenshot browser crashed while starting up. This is usually a one-off \
+             (graphics driver or security software interfering with the headless browser) — \
+             try again, and if it keeps happening, restarting your machine often clears it.",
+        );
+    }
+    // Both goto attempts exhausting their navigation timeout is a recurring,
+    // environmental condition on slow dev servers (Windows first-compile +
+    // antivirus overhead — issues #385/#606), not a malfunction: the route
+    // simply didn't finish loading inside the budget.
+    if stderr.contains("page.goto") && stderr.contains("Timeout") {
+        return CommandError::expected(format!(
+            "The page at {url} didn't finish loading in time for the screenshot — the dev \
+             server is probably still compiling this route. Wait for the preview to load \
+             fully, then try again."
         ));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -105,6 +152,20 @@ async fn ensure_node_supports_playwright() -> Result<(), CommandError> {
         return Ok(());
     };
     if !output.status.success() {
+        // Even `node --version` failing means node itself can't run. When the
+        // stderr shows a dynamic-linker failure (Homebrew library upgraded out
+        // from under node), stop here with an actionable message instead of
+        // letting the capture re-hit the identical dyld dump and surface it
+        // raw (issue #645). Any other probe failure stays tolerated — the
+        // capture proceeds and reports its own, more specific error.
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if is_broken_loader_error(&stderr) {
+            return Err(CommandError::expected(
+                "Your system Node.js installation appears broken (it failed to start because \
+                 a library it depends on is missing). Reinstall Node.js — e.g. `brew reinstall \
+                 node` — then try again.",
+            ));
+        }
         return Ok(());
     }
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -275,8 +336,22 @@ const {{ chromium }} = require('playwright');
 (async () => {{
     let browser;
     try {{
-        browser = await chromium.launch();
-        const page = await browser.newPage({{ viewport: {{ width: {viewport_width}, height: 800 }} }});
+        // Headless Chromium can crash at startup on some Windows GPU/driver
+        // combos ("Target crashed" on newPage, before any navigation) —
+        // disable the GPU like the Chrome CLI thumbnail fallback already
+        // does, and relaunch once if the fresh browser process still dies
+        // (issue #558).
+        const newPageOptions = {{ viewport: {{ width: {viewport_width}, height: 800 }} }};
+        browser = await chromium.launch({{ args: ['--disable-gpu'] }});
+        let page;
+        try {{
+            page = await browser.newPage(newPageOptions);
+        }} catch (err) {{
+            if (!String((err && err.message) || err).includes('Target crashed')) throw err;
+            await browser.close().catch(() => {{}});
+            browser = await chromium.launch({{ args: ['--disable-gpu'] }});
+            page = await browser.newPage(newPageOptions);
+        }}
 
         // Dev servers keep HMR/live-reload connections open forever, so
         // 'networkidle' may never arrive — wait for 'load', then settle
@@ -285,6 +360,8 @@ const {{ chromium }} = require('playwright');
         // server compiles the route on first request (issue #385): give the
         // navigation a longer budget, and retry once on timeout — the compile
         // keeps progressing server-side, so a warmed route answers quickly.
+        // The retry gets double the budget: 60s twice was still not enough on
+        // slow Windows dev servers (issue #606).
         try {{
             await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
         }} catch (err) {{
@@ -298,7 +375,7 @@ const {{ chromium }} = require('playwright');
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
             }}
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+            await page.goto('{}', {{ waitUntil: 'load', timeout: 120000 }});
         }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
@@ -357,7 +434,8 @@ const {{ chromium }} = require('playwright');
         // Take full-page screenshot
         // fullPage stitches the entire scrollable height — on tall pages
         // that can exceed Playwright's default 30s action timeout, and the
-        // overall script budget is 180s, so give it real headroom (issue #461).
+        // overall script budget leaves room for it, so give it real headroom
+        // (issue #461).
         await page.screenshot({{ path: '{}', fullPage: true, timeout: 120000 }});
         console.log('Screenshot saved successfully');
     }} finally {{
@@ -455,13 +533,31 @@ const {{ chromium }} = require('playwright');
 (async () => {{
     let browser;
     try {{
-        browser = await chromium.launch();
-        const page = await browser.newPage({{ viewport: {{ width: {viewport_width}, height: 800 }} }});
+        // Headless Chromium can crash at startup on some Windows GPU/driver
+        // combos ("Target crashed" on newPage, before any navigation) —
+        // disable the GPU like the Chrome CLI thumbnail fallback already
+        // does, and relaunch once if the fresh browser process still dies
+        // (issue #558).
+        const newPageOptions = {{ viewport: {{ width: {viewport_width}, height: 800 }} }};
+        browser = await chromium.launch({{ args: ['--disable-gpu'] }});
+        let page;
+        try {{
+            page = await browser.newPage(newPageOptions);
+        }} catch (err) {{
+            if (!String((err && err.message) || err).includes('Target crashed')) throw err;
+            await browser.close().catch(() => {{}});
+            browser = await chromium.launch({{ args: ['--disable-gpu'] }});
+            page = await browser.newPage(newPageOptions);
+        }}
 
         // Same wait strategy as the full-page capture: 'networkidle' may never
         // arrive on dev servers with persistent connections (issues #309/#310),
         // and a cold route compiling on first request can need >30s to reach
-        // `load` — long budget plus one retry on timeout (issue #385).
+        // `load` — long budget plus one retry on timeout (issue #385). The
+        // retry gets double the budget: on slow Windows dev servers (first
+        // compile + antivirus overhead) 60s twice was still not enough, and
+        // the compile keeps progressing server-side while we wait
+        // (issue #606).
         try {{
             await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
         }} catch (err) {{
@@ -475,7 +571,7 @@ const {{ chromium }} = require('playwright');
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
             }}
-            await page.goto('{}', {{ waitUntil: 'load', timeout: 60000 }});
+            await page.goto('{}', {{ waitUntil: 'load', timeout: 120000 }});
         }}
         await page.waitForLoadState('networkidle', {{ timeout: 5000 }}).catch(() => {{}});
 
@@ -601,6 +697,89 @@ mod capture_error_tests {
         let err = capture_script_error("Playwright screenshot", "http://localhost:3000", &output);
         assert!(!matches!(err, CommandError::Expected { .. }));
         assert!(format!("{err}").contains("something broke"));
+    }
+
+    #[test]
+    fn broken_node_dyld_error_is_expected_with_reinstall_guidance() {
+        // Issue #645: Homebrew upgraded icu4c without relinking node — node
+        // itself can't start. A broken local toolchain, not an app bug.
+        let output = failed_output(
+            "dyld[54199]: Library not loaded: /opt/homebrew/opt/icu4c/lib/libicui18n.74.dylib\n\
+             Referenced from: /opt/homebrew/Cellar/node/22.9.0/bin/node\n\
+             Reason: tried: '/opt/homebrew/opt/icu4c/lib/libicui18n.74.dylib' (no such file)",
+        );
+        match capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:3000",
+            &output,
+        ) {
+            CommandError::Expected { message } => {
+                assert!(
+                    message.contains("Node.js installation appears broken"),
+                    "got: {message}"
+                );
+                assert!(message.contains("Reinstall Node.js"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn linux_loader_error_is_also_classified_broken_node() {
+        assert!(is_broken_loader_error(
+            "node: error while loading shared libraries: libicui18n.so.74: cannot open shared object file"
+        ));
+        assert!(!is_broken_loader_error("SyntaxError: unexpected token"));
+    }
+
+    #[test]
+    fn target_crashed_is_expected_not_telemetry() {
+        // Issue #558: the headless browser process dying at startup is a
+        // GPU-driver / security-software environment failure.
+        let output = failed_output("browser.newPage: Target crashed");
+        match capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:3000",
+            &output,
+        ) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("browser crashed"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn goto_timeout_after_both_attempts_is_expected() {
+        // Issue #606: both navigation attempts exhausting their budget on a
+        // slow first compile is a recurring environmental condition.
+        let output = failed_output(
+            "page.goto: Timeout 120000ms exceeded.\nCall log:\n  - navigating to \"http://localhost:59973/\", waiting until \"load\"",
+        );
+        match capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:59973",
+            &output,
+        ) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("didn't finish loading"), "got: {message}");
+                assert!(message.contains("http://localhost:59973"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_goto_timeouts_are_not_swallowed_as_expected() {
+        // A timeout elsewhere (e.g. the screenshot action) isn't the
+        // slow-compile navigation shape — keep it a real, detailed error.
+        let output = failed_output("page.screenshot: Timeout 120000ms exceeded.");
+        let err = capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:3000",
+            &output,
+        );
+        assert!(!matches!(err, CommandError::Expected { .. }));
     }
 }
 
