@@ -163,6 +163,34 @@ describe('friendlyProcessError', () => {
     );
   });
 
+  it('maps pnpm approve-builds gates to actionable guidance (issues #670/#671)', () => {
+    // Exact shape from issue #671: install succeeded, pnpm exits 1 pending
+    // build-script approval.
+    const fromImport =
+      'Process exited with code 1\n\n✓ Lockfile passes supply-chain policies (539 entries in 10.6s)\nPackages: +423\n[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.28.1\nRun "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.';
+    const info = describeProcessError(fromImport);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('pnpm approve-builds');
+    expect(info.message).not.toContain('ERR_PNPM_IGNORED_BUILDS');
+    // Exact shape from issue #670 (install retry, lockfile up to date).
+    const fromRetry =
+      'Process exited with code 1\n\nLockfile is up to date, resolution step is skipped\nAlready up to date\n[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.28.1\nRun "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.';
+    const retryInfo = describeProcessError(fromRetry);
+    expect(retryInfo.expected).toBe(true);
+    expect(retryInfo.message).toContain('pnpm approve-builds');
+    // Either wording alone is enough — the error code line and the prompt
+    // line can arrive separately depending on how output is truncated.
+    expect(
+      describeProcessError('[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.28.1')
+        .expected
+    ).toBe(true);
+    expect(
+      describeProcessError(
+        'Run "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.'
+      ).expected
+    ).toBe(true);
+  });
+
   it('classifies recognized shapes as expected and unknown ones as not', () => {
     expect(describeProcessError('sh: pnpm: command not found').expected).toBe(true);
     expect(describeProcessError('Process exited with code 128').expected).toBe(true);

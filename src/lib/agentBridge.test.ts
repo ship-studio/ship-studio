@@ -15,6 +15,7 @@ import {
   registerPreviewMcpServer,
   type BridgeToolContext,
 } from './agentBridge';
+import { logger } from './logger';
 
 const makeCtx = (overrides: Partial<BridgeToolContext> = {}): BridgeToolContext => ({
   projectPath: '/Users/me/ShipStudio/site',
@@ -243,7 +244,49 @@ describe('registerPreviewMcpServer', () => {
         ? Promise.reject(new Error('No MCP server found'))
         : Promise.resolve(undefined)
     );
-    await registerPreviewMcpServer('http://127.0.0.1:4123/mcp/abc', '/p');
+    await expect(registerPreviewMcpServer('http://127.0.0.1:4123/mcp/abc', '/p')).resolves.toBe(
+      true
+    );
     expect(invokeMock).toHaveBeenCalledWith('add_mcp_server', expect.anything());
+  });
+
+  it('treats an enterprise-policy denial as terminal: warns, caches, stops retrying (issue #675)', async () => {
+    invokeMock.mockImplementation((cmd: unknown) =>
+      cmd === 'add_mcp_server'
+        ? Promise.reject(
+            // Exact CLI wording from issue #675, as wrapped by add_mcp_server.
+            new Error(
+              'Failed to add MCP server: Cannot add MCP server "shipstudio-preview": not allowed by enterprise policy'
+            )
+          )
+        : Promise.resolve(undefined)
+    );
+    await expect(
+      registerPreviewMcpServer('http://127.0.0.1:4123/mcp/abc', '/policy-blocked')
+    ).resolves.toBe(false);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- asserting on the mock, not invoking it bound
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('enterprise policy'),
+      expect.anything()
+    );
+    expect(invokeMock.mock.calls.filter(([cmd]) => cmd === 'add_mcp_server')).toHaveLength(1);
+
+    // A later attach with the same URL must not re-run the CLI at all.
+    invokeMock.mockClear();
+    await expect(
+      registerPreviewMcpServer('http://127.0.0.1:4123/mcp/abc', '/policy-blocked')
+    ).resolves.toBe(false);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('still rejects on unrecognized add failures', async () => {
+    invokeMock.mockImplementation((cmd: unknown) =>
+      cmd === 'add_mcp_server'
+        ? Promise.reject(new Error('Failed to add MCP server: disk exploded'))
+        : Promise.resolve(undefined)
+    );
+    await expect(
+      registerPreviewMcpServer('http://127.0.0.1:4123/mcp/abc', '/still-broken')
+    ).rejects.toThrow('disk exploded');
   });
 });

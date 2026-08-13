@@ -392,6 +392,21 @@ export function describeProcessError(
         "npm couldn't sign in to the package registry — your saved npm login or token is expired or incorrect. Open a terminal and run `npm login` (or refresh the token in your .npmrc if this project uses a private registry), then try again.",
     };
   }
+  // pnpm's build-script approval gate: the install itself succeeded, but
+  // pnpm (10+) exits 1 refusing to run dependency build scripts until the
+  // user approves them — "[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts:
+  // esbuild@0.28.1" / "Run \"pnpm approve-builds\" to pick which dependencies
+  // should be allowed to run scripts." Routine pnpm safety behavior, not an
+  // app or project bug — mirror the guidance extractTerminalError
+  // (terminalDiagnostics.ts) already gives the other install surfaces
+  // (issues #670/#671, precedent #469).
+  if (lower.includes('err_pnpm_ignored_builds') || lower.includes('approve-builds')) {
+    return {
+      expected: true,
+      message:
+        'pnpm blocked dependency build scripts pending your approval. In a terminal, run `pnpm approve-builds` in the project folder, approve the listed packages, then retry the install.',
+    };
+  }
   // The tool itself is missing: Windows' cmd.exe says "'bun' is not
   // recognized…", POSIX shells say "bun: command not found". Both surface a
   // raw shell dump with no next step (issues #454/#455) — name the tool and

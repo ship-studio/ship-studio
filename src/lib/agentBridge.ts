@@ -132,8 +132,11 @@ function writeRegistrationCache(key: string, url: string): void {
  *
  * Local scope: the config stays in the user's own agent settings and never
  * lands in the repo (the URL embeds a secret and must not be committed).
+ *
+ * Resolves `true` when the registration is in place, `false` when it's
+ * knowingly skipped (enterprise policy blocks the server — issue #675).
  */
-export function registerPreviewMcpServer(url: string, projectPath: string): Promise<void> {
+export function registerPreviewMcpServer(url: string, projectPath: string): Promise<boolean> {
   // Serialize per project: the remove-then-add cycle is not atomic, so two
   // concurrent registrations (e.g. a re-attach racing the first attach) could
   // interleave and fail with "already exists" on the losing add (issue #292).
@@ -147,12 +150,32 @@ export function registerPreviewMcpServer(url: string, projectPath: string): Prom
 }
 
 /** In-flight preview registrations keyed by project path (see above). */
-const inFlightRegistrations = new Map<string, Promise<void>>();
+const inFlightRegistrations = new Map<string, Promise<boolean>>();
 
-async function doRegisterPreviewMcpServer(url: string, projectPath: string): Promise<void> {
+/**
+ * Registration-cache marker for a URL Claude Code's enterprise-managed
+ * policy refused. The CLI will keep refusing until the org's admin changes
+ * the allowlist, so remember the denial and stop re-running (and re-failing)
+ * the add on every project attach (issue #675).
+ */
+const POLICY_BLOCKED_PREFIX = 'policy-blocked:';
+
+/** Does this `add_mcp_server` failure mean an enterprise policy refused it? */
+function isEnterprisePolicyDenial(message: string): boolean {
+  // Claude Code wordings: "not allowed by enterprise policy", "explicitly
+  // blocked by enterprise policy", "enterprise MCP configuration is active".
+  return /enterprise policy|enterprise mcp configuration/i.test(message);
+}
+
+async function doRegisterPreviewMcpServer(url: string, projectPath: string): Promise<boolean> {
   const agentId = 'claude-code';
   const cache = readRegistrationCache();
-  if (cache[projectPath] === url) return;
+  if (cache[projectPath] === url) return true;
+  if (cache[projectPath] === `${POLICY_BLOCKED_PREFIX}${url}`) {
+    // Known-blocked by the org's managed Claude Code settings — the app runs
+    // without the preview bridge; don't retry (or warn again) every attach.
+    return false;
+  }
 
   try {
     await removeMcpServer(PREVIEW_MCP_SERVER_NAME, 'local', projectPath, agentId);
@@ -167,13 +190,30 @@ async function doRegisterPreviewMcpServer(url: string, projectPath: string): Pro
       agentId
     );
   } catch (err) {
+    const formatted = formatCommandError(asCommandError(err));
     // "Already exists" means a concurrent writer (another window, a manual
     // add) recreated the entry between our remove and add — the goal state
     // (server registered, same stable URL) is reached, so don't fail (#292).
-    if (!/already exists/i.test(formatCommandError(asCommandError(err)))) throw err;
-    logger.info('[AgentBridge] MCP entry already present — treating as registered');
+    if (/already exists/i.test(formatted)) {
+      logger.info('[AgentBridge] MCP entry already present — treating as registered');
+    } else if (isEnterprisePolicyDenial(formatted)) {
+      // The org's managed Claude Code settings don't allowlist
+      // "shipstudio-preview". Not an app bug and not fixable from here —
+      // warn once with the actionable next step, remember the denial so
+      // future attaches skip the CLI round-trip, and let the app run
+      // without the preview bridge (issue #675).
+      writeRegistrationCache(projectPath, `${POLICY_BLOCKED_PREFIX}${url}`);
+      logger.warn(
+        `[AgentBridge] Claude Code's enterprise policy blocks the "${PREVIEW_MCP_SERVER_NAME}" MCP server — preview tools are disabled. Ask your admin to allowlist it.`,
+        { projectPath, error: formatted }
+      );
+      return false;
+    } else {
+      throw err;
+    }
   }
   writeRegistrationCache(projectPath, url);
+  return true;
 }
 
 /**
