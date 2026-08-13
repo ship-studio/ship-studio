@@ -44,6 +44,24 @@ function sanitizeLogChunk(chunk: string): string {
   return chunk.replace(ALT_SCREEN_SEQUENCES, '');
 }
 
+/**
+ * Follow-the-tail guard for xterm `write()` completion callbacks.
+ *
+ * `write()` completes asynchronously, so its callback can fire after the
+ * component unmounted (or the isReady effect re-ran) and disposed the
+ * terminal it closed over. Calling `scrollToBottom()` on a disposed
+ * instance walks into xterm's torn-down RenderService and throws
+ * "undefined is not an object (evaluating 'this._renderer.value.dimensions')"
+ * (issue #676). Only scroll when `term` is still the live instance held in
+ * the ref — the cleanup effect nulls the ref in the same tick it disposes.
+ */
+export function scrollToBottomIfLive(
+  liveRef: { current: Pick<XTerm, 'scrollToBottom'> | null },
+  term: Pick<XTerm, 'scrollToBottom'>
+): void {
+  if (liveRef.current === term) term.scrollToBottom();
+}
+
 /** Props for the DevServerLogs component */
 interface DevServerLogsProps {
   /** Current output from the dev server */
@@ -170,8 +188,9 @@ export function DevServerLogs({
     term.open(container);
 
     // Initial fit + sync the PTY to the visible size so interactive prompts
-    // render at the width the user actually sees.
-    setTimeout(() => {
+    // render at the width the user actually sees. Cleared on cleanup so it
+    // can't run fit() against a just-disposed terminal.
+    const initialFitTimer = window.setTimeout(() => {
       fitAddon.fit();
       onResizeRef.current?.(term.cols, term.rows);
     }, 0);
@@ -199,7 +218,7 @@ export function DevServerLogs({
 
     // Write current output
     if (output) {
-      term.write(sanitizeLogChunk(output), () => term.scrollToBottom());
+      term.write(sanitizeLogChunk(output), () => scrollToBottomIfLive(terminalRef, term));
       lastWrittenLengthRef.current = output.length;
     }
 
@@ -230,6 +249,7 @@ export function DevServerLogs({
     resizeObserver.observe(container);
 
     return () => {
+      window.clearTimeout(initialFitTimer);
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       selectionDisposable.dispose();
@@ -255,7 +275,7 @@ export function DevServerLogs({
       const wasAtBottom = buf.viewportY >= buf.baseY;
       const newContent = output.slice(lastWrittenLengthRef.current);
       term.write(sanitizeLogChunk(newContent), () => {
-        if (wasAtBottom) term.scrollToBottom();
+        if (wasAtBottom) scrollToBottomIfLive(terminalRef, term);
       });
       lastWrittenLengthRef.current = output.length;
     } else if (output.length < lastWrittenLengthRef.current) {
@@ -264,7 +284,8 @@ export function DevServerLogs({
       // until the new run's output outgrows the old one.
       term.reset();
       term.write('\x1b[90m$ dev server\x1b[0m\r\n\r\n');
-      if (output) term.write(sanitizeLogChunk(output), () => term.scrollToBottom());
+      if (output)
+        term.write(sanitizeLogChunk(output), () => scrollToBottomIfLive(terminalRef, term));
       lastWrittenLengthRef.current = output.length;
     }
   }, [output, outputVersion, isReady]);

@@ -697,7 +697,14 @@ fn parse_commit_message(response: &str) -> Result<String, String> {
             "message:",
             "title:",
         ] {
-            if msg.len() >= prefix.len() && msg[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            // `is_char_boundary` also rejects offsets past the end of the
+            // string, so it subsumes the length check. When `prefix.len()`
+            // lands inside a multi-byte character the message can't start
+            // with this ASCII prefix anyway — slicing there would panic
+            // ("byte index N is not a char boundary", issue #673).
+            if msg.is_char_boundary(prefix.len())
+                && msg[..prefix.len()].eq_ignore_ascii_case(prefix)
+            {
                 msg = msg[prefix.len()..].trim();
                 break;
             }
@@ -948,6 +955,41 @@ mod tests {
         let result = parse_commit_message(&long).unwrap();
         assert!(result.chars().count() <= 100);
         assert!(!result.ends_with(' '));
+    }
+
+    #[test]
+    fn test_parse_commit_message_multibyte_at_prefix_boundary() {
+        // Regression for issue #673: the prefix-stripping loop sliced
+        // `msg[..prefix.len()]` without checking that the byte offset lands
+        // on a UTF-8 char boundary, panicking when a multi-byte character
+        // straddles one of the prefix lengths (6, 7, 8, or 15 bytes).
+
+        // 'á' (2 bytes) at bytes 7..9 — byte 8 straddles "subject:"/"message:"
+        // (len 8), the exact panic from the automated report.
+        assert_eq!(
+            parse_commit_message("Mejorasá bien").unwrap(),
+            "Mejorasá bien"
+        );
+        // 'á' at bytes 6..8 — byte 7 straddles "commit:" (len 7).
+        assert_eq!(
+            parse_commit_message("Refactá lo básico").unwrap(),
+            "Refactá lo básico"
+        );
+        // Emoji (4 bytes) at bytes 4..8 — straddles "title:" (6), "commit:"
+        // (7), and "subject:"/"message:" (8).
+        assert_eq!(
+            parse_commit_message("Fix 🎉 release flow").unwrap(),
+            "Fix 🎉 release flow"
+        );
+        // CJK (3 bytes each, boundaries at 0/3/6/9/12) — bytes 7 and 8 land
+        // mid-character.
+        assert_eq!(
+            parse_commit_message("修复构建脚本").unwrap(),
+            "修复构建脚本"
+        );
+        // A short multi-byte message where "commit message:" (15) exceeds the
+        // string length entirely and shorter prefixes land mid-character.
+        assert_eq!(parse_commit_message("ééé").unwrap(), "ééé");
     }
 
     #[test]
