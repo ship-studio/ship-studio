@@ -166,6 +166,16 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `${base} is protected, so changes can't be pushed to it directly. Open a pull request instead.`;
   }
 
+  // Creating a repo under a name the account already uses — a routine,
+  // user-correctable collision the backend deliberately refuses with friendly
+  // wording (issue #279; gh's raw phrasing is "Name already exists on this
+  // account"). Recognizing it here keeps the create-repo toast off the
+  // error/telemetry channel (issues #666/#667).
+  if (m.includes('already exists on this account')) {
+    const name = raw.match(/named "([^"]+)"/)?.[1];
+    return `A repository named ${name ? `"${name}"` : 'that'} already exists on this GitHub account. Choose a different name.`;
+  }
+
   // A PR is already open for this branch.
   if (m.includes('already exists') && m.includes('pull request')) {
     return `There's already an open pull request for ${branch}.`;
@@ -181,6 +191,14 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
   // "is already checked out at …") — cover both (issue #406).
   if (m.includes('already used by worktree') || m.includes('already checked out')) {
     return `${branch} is already checked out in another worktree, so it can't be switched to here. Open it from the worktrees list instead.`;
+  }
+
+  // The ref handed to `git merge` didn't resolve to a commit ("merge:
+  // origin/x - not something we can merge") — the remote branch was deleted
+  // or renamed, or the fetch that should have brought it down didn't complete
+  // (issue #674).
+  if (m.includes('not something we can merge')) {
+    return `The branch to merge (${base}) couldn't be found — it may have been deleted or renamed on GitHub, or the latest fetch didn't complete. Refresh your branches and try again.`;
   }
 
   // The ref is gone — git couldn't find the branch, so it treated it as a path.
@@ -203,8 +221,9 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
 /**
  * True when {@link humanizeGitError} recognized the failure as one of the
  * known, user-actionable git/GitHub conditions (nothing to review, conflicts,
- * out of date, auth, network, protected branch, existing PR, unsaved changes,
- * worktree collision, missing ref, not a repo).
+ * out of date, auth, network, protected branch, repo-name collision, existing
+ * PR, unsaved changes, worktree collision, unmergeable ref, missing ref, not
+ * a repo).
  *
  * The backend classifies many of these as `CommandError::Expected`, but that
  * variant deliberately serializes identically to `Other` across IPC, so the

@@ -285,7 +285,11 @@ pub async fn restore_backup(
         return Err((format!("Failed to restore files: {stderr}")).into());
     }
 
-    // 4. Stage and commit the restored files
+    // 4. Stage and commit the restored files. Self-heal a missing
+    // user.name/user.email from the gh CLI identity first, mirroring
+    // commit_changes/publishing/conflicts — without it the restore commit dies
+    // on git's "Please tell me who you are" (issue #679, same class as #276).
+    let _ = crate::commands::github::ensure_git_identity(&validated_path);
     let commit_message = format!("Restore to: {target_message}");
     let committed = git_stage_and_commit(&validated_path, &commit_message)?;
 

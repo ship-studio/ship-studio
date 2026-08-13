@@ -24,6 +24,16 @@ fn is_missing_upstream(stderr: &str) -> bool {
         || lower.contains("couldn't find remote ref")
 }
 
+/// Git's refusal when the ref handed to `git merge` doesn't resolve to a
+/// commit: "merge: origin/<branch> - not something we can merge". Most
+/// commonly the remote branch was deleted or renamed since the last fetch, or
+/// the best-effort `fetch origin` preceding the merge didn't complete, so
+/// `origin/<branch>` never arrived locally. An anticipated repository/network
+/// state, not an app malfunction (issue #674, same class as #312/#521/#609).
+fn is_unmergeable_ref(stderr: &str) -> bool {
+    stderr.to_lowercase().contains("not something we can merge")
+}
+
 /// Git's normal refusal to merge when a tracked (or untracked) file has local
 /// edits the incoming merge would touch — an anticipated user state the
 /// frontend already turns into a friendly "push or discard first" toast, not a
@@ -185,6 +195,15 @@ pub async fn pull_and_merge(
             warn!(error = %stderr, "Merge blocked by uncommitted local changes");
             return Err(CommandError::expected(format!("Failed to merge: {stderr}")));
         }
+        if is_unmergeable_ref(&stderr) {
+            // The ref didn't resolve locally (remote branch deleted/renamed,
+            // or the best-effort fetch above failed) — an anticipated state,
+            // not a malfunction. Raw stderr preserved after the message so the
+            // frontend's "not something we can merge" match keeps working
+            // (issue #674).
+            warn!(error = %stderr, "Merge ref did not resolve to a commit");
+            return Err(CommandError::expected(format!("Failed to merge: {stderr}")));
+        }
         return Err((format!("Failed to merge: {stderr}")).into());
     }
 
@@ -320,9 +339,35 @@ pub async fn commit_changes(project_path: String, message: String) -> Result<boo
 #[cfg(test)]
 mod tests {
     use super::{
-        clean_locked_paths, ensure_repo_rooted_at, is_merge_conflict_output, is_overwrite_refusal,
+        clean_locked_paths, ensure_repo_rooted_at, is_merge_conflict_output, is_missing_upstream,
+        is_overwrite_refusal, is_unmergeable_ref,
     };
     use std::process::Command;
+
+    // The #674 shape: the ref handed to `git merge` doesn't resolve locally
+    // (remote branch deleted/renamed, or the best-effort fetch failed) — an
+    // anticipated state that must classify Expected, not generic Other.
+    #[test]
+    fn is_unmergeable_ref_matches_unresolvable_merge_ref() {
+        let stderr =
+            "merge: origin/chore/remove-footer-logomark-block - not something we can merge";
+        assert!(is_unmergeable_ref(stderr));
+        // Sibling classifiers must not claim it (it would still be Expected,
+        // but the frontend messaging differs).
+        assert!(!is_missing_upstream(stderr));
+        assert!(!is_overwrite_refusal(stderr));
+    }
+
+    #[test]
+    fn is_unmergeable_ref_ignores_other_merge_failures() {
+        assert!(!is_unmergeable_ref(
+            "error: Your local changes to the following files would be overwritten by merge:"
+        ));
+        assert!(!is_unmergeable_ref(
+            "There is no tracking information for the current branch."
+        ));
+        assert!(!is_unmergeable_ref(""));
+    }
 
     // The #521 shape: git refusing to merge over uncommitted local edits.
     #[test]

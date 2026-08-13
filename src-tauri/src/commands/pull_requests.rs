@@ -107,9 +107,10 @@ pub async fn list_pull_requests(
 /// refs … fetch first", "the tip of your current branch is behind"). A benign,
 /// by-design race, not an app malfunction: the user pulls and retries. Same
 /// phrases the publishing paths treat as Expected (issues #617/#560/#654).
-/// `classify_git_net_error` deliberately returns `None` for these, and
-/// `push_pre_receive_error` must run first so GH001/GH005 keep their specific
-/// remedies.
+/// `classify_git_net_error` deliberately returns `None` for these;
+/// `push_pre_receive_error` and `push_transient_server_error` must run first
+/// so GH001/GH005 and GitHub 5xx blips keep their specific remedies
+/// (issues #626/#636/#678).
 fn is_push_rejection(stderr: &str) -> bool {
     let lower = stderr.to_lowercase();
     lower.contains("non-fast-forward")
@@ -157,6 +158,13 @@ pub async fn create_pull_request(
             // ref too long) — must run before the generic rejection check,
             // same ordering as the publishing paths (issues #626/#636).
             if let Some(err) = crate::commands::publishing::push_pre_receive_error(&stderr) {
+                return Err(err);
+            }
+            // GitHub-side 5xx while accepting the push ("! [remote rejected]
+            // … (Internal Server Error)") — contains "rejected" but the fix
+            // is retrying, not pulling; must run before the generic rejection
+            // check, same ordering as the publishing paths (issue #678).
+            if let Some(err) = crate::commands::publishing::push_transient_server_error(&stderr) {
                 return Err(err);
             }
             // An ordinary non-fast-forward race ("someone pushed first") is
@@ -382,6 +390,17 @@ mod tests {
         assert!(is_push_rejection(
             "error: failed to push some refs\nhint: (e.g., 'git pull ...') before pushing again. fetch first"
         ));
+    }
+
+    /// The #678 shape ("! [remote rejected] … (Internal Server Error)")
+    /// contains the word "rejected", so `is_push_rejection` alone would claim
+    /// it — which is exactly why `push_transient_server_error` must run first
+    /// in `create_pull_request`'s auto-push (same ordering as publishing).
+    #[test]
+    fn ise_rejection_is_claimed_by_the_transient_check_first() {
+        let ise = "remote: Internal Server Error\n ! [remote rejected] main -> main (Internal Server Error)\nerror: failed to push some refs to 'https://github.com/o/r.git'";
+        assert!(is_push_rejection(ise));
+        assert!(crate::commands::publishing::push_transient_server_error(ise).is_some());
     }
 
     #[test]

@@ -371,6 +371,27 @@ fn command_error_fingerprint(err: &crate::errors::CommandError) -> Option<String
     }
 }
 
+/// True when `message` carries git's "not a git repository" fatal — in any
+/// locale. Git translates the whole sentence (a Spanish install emits
+/// "fatal: no es un repositorio git (ni ninguno de los directorios
+/// superiores): .git", issue #672), so the English substring alone silently
+/// missed non-English machines. Rather than enumerating languages, also match
+/// the locale-invariant part: the message always ends with the untranslated
+/// `.git` marker git was probing for, preceded by a colon (half- or
+/// full-width — CJK translations use "：.git"). The tail check is anchored to
+/// the end of the (trimmed) message so ordinary remote URLs ending in `.git`
+/// ("…/repo.git'") can't false-positive.
+fn is_not_a_git_repo_message(message: &str) -> bool {
+    if message
+        .to_ascii_lowercase()
+        .contains("not a git repository")
+    {
+        return true;
+    }
+    let trimmed = message.trim_end();
+    trimmed.ends_with(": .git") || trimmed.ends_with("：.git")
+}
+
 /// Report a `CommandError` the moment it's serialized for the frontend —
 /// the one choke point that sees every backend failure a user experiences.
 /// Called from `CommandError`'s `Serialize` impl.
@@ -386,7 +407,8 @@ fn command_error_fingerprint(err: &crate::errors::CommandError) -> Option<String
 ///   New skip cases belong THERE, not in message sniffing here.
 ///
 /// One message-text exception remains: "not a git repository" arrives inside
-/// arbitrary git stderr passthrough (issue #254), so it can't be typed at a
+/// arbitrary git stderr passthrough (issue #254; locale-tolerant matching via
+/// [`is_not_a_git_repo_message`], issue #672), so it can't be typed at a
 /// throw site.
 pub fn report_command_error(err: &crate::errors::CommandError) {
     use crate::errors::CommandError as E;
@@ -397,10 +419,7 @@ pub fn report_command_error(err: &crate::errors::CommandError) {
         return;
     }
     if let E::Other { message } = err {
-        if message
-            .to_ascii_lowercase()
-            .contains("not a git repository")
-        {
+        if is_not_a_git_repo_message(message) {
             return;
         }
     }
@@ -508,6 +527,45 @@ pub fn report_frontend_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Issue #672: the "not a git repository" telemetry skip must survive
+    // git's message localization — match the structural, untranslated parts
+    // rather than the English sentence.
+    #[test]
+    fn not_a_git_repo_skip_is_locale_tolerant() {
+        // English (issue #254's original case).
+        assert!(is_not_a_git_repo_message(
+            "Failed to list branches: fatal: not a git repository (or any of the parent directories): .git\n"
+        ));
+        // Spanish (the #672 report).
+        assert!(is_not_a_git_repo_message(
+            "Failed to list branches: fatal: no es un repositorio git (ni ninguno de los directorios superiores): .git\n"
+        ));
+        // French (space before the colon).
+        assert!(is_not_a_git_repo_message(
+            "fatal : ce n'est pas un dépôt git (ni aucun des répertoires parents) : .git"
+        ));
+        // Chinese (full-width colon).
+        assert!(is_not_a_git_repo_message(
+            "fatal: 不是一个 git 仓库（或者任何父目录）：.git"
+        ));
+    }
+
+    #[test]
+    fn not_a_git_repo_skip_ignores_other_git_errors() {
+        // Remote URLs end in ".git" but not in the ": .git" probe tail —
+        // these are real failures that must keep reporting.
+        assert!(!is_not_a_git_repo_message(
+            "error: failed to push some refs to 'https://github.com/o/r.git'"
+        ));
+        assert!(!is_not_a_git_repo_message(
+            "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com"
+        ));
+        assert!(!is_not_a_git_repo_message(
+            "fatal: repository 'https://github.com/o/r.git/' not found"
+        ));
+        assert!(!is_not_a_git_repo_message(""));
+    }
 
     #[test]
     fn dedupe_key_prefers_explicit_fingerprint() {

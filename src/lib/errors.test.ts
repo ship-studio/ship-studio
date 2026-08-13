@@ -290,6 +290,25 @@ describe('humanizeGitError', () => {
       raw: 'fatal: not a git repository (or any of the parent directories): .git',
       expect: /isn't set up with git yet/i,
     },
+    {
+      // Create-repo name collision — the backend's #279 friendly refusal.
+      // Must be recognized so GitHubButton's toast stays off the error /
+      // telemetry channel (issues #666/#667).
+      raw: 'A repository named "acme/site" already exists on this account. Choose a different name.',
+      expect: /repository named "acme\/site" already exists on this GitHub account/i,
+    },
+    {
+      // gh's raw wording for the same collision, in case the backend
+      // classification is bypassed.
+      raw: 'GraphQL: Name already exists on this account (createRepository)',
+      expect: /already exists on this GitHub account/i,
+    },
+    {
+      // The ref handed to `git merge` didn't resolve — remote branch deleted
+      // or fetch incomplete (issue #674).
+      raw: 'Failed to merge: merge: origin/chore/remove-footer-logomark-block - not something we can merge',
+      expect: /couldn't be found.*deleted or renamed/i,
+    },
   ];
 
   it.each(cases)('humanizes: $raw', ({ raw, expect: pattern }) => {
@@ -319,6 +338,16 @@ describe('humanizeGitError', () => {
       isRecognizedGitFailure('GraphQL: A pull request already exists for julian:feat/x.')
     ).toBe(true);
     expect(isRecognizedGitFailure('remote: Permission denied (publickey).')).toBe(true);
+    // Repo-name collision (issues #666/#667) and unresolvable merge ref
+    // (issue #674) are recognized too.
+    expect(
+      isRecognizedGitFailure(
+        'A repository named "acme/site" already exists on this account. Choose a different name.'
+      )
+    ).toBe(true);
+    expect(
+      isRecognizedGitFailure('Failed to merge: merge: origin/gone - not something we can merge')
+    ).toBe(true);
     expect(
       isRecognizedGitFailure({ type: 'Process', cmd: 'gh', exit_code: 1, stderr: 'dial tcp: nope' })
     ).toBe(true);

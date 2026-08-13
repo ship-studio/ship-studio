@@ -572,6 +572,13 @@ pub async fn init_git_repo(project_path: String) -> Result<(), CommandError> {
         return Err(stderr.into());
     }
 
+    // Self-heal a missing user.name/user.email from the gh CLI identity before
+    // the initial commit, mirroring commit_changes/publishing/conflicts —
+    // without it, first-time setup on a machine that never ran `git config`
+    // dies on git's "Please tell me who you are" (issue #679, same class
+    // as #276). Best-effort: ensure_git_identity has its own fallback advice.
+    let _ = crate::commands::github::ensure_git_identity(&validated_path);
+
     // Stage and commit all files
     git_stage_and_commit(&validated_path, "Initial commit from Ship Studio")
         .map_err(CommandError::from)?;
