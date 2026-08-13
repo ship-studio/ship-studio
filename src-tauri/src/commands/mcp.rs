@@ -499,16 +499,57 @@ pub async fn add_mcp_server(
         } else {
             stderr
         };
-        let message = format!("Failed to add MCP server: {details}");
-        // "Already exists" is a benign race with a concurrent registration —
-        // the goal state is reached; callers treat it accordingly (#292).
-        if details.to_ascii_lowercase().contains("already exists") {
-            return Err(CommandError::expected(message));
-        }
-        return Err(message.into());
+        return Err(classify_mcp_add_failure(&details));
     }
 
     Ok(())
+}
+
+/// Turn a failed `<agent> mcp add` invocation's output into a `CommandError`,
+/// classifying the shapes that reflect machine state or org policy — not a
+/// Ship Studio bug — as `Expected` so they stay out of telemetry.
+fn classify_mcp_add_failure(details: &str) -> CommandError {
+    let message = format!("Failed to add MCP server: {details}");
+    let lower = details.to_ascii_lowercase();
+
+    // "Already exists" is a benign race with a concurrent registration —
+    // the goal state is reached; callers treat it accordingly (#292).
+    if lower.contains("already exists") {
+        return CommandError::expected(message);
+    }
+
+    // Claude Code's enterprise-managed settings can refuse servers that
+    // aren't on the org's MCP allowlist ("Cannot add MCP server \"x\": not
+    // allowed by enterprise policy" / "…explicitly blocked by enterprise
+    // policy" / "…enterprise MCP configuration is active"). An org policy
+    // decision, not an app bug (issue #675).
+    if lower.contains("enterprise policy") || lower.contains("enterprise mcp configuration") {
+        return CommandError::expected(format!(
+            "{message}\n\nYour organization's managed agent settings block this MCP server. Ask your admin to allowlist it, then try again."
+        ));
+    }
+
+    // The agent CLI failed to write its own config file because the OS
+    // denied access — Windows "Access is denied. (os error 5)" (e.g. Codex
+    // persisting ~/.codex/config.toml) or POSIX EACCES/"Permission denied".
+    // Machine state: file read-only, locked by antivirus/OneDrive sync, or
+    // a config dir owned by another account — mirroring the EACCES handling
+    // in `opencode_config_save` (issues #471, #677).
+    let os_denied = lower.contains("access is denied")
+        || lower.contains("(os error 5)")
+        || lower.contains("permission denied")
+        || lower.contains("eacces");
+    let config_write = lower.contains("config")
+        || lower.contains("failed to write mcp servers")
+        || lower.contains(".codex")
+        || lower.contains(".claude");
+    if os_denied && config_write {
+        return CommandError::expected(format!(
+            "{message}\n\nThe agent couldn't write its own config file — the OS denied access. Check that the file isn't read-only or locked by another program (antivirus, OneDrive/cloud sync), and that its folder is owned by your user account, then try again."
+        ));
+    }
+
+    message.into()
 }
 
 /// Does this CLI error text mean "no server with that name exists"?
@@ -821,5 +862,77 @@ mod tests {
         ));
         assert!(!mcp_server_not_found("permission denied writing config"));
         assert!(!mcp_server_not_found(""));
+    }
+
+    #[test]
+    fn add_failure_already_exists_is_expected() {
+        let err = classify_mcp_add_failure(
+            "MCP server shipstudio-preview already exists in local config",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn add_failure_enterprise_policy_is_expected() {
+        // Exact wording from issue #675.
+        let err = classify_mcp_add_failure(
+            "Cannot add MCP server \"shipstudio-preview\": not allowed by enterprise policy",
+        );
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("Failed to add MCP server"));
+                assert!(message.contains("Ask your admin"));
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+        // Wording variants of the same policy denial.
+        assert!(matches!(
+            classify_mcp_add_failure("MCP server \"x\" is explicitly blocked by enterprise policy"),
+            CommandError::Expected { .. }
+        ));
+        assert!(matches!(
+            classify_mcp_add_failure(
+                "Cannot modify MCP servers: enterprise MCP configuration is active"
+            ),
+            CommandError::Expected { .. }
+        ));
+    }
+
+    #[test]
+    fn add_failure_windows_config_access_denied_is_expected() {
+        // Exact shape from issue #677 (Codex CLI on Windows).
+        let err = classify_mcp_add_failure(
+            "Error: failed to write MCP servers to C:\\Users\\me\\.codex\n\nCaused by:\n    0: failed to persist config at C:\\Users\\me\\.codex\\config.toml\n    1: Access is denied. (os error 5)",
+        );
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("denied access"));
+                assert!(message.contains("read-only"));
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+        // POSIX flavor of the same machine state.
+        assert!(matches!(
+            classify_mcp_add_failure(
+                "failed to persist config at /Users/me/.codex/config.toml: Permission denied (os error 13)"
+            ),
+            CommandError::Expected { .. }
+        ));
+    }
+
+    #[test]
+    fn add_failure_generic_stays_reportable() {
+        // Unrecognized failures must remain `Other` so telemetry still sees
+        // genuine bugs.
+        assert!(matches!(
+            classify_mcp_add_failure("unexpected argument '--transport'"),
+            CommandError::Other { .. }
+        ));
+        // Access-denied wording without any config-write context isn't the
+        // #677 shape — don't over-classify.
+        assert!(matches!(
+            classify_mcp_add_failure("Access is denied."),
+            CommandError::Other { .. }
+        ));
     }
 }

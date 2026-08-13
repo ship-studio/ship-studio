@@ -105,7 +105,13 @@ export function useAgentBridge({
       // Claude Code gets a per-project entry; Codex/Opencode/Cursor have
       // global configs and share the focused-project "active" URL.
       registerPreviewMcpServer(url, projectPath).then(
-        () => logger.info('[AgentBridge] Preview MCP server registration ensured', { projectPath }),
+        (registered) => {
+          // `false` = knowingly skipped (enterprise policy blocks the
+          // server, already warn-logged inside — issue #675).
+          if (registered) {
+            logger.info('[AgentBridge] Preview MCP server registration ensured', { projectPath });
+          }
+        },
         (err) => {
           logger.warn('[AgentBridge] Could not register preview MCP server', {
             error: formatCommandError(asCommandError(err)),
