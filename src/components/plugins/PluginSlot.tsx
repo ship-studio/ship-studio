@@ -224,6 +224,21 @@ export function buildContext(
       }
       throw e;
     }
+    // The host's own shell-command timeout (exec_plugin_shell). This catch is
+    // attached at the context level, so it fires BEFORE the plugin's own
+    // `.catch(() => null)` — a background poll the plugin deliberately lets
+    // fail (e.g. the Vercel plugin's 3-second git ticks) used to error-toast
+    // and telemetry-report anyway (issues #661/#662). The plugin decides
+    // what's fatal: warn locally, re-throw, no toast.
+    if (
+      message.includes(`Plugin '${pluginId}' shell command '`) &&
+      message.includes('timed out after')
+    ) {
+      logger.warn(`Plugin "${pluginId}" shell command timed out — plugin handles this itself`, {
+        error: message,
+      });
+      throw e;
+    }
     actions.showToast(`Plugin "${pluginName}": ${message}`, 'error');
     throw e;
   };

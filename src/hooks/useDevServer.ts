@@ -618,16 +618,23 @@ export function useDevServer(currentProjectPath: string | null) {
       // via its config file alone can't run a dev script (issue #593).
       // null = unknown (dependency check failed or was exempt).
       let hasPackageJson: boolean | null = null;
+      // Same, but at the resolved dev-server cwd (workspace subpath for
+      // monorepos). The root-OR-workspace flag above is right for install
+      // gating but wrong for "will the dev spawn at cwd find a package.json"
+      // (issue #656).
+      let cwdHasPackageJson: boolean | null = null;
       try {
         // Shopify themes and force-static projects don't need an npm install to
         // preview: the theme runs via `shopify theme dev`, and a force-static
         // site is served straight off disk regardless of its build tooling.
         const depStatus =
           detectedType === 'shopifytheme' || forceStatic
-            ? { installed: true, hasPackageJson: false }
+            ? { installed: true, hasPackageJson: false, workspaceHasPackageJson: false }
             : await checkDependenciesInstalled(projectPath);
         if (detectedType !== 'shopifytheme' && !forceStatic) {
           hasPackageJson = depStatus.hasPackageJson;
+          // Older backends predate the field; keep null (= unknown) then.
+          cwdHasPackageJson = depStatus.workspaceHasPackageJson ?? null;
         }
         if (!depStatus.installed && depStatus.hasPackageJson) {
           const packageManager = await detectPackageManager(projectPath).catch((err) => {
@@ -787,13 +794,23 @@ export function useDevServer(currentProjectPath: string | null) {
         // vite.config.ts / …) with no package.json: there's no dev script to
         // run, so spawning `npm run dev` is doomed and produced a spurious
         // "File not found: package.json" error in telemetry (issue #593).
-        // Mirrors the `unknown`-type skip above. Monorepo subpaths (cwd !==
-        // projectPath) are exempt: the root check doesn't reflect the
-        // workspace directory the server actually runs in.
+        // Mirrors the `unknown`-type skip above.
         logger.info(
           '[OpenProject] Framework config found but no package.json; skipping dev server',
           { projectPath, projectType: detectedType }
         );
+      } else if (cwdHasPackageJson === false && cwd !== projectPath) {
+        // Monorepo workspace subpath without its own package.json: the
+        // root-OR-workspace hasPackageJson flag can be true (the repo root has
+        // one), but the dev server spawns at the subpath, where the
+        // package.json read is doomed — this produced the same spurious
+        // "File not found: package.json" error plus a doomed `npm run dev` at
+        // the subpath (issue #656, the case #593 intentionally exempted).
+        logger.info('[OpenProject] Workspace subpath has no package.json; skipping dev server', {
+          projectPath,
+          cwd,
+          projectType: detectedType,
+        });
       } else {
         try {
           s.outputBuffer = '';

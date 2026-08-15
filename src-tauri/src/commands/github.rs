@@ -606,6 +606,31 @@ pub(crate) fn gh_network_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// Go's `crypto/tls`/`crypto/x509` error when gh can reach a server but can't
+/// verify the certificate chain it presents — "tls: failed to verify
+/// certificate: x509: certificate signed by unknown authority". Almost always
+/// a corporate proxy or antivirus doing TLS interception with a private CA
+/// the system doesn't trust, or a broken/outdated certificate store — the
+/// environment, not an app malfunction (issue #658). Deliberately NOT folded
+/// into gh_network_error's "check your internet connection" message: retrying
+/// or checking connectivity can't fix a trust chain — the user needs to
+/// install the intercepting proxy's CA cert or repair their trust store.
+pub(crate) fn gh_tls_error(stderr: &str) -> Option<CommandError> {
+    let s = stderr.to_lowercase();
+    // "x509:" prefixes every Go certificate-verification failure variant
+    // (unknown authority, expired, hostname mismatch, …) and appears nowhere
+    // in ordinary gh/GraphQL output.
+    let cert_unverifiable = s.contains("failed to verify certificate") || s.contains("x509:");
+    cert_unverifiable.then(|| {
+        CommandError::expected(
+            "GitHub's secure connection couldn't be verified. This usually means a corporate \
+             proxy, VPN, or antivirus is inspecting HTTPS traffic on this computer (its \
+             certificate isn't trusted yet), or the system's certificate store is out of date. \
+             Install your proxy's certificate or update your system, then try again.",
+        )
+    })
+}
+
 /// gh's passthrough of GitHub's generic HTTP 400 GraphQL response — "HTTP 400:
 /// We received a malformed request from your client. Sorry about that. Please
 /// try resubmitting your request…". GitHub emits this when the API can't parse
@@ -708,7 +733,10 @@ pub(crate) fn gh_crash_error(stderr: &str) -> Option<CommandError> {
 /// classification for the shared cases — call sites still layer their own
 /// auth / subcommand-specific checks on top.
 pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
-    gh_network_error(stderr)
+    // TLS first: a cert-verification failure needs its trust-store guidance,
+    // not the generic "check your internet connection" message (issue #658).
+    gh_tls_error(stderr)
+        .or_else(|| gh_network_error(stderr))
         .or_else(|| gh_malformed_request_error(stderr))
         .or_else(|| gh_server_error(stderr))
         .or_else(|| gh_config_error(stderr))
@@ -1242,6 +1270,32 @@ mod tests {
 
     // The #627 shape: GitHub's API answering a transient 5xx (504 from the
     // GraphQL endpoint) — server-side, retryable, not an app malfunction.
+    // TLS cert-verification failures (corporate proxy / AV interception,
+    // broken trust store) get their own trust-store guidance, kept out of
+    // telemetry (issue #658).
+    #[test]
+    fn gh_tls_error_classifies_cert_verification_failure_as_expected() {
+        let stderr = r#"Post "https://api.github.com/graphql": tls: failed to verify certificate: x509: certificate signed by unknown authority"#;
+        let err = gh_tls_error(stderr).expect("should classify as TLS trust failure");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("couldn't be verified"), "got: {msg}");
+        // Must NOT be the generic connectivity advice — retrying can't fix a
+        // trust chain.
+        assert!(!msg.to_lowercase().contains("internet connection"));
+        // gh_common_error routes it to the TLS message, not the network one.
+        let common = gh_common_error(stderr).expect("common classifier must cover TLS");
+        assert!(format!("{common}").contains("couldn't be verified"));
+    }
+
+    #[test]
+    fn gh_tls_error_ignores_unrelated_stderr() {
+        assert!(gh_tls_error("GraphQL: name already exists on this account").is_none());
+        assert!(gh_tls_error("dial tcp 1.2.3.4:443: connect: connection refused").is_none());
+        assert!(gh_tls_error("tls handshake timeout").is_none());
+        assert!(gh_tls_error("").is_none());
+    }
+
     #[test]
     fn gh_server_error_classifies_github_5xx_as_expected() {
         let terse = "HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)";

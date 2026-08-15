@@ -130,6 +130,15 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `GitHub didn't accept the connection. Your sign-in may have expired, or your account may not have write access to this repository. Reconnect GitHub (top right) or check your access, then try again.`;
   }
 
+  // TLS certificate verification failed — a corporate proxy/antivirus doing
+  // HTTPS inspection with an untrusted CA, or a broken certificate store.
+  // Must be checked BEFORE the generic network branch: "check your internet
+  // connection" can't fix a trust chain (issue #658, mirroring gh_tls_error
+  // in src-tauri/src/commands/github.rs).
+  if (m.includes('failed to verify certificate') || m.includes('x509:')) {
+    return `GitHub's secure connection couldn't be verified. This usually means a corporate proxy, VPN, or antivirus is inspecting HTTPS traffic on this computer, or the system's certificate store is out of date. Install your proxy's certificate or update your system, then try again.`;
+  }
+
   // Couldn't reach GitHub at all. 'dial tcp'/'connectex' cover Go's dial
   // errors from the gh CLI — the Windows connectex wording contains none of
   // the usual timeout/refused substrings (issue #375).
@@ -157,6 +166,16 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
     return `${base} is protected, so changes can't be pushed to it directly. Open a pull request instead.`;
   }
 
+  // Creating a repo under a name the account already uses — a routine,
+  // user-correctable collision the backend deliberately refuses with friendly
+  // wording (issue #279; gh's raw phrasing is "Name already exists on this
+  // account"). Recognizing it here keeps the create-repo toast off the
+  // error/telemetry channel (issues #666/#667).
+  if (m.includes('already exists on this account')) {
+    const name = raw.match(/named "([^"]+)"/)?.[1];
+    return `A repository named ${name ? `"${name}"` : 'that'} already exists on this GitHub account. Choose a different name.`;
+  }
+
   // A PR is already open for this branch.
   if (m.includes('already exists') && m.includes('pull request')) {
     return `There's already an open pull request for ${branch}.`;
@@ -172,6 +191,14 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
   // "is already checked out at …") — cover both (issue #406).
   if (m.includes('already used by worktree') || m.includes('already checked out')) {
     return `${branch} is already checked out in another worktree, so it can't be switched to here. Open it from the worktrees list instead.`;
+  }
+
+  // The ref handed to `git merge` didn't resolve to a commit ("merge:
+  // origin/x - not something we can merge") — the remote branch was deleted
+  // or renamed, or the fetch that should have brought it down didn't complete
+  // (issue #674).
+  if (m.includes('not something we can merge')) {
+    return `The branch to merge (${base}) couldn't be found — it may have been deleted or renamed on GitHub, or the latest fetch didn't complete. Refresh your branches and try again.`;
   }
 
   // The ref is gone — git couldn't find the branch, so it treated it as a path.
@@ -194,8 +221,9 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
 /**
  * True when {@link humanizeGitError} recognized the failure as one of the
  * known, user-actionable git/GitHub conditions (nothing to review, conflicts,
- * out of date, auth, network, protected branch, existing PR, unsaved changes,
- * worktree collision, missing ref, not a repo).
+ * out of date, auth, network, protected branch, repo-name collision, existing
+ * PR, unsaved changes, worktree collision, unmergeable ref, missing ref, not
+ * a repo).
  *
  * The backend classifies many of these as `CommandError::Expected`, but that
  * variant deliberately serializes identically to `Other` across IPC, so the
@@ -362,6 +390,21 @@ export function describeProcessError(
       expected: true,
       message:
         "npm couldn't sign in to the package registry — your saved npm login or token is expired or incorrect. Open a terminal and run `npm login` (or refresh the token in your .npmrc if this project uses a private registry), then try again.",
+    };
+  }
+  // pnpm's build-script approval gate: the install itself succeeded, but
+  // pnpm (10+) exits 1 refusing to run dependency build scripts until the
+  // user approves them — "[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts:
+  // esbuild@0.28.1" / "Run \"pnpm approve-builds\" to pick which dependencies
+  // should be allowed to run scripts." Routine pnpm safety behavior, not an
+  // app or project bug — mirror the guidance extractTerminalError
+  // (terminalDiagnostics.ts) already gives the other install surfaces
+  // (issues #670/#671, precedent #469).
+  if (lower.includes('err_pnpm_ignored_builds') || lower.includes('approve-builds')) {
+    return {
+      expected: true,
+      message:
+        'pnpm blocked dependency build scripts pending your approval. In a terminal, run `pnpm approve-builds` in the project folder, approve the listed packages, then retry the install.',
     };
   }
   // The tool itself is missing: Windows' cmd.exe says "'bun' is not

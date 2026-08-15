@@ -524,6 +524,10 @@ where
 /// - macOS TCC denial (`Unable to read current working directory: Operation
 ///   not permitted`) — the sandbox refused the app read access to the project
 ///   folder, so spawned git can't even resolve its cwd (issue #546).
+/// - git itself running out of memory (`fatal: Out of memory, malloc failed
+///   (tried to allocate N bytes)`) — the host machine under memory pressure
+///   at the moment git spawned; cross-platform, first seen on Windows
+///   (issue #668).
 pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> {
     if stderr.contains("You have not agreed to the Xcode license agreements") {
         return Some(crate::errors::CommandError::expected(
@@ -546,6 +550,21 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
             "Ship Studio isn't allowed to read this project's folder — macOS blocked access. \
              Grant access in System Settings → Privacy & Security → Files & Folders (or give \
              Ship Studio Full Disk Access), then try again.",
+        ));
+    }
+    // git's allocator giving up ("fatal: Out of memory, malloc failed (tried
+    // to allocate N bytes)" — also "realloc failed" / "mmap failed" variants).
+    // The machine is out of memory at the moment git runs, which no app-side
+    // fix can address (issue #668).
+    let lower = stderr.to_lowercase();
+    if lower.contains("out of memory")
+        || lower.contains("malloc failed")
+        || lower.contains("realloc failed")
+    {
+        return Some(crate::errors::CommandError::expected(
+            "Git ran out of memory while working on this project — this computer is low on \
+             available RAM right now. Close some other applications to free up memory, then \
+             try again.",
         ));
     }
     None
@@ -1698,6 +1717,24 @@ mod tests {
             let err = git_environment_gap(stderr).expect("must classify");
             assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
             assert!(err.to_string().contains("Privacy & Security"));
+        }
+
+        /// Issue #668: git's allocator failing on a memory-starved machine
+        /// (first seen on Windows) — an environment gap with close-other-apps
+        /// guidance, not a raw fatal that pages telemetry.
+        #[test]
+        fn classifies_git_oom_as_expected() {
+            let stderr = "fatal: Out of memory, malloc failed (tried to allocate 1048576 bytes)";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            let msg = err.to_string();
+            assert!(msg.contains("memory"), "got: {msg}");
+            assert!(
+                msg.contains("Close some other applications"),
+                "message must carry the remediation, got: {msg}"
+            );
+            // The realloc variant git emits from strbuf growth is covered too.
+            assert!(git_environment_gap("fatal: Out of memory, realloc failed").is_some());
         }
 
         #[test]

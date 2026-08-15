@@ -7,11 +7,12 @@ use crate::utils::validate_project_path;
 
 /// Ceiling for one capture-script run (page load + scroll + shot). Must cover
 /// the script's own worst-case inner budgets — a 60s first goto attempt plus
-/// the 120s retry (issue #606), the capped scroll pass, and the 120s
-/// screenshot/stitch — or we kill captures that were progressing legitimately
-/// and would have failed (or succeeded) with a far better error on their own
-/// (issue #527).
-const CAPTURE_TIMEOUT_SECS: u64 = 360;
+/// the 120s retry (issue #606), the capped scroll pass, the 120s
+/// screenshot/stitch, and the short-budget CDP screenshot retries
+/// (issue #657: up to 2 × (2s beat + 30s attempt) ≈ 64s) — or we kill
+/// captures that were progressing legitimately and would have failed (or
+/// succeeded) with a far better error on their own (issue #527).
+const CAPTURE_TIMEOUT_SECS: u64 = 420;
 /// Ceiling for downloading Chromium during self-heal (~130MB).
 const BROWSER_INSTALL_TIMEOUT_SECS: u64 = 600;
 
@@ -111,6 +112,19 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
             "The screenshot browser crashed while starting up. This is usually a one-off \
              (graphics driver or security software interfering with the headless browser) — \
              try again, and if it keeps happening, restarting your machine often clears it.",
+        );
+    }
+    // Chromium's CDP refusing the screenshot outright ("Page.captureScreenshot:
+    // Unable to capture screenshot") is a known transient renderer failure —
+    // GPU/memory pressure or backing-store limits (puppeteer#5341). The
+    // capture script already retries it in place; one that persists through
+    // those retries is still an environment-level condition, not an app bug
+    // (issue #657, same signature as #569 on the full-page path).
+    if stderr.contains("Unable to capture screenshot") {
+        return CommandError::expected(
+            "The screenshot browser couldn't render the capture (a transient graphics/memory \
+             hiccup in headless Chromium). Try again in a moment — if it keeps happening, \
+             closing other applications or restarting your machine usually clears it.",
         );
     }
     // Both goto attempts exhausting their navigation timeout is a recurring,
@@ -431,12 +445,32 @@ const {{ chromium }} = require('playwright');
         }}).catch(() => {{}});
         await page.waitForTimeout(500);
 
+        // Chromium's CDP can refuse a screenshot outright ("Protocol error
+        // (Page.captureScreenshot): Unable to capture screenshot") under
+        // transient GPU/memory pressure — a known flaky Chromium failure,
+        // not a page problem. Retry that exact error up to twice after a
+        // short beat; anything else propagates unchanged (issue #657).
+        // Retries get a short budget: this failure mode errors out quickly,
+        // and the outer capture ceiling has already paid for one
+        // full-length attempt.
+        const screenshotWithRetry = async (options) => {{
+            for (let attempt = 0; ; attempt++) {{
+                try {{
+                    return await page.screenshot(attempt === 0 ? options : {{ ...options, timeout: 30000 }});
+                }} catch (err) {{
+                    const msg = String((err && err.message) || err);
+                    if (attempt >= 2 || !msg.includes('Unable to capture screenshot')) throw err;
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                }}
+            }}
+        }};
+
         // Take full-page screenshot
         // fullPage stitches the entire scrollable height — on tall pages
         // that can exceed Playwright's default 30s action timeout, and the
         // overall script budget leaves room for it, so give it real headroom
         // (issue #461).
-        await page.screenshot({{ path: '{}', fullPage: true, timeout: 120000 }});
+        await screenshotWithRetry({{ path: '{}', fullPage: true, timeout: 120000 }});
         console.log('Screenshot saved successfully');
     }} finally {{
         if (browser) await browser.close();
@@ -600,11 +634,31 @@ const {{ chromium }} = require('playwright');
         // Wait for animations to complete
         await page.waitForTimeout(3000);
 
+        // Chromium's CDP can refuse a screenshot outright ("Protocol error
+        // (Page.captureScreenshot): Unable to capture screenshot") under
+        // transient GPU/memory pressure — a known flaky Chromium failure,
+        // not a page problem. Retry that exact error up to twice after a
+        // short beat; anything else propagates unchanged (issue #657).
+        // Retries get a short budget: this failure mode errors out quickly,
+        // and the outer capture ceiling has already paid for one
+        // full-length attempt.
+        const screenshotWithRetry = async (options) => {{
+            for (let attempt = 0; ; attempt++) {{
+                try {{
+                    return await page.screenshot(attempt === 0 ? options : {{ ...options, timeout: 30000 }});
+                }} catch (err) {{
+                    const msg = String((err && err.message) || err);
+                    if (attempt >= 2 || !msg.includes('Unable to capture screenshot')) throw err;
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                }}
+            }}
+        }};
+
         // Take viewport screenshot (not full page). Explicit timeout replaces
         // Playwright's 30s action default, which slow machines exceeded — the
         // full-page capture already has this, the viewport one was missed
         // (issue #568).
-        await page.screenshot({{ path: '{}', timeout: 120000 }});
+        await screenshotWithRetry({{ path: '{}', timeout: 120000 }});
     }} finally {{
         if (browser) await browser.close();
     }}
@@ -744,6 +798,29 @@ mod capture_error_tests {
         ) {
             CommandError::Expected { message } => {
                 assert!(message.contains("browser crashed"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cdp_unable_to_capture_screenshot_is_expected_not_telemetry() {
+        // Issue #657 (same signature as #569 on the full-page path): CDP
+        // refusing Page.captureScreenshot is a known transient Chromium
+        // failure. The script retries it in place; one that persists is an
+        // environment-level condition, not an app bug.
+        let output = failed_output(
+            "page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot\n\
+             Call log:\n  - taking page screenshot\n  - waiting for fonts to load...\n  - fonts loaded",
+        );
+        match capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:3000",
+            &output,
+        ) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("couldn't render"), "got: {message}");
+                assert!(message.contains("Try again"), "got: {message}");
             }
             other => panic!("expected Expected, got {other:?}"),
         }

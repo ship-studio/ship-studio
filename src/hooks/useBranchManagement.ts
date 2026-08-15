@@ -21,7 +21,12 @@ import {
 import { getChangedFiles, ChangedFile } from '../lib/git';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
-import { asCommandError, formatCommandError, humanizeGitError } from '../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  humanizeGitError,
+  isRecognizedGitFailure,
+} from '../lib/errors';
 import { trackEvent, trackError } from '../lib/analytics';
 import type { PreviewHandle } from '../components/preview/Preview';
 import type { HealthTabPanelRef } from '../components/code/HealthTabPanel';
@@ -345,6 +350,18 @@ export function useBranchManagement({
             if (errorMsg.includes('MERGE_CONFLICT')) {
               // Conflicts created locally - show the UI
               setShowConflictResolution(true);
+            } else if (isRecognizedGitFailure(e, { branch: headBranch, base: baseBranch })) {
+              // A recognized, anticipated state — e.g. `origin/<base>` no
+              // longer resolving because the remote branch was deleted or the
+              // fetch didn't complete ("not something we can merge", issue
+              // #674). The backend classified it Expected; an 'error' toast
+              // here would re-report it through toast telemetry. Surface the
+              // humanized cause as info + warn log instead.
+              const humanized = humanizeGitError(e, { branch: headBranch, base: baseBranch });
+              logger.warn('Merge for conflict resolution refused for a recognized reason', {
+                message: errorMsg,
+              });
+              showToast(humanized, 'info');
             } else {
               showToast(`Failed to merge: ${errorMsg}`, 'error');
             }

@@ -163,6 +163,34 @@ describe('friendlyProcessError', () => {
     );
   });
 
+  it('maps pnpm approve-builds gates to actionable guidance (issues #670/#671)', () => {
+    // Exact shape from issue #671: install succeeded, pnpm exits 1 pending
+    // build-script approval.
+    const fromImport =
+      'Process exited with code 1\n\n✓ Lockfile passes supply-chain policies (539 entries in 10.6s)\nPackages: +423\n[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.28.1\nRun "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.';
+    const info = describeProcessError(fromImport);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('pnpm approve-builds');
+    expect(info.message).not.toContain('ERR_PNPM_IGNORED_BUILDS');
+    // Exact shape from issue #670 (install retry, lockfile up to date).
+    const fromRetry =
+      'Process exited with code 1\n\nLockfile is up to date, resolution step is skipped\nAlready up to date\n[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.28.1\nRun "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.';
+    const retryInfo = describeProcessError(fromRetry);
+    expect(retryInfo.expected).toBe(true);
+    expect(retryInfo.message).toContain('pnpm approve-builds');
+    // Either wording alone is enough — the error code line and the prompt
+    // line can arrive separately depending on how output is truncated.
+    expect(
+      describeProcessError('[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild@0.28.1')
+        .expected
+    ).toBe(true);
+    expect(
+      describeProcessError(
+        'Run "pnpm approve-builds" to pick which dependencies should be allowed to run scripts.'
+      ).expected
+    ).toBe(true);
+  });
+
   it('classifies recognized shapes as expected and unknown ones as not', () => {
     expect(describeProcessError('sh: pnpm: command not found').expected).toBe(true);
     expect(describeProcessError('Process exited with code 128').expected).toBe(true);
@@ -277,12 +305,37 @@ describe('humanizeGitError', () => {
       expect: /couldn't reach GitHub/i,
     },
     {
+      // TLS interception by a corporate proxy/AV — must get trust-store
+      // guidance, not "check your internet connection" (issue #658).
+      raw: 'Post "https://api.github.com/graphql": tls: failed to verify certificate: x509: certificate signed by unknown authority',
+      expect: /secure connection couldn't be verified/i,
+    },
+    {
       raw: "error: pathspec 'feat/gone' did not match any file(s) known to git",
       expect: /no longer exists/i,
     },
     {
       raw: 'fatal: not a git repository (or any of the parent directories): .git',
       expect: /isn't set up with git yet/i,
+    },
+    {
+      // Create-repo name collision — the backend's #279 friendly refusal.
+      // Must be recognized so GitHubButton's toast stays off the error /
+      // telemetry channel (issues #666/#667).
+      raw: 'A repository named "acme/site" already exists on this account. Choose a different name.',
+      expect: /repository named "acme\/site" already exists on this GitHub account/i,
+    },
+    {
+      // gh's raw wording for the same collision, in case the backend
+      // classification is bypassed.
+      raw: 'GraphQL: Name already exists on this account (createRepository)',
+      expect: /already exists on this GitHub account/i,
+    },
+    {
+      // The ref handed to `git merge` didn't resolve — remote branch deleted
+      // or fetch incomplete (issue #674).
+      raw: 'Failed to merge: merge: origin/chore/remove-footer-logomark-block - not something we can merge',
+      expect: /couldn't be found.*deleted or renamed/i,
     },
   ];
 
@@ -313,6 +366,16 @@ describe('humanizeGitError', () => {
       isRecognizedGitFailure('GraphQL: A pull request already exists for julian:feat/x.')
     ).toBe(true);
     expect(isRecognizedGitFailure('remote: Permission denied (publickey).')).toBe(true);
+    // Repo-name collision (issues #666/#667) and unresolvable merge ref
+    // (issue #674) are recognized too.
+    expect(
+      isRecognizedGitFailure(
+        'A repository named "acme/site" already exists on this account. Choose a different name.'
+      )
+    ).toBe(true);
+    expect(
+      isRecognizedGitFailure('Failed to merge: merge: origin/gone - not something we can merge')
+    ).toBe(true);
     expect(
       isRecognizedGitFailure({ type: 'Process', cmd: 'gh', exit_code: 1, stderr: 'dial tcp: nope' })
     ).toBe(true);

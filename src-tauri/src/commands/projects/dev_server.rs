@@ -229,6 +229,14 @@ pub struct DependencyStatus {
     /// Lets the frontend tell "no install needed" (generic / static project)
     /// from "install needed, run pnpm install".
     pub has_package_json: bool,
+    /// True when a `package.json` exists at the resolved dev-server cwd —
+    /// the workspace subpath for monorepo projects, the repo root otherwise.
+    /// `has_package_json` is deliberately root-OR-workspace (right for the
+    /// "is an install needed" question) but wrong for "will `npm run dev` at
+    /// the cwd find a package.json" — a monorepo subpath without its own
+    /// package.json reported `true` and spawned a doomed dev server
+    /// (issue #656).
+    pub workspace_has_package_json: bool,
 }
 
 /// Check whether a project's dependencies are installed.
@@ -248,12 +256,13 @@ pub async fn check_dependencies_installed(
 
     // Workspaces install at the repo root; single-package projects install in
     // place. Either location is enough to consider deps present.
-    let has_package_json =
-        repo_root.join("package.json").exists() || workspace.join("package.json").exists();
+    let workspace_has_package_json = workspace.join("package.json").exists();
+    let has_package_json = repo_root.join("package.json").exists() || workspace_has_package_json;
     if !has_package_json {
         return Ok(DependencyStatus {
             installed: true,
             has_package_json: false,
+            workspace_has_package_json,
         });
     }
 
@@ -262,6 +271,7 @@ pub async fn check_dependencies_installed(
     Ok(DependencyStatus {
         installed,
         has_package_json: true,
+        workspace_has_package_json,
     })
 }
 

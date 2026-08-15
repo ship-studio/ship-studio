@@ -26,6 +26,22 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '0.18.6', // v0.18.6
+    items: [
+      'Two crash fixes: the app no longer panics when generating a commit message containing accents, emoji, or non-Latin characters, and closing a project no longer risks a crash from the dev-server logs terminal',
+      'Broken plugin installs now heal themselves: a plugin whose files went missing is automatically re-installed from its source on next load, and the plugin manager checks for plugin updates when you open it — so plugin fixes actually reach you',
+      'All bundled plugins now work on Windows: Google Analytics, Cloudflare Pages, Sanity, Figma, Brand Guidelines, and Webflow to Code no longer depend on macOS-only commands (file pickers, clipboard, file reads)',
+      'Creating a pull request is more reliable: pushes go through your GitHub sign-in (no more "could not read Username" failures), and transient GitHub server errors are no longer mistaken for "someone else pushed"',
+      "Importing a repo that uses pnpm now explains pnpm's build-approval prompt instead of dumping a raw error log",
+      'Pushes rejected because a file exceeds GitHub\'s 100MB limit now name the file and point you at Git LFS, instead of claiming "someone else pushed first"',
+      'Zip templates made with Finder no longer fail validation (macOS packaging files are tolerated), and templates with nested folders are recognized',
+      'Screenshots and thumbnails ride out slow first compiles, flaky Chromium captures, and broken Node installs with clear messages instead of raw errors',
+      'Dev servers in monorepos: starting from a workspace subfolder without its own package.json no longer attempts a doomed npm run dev',
+      'Dozens of confusing errors replaced with plain explanations: corporate-proxy TLS failures, Homebrew update errors, locked config files, enterprise-policy-blocked MCP servers, out-of-memory git, localized error text, and more',
+      '78 auto-reported issues fixed since 0.18.5',
+    ],
+  },
+  {
     version: '0.18.5', // v0.18.5
     items: [
       'Project thumbnails on macOS are now captured instantly from the app itself — no more background Chrome. This eliminates the whole family of thumbnail failures (profile locks, browser crashes, leftover processes) that produced most error reports',

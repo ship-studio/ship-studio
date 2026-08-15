@@ -6,6 +6,15 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v0.18.6
+
+- **Two crash fixes** - No more panic on commit messages with accents/emoji/non-Latin text; closing a project can no longer crash via the dev-server logs terminal
+- **Plugins heal themselves and work on Windows** - Broken installs auto-reinstall from source, the plugin manager checks for updates, and all bundled plugins (GA, Cloudflare, Sanity, Figma, Brand Guidelines, Webflow to Code) now run on Windows
+- **More reliable PRs and pushes** - PR pushes use your GitHub sign-in, transient GitHub server errors and 100MB-file rejections are no longer mistaken for push races
+- **Friendlier errors everywhere** - pnpm build-approval prompts, corporate-proxy TLS, Homebrew failures, locked configs, enterprise-policy MCP blocks, out-of-memory git, and localized git output all explain themselves now
+- **78 auto-reported issues fixed since 0.18.5**
+
+
 ## What's New in v0.18.5
 
 - **Native macOS thumbnails** - Project thumbnails are captured instantly from the app's own preview instead of a background Chrome — eliminating the thumbnail failure family (profile locks, crashes, leftover processes) behind most error reports.

@@ -49,7 +49,8 @@ fn push_auth_error(stderr: &str) -> Option<CommandError> {
 ///   frontend's `sanitizeBranchName` now caps generated names too).
 ///
 /// Must run BEFORE any generic "rejected"/"non-fast-forward" check.
-fn push_pre_receive_error(stderr: &str) -> Option<CommandError> {
+/// (`pub(crate)`: also used by `create_pull_request`'s auto-push, issue #654.)
+pub(crate) fn push_pre_receive_error(stderr: &str) -> Option<CommandError> {
     let lower = stderr.to_lowercase();
     if lower.contains("exceeds github's file size limit") || lower.contains("gh001") {
         // Best-effort: name the offending file(s) from lines like
@@ -84,6 +85,31 @@ fn push_pre_receive_error(stderr: &str) -> Option<CommandError> {
         ));
     }
     None
+}
+
+/// GitHub's transient server-side failure while accepting a push: the remote
+/// replies "remote: Internal Server Error" (plus a Request ID / Time pair) and
+/// git prints "! [remote rejected] <branch> -> <branch> (Internal Server
+/// Error)". That line contains the literal word "rejected", so without this
+/// check it fell into the generic "rejected" arms and the user was told
+/// "someone else pushed — pull first", advice that can't fix a GitHub 5xx;
+/// the actual remedy is simply retrying (issue #678, same class as the
+/// GH001/GH005 misclassifications above). A GitHub-side blip, not an app
+/// malfunction — Expected keeps it out of telemetry.
+///
+/// Must run BEFORE any generic "rejected"/"non-fast-forward" check.
+/// (`pub(crate)`: also used by `create_pull_request`'s auto-push.)
+pub(crate) fn push_transient_server_error(stderr: &str) -> Option<CommandError> {
+    stderr
+        .to_lowercase()
+        .contains("internal server error")
+        .then(|| {
+            CommandError::expected(
+                "GitHub had a temporary problem accepting this push (a server error on \
+                 GitHub's side). Nothing is wrong with your changes — wait a moment and \
+                 try again.",
+            )
+        })
 }
 
 /// Push-time "the remote repo doesn't exist" rejections — the linked repo was
@@ -176,6 +202,12 @@ pub async fn publish_to_github(
             warn!(error = %stderr, branch = %branch, "Push declined by GitHub pre-receive check");
             return Err(err);
         }
+        // GitHub-side 5xx during the push — retryable, not a malfunction
+        // (issue #678).
+        if let Some(err) = push_transient_server_error(&stderr) {
+            warn!(error = %stderr, branch = %branch, "Push failed on a GitHub server error");
+            return Err(err);
+        }
         if let Some(err) = push_auth_error(&stderr) {
             error!(error = %stderr, branch = %branch, "Authentication error");
             return Err(err);
@@ -232,6 +264,12 @@ pub async fn publish_to_staging(
         // fix anything (issues #626/#636).
         if let Some(err) = push_pre_receive_error(&stderr) {
             warn!(error = %stderr, "Push declined by GitHub pre-receive check");
+            return Err(err);
+        }
+        // GitHub-side 5xx: contains "rejected" but isn't the diverged-branch
+        // race — must run before that arm (issue #678).
+        if let Some(err) = push_transient_server_error(&stderr) {
+            warn!(error = %stderr, "Push failed on a GitHub server error");
             return Err(err);
         }
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
@@ -299,6 +337,12 @@ pub async fn publish_to_production(
         // auto-reported as a generic Process error (issues #626/#636).
         if let Some(err) = push_pre_receive_error(&stderr) {
             warn!(error = %stderr, "Push declined by GitHub pre-receive check");
+            return Err(err);
+        }
+        // GitHub-side 5xx during the push — retryable, not a malfunction
+        // (issue #678).
+        if let Some(err) = push_transient_server_error(&stderr) {
+            warn!(error = %stderr, "Push failed on a GitHub server error");
             return Err(err);
         }
         if let Some(err) = push_auth_error(&stderr) {
@@ -369,6 +413,14 @@ pub async fn publish_branch(
             warn!(error = %stderr, branch = %branch, "Push declined by GitHub pre-receive check");
             return Err(err);
         }
+        // GitHub-side 5xx: "! [remote rejected] … (Internal Server Error)"
+        // contains "rejected" but isn't the concurrent-push race — must run
+        // before that arm or the user gets pull-first advice for a transient
+        // GitHub outage (issue #678).
+        if let Some(err) = push_transient_server_error(&stderr) {
+            warn!(error = %stderr, branch = %branch, "Push failed on a GitHub server error");
+            return Err(err);
+        }
         // Check for common errors
         if stderr.contains("rejected") || stderr.contains("non-fast-forward") {
             warn!(error = %stderr, branch = %branch, "Push rejected");
@@ -404,10 +456,46 @@ pub async fn publish_branch(
 
 #[cfg(test)]
 mod tests {
-    use super::push_pre_receive_error;
+    use super::{push_pre_receive_error, push_transient_server_error};
     use crate::commands::git::run_git_net;
     use crate::errors::CommandError;
     use std::path::Path;
+
+    // The #678 shape: GitHub's edge returning a transient 5xx while accepting
+    // the push. Contains "! [remote rejected]" — must classify Expected with
+    // retry guidance instead of falling into the pull-first PUSH_REJECTED arm.
+    #[test]
+    fn transient_server_error_classifies_github_ise() {
+        let stderr = "remote: Internal Server Error        \nremote: Request ID 65EF:1EC443:289A4B:2BCFC2:6A7DD5C5        \nremote: Time 2026-08-13T14:33:42Z\nTo https://github.com/o/r.git\n ! [remote rejected] main -> main (Internal Server Error)\nerror: failed to push some refs to 'https://github.com/o/r.git'\n";
+        let err = push_transient_server_error(stderr).expect("must classify the GitHub 5xx");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("try again"),
+            "must suggest retrying, got: {msg}"
+        );
+        assert!(
+            !msg.contains("PUSH_REJECTED") && !msg.to_lowercase().contains("pull"),
+            "must not steer toward the pull-first flow, got: {msg}"
+        );
+        // Not a pre-receive decline — the sibling helper must not claim it.
+        assert!(push_pre_receive_error(stderr).is_none());
+    }
+
+    // An ordinary non-fast-forward race and the pre-receive declines must NOT
+    // match — they keep their existing paths.
+    #[test]
+    fn transient_server_error_ignores_other_push_failures() {
+        assert!(push_transient_server_error(
+            " ! [rejected] main -> main (non-fast-forward)\nerror: failed to push some refs to 'https://github.com/o/r.git'"
+        )
+        .is_none());
+        assert!(push_transient_server_error(
+            "remote: error: GH001: Large files detected.\n ! [remote rejected] x -> x (pre-receive hook declined)"
+        )
+        .is_none());
+        assert!(push_transient_server_error("").is_none());
+    }
 
     // The #626 shape: GH001 large-file decline contains "rejected" but is not
     // the concurrent-push race — it must classify Expected with LFS guidance

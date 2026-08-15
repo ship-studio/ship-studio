@@ -50,10 +50,17 @@ enum HeadlessInvocation {
     },
     /// Codex `exec`: stdout is a session transcript (which echoes the prompt —
     /// unsafe to parse), so the final message is captured via
-    /// `--output-last-message` into a temp file instead.
+    /// `--output-last-message` into a temp file instead. The prompt travels
+    /// via stdin (the positional argument is `-`, which `codex exec` documents
+    /// as "read instructions from stdin"): besides the E2BIG ceiling, on
+    /// Windows Codex resolves to a `.cmd` shim, and Rust's std refuses to
+    /// spawn a `.cmd` when an argument can't be safely cmd.exe-escaped —
+    /// a prompt embedding a raw git diff (quotes, newlines) failed the whole
+    /// generation with "batch file arguments are invalid" (issue #663).
     CodexExec {
         args: Vec<String>,
         output_file: PathBuf,
+        stdin_prompt: String,
     },
 }
 
@@ -91,7 +98,9 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
         ));
         // --skip-git-repo-check: worktrees/external folders can trip Codex's
         // trusted-directory heuristic even though we always run in a validated
-        // project path.
+        // project path. The trailing `-` makes Codex read the prompt from
+        // stdin — never argv (issues #595's E2BIG class and #663's Windows
+        // .cmd escaping failure).
         let args = vec![
             "exec".to_string(),
             "--skip-git-repo-check".to_string(),
@@ -99,9 +108,63 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
             "never".to_string(),
             "--output-last-message".to_string(),
             output_file.to_string_lossy().to_string(),
-            prompt.to_string(),
+            "-".to_string(),
         ];
-        return Some(HeadlessInvocation::CodexExec { args, output_file });
+        return Some(HeadlessInvocation::CodexExec {
+            args,
+            output_file,
+            stdin_prompt: prompt.to_string(),
+        });
+    }
+    None
+}
+
+/// Known "environment, not our bug" failure states from the agent CLI itself,
+/// matched against the failure detail (stderr, or the exit-code + stdout
+/// snippet when stderr is empty — the session-limit refusal arrives on
+/// stdout). These are conditions Ship Studio can't fix and shouldn't
+/// telemetry-report as bugs; `Expected` keeps them out (same precedent as the
+/// missing-binary case above, issue #548).
+///
+/// - Subscription session/usage/rate limits — "You've hit your session limit
+///   · resets 4:40pm (Asia/Dubai)", usage-limit and rate-limit wordings
+///   (issue #653). The raw detail is appended so the CLI's reset time
+///   survives into the message.
+/// - Expired/missing sign-in — "OAuth token has expired · Please run /login"
+///   family (issue #653's session-expired sibling).
+/// - Untrusted workspace — Claude Code refusing headless runs in a folder the
+///   user never opened interactively: "this workspace has not been trusted.
+///   Run Claude Code interactively here once and accept the trust dialog, or
+///   set projects[…].hasTrustDialogAccepted: true in ~/.claude.json". The raw
+///   compound error (trust warning + stdin race + "--print needs input") is a
+///   confusing wall of text, so it gets a plain remedy instead (issue #660).
+fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandError> {
+    let lower = detail.to_lowercase();
+    if lower.contains("session limit")
+        || lower.contains("usage limit")
+        || lower.contains("rate limit")
+        || lower.contains("quota exceeded")
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} hit its usage limit, so AI generation isn't available right now. \
+             The limit resets automatically — try again later. ({detail})"
+        )));
+    }
+    if lower.contains("please run /login")
+        || lower.contains("oauth token has expired")
+        || lower.contains("session expired")
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name} isn't signed in anymore (its session expired). Open an agent \
+             terminal and sign in again — for Claude Code, run /login — then try again."
+        )));
+    }
+    if lower.contains("has not been trusted") || lower.contains("hastrustdialogaccepted") {
+        return Some(CommandError::expected(format!(
+            "{agent_name} hasn't trusted this project's folder yet, so it won't run \
+             non-interactively here. Open an agent terminal in this project once and accept \
+             the trust prompt, then try again."
+        )));
     }
     None
 }
@@ -126,9 +189,15 @@ async fn run_agent_headless(
         HeadlessInvocation::PrintMode { args, stdin_prompt } => {
             (args.clone(), None, stdin_prompt.clone())
         }
-        HeadlessInvocation::CodexExec { args, output_file } => {
-            (args.clone(), Some(output_file.clone()), None)
-        }
+        HeadlessInvocation::CodexExec {
+            args,
+            output_file,
+            stdin_prompt,
+        } => (
+            args.clone(),
+            Some(output_file.clone()),
+            Some(stdin_prompt.clone()),
+        ),
     };
 
     let mut cmd = create_command(agent_path);
@@ -140,13 +209,13 @@ async fn run_agent_headless(
     let output = if let Some(prompt_data) = &stdin_prompt {
         // The prompt travels via stdin (piped, written in full, then closed so
         // the CLI sees EOF) instead of argv — see HeadlessInvocation::PrintMode
-        // (issue #595).
+        // (issue #595) and HeadlessInvocation::CodexExec (issue #663).
         let tokio_cmd = tokio::process::Command::from(cmd);
         crate::external_command::run_with_timeout_stdin(tokio_cmd, prompt_data, label, timeout_secs)
             .await
     } else {
-        // No TTY here: an EOF'd stdin keeps agents that read it (Codex exec)
-        // from waiting on input that will never come.
+        // No TTY here: an EOF'd stdin keeps agents that read it from waiting
+        // on input that will never come.
         cmd.stdin(std::process::Stdio::null());
         let tokio_cmd = tokio::process::Command::from(cmd);
         run_with_timeout(tokio_cmd, label, timeout_secs).await
@@ -190,6 +259,16 @@ async fn run_agent_headless(
             // The head carries the actual error (issue #578).
             crate::external_command::truncate_output(&stderr)
         };
+        // Known environment states (usage limit, expired sign-in, untrusted
+        // workspace) are the CLI working as designed — warn, not error, and
+        // Expected so they stay out of telemetry (issues #653/#660).
+        if let Some(err) = classify_agent_cli_failure(&agent.display_name, &detail) {
+            warn!(
+                "{} CLI failed with an expected condition: {}",
+                agent.display_name, detail
+            );
+            return Err(err);
+        }
         error!("{} CLI failed: {}", agent.display_name, detail);
         return Err(format!("{} CLI failed: {}", agent.display_name, detail).into());
     }
@@ -618,7 +697,14 @@ fn parse_commit_message(response: &str) -> Result<String, String> {
             "message:",
             "title:",
         ] {
-            if msg.len() >= prefix.len() && msg[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            // `is_char_boundary` also rejects offsets past the end of the
+            // string, so it subsumes the length check. When `prefix.len()`
+            // lands inside a multi-byte character the message can't start
+            // with this ASCII prefix anyway — slicing there would panic
+            // ("byte index N is not a char boundary", issue #673).
+            if msg.is_char_boundary(prefix.len())
+                && msg[..prefix.len()].eq_ignore_ascii_case(prefix)
+            {
                 msg = msg[prefix.len()..].trim();
                 break;
             }
@@ -682,9 +768,18 @@ mod tests {
 
     #[test]
     fn headless_invocation_codex_captures_last_message_to_file() {
-        let inv = headless_invocation(&crate::agent::CODEX, "hello").unwrap();
+        // The prompt must NOT be an argv element: on Windows Codex is a .cmd
+        // shim, and Rust refuses to spawn a .cmd when an argument (a prompt
+        // embedding a raw diff) can't be safely cmd.exe-escaped — "batch file
+        // arguments are invalid" (issue #663). `-` tells `codex exec` to read
+        // the prompt from stdin instead.
+        let inv = headless_invocation(&crate::agent::CODEX, "hello \"quoted\"\nmultiline").unwrap();
         match inv {
-            HeadlessInvocation::CodexExec { args, output_file } => {
+            HeadlessInvocation::CodexExec {
+                args,
+                output_file,
+                stdin_prompt,
+            } => {
                 assert_eq!(args[0], "exec");
                 assert!(args.contains(&"--skip-git-repo-check".to_string()));
                 let file_arg = args
@@ -693,11 +788,73 @@ mod tests {
                     .map(|i| &args[i + 1])
                     .expect("has --output-last-message");
                 assert_eq!(file_arg, &output_file.to_string_lossy().to_string());
-                // Prompt is the final argument.
-                assert_eq!(args.last().unwrap(), "hello");
+                // The final argument is the stdin sentinel, never the prompt.
+                assert_eq!(args.last().unwrap(), "-");
+                assert!(!args.iter().any(|a| a.contains("hello")));
+                assert_eq!(stdin_prompt, "hello \"quoted\"\nmultiline");
             }
             HeadlessInvocation::PrintMode { .. } => panic!("Codex should use exec mode"),
         }
+    }
+
+    // The CLI's subscription session/usage-limit refusal is the environment,
+    // not a bug — Expected, with the reset time preserved (issue #653).
+    #[test]
+    fn classify_agent_cli_failure_session_limit_is_expected() {
+        let detail =
+            "exit code Some(1): You've hit your session limit · resets 4:40pm (Asia/Dubai)";
+        let err = classify_agent_cli_failure("Claude Code", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("usage limit"), "got: {msg}");
+        // The CLI's own reset time must survive into the message.
+        assert!(msg.contains("resets 4:40pm"), "got: {msg}");
+    }
+
+    #[test]
+    fn classify_agent_cli_failure_usage_and_rate_limit_wordings() {
+        assert!(
+            classify_agent_cli_failure("Claude Code", "Claude AI usage limit reached").is_some()
+        );
+        assert!(classify_agent_cli_failure("Codex", "Rate limit exceeded, retry later").is_some());
+    }
+
+    // Expired sign-in ("run /login") is user-fixable, not a malfunction.
+    #[test]
+    fn classify_agent_cli_failure_expired_login_is_expected() {
+        let err = classify_agent_cli_failure(
+            "Claude Code",
+            "OAuth token has expired · Please obtain a new token or run /login",
+        )
+        .expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("sign in again"));
+    }
+
+    // The untrusted-workspace compound error (trust warning + stdin race +
+    // "--print needs input") must become one plain remedy (issue #660).
+    #[test]
+    fn classify_agent_cli_failure_untrusted_workspace_is_expected() {
+        let detail = "Ignoring 16 permissions.allow entries from .claude/settings.local.json: \
+                      this workspace has not been trusted. Run Claude Code interactively here once \
+                      and accept the trust dialog, or set projects[\"<project>\"].hasTrustDialogAccepted: \
+                      true in ~/.claude.json.\nError: Input must be provided either through stdin or \
+                      as a prompt argument when using --print";
+        let err = classify_agent_cli_failure("Claude Code", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("trust"), "got: {msg}");
+        assert!(msg.contains("Open an agent terminal"), "got: {msg}");
+    }
+
+    // Genuine unexplained failures must keep flowing to telemetry.
+    #[test]
+    fn classify_agent_cli_failure_ignores_unknown_failures() {
+        assert!(
+            classify_agent_cli_failure("Claude Code", "exit code Some(1), no output").is_none()
+        );
+        assert!(classify_agent_cli_failure("Claude Code", "segmentation fault").is_none());
+        assert!(classify_agent_cli_failure("Claude Code", "").is_none());
     }
 
     #[test]
@@ -798,6 +955,41 @@ mod tests {
         let result = parse_commit_message(&long).unwrap();
         assert!(result.chars().count() <= 100);
         assert!(!result.ends_with(' '));
+    }
+
+    #[test]
+    fn test_parse_commit_message_multibyte_at_prefix_boundary() {
+        // Regression for issue #673: the prefix-stripping loop sliced
+        // `msg[..prefix.len()]` without checking that the byte offset lands
+        // on a UTF-8 char boundary, panicking when a multi-byte character
+        // straddles one of the prefix lengths (6, 7, 8, or 15 bytes).
+
+        // 'á' (2 bytes) at bytes 7..9 — byte 8 straddles "subject:"/"message:"
+        // (len 8), the exact panic from the automated report.
+        assert_eq!(
+            parse_commit_message("Mejorasá bien").unwrap(),
+            "Mejorasá bien"
+        );
+        // 'á' at bytes 6..8 — byte 7 straddles "commit:" (len 7).
+        assert_eq!(
+            parse_commit_message("Refactá lo básico").unwrap(),
+            "Refactá lo básico"
+        );
+        // Emoji (4 bytes) at bytes 4..8 — straddles "title:" (6), "commit:"
+        // (7), and "subject:"/"message:" (8).
+        assert_eq!(
+            parse_commit_message("Fix 🎉 release flow").unwrap(),
+            "Fix 🎉 release flow"
+        );
+        // CJK (3 bytes each, boundaries at 0/3/6/9/12) — bytes 7 and 8 land
+        // mid-character.
+        assert_eq!(
+            parse_commit_message("修复构建脚本").unwrap(),
+            "修复构建脚本"
+        );
+        // A short multi-byte message where "commit message:" (15) exceeds the
+        // string length entirely and shorter prefixes land mid-character.
+        assert_eq!(parse_commit_message("ééé").unwrap(), "ééé");
     }
 
     #[test]

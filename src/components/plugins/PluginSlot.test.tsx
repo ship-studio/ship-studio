@@ -136,6 +136,35 @@ describe('buildContext failure reporting', () => {
     expect(showToast).toHaveBeenCalledTimes(1);
   });
 
+  it('suppresses the toast for a plugin shell timeout — the plugin decides what is fatal (#661/#662)', async () => {
+    mockIPC(() => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- deliberately a plain CommandError object, the shape under test
+      throw {
+        type: 'Other',
+        message: "Plugin 'vercel' shell command 'git' timed out after 10s",
+      };
+    });
+    const { actions, showToast } = makeActions();
+    const ctx = buildContext('vercel', 'Vercel', project, actions, theme, []);
+
+    // Still re-throws so the plugin's own `.catch(() => null)` sees it, but
+    // no error toast (which would auto-file a telemetry report).
+    await expect(ctx.shell.exec('git', ['remote', '-v'])).rejects.toBeTruthy();
+    expect(showToast).not.toHaveBeenCalled();
+
+    // A different plugin's timeout message doesn't match this plugin's id —
+    // still toasts (the match is on the host's own message shape, per-plugin).
+    mockIPC(() => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- plain CommandError shape under test
+      throw {
+        type: 'Other',
+        message: "Plugin 'other' shell command 'git' timed out after 10s",
+      };
+    });
+    await expect(ctx.shell.exec('git', ['remote', '-v'])).rejects.toBeTruthy();
+    expect(showToast).toHaveBeenCalledTimes(1);
+  });
+
   it('does not toast when the call succeeds', async () => {
     mockIPC((cmd) => {
       if (cmd === 'read_plugin_storage') return { key: 'value' };
