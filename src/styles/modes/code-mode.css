@@ -116,7 +116,7 @@
   color: var(--text-bright);
   background: var(--bg-tertiary);
   border-color: var(--border);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 .code-search-mode-label {
@@ -231,7 +231,7 @@
   color: var(--text-primary) !important;
   font-family: inherit !important;
   padding: 6px 12px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: var(--shadow) !important;
 }
 
 .cm-panels-top {
