@@ -99,26 +99,59 @@ describe('getActiveAgent', () => {
 // ============ ALL_AGENTS / ALL_TAB_OPTIONS ============
 
 describe('ALL_AGENTS', () => {
-  it('has exactly 4 entries', () => {
-    expect(ALL_AGENTS).toHaveLength(4);
+  it('has exactly 18 entries', () => {
+    expect(ALL_AGENTS).toHaveLength(18);
   });
 
-  it('contains CLAUDE_CODE, CODEX, OPENCODE, and CURSOR', () => {
-    expect(ALL_AGENTS.map((a) => a.id)).toEqual(['claude-code', 'codex', 'opencode', 'cursor']);
+  it('contains all expected agents', () => {
+    expect(ALL_AGENTS.map((a) => a.id)).toEqual([
+      'claude-code',
+      'codex',
+      'opencode',
+      'cursor',
+      'copilot',
+      'pi',
+      'hermes',
+      'zcode',
+      'devin',
+      'grok',
+      'kimi-code',
+      'antigravity-cli',
+      'jcode',
+      'deepseek-harness',
+      'droid',
+      'amp',
+      'qwen',
+      'gemini',
+    ]);
   });
 });
 
 describe('ALL_TAB_OPTIONS', () => {
-  it('has exactly 5 entries (agents + terminal)', () => {
-    expect(ALL_TAB_OPTIONS).toHaveLength(5);
+  it('has exactly 19 entries (agents + terminal)', () => {
+    expect(ALL_TAB_OPTIONS).toHaveLength(19);
   });
 
-  it('contains CLAUDE_CODE, CODEX, OPENCODE, CURSOR, and TERMINAL', () => {
+  it('contains all expected agents plus TERMINAL', () => {
     expect(ALL_TAB_OPTIONS.map((a) => a.id)).toEqual([
       'claude-code',
       'codex',
       'opencode',
       'cursor',
+      'copilot',
+      'pi',
+      'hermes',
+      'zcode',
+      'devin',
+      'grok',
+      'kimi-code',
+      'antigravity-cli',
+      'jcode',
+      'deepseek-harness',
+      'droid',
+      'amp',
+      'qwen',
+      'gemini',
       'terminal',
     ]);
   });

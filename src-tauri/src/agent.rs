@@ -183,8 +183,402 @@ pub const CURSOR: AgentConfig = AgentConfig {
     logout_args: Some(&["logout"]),
 };
 
+/// GitHub Copilot CLI agent configuration.
+///
+/// Copilot CLI inherits authentication from the GitHub CLI (`gh`). There is no
+/// separate sign-in step — if `gh auth status` succeeds, Copilot is ready.
+pub const COPILOT: AgentConfig = AgentConfig {
+    id: "copilot",
+    display_name: "GitHub Copilot",
+    binary_name: "copilot",
+    process_name: "copilot",
+    version_flag: "--version",
+    print_mode_flags: &["-p", "--prompt"],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".copilot",
+    auth_indicators: &["otel"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("npm install -g @github/copilot"),
+    install_message_windows: Some("npm install -g @github/copilot"),
+    uninstall_command_unix: Some(
+        "npm uninstall -g @github/copilot 2>/dev/null; rm -rf \"$HOME/.copilot\" 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: Some("npm uninstall -g @github/copilot"),
+    setup_item_ids: ("copilot", "copilot_auth"),
+    setup_display_names: ("GitHub Copilot", "GitHub Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Pi agent configuration.
+pub const PI: AgentConfig = AgentConfig {
+    id: "pi",
+    display_name: "Pi",
+    binary_name: "pi",
+    process_name: "pi",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".pi",
+    auth_indicators: &["agent/auth.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("npm install -g @earendil-works/pi-coding-agent"),
+    install_message_windows: Some("npm install -g @earendil-works/pi-coding-agent"),
+    uninstall_command_unix: Some(
+        "npm uninstall -g @earendil-works/pi-coding-agent 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: Some("npm uninstall -g @earendil-works/pi-coding-agent"),
+    setup_item_ids: ("pi", "pi_auth"),
+    setup_display_names: ("Pi", "Pi Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Hermes Agent configuration.
+pub const HERMES: AgentConfig = AgentConfig {
+    id: "hermes",
+    display_name: "Hermes",
+    binary_name: "hermes",
+    process_name: "hermes",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".hermes",
+    auth_indicators: &["auth.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some(
+        "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+    ),
+    install_message_windows: Some(
+        "Please download Hermes from https://hermes-agent.nousresearch.com and run the installer.",
+    ),
+    uninstall_command_unix: Some("rm -rf \"$HOME/.hermes\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_windows: Some("echo Please uninstall Hermes manually from Control Panel."),
+    setup_item_ids: ("hermes", "hermes_auth"),
+    setup_display_names: ("Hermes", "Hermes Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// ZCode agent configuration.
+pub const ZCODE: AgentConfig = AgentConfig {
+    id: "zcode",
+    display_name: "ZCode",
+    binary_name: "zcode",
+    process_name: "zcode",
+    version_flag: "--version",
+    print_mode_flags: &["--print"],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".zcode",
+    auth_indicators: &["cli/db/db.sqlite"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("npm install -g zcode-app-cli@latest"),
+    install_message_windows: Some("npm install -g zcode-app-cli@latest"),
+    uninstall_command_unix: Some("npm uninstall -g zcode-app-cli 2>/dev/null; echo Uninstalled."),
+    uninstall_command_windows: Some("npm uninstall -g zcode-app-cli"),
+    setup_item_ids: ("zcode", "zcode_auth"),
+    setup_display_names: ("ZCode", "ZCode Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Devin CLI agent configuration.
+pub const DEVIN: AgentConfig = AgentConfig {
+    id: "devin",
+    display_name: "Devin",
+    binary_name: "devin",
+    process_name: "devin",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".local/share/devin",
+    auth_indicators: &["cli/sessions.db"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("curl -fsSL https://cli.devin.ai/install.sh | bash"),
+    install_message_windows: Some("Please download Devin CLI from https://devin.ai and run the installer."),
+    uninstall_command_unix: Some("rm -rf \"$HOME/.local/share/devin\" \"$HOME/.config/devin\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_windows: Some("echo Please uninstall Devin manually."),
+    setup_item_ids: ("devin", "devin_auth"),
+    setup_display_names: ("Devin", "Devin Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Grok Build agent configuration.
+pub const GROK: AgentConfig = AgentConfig {
+    id: "grok",
+    display_name: "Grok",
+    binary_name: "grok",
+    process_name: "grok",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".grok",
+    auth_indicators: &["auth.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("npm install -g @anthropic-ai/claude-code 2>/dev/null; curl -fsSL https://x.ai/cli/install.sh | bash"),
+    install_message_windows: Some("npm install -g @xai-official/grok"),
+    uninstall_command_unix: Some("npm uninstall -g @xai-official/grok 2>/dev/null; rm -rf \"$HOME/.grok\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_windows: Some("npm uninstall -g @xai-official/grok"),
+    setup_item_ids: ("grok", "grok_auth"),
+    setup_display_names: ("Grok", "Grok Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Kimi Code agent configuration.
+pub const KIMI_CODE: AgentConfig = AgentConfig {
+    id: "kimi-code",
+    display_name: "Kimi Code",
+    binary_name: "kimi",
+    process_name: "kimi",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".kimi-code",
+    auth_indicators: &["config.toml"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"),
+    install_message_windows: Some(
+        "Please download Kimi Code from https://code.kimi.com and run the installer.",
+    ),
+    uninstall_command_unix: Some(
+        "rm -rf \"$HOME/.kimi-code\" \"$HOME/.kimi\" 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: Some("echo Please uninstall Kimi Code manually."),
+    setup_item_ids: ("kimi-code", "kimi-code_auth"),
+    setup_display_names: ("Kimi Code", "Kimi Code Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Antigravity CLI agent configuration.
+pub const ANTIGRAVITY_CLI: AgentConfig = AgentConfig {
+    id: "antigravity-cli",
+    display_name: "Antigravity",
+    binary_name: "agy",
+    process_name: "agy",
+    version_flag: "--version",
+    print_mode_flags: &["-p", "--print"],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".gemini/antigravity-cli",
+    auth_indicators: &["settings.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
+    install_message_windows: Some(
+        "Please download Antigravity CLI from https://antigravity.google and run the installer.",
+    ),
+    uninstall_command_unix: Some(
+        "rm -rf \"$HOME/.gemini/antigravity-cli\" 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: Some("echo Please uninstall Antigravity CLI manually."),
+    setup_item_ids: ("antigravity-cli", "antigravity-cli_auth"),
+    setup_display_names: ("Antigravity", "Antigravity Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Jcode agent configuration.
+pub const JCODE: AgentConfig = AgentConfig {
+    id: "jcode",
+    display_name: "Jcode",
+    binary_name: "jcode",
+    process_name: "jcode",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".jcode",
+    auth_indicators: &["auth.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("curl -fsSL https://jcode.sh/install | bash"),
+    install_message_windows: Some(
+        "Please download Jcode from https://jcode.sh and run the installer.",
+    ),
+    uninstall_command_unix: Some("rm -rf \"$HOME/.jcode\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_windows: Some("echo Please uninstall Jcode manually."),
+    setup_item_ids: ("jcode", "jcode_auth"),
+    setup_display_names: ("Jcode", "Jcode Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// DeepSeek Harness agent configuration.
+pub const DEEPSEEK_HARNESS: AgentConfig = AgentConfig {
+    id: "deepseek-harness",
+    display_name: "DeepSeek Harness",
+    binary_name: "dsh",
+    process_name: "dsh",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".dsh",
+    auth_indicators: &[".credentials.yaml"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("npm install -g @deepseek-ai/dsh"),
+    install_message_windows: Some("npm install -g @deepseek-ai/dsh"),
+    uninstall_command_unix: Some("npm uninstall -g @deepseek-ai/dsh 2>/dev/null; rm -rf \"$HOME/.dsh\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_windows: Some("npm uninstall -g @deepseek-ai/dsh"),
+    setup_item_ids: ("deepseek-harness", "deepseek-harness_auth"),
+    setup_display_names: ("DeepSeek Harness", "DeepSeek Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Droid (Factory) agent configuration.
+pub const DROID: AgentConfig = AgentConfig {
+    id: "droid",
+    display_name: "Droid",
+    binary_name: "droid",
+    process_name: "droid",
+    version_flag: "--version",
+    print_mode_flags: &[],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".factory",
+    auth_indicators: &["auth.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("curl -fsSL https://app.factory.ai/cli | sh"),
+    install_message_windows: Some("npm install -g droid"),
+    uninstall_command_unix: Some("npm uninstall -g droid 2>/dev/null; rm -rf \"$HOME/.factory\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_windows: Some("npm uninstall -g droid"),
+    setup_item_ids: ("droid", "droid_auth"),
+    setup_display_names: ("Droid", "Droid Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Amp (AmpCode) agent configuration.
+pub const AMP: AgentConfig = AgentConfig {
+    id: "amp",
+    display_name: "Amp",
+    binary_name: "amp",
+    process_name: "amp",
+    version_flag: "--version",
+    print_mode_flags: &["-x"],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".config/amp",
+    auth_indicators: &["settings.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("curl -fsSL https://ampcode.com/install.sh | bash"),
+    install_message_windows: Some("npm install -g @anthropic-ai/claude-code 2>/dev/null; npm install -g @ampcode/cli"),
+    uninstall_command_unix: Some("npm uninstall -g @ampcode/cli 2>/dev/null; rm -rf \"$HOME/.config/amp\" \"$HOME/.local/share/amp\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_windows: Some("npm uninstall -g @ampcode/cli"),
+    setup_item_ids: ("amp", "amp_auth"),
+    setup_display_names: ("Amp", "Amp Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Qwen Code agent configuration.
+pub const QWEN: AgentConfig = AgentConfig {
+    id: "qwen",
+    display_name: "Qwen",
+    binary_name: "qwen",
+    process_name: "qwen",
+    version_flag: "--version",
+    print_mode_flags: &["-p"],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".qwen",
+    auth_indicators: &["settings.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("npm install -g @qwen-code/qwen-code@latest"),
+    install_message_windows: Some("npm install -g @qwen-code/qwen-code@latest"),
+    uninstall_command_unix: Some(
+        "npm uninstall -g @qwen-code/qwen-code 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: Some("npm uninstall -g @qwen-code/qwen-code"),
+    setup_item_ids: ("qwen", "qwen_auth"),
+    setup_display_names: ("Qwen", "Qwen Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
+/// Gemini CLI agent configuration.
+pub const GEMINI: AgentConfig = AgentConfig {
+    id: "gemini",
+    display_name: "Gemini",
+    binary_name: "gemini",
+    process_name: "gemini",
+    version_flag: "--version",
+    print_mode_flags: &["-p", "--print"],
+    auto_accept_flag: None,
+    auth_trigger_args: &[],
+    auth_config_dir: ".gemini",
+    auth_indicators: &["settings.json", "oauth_creds.json"],
+    skills_agent_id: None,
+    skills_dir_name: None,
+    install_command_unix: Some("npm install -g @google/gemini-cli"),
+    install_message_windows: Some("npm install -g @google/gemini-cli"),
+    uninstall_command_unix: Some(
+        "npm uninstall -g @google/gemini-cli 2>/dev/null; echo Uninstalled.",
+    ),
+    uninstall_command_windows: Some("npm uninstall -g @google/gemini-cli"),
+    setup_item_ids: ("gemini", "gemini_auth"),
+    setup_display_names: ("Gemini", "Gemini Account"),
+    auth_status_args: None,
+    auth_status_ready_substr: None,
+    logout_args: None,
+};
+
 /// All available agent configurations.
-pub const ALL_AGENTS: &[&AgentConfig] = &[&CLAUDE_CODE, &CODEX, &OPENCODE, &CURSOR];
+pub const ALL_AGENTS: &[&AgentConfig] = &[
+    &CLAUDE_CODE,
+    &CODEX,
+    &OPENCODE,
+    &CURSOR,
+    &COPILOT,
+    &PI,
+    &HERMES,
+    &ZCODE,
+    &DEVIN,
+    &GROK,
+    &KIMI_CODE,
+    &ANTIGRAVITY_CLI,
+    &JCODE,
+    &DEEPSEEK_HARNESS,
+    &DROID,
+    &AMP,
+    &QWEN,
+    &GEMINI,
+];
 
 /// In-memory cache for the default agent ID. `None` means unset (falls back to Claude Code).
 static DEFAULT_AGENT_ID: RwLock<Option<String>> = RwLock::new(None);
@@ -221,6 +615,20 @@ pub fn get_agent_by_id(id: &str) -> &'static AgentConfig {
         "codex" => &CODEX,
         "opencode" => &OPENCODE,
         "cursor" => &CURSOR,
+        "copilot" => &COPILOT,
+        "pi" => &PI,
+        "hermes" => &HERMES,
+        "zcode" => &ZCODE,
+        "devin" => &DEVIN,
+        "grok" => &GROK,
+        "kimi-code" => &KIMI_CODE,
+        "antigravity-cli" => &ANTIGRAVITY_CLI,
+        "jcode" => &JCODE,
+        "deepseek-harness" => &DEEPSEEK_HARNESS,
+        "droid" => &DROID,
+        "amp" => &AMP,
+        "qwen" => &QWEN,
+        "gemini" => &GEMINI,
         _ => &CLAUDE_CODE,
     }
 }
@@ -255,8 +663,8 @@ mod tests {
     }
 
     #[test]
-    fn all_agents_has_length_4() {
-        assert_eq!(ALL_AGENTS.len(), 4);
+    fn all_agents_has_length_18() {
+        assert_eq!(ALL_AGENTS.len(), 18);
     }
 
     #[test]
@@ -288,7 +696,25 @@ mod tests {
     fn file_based_agents_have_no_status_command() {
         // The keychain path must stay opt-in: the file-indicator agents must not
         // accidentally declare a status command (which would change detection).
-        for agent in [&CLAUDE_CODE, &CODEX, &OPENCODE] {
+        for agent in [
+            &CLAUDE_CODE,
+            &CODEX,
+            &OPENCODE,
+            &COPILOT,
+            &PI,
+            &HERMES,
+            &ZCODE,
+            &DEVIN,
+            &GROK,
+            &KIMI_CODE,
+            &ANTIGRAVITY_CLI,
+            &JCODE,
+            &DEEPSEEK_HARNESS,
+            &DROID,
+            &AMP,
+            &QWEN,
+            &GEMINI,
+        ] {
             assert!(
                 agent.auth_status_args.is_none(),
                 "{} should use file-based auth",
@@ -321,6 +747,105 @@ mod tests {
     #[test]
     fn codex_setup_item_ids() {
         assert_eq!(CODEX.setup_item_ids, ("codex", "codex_auth"));
+    }
+
+    #[test]
+    fn get_agent_by_id_pi() {
+        let agent = get_agent_by_id("pi");
+        assert_eq!(agent.id, "pi");
+        assert_eq!(agent.display_name, "Pi");
+    }
+
+    #[test]
+    fn get_agent_by_id_hermes() {
+        let agent = get_agent_by_id("hermes");
+        assert_eq!(agent.id, "hermes");
+        assert_eq!(agent.display_name, "Hermes");
+    }
+
+    #[test]
+    fn get_agent_by_id_zcode() {
+        let agent = get_agent_by_id("zcode");
+        assert_eq!(agent.id, "zcode");
+        assert_eq!(agent.display_name, "ZCode");
+    }
+
+    #[test]
+    fn get_agent_by_id_devin() {
+        let agent = get_agent_by_id("devin");
+        assert_eq!(agent.id, "devin");
+        assert_eq!(agent.display_name, "Devin");
+    }
+
+    #[test]
+    fn get_agent_by_id_grok() {
+        let agent = get_agent_by_id("grok");
+        assert_eq!(agent.id, "grok");
+        assert_eq!(agent.display_name, "Grok");
+    }
+
+    #[test]
+    fn get_agent_by_id_kimi_code() {
+        let agent = get_agent_by_id("kimi-code");
+        assert_eq!(agent.id, "kimi-code");
+        assert_eq!(agent.display_name, "Kimi Code");
+    }
+
+    #[test]
+    fn get_agent_by_id_antigravity_cli() {
+        let agent = get_agent_by_id("antigravity-cli");
+        assert_eq!(agent.id, "antigravity-cli");
+        assert_eq!(agent.display_name, "Antigravity");
+    }
+
+    #[test]
+    fn get_agent_by_id_jcode() {
+        let agent = get_agent_by_id("jcode");
+        assert_eq!(agent.id, "jcode");
+        assert_eq!(agent.display_name, "Jcode");
+    }
+
+    #[test]
+    fn get_agent_by_id_deepseek_harness() {
+        let agent = get_agent_by_id("deepseek-harness");
+        assert_eq!(agent.id, "deepseek-harness");
+        assert_eq!(agent.display_name, "DeepSeek Harness");
+    }
+
+    #[test]
+    fn get_agent_by_id_droid() {
+        let agent = get_agent_by_id("droid");
+        assert_eq!(agent.id, "droid");
+        assert_eq!(agent.display_name, "Droid");
+    }
+
+    #[test]
+    fn get_agent_by_id_amp() {
+        let agent = get_agent_by_id("amp");
+        assert_eq!(agent.id, "amp");
+        assert_eq!(agent.display_name, "Amp");
+    }
+
+    #[test]
+    fn get_agent_by_id_qwen() {
+        let agent = get_agent_by_id("qwen");
+        assert_eq!(agent.id, "qwen");
+        assert_eq!(agent.display_name, "Qwen");
+    }
+
+    #[test]
+    fn get_agent_by_id_gemini() {
+        let agent = get_agent_by_id("gemini");
+        assert_eq!(agent.id, "gemini");
+        assert_eq!(agent.display_name, "Gemini");
+    }
+
+    #[test]
+    fn get_agent_by_id_copilot() {
+        let agent = get_agent_by_id("copilot");
+        assert_eq!(agent.id, "copilot");
+        assert_eq!(agent.display_name, "GitHub Copilot");
+        assert_eq!(agent.binary_name, "copilot");
     }
 
     #[test]
