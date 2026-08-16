@@ -370,6 +370,11 @@ pub const MAX_ERROR_OUTPUT_CHARS: usize = 2048;
 /// useful part — CLIs print the actual error first, then detail/backtrace) and
 /// appending a truncation marker. Use this whenever raw stderr/stdout is
 /// embedded into a `CommandError`.
+///
+/// Head-only is right for git/gh-style CLIs. For transcript-style output where
+/// the actual error arrives at the END (e.g. `codex exec` dumping its whole
+/// session before failing), use [`truncate_output_head_tail`] instead — a
+/// head-only cap there is guaranteed to cut the useful line (issue #665).
 pub fn truncate_output(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.chars().count() <= MAX_ERROR_OUTPUT_CHARS {
@@ -377,6 +382,31 @@ pub fn truncate_output(text: &str) -> String {
     }
     let head: String = trimmed.chars().take(MAX_ERROR_OUTPUT_CHARS).collect();
     format!("{}… (truncated)", head.trim_end())
+}
+
+/// Like [`truncate_output`], but keeps both ends: the first and last
+/// [`MAX_ERROR_OUTPUT_CHARS`]/2 characters with an omission marker in between.
+/// For output where the useful line can live at either end — a banner up top,
+/// the actual error at the bottom of a session transcript (issue #665).
+///
+/// Operates on `char`s throughout (never byte offsets), so a cut can never
+/// land inside a multi-byte UTF-8 sequence and panic (the #673 class of bug).
+pub fn truncate_output_head_tail(text: &str) -> String {
+    let trimmed = text.trim();
+    let total = trimmed.chars().count();
+    if total <= MAX_ERROR_OUTPUT_CHARS {
+        return trimmed.to_string();
+    }
+    let head_len = MAX_ERROR_OUTPUT_CHARS / 2;
+    let tail_len = MAX_ERROR_OUTPUT_CHARS - head_len;
+    let head: String = trimmed.chars().take(head_len).collect();
+    let tail: String = trimmed.chars().skip(total - tail_len).collect();
+    let omitted = total - head_len - tail_len;
+    format!(
+        "{}\n… ({omitted} chars omitted) …\n{}",
+        head.trim_end(),
+        tail.trim_start()
+    )
 }
 
 #[cfg(test)]
@@ -798,6 +828,50 @@ mod tests {
             &capped[capped.len().saturating_sub(40)..]
         );
         assert!(capped.chars().count() <= MAX_ERROR_OUTPUT_CHARS + "… (truncated)".len());
+    }
+
+    #[test]
+    fn truncate_output_head_tail_passes_short_text_through_trimmed() {
+        assert_eq!(truncate_output_head_tail("  short error  \n"), "short error");
+        assert_eq!(truncate_output_head_tail(""), "");
+    }
+
+    // The #665 shape: `codex exec` fails with a full session transcript on
+    // stderr — banner first, actual error LAST. Head-only capping guaranteed
+    // the useful line was cut; head+tail must preserve both ends.
+    #[test]
+    fn truncate_output_head_tail_keeps_both_ends() {
+        let long = format!(
+            "OpenAI Codex v0.0.0 (banner)\n{}\nERROR: stream disconnected before completion",
+            "transcript filler line\n".repeat(1_000)
+        );
+        let capped = truncate_output_head_tail(&long);
+        assert!(capped.starts_with("OpenAI Codex v0.0.0 (banner)"), "head lost");
+        assert!(
+            capped.ends_with("ERROR: stream disconnected before completion"),
+            "tail (the actual error) lost — got tail: {}",
+            &capped[capped.len().saturating_sub(60)..]
+        );
+        assert!(capped.contains("chars omitted"), "got: no omission marker");
+        // Head + tail + marker, never materially more than the cap.
+        assert!(capped.chars().count() <= MAX_ERROR_OUTPUT_CHARS + 40);
+    }
+
+    // A cut landing mid multi-byte sequence must never panic (the #673 class
+    // of bug in this codebase) — char-based slicing throughout.
+    #[test]
+    fn truncate_output_head_tail_survives_multibyte_boundaries() {
+        // 2-byte chars: every byte offset that isn't even is a non-boundary.
+        let two_byte = "é".repeat(MAX_ERROR_OUTPUT_CHARS + 501);
+        let capped = truncate_output_head_tail(&two_byte);
+        assert!(capped.contains("(501 chars omitted)"), "got: {capped}");
+        assert!(capped.starts_with('é') && capped.ends_with('é'));
+
+        // 4-byte emoji straddling both cut points.
+        let emoji = "🎉".repeat(MAX_ERROR_OUTPUT_CHARS + 10);
+        let capped = truncate_output_head_tail(&emoji);
+        assert!(capped.contains("(10 chars omitted)"), "got marker: {capped}");
+        assert!(capped.starts_with('🎉') && capped.ends_with('🎉'));
     }
 
     #[tokio::test]
