@@ -23,7 +23,7 @@ import {
   renameProject,
   exportProjectAsTemplate,
 } from '../../lib/project';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { trackEvent, trackError } from '../../lib/analytics';
 import {
@@ -222,10 +222,23 @@ export function ProjectList({
             try {
               thumbnailData = await getProjectThumbnail(project.path);
             } catch (e) {
-              logger.error('Failed to load thumbnail', {
-                error: e instanceof Error ? e.message : String(e),
-                projectName: project.name,
-              });
+              // `get_project_thumbnail` rejects with a plain CommandError
+              // object (not an Error instance) — String() renders it as
+              // "[object Object]" (issue #685). A gone project folder is a
+              // by-design Expected state (canonicalize_tagged), not a bug:
+              // warn locally instead of auto-filing a report.
+              const message = formatCommandError(asCommandError(e));
+              if (isProjectFolderGoneError(e)) {
+                logger.warn('Thumbnail unavailable — project folder no longer exists', {
+                  error: message,
+                  projectName: project.name,
+                });
+              } else {
+                logger.error('Failed to load thumbnail', {
+                  error: message,
+                  projectName: project.name,
+                });
+              }
             }
           }
           return { ...project, thumbnailData };
@@ -239,7 +252,7 @@ export function ProjectList({
       }
     } catch (error) {
       logger.error('Failed to load projects', {
-        error: error instanceof Error ? error.message : String(error),
+        error: formatCommandError(asCommandError(error)),
       });
     }
   };

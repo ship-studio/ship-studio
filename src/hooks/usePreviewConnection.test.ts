@@ -471,4 +471,47 @@ describe('usePreviewConnection page-list load failures (issue #541)', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
   });
+
+  it('warn-logs (not error-logs) the by-design gone-folder rejection (issue #698)', async () => {
+    // The backend's canonicalize_tagged classifies a moved/renamed/deleted
+    // project folder as Expected — but Expected serializes as Other over IPC,
+    // so the hook must recognize the message shape. loadPages runs on a 5s
+    // poll: at error level this auto-filed a bug report every tick.
+    const goneMessage =
+      "The folder '/path/to/project' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio";
+    const { invoke } = await import('@tauri-apps/api/core');
+    vi.mocked(invoke).mockImplementation((cmd: string) => {
+      if (cmd === 'start_preview_proxy') return Promise.resolve(8080);
+      if (cmd === 'list_pages')
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- deliberately a plain CommandError object, the shape under test
+        return Promise.reject({ type: 'Other', message: goneMessage });
+      return Promise.resolve(undefined);
+    });
+    const server = installSlowServerFetch();
+    const { unmount } = renderHook(() => usePreviewConnection(baseParams));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    await act(async () => {
+      server.finishCompile();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the mock's calls, not invoking it bound
+    const warnCalls = vi.mocked(logger.warn).mock.calls;
+    const warned = warnCalls.find(([msg]) => msg.includes('Failed to load pages'));
+    expect(warned).toBeDefined();
+    expect(warned?.[1]).toEqual({ error: goneMessage });
+    // The whole point: nothing reaches the auto-bug-report channel.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the mock's calls, not invoking it bound
+    const errorCalls = vi.mocked(logger.error).mock.calls;
+    expect(errorCalls.find(([msg]) => msg.includes('Failed to load pages'))).toBeUndefined();
+
+    await act(async () => {
+      unmount();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
 });

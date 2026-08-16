@@ -16,7 +16,7 @@ import {
   IFRAME_BLANK_TIMEOUT_MS,
 } from './previewIframeWatchdog';
 import { logger } from '../lib/logger';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
 import { getWindowLabel } from '../lib/window';
 import { trackEvent } from '../lib/analytics';
 
@@ -220,9 +220,19 @@ export function usePreviewConnection({
     } catch (error) {
       // `list_pages` rejects with a plain CommandError object (not an Error
       // instance) — String() renders it as "[object Object]" (issue #541).
-      logger.error('Failed to load pages', {
-        error: formatCommandError(asCommandError(error)),
-      });
+      const message = formatCommandError(asCommandError(error));
+      if (isProjectFolderGoneError(error)) {
+        // The project's folder is gone (moved/renamed/deleted outside Ship
+        // Studio) — a by-design Expected state the backend deliberately keeps
+        // out of telemetry (canonicalize_tagged in src-tauri/src/utils.rs).
+        // This runs on a 5s poll, so logging it at error level auto-filed a
+        // bug report every tick (issue #698).
+        logger.warn('Failed to load pages — project folder no longer exists', {
+          error: message,
+        });
+      } else {
+        logger.error('Failed to load pages', { error: message });
+      }
     }
   }, [projectPath]);
 

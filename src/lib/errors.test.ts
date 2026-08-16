@@ -191,6 +191,46 @@ describe('friendlyProcessError', () => {
     ).toBe(true);
   });
 
+  it('maps corrupted pnpm store ENOENT failures to `pnpm store prune` guidance (issue #681)', () => {
+    // Exact shape from issue #681: dangling links in the content-addressable
+    // store make installs die with an ENOENT inside pnpm/store.
+    const raw =
+      "Process exited with code 1\n\n[ERROR] ENOENT: no such file or directory, open '~/Library/pnpm/store/v11/links/@pnpm/some-pkg'";
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('pnpm store prune');
+    expect(info.message).not.toContain('ENOENT');
+    // Windows store paths use backslashes.
+    expect(
+      describeProcessError(
+        "ENOENT: no such file or directory, open 'C:\\Users\\me\\AppData\\Local\\pnpm\\store\\v11\\links\\esbuild'"
+      ).expected
+    ).toBe(true);
+    // An ENOENT outside the pnpm store is NOT the corrupted-cache state.
+    expect(
+      describeProcessError("ENOENT: no such file or directory, open '/tmp/whatever.json'").expected
+    ).toBe(false);
+  });
+
+  it('maps Windows path-length checkout failures to core.longpaths guidance (issue #701)', () => {
+    // git downloads the repo fine, then fails writing long paths on Windows.
+    const raw =
+      "Process exited with code 1\n\nCloning into 'deep-repo'...\nerror: unable to create file src/some/extremely/deeply/nested/component/file.tsx: Filename too long\nfatal: unable to checkout working tree\nwarning: Clone succeeded, but checkout failed.\nYou can inspect what was checked out with 'git status'";
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('git config --global core.longpaths true');
+    expect(info.message).toMatch(/LongPathsEnabled/);
+    expect(info.message).not.toContain('Cloning into');
+    // Each phrase alone classifies too — output can be truncated.
+    expect(describeProcessError('error: unable to create file x: Filename too long').expected).toBe(
+      true
+    );
+    expect(describeProcessError('fatal: unable to checkout working tree').expected).toBe(true);
+    expect(describeProcessError('warning: Clone succeeded, but checkout failed.').expected).toBe(
+      true
+    );
+  });
+
   it('classifies recognized shapes as expected and unknown ones as not', () => {
     expect(describeProcessError('sh: pnpm: command not found').expected).toBe(true);
     expect(describeProcessError('Process exited with code 128').expected).toBe(true);
