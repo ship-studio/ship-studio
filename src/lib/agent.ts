@@ -124,7 +124,8 @@ export const COPILOT: AgentConfig = {
   supportsStatusDetection: false,
   loadingMessage: 'Starting GitHub Copilot...',
   notFoundMessage: 'Error starting GitHub Copilot',
-  installHint: 'Make sure Copilot CLI is installed: npm install -g @github/copilot',
+  installHint:
+    'Make sure Copilot CLI is installed: curl -fsSL https://gh.io/copilot-install | bash',
 };
 
 /** Pi agent configuration. */
@@ -140,7 +141,7 @@ export const PI: AgentConfig = {
   supportsStatusDetection: false,
   loadingMessage: 'Starting Pi...',
   notFoundMessage: 'Error starting Pi',
-  installHint: 'Make sure Pi is installed: npm install -g @earendil-works/pi-coding-agent',
+  installHint: 'Make sure Pi is installed: curl -fsSL https://pi.dev/install.sh | sh',
 };
 
 /** Hermes Agent configuration. */
@@ -158,22 +159,6 @@ export const HERMES: AgentConfig = {
   notFoundMessage: 'Error starting Hermes',
   installHint:
     'Make sure Hermes is installed: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash',
-};
-
-/** ZCode agent configuration. */
-export const ZCODE: AgentConfig = {
-  id: 'zcode',
-  displayName: 'ZCode',
-  binaryName: 'zcode',
-  processName: 'zcode',
-  autoAcceptFlag: null,
-  additionalDirFlag: null,
-  supportsSkills: false,
-  supportsMcp: false,
-  supportsStatusDetection: false,
-  loadingMessage: 'Starting ZCode...',
-  notFoundMessage: 'Error starting ZCode',
-  installHint: 'Make sure ZCode is installed: npm install -g zcode-app-cli@latest',
 };
 
 /** Devin CLI agent configuration. */
@@ -206,7 +191,7 @@ export const GROK: AgentConfig = {
   supportsStatusDetection: false,
   loadingMessage: 'Starting Grok...',
   notFoundMessage: 'Error starting Grok',
-  installHint: 'Make sure Grok CLI is installed: npm install -g @xai-official/grok',
+  installHint: 'Make sure Grok CLI is installed: curl -fsSL https://x.ai/cli/install.sh | bash',
 };
 
 /** Kimi Code agent configuration. */
@@ -259,22 +244,6 @@ export const JCODE: AgentConfig = {
   installHint: 'Make sure Jcode is installed: curl -fsSL https://jcode.sh/install | bash',
 };
 
-/** DeepSeek Harness agent configuration. */
-export const DEEPSEEK_HARNESS: AgentConfig = {
-  id: 'deepseek-harness',
-  displayName: 'DeepSeek Harness',
-  binaryName: 'dsh',
-  processName: 'dsh',
-  autoAcceptFlag: null,
-  additionalDirFlag: null,
-  supportsSkills: false,
-  supportsMcp: false,
-  supportsStatusDetection: false,
-  loadingMessage: 'Starting DeepSeek Harness...',
-  notFoundMessage: 'Error starting DeepSeek Harness',
-  installHint: 'Make sure DeepSeek Harness is installed: npm install -g @deepseek-ai/dsh',
-};
-
 /** Droid (Factory) agent configuration. */
 export const DROID: AgentConfig = {
   id: 'droid',
@@ -320,23 +289,8 @@ export const QWEN: AgentConfig = {
   supportsStatusDetection: false,
   loadingMessage: 'Starting Qwen...',
   notFoundMessage: 'Error starting Qwen',
-  installHint: 'Make sure Qwen is installed: npm install -g @qwen-code/qwen-code@latest',
-};
-
-/** Gemini CLI agent configuration. */
-export const GEMINI: AgentConfig = {
-  id: 'gemini',
-  displayName: 'Gemini',
-  binaryName: 'gemini',
-  processName: 'gemini',
-  autoAcceptFlag: null,
-  additionalDirFlag: null,
-  supportsSkills: false,
-  supportsMcp: false,
-  supportsStatusDetection: false,
-  loadingMessage: 'Starting Gemini...',
-  notFoundMessage: 'Error starting Gemini',
-  installHint: 'Make sure Gemini CLI is installed: npm install -g @google/gemini-cli',
+  installHint:
+    'Make sure Qwen is installed: curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash',
 };
 
 /** Raw terminal (shell) configuration — not an AI agent. */
@@ -364,17 +318,14 @@ export const ALL_AGENTS: AgentConfig[] = [
   COPILOT,
   PI,
   HERMES,
-  ZCODE,
   DEVIN,
   GROK,
   KIMI_CODE,
   ANTIGRAVITY_CLI,
   JCODE,
-  DEEPSEEK_HARNESS,
   DROID,
   AMP,
   QWEN,
-  GEMINI,
 ];
 
 /** All options available in the tab dropdown (agents + terminal). */
@@ -386,17 +337,14 @@ export const ALL_TAB_OPTIONS: AgentConfig[] = [
   COPILOT,
   PI,
   HERMES,
-  ZCODE,
   DEVIN,
   GROK,
   KIMI_CODE,
   ANTIGRAVITY_CLI,
   JCODE,
-  DEEPSEEK_HARNESS,
   DROID,
   AMP,
   QWEN,
-  GEMINI,
   TERMINAL,
 ];
 

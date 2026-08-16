@@ -99,8 +99,8 @@ describe('getActiveAgent', () => {
 // ============ ALL_AGENTS / ALL_TAB_OPTIONS ============
 
 describe('ALL_AGENTS', () => {
-  it('has exactly 18 entries', () => {
-    expect(ALL_AGENTS).toHaveLength(18);
+  it('has exactly 15 entries', () => {
+    expect(ALL_AGENTS).toHaveLength(15);
   });
 
   it('contains all expected agents', () => {
@@ -112,24 +112,21 @@ describe('ALL_AGENTS', () => {
       'copilot',
       'pi',
       'hermes',
-      'zcode',
       'devin',
       'grok',
       'kimi-code',
       'antigravity-cli',
       'jcode',
-      'deepseek-harness',
       'droid',
       'amp',
       'qwen',
-      'gemini',
     ]);
   });
 });
 
 describe('ALL_TAB_OPTIONS', () => {
-  it('has exactly 19 entries (agents + terminal)', () => {
-    expect(ALL_TAB_OPTIONS).toHaveLength(19);
+  it('has exactly 16 entries (agents + terminal)', () => {
+    expect(ALL_TAB_OPTIONS).toHaveLength(16);
   });
 
   it('contains all expected agents plus TERMINAL', () => {
@@ -141,17 +138,14 @@ describe('ALL_TAB_OPTIONS', () => {
       'copilot',
       'pi',
       'hermes',
-      'zcode',
       'devin',
       'grok',
       'kimi-code',
       'antigravity-cli',
       'jcode',
-      'deepseek-harness',
       'droid',
       'amp',
       'qwen',
-      'gemini',
       'terminal',
     ]);
   });

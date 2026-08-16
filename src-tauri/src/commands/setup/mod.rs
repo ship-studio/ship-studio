@@ -83,8 +83,6 @@ const ALL_ITEMS: &[&str] = &[
     "pi_auth",
     "hermes",
     "hermes_auth",
-    "zcode",
-    "zcode_auth",
     "devin",
     "devin_auth",
     "grok",
@@ -95,16 +93,12 @@ const ALL_ITEMS: &[&str] = &[
     "antigravity-cli_auth",
     "jcode",
     "jcode_auth",
-    "deepseek-harness",
-    "deepseek-harness_auth",
     "droid",
     "droid_auth",
     "amp",
     "amp_auth",
     "qwen",
     "qwen_auth",
-    "gemini",
-    "gemini_auth",
     "vercel",
     "vercel_auth",
 ];
@@ -122,17 +116,14 @@ const TOOL_ITEMS: &[&str] = &[
     "copilot",
     "pi",
     "hermes",
-    "zcode",
     "devin",
     "grok",
     "kimi-code",
     "antigravity-cli",
     "jcode",
-    "deepseek-harness",
     "droid",
     "amp",
     "qwen",
-    "gemini",
     "vercel",
 ];
 
@@ -268,8 +259,6 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
                     && item != "pi_auth"
                     && item != "hermes"
                     && item != "hermes_auth"
-                    && item != "zcode"
-                    && item != "zcode_auth"
                     && item != "devin"
                     && item != "devin_auth"
                     && item != "grok"
@@ -280,16 +269,12 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
                     && item != "antigravity-cli_auth"
                     && item != "jcode"
                     && item != "jcode_auth"
-                    && item != "deepseek-harness"
-                    && item != "deepseek-harness_auth"
                     && item != "droid"
                     && item != "droid_auth"
                     && item != "amp"
                     && item != "amp_auth"
                     && item != "qwen"
                     && item != "qwen_auth"
-                    && item != "gemini"
-                    && item != "gemini_auth"
             })
             .copied()
             .collect(),
@@ -310,8 +295,6 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
                     && item != "pi_auth"
                     && item != "hermes"
                     && item != "hermes_auth"
-                    && item != "zcode"
-                    && item != "zcode_auth"
                     && item != "devin"
                     && item != "devin_auth"
                     && item != "grok"
@@ -322,16 +305,12 @@ fn get_scenario_items(scenario: &str) -> Vec<&'static str> {
                     && item != "antigravity-cli_auth"
                     && item != "jcode"
                     && item != "jcode_auth"
-                    && item != "deepseek-harness"
-                    && item != "deepseek-harness_auth"
                     && item != "droid"
                     && item != "droid_auth"
                     && item != "amp"
                     && item != "amp_auth"
                     && item != "qwen"
                     && item != "qwen_auth"
-                    && item != "gemini"
-                    && item != "gemini_auth"
             })
             .copied()
             .collect(),
@@ -540,8 +519,8 @@ mod tests {
     }
 
     #[test]
-    fn all_items_contains_43_items_including_all_agents_and_vercel() {
-        assert_eq!(ALL_ITEMS.len(), 43);
+    fn all_items_contains_37_items_including_all_agents_and_vercel() {
+        assert_eq!(ALL_ITEMS.len(), 37);
         assert!(ALL_ITEMS.contains(&"copilot"));
         assert!(ALL_ITEMS.contains(&"copilot_auth"));
         assert!(ALL_ITEMS.contains(&"codex"));
@@ -554,8 +533,6 @@ mod tests {
         assert!(ALL_ITEMS.contains(&"pi_auth"));
         assert!(ALL_ITEMS.contains(&"hermes"));
         assert!(ALL_ITEMS.contains(&"hermes_auth"));
-        assert!(ALL_ITEMS.contains(&"zcode"));
-        assert!(ALL_ITEMS.contains(&"zcode_auth"));
         assert!(ALL_ITEMS.contains(&"devin"));
         assert!(ALL_ITEMS.contains(&"devin_auth"));
         assert!(ALL_ITEMS.contains(&"grok"));
@@ -566,23 +543,19 @@ mod tests {
         assert!(ALL_ITEMS.contains(&"antigravity-cli_auth"));
         assert!(ALL_ITEMS.contains(&"jcode"));
         assert!(ALL_ITEMS.contains(&"jcode_auth"));
-        assert!(ALL_ITEMS.contains(&"deepseek-harness"));
-        assert!(ALL_ITEMS.contains(&"deepseek-harness_auth"));
         assert!(ALL_ITEMS.contains(&"droid"));
         assert!(ALL_ITEMS.contains(&"droid_auth"));
         assert!(ALL_ITEMS.contains(&"amp"));
         assert!(ALL_ITEMS.contains(&"amp_auth"));
         assert!(ALL_ITEMS.contains(&"qwen"));
         assert!(ALL_ITEMS.contains(&"qwen_auth"));
-        assert!(ALL_ITEMS.contains(&"gemini"));
-        assert!(ALL_ITEMS.contains(&"gemini_auth"));
         assert!(ALL_ITEMS.contains(&"vercel"));
         assert!(ALL_ITEMS.contains(&"vercel_auth"));
     }
 
     #[test]
-    fn tool_items_contains_23_items_including_all_agents_and_vercel() {
-        assert_eq!(TOOL_ITEMS.len(), 23);
+    fn tool_items_contains_20_items_including_all_agents_and_vercel() {
+        assert_eq!(TOOL_ITEMS.len(), 20);
         assert!(TOOL_ITEMS.contains(&"copilot"));
         assert!(TOOL_ITEMS.contains(&"codex"));
         assert!(TOOL_ITEMS.contains(&"claude"));
@@ -590,17 +563,14 @@ mod tests {
         assert!(TOOL_ITEMS.contains(&"cursor"));
         assert!(TOOL_ITEMS.contains(&"pi"));
         assert!(TOOL_ITEMS.contains(&"hermes"));
-        assert!(TOOL_ITEMS.contains(&"zcode"));
         assert!(TOOL_ITEMS.contains(&"devin"));
         assert!(TOOL_ITEMS.contains(&"grok"));
         assert!(TOOL_ITEMS.contains(&"kimi-code"));
         assert!(TOOL_ITEMS.contains(&"antigravity-cli"));
         assert!(TOOL_ITEMS.contains(&"jcode"));
-        assert!(TOOL_ITEMS.contains(&"deepseek-harness"));
         assert!(TOOL_ITEMS.contains(&"droid"));
         assert!(TOOL_ITEMS.contains(&"amp"));
         assert!(TOOL_ITEMS.contains(&"qwen"));
-        assert!(TOOL_ITEMS.contains(&"gemini"));
         assert!(TOOL_ITEMS.contains(&"vercel"));
     }
 
