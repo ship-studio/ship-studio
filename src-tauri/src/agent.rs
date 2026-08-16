@@ -343,7 +343,7 @@ pub const GROK: AgentConfig = AgentConfig {
     skills_dir_name: None,
     install_command_unix: Some("curl -fsSL https://x.ai/cli/install.sh | bash"),
     install_message_windows: Some("npm install -g @xai-official/grok"),
-    uninstall_command_unix: Some("rm -rf \"$HOME/.grok\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_unix: Some("rm -rf \"$HOME/.grok\" && echo \"Uninstalled.\""),
     uninstall_command_windows: Some("npm uninstall -g @xai-official/grok"),
     setup_item_ids: ("grok", "grok_auth"),
     setup_display_names: ("Grok", "Grok Account"),
