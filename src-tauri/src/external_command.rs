@@ -832,7 +832,10 @@ mod tests {
 
     #[test]
     fn truncate_output_head_tail_passes_short_text_through_trimmed() {
-        assert_eq!(truncate_output_head_tail("  short error  \n"), "short error");
+        assert_eq!(
+            truncate_output_head_tail("  short error  \n"),
+            "short error"
+        );
         assert_eq!(truncate_output_head_tail(""), "");
     }
 
@@ -846,7 +849,10 @@ mod tests {
             "transcript filler line\n".repeat(1_000)
         );
         let capped = truncate_output_head_tail(&long);
-        assert!(capped.starts_with("OpenAI Codex v0.0.0 (banner)"), "head lost");
+        assert!(
+            capped.starts_with("OpenAI Codex v0.0.0 (banner)"),
+            "head lost"
+        );
         assert!(
             capped.ends_with("ERROR: stream disconnected before completion"),
             "tail (the actual error) lost — got tail: {}",
@@ -870,7 +876,10 @@ mod tests {
         // 4-byte emoji straddling both cut points.
         let emoji = "🎉".repeat(MAX_ERROR_OUTPUT_CHARS + 10);
         let capped = truncate_output_head_tail(&emoji);
-        assert!(capped.contains("(10 chars omitted)"), "got marker: {capped}");
+        assert!(
+            capped.contains("(10 chars omitted)"),
+            "got marker: {capped}"
+        );
         assert!(capped.starts_with('🎉') && capped.ends_with('🎉'));
     }
 

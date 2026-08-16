@@ -162,7 +162,8 @@ fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandE
              The limit resets automatically — try again later. ({detail})"
         )));
     }
-    if lower.contains("failed to load models cache") || lower.contains("codex_models_manager::cache")
+    if lower.contains("failed to load models cache")
+        || lower.contains("codex_models_manager::cache")
     {
         return Some(CommandError::expected(format!(
             "{agent_name}'s local model cache is stale, so AI generation isn't available \
