@@ -482,8 +482,50 @@ where
     unreachable!("loop returns on the final attempt")
 }
 
+/// Ceiling for a single static-asset read. `tokio::fs::read` pre-allocates
+/// the whole buffer from the metadata length, so a bogus length — a cloud
+/// placeholder (Dropbox/iCloud dataless file) or a corrupt directory entry —
+/// makes the allocation itself fail with `ErrorKind::OutOfMemory` (issue
+/// #697). No sane static preview asset approaches this; refuse up front with
+/// a clear message instead of attempting the allocation.
+const MAX_STATIC_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+/// True when a reported file length is beyond what the static server will
+/// buffer into memory (see [`MAX_STATIC_FILE_BYTES`]).
+fn exceeds_static_read_cap(len: u64) -> bool {
+    len > MAX_STATIC_FILE_BYTES
+}
+
+/// Allocation failure while buffering the file. With no OS error attached
+/// this is the pre-allocation from a bogus metadata length failing (issue
+/// #697) — a file-metadata/environment condition, not a server bug.
+fn is_allocation_failure(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::OutOfMemory
+}
+
 /// Read a file from disk and return it as an HTTP response with the correct MIME type.
 async fn serve_file(file_path: &Path) -> Result<Response<ServerBody>, hyper::Error> {
+    // Cap reads before allocating: a metadata length beyond the ceiling is
+    // almost certainly bogus (cloud placeholder / corrupt entry) and would
+    // otherwise fail as OutOfMemory inside tokio::fs::read (issue #697).
+    // Metadata errors fall through — the read below reports them properly.
+    if let Ok(meta) = tokio::fs::metadata(file_path).await {
+        if exceeds_static_read_cap(meta.len()) {
+            tracing::warn!(
+                "[StaticServer] Refusing to serve {}: reported size {} bytes exceeds the {} MB static-asset ceiling (likely a cloud placeholder or corrupt metadata)",
+                file_path.display(),
+                meta.len(),
+                MAX_STATIC_FILE_BYTES / (1024 * 1024)
+            );
+            let body = "<html><body><h1>413 - File Too Large</h1><p>This file reports a size beyond what the static preview will serve. If it lives in cloud storage (Dropbox/iCloud), make sure it is fully downloaded locally.</p></body></html>";
+            return Ok(Response::builder()
+                .status(StatusCode::PAYLOAD_TOO_LARGE)
+                .header("Content-Type", "text/html; charset=utf-8")
+                .body(full_body(Bytes::from(body)))
+                .unwrap());
+        }
+    }
+
     match with_fd_pressure_retry(|| tokio::fs::read(file_path)).await {
         Ok(contents) => {
             let mime = file_path
@@ -509,6 +551,17 @@ async fn serve_file(file_path: &Path) -> Result<Response<ServerBody>, hyper::Err
             if is_fd_pressure(&e) {
                 tracing::warn!(
                     "[StaticServer] Failed to read file {} after fd-pressure retries (os error {:?}): {}",
+                    file_path.display(),
+                    e.raw_os_error(),
+                    e
+                );
+            } else if is_allocation_failure(&e) {
+                // A read that still hits OutOfMemory (racing metadata change,
+                // or genuine memory pressure) is a file-metadata/allocation
+                // condition of the environment, not an app bug — warn, don't
+                // auto-file a report (issue #697).
+                tracing::warn!(
+                    "[StaticServer] Failed to allocate for file {} (os error {:?}): {} — likely bogus metadata length (cloud placeholder / corrupt entry) or memory pressure",
                     file_path.display(),
                     e.raw_os_error(),
                     e
@@ -616,6 +669,46 @@ mod tests {
         .await;
         assert!(result.is_err());
         assert_eq!(calls.get(), 1);
+    }
+
+    // ===== #697: size cap + OutOfMemory classification =====
+
+    #[test]
+    fn static_read_cap_refuses_bogus_lengths_and_passes_real_assets() {
+        // Real static assets — even huge videos — sit under the ceiling.
+        assert!(!exceeds_static_read_cap(0));
+        assert!(!exceeds_static_read_cap(25 * 1024 * 1024));
+        assert!(!exceeds_static_read_cap(MAX_STATIC_FILE_BYTES));
+        // A cloud-placeholder / corrupt metadata length gets refused before
+        // tokio::fs::read pre-allocates from it.
+        assert!(exceeds_static_read_cap(MAX_STATIC_FILE_BYTES + 1));
+        assert!(exceeds_static_read_cap(u64::MAX));
+    }
+
+    #[test]
+    fn allocation_failure_is_classified_environmental() {
+        // The #697 shape: ErrorKind::OutOfMemory with no OS error attached —
+        // the pre-allocation from a bogus metadata length failing.
+        assert!(is_allocation_failure(&std::io::Error::from(
+            std::io::ErrorKind::OutOfMemory
+        )));
+        // Ordinary read failures keep the error-level path.
+        assert!(!is_allocation_failure(&std::io::Error::from(
+            std::io::ErrorKind::NotFound
+        )));
+        assert!(!is_allocation_failure(&std::io::Error::other(
+            "Too many open files (os error 24)"
+        )));
+    }
+
+    #[tokio::test]
+    async fn serve_file_still_serves_ordinary_files() {
+        // The new metadata pre-check must not break the normal path.
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("index.html");
+        fs::write(&path, "<html>ok</html>").unwrap();
+        let resp = serve_file(&path).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 
     #[test]

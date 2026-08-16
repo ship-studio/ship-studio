@@ -304,9 +304,30 @@ pub fn report_error(message: &str, stack: Option<&str>, source: &str, fingerprin
     });
 }
 
+/// Cap on how much captured backtrace ships with a panic report. Backtraces
+/// from release builds are mostly hex frames plus a handful of symbolized
+/// ones — the useful part is at the top, and reports can end up in public
+/// GitHub issues, so keep the payload bounded.
+const PANIC_BACKTRACE_MAX_CHARS: usize = 4000;
+
+/// The panic report's `stack` field: the panic location (always first — it's
+/// the one guaranteed-symbolized frame) followed by the captured backtrace,
+/// truncated to [`PANIC_BACKTRACE_MAX_CHARS`]. Everything here passes through
+/// `scrub_string` in [`build_body`] before leaving the machine.
+fn panic_stack(location: Option<&str>, backtrace: &str) -> String {
+    let mut truncated: String = backtrace.chars().take(PANIC_BACKTRACE_MAX_CHARS).collect();
+    if truncated.len() < backtrace.len() {
+        truncated.push_str("\n… [backtrace truncated]");
+    }
+    match location {
+        Some(l) => format!("{l}\n{truncated}"),
+        None => truncated,
+    }
+}
+
 /// Panic-path variant: sends synchronously (bounded by [`SEND_TIMEOUT`])
 /// because the process may be about to die and a spawned task would be lost.
-fn report_panic(message: &str, location: Option<&str>) {
+fn report_panic(message: &str, location: Option<&str>, backtrace: &str) {
     if !enabled() {
         return;
     }
@@ -315,9 +336,10 @@ fn report_panic(message: &str, location: Option<&str>) {
     if !allow_report_with_gap(&dedupe_key(message, "panic", fingerprint.as_deref()), false) {
         return;
     }
+    let stack = panic_stack(location, backtrace);
     let body = build_body(
         &format!("panic: {message}"),
-        location,
+        Some(&stack),
         "panic",
         fingerprint.as_deref(),
     );
@@ -349,7 +371,13 @@ pub fn install_panic_hook() {
         let location = info
             .location()
             .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
-        report_panic(&message, location.as_deref());
+        // Capture a real stack, not just the panic's file:line — panics that
+        // abort the process (e.g. unwinding across an FFI/dispatch boundary,
+        // issue #684) otherwise leave no trace of how they were reached.
+        // `force_capture` ignores RUST_BACKTRACE, so user machines don't need
+        // any env setup for the frames to exist.
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        report_panic(&message, location.as_deref(), &backtrace);
         prev(info);
     }));
 }
@@ -700,6 +728,46 @@ mod tests {
             1_000_000,
             "2026-07-28"
         ));
+    }
+
+    // Issue #684: panic reports must carry a real stack (not just file:line),
+    // bounded, and scrubbed like every other payload field.
+
+    #[test]
+    fn panic_stack_leads_with_location_and_keeps_short_backtraces_whole() {
+        let stack = panic_stack(Some("src/foo.rs:10:5"), "0: frame_a\n1: frame_b");
+        assert!(stack.starts_with("src/foo.rs:10:5\n"));
+        assert!(stack.contains("frame_b"));
+        assert!(!stack.contains("[backtrace truncated]"));
+        // No location (panic without one) still yields the backtrace alone.
+        assert_eq!(panic_stack(None, "0: frame_a"), "0: frame_a");
+    }
+
+    #[test]
+    fn panic_stack_truncates_oversized_backtraces_at_the_cap() {
+        let huge = "x".repeat(PANIC_BACKTRACE_MAX_CHARS * 3);
+        let stack = panic_stack(Some("src/foo.rs:1:1"), &huge);
+        assert!(stack.contains("[backtrace truncated]"));
+        // location + newline + cap + truncation marker, nothing more.
+        assert!(
+            stack.len() < PANIC_BACKTRACE_MAX_CHARS + 100,
+            "stack len {} exceeds cap headroom",
+            stack.len()
+        );
+    }
+
+    #[test]
+    fn panic_stack_is_scrubbed_by_build_body_before_sending() {
+        // The backtrace goes out through build_body's stack field — home-dir
+        // paths (usernames) must not survive the scrub.
+        let stack = panic_stack(
+            Some("/Users/julian/ShipStudio/app/src-tauri/src/main.rs:5:9"),
+            "0: ship_studio::thing\n   at /Users/julian/ShipStudio/app/src-tauri/src/thing.rs:42",
+        );
+        let body = build_body("panic: boom", Some(&stack), "panic", None);
+        let text = body.to_string();
+        assert!(!text.contains("julian"), "username leaked: {text}");
+        assert!(text.contains("/Users/<redacted>"), "{text}");
     }
 
     #[test]

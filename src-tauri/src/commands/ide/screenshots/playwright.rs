@@ -82,14 +82,25 @@ fn is_broken_loader_error(stderr: &str) -> bool {
 }
 
 /// Map a failed capture-script run to a `CommandError`. A connection refused
-/// that survived the in-script retry means the dev server went away mid-flight
-/// (crashed, restarted on another port) — an expected state exactly like the
-/// pre-capture readiness miss (#349), not an app malfunction (issue #514).
+/// or invalid-HTTP-response that survived the in-script retry means the dev
+/// server went away mid-flight (crashed, restarted on another port) — an
+/// expected state exactly like the pre-capture readiness miss (#349), not an
+/// app malfunction (issues #514/#703).
 fn capture_script_error(what: &str, url: &str, output: &std::process::Output) -> CommandError {
     let stderr = String::from_utf8_lossy(&output.stderr);
     if stderr.contains("ERR_CONNECTION_REFUSED") {
         return CommandError::expected(format!(
             "The dev server at {url} stopped responding while the screenshot was being captured. Wait for the preview to finish reloading, then try again."
+        ));
+    }
+    // A malformed/empty HTTP response mid-navigation is the same dev-server
+    // restart race as the refused connection above, caught one step later:
+    // the server accepted the socket but died mid-answer (issue #703). The
+    // script already retried it once — persisting means the server is still
+    // down, an expected state, not an app bug.
+    if stderr.contains("ERR_INVALID_HTTP_RESPONSE") {
+        return CommandError::expected(format!(
+            "The dev server at {url} stopped responding while loading the page — it was probably restarting mid-request. Wait for the preview to finish reloading, then try again."
         ));
     }
     // Node itself failing to start (dyld can't resolve a linked library) is a
@@ -383,8 +394,11 @@ const {{ chromium }} = require('playwright');
             // A refused connection here, right after the Rust-side TCP
             // readiness check passed, means the dev server died or is
             // restarting in the gap between check and capture (issue #514) —
-            // give it a short beat before the one retry.
-            if (msg.includes('ERR_CONNECTION_REFUSED')) {{
+            // give it a short beat before the one retry. A malformed/empty
+            // HTTP response is the same race caught one step later: the
+            // server accepted the socket but died mid-answer while
+            // restarting (issue #703) — same beat, same retry.
+            if (msg.includes('ERR_CONNECTION_REFUSED') || msg.includes('ERR_INVALID_HTTP_RESPONSE')) {{
                 await new Promise((resolve) => setTimeout(resolve, 2000));
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
@@ -599,8 +613,11 @@ const {{ chromium }} = require('playwright');
             // A refused connection here, right after the Rust-side TCP
             // readiness check passed, means the dev server died or is
             // restarting in the gap between check and capture (issue #514) —
-            // give it a short beat before the one retry.
-            if (msg.includes('ERR_CONNECTION_REFUSED')) {{
+            // give it a short beat before the one retry. A malformed/empty
+            // HTTP response is the same race caught one step later: the
+            // server accepted the socket but died mid-answer while
+            // restarting (issue #703) — same beat, same retry.
+            if (msg.includes('ERR_CONNECTION_REFUSED') || msg.includes('ERR_INVALID_HTTP_RESPONSE')) {{
                 await new Promise((resolve) => setTimeout(resolve, 2000));
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
@@ -740,6 +757,24 @@ mod capture_error_tests {
         match capture_script_error("Playwright screenshot", "http://localhost:3000", &output) {
             CommandError::Expected { message } => {
                 assert!(message.contains("stopped responding"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn invalid_http_response_after_retry_is_expected_not_telemetry() {
+        // Issue #703: the dev server accepting the socket but dying mid-answer
+        // (restart race) surfaces as ERR_INVALID_HTTP_RESPONSE — the same
+        // expected class as the refused-connection race (#514), and it must
+        // not dump raw stderr or auto-file a report.
+        let output = failed_output(
+            "page.goto: net::ERR_INVALID_HTTP_RESPONSE at http://localhost:3000/\nCall log:\n  - navigating to \"http://localhost:3000/\", waiting until \"load\"",
+        );
+        match capture_script_error("Playwright screenshot", "http://localhost:3000", &output) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("stopped responding"), "got: {message}");
+                assert!(message.contains("http://localhost:3000"), "got: {message}");
             }
             other => panic!("expected Expected, got {other:?}"),
         }
