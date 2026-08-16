@@ -6,9 +6,15 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockIPC } from '@tauri-apps/api/mocks';
-import { buildContext } from './PluginSlot';
+import { render } from '@testing-library/react';
+import { buildContext, PluginSlot } from './PluginSlot';
 import { unloadPluginModule } from '../../lib/plugin-loader';
-import type { PluginAppActions, PluginThemeData } from '../../contexts/PluginContext';
+import type {
+  PluginAppActions,
+  PluginContextValue,
+  PluginThemeData,
+} from '../../contexts/PluginContext';
+import type { LoadedPlugin } from '../../hooks/usePlugins';
 
 const theme: PluginThemeData = {
   bgPrimary: '',
@@ -175,5 +181,61 @@ describe('buildContext failure reporting', () => {
 
     await expect(ctx.storage.read()).resolves.toEqual({ key: 'value' });
     expect(showToast).not.toHaveBeenCalled();
+  });
+});
+
+describe('legacy plugin context global (#389/#465/#695)', () => {
+  function makeLegacyPlugin(id: string, name: string, seen: Record<string, string>) {
+    // Mimics a pre-React-context SDK bundle: reads the single window global
+    // during render instead of using PluginContext.
+    function LegacySlotComponent() {
+      const ctx = (window as unknown as Record<string, unknown>).__SHIPSTUDIO_PLUGIN_CONTEXT__ as
+        | PluginContextValue
+        | undefined;
+      seen[id] = ctx?.pluginId ?? '(missing)';
+      return null;
+    }
+    const plugin: LoadedPlugin = {
+      info: {
+        manifest: {
+          id,
+          name,
+          version: '1.0.0',
+          description: '',
+          slots: ['toolbar'],
+          author: '',
+          repository: '',
+          setup: [],
+          min_app_version: '0.0.0',
+          icon: '',
+          required_commands: [],
+        },
+        enabled: true,
+        installed_at: 0,
+        source_url: '',
+        is_dev: false,
+        local_path: '',
+      },
+      module: { name, slots: { toolbar: LegacySlotComponent } },
+    };
+    return plugin;
+  }
+
+  it('each legacy plugin sees its own context during render, not the last-mounted one', () => {
+    const seen: Record<string, string> = {};
+    const { actions } = makeActions();
+    render(
+      <PluginSlot
+        name="toolbar"
+        plugins={[
+          makeLegacyPlugin('vercel', 'Vercel', seen),
+          makeLegacyPlugin('webflow-cloud', 'Webflow Cloud', seen),
+        ]}
+        project={project}
+        actions={actions}
+        theme={theme}
+      />
+    );
+    expect(seen).toEqual({ vercel: 'vercel', 'webflow-cloud': 'webflow-cloud' });
   });
 });

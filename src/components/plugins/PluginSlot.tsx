@@ -285,12 +285,14 @@ export function buildContext(
  */
 function SafePluginWrapper({
   Component: PluginComponent,
+  ctx,
   pluginId,
   pluginName,
   compact,
   onCrash,
 }: {
   Component: ComponentType;
+  ctx: PluginContextValue;
   pluginId: string;
   pluginName: string;
   compact: boolean;
@@ -318,6 +320,17 @@ function SafePluginWrapper({
       <PluginErrorChip pluginName={pluginName} compact={compact} detail={crashError.message} />
     );
   }
+
+  // Legacy plugin bundles (built before the React-context SDK) read a single
+  // window global inside their hooks at render time. A parent's render body
+  // runs synchronously immediately before its children's in the same pass, so
+  // setting the global here means it holds THIS plugin's context while this
+  // plugin's components render — with several plugins mounted, setting it any
+  // earlier (e.g. while PluginSlot maps over plugins) leaves every legacy
+  // bundle reading the last plugin's context (issues #389/#465/#695). A
+  // legacy bundle that re-reads the global from an async callback after
+  // render can still race; only render-time reads are guaranteed.
+  exposePluginContext(ctx);
 
   return (
     <div ref={containerRef} style={{ display: 'contents' }}>
@@ -355,12 +368,17 @@ export function PluginSlot({ name, plugins, project, actions, theme }: PluginSlo
           plugin.info.manifest.required_commands || []
         );
 
-        // Expose context on window globals for raw-JS and legacy plugins.
+        // Expose context on the id-keyed window global for raw-JS plugins.
+        // The single-value legacy global is NOT set here: this map callback
+        // runs for every plugin before React renders any of them, so setting
+        // it here left it pointing at whichever plugin happened to be last —
+        // legacy bundles then executed with another plugin's identity
+        // ("Plugin 'vercel' tried to run 'webflow'", issues #389/#465/#695).
+        // SafePluginWrapper sets it during each plugin's own render instead.
         const pluginsMap = ((
           window as unknown as Record<string, unknown>
         ).__SHIPSTUDIO_PLUGINS__ ??= {}) as Record<string, PluginContextValue>;
         pluginsMap[pluginId] = ctx;
-        exposePluginContext(ctx);
 
         const handleCrash = () => {
           // Both boundaries (and the safety wrapper) can fire for the same
@@ -393,6 +411,7 @@ export function PluginSlot({ name, plugins, project, actions, theme }: PluginSlo
               >
                 <SafePluginWrapper
                   Component={SlotComponent}
+                  ctx={ctx}
                   pluginId={pluginId}
                   pluginName={pluginName}
                   compact={compact}
