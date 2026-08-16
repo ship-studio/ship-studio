@@ -4,8 +4,13 @@
 //! import wizard can ask the user which one they want to focus on. Detects:
 //! - `pnpm-workspace.yaml` (`packages:` list)
 //! - root `package.json#workspaces` (array or `{ packages: [...] }` form)
+//! - `nx.json` (integrated-style Nx repos without npm workspaces: apps live
+//!   under `workspaceLayout.appsDir`, default `apps/`)
 //!
-//! Returns subdirs that have a `package.json` with a `dev` or `start` script.
+//! Returns subdirs that are runnable: either their `package.json` has a
+//! `dev`/`start` script, or (Nx) their `project.json` declares a `serve`/`dev`
+//! target (issue #691) — in that case the reported dev script is a synthesized
+//! `nx <target> <project>` hint.
 
 use crate::errors::CommandError;
 use crate::utils::validate_project_path;
@@ -55,7 +60,8 @@ pub fn detect_workspaces_at(root: &Path) -> Vec<WorkspaceInfo> {
     workspaces
 }
 
-/// Read workspace globs from `pnpm-workspace.yaml` and root `package.json#workspaces`.
+/// Read workspace globs from `pnpm-workspace.yaml`, root
+/// `package.json#workspaces`, and — for Nx — `nx.json`.
 fn collect_workspace_globs(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
 
@@ -66,6 +72,31 @@ fn collect_workspace_globs(root: &Path) -> Vec<String> {
     if let Ok(contents) = std::fs::read_to_string(root.join("package.json")) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
             out.extend(parse_package_json_workspaces(&json));
+        }
+    }
+
+    // Integrated-style Nx repos declare no npm workspaces at all — apps live
+    // under nx.json's workspaceLayout.appsDir (default "apps"). Without this,
+    // such repos never even reach the runnable-workspace check (issue #691).
+    // Non-runnable dirs matched by these globs are still filtered out later.
+    if let Ok(contents) = std::fs::read_to_string(root.join("nx.json")) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
+            let layout = json.get("workspaceLayout");
+            let dir_glob = |key: &str, default: &str| {
+                let dir = layout
+                    .and_then(|l| l.get(key))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(default)
+                    .trim_matches('/')
+                    .to_string();
+                if dir.is_empty() {
+                    None
+                } else {
+                    Some(format!("{dir}/*"))
+                }
+            };
+            out.extend(dir_glob("appsDir", "apps"));
+            out.extend(dir_glob("libsDir", "libs"));
         }
     }
 
@@ -166,32 +197,118 @@ fn expand_pattern(root: &Path, pattern: &str) -> Vec<PathBuf> {
     }
 }
 
+/// The Nx run target a workspace can be served with, pulled from its
+/// `project.json`.
+struct NxRunTarget {
+    /// Target name (`serve` or `dev`) — becomes part of the `nx <target> <project>` hint.
+    name: &'static str,
+    /// Executor (modern `executor`, legacy `builder`) — used to guess web-ness.
+    executor: Option<String>,
+    /// `targets.<name>.options.port` when explicitly configured.
+    port: Option<u16>,
+}
+
+/// Find a runnable target in an Nx `project.json`: a `targets` (or legacy
+/// `architect`) object containing a `serve` or `dev` entry, in that priority.
+fn nx_serve_target(project_json: &serde_json::Value) -> Option<NxRunTarget> {
+    let targets = project_json
+        .get("targets")
+        .or_else(|| project_json.get("architect"))?
+        .as_object()?;
+    for name in ["serve", "dev"] {
+        if let Some(target) = targets.get(name) {
+            let executor = target
+                .get("executor")
+                .or_else(|| target.get("builder"))
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let port = target
+                .get("options")
+                .and_then(|o| o.get("port"))
+                .and_then(|v| v.as_u64())
+                .and_then(|n| u16::try_from(n).ok());
+            return Some(NxRunTarget {
+                name,
+                executor,
+                port,
+            });
+        }
+    }
+    None
+}
+
+/// Web-ness guess for an Nx executor string. Framework executors carry the
+/// framework name (`@nx/next:server`, `@nx/vite:dev-server`); plain React /
+/// Angular apps serve via webpack/angular dev-server executors.
+fn is_web_nx_executor(executor: &str) -> bool {
+    let lowered = executor.to_lowercase();
+    is_web_dev_command(&lowered)
+        || ["dev-server", "angular", "webpack", "@nx/web"]
+            .iter()
+            .any(|needle| lowered.contains(needle))
+}
+
 fn inspect_workspace(root: &Path, dir: &Path) -> Option<WorkspaceInfo> {
-    let pkg_path = dir.join("package.json");
-    let contents = std::fs::read_to_string(&pkg_path).ok()?;
-    let json: serde_json::Value = serde_json::from_str(&contents).ok()?;
+    let read_json = |file: &str| -> Option<serde_json::Value> {
+        let contents = std::fs::read_to_string(dir.join(file)).ok()?;
+        serde_json::from_str(&contents).ok()
+    };
+    let pkg = read_json("package.json");
+    let nx = read_json("project.json");
 
-    let name = json
-        .get("name")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .unwrap_or_else(|| {
-            dir.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("workspace")
-                .to_string()
-        });
+    // A dir with neither manifest isn't a workspace we can describe.
+    if pkg.is_none() && nx.is_none() {
+        return None;
+    }
 
-    let scripts = json.get("scripts").and_then(|v| v.as_object());
-    let dev_script = scripts.and_then(|s| {
+    let get_name = |json: &Option<serde_json::Value>| -> Option<String> {
+        json.as_ref()
+            .and_then(|j| j.get("name"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    };
+    let pkg_name = get_name(&pkg);
+    let nx_name = get_name(&nx);
+    let dir_name = || {
+        dir.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("workspace")
+            .to_string()
+    };
+
+    let scripts = pkg
+        .as_ref()
+        .and_then(|j| j.get("scripts"))
+        .and_then(|v| v.as_object());
+    let mut dev_script = scripts.and_then(|s| {
         s.get("dev")
             .and_then(|v| v.as_str())
             .or_else(|| s.get("start").and_then(|v| v.as_str()))
             .map(String::from)
     });
 
-    let port_hint = dev_script.as_deref().and_then(parse_port_from_script);
-    let is_web = dev_script.as_deref().is_some_and(is_web_dev_command);
+    let mut port_hint = dev_script.as_deref().and_then(parse_port_from_script);
+    let mut is_web = dev_script.as_deref().is_some_and(is_web_dev_command);
+
+    // Nx apps declare run targets in a per-app project.json instead of
+    // package.json scripts; without this they were filtered out as "not
+    // runnable" and the picker never offered them (issue #691). The
+    // synthesized `nx <target> <project>` value is a *hint* — the picker
+    // displays it, and it's what the user runs (or saves as the custom dev
+    // command) to serve the app; it is never executed blindly.
+    if dev_script.is_none() {
+        if let Some(target) = nx.as_ref().and_then(nx_serve_target) {
+            let nx_project = nx_name
+                .clone()
+                .or_else(|| pkg_name.clone())
+                .unwrap_or_else(dir_name);
+            dev_script = Some(format!("nx {} {}", target.name, nx_project));
+            port_hint = target.port;
+            is_web = target.executor.as_deref().is_some_and(is_web_nx_executor);
+        }
+    }
+
+    let name = pkg_name.or(nx_name).unwrap_or_else(dir_name);
 
     let relative = dir.strip_prefix(root).ok()?;
     let relative_path = relative
@@ -357,6 +474,187 @@ mod tests {
             Some(8080)
         );
         assert_eq!(parse_port_from_script("next dev"), None);
+    }
+
+    // ── Nx (issue #691) ──────────────────────────────────────────────────
+
+    #[test]
+    fn offers_nx_app_with_project_json_serve_target() {
+        // Package-based Nx repo: npm workspaces exist, but the app declares
+        // its run target in project.json, not package.json scripts.
+        let tmp = TempDir::new().unwrap();
+        write(
+            tmp.path(),
+            "package.json",
+            r#"{ "name": "root", "workspaces": ["apps/*"] }"#,
+        );
+        write(
+            tmp.path(),
+            "apps/web/package.json",
+            r#"{ "name": "@x/web" }"#,
+        );
+        write(
+            tmp.path(),
+            "apps/web/project.json",
+            r#"{
+                "name": "web",
+                "targets": {
+                    "build": { "executor": "@nx/next:build" },
+                    "serve": {
+                        "executor": "@nx/next:server",
+                        "options": { "port": 4200 }
+                    }
+                }
+            }"#,
+        );
+
+        let workspaces = detect_workspaces_at(tmp.path());
+        assert_eq!(workspaces.len(), 1);
+        let web = &workspaces[0];
+        assert_eq!(web.relative_path, "apps/web");
+        // Package name wins for display; the nx hint uses the Nx project name.
+        assert_eq!(web.name, "@x/web");
+        assert_eq!(web.dev_script.as_deref(), Some("nx serve web"));
+        assert_eq!(web.port_hint, Some(4200));
+        assert!(web.is_web);
+    }
+
+    #[test]
+    fn offers_nx_app_without_package_json_via_nx_json_layout() {
+        // Integrated-style Nx repo: no npm workspaces at all; apps found via
+        // nx.json's default apps/ layout, described by project.json alone.
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "package.json", r#"{ "name": "root" }"#);
+        write(tmp.path(), "nx.json", r#"{ "npmScope": "x" }"#);
+        write(
+            tmp.path(),
+            "apps/site/project.json",
+            r#"{
+                "name": "site",
+                "targets": {
+                    "serve": { "executor": "@nx/vite:dev-server" }
+                }
+            }"#,
+        );
+        // A lib without a serve target must stay filtered out.
+        write(
+            tmp.path(),
+            "libs/ui/project.json",
+            r#"{ "name": "ui", "targets": { "build": { "executor": "@nx/js:tsc" } } }"#,
+        );
+
+        let workspaces = detect_workspaces_at(tmp.path());
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].relative_path, "apps/site");
+        assert_eq!(workspaces[0].name, "site");
+        assert_eq!(workspaces[0].dev_script.as_deref(), Some("nx serve site"));
+        assert_eq!(workspaces[0].port_hint, None);
+        assert!(workspaces[0].is_web);
+    }
+
+    #[test]
+    fn respects_nx_json_workspace_layout_override() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "package.json", r#"{ "name": "root" }"#);
+        write(
+            tmp.path(),
+            "nx.json",
+            r#"{ "workspaceLayout": { "appsDir": "applications" } }"#,
+        );
+        write(
+            tmp.path(),
+            "applications/store/project.json",
+            r#"{ "name": "store", "targets": { "serve": { "executor": "@nx/webpack:dev-server" } } }"#,
+        );
+
+        let workspaces = detect_workspaces_at(tmp.path());
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].relative_path, "applications/store");
+        assert!(workspaces[0].is_web);
+    }
+
+    #[test]
+    fn parses_legacy_architect_dev_target() {
+        // Older Angular-flavored config: `architect` instead of `targets`,
+        // `builder` instead of `executor`; `dev` accepted when `serve` absent.
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "package.json", r#"{ "name": "root" }"#);
+        write(tmp.path(), "nx.json", "{}");
+        write(
+            tmp.path(),
+            "apps/admin/project.json",
+            r#"{
+                "name": "admin",
+                "architect": {
+                    "dev": {
+                        "builder": "@angular-devkit/build-angular:dev-server",
+                        "options": { "port": 4300 }
+                    }
+                }
+            }"#,
+        );
+
+        let workspaces = detect_workspaces_at(tmp.path());
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].dev_script.as_deref(), Some("nx dev admin"));
+        assert_eq!(workspaces[0].port_hint, Some(4300));
+        assert!(workspaces[0].is_web);
+    }
+
+    #[test]
+    fn package_json_dev_script_takes_precedence_over_nx_target() {
+        // When the app has a real dev script, keep it — it's what the dev
+        // server will actually run at the workspace cwd.
+        let tmp = TempDir::new().unwrap();
+        write(
+            tmp.path(),
+            "package.json",
+            r#"{ "name": "root", "workspaces": ["apps/*"] }"#,
+        );
+        make_app(tmp.path(), "apps/web", "web", "next dev -p 3001");
+        write(
+            tmp.path(),
+            "apps/web/project.json",
+            r#"{ "name": "web", "targets": { "serve": { "executor": "@nx/next:server" } } }"#,
+        );
+
+        let workspaces = detect_workspaces_at(tmp.path());
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(
+            workspaces[0].dev_script.as_deref(),
+            Some("next dev -p 3001")
+        );
+        assert_eq!(workspaces[0].port_hint, Some(3001));
+    }
+
+    #[test]
+    fn nx_project_json_without_serve_or_dev_is_not_runnable() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "package.json", r#"{ "name": "root" }"#);
+        write(tmp.path(), "nx.json", "{}");
+        write(
+            tmp.path(),
+            "apps/tool/project.json",
+            r#"{ "name": "tool", "targets": { "build": { "executor": "@nx/js:tsc" } } }"#,
+        );
+        assert!(detect_workspaces_at(tmp.path()).is_empty());
+    }
+
+    #[test]
+    fn non_web_nx_executor_is_not_marked_web() {
+        let tmp = TempDir::new().unwrap();
+        write(tmp.path(), "package.json", r#"{ "name": "root" }"#);
+        write(tmp.path(), "nx.json", "{}");
+        write(
+            tmp.path(),
+            "apps/api/project.json",
+            r#"{ "name": "api", "targets": { "serve": { "executor": "@nx/js:node" } } }"#,
+        );
+
+        let workspaces = detect_workspaces_at(tmp.path());
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].dev_script.as_deref(), Some("nx serve api"));
+        assert!(!workspaces[0].is_web);
     }
 
     #[test]

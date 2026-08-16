@@ -42,6 +42,7 @@ import {
   getAutoAcceptMode,
   setAutoAcceptMode as setAutoAcceptModeApi,
   detectWorkspaces,
+  getCustomDevCommand,
   getWorkspaceSubpath,
   setWorkspaceSubpath,
 } from '../lib/project';
@@ -716,11 +717,17 @@ export function useProjectLifecycle({
       return;
     }
 
-    // Generic projects don't have a web preview — default to branches tab.
-    // We only force this for fresh starts; when reusing a pinned session we
-    // preserve whichever tab the user was on.
+    // Generic projects without a configured dev command don't have a web
+    // preview — default to branches tab. A generic project WITH a custom dev
+    // command (e.g. an Nx monorepo root running `nx serve`, issue #691) does
+    // get the Preview tab, so leave it on the default. We only force this for
+    // fresh starts; when reusing a pinned session we preserve whichever tab
+    // the user was on.
     if (!reuseIncomingServer && detectedType === 'generic') {
-      setWorkspaceTab('branches');
+      const customCmd = await getCustomDevCommand(project.path).catch(() => null);
+      if (!customCmd) {
+        setWorkspaceTab('branches');
+      }
     }
 
     setView('workspace');
