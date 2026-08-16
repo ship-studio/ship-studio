@@ -184,14 +184,6 @@ pub const CURSOR: AgentConfig = AgentConfig {
 };
 
 /// GitHub Copilot CLI agent configuration.
-///
-/// Copilot CLI inherits authentication from the GitHub CLI (`gh`). There is no
-/// separate sign-in step — if `gh auth status` succeeds, Copilot is ready.
-/// Environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`)
-/// can also provide auth, but the `auth_status_args` mechanism can only run the
-/// agent's own binary, so we fall back to file-based detection: the `~/.copilot`
-/// directory (and its `otel` subdirectory) exist after first use. BYOK users
-/// who run Copilot without GitHub auth will also have this directory.
 pub const COPILOT: AgentConfig = AgentConfig {
     id: "copilot",
     display_name: "GitHub Copilot",
@@ -296,9 +288,6 @@ pub const DEVIN: AgentConfig = AgentConfig {
 };
 
 /// Grok Build agent configuration.
-///
-/// The official Grok CLI is installed via the xAI install script, which places
-/// the binary under `~/.grok/bin` and may add PATH entries. It does not use npm.
 pub const GROK: AgentConfig = AgentConfig {
     id: "grok",
     display_name: "Grok",
