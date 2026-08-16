@@ -138,6 +138,14 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
 ///   set projects[…].hasTrustDialogAccepted: true in ~/.claude.json". The raw
 ///   compound error (trust warning + stdin race + "--print needs input") is a
 ///   confusing wall of text, so it gets a plain remedy instead (issue #660).
+/// - Codex's stale models cache — "failed to load models cache" (logged by
+///   `codex_models_manager::cache`): a corrupt/outdated local cache file the
+///   user can just delete (issue #689).
+///
+/// Callers must pass the FULL failure detail, never a truncated copy — Codex
+/// dumps a whole session transcript on failure and the matching line can sit
+/// anywhere in it (issues #665/#689). Substring matching handles mid-transcript
+/// hits; only the user-facing message is capped.
 fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandError> {
     let lower = detail.to_lowercase();
     if lower.contains("session limit")
@@ -145,9 +153,20 @@ fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandE
         || lower.contains("rate limit")
         || lower.contains("quota exceeded")
     {
+        // The raw detail carries the CLI's reset time — keep it, but capped
+        // (head+tail, since it may be a full transcript) so a user-facing
+        // message can't balloon.
+        let detail = crate::external_command::truncate_output_head_tail(detail);
         return Some(CommandError::expected(format!(
             "{agent_name} hit its usage limit, so AI generation isn't available right now. \
              The limit resets automatically — try again later. ({detail})"
+        )));
+    }
+    if lower.contains("failed to load models cache") || lower.contains("codex_models_manager::cache")
+    {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s local model cache is stale, so AI generation isn't available \
+             right now. Delete ~/.codex/models_cache.json and try again."
         )));
     }
     if lower.contains("please run /login")
@@ -167,6 +186,22 @@ fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandE
         )));
     }
     None
+}
+
+/// Remove the echoed prompt from an agent CLI's failure output.
+///
+/// `codex exec` writes a session transcript to stderr, which reproduces the
+/// prompt we fed it — including the user's entire git diff. The app built that
+/// prompt itself, so an exact-substring match is reliable: excise it rather
+/// than forwarding the user's own data back as an "error" (issue #665). The
+/// prompt is matched trimmed (transcripts may re-render it without the exact
+/// leading/trailing whitespace we sent).
+fn strip_prompt_echo(output: &str, prompt: &str) -> String {
+    let prompt = prompt.trim();
+    if prompt.is_empty() || !output.contains(prompt) {
+        return output.to_string();
+    }
+    output.replace(prompt, "[prompt omitted]")
 }
 
 /// Run the active agent headlessly with `prompt` in `cwd` and return its final
@@ -240,29 +275,38 @@ async fn run_agent_headless(
     let final_message = read_and_cleanup(&output_file);
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Codex `exec` fails with a full session transcript on stderr — and
+        // that transcript echoes the prompt we sent, git diff included. Excise
+        // the echo BEFORE any capping or classification: it's the user's own
+        // data reflected back as an "error", and it buries the real failure
+        // line (issue #665).
+        let stderr = strip_prompt_echo(&String::from_utf8_lossy(&output.stderr), prompt);
         // A silent non-zero exit (empty stderr) used to surface as the
         // undiagnosable "Claude Code CLI failed: " — fall back to the exit code
-        // and a stdout snippet so there's something to act on (issue #269).
-        let detail = if stderr.trim().is_empty() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let snippet: String = stdout.trim().chars().take(300).collect();
-            if snippet.is_empty() {
+        // and stdout so there's something to act on (issue #269).
+        let full_detail = if stderr.trim().is_empty() {
+            let stdout = strip_prompt_echo(&String::from_utf8_lossy(&output.stdout), prompt);
+            let stdout = stdout.trim();
+            if stdout.is_empty() {
                 format!("exit code {:?}, no output", output.status.code())
             } else {
-                format!("exit code {:?}: {snippet}", output.status.code())
+                format!("exit code {:?}: {stdout}", output.status.code())
             }
         } else {
-            // Cap like the stdout branch: an agent CLI can dump a whole
-            // session transcript (prompt, diff, paths) to stderr on failure —
-            // forwarding it unbounded is both noise and a data-exposure risk.
-            // The head carries the actual error (issue #578).
-            crate::external_command::truncate_output(&stderr)
+            stderr
         };
         // Known environment states (usage limit, expired sign-in, untrusted
-        // workspace) are the CLI working as designed — warn, not error, and
-        // Expected so they stay out of telemetry (issues #653/#660).
-        if let Some(err) = classify_agent_cli_failure(&agent.display_name, &detail) {
+        // workspace, stale Codex models cache) are the CLI working as designed
+        // — warn, not error, and Expected so they stay out of telemetry
+        // (issues #653/#660/#689). Classification sees the FULL detail: the
+        // matching line can sit anywhere in a transcript, so classifying a
+        // truncated copy would miss it (issue #689).
+        // What we forward/log stays capped — but head+tail, not head-only: in
+        // transcript-shaped output the actual error is the LAST line, so a
+        // head-only cap kept the banner and cut the one useful line
+        // (issues #578/#665).
+        let detail = crate::external_command::truncate_output_head_tail(&full_detail);
+        if let Some(err) = classify_agent_cli_failure(&agent.display_name, &full_detail) {
             warn!(
                 "{} CLI failed with an expected condition: {}",
                 agent.display_name, detail
@@ -847,6 +891,38 @@ mod tests {
         assert!(msg.contains("Open an agent terminal"), "got: {msg}");
     }
 
+    // The #689 shape: Codex refusing to run because its local models cache is
+    // stale — the environment, user-fixable by deleting the cache file.
+    #[test]
+    fn classify_agent_cli_failure_codex_models_cache_is_expected() {
+        let detail = "ERROR codex_models_manager::cache: failed to load models cache: \
+                      missing field `slug` at line 1 column 2000";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("model cache is stale"), "got: {msg}");
+        assert!(msg.contains("~/.codex/models_cache.json"), "got: {msg}");
+
+        // Either marker alone must classify too.
+        assert!(classify_agent_cli_failure("Codex", "failed to load models cache").is_some());
+        assert!(
+            classify_agent_cli_failure("Codex", "WARN codex_models_manager::cache: boom").is_some()
+        );
+    }
+
+    // The matching line arrives as the FIRST stderr line of a transcript that
+    // continues for thousands of chars — classification runs on the full
+    // (untruncated) detail, so it must still fire (interplay with #665's cap).
+    #[test]
+    fn classify_agent_cli_failure_matches_mid_transcript() {
+        let transcript = format!(
+            "OpenAI Codex banner\n{}\nERROR codex_models_manager::cache: failed to load models cache\n{}",
+            "transcript filler\n".repeat(200),
+            "more filler\n".repeat(200)
+        );
+        assert!(classify_agent_cli_failure("Codex", &transcript).is_some());
+    }
+
     // Genuine unexplained failures must keep flowing to telemetry.
     #[test]
     fn classify_agent_cli_failure_ignores_unknown_failures() {
@@ -855,6 +931,35 @@ mod tests {
         );
         assert!(classify_agent_cli_failure("Claude Code", "segmentation fault").is_none());
         assert!(classify_agent_cli_failure("Claude Code", "").is_none());
+    }
+
+    // The #665 data-exposure shape: Codex's failure transcript echoes the
+    // prompt we sent — git diff included — and it must be excised before the
+    // text reaches an error message or telemetry.
+    #[test]
+    fn strip_prompt_echo_excises_echoed_prompt() {
+        let prompt = build_commit_prompt(
+            " M src/secret.rs",
+            "diff --git a/src/secret.rs b/src/secret.rs\n+const API_KEY: &str = \"sk-secret\";",
+        );
+        let stderr = format!(
+            "OpenAI Codex v0.30 banner\n--------\nuser\n{prompt}\n--------\nERROR: stream disconnected"
+        );
+        let cleaned = strip_prompt_echo(&stderr, &prompt);
+        assert!(!cleaned.contains("sk-secret"), "diff leaked: {cleaned}");
+        assert!(cleaned.contains("[prompt omitted]"), "got: {cleaned}");
+        // The surrounding transcript (banner + the actual error) survives.
+        assert!(cleaned.contains("OpenAI Codex v0.30 banner"));
+        assert!(cleaned.contains("ERROR: stream disconnected"));
+    }
+
+    #[test]
+    fn strip_prompt_echo_leaves_unrelated_output_alone() {
+        let stderr = "ERROR: stream disconnected before completion";
+        assert_eq!(strip_prompt_echo(stderr, "some prompt"), stderr);
+        // An empty/whitespace prompt must never trigger a replace.
+        assert_eq!(strip_prompt_echo(stderr, ""), stderr);
+        assert_eq!(strip_prompt_echo(stderr, "  \n "), stderr);
     }
 
     #[test]
