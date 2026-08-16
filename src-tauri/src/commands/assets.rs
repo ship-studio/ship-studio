@@ -319,11 +319,23 @@ pub async fn delete_asset(project_path: String, asset_path: String) -> Result<()
         return Err(("Security error: path is outside the assets folder".to_string()).into());
     }
 
-    if full_path.is_dir() {
-        fs::remove_dir_all(&full_path).map_err(|e| format!("Failed to delete directory: {e}"))?;
-    } else {
-        fs::remove_file(&full_path).map_err(|e| format!("Failed to delete file: {e}"))?;
-    }
+    // Robust deletes (read-only clearing + transient-lock retries): on Windows
+    // an antivirus scan or the Search indexer briefly holding the file failed a
+    // bare fs::remove_dir_all/remove_file with "Access is denied (os error 5)"
+    // (issue #696). Blocking work (chmod walk, retry sleeps up to ~8s) — keep
+    // it off the async runtime, mirroring delete_project.
+    let is_dir = full_path.is_dir();
+    tokio::task::spawn_blocking(move || {
+        if is_dir {
+            crate::utils::remove_dir_all_robust(&full_path)
+                .map_err(|e| format!("Failed to delete directory: {e}"))
+        } else {
+            crate::utils::remove_file_robust(&full_path)
+                .map_err(|e| format!("Failed to delete file: {e}"))
+        }
+    })
+    .await
+    .map_err(|e| format!("Asset deletion task failed: {e}"))??;
 
     Ok(())
 }

@@ -64,7 +64,7 @@ import { PluginsDropdown } from '../plugins/PluginsDropdown';
 import { getAgentById } from '../../lib/agent';
 import type { AgentConfig } from '../../lib/agent';
 import type { Project } from '../../lib/project';
-import { isMobileProjectType, type ProjectType } from '../../lib/static-server';
+import { hasWebPreview, isMobileProjectType, type ProjectType } from '../../lib/static-server';
 import { ShopifySetup } from '../shopify/ShopifySetup';
 import { useShopifyTheme } from '../../hooks/useShopifyTheme';
 import { isMac } from '../../lib/setup';
@@ -613,16 +613,16 @@ export const WorkspaceView = memo(function WorkspaceView({
     handleSaveDevCommand,
   } = lifecycle;
 
+  // Whether this project gets the web iframe Preview — the #691 rule lives in
+  // hasWebPreview: web frameworks always, `generic` only when a custom dev
+  // command is configured (Nx/monorepo roots), never for unknown/mobile.
+  const isWebProject = hasWebPreview(projectType, customDevCommand);
+
   // Cmd+Shift+S — capture viewport screenshot, Cmd+Shift+C — toggle crop mode
   // Screenshot accelerators only make sense over the web iframe preview, not
-  // the device mirror (which captures a simulator, not localhost) or generic/
-  // unknown projects with no preview at all.
-  const previewVisible =
-    projectType !== 'generic' &&
-    projectType !== 'unknown' &&
-    !isMobileProjectType(projectType) &&
-    workspaceTab === 'preview' &&
-    !isPreviewHidden;
+  // the device mirror (which captures a simulator, not localhost) or projects
+  // with no preview at all.
+  const previewVisible = isWebProject && workspaceTab === 'preview' && !isPreviewHidden;
 
   // Listen for native menu accelerators (Cmd+Shift+S / Cmd+Shift+C).
   // Native accelerators work even when the cross-origin preview iframe has focus,
@@ -652,13 +652,14 @@ export const WorkspaceView = memo(function WorkspaceView({
     setIsCropMode,
   ]);
 
-  // Generic/unknown (Tauri, CLI) projects have no preview pane at all. Web
-  // projects get the iframe Preview; native mobile (RN/Expo, Flutter) gets the
-  // device mirror — but only on macOS, where the simulator/emulator toolchains are
-  // validated (mobile preview is untested on Windows, so we don't offer it there).
+  // Projects with no web preview and no mobile mirror have no preview pane at
+  // all. Web projects (see `isWebProject` above — includes generic projects
+  // with a configured dev command, issue #691) get the iframe Preview; native
+  // mobile (RN/Expo, Flutter) gets the device mirror — but only on macOS,
+  // where the simulator/emulator toolchains are validated (mobile preview is
+  // untested on Windows, so we don't offer it there).
   const isMobileProject = isMobileProjectType(projectType);
   const mobilePreviewAvailable = isMobileProject && isMac();
-  const isWebProject = projectType !== 'generic' && projectType !== 'unknown' && !isMobileProject;
   const hasPreview = isWebProject || mobilePreviewAvailable;
 
   // Reset the preview-side tab to its default whenever the user switches
