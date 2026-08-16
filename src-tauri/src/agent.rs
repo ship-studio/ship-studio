@@ -187,6 +187,11 @@ pub const CURSOR: AgentConfig = AgentConfig {
 ///
 /// Copilot CLI inherits authentication from the GitHub CLI (`gh`). There is no
 /// separate sign-in step — if `gh auth status` succeeds, Copilot is ready.
+/// Environment variables (`COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`)
+/// can also provide auth, but the `auth_status_args` mechanism can only run the
+/// agent's own binary, so we fall back to file-based detection: the `~/.copilot`
+/// directory (and its `otel` subdirectory) exist after first use. BYOK users
+/// who run Copilot without GitHub auth will also have this directory.
 pub const COPILOT: AgentConfig = AgentConfig {
     id: "copilot",
     display_name: "GitHub Copilot",
@@ -320,6 +325,9 @@ pub const DEVIN: AgentConfig = AgentConfig {
 };
 
 /// Grok Build agent configuration.
+///
+/// The official Grok CLI is installed via the xAI install script, which places
+/// the binary under `~/.grok/bin` and may add PATH entries. It does not use npm.
 pub const GROK: AgentConfig = AgentConfig {
     id: "grok",
     display_name: "Grok",
@@ -333,9 +341,9 @@ pub const GROK: AgentConfig = AgentConfig {
     auth_indicators: &["auth.json"],
     skills_agent_id: None,
     skills_dir_name: None,
-    install_command_unix: Some("npm install -g @anthropic-ai/claude-code 2>/dev/null; curl -fsSL https://x.ai/cli/install.sh | bash"),
+    install_command_unix: Some("curl -fsSL https://x.ai/cli/install.sh | bash"),
     install_message_windows: Some("npm install -g @xai-official/grok"),
-    uninstall_command_unix: Some("npm uninstall -g @xai-official/grok 2>/dev/null; rm -rf \"$HOME/.grok\" 2>/dev/null; echo Uninstalled."),
+    uninstall_command_unix: Some("rm -rf \"$HOME/.grok\" 2>/dev/null; echo Uninstalled."),
     uninstall_command_windows: Some("npm uninstall -g @xai-official/grok"),
     setup_item_ids: ("grok", "grok_auth"),
     setup_display_names: ("Grok", "Grok Account"),
