@@ -205,47 +205,64 @@ async fn snapshot_webview_region(
         .with_webview(move |webview| {
             // Runs on the main thread. All Obj-C work happens here; only the
             // finished PNG bytes cross back to the async command.
-            let wk: *mut AnyObject = webview.inner().cast();
-            if wk.is_null() {
-                let _ = tx.send(Err("webview handle is null".to_string()));
-                return;
-            }
-            unsafe {
-                let config: *mut AnyObject = msg_send![class!(WKSnapshotConfiguration), new];
-                let cg_rect = CGRect {
-                    origin: CGPoint {
-                        x: rect.x,
-                        y: rect.y,
-                    },
-                    size: CGSize {
-                        width: rect.width,
-                        height: rect.height,
-                    },
-                };
-                let _: () = msg_send![config, setRect: cg_rect];
-                // Ask WebKit to hand back a pre-scaled image: 640pt wide, the
-                // dashboard thumbnail size. (Retina still doubles the pixels;
-                // resize_thumbnail_image normalizes after the write.)
-                let width_num: *mut AnyObject =
-                    msg_send![class!(NSNumber), numberWithDouble: 640.0f64];
-                let _: () = msg_send![config, setSnapshotWidth: width_num];
+            //
+            // The ENTIRE body is panic-guarded, not just the completion block:
+            // a panic anywhere in the setup msg_send! calls (building
+            // WKSnapshotConfiguration, NSNumber, dispatching the snapshot)
+            // would unwind across the main-thread dispatch boundary and abort
+            // the whole app ("panic in a function that cannot unwind" —
+            // issue #684). Degrade any panic to a failed capture instead; the
+            // explicit send on the panic path keeps the waiting receiver from
+            // sitting out its full 10s timeout.
+            let panic_tx = tx.clone();
+            let setup = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                let wk: *mut AnyObject = webview.inner().cast();
+                if wk.is_null() {
+                    let _ = tx.send(Err("webview handle is null".to_string()));
+                    return;
+                }
+                unsafe {
+                    let config: *mut AnyObject = msg_send![class!(WKSnapshotConfiguration), new];
+                    let cg_rect = CGRect {
+                        origin: CGPoint {
+                            x: rect.x,
+                            y: rect.y,
+                        },
+                        size: CGSize {
+                            width: rect.width,
+                            height: rect.height,
+                        },
+                    };
+                    let _: () = msg_send![config, setRect: cg_rect];
+                    // Ask WebKit to hand back a pre-scaled image: 640pt wide, the
+                    // dashboard thumbnail size. (Retina still doubles the pixels;
+                    // resize_thumbnail_image normalizes after the write.)
+                    let width_num: *mut AnyObject =
+                        msg_send![class!(NSNumber), numberWithDouble: 640.0f64];
+                    let _: () = msg_send![config, setSnapshotWidth: width_num];
 
-                let block = block2::RcBlock::new(
-                    move |image: *mut AnyObject, error: *mut AnyObject| {
-                        // A panic here unwinds across the Objective-C block
-                        // boundary and aborts the entire app — degrade any
-                        // internal error to a failed capture instead.
-                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                            || png_bytes_from_snapshot(image, error),
-                        ))
-                        .unwrap_or_else(|_| {
-                            Err("internal panic during snapshot conversion".to_string())
-                        });
-                        let _ = tx.send(result);
-                    },
-                );
-                let _: () = msg_send![wk, takeSnapshotWithConfiguration: config, completionHandler: &*block];
-                let _: () = msg_send![config, release];
+                    let block = block2::RcBlock::new(
+                        move |image: *mut AnyObject, error: *mut AnyObject| {
+                            // A panic here unwinds across the Objective-C block
+                            // boundary and aborts the entire app — degrade any
+                            // internal error to a failed capture instead.
+                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                || png_bytes_from_snapshot(image, error),
+                            ))
+                            .unwrap_or_else(|_| {
+                                Err("internal panic during snapshot conversion".to_string())
+                            });
+                            let _ = tx.send(result);
+                        },
+                    );
+                    let _: () = msg_send![wk, takeSnapshotWithConfiguration: config, completionHandler: &*block];
+                    let _: () = msg_send![config, release];
+                }
+            }));
+            if setup.is_err() {
+                let _ = panic_tx.send(Err(
+                    "internal panic while preparing the webview snapshot".to_string(),
+                ));
             }
         })
         .map_err(|e| CommandError::from(format!("Could not reach the app webview: {e}")))?;
