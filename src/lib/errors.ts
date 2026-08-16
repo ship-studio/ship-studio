@@ -435,6 +435,24 @@ export function describeProcessError(
         "GitHub couldn't authenticate this computer over HTTPS — git needed to ask for a password, and there's no saved credential to use. Open a terminal and run `gh auth login`, then `gh auth setup-git`, and try again.",
     };
   }
+  // Windows path-length limit during clone checkout: the download itself
+  // succeeded, but git couldn't write files whose paths exceed Windows'
+  // 260-character default ("error: unable to create file <path>: Filename too
+  // long", then "fatal: unable to checkout working tree" / "Clone succeeded,
+  // but checkout failed."). A machine-configuration state with a one-line
+  // fix, not an app bug — without this branch the raw clone dump reached the
+  // user (issue #701).
+  if (
+    lower.includes('filename too long') ||
+    lower.includes('unable to checkout working tree') ||
+    lower.includes('clone succeeded, but checkout failed')
+  ) {
+    return {
+      expected: true,
+      message:
+        "The repository was downloaded, but some of its files have names or paths longer than Windows allows by default, so git couldn't write them. Open a terminal and run `git config --global core.longpaths true` (and enable Windows long-path support — LongPathsEnabled — if it still fails), then delete the incomplete project folder and try again.",
+    };
+  }
   // GitHub's own API returning a transient 5xx (e.g. "HTTP 504: We couldn't
   // respond to your request in time…" from api.github.com/graphql during
   // `gh repo clone`). gh exits with the generic code 1, so only the wording
@@ -466,6 +484,18 @@ export function describeProcessError(
       expected: true,
       message:
         "npm couldn't sign in to the package registry — your saved npm login or token is expired or incorrect. Open a terminal and run `npm login` (or refresh the token in your .npmrc if this project uses a private registry), then try again.",
+    };
+  }
+  // Corrupted pnpm store: the content-addressable cache has dangling links,
+  // so installs die with "ENOENT: no such file or directory, open
+  // '…/pnpm/store/v11/links/…'". A local-cache state that `pnpm store prune`
+  // repairs, not an app or project bug (issue #681). Checked before the
+  // generic exit-code mapping — only the ENOENT text identifies it.
+  if (lower.includes('enoent') && (lower.includes('pnpm/store') || lower.includes('pnpm\\store'))) {
+    return {
+      expected: true,
+      message:
+        "pnpm's local package cache looks corrupted. Open a terminal and run `pnpm store prune`, then retry the install.",
     };
   }
   // pnpm's build-script approval gate: the install itself succeeded, but

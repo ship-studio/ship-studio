@@ -25,6 +25,7 @@
 import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { getProjectThumbnail, listProjects } from '../../lib/project';
+import { asCommandError, formatCommandError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
 import { Button } from '../primitives/Button';
 
@@ -510,9 +511,11 @@ function RailItem({
       })
       .catch((err) => {
         thumbnailCache.set(row.projectPath, null);
+        // Plain CommandError objects aren't Error instances — String()
+        // renders them "[object Object]" (issue #685).
         logger.debug('[ProjectRail] No thumbnail for pin', {
           projectPath: row.projectPath,
-          error: String(err),
+          error: formatCommandError(asCommandError(err)),
         });
       });
     return () => {
