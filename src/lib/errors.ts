@@ -549,3 +549,22 @@ export function friendlyProcessError(
 ): string {
   return describeProcessError(err, extraExitCodeMessages).message;
 }
+
+/**
+ * User-facing message for a failed GitHub accounts load (username + orgs).
+ *
+ * A blown time budget means a slow network, not stale credentials — "sign
+ * out and back in" can't fix it (issue #686). Matches both the raw Timeout
+ * wording ("`gh api user` timed out after 15s") and the backend's Expected
+ * mapping ("GitHub took too long to respond").
+ */
+export function describeAccountsLoadError(err: unknown): string {
+  const message = formatCommandError(asCommandError(err));
+  const isTimeout = /timed out|took too long/i.test(message);
+  return (
+    `Couldn't load your GitHub accounts: ${message}. ` +
+    (isTimeout
+      ? 'Check your internet connection and try again.'
+      : 'Try signing out and back into GitHub.')
+  );
+}

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   asCommandError,
+  describeAccountsLoadError,
   describeProcessError,
   formatCommandError,
   friendlyProcessError,
@@ -545,5 +546,25 @@ describe('isProjectFolderGoneError', () => {
       isProjectFolderGoneError('feature/x no longer exists. It may have been deleted or renamed.')
     ).toBe(false);
     expect(isProjectFolderGoneError(new Error('connection refused'))).toBe(false);
+  });
+});
+
+describe('describeAccountsLoadError (issue #686)', () => {
+  it('uses retry wording for timeouts instead of sign-out advice', () => {
+    const raw = { type: 'Timeout', message: '`gh api user/orgs` timed out after 15s' };
+    const backendMapped = {
+      type: 'Other',
+      message: 'GitHub took too long to respond. Check your internet connection and try again.',
+    };
+    for (const err of [raw, backendMapped]) {
+      const msg = describeAccountsLoadError(err);
+      expect(msg).toContain('Check your internet connection');
+      expect(msg).not.toContain('signing out');
+    }
+  });
+
+  it('keeps sign-out advice for non-timeout failures', () => {
+    const msg = describeAccountsLoadError({ type: 'Other', message: 'HTTP 401 bad credentials' });
+    expect(msg).toContain('Try signing out and back into GitHub.');
   });
 });

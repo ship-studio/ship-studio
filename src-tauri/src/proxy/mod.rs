@@ -1333,10 +1333,18 @@ mod tests {
             "refused connect must classify as expected/unavailable, got {:?}",
             err.kind()
         );
+        // Windows doesn't refuse a closed loopback port immediately — the
+        // TCP stack retries SYN for ~1s, so the whole 400ms budget can be
+        // spent inside the first attempt (which then reports TimedOut, still
+        // classified unavailable above). Only Unix gets the fast refusal
+        // needed to observe an actual retry within the budget.
+        #[cfg(unix)]
         assert!(
             attempts >= 2,
             "must have retried, got {attempts} attempt(s)"
         );
+        #[cfg(not(unix))]
+        assert!(attempts >= 1, "got {attempts} attempt(s)");
     }
 
     /// The one-shot WS retry path (issue #466) must feed the SAME

@@ -42,6 +42,7 @@ import {
 import { logger } from '../../lib/logger';
 import {
   asCommandError,
+  describeAccountsLoadError,
   describeProcessError,
   formatCommandError,
   friendlyProcessError,
@@ -93,18 +94,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       setSelectedOwner(user);
     } catch (err) {
       trackError('github_accounts_load', err, 'Dashboard');
-      const message = formatCommandError(asCommandError(err));
-      // A blown time budget means a slow network, not stale credentials —
-      // "sign out and back in" can't fix it (issue #686). Matches both the
-      // raw Timeout wording ("`gh api user` timed out after 15s") and the
-      // backend's Expected mapping ("GitHub took too long to respond").
-      const isTimeout = /timed out|took too long/i.test(message);
-      setError(
-        `Couldn't load your GitHub accounts: ${message}. ` +
-          (isTimeout
-            ? 'Check your internet connection and try again.'
-            : 'Try signing out and back into GitHub.')
-      );
+      setError(describeAccountsLoadError(err));
     } finally {
       setLoadingAccounts(false);
     }
