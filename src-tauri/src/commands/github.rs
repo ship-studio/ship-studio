@@ -189,6 +189,13 @@ fn gh_command_and_account(project_path: Option<&str>) -> Result<(Command, String
     }
 }
 
+/// User-facing message when a `gh api` call blows its time budget — a slow or
+/// flaky network, not an app malfunction (issue #686). `Expected` keeps it out
+/// of telemetry; ImportProject.tsx matches the "took too long" wording to
+/// suggest retrying instead of re-authenticating — keep them in sync.
+const GH_TIMEOUT_MESSAGE: &str =
+    "GitHub took too long to respond. Check your internet connection and try again.";
+
 #[tauri::command]
 #[tracing::instrument]
 pub async fn get_github_username(project_path: Option<String>) -> Result<String, CommandError> {
@@ -199,7 +206,14 @@ pub async fn get_github_username(project_path: Option<String>) -> Result<String,
     }
 
     cmd.args(["api", "user", "--jq", ".login"]);
-    let output = run_command_with_timeout(cmd, "gh api user", GITHUB_CLI_TIMEOUT_SECS).await?;
+    let output = match run_command_with_timeout(cmd, "gh api user", GITHUB_CLI_TIMEOUT_SECS).await {
+        // A blown time budget is the network, not a malfunction — same
+        // mapping pattern as mobile.rs's simctl timeouts (issue #686).
+        Err(CommandError::Timeout { .. }) => {
+            return Err(CommandError::expected(GH_TIMEOUT_MESSAGE))
+        }
+        other => other?,
+    };
 
     if !output.status.success() {
         return Err(CommandError::NotAuthenticated {
@@ -219,7 +233,15 @@ pub async fn get_github_orgs(project_path: Option<String>) -> Result<Vec<String>
     // login so org choices match the account the repo will be created under.
     let (mut cmd, _account_id) = gh_command_and_account(project_path.as_deref())?;
     cmd.args(["api", "user/orgs", "--jq", ".[].login"]);
-    let output = run_command_with_timeout(cmd, "gh api user/orgs", GITHUB_CLI_TIMEOUT_SECS).await?;
+    let output =
+        match run_command_with_timeout(cmd, "gh api user/orgs", GITHUB_CLI_TIMEOUT_SECS).await {
+            // Same network-not-malfunction mapping as get_github_username
+            // (issue #686).
+            Err(CommandError::Timeout { .. }) => {
+                return Err(CommandError::expected(GH_TIMEOUT_MESSAGE))
+            }
+            other => other?,
+        };
 
     if !output.status.success() {
         // Return empty list if we can't get orgs (user might not have any)
@@ -922,6 +944,18 @@ mod tests {
     /// `invalidate_github_username_cache` clears the whole cache, so without this
     /// these tests race under cargo's default multi-threaded runner.
     static CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    // The #686 contract: ImportProject.tsx special-cases the "took too long"
+    // wording to suggest retrying (not re-authenticating), and errors.ts's
+    // isRecognizedGitFailure matches "check your internet connection" — a
+    // rewording here silently breaks both.
+    #[test]
+    fn gh_timeout_message_keeps_the_frontend_matched_wording() {
+        assert!(GH_TIMEOUT_MESSAGE.contains("took too long"));
+        assert!(GH_TIMEOUT_MESSAGE
+            .to_lowercase()
+            .contains("check your internet connection"));
+    }
 
     #[test]
     fn parse_github_repo_https_with_git_suffix() {

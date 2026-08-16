@@ -539,6 +539,20 @@ pub async fn create_branch(
                 // tree files would be overwritten") variants (issue #566).
                 return Err(crate::errors::CommandError::expected(stderr.to_string()));
             }
+            // The base ref didn't resolve: "fatal: 'origin/Y' is not a commit
+            // and a branch 'X' cannot be created from it". The base branch was
+            // deleted or renamed on GitHub after the branch list loaded (or
+            // the fetch above failed) — a stale-state race with a user-side
+            // fix, not a malfunction (issue #692). The message wording is
+            // matched by isRecognizedGitFailure in src/lib/errors.ts — keep
+            // them byte-identical.
+            if is_missing_base_ref_error(&stderr) {
+                warn!(error = %stderr, "Branch creation base ref no longer exists");
+                return Err(crate::errors::CommandError::expected(
+                    "The branch this was based on no longer exists on GitHub. \
+                     Refresh your branches and try again.",
+                ));
+            }
             error!(error = %stderr, "Failed to create branch");
             return Err((stderr.to_string()).into());
         }
@@ -616,6 +630,14 @@ pub async fn push_branch(project_path: String, branch_name: String) -> Result<()
 
     info!("Branch published successfully");
     Ok(())
+}
+
+/// Git refusing `checkout -b <new> <base>` because the base ref doesn't
+/// resolve to a commit — "fatal: 'origin/Y' is not a commit and a branch 'X'
+/// cannot be created from it". Happens when the base branch was deleted or
+/// renamed on the remote after the branch list loaded (issue #692).
+fn is_missing_base_ref_error(stderr: &str) -> bool {
+    stderr.contains("is not a commit and a branch")
 }
 
 /// Git refusing `branch -D` because the branch is checked out in another
@@ -756,7 +778,7 @@ pub async fn delete_branch(
 
 #[cfg(test)]
 mod tests {
-    use super::is_worktree_delete_refusal;
+    use super::{is_missing_base_ref_error, is_worktree_delete_refusal};
 
     // The #562 shape: deleting a branch that another worktree has checked out.
     #[test]
@@ -770,6 +792,24 @@ mod tests {
         let stderr =
             "error: Cannot delete branch 'feature/x' checked out at '/Users/x/ShipStudio/proj'";
         assert!(is_worktree_delete_refusal(stderr));
+    }
+
+    // The #692 shape: creating a branch from a base whose remote ref is gone.
+    #[test]
+    fn missing_base_ref_error_matches_git_wording() {
+        let stderr = "fatal: 'origin/feature-x' is not a commit and a branch 'my-branch' cannot be created from it";
+        assert!(is_missing_base_ref_error(stderr));
+    }
+
+    #[test]
+    fn missing_base_ref_error_ignores_other_checkout_failures() {
+        assert!(!is_missing_base_ref_error(
+            "error: Your local changes to the following files would be overwritten by checkout"
+        ));
+        assert!(!is_missing_base_ref_error(
+            "fatal: a branch named 'my-branch' already exists"
+        ));
+        assert!(!is_missing_base_ref_error(""));
     }
 
     #[test]

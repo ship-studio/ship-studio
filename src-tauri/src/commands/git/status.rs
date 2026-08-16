@@ -28,6 +28,27 @@ fn truncate_stderr(stderr: &str) -> String {
     format!("{}…", &stderr[..cut])
 }
 
+/// Failure message for a non-zero `git status` exit. Git can die with a
+/// completely silent stderr (killed by the OS, exec-level failure) — the old
+/// unconditional `: {stderr}` suffix then produced "Failed to get git
+/// status: " with zero diagnostic signal (issue #682). Fall back to the exit
+/// code so telemetry always carries *something*.
+fn git_status_failure_message(stderr_trimmed: &str, exit_code: Option<i32>) -> String {
+    if stderr_trimmed.is_empty() {
+        return match exit_code {
+            Some(code) => format!("Failed to get git status (exit {code})"),
+            None => "Failed to get git status (terminated by signal)".to_string(),
+        };
+    }
+    // Include (truncated) stderr — a bare "Failed to get git status" is
+    // undiagnosable and buckets unrelated root causes under one
+    // fingerprint (issue #547, same class as #252).
+    format!(
+        "Failed to get git status: {}",
+        truncate_stderr(stderr_trimmed)
+    )
+}
+
 #[tauri::command]
 #[tracing::instrument(fields(project = %project_path))]
 pub async fn check_git_has_changes(project_path: String) -> Result<bool, CommandError> {
@@ -111,14 +132,7 @@ pub async fn get_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
             warn!(error = %stderr.trim(), "git blocked by an environment gap while getting status");
             return Err(gap);
         }
-        // Include (truncated) stderr — a bare "Failed to get git status" is
-        // undiagnosable and buckets unrelated root causes under one
-        // fingerprint (issue #547, same class as #252).
-        return Err((format!(
-            "Failed to get git status: {}",
-            truncate_stderr(stderr.trim())
-        ))
-        .into());
+        return Err(git_status_failure_message(stderr.trim(), output.status.code()).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -365,7 +379,7 @@ pub async fn reset_to_branch(project_path: String, branch: String) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_stderr;
+    use super::{git_status_failure_message, truncate_stderr};
 
     #[test]
     fn truncate_stderr_passes_short_text_through() {
@@ -388,5 +402,31 @@ mod tests {
         let long = "é".repeat(600);
         let out = truncate_stderr(&long);
         assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn status_failure_keeps_stderr_when_present() {
+        assert_eq!(
+            git_status_failure_message("fatal: bad object HEAD", Some(128)),
+            "Failed to get git status: fatal: bad object HEAD"
+        );
+    }
+
+    // The #682 shape: non-zero exit with a silent stderr must carry the exit
+    // code instead of trailing off after a colon.
+    #[test]
+    fn status_failure_falls_back_to_exit_code_when_stderr_is_empty() {
+        assert_eq!(
+            git_status_failure_message("", Some(128)),
+            "Failed to get git status (exit 128)"
+        );
+    }
+
+    #[test]
+    fn status_failure_names_signal_death_when_no_exit_code() {
+        assert_eq!(
+            git_status_failure_message("", None),
+            "Failed to get git status (terminated by signal)"
+        );
     }
 }

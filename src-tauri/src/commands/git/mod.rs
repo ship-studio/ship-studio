@@ -217,6 +217,19 @@ fn ensure_shipstudio_excluded(path: &std::path::Path) {
     );
 }
 
+/// A failed `git commit` whose stdout says the commit was a no-op. Git has
+/// three wordings for it: "nothing to commit", "…working tree clean", and —
+/// when entries are reported by `status --porcelain` but couldn't be staged —
+/// "no changes added to commit". The third shows up when `git add -A` skips
+/// an unstageable entry such as a nested git repository (issue #702); since
+/// `add -A` always runs immediately before the commit here, that wording can
+/// only mean unstageable entries, never "the user forgot to stage".
+fn is_commit_noop_stdout(stdout: &str) -> bool {
+    stdout.contains("nothing to commit")
+        || stdout.contains("working tree clean")
+        || stdout.contains("no changes added to commit")
+}
+
 /// Marker strings that identify a failed `git commit` as the project's own
 /// commit-hook chain refusing the commit (husky / lint-staged / the pre-commit
 /// framework), rather than git itself failing. Git contributes no wording of
@@ -326,7 +339,7 @@ pub fn git_stage_and_commit(path: &std::path::Path, message: &str) -> Result<boo
         // "nothing to commit" to *stdout* and leaves stderr blank — treat it as
         // the no-op it is instead of surfacing an empty error (issue #274).
         let stdout = String::from_utf8_lossy(&commit_output.stdout);
-        if stdout.contains("nothing to commit") || stdout.contains("working tree clean") {
+        if is_commit_noop_stdout(&stdout) {
             return Ok(false);
         }
         let stderr = String::from_utf8_lossy(&commit_output.stderr);
@@ -803,6 +816,27 @@ mod tests {
             ".shipstudio must not be staged, got: {listing}"
         );
         assert!(listing.contains("a.txt"));
+    }
+
+    // The #702 shape: `git add -A` can't stage a nested git repo, so the
+    // commit refuses with git's third no-op wording — must classify as a
+    // no-op alongside the two wordings #274 already covered.
+    #[test]
+    fn commit_noop_stdout_matches_all_three_git_wordings() {
+        assert!(is_commit_noop_stdout(
+            "On branch main\nnothing to commit, working tree clean"
+        ));
+        assert!(is_commit_noop_stdout(
+            "On branch main\nYour branch is up to date with 'origin/main'.\n\nnothing to commit, working tree clean"
+        ));
+        assert!(is_commit_noop_stdout(
+            "On branch main\nUntracked files:\n\t(use \"git add <file>...\" to include in what will be committed)\n\tnested-repo/\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")"
+        ));
+        // Genuine commit failures must NOT classify as no-ops.
+        assert!(!is_commit_noop_stdout(""));
+        assert!(!is_commit_noop_stdout(
+            "[main 1a2b3c4] my commit\n 1 file changed"
+        ));
     }
 
     // The #604 shape: husky → lint-staged → tsc/vitest output dumped verbatim

@@ -1096,13 +1096,13 @@ pub async fn delete_project(path: String) -> Result<(), CommandError> {
         message: format!("Couldn't resolve project path {path}: {e}"),
     })?;
 
-    // Check if this is an external project
+    // Check if this is an external project. A by-design guard with a
+    // user-side path forward, not a malfunction — Expected keeps it out of
+    // telemetry (issue #699).
     if crate::commands::external_projects::is_registered_external_path(&canonical)? {
-        return Err(
-            "Cannot delete external projects. Use 'Remove from Ship Studio' instead."
-                .to_string()
-                .into(),
-        );
+        return Err(CommandError::expected(
+            "Cannot delete external projects. Use 'Remove from Ship Studio' instead.",
+        ));
     }
 
     if !crate::utils::allowed_project_roots()
@@ -1280,13 +1280,13 @@ pub async fn rename_project(
     })?;
     let project_path = project_path.as_path();
 
-    // Reject external projects (their folders live outside ~/ShipStudio).
+    // Reject external projects (their folders live outside ~/ShipStudio). A
+    // by-design refusal with a user-side path forward, not a malfunction —
+    // Expected keeps it out of telemetry (issue #699).
     if crate::commands::external_projects::is_registered_external_path(project_path)? {
-        return Err(
-            "Renaming external projects isn't supported yet. Remove it from the list and re-add it under a new folder name."
-                .to_string()
-                .into(),
-        );
+        return Err(CommandError::expected(
+            "Renaming external projects isn't supported yet. Remove it from the list and re-add it under a new folder name.",
+        ));
     }
 
     // Must live inside an allowed projects root.
