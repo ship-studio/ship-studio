@@ -200,9 +200,12 @@ export function CompactWorkspace({
             const isCurrentProject = session.projectPath === currentProject.path;
             const isVisible = isCurrentProject && activeTerminalTab === tab.id;
             const refKey = `${session.projectPath}::${tab.id}`;
+            // Keyed by the tab's own sessionId (not the project-wide
+            // sessionEpoch) so restarting one tab doesn't remount siblings —
+            // see the identical key in WorkspaceView.
             return (
               <div
-                key={`session-${session.sessionEpoch}-${refKey}`}
+                key={`session-${refKey}-${tab.sessionId}`}
                 className={`terminal-tab-content ${isVisible ? 'active' : ''}`}
                 data-agent-id={tab.agentId}
               >
