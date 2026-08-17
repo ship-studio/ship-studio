@@ -90,6 +90,12 @@ struct Session {
     tab_session_id: Option<String>,
     alive: AtomicBool,
     attached: AtomicBool,
+    /// Set when the session is explicitly killed or evicted. The reader and
+    /// waiter threads stop emitting events once this is set, so a process
+    /// that survives the initial kill signal (Node CLIs can ignore SIGHUP)
+    /// can never interleave its output into a respawned session that reuses
+    /// the same session id.
+    closed: AtomicBool,
     exit_code: Mutex<Option<i32>>,
     buffer: Mutex<SessionBuffer>,
     writer: Mutex<Box<dyn std::io::Write + Send>>,
@@ -125,11 +131,32 @@ fn env_has_key(env: &BTreeMap<String, String>, key: &str) -> bool {
     env.keys().any(|k| k.eq_ignore_ascii_case(key))
 }
 
+/// After an overflow trim, the ring's front sits at an arbitrary byte —
+/// routinely inside an ANSI escape sequence or a multi-byte UTF-8 codepoint.
+/// Replaying that into a fresh xterm makes the parser eat the following
+/// printable text as escape parameters (visible corruption on re-attach).
+/// Advance the front to just past the next newline so the retained tail
+/// starts at a line boundary, bounded so a stream with no newlines (a
+/// repainting TUI can go long stretches without one) can't gut the ring.
+const RING_LINE_ALIGN_SCAN_MAX: usize = 4096;
+
+fn align_ring_front_to_line(ring: &mut VecDeque<u8>) {
+    let Some(nl) = ring
+        .iter()
+        .take(RING_LINE_ALIGN_SCAN_MAX)
+        .position(|&b| b == b'\n')
+    else {
+        return;
+    };
+    ring.drain(..=nl);
+}
+
 fn append_to_ring(ring: &mut VecDeque<u8>, bytes: &[u8]) {
     if bytes.len() >= RING_BUFFER_MAX {
         ring.clear();
         let start = bytes.len() - RING_BUFFER_MAX;
         ring.extend(bytes[start..].iter().copied());
+        align_ring_front_to_line(ring);
         return;
     }
     let overflow = ring
@@ -138,6 +165,9 @@ fn append_to_ring(ring: &mut VecDeque<u8>, bytes: &[u8]) {
         .saturating_sub(RING_BUFFER_MAX);
     for _ in 0..overflow {
         ring.pop_front();
+    }
+    if overflow > 0 {
+        align_ring_front_to_line(ring);
     }
     ring.extend(bytes.iter().copied());
 }
@@ -155,6 +185,15 @@ fn append_to_ring(ring: &mut VecDeque<u8>, bytes: &[u8]) {
 ///
 /// `carry` holds the previous chunk's tail so a query split across two reads
 /// is still seen — split queries were observed on the CI runner.
+///
+/// Windows-only at the call site: ConPTY is the only terminal layer that
+/// blocks on this handshake. On macOS/Linux a detached agent's `ESC[6n` is
+/// its TUI asking where the cursor is mid-render — answering with a
+/// fabricated "row 1, col 1" corrupts its redraw arithmetic, and if the
+/// agent wasn't awaiting a report at that instant the reply lands as
+/// literal keystrokes in its prompt (the "terminal renders messed up after
+/// switching projects" report).
+#[cfg_attr(not(windows), allow(dead_code))]
 fn handle_dsr_intercept(
     chunk: &[u8],
     carry: &mut Vec<u8>,
@@ -184,6 +223,12 @@ fn handle_dsr_intercept(
 pub struct OpenSessionResult {
     pub session_id: String,
     pub pid: u32,
+    /// True when this call spawned a new process; false when it re-attached
+    /// to an already-live session. The frontend arms its no-output startup
+    /// watchdog only for genuine spawns — an idle background agent produces
+    /// no output on re-attach, and killing it for that silence was the
+    /// "my chat died and restarted for no reason" bug.
+    pub spawned: bool,
 }
 
 #[derive(Serialize)]
@@ -243,9 +288,16 @@ pub async fn pty_session_open(
                 return Ok(OpenSessionResult {
                     session_id: session_id.clone(),
                     pid: existing.pid,
+                    spawned: false,
                 });
             }
-            map.remove(&session_id);
+            if let Some(stale) = map.remove(&session_id) {
+                // Silence the stale session's reader/waiter threads — they
+                // hold their own Arc<Session> and would otherwise keep
+                // emitting events under the id the fresh spawn is about to
+                // reuse.
+                stale.closed.store(true, Ordering::Relaxed);
+            }
         }
     }
 
@@ -341,6 +393,7 @@ pub async fn pty_session_open(
         tab_session_id: tab_session_id.clone(),
         alive: AtomicBool::new(true),
         attached: AtomicBool::new(false),
+        closed: AtomicBool::new(false),
         exit_code: Mutex::new(None),
         buffer: Mutex::new(SessionBuffer::new()),
         writer: Mutex::new(writer),
@@ -361,15 +414,32 @@ pub async fn pty_session_open(
         let app_for_reader = app.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
+            #[cfg(windows)]
             let mut dsr_carry: Vec<u8> = Vec::new();
             loop {
                 let n = match reader.read(&mut buf) {
                     Ok(0) => break, // EOF — child closed slave
                     Ok(n) => n,
+                    // EINTR is a transient signal interruption, not the end
+                    // of the stream — breaking here permanently silenced a
+                    // live terminal (alive stays true, no exit event, the
+                    // UI just never prints again).
+                    Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                     Err(_) => break,
                 };
+                // Killed/evicted: stop emitting under this session id. A
+                // fresh spawn may be reusing it, and interleaving a SIGHUP
+                // survivor's bytes into the new xterm corrupts its output.
+                if session_for_reader.closed.load(Ordering::Relaxed) {
+                    break;
+                }
                 let chunk = &buf[..n];
 
+                // ConPTY blocks pumping child output until its cursor-position
+                // query is answered — Windows only. Other platforms must NOT
+                // fabricate reports into a detached agent's stdin (see
+                // `handle_dsr_intercept`).
+                #[cfg(windows)]
                 handle_dsr_intercept(
                     chunk,
                     &mut dsr_carry,
@@ -421,13 +491,20 @@ pub async fn pty_session_open(
             if let Ok(mut slot) = session_for_waiter.exit_code.lock() {
                 *slot = Some(code);
             }
-            let _ = app_for_waiter.emit(
-                "pty-session-exit",
-                serde_json::json!({
-                    "sessionId": session_id_for_waiter,
-                    "exitCode": code,
-                }),
-            );
+            // An explicitly killed/evicted session must not announce its
+            // (possibly seconds-late, if the kill had to escalate) death
+            // under a session id a fresh spawn may already be using — the
+            // frontend would read it as the NEW process exiting and show a
+            // spurious "[Process exited]" prompt.
+            if !session_for_waiter.closed.load(Ordering::Relaxed) {
+                let _ = app_for_waiter.emit(
+                    "pty-session-exit",
+                    serde_json::json!({
+                        "sessionId": session_id_for_waiter,
+                        "exitCode": code,
+                    }),
+                );
+            }
         });
     }
 
@@ -438,7 +515,32 @@ pub async fn pty_session_open(
         project_path
     );
 
-    Ok(OpenSessionResult { session_id, pid })
+    Ok(OpenSessionResult {
+        session_id,
+        pid,
+        spawned: true,
+    })
+}
+
+/// Force-kill by PID: `kill -9` on Unix, `taskkill /F /T` (tree kill) on
+/// Windows — the same shapes `kill_all_sessions_sync` uses, because the
+/// stored `ChildKiller` terminates only the direct child.
+fn force_kill_pid(pid: u32) {
+    if pid == 0 {
+        // Unknown pid — and `kill -9 0` would signal our own process group.
+        return;
+    }
+    let pid = pid.to_string();
+
+    #[cfg(unix)]
+    let _ = crate::utils::create_command("kill")
+        .args(["-9", &pid])
+        .output();
+
+    #[cfg(windows)]
+    let _ = crate::utils::create_command("taskkill")
+        .args(["/F", "/T", "/PID", &pid])
+        .output();
 }
 
 #[tauri::command]
@@ -552,6 +654,9 @@ pub fn pty_session_kill(session_id: String) -> Result<(), CommandError> {
     let Some(session) = session else {
         return Ok(());
     };
+    // Stop the reader/waiter threads from emitting any further events under
+    // this id BEFORE signalling the process — a respawn may reuse the id.
+    session.closed.store(true, Ordering::Relaxed);
     {
         let mut killer = session
             .child_killer
@@ -559,7 +664,27 @@ pub fn pty_session_kill(session_id: String) -> Result<(), CommandError> {
             .map_err(|e| format!("killer lock poisoned: {e}"))?;
         let _ = killer.kill();
     }
-    session.alive.store(false, Ordering::Relaxed);
+    // portable_pty's Unix ChildKiller sends a single bare SIGHUP with no
+    // escalation and no verification — Node-based agent CLIs can ignore it
+    // and survive as invisible orphans (already popped from the registry)
+    // burning CPU and, for agents, tokens. Verify death in the background
+    // via the waiter thread's `alive` flag and escalate to a hard kill.
+    // The command itself returns immediately.
+    std::thread::spawn(move || {
+        for _ in 0..15 {
+            if !session.alive.load(Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if session.pid != 0 {
+            tracing::warn!(
+                "[pty_session] pid {} survived kill signal for 1.5s — force-killing",
+                session.pid
+            );
+            force_kill_pid(session.pid);
+        }
+    });
     Ok(())
 }
 
@@ -582,18 +707,8 @@ pub fn kill_all_sessions_sync() -> u32 {
         if !session.alive.load(Ordering::Relaxed) {
             continue;
         }
-        let pid = session.pid.to_string();
-
-        #[cfg(unix)]
-        let _ = crate::utils::create_command("kill")
-            .args(["-9", &pid])
-            .output();
-
-        #[cfg(windows)]
-        let _ = crate::utils::create_command("taskkill")
-            .args(["/F", "/T", "/PID", &pid])
-            .output();
-
+        session.closed.store(true, Ordering::Relaxed);
+        force_kill_pid(session.pid);
         session.alive.store(false, Ordering::Relaxed);
         count += 1;
     }
@@ -716,6 +831,55 @@ mod tests {
         append_to_ring(&mut ring, &huge);
         assert_eq!(ring.len(), RING_BUFFER_MAX);
         assert!(ring.iter().all(|&b| b == b'q'));
+    }
+
+    #[test]
+    fn ring_overflow_trim_realigns_front_to_line_boundary() {
+        let mut ring = VecDeque::new();
+        // Fill the ring exactly with 64-byte lines (63 x's + \n).
+        let mut payload = Vec::new();
+        while payload.len() < RING_BUFFER_MAX {
+            payload.extend_from_slice(&[b'x'; 63]);
+            payload.push(b'\n');
+        }
+        append_to_ring(&mut ring, &payload);
+        // Overflow by 5 bytes: a naive trim leaves the front 5 bytes into a
+        // line; the aligned trim must advance to the start of the next line.
+        append_to_ring(&mut ring, b"tail!");
+        let first_nl = ring
+            .iter()
+            .position(|&b| b == b'\n')
+            .expect("ring should retain newlines");
+        assert_eq!(first_nl, 63, "front must sit at a line start");
+        let tail: Vec<u8> = ring.iter().rev().take(5).rev().copied().collect();
+        assert_eq!(&tail, b"tail!");
+    }
+
+    #[test]
+    fn oversized_write_tail_realigns_front_to_line_boundary() {
+        let mut ring = VecDeque::new();
+        // 5-byte prefix pushes the naive keep-the-tail cut point mid-line.
+        let mut huge = b"abcde".to_vec();
+        while huge.len() < RING_BUFFER_MAX + 1000 {
+            huge.extend_from_slice(&[b'x'; 63]);
+            huge.push(b'\n');
+        }
+        append_to_ring(&mut ring, &huge);
+        let first_nl = ring
+            .iter()
+            .position(|&b| b == b'\n')
+            .expect("ring should retain newlines");
+        assert_eq!(first_nl, 63, "front must sit at a line start");
+    }
+
+    #[test]
+    fn newline_free_stream_is_not_gutted_by_line_alignment() {
+        // A repainting TUI can emit long runs with no newline at all — the
+        // bounded scan must give up rather than drain the ring.
+        let mut ring = VecDeque::new();
+        append_to_ring(&mut ring, &vec![b'a'; RING_BUFFER_MAX]);
+        append_to_ring(&mut ring, b"XYZ");
+        assert_eq!(ring.len(), RING_BUFFER_MAX);
     }
 
     #[test]

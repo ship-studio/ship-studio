@@ -53,7 +53,7 @@ import { asCommandError, formatCommandError } from '../../lib/errors';
 import { isPointInRect, dropPointToLogical } from '../../lib/dropTarget';
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { attachedLibraryDirs } from '../../lib/attached-libraries';
-import { decideStartupTimeoutAction } from './startupWatchdog';
+import { decideStartupTimeoutAction, shouldArmStartupWatchdog } from './startupWatchdog';
 import type { AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
@@ -487,6 +487,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       textarea.addEventListener('blur', onTextareaBlur);
     }
 
+    // True while an attach snapshot is replaying through xterm's parser.
+    // Replayed titles / OSC-9 sequences are history, not news — letting
+    // them fire status callbacks replays hours of "thinking"/"done" flips
+    // (sounds, badges) on every remount. lastStatusRef still tracks them
+    // so the post-replay state is correct.
+    let suppressReplaySignals = false;
+
     // Listen for terminal title changes to detect agent's status
     // Claude Code updates the terminal title with icons:
     // - Dot (· char ~10242/10256) when thinking/processing
@@ -532,7 +539,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // Only fire callback if status actually changed
         if (status !== lastStatusRef.current) {
           lastStatusRef.current = status;
-          onStatusChangeRef.current?.(status, title);
+          if (!suppressReplaySignals) onStatusChangeRef.current?.(status, title);
         }
       }
     });
@@ -546,7 +553,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // the thinking→waiting transition used for title-based detection.
         if (lastStatusRef.current !== 'waiting') {
           lastStatusRef.current = 'waiting';
-          onStatusChangeRef.current?.('waiting', '');
+          if (!suppressReplaySignals) onStatusChangeRef.current?.('waiting', '');
         }
         return true;
       });
@@ -790,8 +797,18 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           agent: agent.id,
           sessionId: backendSessionId,
           pid: opened.pid,
+          spawned: opened.spawned,
         });
         onSpawnRef.current?.(opened.pid);
+
+        // The ResizeObserver below silently drops ticks that fire while
+        // ptyRef is still null — and the open is several awaits deep, so
+        // layout that settled during it (sidebar animation, split panes
+        // applying) would leave the PTY at its spawn-time size until some
+        // unrelated resize. One authoritative resize now supersedes
+        // anything that was dropped.
+        fitAddon.fit();
+        resizePtySessionLogged(backendSessionId, term.cols, term.rows);
 
         // Subscribe BEFORE attaching. Tauri drops events that fire with no
         // registered listener, so the old attach-then-subscribe order lost
@@ -967,7 +984,33 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         if (attach.buffer.length > 0) {
           // Replay ring-buffer tail so a newly-attached xterm shows prior
           // output (critical for project switches back to a background tab).
-          terminalRef.current?.write(attach.buffer);
+          //
+          // The replay is AWAITED (xterm parses its write queue async) and
+          // the input pipe (term.onData, registered below) does not exist
+          // yet while it parses. That ordering is load-bearing: the
+          // replayed bytes contain the agent's old terminal queries (DSR
+          // cursor-position, Device Attributes), xterm auto-answers them
+          // during parsing, and with input live those stale reports would
+          // be written into the running agent's stdin — junk keystrokes in
+          // the prompt and corrupted TUI redraws on every re-attach.
+          // Status/OSC-9 signals are suppressed for the same reason: the
+          // replay is history, not news.
+          const statusBeforeReplay = lastStatusRef.current;
+          suppressReplaySignals = true;
+          const t = terminalRef.current;
+          if (t) {
+            // Full reset first: clears the loading banner so the replay's
+            // absolute cursor positioning lands on the rows it was
+            // recorded against, and resets any half-applied modes.
+            t.write('\x1bc');
+            await new Promise<void>((resolve) => t.write(attach.buffer, resolve));
+          }
+          suppressReplaySignals = false;
+          if (!mounted) return;
+          if (lastStatusRef.current !== statusBeforeReplay) {
+            // Sync the tab badge to the replay's final state in one step.
+            onStatusChangeRef.current?.(lastStatusRef.current, '');
+          }
         }
         // Open the gate: flush queued live chunks, dropping the ones the
         // snapshot already covers (offset < endOffset).
@@ -980,57 +1023,69 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // "create a new agent tab", i.e. a fresh PTY — so kill the silent
         // session and respawn once with the same config. Only if the
         // respawn is also silent do we surface the error text.
-        startupTimeout = setTimeout(() => {
-          const action = decideStartupTimeoutAction({ receivedOutput, mounted, autoRespawnUsed });
-          if (action === 'none') return;
+        //
+        // Armed ONLY for genuine spawns. Re-attaching to a live background
+        // session must never arm it: an idle agent sitting at its prompt
+        // emits nothing for 10s as a matter of course, and killing it for
+        // that silence destroyed healthy chats on every project switch.
+        if (
+          shouldArmStartupWatchdog({
+            spawned: opened.spawned,
+            alive: attach.alive,
+            snapshotLength: attach.buffer.length,
+          })
+        ) {
+          startupTimeout = setTimeout(() => {
+            const action = decideStartupTimeoutAction({ receivedOutput, mounted, autoRespawnUsed });
+            if (action === 'none') return;
 
-          if (action === 'respawn') {
-            autoRespawnUsed = true;
-            logger.warn('[Terminal] No output after 10s - killing silent PTY and respawning', {
+            if (action === 'respawn') {
+              autoRespawnUsed = true;
+              logger.warn('[Terminal] No output after 10s - killing silent PTY and respawning', {
+                agent: agent.id,
+                binary: agent.binaryName,
+                sessionId: backendSessionId,
+              });
+              terminalRef.current?.write(
+                `\r\n\x1b[33mNo output — restarting ${agent.displayName}…\x1b[0m\r\n`
+              );
+              // Unsubscribe from the silent session BEFORE killing it so the
+              // kill-induced exit event can't trigger the "[Process exited]"
+              // prompt or the resume-retry path.
+              for (const d of ptyDisposablesRef.current) {
+                try {
+                  d.dispose();
+                } catch {
+                  /* ignore */
+                }
+              }
+              ptyDisposablesRef.current = [];
+              ptyRef.current = null;
+              void killPtySession(backendSessionId)
+                .catch(() => {
+                  /* already dead — open will spawn fresh either way */
+                })
+                .then(() => {
+                  // Grace period so the killed PTY's teardown settles before
+                  // the respawned run reuses the session id.
+                  respawnTimer = setTimeout(() => {
+                    if (mounted) void setupPty(0);
+                  }, 500);
+                });
+              return;
+            }
+
+            logger.error('[Terminal] Startup timeout - no output after 10s', {
               agent: agent.id,
               binary: agent.binaryName,
-              sessionId: backendSessionId,
             });
             terminalRef.current?.write(
-              `\r\n\x1b[33mNo output — restarting ${agent.displayName}…\x1b[0m\r\n`
+              `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
+                `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
             );
-            // Unsubscribe from the silent session BEFORE killing it so the
-            // kill-induced exit event can't trigger the "[Process exited]"
-            // prompt or the resume-retry path.
-            for (const d of ptyDisposablesRef.current) {
-              try {
-                d.dispose();
-              } catch {
-                /* ignore */
-              }
-            }
-            ptyDisposablesRef.current = [];
-            ptyRef.current = null;
-            void killPtySession(backendSessionId)
-              .catch(() => {
-                /* already dead — open will spawn fresh either way */
-              })
-              .then(() => {
-                // Grace period so the killed PTY's exit event (same session
-                // id) is delivered before the respawned run subscribes —
-                // otherwise it would look like the new process exiting.
-                respawnTimer = setTimeout(() => {
-                  if (mounted) void setupPty(0);
-                }, 500);
-              });
-            return;
-          }
-
-          logger.error('[Terminal] Startup timeout - no output after 10s', {
-            agent: agent.id,
-            binary: agent.binaryName,
-          });
-          terminalRef.current?.write(
-            `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
-              `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
-          );
-        }, 10_000);
-        startupTimer = startupTimeout;
+          }, 10_000);
+          startupTimer = startupTimeout;
+        }
 
         if (pendingExit !== null) {
           // The process exited while the snapshot was in flight — run the
@@ -1038,9 +1093,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           handleExit(pendingExit);
         } else if (!attach.alive && !exitEventSeen) {
           // Session already exited before we subscribed (the exit event
-          // predates this attach cycle and was dropped by Tauri). Treat as
-          // a normal exit so the retry-on-resume-fail path can kick in.
-          onExitRef.current?.(attach.exitCode ?? -1);
+          // predates this attach cycle and was dropped by Tauri). Route
+          // through the full exit path: the resume-retry can kick in, and
+          // offerRestart() prints the restart prompt and guards keystrokes.
+          // (Previously this branch skipped offerRestart, leaving a
+          // dead-looking-alive tab that silently swallowed input.)
+          handleExit(attach.exitCode ?? -1);
         }
 
         // Dismiss the first-run hint on the user's first real keystroke — and

@@ -35,6 +35,10 @@ export interface OpenPtySessionArgs {
 export interface OpenPtySessionResult {
   sessionId: string;
   pid: number;
+  /** True when this open spawned a new process; false when it re-attached
+   *  to an already-live backend session. Gates the startup watchdog — only
+   *  a genuine spawn can be "silent"; an idle background agent is not. */
+  spawned: boolean;
 }
 
 export interface AttachPtySessionResult {

@@ -35,3 +35,28 @@ export function decideStartupTimeoutAction(state: StartupTimeoutState): StartupT
   if (state.receivedOutput || !state.mounted) return 'none';
   return state.autoRespawnUsed ? 'error' : 'respawn';
 }
+
+export interface StartupWatchdogArmState {
+  /** True when `pty_session_open` actually spawned a new process this call
+   *  (false = re-attached to an already-live backend session). */
+  spawned: boolean;
+  /** Liveness reported by the attach snapshot. */
+  alive: boolean;
+  /** Byte length of the attach snapshot replayed into xterm. */
+  snapshotLength: number;
+}
+
+/**
+ * Should the no-output startup watchdog be armed at all for this mount?
+ *
+ * Only for a genuine spawn that hasn't produced a byte yet and is still
+ * alive. The watchdog exists for issue #158's spawned-but-silent PTY; it
+ * must NEVER arm on a re-attach to a live background session — an idle
+ * agent sitting at its prompt emits nothing for 10s as a matter of course,
+ * and killing it for that silence destroyed healthy chats on every
+ * project switch / remount ("my chat died and restarted for no reason").
+ * A dead session is the exit path's job, not the watchdog's.
+ */
+export function shouldArmStartupWatchdog(state: StartupWatchdogArmState): boolean {
+  return state.spawned && state.alive && state.snapshotLength === 0;
+}

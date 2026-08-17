@@ -1312,9 +1312,13 @@ export const WorkspaceView = memo(function WorkspaceView({
                               // visibility-based hide (position: absolute + visibility: hidden).
                               // `display: none` would zero out xterm's container dims and leave
                               // the renderer desynced when the tab became visible again.
+                              // Keyed by the tab's own sessionId: restart /
+                              // agent-switch mint a new one, remounting only
+                              // THAT tab (the old project-wide sessionEpoch
+                              // key remounted every sibling as collateral).
                               return (
                                 <div
-                                  key={`session-${session.sessionEpoch}-${refKey}`}
+                                  key={`session-${refKey}-${tab.sessionId}`}
                                   className={`terminal-tab-content ${isVisible ? 'active' : ''}${
                                     inSplitPane ? ' in-pane' : ''
                                   }`}
