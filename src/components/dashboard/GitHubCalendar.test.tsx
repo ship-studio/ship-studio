@@ -16,22 +16,43 @@ import { GitHubCalendar } from './GitHubCalendar';
 
 const libState = vi.hoisted(() => ({ shouldThrow: false }));
 
-vi.mock('react-github-calendar', () => ({
-  // Mirrors the real library: it hands the fetched contributions to
-  // transformData during render, then renders the calendar — which validates
-  // the data and can throw in that same render pass.
-  GitHubCalendar: ({
-    transformData,
-  }: {
-    transformData: (data: Array<{ date: string; count: number; level: 0 }>) => unknown;
-  }) => {
-    transformData([]);
-    if (libState.shouldThrow) {
-      throw new Error('Activity data must not be empty.');
-    }
-    return <div data-testid="calendar-graph" />;
-  },
-}));
+// A contributions payload shaped like the real API's: the failing case mirrors
+// the empty list GitHub returns for accounts with no public contributions,
+// which is exactly what makes the library throw.
+const CONTRIBUTIONS = [{ date: '2026-01-01', count: 1, level: 1 as const }];
+
+vi.mock('react-github-calendar', async () => {
+  const { useState, useEffect } = await import('react');
+
+  // Mirrors the real library's ordering: it renders nothing while fetching,
+  // then — once the request resolves — hands the contributions to transformData
+  // *during* the render that follows, and validates them in that same pass.
+  // The async arrival matters: it lands after the parent's mount effects, which
+  // is what lets the parent's dataLoaded flag stick.
+  return {
+    GitHubCalendar: ({
+      transformData,
+    }: {
+      transformData: (
+        data: Array<{ date: string; count: number; level: 0 | 1 | 2 | 3 | 4 }>
+      ) => unknown;
+    }) => {
+      const [data, setData] = useState<typeof CONTRIBUTIONS | null>(null);
+
+      useEffect(() => {
+        setData(libState.shouldThrow ? [] : CONTRIBUTIONS);
+      }, []);
+
+      if (!data) return null;
+
+      transformData(data);
+      if (libState.shouldThrow) {
+        throw new Error('Activity data must not be empty.');
+      }
+      return <div data-testid="calendar-graph" />;
+    },
+  };
+});
 
 describe('GitHubCalendar', () => {
   beforeEach(() => {
@@ -47,7 +68,13 @@ describe('GitHubCalendar', () => {
   it('renders the calendar when the contribution data is valid', async () => {
     render(<GitHubCalendar username="octocat" isAuthenticated isAuthCheckDone />);
 
-    expect(await screen.findByTestId('calendar-graph')).toBeTruthy();
+    const graph = await screen.findByTestId('calendar-graph');
+    expect(graph).toBeTruthy();
+    // Valid data reaching transformData flips the widget out of its skeleton
+    // state, so the calendar is actually visible rather than merely mounted.
+    await waitFor(() => {
+      expect(graph.parentElement?.style.display).toBe('block');
+    });
   });
 
   it('hides itself instead of crashing when the calendar throws', async () => {
