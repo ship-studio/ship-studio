@@ -15,7 +15,12 @@ import { publishBranch, discardChanges, switchBranch } from '../../lib/branches'
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  humanizeGitError,
+  isRecognizedGitFailure,
+} from '../../lib/errors';
 
 interface UnsavedChangesModalProps {
   /** Current branch name */
@@ -38,7 +43,8 @@ export function UnsavedChangesModal({
   onClose,
 }: UnsavedChangesModalProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+  const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
+    showToast(message, type);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
 
@@ -68,7 +74,11 @@ export function UnsavedChangesModal({
         onToast?.(result.error || 'Failed to switch branch', 'error');
       }
     } catch (e) {
-      onToast?.(`Failed to publish: ${formatCommandError(asCommandError(e))}`, 'error');
+      if (isRecognizedGitFailure(e, { branch: currentBranch })) {
+        onToast?.(humanizeGitError(e, { branch: currentBranch }), 'info');
+      } else {
+        onToast?.(`Failed to publish: ${formatCommandError(asCommandError(e))}`, 'error');
+      }
     } finally {
       setIsPublishing(false);
     }
@@ -87,7 +97,11 @@ export function UnsavedChangesModal({
         onToast?.(result.error || 'Failed to switch branch', 'error');
       }
     } catch (e) {
-      onToast?.(`Failed to discard changes: ${formatCommandError(asCommandError(e))}`, 'error');
+      if (isRecognizedGitFailure(e, { branch: currentBranch })) {
+        onToast?.(humanizeGitError(e, { branch: currentBranch }), 'info');
+      } else {
+        onToast?.(`Failed to discard changes: ${formatCommandError(asCommandError(e))}`, 'error');
+      }
     } finally {
       setIsDiscarding(false);
     }
