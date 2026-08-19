@@ -40,7 +40,7 @@ Every PR runs these checks in CI. Run them locally first and your PR will
 pass on the first try:
 
 ```bash
-pnpm check:all     # typecheck + lint + prettier + rustfmt + clippy + pattern & LOC checks
+pnpm check:all     # config integrity + typecheck + lint + prettier + rustfmt + clippy + pattern & LOC checks
 pnpm test:run      # frontend tests (Vitest)
 pnpm rust:test     # backend tests (cargo test)
 ```
@@ -57,8 +57,14 @@ Notes:
   use instead.
 - `check:loc` enforces per-file line ceilings; if you hit one, split the file
   rather than raising the limit.
-- Frontend coverage thresholds are enforced in CI — add tests for non-trivial
-  logic.
+- `check:config` (`scripts/check-config-integrity.sh`) scans high-trust config
+  and workflow files for anomalously long lines — a guard rail against the
+  config-file injection class. CI runs it as its own job with no dependencies
+  installed, gating every other job, so it fails before anything else does.
+- Frontend coverage thresholds are enforced by a separate CI step that none of
+  the three commands above run. Use `pnpm test:coverage` to see where you
+  stand; the exact floor lives in the "Coverage floor" step of
+  [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Project Architecture
 
