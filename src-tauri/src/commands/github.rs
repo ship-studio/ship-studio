@@ -527,7 +527,12 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
         ])
         .current_dir(&validated_path);
     // Longer timeout: create+push can take a while for bigger repos.
-    let output = run_command_with_timeout(gh_cmd, "gh repo create --push", 60).await?;
+    let output = match run_command_with_timeout(gh_cmd, "gh repo create --push", 60).await {
+        Err(CommandError::Timeout { .. }) => {
+            return Err(CommandError::expected(GH_TIMEOUT_MESSAGE))
+        }
+        other => other?,
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
