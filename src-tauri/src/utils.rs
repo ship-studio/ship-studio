@@ -588,6 +588,13 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
 ///   ERROR_WRITE_PROTECT os error 19): the volume itself refuses writes —
 ///   e.g. a project opened off a read-only disk image or locked SD card
 ///   (issue #625).
+/// - Unix `EACCES` (os error 13, "Permission denied"): ordinary filesystem
+///   ownership/mode, not TCC — often a folder owned by another user after a
+///   `sudo` install. Same treatment `opencode_config_save` already gave it in
+///   #471, shared here for every call site (issue #832).
+/// - `ETIMEDOUT` (Unix os error 60): the file lives on a cloud-sync provider
+///   (Google Drive / OneDrive / Dropbox / iCloud) whose daemon didn't
+///   materialize it in time — environment friction, not corruption (#758).
 ///
 /// Anything else stays a labeled `Io` for diagnosability.
 pub fn classify_fs_error(
@@ -614,6 +621,27 @@ pub fn classify_fs_error(
         crate::errors::CommandError::expected(format!(
             "Ship Studio couldn't {action} ({}) — the disk or volume is read-only. Move \
              the project to a writable location, then try again.",
+            path.display()
+        ))
+    } else if cfg!(unix) && e.raw_os_error() == Some(13) {
+        // EACCES is ordinary ownership/permissions (often a folder left owned
+        // by root after a `sudo` install), not a malfunction — give the fix and
+        // skip telemetry, matching `opencode_config_save`'s #471 treatment.
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio isn't allowed to {action} ({}) — permission denied. The file or \
+             folder is likely owned by another user. In a terminal, run: \
+             sudo chown -R $(whoami) \"{}\" — then try again.",
+            path.display(),
+            path.display()
+        ))
+    } else if e.kind() == std::io::ErrorKind::TimedOut {
+        // A read/write that times out (macOS ETIMEDOUT, os error 60) means a
+        // cloud-sync provider's file-provider daemon didn't materialize the
+        // file in time. Environment friction, not corruption (issue #758).
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio timed out trying to {action} ({}). The folder looks like it's on a \
+             cloud drive (Google Drive, OneDrive, Dropbox, iCloud) that's still syncing — \
+             wait for sync to finish and try again, or keep the project on your local disk.",
             path.display()
         ))
     } else {
@@ -986,13 +1014,35 @@ pub fn normalize_separators(path: &str) -> String {
 /// from ~20 canonicalize sites and is untraceable from telemetry (issue #284).
 /// Including the path is safe: error reports scrub home directories before
 /// anything leaves the machine.
+///
+/// A `NotFound` is retried a couple of times with a short backoff first: on
+/// SMB/NAS shares and mapped network drives a directory another process just
+/// created can transiently fail to resolve, which surfaced as a spurious
+/// "folder no longer exists" right after a successful clone (issue #841). The
+/// retries only run on the path that was already about to fail, so a folder
+/// that really is gone costs at most a few hundred extra milliseconds.
 pub fn canonicalize_tagged(
     path: impl AsRef<std::path::Path>,
     site: &str,
 ) -> Result<std::path::PathBuf, crate::errors::CommandError> {
     let path = path.as_ref();
-    dunce::canonicalize(path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
+    let mut result = dunce::canonicalize(path);
+    for delay_ms in [40, 120] {
+        match &result {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                result = dunce::canonicalize(path);
+            }
+            _ => break,
+        }
+    }
+    result.map_err(|e| {
+        if let Some(exhausted) = crate::errors::windows_out_of_memory(&e, None) {
+            // Windows resource exhaustion (os error 1450/1455) reaching a plain
+            // canonicalize is an environment condition, not an invalid path —
+            // don't dress it up as one, and keep it out of telemetry (#783).
+            exhausted
+        } else if e.kind() == std::io::ErrorKind::NotFound {
             // A folder disappearing out from under the app — deleted, renamed,
             // or moved in Finder/Explorer — is an environment change, not a
             // malfunction: say so plainly and keep it out of telemetry
@@ -1547,6 +1597,26 @@ mod tests {
                 }
             }
         }
+
+        // #841: the NotFound retry must not delay (or change) the success path,
+        // and must stay bounded on the failure path.
+        #[test]
+        fn existing_folder_resolves_without_retrying() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let started = std::time::Instant::now();
+            let resolved = canonicalize_tagged(tmp.path(), "test_site").unwrap();
+            assert!(resolved.exists());
+            assert!(started.elapsed() < std::time::Duration::from_millis(40));
+        }
+
+        #[test]
+        fn missing_folder_retry_stays_bounded() {
+            let tmp = tempfile::TempDir::new().unwrap();
+            let gone = tmp.path().join("vanished-project");
+            let started = std::time::Instant::now();
+            let _ = canonicalize_tagged(&gone, "test_site").unwrap_err();
+            assert!(started.elapsed() < std::time::Duration::from_millis(800));
+        }
     }
 
     mod classify_fs_errors {
@@ -1606,6 +1676,46 @@ mod tests {
             );
             let msg = err.to_string();
             assert!(msg.contains("denied access"), "got: {msg}");
+            assert!(msg.contains("project.json"), "got: {msg}");
+        }
+
+        // The #832 shape: EACCES writing project.json (folder owned by another
+        // user, e.g. left root-owned by a sudo install).
+        #[test]
+        #[cfg(unix)]
+        fn unix_eacces_becomes_expected_with_chown_remediation() {
+            let e = std::io::Error::from_raw_os_error(13);
+            let err = classify_fs_error(
+                "write project metadata",
+                std::path::Path::new("/p/.shipstudio/project.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("permission denied"), "got: {msg}");
+            assert!(msg.contains("chown"), "got: {msg}");
+            assert!(!msg.contains("os error"), "got: {msg}");
+        }
+
+        // The #758 shape: ETIMEDOUT reading a project.json that Google Drive's
+        // file provider never materialized.
+        #[test]
+        fn cloud_drive_timeout_becomes_expected() {
+            let e = std::io::Error::new(std::io::ErrorKind::TimedOut, "Operation timed out");
+            let err = classify_fs_error(
+                "read project metadata",
+                std::path::Path::new("/Users/x/Library/CloudStorage/GoogleDrive/p/project.json"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("cloud drive"), "got: {msg}");
             assert!(msg.contains("project.json"), "got: {msg}");
         }
 

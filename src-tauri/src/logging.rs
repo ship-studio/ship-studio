@@ -136,28 +136,48 @@ fn get_log_dir() -> PathBuf {
 pub fn init_logging() -> Result<(), String> {
     let log_dir = get_log_dir();
 
-    // Create log directory if it doesn't exist
-    std::fs::create_dir_all(&log_dir)
-        .map_err(|e| format!("Failed to create log directory: {e}"))?;
+    // File logging is best-effort: a full disk (or a log directory we can't
+    // create or open) must not take the whole app down at startup. Both the
+    // directory creation and the appender build used to abort — the appender
+    // via `rolling::daily`'s internal panic — leaving the user with a crash
+    // instead of a running app (issue #827). Fall back to no file layer; Sentry
+    // and admin-agent reporting below still work.
+    let file_writer = match std::fs::create_dir_all(&log_dir).and_then(|()| {
+        tracing_appender::rolling::Builder::new()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("ship-studio.log")
+            .build(&log_dir)
+            .map_err(std::io::Error::other)
+    }) {
+        Ok(appender) => {
+            let (non_blocking, guard) = tracing_appender::non_blocking(appender);
+            // Store the guard to keep the writer alive
+            LOG_GUARD
+                .set(guard)
+                .map_err(|_| "Logging already initialized")?;
+            Some(non_blocking)
+        }
+        Err(e) => {
+            eprintln!(
+                "Ship Studio: file logging disabled ({}): {e}",
+                log_dir.display()
+            );
+            None
+        }
+    };
 
-    // Set up file appender with daily rotation
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "ship-studio.log");
-    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-
-    // Store the guard to keep the writer alive
-    LOG_GUARD
-        .set(guard)
-        .map_err(|_| "Logging already initialized")?;
-
-    // Create the file layer with JSON formatting
-    let file_layer = fmt::layer()
-        .json()
-        .with_writer(non_blocking)
-        .with_span_events(FmtSpan::CLOSE)
-        .with_current_span(true)
-        .with_target(true)
-        .with_file(true)
-        .with_line_number(true);
+    // Create the file layer with JSON formatting. `Option<Layer>` is itself a
+    // layer, so the disabled case is a no-op rather than a separate build path.
+    let file_layer = file_writer.map(|writer| {
+        fmt::layer()
+            .json()
+            .with_writer(writer)
+            .with_span_events(FmtSpan::CLOSE)
+            .with_current_span(true)
+            .with_target(true)
+            .with_file(true)
+            .with_line_number(true)
+    });
 
     // Create environment filter
     // Default to info level, can be overridden with RUST_LOG env var

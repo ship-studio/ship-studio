@@ -88,22 +88,51 @@ const TOOL_ITEMS: &[&str] = &[
 
 // ============ App State Persistence (shared helpers) ============
 
-/// Read the persisted app state
+/// Read the persisted app state, falling back to defaults if it can't be read.
+///
+/// Read-only callers can use this directly. Anything doing read-modify-write
+/// must go through [`try_read_app_state`] instead — see its doc comment.
 pub fn read_app_state() -> AppState {
+    try_read_app_state().unwrap_or_else(|e| {
+        // Not `error!`: an unreadable state file is an environment condition
+        // (the file is transiently locked, the disk is busy), and this path
+        // already degrades safely to defaults for read-only callers (#756).
+        tracing::warn!("Failed to read app state file, using defaults: {e}");
+        AppState::default()
+    })
+}
+
+/// Read the persisted app state, distinguishing "nothing saved yet" (`Ok` with
+/// defaults) from "couldn't read what's saved" (`Err`).
+///
+/// A transient read failure — Windows ERROR_NO_SYSTEM_RESOURCES (os error 1450)
+/// was the reported one — used to silently yield `AppState::default()`, which
+/// the read-modify-write call sites then persisted straight over an intact
+/// file, wiping workspaces/accounts/setup flags. Those call sites must abort
+/// the write instead (issue #756). A single retry absorbs the transient case.
+///
+/// A *parse* failure is not an error here: it keeps its existing best-effort
+/// partial recovery, which is strictly better than refusing to write forever.
+pub fn try_read_app_state() -> Result<AppState, std::io::Error> {
     let path = state::get_app_state_path();
     if !path.exists() {
-        return AppState::default();
+        return Ok(AppState::default());
     }
 
     let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Failed to read app state file: {e}");
-            return AppState::default();
+        Err(first) => {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                // Report the original error: the retry's may be a different
+                // (less informative) symptom of the same condition.
+                Err(_) => return Err(first),
+            }
         }
     };
 
-    match serde_json::from_str::<AppState>(&raw) {
+    Ok(match serde_json::from_str::<AppState>(&raw) {
         Ok(state) => state,
         Err(e) => {
             // Log the parse failure so it's visible in ~/Library/Logs/ShipStudio/
@@ -124,11 +153,31 @@ pub fn read_app_state() -> AppState {
                 if let Some(id) = raw_value.get("activeAccountId").and_then(|v| v.as_str()) {
                     state.active_account_id = Some(id.to_string());
                 }
-                return state;
+                return Ok(state);
             }
             AppState::default()
         }
-    }
+    })
+}
+
+/// Read-modify-write the persisted app state.
+///
+/// The only safe way to change one field: reading through `try_read_app_state`
+/// means a transient read failure aborts the write instead of persisting
+/// `AppState::default()` over an intact file, which would wipe every field the
+/// caller wasn't even touching — accounts/workspaces included (issue #756).
+pub fn update_app_state<T>(
+    mutate: impl FnOnce(&mut AppState) -> T,
+) -> Result<T, crate::errors::CommandError> {
+    let mut state = try_read_app_state().map_err(|e| {
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't read its saved settings ({e}), so nothing was changed — \
+             your existing settings are safe. Try again in a moment."
+        ))
+    })?;
+    let out = mutate(&mut state);
+    write_app_state(&state)?;
+    Ok(out)
 }
 
 /// Write the app state to disk
