@@ -1156,11 +1156,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                     setIsPreviewHidden(false);
                     setWorkspaceTab('branches');
                   }}
-                  createBranchDisabledReason={
-                    integrations.projectGithub?.status === 'connected'
-                      ? undefined
-                      : 'Connect this project to GitHub to create and switch branches'
-                  }
+                  isGitHubConnected={integrations.projectGithub?.status === 'connected'}
                 />
               )}
 

@@ -19,20 +19,23 @@ interface MainBranchBannerProps {
   /** Callback to create a new branch */
   onCreateBranch?: () => void;
   /**
-   * Why "Create branch" can't run right now, or undefined when it can. The
-   * Branches pane only exists for a GitHub-connected project (see
-   * `useWorkspaceLayout`'s tab projection), so without this the button used to
-   * swallow the click with no modal, tab change, or toast — right after the
-   * banner offered it as the fix (issue #612).
+   * Whether the project has a GitHub connection. The Branches pane only exists
+   * for a GitHub-connected project (see `useWorkspaceLayout`'s tab
+   * projection), so without this the button used to swallow the click with no
+   * modal, tab change, or toast — right after the banner offered it as the fix
+   * (issue #612).
    */
-  createBranchDisabledReason?: string;
+  isGitHubConnected?: boolean;
 }
 
 export function MainBranchBanner({
   projectPath,
   onCreateBranch,
-  createBranchDisabledReason,
+  isGitHubConnected = true,
 }: MainBranchBannerProps) {
+  const createBranchDisabledReason = isGitHubConnected
+    ? undefined
+    : 'Connect this project to GitHub to create and switch branches';
   const [isDismissed, setIsDismissed] = useState(false);
   const [shouldHide, setShouldHide] = useState<boolean | null>(null);
   const [hideForProject, setHideForProject] = useState(false);
