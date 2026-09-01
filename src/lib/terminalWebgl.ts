@@ -15,7 +15,9 @@
  * renderer) whenever the container collapses to zero, and reloads it when
  * layout returns. WebGL being unavailable, or a GPU context loss, falls back
  * to the non-WebGL renderer permanently — same behavior the call sites had
- * before this guard existed.
+ * before this guard existed. Context loss drops the addon immediately rather
+ * than riding out the addon's restore attempt, whose re-initialization can
+ * throw uncaught from a native event listener (issue #716).
  */
 
 import type { Terminal } from '@xterm/xterm';
@@ -74,11 +76,38 @@ export function attachWebglRenderer(term: Terminal, container: HTMLElement): () 
   };
 
   const observer = new ResizeObserver(sync);
+
+  // GPU context loss: fall back to the DOM renderer the moment the context
+  // goes away, instead of letting the addon try to restore it.
+  //
+  // `@xterm/addon-webgl` answers `webglcontextlost` by scheduling a restore,
+  // and its `webglcontextrestored` listener calls `_initializeWebGLState()`
+  // again. That runs inside a native event dispatch — outside any call stack
+  // this module controls — so when a driver hiccup makes one of the WebGL
+  // program/uniform lookups come back null, xterm's `throwIfFalsy` throws
+  // "value must not be falsy" uncaught, straight into the global error
+  // handler (issue #716). Disposing on loss removes the addon's own restore
+  // listener, so that path can never run.
+  //
+  // The listener sits on the container in CAPTURE phase: `webglcontextlost`
+  // is dispatched on the addon's canvas and does not bubble, but capturing
+  // ancestors still see it — and see it BEFORE the addon's own target-phase
+  // listener, which is the one that schedules the restore.
+  const onContextLost = () => {
+    if (unavailable) return;
+    unavailable = true;
+    observer.disconnect();
+    disposeAddon();
+    logger.warn('[Terminal] WebGL context lost, using canvas renderer');
+  };
+  container.addEventListener('webglcontextlost', onContextLost, true);
+
   observer.observe(container);
   sync();
 
   return () => {
     disposed = true;
+    container.removeEventListener('webglcontextlost', onContextLost, true);
     observer.disconnect();
     disposeAddon();
   };

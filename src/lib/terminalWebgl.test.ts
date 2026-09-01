@@ -44,16 +44,30 @@ class ResizeObserverStub {
 interface FakeContainer {
   offsetWidth: number;
   offsetHeight: number;
+  addEventListener: ReturnType<typeof vi.fn>;
+  removeEventListener: ReturnType<typeof vi.fn>;
 }
 
 function makeFixture(width: number, height: number) {
-  const container: FakeContainer = { offsetWidth: width, offsetHeight: height };
+  const container: FakeContainer = {
+    offsetWidth: width,
+    offsetHeight: height,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  };
   const term = { loadAddon: vi.fn() };
   const dispose = attachWebglRenderer(
     term as unknown as Terminal,
     container as unknown as HTMLElement
   );
-  return { container, term, dispose };
+  /** Fire the capture-phase `webglcontextlost` listener the loader registered. */
+  const fireContextLost = () => {
+    const call = container.addEventListener.mock.calls.find(
+      ([type]) => type === 'webglcontextlost'
+    );
+    (call?.[1] as () => void)();
+  };
+  return { container, term, dispose, fireContextLost };
 }
 
 beforeEach(() => {
@@ -107,9 +121,36 @@ describe('attachWebglRenderer', () => {
     expect(addonInstances).toHaveLength(1);
   });
 
+  it('drops the addon on webglcontextlost instead of waiting for a restore', () => {
+    // The addon's restore path re-runs _initializeWebGLState() from a native
+    // event listener and can throw uncaught there (issue #716) — so the
+    // capture-phase listener must dispose before the addon schedules it.
+    const { container, fireContextLost } = makeFixture(800, 600);
+    const [addon] = addonInstances;
+    expect(container.addEventListener).toHaveBeenCalledWith(
+      'webglcontextlost',
+      expect.any(Function),
+      true
+    );
+
+    fireContextLost();
+    expect(addon.dispose).toHaveBeenCalledTimes(1);
+    expect(disconnectSpy).toHaveBeenCalled();
+
+    // Permanent fallback — layout changes never bring WebGL back.
+    container.offsetWidth = 1000;
+    fireResize();
+    expect(addonInstances).toHaveLength(1);
+  });
+
   it('cleanup disconnects the observer and disposes the loaded addon', () => {
-    const { dispose } = makeFixture(800, 600);
+    const { container, dispose } = makeFixture(800, 600);
     dispose();
+    expect(container.removeEventListener).toHaveBeenCalledWith(
+      'webglcontextlost',
+      expect.any(Function),
+      true
+    );
     expect(disconnectSpy).toHaveBeenCalled();
     expect(addonInstances[0].dispose).toHaveBeenCalledTimes(1);
 

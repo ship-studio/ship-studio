@@ -46,14 +46,18 @@ import { listen } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { getShellPath, getSystemEnv } from '../../lib/project';
 import { loadNerdFonts } from '../../lib/fonts';
-import { isWindows, resolveCliPath } from '../../lib/setup';
+import { isWindows, needsCmdExeWrapper, resolveCliPath, type ResolvedCli } from '../../lib/setup';
 import { isPasteChord, readClipboardText, stageClipboardImage } from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { isPointInRect, dropPointToLogical } from '../../lib/dropTarget';
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { attachedLibraryDirs } from '../../lib/attached-libraries';
-import { decideStartupTimeoutAction } from './startupWatchdog';
+import {
+  decideStartupTimeoutAction,
+  RESPAWN_GRACE_MS,
+  STARTUP_TIMEOUT_MS,
+} from './startupWatchdog';
 import type { AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
@@ -717,9 +721,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           }
         }
 
-        // On Windows, agent may be a .cmd script - must run through cmd.exe
-        let spawnCmd = isWin ? 'cmd.exe' : agent.binaryName;
-        const spawnArgs = isWin ? ['/C', agent.binaryName, ...agentArgs] : agentArgs;
+        // Placeholder — on Windows the real spawn shape (direct vs. wrapped
+        // in cmd.exe /C) is decided AFTER binary resolution below, because
+        // the decision depends on what the command resolves to (.cmd shim vs.
+        // real executable). See needsCmdExeWrapper in lib/setup.ts.
+        let spawnCmd = agent.binaryName;
+        let spawnArgs = agentArgs;
 
         // Resolve the bare binary name through the backend's thorough
         // discovery (every NVM version, ~/.<agent>/bin, npm prefix -g …) the
@@ -732,9 +739,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         // "binary" is an absolute path (/bin/zsh), which the backend rejects
         // with a validation error on every open (issue #303).
         const isBareName = !agent.binaryName.includes('/') && !agent.binaryName.includes('\\');
+        let resolved: ResolvedCli | null | undefined;
         if (isBareName) {
           try {
-            const resolved = await resolveCliPath(agent.binaryName);
+            resolved = await resolveCliPath(agent.binaryName);
             if (resolved) {
               const pathSep = isWin ? ';' : ':';
               if (!env.PATH.split(pathSep).includes(resolved.dir)) {
@@ -742,16 +750,41 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
               }
               if (!isWin) {
                 // Spawn the resolved absolute path — deterministic, no PATH
-                // shadowing. (Windows keeps the cmd.exe wrapper; the appended
-                // PATH dir makes the shim resolvable there.)
+                // shadowing. (The Windows equivalent happens in the
+                // spawn-shape block below, where wrapper-vs-direct is
+                // decided.)
                 spawnCmd = resolved.path;
               }
             }
           } catch (err) {
+            resolved = undefined;
             logger.warn('[Terminal] resolveCliPath failed — spawning bare name', {
               binary: agent.binaryName,
               error: String(err),
             });
+          }
+        }
+
+        if (isWin) {
+          // Windows spawn shape, same rule OnboardingTerminal already uses.
+          // Only .cmd/.bat shims need `cmd.exe /C` — they are batch scripts.
+          // Routing a REAL executable through cmd.exe adds a second parse
+          // layer (portable_pty composes one command line, then cmd re-parses
+          // it with its own quote rules) between us and the agent, which is
+          // what split a single `--session-id`/`--add-dir` value into several
+          // tokens and made Claude Code exit with "too many arguments"
+          // (issue #797). Unresolved names still wrap — needsCmdExeWrapper's
+          // conservative default — so nothing regresses when resolution
+          // fails open.
+          if (needsCmdExeWrapper(agent.binaryName, resolved?.path)) {
+            spawnCmd = 'cmd.exe';
+            spawnArgs = ['/C', agent.binaryName, ...agentArgs];
+          } else {
+            // Prefer the resolved absolute path (deterministic, no PATH
+            // shadowing); fall back to the bare name on the extended PATH
+            // when resolution failed open.
+            spawnCmd = resolved?.path ?? agent.binaryName;
+            spawnArgs = agentArgs;
           }
         }
 
@@ -974,12 +1007,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         gateOpen = true;
         gate.open(attach.endOffset);
 
-        // Startup watchdog: if no output is received within 10s, the agent
-        // likely failed to launch (binary not found, permission error, or a
-        // wedged first spawn — issue #158). The manual fix users found is
-        // "create a new agent tab", i.e. a fresh PTY — so kill the silent
-        // session and respawn once with the same config. Only if the
-        // respawn is also silent do we surface the error text.
+        // Startup watchdog: if no output is received within the startup
+        // window, the agent likely failed to launch (binary not found,
+        // permission error, or a wedged first spawn — issue #158). The manual
+        // fix users found is "create a new agent tab", i.e. a fresh PTY — so
+        // kill the silent session and respawn once with the same config. Only
+        // if the respawn is also silent do we surface the error text. Policy
+        // and timings are shared with the onboarding terminal (startupWatchdog.ts).
         startupTimeout = setTimeout(() => {
           const action = decideStartupTimeoutAction({ receivedOutput, mounted, autoRespawnUsed });
           if (action === 'none') return;
@@ -1016,7 +1050,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
                 // otherwise it would look like the new process exiting.
                 respawnTimer = setTimeout(() => {
                   if (mounted) void setupPty(0);
-                }, 500);
+                }, RESPAWN_GRACE_MS);
               });
             return;
           }
@@ -1029,7 +1063,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             `\r\n\x1b[31m${agent.displayName} did not produce any output after 10 seconds.\x1b[0m\r\n` +
               `\x1b[33mThe process may have failed to start. Check that "${agent.binaryName}" is installed and accessible.\x1b[0m\r\n`
           );
-        }, 10_000);
+        }, STARTUP_TIMEOUT_MS);
         startupTimer = startupTimeout;
 
         if (pendingExit !== null) {

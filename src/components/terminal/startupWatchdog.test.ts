@@ -1,13 +1,18 @@
 /**
- * Tests for the agent-terminal startup watchdog policy (issue #158).
+ * Tests for the PTY startup watchdog policy (issue #158).
  *
  * The behaviour that matters: a spawned-but-silent PTY gets exactly one
  * automatic respawn; a second silent run surfaces the error; output or
- * unmount disarms the watchdog entirely.
+ * unmount disarms the watchdog entirely. Both the workspace terminal
+ * (#384) and the onboarding terminal (#245) run on this one policy.
  */
 
 import { describe, it, expect } from 'vitest';
-import { decideStartupTimeoutAction } from './startupWatchdog';
+import {
+  decideStartupTimeoutAction,
+  RESPAWN_GRACE_MS,
+  STARTUP_TIMEOUT_MS,
+} from './startupWatchdog';
 
 describe('decideStartupTimeoutAction', () => {
   it('does nothing once output has been received', () => {
@@ -39,5 +44,15 @@ describe('decideStartupTimeoutAction', () => {
     expect(
       decideStartupTimeoutAction({ receivedOutput: false, mounted: true, autoRespawnUsed: true })
     ).toBe('error');
+  });
+});
+
+describe('watchdog timings', () => {
+  it('keeps the historical windows both terminals were built around', () => {
+    // Deliberately pinned: the setup commands are written to print
+    // immediately so 10s only trips a wedged spawn, and the user-facing
+    // messages in both terminals still say "10 seconds".
+    expect(STARTUP_TIMEOUT_MS).toBe(10_000);
+    expect(RESPAWN_GRACE_MS).toBe(500);
   });
 });
