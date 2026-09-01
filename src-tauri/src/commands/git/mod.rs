@@ -136,9 +136,15 @@ pub(crate) async fn run_git_net_retrying_index_lock(
 /// the gh classifiers in `commands::github` already cover — call sites must
 /// route through this instead of forwarding raw stderr (issue #560). Returns
 /// `None` for anything genuinely unexplained.
+///
+/// A remote that no longer exists (deleted, renamed, transferred, or access
+/// revoked) belongs to the same family — publishing.rs already classified it,
+/// but push_branch/delete_branch/create_pull_request forwarded it raw to
+/// telemetry on every retry (issue #825), so the shared helper covers it here.
 pub(crate) fn classify_git_net_error(stderr: &str) -> Option<CommandError> {
     crate::commands::github::gh_auth_error(stderr)
         .or_else(|| crate::commands::github::gh_common_error(stderr))
+        .or_else(|| crate::commands::publishing::push_missing_remote_error(stderr))
 }
 
 // ============ Git Helper Functions ============
@@ -622,6 +628,15 @@ mod tests {
         assert!(matches!(
             classify_git_net_error("To get started with GitHub CLI, please run:  gh auth login"),
             Some(CommandError::NotAuthenticated { .. })
+        ));
+        // A remote that no longer exists — publishing.rs already treated this
+        // as expected; push_branch/delete_branch/create_pull_request now get
+        // the same classification through the shared helper (issue #825).
+        assert!(matches!(
+            classify_git_net_error(
+                "remote: Repository not found.\nfatal: repository 'https://github.com/o/r.git/' not found"
+            ),
+            Some(CommandError::Expected { .. })
         ));
         // A real push rejection must NOT be swallowed as expected.
         assert!(classify_git_net_error(

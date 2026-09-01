@@ -528,23 +528,74 @@ where
 ///   (tried to allocate N bytes)`) — the host machine under memory pressure
 ///   at the moment git spawned; cross-platform, first seen on Windows
 ///   (issue #668).
+/// - Windows pagefile exhaustion reported by git's own runtime (`error
+///   launching git: The paging file is too small for this operation to
+///   complete.`) — the same `ERROR_COMMITMENT_LIMIT` condition
+///   `errors::windows_out_of_memory` covers for our own spawns, arriving as
+///   git stderr text instead of an `io::Error` (issue #835).
+/// - Git-for-Windows' MSYS2 runtime aborting with `BUG (fork bomb)` — a
+///   broken/duplicated git install, not something the app can fix (issue #813).
+/// - A corrupted local repository (truncated packfile / missing object) —
+///   the project's own `.git` needs repairing (issue #842).
+///
+/// Matching is case-insensitive: git's wording varies in capitalization
+/// across versions and platforms (e.g. xcode-select actually prints "No
+/// developer tools were found…", which the original case-sensitive check
+/// missed entirely — issues #724/#725).
 pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> {
-    if stderr.contains("You have not agreed to the Xcode license agreements") {
+    let lower = stderr.to_lowercase();
+    if lower.contains("you have not agreed to the xcode license agreements") {
         return Some(crate::errors::CommandError::expected(
             "Xcode's license hasn't been accepted yet, so git can't run. Open Terminal, run \
              `sudo xcodebuild -license accept`, then try again.",
         ));
     }
-    if stderr.contains("invalid active developer path")
-        || stderr.contains("no developer tools were found")
+    if lower.contains("invalid active developer path")
+        || lower.contains("no developer tools were found")
     {
         return Some(crate::errors::CommandError::expected(
             "The Xcode Command Line Tools (which provide git on macOS) are missing or broken. \
              Run `xcode-select --install` in Terminal, then try again.",
         ));
     }
-    if stderr.contains("Unable to read current working directory")
-        && stderr.contains("Operation not permitted")
+    // Git's own runtime failing to launch a helper process because Windows
+    // refused the memory commit — same condition (os error 1455) that
+    // `errors::windows_out_of_memory` classifies for our spawns, so reuse its
+    // remediation wording (issue #835). Must precede the generic out-of-memory
+    // check below so the pagefile guidance wins.
+    if lower.contains("paging file is too small") {
+        return Some(crate::errors::CommandError::expected(
+            "Windows ran out of virtual memory while git was working (the paging file is too \
+             small). Close some other apps or increase the paging file size (Settings → System → \
+             About → Advanced system settings → Performance → Virtual memory), then try again.",
+        ));
+    }
+    // Git for Windows' MSYS2 exec layer refusing to run after detecting a
+    // spawn loop. Almost always a second git install (e.g. Anaconda's)
+    // shadowing Git for Windows on PATH, or a corrupted MSYS2 runtime — no
+    // app-side fix exists (issue #813).
+    if lower.contains("bug (fork bomb)") || lower.contains("bug: forkbomb") {
+        return Some(crate::errors::CommandError::expected(
+            "Git's Windows runtime detected a spawn loop and refused to run — usually a second \
+             Git install (e.g. one bundled with Anaconda or another tool) shadowing Git for \
+             Windows on your PATH, or a damaged Git install. Remove the duplicate git.exe from \
+             your PATH or reinstall Git for Windows from git-scm.com, then try again.",
+        ));
+    }
+    // The project's own object store is damaged — an interrupted gc/fetch, a
+    // crashed process, or a failing disk. Repairable by the user, and no
+    // amount of app-side retrying helps (issue #842).
+    if lower.contains("too short to be a packfile")
+        || (lower.contains("missing object") && lower.contains("fatal:"))
+    {
+        return Some(crate::errors::CommandError::expected(
+            "This project's local git history looks damaged (a file inside its `.git` folder is \
+             corrupted), so git can't read it. Run `git fsck` in the project folder to inspect \
+             the damage, or re-clone the repository into a fresh folder and reopen it here.",
+        ));
+    }
+    if lower.contains("unable to read current working directory")
+        && lower.contains("operation not permitted")
     {
         return Some(crate::errors::CommandError::expected(
             "Ship Studio isn't allowed to read this project's folder — macOS blocked access. \
@@ -556,7 +607,6 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
     // to allocate N bytes)" — also "realloc failed" / "mmap failed" variants).
     // The machine is out of memory at the moment git runs, which no app-side
     // fix can address (issue #668).
-    let lower = stderr.to_lowercase();
     if lower.contains("out of memory")
         || lower.contains("malloc failed")
         || lower.contains("realloc failed")
@@ -1886,6 +1936,75 @@ mod tests {
             assert!(git_environment_gap("fatal: Out of memory, realloc failed").is_some());
         }
 
+        /// Issues #724/#725: xcode-select actually capitalizes the sentence
+        /// ("No developer tools were found…"), which the original
+        /// case-sensitive check missed, so a missing-CLT machine reported the
+        /// raw fatal to telemetry instead of the install guidance.
+        #[test]
+        fn classifies_capitalized_missing_developer_tools_as_expected() {
+            let stderr = "xcode-select: note: No developer tools were found, requesting install. \
+                          Choose an option in the dialog to download the command line developer \
+                          tools.";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(err.to_string().contains("xcode-select --install"));
+            // The license and TCC signatures are equally case-tolerant.
+            assert!(
+                git_environment_gap("you have not agreed to the Xcode license agreements")
+                    .is_some()
+            );
+            assert!(git_environment_gap(
+                "fatal: unable to read current working directory: operation not permitted"
+            )
+            .is_some());
+        }
+
+        /// Issue #835: Windows pagefile exhaustion reported by git's own
+        /// runtime rather than as our spawn-time os error 1455.
+        #[test]
+        fn classifies_git_paging_file_failure_as_expected() {
+            let stderr =
+                "error launching git: The paging file is too small for this operation to complete.";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(
+                err.to_string().contains("paging file"),
+                "message must name the pagefile, got: {err}"
+            );
+        }
+
+        /// Issue #813: Git for Windows' MSYS2 runtime refusing to run after
+        /// detecting a spawn loop — a broken/duplicated git install.
+        #[test]
+        fn classifies_windows_fork_bomb_abort_as_expected() {
+            let stderr = r"BUG (fork bomb): C:\Program Files\Git\bin\git.exe";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(
+                err.to_string().contains("PATH"),
+                "message must point at the duplicate install, got: {err}"
+            );
+        }
+
+        /// Issue #842: a truncated packfile in the project's own `.git`
+        /// cascading into a missing-object fatal while listing branches.
+        #[test]
+        fn classifies_corrupted_repository_as_expected() {
+            let stderr = "error: file .git/objects/pack/pack-3301f5a2.pack is far too short to be \
+                          a packfile\nfatal: missing object a17457a0 for refs/remotes/origin/x";
+            let err = git_environment_gap(stderr).expect("must classify");
+            assert!(matches!(err, crate::errors::CommandError::Expected { .. }));
+            assert!(
+                err.to_string().contains("git fsck"),
+                "message must carry the repair step, got: {err}"
+            );
+            // The missing-object fatal on its own (no packfile line) counts too.
+            assert!(git_environment_gap(
+                "fatal: missing object 1234abcd for refs/remotes/origin/main"
+            )
+            .is_some());
+        }
+
         #[test]
         fn leaves_ordinary_git_failures_unclassified() {
             assert!(git_environment_gap("fatal: not a git repository").is_none());
@@ -1896,6 +2015,9 @@ mod tests {
                 "error: unable to unlink old 'a.txt': Operation not permitted"
             )
             .is_none());
+            // "missing object" without a fatal is a warning git recovers from
+            // (e.g. `fsck` output) — not the corrupted-repo abort (#842).
+            assert!(git_environment_gap("warning: missing object 1234abcd").is_none());
         }
     }
 

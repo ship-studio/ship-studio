@@ -27,6 +27,24 @@ use super::{
     save_project_metadata,
 };
 
+/// Failure message for a non-zero `git branch -a` exit. Git can die with a
+/// completely silent stderr (killed by the OS, an exec-level failure on
+/// Windows), and the unconditional `: {stderr}` suffix then produced "Failed
+/// to list branches: " — an empty, undiagnosable report (issue #811). Fall
+/// back to the exit code so telemetry always carries something, mirroring
+/// `git_status_failure_message` in status.rs (issue #682).
+fn list_branches_failure_message(stderr_trimmed: &str, exit_code: Option<i32>) -> String {
+    if stderr_trimmed.is_empty() {
+        return match exit_code {
+            Some(code) => format!("Failed to list branches (exit {code})"),
+            None => "Failed to list branches (terminated by signal)".to_string(),
+        };
+    }
+    // Include git's stderr — a bare "Failed to list branches" is
+    // undiagnosable from telemetry (issue #252).
+    format!("Failed to list branches: {stderr_trimmed}")
+}
+
 /// List all branches (local and remote) with metadata
 #[tauri::command]
 #[instrument(name = "list_branches", skip(project_path), fields(project = %project_path))]
@@ -73,8 +91,6 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
     })?;
 
     if !output.status.success() {
-        // Include git's stderr — a bare "Failed to list branches" is
-        // undiagnosable from telemetry (issue #252).
         let stderr = String::from_utf8_lossy(&output.stderr);
         // Environment gaps (unaccepted Xcode license, missing CLT, macOS TCC
         // denial) mean git itself can't run — an expected machine state with a
@@ -83,7 +99,7 @@ pub async fn list_branches(project_path: String) -> Result<Vec<BranchInfo>, Comm
             warn!(error = %stderr.trim(), "git blocked by an environment gap while listing branches");
             return Err(gap);
         }
-        return Err((format!("Failed to list branches: {}", stderr.trim())).into());
+        return Err(list_branches_failure_message(stderr.trim(), output.status.code()).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -297,9 +313,35 @@ pub async fn switch_branch(
         });
     }
 
-    // Try to checkout the branch
+    // Try to checkout the branch. When no local branch of that name exists,
+    // a bare `checkout <name>` leaves the choice to git's DWIM resolution,
+    // which refuses outright ("matched multiple (2) remote tracking branches")
+    // in a project with more than one remote carrying the same branch name.
+    // Qualify against origin ourselves in that case — the same explicit
+    // base-ref approach create_branch already takes (issue #729).
+    let local_exists = crate::utils::git_command_in(&validated_path)?
+        .args(["show-ref", "--verify", "--quiet"])
+        .arg(format!("refs/heads/{branch_name}"))
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let origin_exists = !local_exists
+        && crate::utils::git_command_in(&validated_path)?
+            .args(["show-ref", "--verify", "--quiet"])
+            .arg(format!("refs/remotes/origin/{branch_name}"))
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
     let mut checkout_cmd = crate::utils::git_command_in(&validated_path)?;
-    checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
+    if origin_exists {
+        checkout_cmd
+            .arg("checkout")
+            .arg("--track")
+            .arg(format!("origin/{branch_name}"));
+    } else {
+        checkout_cmd.args(["checkout", "--end-of-options", &branch_name]);
+    }
     let checkout_output =
         crate::external_command::spawn_with_pressure_retry("git checkout", || {
             checkout_cmd.output()
@@ -437,6 +479,15 @@ pub async fn switch_branch(
     })
 }
 
+/// User-facing message for the taken-name case, naming the branch instead of
+/// echoing git's raw `fatal:` line (issue #791).
+fn branch_already_exists_error(branch_name: &str) -> CommandError {
+    CommandError::expected(format!(
+        "A branch named '{branch_name}' already exists. Pick a different name, or switch to the \
+         existing branch."
+    ))
+}
+
 /// Create a new branch from a base branch
 #[tauri::command]
 #[instrument(name = "create_branch", skip(project_path), fields(project = %project_path, branch = %branch_name, from = %from_branch))]
@@ -484,6 +535,10 @@ pub async fn create_branch(
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            if is_branch_already_exists_error(&stderr) {
+                warn!(error = %stderr, "Branch creation blocked: name already taken");
+                return Err(branch_already_exists_error(&branch_name));
+            }
             return Err((stderr.to_string()).into());
         }
     } else {
@@ -553,6 +608,12 @@ pub async fn create_branch(
                      Refresh your branches and try again.",
                 ));
             }
+            // The name is already taken locally — a retried create or a stale
+            // branch list, fixable by picking another name (issue #791).
+            if is_branch_already_exists_error(&stderr) {
+                warn!(error = %stderr, "Branch creation blocked: name already taken");
+                return Err(branch_already_exists_error(&branch_name));
+            }
             error!(error = %stderr, "Failed to create branch");
             return Err((stderr.to_string()).into());
         }
@@ -597,12 +658,26 @@ pub async fn push_branch(project_path: String, branch_name: String) -> Result<()
     }
 
     info!("Publishing branch to GitHub");
-    let output = run_git_net(
+    let output = match run_git_net(
         &["push", "-u", "origin", &branch_name],
         &validated_path,
         "push branch",
     )
-    .await?;
+    .await
+    {
+        // A blown network budget is the connection (or a large repo), not a
+        // malfunction — the bare `?` used to send every slow push to telemetry
+        // as `cmderr-timeout-git push branch` (issue #819). Same mapping as
+        // get_github_username's gh timeouts (#686).
+        Err(CommandError::Timeout { .. }) => {
+            warn!("Publishing branch timed out waiting for GitHub");
+            return Err(CommandError::expected(
+                "Publishing took too long — GitHub didn't respond in time. Check your internet \
+                 connection and try again.",
+            ));
+        }
+        other => other?,
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -638,6 +713,24 @@ pub async fn push_branch(project_path: String, branch_name: String) -> Result<()
 /// renamed on the remote after the branch list loaded (issue #692).
 fn is_missing_base_ref_error(stderr: &str) -> bool {
     stderr.contains("is not a commit and a branch")
+}
+
+/// Git refusing `checkout -b <name>` because that branch name is taken —
+/// "fatal: a branch named 'X' already exists". An everyday user state (a
+/// retried create, or a stale branch list), not a malfunction (issue #791).
+fn is_branch_already_exists_error(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("a branch named") && lower.contains("already exists")
+}
+
+/// GitHub's pre-receive hook refusing `push --delete` for the repository's
+/// default branch — "! [remote rejected] X (refusing to delete the current
+/// branch: refs/heads/X)". By design on GitHub's side, whatever the branch is
+/// named, so the local main/master name check can't catch it (issue #792).
+fn is_default_branch_delete_refusal(stderr: &str) -> bool {
+    stderr
+        .to_lowercase()
+        .contains("refusing to delete the current branch")
 }
 
 /// Git refusing `branch -D` because the branch is checked out in another
@@ -716,16 +809,42 @@ pub async fn delete_branch(
 
     // Delete remote branch if requested
     if delete_remote {
-        let remote_output = run_git_net(
+        let remote_output = match run_git_net(
             &["push", "origin", "--delete", &branch_name],
             &validated_path,
             "push origin --delete",
         )
-        .await?;
+        .await
+        {
+            // Same network-not-malfunction mapping as push_branch (issue #819).
+            Err(CommandError::Timeout { .. }) => {
+                warn!("Remote branch delete timed out waiting for GitHub");
+                return Err(CommandError::expected(
+                    "GitHub didn't respond in time while deleting the remote branch. The local \
+                     branch is gone — check your connection and try deleting the remote copy \
+                     again.",
+                ));
+            }
+            other => other?,
+        };
 
         if !remote_output.status.success() {
             let stderr = String::from_utf8_lossy(&remote_output.stderr);
             if !stderr.contains("remote ref does not exist") {
+                // GitHub refuses `push --delete` for the repo's default branch
+                // ("refusing to delete the current branch: refs/heads/<name>")
+                // — by design, and the name check above only covers
+                // main/master, so a renamed default branch landed here as raw
+                // stderr + telemetry (issue #792).
+                if is_default_branch_delete_refusal(&stderr) {
+                    warn!(error = %stderr, "Remote branch delete refused: default branch on GitHub");
+                    return Err(CommandError::expected(format!(
+                        "'{branch_name}' is this repository's default branch on GitHub, so GitHub \
+                         won't let it be deleted. The local copy has been removed; change the \
+                         default branch in the repository's GitHub settings if you also want the \
+                         remote one gone."
+                    )));
+                }
                 // Same expected gh/git failure classification as push_branch
                 // (issue #560).
                 if let Some(err) = classify_git_net_error(&stderr) {
@@ -778,7 +897,10 @@ pub async fn delete_branch(
 
 #[cfg(test)]
 mod tests {
-    use super::{is_missing_base_ref_error, is_worktree_delete_refusal};
+    use super::{
+        is_branch_already_exists_error, is_default_branch_delete_refusal,
+        is_missing_base_ref_error, is_worktree_delete_refusal, list_branches_failure_message,
+    };
 
     // The #562 shape: deleting a branch that another worktree has checked out.
     #[test]
@@ -810,6 +932,56 @@ mod tests {
             "fatal: a branch named 'my-branch' already exists"
         ));
         assert!(!is_missing_base_ref_error(""));
+    }
+
+    // The #791 shape: creating a branch whose name is already taken locally.
+    #[test]
+    fn branch_already_exists_error_matches_git_wording() {
+        assert!(is_branch_already_exists_error(
+            "fatal: a branch named 'relaynorth/field-technician-execution' already exists"
+        ));
+        // Older git capitalizes the sentence.
+        assert!(is_branch_already_exists_error(
+            "fatal: A branch named 'feature/x' already exists."
+        ));
+        // An open PR collision says "already exists" too, but not about a
+        // branch — that one belongs to the PR flow, not branch creation.
+        assert!(!is_branch_already_exists_error(
+            "a pull request for branch \"feature/x\" already exists"
+        ));
+        assert!(!is_branch_already_exists_error(""));
+    }
+
+    // The #792 shape: GitHub refusing to delete the repo's default branch,
+    // whatever it's named.
+    #[test]
+    fn default_branch_delete_refusal_matches_github_wording() {
+        let stderr = " ! [remote rejected] studio-eg/showcase (refusing to delete the current \
+                       branch: refs/heads/studio-eg/showcase)";
+        assert!(is_default_branch_delete_refusal(stderr));
+        // An ordinary non-fast-forward rejection must keep its own handling.
+        assert!(!is_default_branch_delete_refusal(
+            " ! [rejected] main -> main (non-fast-forward)"
+        ));
+        assert!(!is_default_branch_delete_refusal(""));
+    }
+
+    // Issue #811: git can exit non-zero with nothing on stderr, and the old
+    // unconditional suffix produced a message with no signal at all.
+    #[test]
+    fn list_branches_failure_message_falls_back_to_exit_code() {
+        assert_eq!(
+            list_branches_failure_message("", Some(128)),
+            "Failed to list branches (exit 128)"
+        );
+        assert_eq!(
+            list_branches_failure_message("", None),
+            "Failed to list branches (terminated by signal)"
+        );
+        assert_eq!(
+            list_branches_failure_message("fatal: bad object", Some(128)),
+            "Failed to list branches: fatal: bad object"
+        );
     }
 
     #[test]
