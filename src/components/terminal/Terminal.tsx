@@ -50,6 +50,7 @@ import { isWindows, resolveCliPath } from '../../lib/setup';
 import { isPasteChord, readClipboardText, stageClipboardImage } from '../../lib/clipboard';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { isResourcePressureError } from '../../lib/errorReporting';
 import { isPointInRect, dropPointToLogical } from '../../lib/dropTarget';
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { attachedLibraryDirs } from '../../lib/attached-libraries';
@@ -1175,7 +1176,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           lower.includes('no viable candidates found in path') ||
           lower.includes('does not exist') ||
           lower.includes('not executable');
-        logger[binaryNotFound ? 'warn' : 'error']('[Terminal] Failed to spawn PTY', {
+        // The second Expected spawn shape: the machine is transiently out of
+        // process slots / file descriptors (issues #587, #772).
+        const expectedSpawnFailure = binaryNotFound || isResourcePressureError(err);
+        logger[expectedSpawnFailure ? 'warn' : 'error']('[Terminal] Failed to spawn PTY', {
           agent: agent.id,
           binary: agent.binaryName,
           error: spawnError,

@@ -478,8 +478,10 @@ export function ProjectList({
       );
       void trackEvent('project_thumbnail_uploaded', { $screen_name: 'Dashboard' });
     } catch (error) {
+      // CommandError rejections are plain objects — String() renders
+      // "[object Object]" (issue #823); format to the real message.
       logger.error('Failed to upload thumbnail', {
-        error: error instanceof Error ? error.message : String(error),
+        error: formatCommandError(asCommandError(error)),
       });
       alert('Failed to upload thumbnail: ' + formatCommandError(asCommandError(error)));
     }

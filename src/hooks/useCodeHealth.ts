@@ -40,7 +40,7 @@ const AUTO_RUN_INTERVAL_SECONDS = 15 * 60;
 
 interface UseCodeHealthParams {
   projectPath: string;
-  onToast?: (message: string, type?: 'success' | 'error') => void;
+  onToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
   onAskClaude?: (prompt: string) => void;
   onHealthOutput?: (output: string) => void;
 }
@@ -128,8 +128,10 @@ export function useCodeHealth({
 
       setCheckStates(newStates);
     } catch (e) {
+      // CommandError rejections are plain objects — String() renders
+      // "[object Object]" (issue #830); format to the real message.
       logger.error('Failed to detect health scripts', {
-        error: e instanceof Error ? e.message : String(e),
+        error: formatCommandError(asCommandError(e)),
       });
     }
   }, [projectPath]);
@@ -194,7 +196,11 @@ export function useCodeHealth({
             }
             emitOutput(`\x1b[90m───────────────────────────────────────\x1b[0m\r\n`);
           }
-          onToast?.(`${CATEGORY_LABELS[category]} failed`, 'error');
+          // The script ran and reported violations — that's the check doing its
+          // job, not an app malfunction. An 'error' toast re-reports to
+          // telemetry (see useToasts), so use 'info' here (issue #761); the
+          // catch block below keeps 'error' for a script that couldn't run.
+          onToast?.(`${CATEGORY_LABELS[category]} failed`, 'info');
           return 'fail';
         }
       } catch (e) {
@@ -359,7 +365,7 @@ export function useCodeHealth({
       setPackageJsonContent(content);
       setShowPackageJson(true);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = formatCommandError(asCommandError(e));
       onToast?.(`Failed to load package.json: ${message}`, 'error');
     } finally {
       setIsLoadingPackageJson(false);

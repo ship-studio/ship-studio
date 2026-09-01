@@ -18,7 +18,12 @@ import {
   type PluginAppActions,
   type PluginThemeData,
 } from '../../contexts/PluginContext';
-import { execPluginShell, readPluginStorage, writePluginStorage } from '../../lib/plugins';
+import {
+  execPluginShell,
+  readPluginStorage,
+  writePluginStorage,
+  HOSTING_PLUGIN_IDS,
+} from '../../lib/plugins';
 import {
   markPluginCrashed,
   isPluginCrashed,
@@ -26,6 +31,7 @@ import {
   unloadPluginModule,
 } from '../../lib/plugin-loader';
 import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../../lib/errors';
+import { isResourcePressureError } from '../../lib/errorReporting';
 import { logger } from '../../lib/logger';
 import { invoke } from '@tauri-apps/api/core';
 import { WarningIcon } from '../icons';
@@ -201,9 +207,21 @@ export function buildContext(
     // keeps making are suppressed instead of toasting every tick (issue #315).
     if (message.includes(`Plugin '${pluginId}' not found`)) {
       unloadPluginModule(projectPath, pluginId);
+      // A built-in hosting integration losing its files is a provisioning gap,
+      // not a user-visible bug the reporter can act on, and the user never
+      // "installed" it to reinstall — keep the notice but don't re-report it
+      // to telemetry via the 'error' toast path (issue #386, partial: the
+      // auto-reprovision half is still open).
+      const isBundled = HOSTING_PLUGIN_IDS.includes(pluginId);
+      if (isBundled) {
+        logger.warn(`Bundled plugin "${pluginId}" deactivated — its files are missing on disk`, {
+          projectPath,
+          error: message,
+        });
+      }
       actions.showToast(
         `Plugin "${pluginName}" was deactivated because its files are no longer on disk. Unlink or reinstall it from the Plugins menu.`,
-        'error'
+        isBundled ? 'info' : 'error'
       );
       throw e;
     }
@@ -237,6 +255,17 @@ export function buildContext(
       logger.warn(`Plugin "${pluginId}" shell command timed out — plugin handles this itself`, {
         error: message,
       });
+      throw e;
+    }
+    // The machine is transiently out of process slots / file descriptors, so
+    // `exec_plugin_shell`'s own EAGAIN retries gave up (issue #587). An
+    // environment state, not an app bug: the user still sees what happened,
+    // but an 'error' toast would re-report it to telemetry (issue #775).
+    if (isResourcePressureError(e)) {
+      logger.warn(`Plugin "${pluginId}" shell command hit system resource pressure`, {
+        error: message,
+      });
+      actions.showToast(`Plugin "${pluginName}": ${message}`, 'info');
       throw e;
     }
     actions.showToast(`Plugin "${pluginName}": ${message}`, 'error');

@@ -18,7 +18,8 @@ import {
   formatElementsForAgent,
 } from './inspectFormat';
 import { addMcpServer, removeMcpServer } from './mcp';
-import { asCommandError, formatCommandError } from './errors';
+import { asCommandError, formatCommandError, isProjectFolderGoneError } from './errors';
+import { isResourcePressureError } from './errorReporting';
 import { execPreviewAction, type PreviewActionResult } from './previewActions';
 import { agentCursorAt } from './agentActivityStore';
 import { logger } from './logger';
@@ -427,6 +428,24 @@ async function captureScreenshot(
 }
 
 /**
+ * True when a bridge tool's rejection is one of the backend's deliberately
+ * `CommandError::Expected` states rather than an app defect. Expected
+ * serializes identically to Other across IPC, so the message shape is
+ * re-checked here (issue #735).
+ *
+ * Kept deliberately narrow: the dev-server-restart race that
+ * `capture_script_error` classifies Expected (issues #514/#703), plus the two
+ * environment states with shared recognizers.
+ */
+function isExpectedBridgeFailure(detail: string, err: unknown): boolean {
+  return (
+    detail.includes('stopped responding while the screenshot was being captured') ||
+    isProjectFolderGoneError(err) ||
+    isResourcePressureError(err)
+  );
+}
+
+/**
  * Execute one bridge tool call. Never throws — failures come back as
  * `isError` results so the agent can read what went wrong.
  */
@@ -556,7 +575,13 @@ export async function executeBridgeTool(
     // the detail as "[object Object]". Surface the real message to both the
     // agent and the logs.
     const detail = err instanceof Error ? err.message : formatCommandError(asCommandError(err));
-    logger.error('[AgentBridge] Tool execution failed', {
+    // This catch covers every bridge tool, so it must not turn the backend's
+    // deliberately-Expected states (a dev-server restart racing a capture, a
+    // project folder that's gone, transient spawn pressure) into bug reports —
+    // logger.error auto-files one. The agent still gets the same errorResult
+    // either way; only the log severity changes (issue #735).
+    const expected = isExpectedBridgeFailure(detail, err);
+    logger[expected ? 'warn' : 'error']('[AgentBridge] Tool execution failed', {
       tool: request.tool,
       error: detail,
     });

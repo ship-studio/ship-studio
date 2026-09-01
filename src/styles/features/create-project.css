@@ -800,3 +800,27 @@
   color: var(--text-muted);
   font-size: var(--font-size-md);
 }
+
+/* Fetch failed — distinct from "no results" so the user knows to retry (#754) */
+.tg-error {
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: 0 var(--spacing-lg);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.tg-retry {
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.tg-retry:hover {
+  background: var(--bg-secondary);
+}

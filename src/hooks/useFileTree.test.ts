@@ -32,6 +32,7 @@ vi.mock('../lib/analytics', () => ({ trackEvent: vi.fn().mockResolvedValue(undef
 
 import { useFileTree } from './useFileTree';
 import { readProjectFile, saveProjectFile } from '../lib/code';
+import { logger } from '../lib/logger';
 
 type Fn = ReturnType<typeof vi.fn>;
 const EDIT_KEY = 'shipstudio:code-edit-mode';
@@ -261,5 +262,42 @@ describe('useFileTree — discard-confirmation guard', () => {
     expect(result.current.pendingAction).toBeNull();
     expect(result.current.selectedFilePath).toBe('b.ts');
     expect(result.current.draft).toBe('bbb');
+  });
+});
+
+describe('useFileTree — read-failure log level', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  /** Select a file whose read rejects with a plain CommandError (the IPC shape). */
+  async function openFailing(message: string) {
+    (readProjectFile as Fn).mockRejectedValue({ type: 'Other', message });
+    const { result } = await setup();
+    await act(async () => {
+      result.current.selectFile('a.ts');
+      await flush();
+    });
+  }
+
+  it('warns (not errors) when the file vanished under a stale tab (#834)', async () => {
+    await openFailing('File not found: a.ts');
+    expect(logger.warn).toHaveBeenCalledWith('Failed to read file', {
+      path: 'a.ts',
+      error: 'File not found: a.ts',
+    });
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('warns when the OS denies access to the file (#837)', async () => {
+    await openFailing("Can't read a.ts — permission denied. It may be locked by another program.");
+    expect(logger.warn).toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('still errors on a genuine read failure', async () => {
+    await openFailing("Failed to resolve file 'a.ts': something unexpected");
+    expect(logger.error).toHaveBeenCalled();
   });
 });

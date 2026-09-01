@@ -22,6 +22,8 @@ import {
 } from '../icons';
 import { BrowserInfo, checkBrowserAvailability, openUrlInBrowser } from '../../lib/browser';
 import { logger } from '../../lib/logger';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { isResourcePressureError } from '../../lib/errorReporting';
 
 interface BrowserDropdownProps {
   url: string;
@@ -126,7 +128,12 @@ export function BrowserDropdown({
       await openUrlInBrowser(url, browserId);
       setShowDropdown(false);
     } catch (e) {
-      logger.error(`Failed to open in ${browserId}`, { error: e });
+      // logger.error auto-files a bug report; a machine that's transiently out
+      // of process slots isn't one (issue #773). Also format the rejection —
+      // CommandError objects are plain objects, not Errors.
+      logger[isResourcePressureError(e) ? 'warn' : 'error'](`Failed to open in ${browserId}`, {
+        error: formatCommandError(asCommandError(e)),
+      });
     } finally {
       setOpeningBrowser(null);
     }

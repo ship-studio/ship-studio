@@ -55,7 +55,8 @@ export interface HealthTabPanelRef {
 export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>(
   function HealthTabPanel({ projectPath, onAskClaude, onHealthOutput }, ref) {
     const { showToast } = useOptionalToast();
-    const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+    const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
+      showToast(message, type);
     const { copy: copyOutput } = useCopyToClipboard({
       onCopy: () => onToast('Output copied', 'success'),
     });
