@@ -440,7 +440,11 @@ export function isProjectFolderGoneError(value: unknown): boolean {
  * instead of the channels that auto-file bug reports.
  */
 export function isResourcePressureError(value: unknown): boolean {
-  return /temporarily low on process resources/i.test(formatCommandError(asCommandError(value)));
+  const message = formatCommandError(asCommandError(value)).toLowerCase();
+  return (
+    message.includes('temporarily low on process resources') ||
+    message.includes('close some apps or terminal tabs')
+  );
 }
 
 /**

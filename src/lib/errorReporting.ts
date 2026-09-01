@@ -16,26 +16,10 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { asCommandError, formatCommandError } from './errors';
 
-/**
- * True when a caught backend error is the transient EAGAIN / "too many open
- * files" spawn failure the Rust side reports via `spawn_resource_pressure_error`
- * (`src-tauri/src/external_command.rs`, issue #587) after its own retries are
- * exhausted. That's a machine state — too many processes or file descriptors
- * right now — not an app bug, so callers must route it to `logger.warn` and a
- * non-`'error'` toast: both `logger.error` and `'error'` toasts auto-file bug
- * reports. The backend classifies it `CommandError::Expected`, but Expected
- * serializes identically to Other across IPC, so the message shape is
- * re-checked here (issues #772/#773/#775).
- */
-export function isResourcePressureError(value: unknown): boolean {
-  const message = formatCommandError(asCommandError(value)).toLowerCase();
-  return (
-    message.includes('temporarily low on process resources') ||
-    message.includes('close some apps or terminal tabs')
-  );
-}
+// Re-exported so telemetry-adjacent call sites (#772/#773/#775) can import it
+// alongside the reporting pipeline; the canonical definition lives in errors.ts.
+export { isResourcePressureError } from './errors';
 
 export interface ErrorReport {
   message: string;
