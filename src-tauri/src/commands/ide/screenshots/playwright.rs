@@ -48,24 +48,116 @@ async fn run_capture_script(
         install
             .args(["playwright", "install", "chromium"])
             .current_dir(playwright_env);
-        let install_out = run_with_timeout(
+        let install_out = match run_with_timeout(
             tokio::process::Command::from(install),
             "playwright install chromium",
             BROWSER_INSTALL_TIMEOUT_SECS,
         )
-        .await?;
+        .await
+        {
+            Ok(out) => out,
+            // A ~130MB download not finishing inside the ceiling is a slow or
+            // interrupted connection, not an app malfunction — say so instead
+            // of surfacing the raw timeout (issue #718).
+            Err(CommandError::Timeout { .. }) => {
+                return Err(CommandError::expected(format!(
+                    "Downloading the screenshot browser (Chromium, about 130MB) didn't finish \
+                     within {BROWSER_INSTALL_TIMEOUT_SECS} seconds. This is usually a slow or \
+                     interrupted connection — check your network (including any VPN or proxy), \
+                     then try again."
+                )));
+            }
+            Err(e) => return Err(e),
+        };
         if !install_out.status.success() {
-            let install_stderr = String::from_utf8_lossy(&install_out.stderr);
-            return Err((format!(
-                "Playwright's Chromium browser is missing and reinstalling it failed: {install_stderr}"
-            ))
-            .into());
+            return Err(browser_install_error(&install_out));
         }
         return run().await;
     }
 
     // Other failures pass through — callers report status + stderr in detail.
     Ok(output)
+}
+
+/// How a failed process exited, in words. A capture that wrote nothing at all
+/// must still be able to say *whether* it crashed, was killed, or exited
+/// cleanly (issues #829/#796).
+fn exit_status_detail(output: &std::process::Output) -> String {
+    if let Some(code) = output.status.code() {
+        return format!("exit code {code}");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = output.status.signal() {
+            return format!("killed by signal {signal}");
+        }
+    }
+    "killed by signal".to_string()
+}
+
+/// Map a failed `playwright install chromium` run to a `CommandError`. The
+/// reinstall downloads ~130MB from Playwright's CDN and unpacks it into the
+/// user's browser cache, so its failures are overwhelmingly environmental —
+/// network, disk, permissions — and those classify Expected. Anything else
+/// stays reportable, but must still say something: this process can exit
+/// non-zero having written no stderr at all, which previously produced a
+/// message that trailed off after the colon (issue #796).
+fn browser_install_error(output: &std::process::Output) -> CommandError {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined = format!("{}\n{}", stderr.trim(), stdout.trim());
+
+    const NETWORK_SIGNATURES: &[&str] = &[
+        "ECONNRESET",
+        "ECONNREFUSED",
+        "ETIMEDOUT",
+        "ENOTFOUND",
+        "EAI_AGAIN",
+        "socket hang up",
+        "getaddrinfo",
+        "unable to verify the first certificate",
+        "self-signed certificate",
+    ];
+    if NETWORK_SIGNATURES.iter().any(|s| combined.contains(s)) {
+        return CommandError::expected(
+            "The screenshot browser couldn't be downloaded — Ship Studio couldn't reach \
+             Playwright's download server. Check your internet connection (including any VPN, \
+             proxy, or firewall), then try again.",
+        );
+    }
+    if combined.contains("ENOSPC")
+        || combined.contains("No space left on device")
+        || combined.contains("not enough space on the disk")
+    {
+        return CommandError::expected(
+            "The screenshot browser couldn't be downloaded — this computer is out of disk \
+             space. Free up some space, then try again.",
+        );
+    }
+    if combined.contains("EACCES") || combined.contains("EPERM") {
+        return CommandError::expected(
+            "The screenshot browser couldn't be downloaded — Ship Studio wasn't allowed to \
+             write to Playwright's browser cache. Check the permissions on that folder \
+             (~/Library/Caches/ms-playwright on macOS, %LOCALAPPDATA%\\ms-playwright on \
+             Windows), then try again.",
+        );
+    }
+
+    let status = exit_status_detail(output);
+    let detail = combined.trim();
+    let detail = if detail.is_empty() {
+        String::new()
+    } else {
+        let snippet: String = detail.chars().take(300).collect();
+        format!(" Output: {snippet}")
+    };
+    (format!(
+        "Playwright's Chromium browser is missing and reinstalling it failed ({status}). Try \
+         again — if it keeps failing, running `npx playwright install chromium` in a terminal \
+         shows the full output.{detail}"
+    ))
+    .into()
 }
 
 /// True when stderr shows the process (Node itself, or a child) failing at
@@ -138,6 +230,39 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
              closing other applications or restarting your machine usually clears it.",
         );
     }
+    // A URL that serves a file download instead of a document (a PDF export,
+    // an invoice API route) aborts the navigation with "Download is starting"
+    // every single time — a fact about that page, not a transient race, so
+    // there is nothing to retry (issue #801).
+    if stderr.contains("Download is starting") {
+        return CommandError::expected(format!(
+            "{url} starts a file download instead of rendering a page, so there's nothing to \
+             screenshot. Point the preview at a page URL and try again."
+        ));
+    }
+    // Chromium aborting the navigation (net::ERR_ABORTED) means something
+    // superseded it mid-flight — a dev-server hot reload or a client-side
+    // redirect landing while page.goto was still waiting for `load`. The
+    // script already retries it once; one that persists is the same
+    // dev-server race as #514/#703, not an app bug (issue #782).
+    if stderr.contains("ERR_ABORTED") {
+        return CommandError::expected(format!(
+            "Loading {url} was interrupted before the page finished — the preview was probably \
+             reloading (hot reload or a redirect) as the screenshot started. Wait for it to \
+             settle, then try again."
+        ));
+    }
+    // The page going away mid-session ("Target page, context or browser has
+    // been closed") means the renderer died after the navigation had already
+    // succeeded — the same environment-level browser failure as the startup
+    // crash above (#558), caught later in the run (issue #815).
+    if stderr.contains("Target page, context or browser has been closed") {
+        return CommandError::expected(
+            "The screenshot browser closed unexpectedly while capturing the page. This is \
+             usually a one-off (memory pressure, or security software stopping the headless \
+             browser) — try again in a moment.",
+        );
+    }
     // Both goto attempts exhausting their navigation timeout is a recurring,
     // environmental condition on slow dev servers (Windows first-compile +
     // antivirus overhead — issues #385/#606), not a malfunction: the route
@@ -150,7 +275,29 @@ fn capture_script_error(what: &str, url: &str, output: &std::process::Output) ->
         ));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    (format!("{what} failed. stdout: {stdout} stderr: {stderr}")).into()
+    let status = exit_status_detail(output);
+    // A capture that produced neither stdout nor stderr told us nothing about
+    // why it died. The exit status is then the only signal there is, so name
+    // it and say what a silent death usually means (issue #829).
+    if stdout.trim().is_empty() && stderr.trim().is_empty() {
+        if output.status.success() {
+            // The script ran to completion but no screenshot file is there —
+            // a different shape entirely from a killed process, so don't
+            // describe it as a crash.
+            return (format!(
+                "{what} finished without writing a screenshot and without reporting why. \
+                 Try again in a moment."
+            ))
+            .into();
+        }
+        return (format!(
+            "{what} failed with no output at all ({status}) — the capture process died before \
+             it could report anything, which usually means it was killed (security software, \
+             or the machine running out of memory). Try again in a moment."
+        ))
+        .into();
+    }
+    (format!("{what} failed ({status}). stdout: {stdout} stderr: {stderr}")).into()
 }
 
 /// Parse the major version out of `node --version` output ("v16.17.0" -> 16).
@@ -228,7 +375,7 @@ fn installed_playwright_version(playwright_dir: &std::path::Path) -> Option<(u32
 
 /// Get or create a shared Playwright environment directory.
 /// Installs Playwright and Chromium once, reused for all screenshots.
-pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
+pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, CommandError> {
     let home = dirs::home_dir().ok_or("Could not determine home directory")?;
     let playwright_dir = home.join(".ship-studio").join("playwright-env");
 
@@ -246,7 +393,9 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
                     .args(["install", PLAYWRIGHT_INSTALL_SPEC])
                     .current_dir(&playwright_dir)
                     .output()
-                    .map_err(|e| format!("Failed to upgrade playwright: {e}"))?;
+                    .map_err(|e| {
+                        CommandError::from(format!("Failed to upgrade playwright: {e}"))
+                    })?;
                 if !upgrade.status.success() {
                     let stderr = String::from_utf8_lossy(&upgrade.stderr);
                     tracing::warn!(
@@ -263,16 +412,28 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
         return Ok(playwright_dir);
     }
 
+    // Nothing below can work without npm. `node_tool_command` falls back to
+    // the bare name when it can't resolve the binary, and spawning that on a
+    // machine with no Node.js installed dies with Rust's raw "program not
+    // found" — an unhelpful, unclassified error for what is simply a missing
+    // prerequisite (issue #738, same treatment as git in #297).
+    if crate::utils::find_executable("npm").is_none() {
+        return Err(CommandError::expected(
+            "Screenshots need Node.js (which provides npm), and it isn't installed or couldn't \
+             be found. Install Node.js from https://nodejs.org, then try again.",
+        ));
+    }
+
     tracing::info!("Setting up Playwright environment at {:?}", playwright_dir);
 
     // Create the directory
     std::fs::create_dir_all(&playwright_dir)
-        .map_err(|e| format!("Failed to create playwright env dir: {e}"))?;
+        .map_err(|e| CommandError::from(format!("Failed to create playwright env dir: {e}")))?;
 
     // Write package.json
     let package_json = r#"{"name": "ship-studio-playwright", "private": true}"#;
     std::fs::write(playwright_dir.join("package.json"), package_json)
-        .map_err(|e| format!("Failed to write package.json: {e}"))?;
+        .map_err(|e| CommandError::from(format!("Failed to write package.json: {e}")))?;
 
     // Install playwright
     tracing::info!("Installing Playwright (this may take a moment on first run)...");
@@ -280,11 +441,11 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
         .args(["install", PLAYWRIGHT_INSTALL_SPEC])
         .current_dir(&playwright_dir)
         .output()
-        .map_err(|e| format!("Failed to run npm install playwright: {e}"))?;
+        .map_err(|e| CommandError::from(format!("Failed to run npm install playwright: {e}")))?;
 
     if !install_output.status.success() {
         let stderr = String::from_utf8_lossy(&install_output.stderr);
-        return Err(format!("Failed to install playwright: {stderr}"));
+        return Err(format!("Failed to install playwright: {stderr}").into());
     }
 
     // Install Chromium browser
@@ -293,7 +454,7 @@ pub(super) fn get_playwright_env() -> Result<std::path::PathBuf, String> {
         .args(["playwright", "install", "chromium"])
         .current_dir(&playwright_dir)
         .output()
-        .map_err(|e| format!("Failed to install chromium: {e}"))?;
+        .map_err(|e| CommandError::from(format!("Failed to install chromium: {e}")))?;
 
     if !browser_output.status.success() {
         let stderr = String::from_utf8_lossy(&browser_output.stderr);
@@ -397,8 +558,11 @@ const {{ chromium }} = require('playwright');
             // give it a short beat before the one retry. A malformed/empty
             // HTTP response is the same race caught one step later: the
             // server accepted the socket but died mid-answer while
-            // restarting (issue #703) — same beat, same retry.
-            if (msg.includes('ERR_CONNECTION_REFUSED') || msg.includes('ERR_INVALID_HTTP_RESPONSE')) {{
+            // restarting (issue #703) — same beat, same retry. An aborted
+            // navigation (ERR_ABORTED) is the same family once more: a hot
+            // reload or client-side redirect superseded this goto before
+            // `load` fired (issue #782).
+            if (msg.includes('ERR_CONNECTION_REFUSED') || msg.includes('ERR_INVALID_HTTP_RESPONSE') || msg.includes('ERR_ABORTED')) {{
                 await new Promise((resolve) => setTimeout(resolve, 2000));
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
@@ -616,8 +780,11 @@ const {{ chromium }} = require('playwright');
             // give it a short beat before the one retry. A malformed/empty
             // HTTP response is the same race caught one step later: the
             // server accepted the socket but died mid-answer while
-            // restarting (issue #703) — same beat, same retry.
-            if (msg.includes('ERR_CONNECTION_REFUSED') || msg.includes('ERR_INVALID_HTTP_RESPONSE')) {{
+            // restarting (issue #703) — same beat, same retry. An aborted
+            // navigation (ERR_ABORTED) is the same family once more: a hot
+            // reload or client-side redirect superseded this goto before
+            // `load` fired (issue #782).
+            if (msg.includes('ERR_CONNECTION_REFUSED') || msg.includes('ERR_INVALID_HTTP_RESPONSE') || msg.includes('ERR_ABORTED')) {{
                 await new Promise((resolve) => setTimeout(resolve, 2000));
             }} else if (!msg.includes('Timeout')) {{
                 throw err;
@@ -876,6 +1043,121 @@ mod capture_error_tests {
             CommandError::Expected { message } => {
                 assert!(message.contains("didn't finish loading"), "got: {message}");
                 assert!(message.contains("http://localhost:59973"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn download_url_is_expected_with_no_retry_advice() {
+        // Issue #801: a PDF/export route always aborts navigation this way —
+        // deterministic, so the message must not promise a retry will help.
+        let output = failed_output(
+            "page.goto: Download is starting\nCall log:\n  - navigating to \"http://localhost:58648/api/facturen/1/pdf\", waiting until \"load\"",
+        );
+        match capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:58648/api/facturen/1/pdf",
+            &output,
+        ) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("file download"), "got: {message}");
+                assert!(message.contains("/api/facturen/1/pdf"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn aborted_navigation_is_expected_reload_race() {
+        // Issue #782: a hot reload or redirect superseding the goto.
+        let output = failed_output(
+            "page.goto: net::ERR_ABORTED at http://localhost:51379/opa\nCall log:\n  - navigating to \"http://localhost:51379/opa\", waiting until \"load\"",
+        );
+        match capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:51379/opa",
+            &output,
+        ) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("was interrupted"), "got: {message}");
+                assert!(
+                    message.contains("http://localhost:51379/opa"),
+                    "got: {message}"
+                );
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn closed_target_mid_capture_is_expected_not_telemetry() {
+        // Issue #815: the renderer dying after a successful navigation.
+        let output =
+            failed_output("page.screenshot: Target page, context or browser has been closed");
+        match capture_script_error("Playwright screenshot", "http://localhost:3000", &output) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("closed unexpectedly"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn silent_failure_still_names_the_exit_status() {
+        // Issue #829: no stdout, no stderr — the exit status is the only
+        // signal there is, so the message must carry it.
+        let output = failed_output("");
+        let err = capture_script_error(
+            "Playwright viewport screenshot",
+            "http://localhost:3000",
+            &output,
+        );
+        assert!(!matches!(err, CommandError::Expected { .. }));
+        let message = format!("{err}");
+        assert!(message.contains("no output at all"), "got: {message}");
+        assert!(
+            message.contains("exit code") || message.contains("killed by signal"),
+            "got: {message}"
+        );
+    }
+
+    #[test]
+    fn empty_stderr_install_failure_still_says_something_actionable() {
+        // Issue #796: the reinstall exiting non-zero with no output at all
+        // used to produce a message that trailed off after the colon.
+        let err = browser_install_error(&failed_output(""));
+        assert!(!matches!(err, CommandError::Expected { .. }));
+        let message = format!("{err}");
+        assert!(
+            message.contains("exit code") || message.contains("killed by signal"),
+            "got: {message}"
+        );
+        assert!(
+            message.contains("npx playwright install chromium"),
+            "got: {message}"
+        );
+    }
+
+    #[test]
+    fn network_install_failure_is_expected_with_connection_guidance() {
+        let err = browser_install_error(&failed_output(
+            "Error: getaddrinfo ENOTFOUND cdn.playwright.dev",
+        ));
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("internet connection"), "got: {message}")
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn disk_full_install_failure_is_expected_with_disk_guidance() {
+        let err = browser_install_error(&failed_output("Error: ENOSPC: no space left on device"));
+        match err {
+            CommandError::Expected { message } => {
+                assert!(message.contains("out of disk"), "got: {message}")
             }
             other => panic!("expected Expected, got {other:?}"),
         }

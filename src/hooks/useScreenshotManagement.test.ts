@@ -229,4 +229,23 @@ describe('useScreenshotManagement auto-capture consent gate', () => {
     expect(invokeMock).toHaveBeenCalledTimes(2);
     expect(setThumbnailsEnabled).not.toHaveBeenCalled();
   });
+
+  it('missing project folder: stops retrying on the NotFound wording too', async () => {
+    // Issue #750: the backend reports a vanished project folder with this
+    // message, not only the validate_project_path one — retrying it can never
+    // succeed, so the schedule must stop instead of burning all five attempts.
+    vi.mocked(getThumbnailsEnabled).mockResolvedValue(true);
+    invokeMock.mockRejectedValue(
+      "The folder '/Users/test/ShipStudio/demo' no longer exists — it may have been moved, renamed, or deleted outside Ship Studio"
+    );
+    const { result } = renderHook(() => useScreenshotManagement(makeParams()));
+
+    await triggerAutoCapture(result);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
 });
