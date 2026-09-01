@@ -283,21 +283,26 @@ describe('useFileTree — read-failure log level', () => {
 
   it('warns (not errors) when the file vanished under a stale tab (#834)', async () => {
     await openFailing('File not found: a.ts');
-    expect(logger.warn).toHaveBeenCalledWith('Failed to read file', {
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalledWith('Failed to read file', {
       path: 'a.ts',
       error: 'File not found: a.ts',
     });
-    expect(logger.error).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
   });
 
   it('warns when the OS denies access to the file (#837)', async () => {
     await openFailing("Can't read a.ts — permission denied. It may be locked by another program.");
-    expect(logger.warn).toHaveBeenCalled();
-    expect(logger.error).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
   });
 
   it('still errors on a genuine read failure', async () => {
     await openFailing("Failed to resolve file 'a.ts': something unexpected");
-    expect(logger.error).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).toHaveBeenCalled();
   });
 });

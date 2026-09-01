@@ -17,6 +17,8 @@ import {
 } from './agentBridge';
 import { logger } from './logger';
 
+type Fn = ReturnType<typeof vi.fn>;
+
 const makeCtx = (overrides: Partial<BridgeToolContext> = {}): BridgeToolContext => ({
   projectPath: '/Users/me/ShipStudio/site',
   getCurrentUrl: () => 'http://localhost:4173/',
@@ -165,8 +167,8 @@ describe('executeBridgeTool', () => {
   });
 
   it('warns instead of erroring when a capture races a dev-server restart (#735)', async () => {
-    vi.mocked(logger.warn).mockClear();
-    vi.mocked(logger.error).mockClear();
+    (logger.warn as Fn).mockClear();
+    (logger.error as Fn).mockClear();
     invokeMock.mockRejectedValue({
       type: 'Other',
       message:
@@ -181,15 +183,17 @@ describe('executeBridgeTool', () => {
     expect(result.isError).toBe(true);
     expect((result.content[0] as { text: string }).text).toContain('stopped responding');
     // …but logger.error would auto-file a bug report for an Expected race.
-    expect(logger.warn).toHaveBeenCalledWith(
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalledWith(
       '[AgentBridge] Tool execution failed',
       expect.objectContaining({ tool: 'preview_screenshot' })
     );
-    expect(logger.error).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
   });
 
   it('still errors on an unclassified tool failure', async () => {
-    vi.mocked(logger.error).mockClear();
+    (logger.error as Fn).mockClear();
     invokeMock.mockRejectedValue(new Error('kaboom'));
     const result = await executeBridgeTool(
       { requestId: 41, tool: 'preview_screenshot' },
@@ -197,7 +201,8 @@ describe('executeBridgeTool', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(logger.error).toHaveBeenCalledWith(
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).toHaveBeenCalledWith(
       '[AgentBridge] Tool execution failed',
       expect.objectContaining({ tool: 'preview_screenshot' })
     );
@@ -304,7 +309,7 @@ describe('registerPreviewMcpServer', () => {
       registerPreviewMcpServer('http://127.0.0.1:4123/mcp/abc', '/policy-blocked')
     ).resolves.toBe(false);
     // eslint-disable-next-line @typescript-eslint/unbound-method -- asserting on the mock, not invoking it bound
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(logger.warn as Fn).toHaveBeenCalledWith(
       expect.stringContaining('enterprise policy'),
       expect.anything()
     );
