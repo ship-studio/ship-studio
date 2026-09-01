@@ -88,8 +88,11 @@ fn sweep_stale_thumbnail_profiles(shipstudio_dir: &Path) {
 /// True for Chromium stderr lines that are subsystem chatter, never a failure
 /// cause: crashpad's IPC teardown races (issue #422), GoogleUpdater process
 /// lifecycle, GCM push-registration retries, TensorFlow Lite delegate init,
-/// and the allocator double-load warning (issues #498–#500). A headless
-/// capture emits these freely; keeping them buries the actionable line.
+/// and the allocator double-load warning (issues #498–#500), Windows' PDH
+/// CPU-telemetry counter registration failing inside Hyper-V-backed VMs
+/// (issue #807), and macOS CoreVideo's display-link probe finding no display
+/// in a headless process (issue #817). A headless capture emits these freely;
+/// keeping them buries the actionable line.
 fn is_chromium_noise(line: &str) -> bool {
     const NOISE_MARKERS: &[&str] = &[
         "crashpad",
@@ -101,6 +104,10 @@ fn is_chromium_noise(line: &str) -> bool {
         "TensorFlow Lite",
         "XNNPACK delegate",
         "Trying to load the allocator multiple times",
+        "cpu_probe_win",
+        "PdhAddEnglishCounter",
+        "cv_display_link_mac",
+        "CVDisplayLinkCreateWithCGDisplay",
     ];
     NOISE_MARKERS.iter().any(|m| line.contains(m))
 }
@@ -136,6 +143,64 @@ fn browser_failure_detail(stderr: &str) -> Option<String> {
 /// not an app malfunction (issue #644).
 fn is_profile_singleton_error(stderr: &str) -> bool {
     stderr.contains("ProcessSingleton") || stderr.contains("SingletonLock")
+}
+
+/// Chromium stderr signatures naming a machine-level resource exhaustion
+/// rather than anything about the page: Windows' commit limit running out
+/// while the loader maps chrome.dll (ERROR_COMMITMENT_LIMIT / 0x5AF —
+/// issue #812), and the throwaway GPU cache failing to write because the
+/// volume is full (ERROR_DISK_FULL / 0x70 on Windows, ENOSPC elsewhere —
+/// issue #784). Both are user-fixable environment states, not app
+/// malfunctions, and the retry ladder can't help either — so name them
+/// instead of surfacing the raw C++ log dump.
+fn browser_resource_exhaustion_error(stderr: &str) -> Option<CommandError> {
+    if stderr.contains("paging file is too small") || stderr.contains("(0x5AF)") {
+        return Some(CommandError::expected(
+            "The capture browser couldn't start because this computer is low on memory (its \
+             paging file is too small or full). Close some other apps, or increase the paging \
+             file size (Settings → System → About → Advanced system settings → Performance → \
+             Virtual memory) — the thumbnail will be retried automatically.",
+        ));
+    }
+    if stderr.contains("not enough space on the disk")
+        || stderr.contains("(0x70)")
+        || stderr.contains("No space left on device")
+        || stderr.contains("ENOSPC")
+    {
+        return Some(CommandError::expected(
+            "The capture browser couldn't write its temporary cache — this computer's disk is \
+             full or nearly full. Free up some disk space and the thumbnail will be retried \
+             automatically.",
+        ));
+    }
+    None
+}
+
+/// Name the exit codes a capture browser reports when it dies with no output
+/// at all: Crashpad's `kCrashExitCodeNoDump` (0xFFFF7001 — the crash server
+/// never answered, so the process self-terminated after its internal wait,
+/// issue #821) and Windows NTSTATUS fatal-exception codes such as
+/// STATUS_ACCESS_VIOLATION (0xC0000005 — issue #705). Either way the browser
+/// process itself crashed: an environment-level failure (damaged browser
+/// install, graphics driver, security software), not an app malfunction.
+fn browser_crash_exit_message(code: i32) -> Option<String> {
+    /// Crashpad's `kCrashExitCodeNoDump`.
+    const CRASHPAD_NO_DUMP: i32 = -36863;
+    if code == CRASHPAD_NO_DUMP {
+        return Some(
+            "The capture browser crashed and self-terminated without a diagnostic dump."
+                .to_string(),
+        );
+    }
+    // NTSTATUS values with the error severity bits set (0xC0000000–0xCFFFFFFF)
+    // are the crash codes Windows reports for a fatally faulting process.
+    let unsigned = code as u32;
+    if (0xC000_0000..=0xCFFF_FFFF).contains(&unsigned) {
+        return Some(format!(
+            "The capture browser crashed (Windows fatal exception 0x{unsigned:08X})."
+        ));
+    }
+    None
 }
 
 /// Map an `image` crate failure decoding user-uploaded thumbnail bytes to an
@@ -378,6 +443,12 @@ pub async fn capture_project_thumbnail(
                      cleaned up automatically — the next capture attempt should succeed.",
                 ));
             }
+            // The machine running out of memory or disk mid-capture is an
+            // environment condition with a user-side fix — name it instead of
+            // dumping Chromium's raw loader/cache log line (issues #812/#784).
+            if let Some(err) = browser_resource_exhaustion_error(&stderr) {
+                return Err(err);
+            }
             // Headless Chromium can die with EMPTY stderr (crash, killed by
             // AV/security software) — fall back to the exit code plus a
             // stdout snippet so the report says something (issue #291).
@@ -424,6 +495,19 @@ pub async fn capture_project_thumbnail(
                             temp_path.display()
                         )));
                     } else if stdout.is_empty() {
+                        // A hard crash exits with a nameable code and writes
+                        // nothing at all. Say what happened instead of the
+                        // bare number, and treat it as the environment-level
+                        // failure it is (issues #705/#821).
+                        if let Some(crash) =
+                            output.status.code().and_then(browser_crash_exit_message)
+                        {
+                            return Err(CommandError::expected(format!(
+                                "{crash} This is usually a graphics driver, security software, \
+                                 or a damaged browser install interfering with headless capture \
+                                 — the thumbnail will be retried automatically."
+                            )));
+                        }
                         format!("exit code {code}, no output")
                     } else {
                         let snippet: String = stdout.chars().take(300).collect();
@@ -524,9 +608,16 @@ pub async fn upload_project_thumbnail(
     let resized = img.resize(640, 400, image::imageops::FilterType::Lanczos3);
 
     let thumbnail_path = shipstudio_dir.join("thumbnail.png");
-    resized
-        .save(&thumbnail_path)
-        .map_err(|e| format!("Failed to save thumbnail: {e}"))?;
+    // `save` wraps the underlying io::Error, so unwrap it and route through
+    // classify_fs_error like every other fs step here — macOS TCC denials
+    // (EPERM) and Windows access-denied are environment states with a
+    // user-side fix, not app malfunctions (issue #768).
+    resized.save(&thumbnail_path).map_err(|e| match e {
+        image::ImageError::IoError(io) => {
+            crate::utils::classify_fs_error("save this project's thumbnail", &thumbnail_path, &io)
+        }
+        other => format!("Failed to save thumbnail: {other}").into(),
+    })?;
 
     // Mark the metadata so capture_project_thumbnail no-ops next time.
     // Reads-then-writes the whole file rather than calling the
@@ -621,6 +712,97 @@ mod singleton_classification_tests {
         assert!(!is_profile_singleton_error(
             "ERROR:gpu_init.cc(523)] Passthrough is not supported"
         ));
+    }
+}
+
+#[cfg(test)]
+mod browser_environment_tests {
+    use super::*;
+
+    #[test]
+    fn pagefile_exhaustion_is_expected_with_memory_guidance() {
+        // Condensed from the real report behind issue #812.
+        let stderr = "[0825/123326.200:ERROR:chrome\\app\\main_dll_loader_win.cc:208] Failed to \
+            load Chrome DLL from C:\\Program Files\\Google\\Chrome\\Application\\151.0.7922.174\\chrome.dll: \
+            The paging file is too small for this operation to complete. (0x5AF)";
+        match browser_resource_exhaustion_error(stderr).expect("must classify") {
+            CommandError::Expected { message } => {
+                assert!(message.contains("low on memory"), "got: {message}");
+                assert!(message.contains("paging file"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn disk_full_gpu_cache_failure_is_expected_with_disk_guidance() {
+        // Condensed from the real report behind issue #784.
+        let stderr = "[29376:25724:0820/180957.319:ERROR:components\\viz\\host\\persistent_cache_sandboxed_file_factory.cc:83] \
+            Failed to create cache directory: C:\\Users\\x\\ShipStudio\\p\\.shipstudio\\thumbnail_profile_1\\GPUPersistentCache: \
+            There is not enough space on the disk. (0x70)";
+        match browser_resource_exhaustion_error(stderr).expect("must classify") {
+            CommandError::Expected { message } => {
+                assert!(message.contains("disk is full"), "got: {message}");
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn posix_enospc_is_also_classified_disk_full() {
+        assert!(browser_resource_exhaustion_error(
+            "ERROR:disk_cache.cc(91)] write failed: No space left on device"
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn unrelated_stderr_is_not_resource_exhaustion() {
+        assert!(browser_resource_exhaustion_error("").is_none());
+        assert!(browser_resource_exhaustion_error(
+            "ERROR:gpu_init.cc(523)] Passthrough is not supported"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn benign_pdh_and_display_link_lines_are_filtered_as_noise() {
+        // Issues #807 / #817: unrelated Chromium subsystems logging to stderr
+        // must never become the reported failure cause.
+        let stderr = "[4044:40428:0824/184726.367:ERROR:components\\system_cpu\\cpu_probe_win.cc:112] \
+            PdhAddEnglishCounter failed for '\\Hyper-V Hypervisor Logical Processor(_Total)\\% Total Run Time': \
+            Error (0x13D) while retrieving error. (0xC0000BC8)\n\
+            [1:2:0824/184726.368:ERROR:media/base/mac/cv_display_link_mac.cc:64] CVDisplayLinkCreateWithCGDisplay failed";
+        assert_eq!(browser_failure_detail(stderr), None);
+    }
+
+    #[test]
+    fn crashpad_no_dump_exit_code_is_named() {
+        // Issue #821: 0xFFFF7001 is Crashpad's kCrashExitCodeNoDump.
+        let message = browser_crash_exit_message(-36863).expect("must be named");
+        assert!(message.contains("crashed"), "got: {message}");
+        assert!(
+            message.contains("without a diagnostic dump"),
+            "got: {message}"
+        );
+    }
+
+    #[test]
+    fn windows_ntstatus_crash_codes_are_named() {
+        // Issue #705: the reported -1073741205 plus the canonical
+        // STATUS_ACCESS_VIOLATION both live in the NTSTATUS error range.
+        for code in [-1073741205, 0xC000_0005u32 as i32] {
+            let message = browser_crash_exit_message(code)
+                .unwrap_or_else(|| panic!("{code} must be named as a crash"));
+            assert!(message.contains("crashed"), "got: {message}");
+        }
+    }
+
+    #[test]
+    fn ordinary_exit_codes_are_not_treated_as_crashes() {
+        assert_eq!(browser_crash_exit_message(1), None);
+        assert_eq!(browser_crash_exit_message(21), None);
+        assert_eq!(browser_crash_exit_message(-1), None);
     }
 }
 

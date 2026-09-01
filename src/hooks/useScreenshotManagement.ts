@@ -12,17 +12,8 @@ import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { getThumbnailsEnabled, setThumbnailsEnabled } from '../lib/settings';
 import { decideAutoCapture, isPermissionDenialError } from '../lib/thumbnailGate';
-import { asCommandError, formatCommandError } from '../lib/errors';
+import { asCommandError, formatCommandError, isProjectFolderGoneError } from '../lib/errors';
 import { captureThumbnailFromPreview } from '../lib/previewSnapshot';
-
-/** Backend rejection meaning the project's root directory no longer exists
- *  (deleted, renamed, or moved while its session stayed hot). Permanent for
- *  this path — retrying can never succeed. */
-function isProjectGoneError(error: unknown): boolean {
-  return formatCommandError(asCommandError(error)).includes(
-    'Invalid path in validate_project_path'
-  );
-}
 
 /** Backend rejection meaning a capture for this project is already running
  *  (the backend's per-project in-flight guard, issue #387). Not a failure —
@@ -225,7 +216,7 @@ export function useScreenshotManagement({
           void setThumbnailsEnabled(false);
           return;
         }
-        if (isProjectGoneError(error)) {
+        if (isProjectFolderGoneError(error)) {
           // The project's folder vanished while its session stayed hot —
           // retrying can't succeed, and the 5-minute interval would re-burn
           // 5 attempts forever with no user-facing signal (issue #300).

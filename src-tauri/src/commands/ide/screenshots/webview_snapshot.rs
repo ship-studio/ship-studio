@@ -126,6 +126,27 @@ fn snapshot_timeout_error() -> CommandError {
     ))
 }
 
+/// Map a failed snapshot's message to a `CommandError`. WebKit can reject
+/// `takeSnapshotWithConfiguration` with nothing but Cocoa's generic fallback
+/// text ("An unknown error occurred") — the backing layer being momentarily
+/// unavailable (window occluded or minimized, display asleep, a compositor
+/// hiccup) leaves no further detail to act on. Classified Expected for the
+/// same reason as the timeout above: there's nothing here an engineer can
+/// fix, and the frontend falls back to the headless capture path on any
+/// failure, so a thumbnail is still produced (issue #778). Our own internal
+/// failure strings stay reportable — those *are* app-level defects.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn snapshot_failure_error(message: &str) -> CommandError {
+    if message.to_lowercase().contains("unknown error") {
+        return CommandError::expected(
+            "The app's preview couldn't produce a snapshot just now (the system reported no \
+             reason — the window may have been hidden or the display asleep). The thumbnail \
+             will be captured with the standard fallback path instead.",
+        );
+    }
+    CommandError::from(format!("Webview snapshot failed: {message}"))
+}
+
 /// Max per-channel spread within a row/column for it to count as a uniform
 /// sliver (tolerates anti-aliased boundary pixels; real content spreads far
 /// wider — the observed background sliver measured spread ≤ 12).
@@ -276,9 +297,7 @@ async fn snapshot_webview_region(
     .await
     {
         Ok(Some(Ok(bytes))) => Ok(bytes),
-        Ok(Some(Err(message))) => Err(CommandError::from(format!(
-            "Webview snapshot failed: {message}"
-        ))),
+        Ok(Some(Err(message))) => Err(snapshot_failure_error(&message)),
         Ok(None) => Err(CommandError::from(
             "Webview snapshot callback dropped without a result".to_string(),
         )),
@@ -434,6 +453,37 @@ mod timeout_error_tests {
                 assert!(message.contains("10s"), "got: {message}");
             }
             other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn opaque_webkit_error_is_expected_not_telemetry() {
+        // Issue #778: WebKit's generic NSError localizedDescription carries no
+        // actionable detail, and the frontend falls back to headless capture.
+        match snapshot_failure_error("An unknown error occurred") {
+            CommandError::Expected { message } => {
+                assert!(
+                    message.contains("couldn't produce a snapshot"),
+                    "got: {message}"
+                )
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn our_own_internal_failures_stay_reportable() {
+        // These strings come from this file, not from WebKit — a real defect.
+        for message in [
+            "webview handle is null",
+            "PNG encoding of the snapshot failed",
+        ] {
+            let err = snapshot_failure_error(message);
+            assert!(
+                !matches!(err, CommandError::Expected { .. }),
+                "{message} must stay reportable"
+            );
+            assert!(format!("{err}").contains(message));
         }
     }
 }
