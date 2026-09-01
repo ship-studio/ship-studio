@@ -1,8 +1,8 @@
 //! Skill install/remove commands.
 
-use super::extract_skills_cli_error;
+use super::{extract_skills_cli_error, npx_command, skills_cli_spawn_error};
 use crate::errors::CommandError;
-use crate::utils::{create_command, get_extended_path, validate_project_path};
+use crate::utils::validate_project_path;
 
 /// Install a skill using the Skills CLI
 /// Runs: npx skills add <package> -y --agent <agent-id>
@@ -23,7 +23,7 @@ pub async fn install_skill(
         .unwrap_or_default();
 
     let skills_agent_id = agent.skills_agent_id.unwrap_or(agent.id);
-    let mut cmd = create_command("npx");
+    let mut cmd = npx_command();
     // Pin `skills@latest` (not bare `skills`) so npx resolves from the npm
     // registry instead of preferring a `node_modules/.bin/skills` shipped by a
     // malicious imported repo. `--` before the package stops a package name
@@ -38,7 +38,6 @@ pub async fn install_skill(
         "--",
         &package,
     ])
-    .env("PATH", get_extended_path())
     .env("HOME", &home)
     .envs(crate::commands::accounts::get_env_vars_for_active_account())
     .env_remove("npm_config__jsr-registry")
@@ -61,9 +60,7 @@ pub async fn install_skill(
         cmd.current_dir(&home);
     }
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run skills CLI: {e}"))?;
+    let output = cmd.output().map_err(|e| skills_cli_spawn_error(&e))?;
 
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -94,7 +91,7 @@ pub async fn remove_skill(
         .unwrap_or_default();
 
     let skills_agent_id = agent.skills_agent_id.unwrap_or(agent.id);
-    let mut cmd = create_command("npx");
+    let mut cmd = npx_command();
     // See install_skill: pin `skills@latest` and `--`-terminate options so a
     // malicious repo's local binary / a `-`-leading package can't be abused.
     cmd.args([
@@ -107,7 +104,6 @@ pub async fn remove_skill(
         "--",
         &package,
     ])
-    .env("PATH", get_extended_path())
     .env("HOME", &home)
     .envs(crate::commands::accounts::get_env_vars_for_active_account())
     .env_remove("npm_config__jsr-registry")
@@ -127,9 +123,7 @@ pub async fn remove_skill(
         cmd.current_dir(&home);
     }
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run skills CLI: {e}"))?;
+    let output = cmd.output().map_err(|e| skills_cli_spawn_error(&e))?;
 
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);

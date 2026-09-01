@@ -283,19 +283,41 @@ fn brew_error_line(stderr: &str) -> &str {
 /// Homebrew's own remediation instead of the bare first stderr line
 /// (issue #448).
 fn brew_permission_error(stderr: &str) -> Option<crate::errors::CommandError> {
-    if !stderr.contains("is not writable") {
-        return None;
+    if stderr.contains("is not writable") {
+        // brew names the offending path in the same message; fall back to the
+        // standard prefix if the format ever changes.
+        let prefix = stderr
+            .lines()
+            .find(|l| l.contains("is not writable"))
+            .and_then(|l| l.split_whitespace().find(|w| w.starts_with('/')))
+            .unwrap_or("$(brew --prefix)");
+        return Some(crate::errors::CommandError::expected(format!(
+            "Homebrew can't install anything because {prefix} isn't writable by your user          (usually left over from a previous sudo or multi-user install). Open Terminal and run:          sudo chown -R $(whoami) {prefix} — then retry this step."
+        )));
     }
-    // brew names the offending path in the same message; fall back to the
-    // standard prefix if the format ever changes.
-    let prefix = stderr
+
+    // Ruby's raw EACCES, surfaced when Homebrew's own preflight check didn't
+    // catch the bad ownership and FileUtils hits it mid-operation instead
+    // (e.g. staging a reinstall into the Cellar). Same leftover-ownership
+    // state as the "is not writable" case above, different wording
+    // (issue #736).
+    if let Some(line) = stderr
         .lines()
-        .find(|l| l.contains("is not writable"))
-        .and_then(|l| l.split_whitespace().find(|w| w.starts_with('/')))
-        .unwrap_or("$(brew --prefix)");
-    Some(crate::errors::CommandError::expected(format!(
-        "Homebrew can't install anything because {prefix} isn't writable by your user          (usually left over from a previous sudo or multi-user install). Open Terminal and run:          sudo chown -R $(whoami) {prefix} — then retry this step."
-    )))
+        .find(|l| l.to_lowercase().contains("permission denied @ apply2files"))
+    {
+        let path = line
+            .split_once(" - ")
+            .map(|(_, path)| path.trim())
+            .filter(|p| p.starts_with('/'))
+            .unwrap_or("$(brew --prefix)");
+        return Some(crate::errors::CommandError::expected(format!(
+            "Homebrew couldn't change {path} because it isn't owned by your user (usually \
+             left over from a previous sudo or multi-user install). Open Terminal and run: \
+             sudo chown -R $(whoami) $(brew --prefix) — then retry this step."
+        )));
+    }
+
+    None
 }
 
 /// Pull a human-readable error line out of winget's output.
@@ -307,7 +329,12 @@ fn brew_permission_error(stderr: &str) -> Option<crate::errors::CommandError> {
 /// bare size/percent readouts), and return the last meaningful line — which on
 /// a failed install is the actual error (e.g. "failed when searching source:
 /// msstore").
-#[cfg(windows)]
+///
+/// winget also ends a failed *installer* run with a "Installer log is available
+/// at: <path>" line, which would otherwise win as the "last meaningful line"
+/// and hide the real reason a line or two above it (issue #745) — the same
+/// trailing-noise problem `brew_error_line` solves for Homebrew's banners.
+#[cfg_attr(not(windows), allow(dead_code))]
 fn extract_winget_error(stderr: &str, stdout: &str) -> String {
     let is_progress_only = |l: &str| {
         l.chars().all(|c| {
@@ -316,14 +343,74 @@ fn extract_winget_error(stderr: &str, stdout: &str) -> String {
             || l.contains('▒')
             || l.contains('░')
     };
+    // Pointers to a log file the user would have to open themselves — never
+    // the error itself.
+    let is_log_pointer = |l: &str| {
+        let lower = l.to_lowercase();
+        lower.starts_with("installer log is available at")
+            || lower.starts_with("please refer to the log")
+    };
     format!("{stderr}\n{stdout}")
         .replace('\r', "\n")
         .lines()
         .map(str::trim)
-        .filter(|&l| !l.is_empty() && !is_progress_only(l))
+        .filter(|&l| !l.is_empty() && !is_progress_only(l) && !is_log_pointer(l))
         .last()
         .unwrap_or("Unknown error")
         .to_string()
+}
+
+/// winget failing only in its *post-install cleanup* step: it deletes the
+/// downloaded installer from `%TEMP%\WinGet\...` after running it, and that
+/// delete loses a race against antivirus (or the installer itself) still
+/// holding the file open. The package is usually installed by then, so this
+/// exit code says nothing about whether the install worked (issue #780).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_winget_cleanup_race(stderr: &str, stdout: &str) -> bool {
+    let combined = format!("{stderr}\n{stdout}").to_lowercase();
+    combined.contains("remove:") && combined.contains("being used by another process")
+}
+
+/// Turn a winget *spawn* failure (the process never started, so there's no
+/// output to classify) into a user-facing error.
+///
+/// `which::which("winget")` resolves to the App Execution Alias stub under
+/// `%LOCALAPPDATA%\Microsoft\WindowsApps`, which isn't a real binary. Windows
+/// refuses to launch it with ERROR_CANT_ACCESS_FILE (os error 1920) when the
+/// alias is switched off, App Installer is mid-update, or endpoint software
+/// intercepts alias stubs — all environment states, not app malfunctions
+/// (issue #810).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn winget_spawn_error(err: &std::io::Error) -> CommandError {
+    if err.raw_os_error() == Some(1920) {
+        return CommandError::expected(
+            "Windows wouldn't let Ship Studio start winget (the App Installer alias is \
+             turned off or needs repairing). Open Settings → Apps → Advanced app settings → \
+             App execution aliases and switch on \"App Installer (winget.exe)\", or update \
+             App Installer from the Microsoft Store, then try again."
+                .to_string(),
+        );
+    }
+    (format!("Failed to run winget: {err}")).into()
+}
+
+/// Ask winget whether `package` is installed. Used to tell a genuine install
+/// failure apart from a cleanup-only failure (issue #780); any error answering
+/// the question counts as "not installed" so we never claim success blindly.
+#[cfg(windows)]
+fn winget_package_installed(winget: &std::path::Path, package: &str) -> bool {
+    create_command(winget)
+        .args([
+            "list",
+            "--id",
+            package,
+            "--exact",
+            "--disable-interactivity",
+            "--accept-source-agreements",
+        ])
+        .output()
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).contains(package))
+        .unwrap_or(false)
 }
 
 /// Batch install multiple packages via Winget (Windows only).
@@ -401,20 +488,39 @@ pub async fn install_winget_packages(
                 "--accept-source-agreements",
             ])
             .output()
-            .map_err(|e| format!("Failed to run winget: {}", e))?;
+            .map_err(|e| winget_spawn_error(&e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
             // Don't fail if package is already installed
-            if !stdout.contains("already installed") && !stderr.contains("already installed") {
-                return Err((format!(
-                    "Failed to install {}: {}",
-                    package,
-                    extract_winget_error(&stderr, &stdout)
-                ))
-                .into());
+            if stdout.contains("already installed") || stderr.contains("already installed") {
+                continue;
             }
+            // winget's temp-file cleanup lost a race with antivirus. The
+            // install step already ran, so ask winget whether the package
+            // landed before calling this a failure (issue #780).
+            if is_winget_cleanup_race(&stderr, &stdout) {
+                if winget_package_installed(&winget, package) {
+                    tracing::warn!(
+                        package,
+                        "winget installed the package but couldn't delete its temporary \
+                         installer file; treating the install as successful"
+                    );
+                    continue;
+                }
+                return Err(CommandError::expected(format!(
+                    "Windows couldn't finish installing {package} because another program \
+                     (usually antivirus) still had winget's temporary installer file open. \
+                     Try this step again in a moment."
+                )));
+            }
+            return Err((format!(
+                "Failed to install {}: {}",
+                package,
+                extract_winget_error(&stderr, &stdout)
+            ))
+            .into());
         }
     }
 
@@ -459,7 +565,10 @@ pub async fn check_npm_cache_permissions() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{brew_error_line, humanize_brew_failure};
+    use super::{
+        brew_error_line, extract_winget_error, humanize_brew_failure, is_winget_cleanup_race,
+        winget_spawn_error,
+    };
     use crate::errors::CommandError;
 
     /// Issue #580: brew's auto-update banner must never be surfaced as *the*
@@ -532,5 +641,80 @@ mod tests {
         let err = humanize_brew_failure("Failed to install packages", stderr);
         assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
         assert!(err.to_string().contains("sudo chown"), "got: {err}");
+    }
+
+    /// Issue #736: Ruby's raw EACCES wording is the same leftover-ownership
+    /// state as #448 — Expected, with the offending path and chown advice.
+    #[test]
+    fn ruby_apply2files_permission_denied_is_expected() {
+        let stderr = "Error: Permission denied @ apply2files - \
+                      /opt/homebrew/Cellar/mongodb-community/8.2.7.reinstall/bin/mongod";
+        let err = humanize_brew_failure("Failed to install packages", stderr);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("/opt/homebrew/Cellar/mongodb-community/8.2.7.reinstall/bin/mongod"),
+            "got: {msg}"
+        );
+        assert!(msg.contains("sudo chown -R $(whoami)"), "got: {msg}");
+    }
+
+    /// Issue #745: the trailing "Installer log is available at" pointer must
+    /// never win over the real error line above it.
+    #[test]
+    fn winget_error_skips_installer_log_pointer() {
+        let stdout = "Found Git [Git.Git]\r\
+                      ██████  50.0%\r\n\
+                      Installer failed with exit code: 1603\n\
+                      Installer log is available at: C:\\Users\\me\\AppData\\Local\\Temp\\WinGet\\x.log\n";
+        assert_eq!(
+            extract_winget_error("", stdout),
+            "Installer failed with exit code: 1603"
+        );
+    }
+
+    #[test]
+    fn winget_error_still_returns_last_real_line() {
+        assert_eq!(
+            extract_winget_error("failed when searching source: msstore", ""),
+            "failed when searching source: msstore"
+        );
+        assert_eq!(extract_winget_error("", ""), "Unknown error");
+    }
+
+    /// Issue #780: winget's post-install temp-file delete losing a race with
+    /// antivirus is a cleanup-only failure, recognizable from its wording.
+    #[test]
+    fn recognizes_winget_cleanup_race() {
+        let stderr = "remove: The process cannot access the file because it is being used by \
+                      another process.: \"C:\\Users\\me\\AppData\\Local\\Temp\\WinGet\\GitHub.cli.2.97.0\\abc\"";
+        assert!(is_winget_cleanup_race(stderr, ""));
+        assert!(is_winget_cleanup_race("", stderr));
+        assert!(!is_winget_cleanup_race(
+            "failed when searching source: msstore",
+            ""
+        ));
+    }
+
+    /// Issue #810: ERROR_CANT_ACCESS_FILE spawning the App Execution Alias is
+    /// an environment state — Expected, with alias/Store guidance.
+    #[test]
+    fn winget_alias_spawn_failure_is_expected() {
+        let err = winget_spawn_error(&std::io::Error::from_raw_os_error(1920));
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("App execution aliases"), "got: {msg}");
+        assert!(msg.contains("App Installer"), "got: {msg}");
+
+        // Any other spawn failure stays reportable.
+        let other = winget_spawn_error(&std::io::Error::from_raw_os_error(2));
+        assert!(
+            !matches!(other, CommandError::Expected { .. }),
+            "got: {other:?}"
+        );
+        assert!(
+            other.to_string().contains("Failed to run winget"),
+            "got: {other}"
+        );
     }
 }
