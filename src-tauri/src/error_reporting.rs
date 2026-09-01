@@ -404,11 +404,17 @@ fn command_error_fingerprint(err: &crate::errors::CommandError) -> Option<String
 /// "fatal: no es un repositorio git (ni ninguno de los directorios
 /// superiores): .git", issue #672), so the English substring alone silently
 /// missed non-English machines. Rather than enumerating languages, also match
-/// the locale-invariant part: the message always ends with the untranslated
-/// `.git` marker git was probing for, preceded by a colon (half- or
-/// full-width — CJK translations use "：.git"). The tail check is anchored to
-/// the end of the (trimmed) message so ordinary remote URLs ending in `.git`
-/// ("…/repo.git'") can't false-positive.
+/// the locale-invariant part: the untranslated `.git` marker git was probing
+/// for, which every translation substitutes into the sentence.
+///
+/// The original tail check ("ends with `: .git`") assumed the marker always
+/// lands at the end — true for English/Spanish/French/Chinese, but Italian's
+/// translation moves the placeholder to the *front* (`.git non è un repository
+/// Git (né lo è alcuna delle directory genitrici)`), so those reports kept
+/// reaching telemetry (issue #727). Scanning for a standalone `.git` token
+/// instead catches both word orders while still excluding remote URLs, where
+/// `.git` is glued to the repo name (`…/repo.git'` tokenizes as `…/repo.git`,
+/// never a bare `.git`).
 fn is_not_a_git_repo_message(message: &str) -> bool {
     if message
         .to_ascii_lowercase()
@@ -416,8 +422,9 @@ fn is_not_a_git_repo_message(message: &str) -> bool {
     {
         return true;
     }
-    let trimmed = message.trim_end();
-    trimmed.ends_with(": .git") || trimmed.ends_with("：.git")
+    message
+        .split(|c: char| c.is_whitespace() || "\"'()（）:：".contains(c))
+        .any(|token| token == ".git")
 }
 
 /// Report a `CommandError` the moment it's serialized for the frontend —
@@ -577,6 +584,11 @@ mod tests {
         assert!(is_not_a_git_repo_message(
             "fatal: 不是一个 git 仓库（或者任何父目录）：.git"
         ));
+        // Italian (issue #727) — the translation puts the `.git` placeholder
+        // first, so the sentence ends with ')' and no tail check can see it.
+        assert!(is_not_a_git_repo_message(
+            "Failed to list branches: fatal: .git non è un repository Git (né lo è alcuna delle directory genitrici)"
+        ));
     }
 
     #[test]
@@ -591,6 +603,11 @@ mod tests {
         ));
         assert!(!is_not_a_git_repo_message(
             "fatal: repository 'https://github.com/o/r.git/' not found"
+        ));
+        // Paths *inside* .git are a different failure — the token check must
+        // not treat ".git/index" as the bare probe marker (issue #727).
+        assert!(!is_not_a_git_repo_message(
+            "error: unable to write to .git/index"
         ));
         assert!(!is_not_a_git_repo_message(""));
     }

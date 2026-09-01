@@ -116,7 +116,9 @@ pub(crate) fn push_transient_server_error(stderr: &str) -> Option<CommandError> 
 /// deleted, renamed, transferred, or made inaccessible outside the app.
 /// Environment, not malfunction: telemetry-flooding this on every publish
 /// attempt for a stale remote helps nobody (issue #435).
-fn push_missing_remote_error(stderr: &str) -> Option<CommandError> {
+/// (`pub(crate)`: also reached through `git::classify_git_net_error`, so
+/// push_branch/delete_branch/create_pull_request classify it too — issue #825.)
+pub(crate) fn push_missing_remote_error(stderr: &str) -> Option<CommandError> {
     let lower = stderr.to_lowercase();
     let missing = lower.contains("repository not found")
         || (lower.contains("repository") && lower.contains("not found") && lower.contains("fatal"));
@@ -388,6 +390,20 @@ pub async fn publish_branch(
     let branch = String::from_utf8_lossy(&branch_output.stdout)
         .trim()
         .to_string();
+    // In a detached HEAD (checked-out tag/commit, mid-rebase) `rev-parse
+    // --abbrev-ref HEAD` literally returns "HEAD", which we'd then hand git as
+    // a push destination — git refuses with an unreadable "not a full refname"
+    // wall of text and telemetry logs it as a defect. A normal git state with a
+    // user-side fix, so stop before committing anything (issue #794; same guard
+    // get_current_branch got in #317).
+    if branch == "HEAD" {
+        warn!("Publish blocked: repository is in a detached HEAD state");
+        return Err(CommandError::expected(
+            "This project isn't on a branch right now (git calls this a detached HEAD — it \
+             happens mid-rebase or after checking out a specific commit or tag). Switch to a \
+             branch first, then publish.",
+        ));
+    }
     info!(branch = %branch, message = %message, "Publishing branch");
 
     // Ensure git identity matches GitHub account before committing
