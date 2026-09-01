@@ -20,6 +20,16 @@ fn describe_reqwest_error(e: &reqwest::Error) -> String {
     msg
 }
 
+/// Wrap a network failure as `Expected`.
+///
+/// A timeout or a dropped connection talking to ship.studio is the user's
+/// network (or our API being briefly unreachable), not an app malfunction —
+/// `Expected` keeps it out of telemetry while still carrying the underlying
+/// cause for the UI to show (issue #754).
+fn network_failure(context: &str, e: &reqwest::Error) -> CommandError {
+    CommandError::expected(format!("{context}: {}", describe_reqwest_error(e)))
+}
+
 /// Fetch community templates from the Ship Studio API.
 /// Accepts optional query parameters that map to the API spec.
 /// Returns the raw JSON string so the frontend can parse it.
@@ -69,15 +79,19 @@ pub async fn fetch_community_templates(
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch templates: {}", describe_reqwest_error(&e)))?;
+        .map_err(|e| network_failure("Failed to fetch templates", &e))?;
 
     if !response.status().is_success() {
-        return Err((format!("API returned status {}", response.status())).into());
+        return Err(CommandError::expected(format!(
+            "The template gallery is unavailable right now (server returned {}). Try again in a moment.",
+            response.status()
+        )));
     }
 
-    response.text().await.map_err(|e| CommandError::Other {
-        message: format!("Failed to read response: {e}"),
-    })
+    response
+        .text()
+        .await
+        .map_err(|e| network_failure("Failed to read templates response", &e))
 }
 
 /// Download a template zip from a signed URL to a temporary file.
@@ -90,21 +104,23 @@ pub async fn download_template_zip(url: String) -> Result<String, CommandError> 
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
-    let response = client.get(&url).send().await.map_err(|e| {
-        format!(
-            "Failed to download template: {}",
-            describe_reqwest_error(&e)
-        )
-    })?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| network_failure("Failed to download template", &e))?;
 
     if !response.status().is_success() {
         return Err((format!("Download failed with status {}", response.status())).into());
     }
 
+    // A truncated/interrupted download is a network condition too, and the
+    // actionable detail lives in the source chain, not the top-level message
+    // (issue #749).
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("Failed to read download: {e}"))?;
+        .map_err(|e| network_failure("Failed to read download", &e))?;
 
     let tmp_dir = std::env::temp_dir().join("shipstudio-templates");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create temp dir: {e}"))?;

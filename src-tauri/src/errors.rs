@@ -124,25 +124,31 @@ impl Serialize for CommandError {
     }
 }
 
-/// Windows refusing a memory commit — usually a process spawn — because the
-/// paging file is too small or the machine is under memory pressure
-/// (ERROR_COMMITMENT_LIMIT, os error 1455). That's an environment condition
-/// with a user-side fix, not an app malfunction; returning `Expected` keeps
-/// it out of telemetry and swaps the bare OS string for actionable guidance
-/// (issue #356). The code is Windows-only; matching it unconditionally is
-/// safe because Unix errno values don't reach 1455.
+/// Windows refusing an operation because the machine is out of resources:
+/// ERROR_COMMITMENT_LIMIT (os error 1455, the paging file is too small) or
+/// ERROR_NO_SYSTEM_RESOURCES (os error 1450, kernel pool/handle exhaustion —
+/// same class, and it hits plain filesystem calls like `canonicalize`, not
+/// just spawns). Both are environment conditions with a user-side fix, not app
+/// malfunctions; returning `Expected` keeps them out of telemetry and swaps the
+/// bare OS string for actionable guidance (issues #356, #783). The codes are
+/// Windows-only; matching them unconditionally is safe because Unix errno
+/// values don't reach 1450/1455.
 pub fn windows_out_of_memory(err: &std::io::Error, label: Option<&str>) -> Option<CommandError> {
-    if err.raw_os_error() != Some(1455) {
-        return None;
-    }
     let doing = label
         .map(|l| format!(" while running `{l}`"))
         .unwrap_or_default();
-    Some(CommandError::expected(format!(
-        "Windows ran out of virtual memory{doing} (the paging file is too small). \
-         Close some other apps or increase the paging file size (Settings → System → About → \
-         Advanced system settings → Performance → Virtual memory), then try again."
-    )))
+    match err.raw_os_error() {
+        Some(1455) => Some(CommandError::expected(format!(
+            "Windows ran out of virtual memory{doing} (the paging file is too small). \
+             Close some other apps or increase the paging file size (Settings → System → About → \
+             Advanced system settings → Performance → Virtual memory), then try again."
+        ))),
+        Some(1450) => Some(CommandError::expected(format!(
+            "Windows ran out of system resources{doing}. This usually clears on its own — \
+             close some other apps (or restart the machine if it persists), then try again."
+        ))),
+        _ => None,
+    }
 }
 
 impl From<std::io::Error> for CommandError {
@@ -260,6 +266,17 @@ mod tests {
         // And the blanket io::Error conversion picks it up too.
         let err: CommandError = std::io::Error::from_raw_os_error(1455).into();
         assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    // #783: ERROR_NO_SYSTEM_RESOURCES reached users raw from `canonicalize`.
+    #[test]
+    fn windows_no_system_resources_becomes_expected_with_guidance() {
+        let io_err = std::io::Error::from_raw_os_error(1450);
+        let err = windows_out_of_memory(&io_err, None).expect("should classify");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("system resources"), "got: {msg}");
+        assert!(!msg.contains("os error"), "got: {msg}");
     }
 
     #[test]

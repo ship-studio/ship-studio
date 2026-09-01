@@ -2172,13 +2172,25 @@ async fn boot_specific_simulator(udid: &str) -> Result<BootResult, CommandError>
             });
         }
     }
-    // Block until fully booted (deterministic, no sleeps).
-    let _ = simctl_stdout(
+    // Block until fully booted (deterministic, no sleeps). A cold Simulator on a
+    // busy machine can legitimately exceed the wait budget — that's the machine
+    // being slow, not a malfunction, so classify it like the sibling simctl call
+    // sites do (issues #411/#554) instead of reporting a raw timeout (#814).
+    if let Err(e) = simctl_stdout(
         &["bootstatus", udid, "-b"],
         "xcrun simctl bootstatus",
         BOOT_WAIT_TIMEOUT_SECS,
     )
-    .await?;
+    .await
+    {
+        if matches!(e, CommandError::Timeout { .. }) {
+            return Err(CommandError::expected(
+                "The iOS Simulator is taking a long time to finish booting. Give it a moment \
+                 and try again — if it stays stuck, quit Simulator.app and retry.",
+            ));
+        }
+        return Err(e);
+    }
     let sim = list_booted_simulators()
         .await?
         .into_iter()

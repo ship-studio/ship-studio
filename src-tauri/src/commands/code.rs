@@ -194,8 +194,12 @@ pub fn read_project_file(project_path: &str, file_path: &str) -> Result<FileCont
         });
     }
 
-    // Read the file bytes
-    let bytes = std::fs::read(&canonical).map_err(|e| format!("Failed to read file: {e}"))?;
+    // Read the file bytes. `classify_fs_error` turns the environment shapes —
+    // a Windows access-denied while antivirus/cloud-sync holds the file, a
+    // cloud-drive timeout, a permissions problem — into actionable guidance
+    // instead of raw (and often localized) OS text (issue #837).
+    let bytes = std::fs::read(&canonical)
+        .map_err(|e| crate::utils::classify_fs_error("read this file", &canonical, &e))?;
 
     // Check for binary content (null bytes in first 8KB)
     let check_len = bytes.len().min(8192);
@@ -265,7 +269,8 @@ pub fn save_project_file(
         return Err(("File is too large to save".to_string()).into());
     }
 
-    std::fs::write(&canonical, content).map_err(|e| format!("Failed to write file: {e}"))?;
+    std::fs::write(&canonical, content)
+        .map_err(|e| crate::utils::classify_fs_error("save this file", &canonical, &e))?;
 
     Ok(())
 }

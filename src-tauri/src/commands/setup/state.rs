@@ -3,7 +3,7 @@
 //! Functions for reading/writing the persisted AppState (setup_complete, default_agent, etc.)
 
 use super::{
-    is_force_onboarding_mode, is_mock_mode, read_app_state, write_app_state,
+    is_force_onboarding_mode, is_mock_mode, read_app_state, update_app_state,
     FORCE_ONBOARDING_COMPLETED,
 };
 use crate::errors::CommandError;
@@ -56,11 +56,10 @@ pub async fn mark_setup_complete() -> Result<(), CommandError> {
         .unwrap_or(0);
 
     // Read existing state to preserve other fields (e.g., compact_mode)
-    let mut state = read_app_state();
-    state.setup_complete = true;
-    state.setup_completed_at = Some(timestamp);
-
-    write_app_state(&state)?;
+    update_app_state(|state| {
+        state.setup_complete = true;
+        state.setup_completed_at = Some(timestamp);
+    })?;
     tracing::info!("Setup marked as complete");
     Ok(())
 }
@@ -76,9 +75,7 @@ pub async fn set_external_agent_opt_in(enabled: bool) -> Result<(), CommandError
         tracing::info!("Test mode: skipping external agent opt-in persistence");
         return Ok(());
     }
-    let mut state = read_app_state();
-    state.external_agent = Some(enabled);
-    write_app_state(&state)?;
+    update_app_state(|state| state.external_agent = Some(enabled))?;
     tracing::info!(enabled, "External agent opt-in persisted");
     Ok(())
 }
@@ -127,9 +124,7 @@ pub async fn set_default_host(host: String) -> Result<(), CommandError> {
         tracing::info!(host, "Test mode: skipping default host persistence");
         return Ok(());
     }
-    let mut state = read_app_state();
-    state.default_host = Some(host.clone());
-    write_app_state(&state)?;
+    update_app_state(|state| state.default_host = Some(host.clone()))?;
     tracing::info!(host, "Default host persisted");
     Ok(())
 }
@@ -146,11 +141,10 @@ pub async fn get_default_host() -> Result<Option<String>, CommandError> {
 #[tracing::instrument]
 pub async fn reset_setup_state() -> Result<(), CommandError> {
     // Read existing state to preserve other fields (e.g., compact_mode)
-    let mut state = read_app_state();
-    state.setup_complete = false;
-    state.setup_completed_at = None;
-
-    write_app_state(&state)?;
+    update_app_state(|state| {
+        state.setup_complete = false;
+        state.setup_completed_at = None;
+    })?;
     tracing::info!("Setup state reset");
     Ok(())
 }
@@ -167,9 +161,7 @@ pub async fn get_default_agent_id() -> Option<String> {
 #[tauri::command]
 #[tracing::instrument]
 pub async fn set_default_agent_id(agent_id: String) -> Result<(), CommandError> {
-    let mut state = read_app_state();
-    state.default_agent_id = Some(agent_id.clone());
-    write_app_state(&state)?;
+    update_app_state(|state| state.default_agent_id = Some(agent_id.clone()))?;
     crate::agent::set_default_agent_cached(&agent_id);
     tracing::info!("Default agent set to: {}", agent_id);
     Ok(())
