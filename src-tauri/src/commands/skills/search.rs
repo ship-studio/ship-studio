@@ -1,8 +1,7 @@
 //! Skill listing and search commands.
 
-use super::strip_ansi_codes;
+use super::{npx_command, skills_cli_spawn_error, strip_ansi_codes};
 use crate::errors::CommandError;
-use crate::utils::{create_command, get_extended_path};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -262,9 +261,8 @@ pub async fn check_skills_cli() -> bool {
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let output = create_command("npx")
+    let output = npx_command()
         .args(["--yes", "skills", "--version"])
-        .env("PATH", get_extended_path())
         .env("HOME", &home)
         .output();
 
@@ -285,15 +283,14 @@ pub async fn search_skills(query: String) -> Result<Vec<SkillSearchResult>, Comm
         .unwrap_or_default();
 
     // Use --yes to ensure we always run the latest version
-    let output = create_command("npx")
+    let output = npx_command()
         .args(["--yes", "skills", "find", &query])
-        .env("PATH", get_extended_path())
         .env("HOME", &home)
         .env_remove("npm_config__jsr-registry")
         .env_remove("npm_config_npm-globalconfig")
         .env_remove("npm_config_verify-deps-before-run")
         .output()
-        .map_err(|e| format!("Failed to run skills CLI: {e}"))?;
+        .map_err(|e| skills_cli_spawn_error(&e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

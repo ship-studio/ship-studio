@@ -249,20 +249,41 @@ pub async fn uninstall_agent(agent_id: String) -> Result<String, CommandError> {
         )
     })?;
 
-    #[cfg(windows)]
-    let output = create_command("cmd")
-        .args(["/C", command])
-        .output()
-        .map_err(|e| format!("Failed to run uninstall: {e}"))?;
+    // Retry a file-lock failure before giving up: on Windows npm's unlink of a
+    // just-used binary regularly loses a race with antivirus or a still-open
+    // terminal, and the lock clears on its own within a second or two
+    // (issue #844) — the same shape `rename_with_retry` handles for plugins.
+    let mut attempt: u32 = 0;
+    let output = loop {
+        attempt += 1;
+        let output =
+            run_uninstall_command(command).map_err(|e| format!("Failed to run uninstall: {e}"))?;
+        if output.status.success() {
+            break output;
+        }
 
-    #[cfg(not(windows))]
-    let output = create_command("/bin/bash")
-        .args(["-c", command])
-        .output()
-        .map_err(|e| format!("Failed to run uninstall: {e}"))?;
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if is_file_lock_failure(&stderr) {
+            if attempt < 4 {
+                tracing::warn!(
+                    agent_id = agent_id.as_str(),
+                    attempt,
+                    "uninstall blocked by a file lock; retrying"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    300 * 2u64.pow(attempt - 1),
+                ))
+                .await;
+                continue;
+            }
+            return Err(CommandError::expected(format!(
+                "Couldn't uninstall {} because another program still has its files open. \
+                 Close any terminals or editors running it (antivirus can hold the files \
+                 briefly too), then try again.",
+                agent.display_name
+            )));
+        }
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         // npm uninstall of a non-installed package is not a fatal failure — but
         // we surface any real error so the UI can tell the user.
         return Err((format!(
@@ -270,10 +291,36 @@ pub async fn uninstall_agent(agent_id: String) -> Result<String, CommandError> {
             stderr.lines().next().unwrap_or("unknown").trim()
         ))
         .into());
-    }
+    };
 
     tracing::info!(agent_id = agent_id.as_str(), "Agent uninstalled");
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Run an agent's uninstall command through the platform shell.
+///
+/// The extended PATH is required, not cosmetic: a Finder-launched macOS app
+/// doesn't inherit the user's shell PATH, so `npm` (and anything else the
+/// uninstall line calls) simply isn't found without it (issue #757).
+fn run_uninstall_command(command: &str) -> std::io::Result<std::process::Output> {
+    #[cfg(windows)]
+    let (shell, args) = ("cmd", ["/C", command]);
+    #[cfg(not(windows))]
+    let (shell, args) = ("/bin/bash", ["-c", command]);
+
+    create_command(shell)
+        .args(args)
+        .env("PATH", crate::utils::get_extended_path())
+        .output()
+}
+
+/// npm/OS wording for "the file is locked by another process" — Windows EBUSY
+/// on an unlink, and its localized/OS-level equivalent (issue #844).
+fn is_file_lock_failure(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("ebusy")
+        || lower.contains("resource busy or locked")
+        || lower.contains("being used by another process")
 }
 
 #[cfg(test)]
@@ -335,6 +382,23 @@ mod tests {
     async fn uninstall_agent_rejects_empty_id() {
         let result = uninstall_agent(String::new()).await;
         assert!(result.is_err());
+    }
+
+    /// Issue #844: npm's EBUSY file-lock shape must be recognized so the
+    /// uninstall retries and, if it still fails, explains itself instead of
+    /// dumping the raw npm error.
+    #[test]
+    fn recognizes_npm_file_lock_failures() {
+        assert!(is_file_lock_failure(
+            "npm error code EBUSY\nnpm error syscall unlink\nnpm error EBUSY: resource busy or \
+             locked, unlink 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd'"
+        ));
+        assert!(is_file_lock_failure(
+            "The process cannot access the file because it is being used by another process."
+        ));
+        // A genuine npm failure still flows through to the reportable path.
+        assert!(!is_file_lock_failure("npm error 404 Not Found - GET ..."));
+        assert!(!is_file_lock_failure(""));
     }
 
     // ============ get_agents_status ============

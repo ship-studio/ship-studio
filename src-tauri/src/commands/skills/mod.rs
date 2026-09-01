@@ -18,6 +18,44 @@ mod search;
 pub use install::*;
 pub use search::*;
 
+/// Build an `npx` command for the Skills CLI with the extended PATH.
+///
+/// Resolves the binary via `find_executable` first. Setting `PATH` on the
+/// *child* doesn't change how the OS resolves the program name itself, so a
+/// bare `Command::new("npx")` fails outright wherever the app didn't inherit
+/// the user's shell PATH — and on Windows npx only ships as a `.cmd` shim,
+/// which Rust's PATH search (which only appends `.exe`) can never find. That
+/// surfaced as a bare "program not found" (issue #719). `find_executable`
+/// prefers the `.cmd`/`.exe` sibling over the extensionless shell script, and
+/// Rust routes a resolved `.cmd` through `cmd.exe` itself. Falls back to the
+/// bare name so behavior is unchanged when resolution misses. Mirrors
+/// `mobile.rs::npx_command()` / `screenshots::node_tool_command()`.
+pub(super) fn npx_command() -> std::process::Command {
+    let mut cmd = match crate::utils::find_executable("npx") {
+        Some(path) => crate::utils::create_command(path),
+        None => crate::utils::create_command("npx"),
+    };
+    cmd.env("PATH", crate::utils::get_extended_path());
+    cmd
+}
+
+/// Turn a failed `npx` *spawn* into a user-facing error.
+///
+/// If [`npx_command`] couldn't resolve npx, the spawn fails with a bare
+/// "program not found" that says nothing about what to do (issue #719). A
+/// missing Node install is an environment state, not an app malfunction, so it
+/// stays out of telemetry.
+pub(super) fn skills_cli_spawn_error(err: &std::io::Error) -> crate::errors::CommandError {
+    if err.kind() == std::io::ErrorKind::NotFound {
+        return crate::errors::CommandError::expected(
+            "Skills need Node.js (npx), which isn't installed or isn't on your PATH. \
+             Install Node.js, then restart Ship Studio and try again."
+                .to_string(),
+        );
+    }
+    (format!("Failed to run skills CLI: {err}")).into()
+}
+
 /// Strip ANSI escape codes from a string
 pub(super) fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::new();
@@ -127,5 +165,36 @@ mod tests {
         let input = "\x1b[38;5;145mvercel-labs/agent-skills@test\x1b[0m";
         let result = strip_ansi_codes(input);
         assert_eq!(result, "vercel-labs/agent-skills@test");
+    }
+
+    /// Issue #719: the skills CLI must be spawned through a PATH-resolved
+    /// binary, with the extended PATH handed to the child too.
+    #[test]
+    fn npx_command_sets_extended_path() {
+        let cmd = npx_command();
+        let path_env = cmd
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new("PATH"))
+            .and_then(|(_, value)| value);
+        assert_eq!(
+            path_env,
+            Some(std::ffi::OsStr::new(
+                crate::utils::get_extended_path().as_str()
+            ))
+        );
+    }
+
+    #[test]
+    fn npx_command_resolves_absolute_path_when_npx_exists() {
+        // Skip (rather than fail) where npx genuinely isn't installed.
+        if crate::utils::find_executable("npx").is_none() {
+            return;
+        }
+        let cmd = npx_command();
+        assert!(
+            std::path::Path::new(cmd.get_program()).is_absolute(),
+            "expected a resolved absolute path, got {:?}",
+            cmd.get_program()
+        );
     }
 }

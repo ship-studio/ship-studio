@@ -141,6 +141,15 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
 /// - Codex's stale models cache — "failed to load models cache" (logged by
 ///   `codex_models_manager::cache`): a corrupt/outdated local cache file the
 ///   user can just delete (issue #689).
+/// - Codex's OAuth refresh-token rotation failing — "Failed to refresh token",
+///   "refresh_token_reused", "Please log out and sign in again": the stored
+///   credential can't be renewed, so it folds into the expired-sign-in case
+///   above (issue #836).
+/// - Org policy disabling subscription access — "Your organization has disabled
+///   Claude subscription access … ask your admin to enable access": an
+///   account-level setting only the user's admin can change (issue #765).
+/// - The agent's skill loader rejecting a user-installed SKILL.md — "failed to
+///   load skill …: missing field `description`" (issue #805).
 ///
 /// Callers must pass the FULL failure detail, never a truncated copy — Codex
 /// dumps a whole session transcript on failure and the matching line can sit
@@ -173,10 +182,34 @@ fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandE
     if lower.contains("please run /login")
         || lower.contains("oauth token has expired")
         || lower.contains("session expired")
+        // Codex's OAuth refresh-token rotation failing: the stored credential
+        // can no longer be renewed and the user has to sign in again — same
+        // class as an expired session, different wording (issue #836).
+        || lower.contains("failed to refresh token")
+        || lower.contains("refresh_token_reused")
+        || lower.contains("sign in again")
     {
         return Some(CommandError::expected(format!(
             "{agent_name} isn't signed in anymore (its session expired). Open an agent \
              terminal and sign in again — for Claude Code, run /login — then try again."
+        )));
+    }
+    // An Anthropic Team/Enterprise admin has turned off subscription-based
+    // Claude Code access for the org, so the CLI refuses to run without an API
+    // key. An account-policy state, not an app malfunction (issue #765).
+    if lower.contains("subscription access") || lower.contains("ask your admin") {
+        return Some(CommandError::expected(format!(
+            "{agent_name}'s organization has disabled subscription access for this tool. \
+             Use an Anthropic API key instead, or ask your admin to enable access."
+        )));
+    }
+    // The agent's own skill loader rejecting a locally-installed SKILL.md
+    // (e.g. missing the required `description` frontmatter field). The file is
+    // the user's, not something the app wrote (issue #805).
+    if lower.contains("failed to load skill") {
+        return Some(CommandError::expected(format!(
+            "{agent_name} couldn't load one of your installed skills — its SKILL.md is \
+             missing a required field. Fix or remove that skill file, then try again."
         )));
     }
     if lower.contains("has not been trusted") || lower.contains("hastrustdialogaccepted") {
@@ -909,6 +942,51 @@ mod tests {
         assert!(
             classify_agent_cli_failure("Codex", "WARN codex_models_manager::cache: boom").is_some()
         );
+    }
+
+    // The #836 shape: Codex's OAuth refresh token was already consumed, so the
+    // stored credential can't be renewed — the user must sign in again.
+    #[test]
+    fn classify_agent_cli_failure_refresh_token_reuse_is_expected() {
+        let detail = "ERROR codex_login::auth::manager: Failed to refresh token: \
+                      401 Unauthorized: {\"error\":{\"message\":\"Your refresh token has \
+                      already been used to generate a new access token. Please try signing \
+                      in again.\",\"code\":\"refresh_token_reused\"}}";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(
+            format!("{err}").contains("isn't signed in anymore"),
+            "got: {err}"
+        );
+
+        // Either marker alone must classify too.
+        assert!(classify_agent_cli_failure("Codex", "refresh_token_reused").is_some());
+        assert!(classify_agent_cli_failure("Codex", "Please log out and sign in again.").is_some());
+    }
+
+    // The #765 shape: an org admin disabled subscription-based Claude Code
+    // access — an account policy state, not an app malfunction.
+    #[test]
+    fn classify_agent_cli_failure_org_disabled_subscription_is_expected() {
+        let detail = "exit code Some(1): Your organization has disabled Claude subscription \
+                      access for Claude Code · Use an Anthropic API key instead, or ask your \
+                      admin to enable access";
+        let err = classify_agent_cli_failure("Claude Code", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = format!("{err}");
+        assert!(msg.contains("disabled subscription access"), "got: {msg}");
+        assert!(msg.contains("Anthropic API key"), "got: {msg}");
+    }
+
+    // The #805 shape: the agent's own skill loader rejecting a user-installed
+    // SKILL.md whose frontmatter is missing a required field.
+    #[test]
+    fn classify_agent_cli_failure_invalid_skill_file_is_expected() {
+        let detail = "ERROR codex_core::session::session: failed to load skill \
+                      ~/.agents/skills/canvas/SKILL.md: missing field `description`";
+        let err = classify_agent_cli_failure("Codex", detail).expect("must classify");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(format!("{err}").contains("SKILL.md"), "got: {err}");
     }
 
     // The matching line arrives as the FIRST stderr line of a transcript that

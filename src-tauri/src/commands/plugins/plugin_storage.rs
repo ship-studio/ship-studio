@@ -205,6 +205,13 @@ pub async fn exec_plugin_shell(
                         &command,
                     ));
                 }
+                // Windows ERROR_COMMITMENT_LIMIT (os error 1455): the paging
+                // file is too small to commit the spawn. Environment, not an
+                // app malfunction — the shared classifier already carries the
+                // remediation (issue #742).
+                if let Some(oom) = crate::errors::windows_out_of_memory(&e, Some(&command)) {
+                    return Err(oom);
+                }
                 // Windows ERROR_FILENAME_EXCED_RANGE (os error 206): the
                 // resolved absolute path (#475) plus args can exceed the
                 // legacy MAX_PATH limit on long profiles (OneDrive-redirected
