@@ -90,7 +90,12 @@ export function ElementHtmlEditor({ projectPath, signature }: Props) {
       baselineRef.current = text;
       showToast(applied > 1 ? `Markup saved in ${applied} places` : 'Markup saved', 'success');
     } catch (e) {
-      showToast(editorErrorText(e), 'error');
+      // A `Validation` rejection is the backend declining by design (drift, or
+      // an element it won't guess a write target for) — its reason is already
+      // an actionable sentence. An 'error' toast would re-file it as a bug on
+      // every occurrence via useToasts' `source: 'toast'` reporting (#785).
+      const expected = asCommandError(e).type === 'Validation';
+      showToast(editorErrorText(e), expected ? 'info' : 'error');
     } finally {
       setSaving(false);
     }

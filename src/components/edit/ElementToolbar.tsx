@@ -13,7 +13,12 @@ import { useEffect, useRef, useState } from 'react';
 import { PlusIcon, CopyIcon, TrashIcon } from '../icons';
 import { Spinner } from '../primitives/Spinner';
 import { InsertMenu } from './InsertMenu';
-import { VOID_ELEMENTS, type ElementKind, type InsertPosition } from '../../lib/edit-structure';
+import {
+  STRUCTURAL_ELEMENTS,
+  VOID_ELEMENTS,
+  type ElementKind,
+  type InsertPosition,
+} from '../../lib/edit-structure';
 import type { StructureSelection } from '../../hooks/useElementStructure';
 
 interface Props {
@@ -88,6 +93,10 @@ export function ElementToolbar({
   const left = Math.max(4, Math.min(rect.left, maxLeft));
 
   const insideDisabled = VOID_ELEMENTS.has(selection.signature.tagName);
+  // <html>/<head>/<body> ARE the page — the backend refuses to duplicate,
+  // delete, or insert beside them, so don't offer it (issues #723/#740).
+  const structural = STRUCTURAL_ELEMENTS.has(selection.signature.tagName);
+  const structuralTitle = `<${selection.signature.tagName}> is part of the page itself`;
 
   return (
     <>
@@ -117,7 +126,8 @@ export function ElementToolbar({
               type="button"
               className="ss-el-toolbar__btn"
               aria-label="Duplicate element"
-              title="Duplicate element"
+              title={structural ? structuralTitle : 'Duplicate element'}
+              disabled={structural}
               onClick={onDuplicate}
             >
               <CopyIcon size={12} />
@@ -126,7 +136,8 @@ export function ElementToolbar({
               type="button"
               className="ss-el-toolbar__btn ss-el-toolbar__btn--danger"
               aria-label="Delete element"
-              title="Delete element"
+              title={structural ? structuralTitle : 'Delete element'}
+              disabled={structural}
               onClick={onDelete}
             >
               <TrashIcon size={12} />
@@ -137,6 +148,7 @@ export function ElementToolbar({
       <InsertMenu
         anchor={menuAnchor}
         insideDisabled={insideDisabled}
+        outsideDisabled={structural}
         onInsert={onInsert}
         onClose={() => setMenuAnchor(null)}
       />

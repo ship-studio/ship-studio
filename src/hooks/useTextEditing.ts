@@ -166,17 +166,15 @@ export function useTextEditing({ iframeRef, projectPath, enabled, onToast }: Par
             if (isDrift && sig) {
               try {
                 const res = await resolveTextSource(projectPath, sig);
-                const stale = textTargetRef.current;
-                const sameTarget =
-                  res.status === 'resolved' &&
-                  stale != null &&
-                  res.file === stale.file &&
-                  res.line === stale.line &&
-                  res.column === stale.column &&
-                  res.text === stale.text;
-                // An identical re-resolve would just fail the same way — only
-                // retry when the fresh source actually differs.
-                if (res.status === 'resolved' && !sameTarget) {
+                // Retry whenever the element still resolves, even when the fresh
+                // read matches the stale baseline byte-for-byte. That used to be
+                // treated as "would just fail again", but the rejection came from
+                // the backend's own read a moment earlier: if whatever touched
+                // the file (formatter, HMR rewrite) has already settled back, the
+                // same write now succeeds and the user keeps their copy (#769).
+                // Only the resolver genuinely losing the element (status !==
+                // 'resolved') makes a retry pointless.
+                if (res.status === 'resolved') {
                   if (res.text !== next) {
                     await applyTextEdit(
                       projectPath,

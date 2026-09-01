@@ -21,7 +21,7 @@
 use crate::commands::projects::detect_project_type;
 use crate::errors::CommandError;
 use crate::types::ProjectType;
-use crate::utils::{validate_project_path, validate_workspace_path};
+use crate::utils::{classify_fs_error, validate_project_path, validate_workspace_path};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -572,7 +572,8 @@ pub fn apply_classname_edit(
         });
     }
 
-    let src = std::fs::read_to_string(&abs).map_err(CommandError::from)?;
+    let src = std::fs::read_to_string(&abs)
+        .map_err(|e| classify_fs_error("open this file to edit it", &abs, &e))?;
     let span = find_attr_spans(&src, attrs_for_path(&file))
         .into_iter()
         .find(|s| s.line == line && s.value == old_class)
@@ -586,7 +587,8 @@ pub fn apply_classname_edit(
     updated.push_str(&new_class);
     updated.push_str(&src[span.value_end..]);
 
-    std::fs::write(&abs, updated).map_err(CommandError::from)?;
+    std::fs::write(&abs, updated)
+        .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
     invalidate_index_cache(&root);
     Ok(())
 }
@@ -963,7 +965,9 @@ fn write_class_attr_insert(
     updated.push_str(&inserted);
     updated.push_str(&src[cand.insert_at..]);
 
-    std::fs::write(root.join(&cand.file), &updated).map_err(CommandError::from)?;
+    let abs = root.join(&cand.file);
+    std::fs::write(&abs, &updated)
+        .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
     invalidate_index_cache(root);
 
     // 1-based line/column of the inserted literal's value in the updated file.
@@ -1711,7 +1715,8 @@ pub fn apply_text_edit(
         });
     }
 
-    let src = std::fs::read_to_string(&abs).map_err(CommandError::from)?;
+    let src = std::fs::read_to_string(&abs)
+        .map_err(|e| classify_fs_error("open this file to edit it", &abs, &e))?;
     let span = find_text_spans(&src)
         .into_iter()
         .find(|s| s.line == line && s.column == column && s.value == old_text)
@@ -1725,7 +1730,8 @@ pub fn apply_text_edit(
     updated.push_str(&new_text);
     updated.push_str(&src[span.value_end..]);
 
-    std::fs::write(&abs, updated).map_err(CommandError::from)?;
+    std::fs::write(&abs, updated)
+        .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
     invalidate_index_cache(&root);
     Ok(())
 }
@@ -2120,7 +2126,8 @@ pub fn apply_src_edit(
         });
     }
 
-    let src = std::fs::read_to_string(&abs).map_err(CommandError::from)?;
+    let src = std::fs::read_to_string(&abs)
+        .map_err(|e| classify_fs_error("open this file to edit it", &abs, &e))?;
     let span = find_attr_spans(&src, &["src"])
         .into_iter()
         .find(|s| s.line == line && s.column == column && s.value == old_src)
@@ -2134,7 +2141,8 @@ pub fn apply_src_edit(
     updated.push_str(&new_src);
     updated.push_str(&src[span.value_end..]);
 
-    std::fs::write(&abs, updated).map_err(CommandError::from)?;
+    std::fs::write(&abs, updated)
+        .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
     invalidate_index_cache(&root);
     Ok(())
 }
@@ -2670,8 +2678,14 @@ pub(crate) fn element_span(src: &str, inside_open_tag: usize) -> Option<(usize, 
     }
     let tag = src[name_start..j].to_ascii_lowercase();
 
-    // 2. End of the opening tag ('>'), honoring quoted attribute values.
-    let close_open = scan_to_gt(bytes, j)?;
+    // 2. End of the opening tag ('>'), honoring quoted attribute values AND
+    //    `{…}` expressions: a JSX handler prop (`onClick={() => go()}`) carries a
+    //    bare `>` that `scan_to_gt` would mistake for the end of the tag. That
+    //    truncated the span mid-attribute, and on a self-closing component
+    //    (`<Icon className="x" onClick={() => …} />`) it also hid the `/`, so the
+    //    balancer then hunted a `</icon>` that never comes and returned None —
+    //    surfacing as "couldn't map this element to its source markup" (#789).
+    let close_open = open_tag_end(src, j)?;
     let open_end = close_open + 1;
     let self_closing = bytes[close_open.saturating_sub(1)] == b'/';
     if self_closing || VOID_ELEMENTS.contains(&tag.as_str()) {
@@ -2718,7 +2732,10 @@ pub(crate) fn element_span(src: &str, inside_open_tag: usize) -> Option<(usize, 
             }
             if ne > ns {
                 let oname = src[ns..ne].to_ascii_lowercase();
-                let gt = scan_to_gt(bytes, ne)?;
+                // Same `{…}`-awareness as the opening scan above: a nested tag's
+                // handler prop must not end its tag early, or the depth count
+                // (and the self-closing test) go wrong.
+                let gt = open_tag_end(src, ne)?;
                 let self_closing = bytes[gt.saturating_sub(1)] == b'/';
                 // `<script>`/`<style>` hold raw text where `<` is not a tag (e.g.
                 // `if (a < b)`); skip their whole body so it can't be misread as
@@ -2798,7 +2815,8 @@ fn locate_instance(
     class_name: &str,
 ) -> Result<LocatedInstance, CommandError> {
     let abs = root.join(file);
-    let src = std::fs::read_to_string(&abs).map_err(CommandError::from)?;
+    let src = std::fs::read_to_string(&abs)
+        .map_err(|e| classify_fs_error("open this file to edit it", &abs, &e))?;
     let span = find_attr_spans(&src, attrs_for_path(file))
         .into_iter()
         .find(|s| s.line == line && s.value == class_name)
@@ -2821,6 +2839,36 @@ fn locate_instance(
     })
 }
 
+/// Locate the element's markup span WITHOUT a class anchor, by the same
+/// ancestor-file + text ladder "Add class" uses to pick an insertion site
+/// ([`locate_insert_site`]).
+///
+/// A class-less `<div>`/`<section>` has no literal to anchor on, which used to
+/// dead-end every markup and structural edit on it (issue #318) even though the
+/// editor already trusts this ladder enough to *write a class attribute* into
+/// that exact tag. Ambiguity still fails closed — `locate_insert_site` names
+/// what it searched and why it couldn't pin one tag.
+fn locate_classless_instance(
+    root: &Path,
+    sig: &ElementSignature,
+) -> Result<LocatedInstance, CommandError> {
+    let occurrences = index_occurrences_cached(root);
+    let (cand, src) = locate_insert_site(root, occurrences.as_slice(), sig)?;
+    let (start, end) =
+        element_span(&src, cand.insert_at).ok_or_else(|| CommandError::Validation {
+            field: "element".into(),
+            reason: "couldn't map this element to its source markup".into(),
+        })?;
+    Ok(LocatedInstance {
+        abs: root.join(&cand.file),
+        file: cand.file,
+        src,
+        line: cand.line,
+        start,
+        end,
+    })
+}
+
 /// Locate every editable instance of an element under `root`.
 ///
 /// `Resolved` yields one instance. `Multi` (one class string at several
@@ -2829,10 +2877,15 @@ fn locate_instance(
 /// like the class editor (issue #287) — or the picked one when `target` names
 /// a location from the set. Instances whose markup has diverged can't be
 /// group-edited safely and fail closed.
+///
+/// `sig` is the signature the resolution came from; it's what the class-less
+/// fallback anchors on, so callers that have it unlock editing for elements
+/// with no class attribute (issue #318).
 fn locate_instances_at(
     root: &Path,
     resolution: Resolution,
     target: Option<&Location>,
+    sig: Option<&ElementSignature>,
 ) -> Result<(Vec<LocatedInstance>, Option<Vec<Location>>), CommandError> {
     match resolution {
         Resolution::Resolved {
@@ -2875,10 +2928,17 @@ fn locate_instances_at(
             }
             Ok((instances, Some(locations)))
         }
-        Resolution::NoClass => Err(CommandError::Validation {
-            field: "element".into(),
-            reason: "This element has no class in source to anchor its markup on. Add a class to it first (the Add class action), then its markup becomes editable.".into(),
-        }),
+        // No class literal to anchor on — fall back to the tag/ancestor/text
+        // ladder rather than dead-ending (issue #318). Without a signature
+        // (older call paths / tests) the original "add a class first" refusal
+        // stands.
+        Resolution::NoClass => match sig {
+            Some(sig) => Ok((vec![locate_classless_instance(root, sig)?], None)),
+            None => Err(CommandError::Validation {
+                field: "element".into(),
+                reason: "This element has no class in source to anchor its markup on. Add a class to it first (the Add class action), then its markup becomes editable.".into(),
+            }),
+        },
         // The class resolver couldn't anchor this element to source (its classes
         // are dynamic/generated). The markup editor is class-anchored, so phrase
         // it for *markup*, not the class-string reason.
@@ -2896,9 +2956,9 @@ fn locate_element_instances(
     signature: ElementSignature,
     target: Option<&Location>,
 ) -> Result<(Vec<LocatedInstance>, Option<Vec<Location>>), CommandError> {
-    let resolution = resolve_classname_source(project_path.to_string(), signature)?;
+    let resolution = resolve_classname_source(project_path.to_string(), signature.clone())?;
     let root = validate_project_path(project_path)?;
-    locate_instances_at(&root, resolution, target)
+    locate_instances_at(&root, resolution, target, Some(&signature))
 }
 
 /// Resolve an element to the source markup span, file, and contents, plus the
@@ -2909,7 +2969,7 @@ pub(crate) fn locate_element(
     project_path: &str,
     signature: ElementSignature,
 ) -> Result<(String, std::path::PathBuf, String, usize, usize, usize), CommandError> {
-    let resolution = resolve_classname_source(project_path.to_string(), signature)?;
+    let resolution = resolve_classname_source(project_path.to_string(), signature.clone())?;
     if let Resolution::Multi { .. } = resolution {
         return Err(CommandError::Validation {
             field: "element".into(),
@@ -2917,7 +2977,7 @@ pub(crate) fn locate_element(
         });
     }
     let root = validate_project_path(project_path)?;
-    let (instances, _) = locate_instances_at(&root, resolution, None)?;
+    let (instances, _) = locate_instances_at(&root, resolution, None, Some(&signature))?;
     let inst = instances.into_iter().next().expect("resolved yields one");
     Ok((
         inst.file, inst.abs, inst.src, inst.line, inst.start, inst.end,
@@ -3008,7 +3068,8 @@ fn apply_html_to_instances(
             applied += 1;
         }
         if changed {
-            std::fs::write(abs, updated).map_err(CommandError::from)?;
+            std::fs::write(abs, updated)
+                .map_err(|e| classify_fs_error("save your change to this file", abs, &e))?;
         }
     }
     Ok(applied)
@@ -3068,6 +3129,23 @@ mod tests {
     }
 
     #[test]
+    fn element_span_jsx_arrow_handler_does_not_end_the_tag() {
+        // Issue #789: the `>` in `=>` used to end the opening tag early. On a
+        // self-closing component that also hid the `/`, so the balancer hunted a
+        // `</icon>` that never comes and returned None ("couldn't map this
+        // element to its source markup").
+        let src = r#"<Icon className="cls" onClick={() => go(a > b)} />tail"#;
+        assert_eq!(
+            span_str(src),
+            r#"<Icon className="cls" onClick={() => go(a > b)} />"#
+        );
+        // Same shape with children, and with a nested same-name tag whose own
+        // handler must not throw the depth count off.
+        let nested = r#"<div className="cls" onClick={() => a > b}><div onKeyDown={() => c > d}>x</div></div>"#;
+        assert_eq!(span_str(nested), nested);
+    }
+
+    #[test]
     fn element_span_skips_script_raw_text() {
         // The `<` in `a < b` and the literal `</div>` string inside the script
         // must not be read as markup — the outer div's real close wins.
@@ -3100,7 +3178,7 @@ mod tests {
         std::fs::write(root.join("B.tsx"), card).unwrap();
 
         let res = multi_res(&[("A.tsx", 1), ("B.tsx", 1)], "card");
-        let (instances, locations) = locate_instances_at(root, res, None).unwrap();
+        let (instances, locations) = locate_instances_at(root, res, None, None).unwrap();
         assert_eq!(instances.len(), 2);
         assert_eq!(locations.as_ref().map(Vec::len), Some(2));
         let html = &instances[0].src[instances[0].start..instances[0].end];
@@ -3133,10 +3211,82 @@ mod tests {
         .unwrap();
 
         let res = multi_res(&[("A.tsx", 1), ("B.tsx", 1)], "card");
-        let err = locate_instances_at(root, res, None).unwrap_err();
+        let err = locate_instances_at(root, res, None, None).unwrap_err();
         match err {
             CommandError::Validation { reason, .. } => {
                 assert!(reason.contains("markup differs"), "got: {reason}")
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
+
+    // ── Class-less elements are locatable too (issue #318) ───────────────────
+
+    #[test]
+    fn no_class_resolves_via_the_classless_anchor_ladder() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("Hero.tsx"),
+            "export function Hero() {\n  return (\n    <section id=\"hero\">\n      Welcome aboard\n    </section>\n  );\n}\n",
+        )
+        .unwrap();
+
+        // The only class-less <section> in source — insert/duplicate/delete used
+        // to dead-end here with "add a class to it first".
+        let sig = ElementSignature {
+            class_name: String::new(),
+            tag_name: "section".into(),
+            text: Some("Welcome aboard".into()),
+            ancestor_classes: vec![],
+            attr_src: None,
+        };
+        let (instances, locations) =
+            locate_instances_at(root, Resolution::NoClass, None, Some(&sig)).unwrap();
+        assert!(locations.is_none());
+        let inst = &instances[0];
+        assert_eq!(inst.file, "Hero.tsx");
+        assert_eq!(inst.line, 3);
+        assert_eq!(
+            &inst.src[inst.start..inst.end],
+            "<section id=\"hero\">\n      Welcome aboard\n    </section>"
+        );
+    }
+
+    #[test]
+    fn no_class_without_a_signature_still_refuses() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let err = locate_instances_at(dir.path(), Resolution::NoClass, None, None).unwrap_err();
+        match err {
+            CommandError::Validation { reason, .. } => {
+                assert!(reason.contains("no class in source"), "got: {reason}")
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_class_stays_fail_closed_when_several_tags_match() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("A.tsx"), "<div id=\"a\" />\n").unwrap();
+        std::fs::write(root.join("B.tsx"), "<div id=\"b\" />\n").unwrap();
+
+        let sig = ElementSignature {
+            class_name: String::new(),
+            tag_name: "div".into(),
+            text: None,
+            ancestor_classes: vec![],
+            attr_src: None,
+        };
+        let err = locate_instances_at(root, Resolution::NoClass, None, Some(&sig)).unwrap_err();
+        match err {
+            CommandError::Validation { reason, .. } => {
+                // The specific "here's what I searched" wording, not a guess.
+                assert!(
+                    reason.contains("Couldn't tell which <div>"),
+                    "got: {reason}"
+                )
             }
             other => panic!("expected Validation, got {other:?}"),
         }
@@ -3156,7 +3306,7 @@ mod tests {
             column: 1,
         };
         let res = multi_res(&[("A.tsx", 1), ("B.tsx", 1)], "card");
-        let (instances, _) = locate_instances_at(root, res, Some(&target)).unwrap();
+        let (instances, _) = locate_instances_at(root, res, Some(&target), None).unwrap();
         assert_eq!(instances.len(), 1);
         assert_eq!(instances[0].file, "B.tsx");
 
@@ -3186,7 +3336,7 @@ mod tests {
         .unwrap();
 
         let res = multi_res(&[("List.tsx", 3), ("List.tsx", 4)], "item");
-        let (instances, _) = locate_instances_at(root, res, None).unwrap();
+        let (instances, _) = locate_instances_at(root, res, None, None).unwrap();
         assert_eq!(instances.len(), 2);
         let applied = apply_html_to_instances(
             &instances,
@@ -3209,7 +3359,7 @@ mod tests {
         std::fs::write(root.join("B.tsx"), card).unwrap();
 
         let res = multi_res(&[("A.tsx", 1), ("B.tsx", 1)], "card");
-        let (instances, _) = locate_instances_at(root, res, None).unwrap();
+        let (instances, _) = locate_instances_at(root, res, None, None).unwrap();
         // B drifts after locating (user edited the file directly).
         std::fs::write(
             root.join("B.tsx"),

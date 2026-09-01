@@ -25,7 +25,7 @@ use crate::commands::edit::{
 };
 use crate::commands::edit_css::css_class_exists;
 use crate::errors::CommandError;
-use crate::utils::validate_project_path;
+use crate::utils::{classify_fs_error, validate_project_path};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -320,16 +320,34 @@ fn remove_span(src: &str, start: usize, end: usize) -> String {
 /// Append ` token` inside the FIRST class attribute of the copy's own opening
 /// tag (the copy starts at its `<`, so the first class-bearing attribute before
 /// the first unquoted `>` is the element's own — children come later).
-fn append_class_token(copy: &str, attrs: &[&str], token: &str) -> Option<String> {
-    let gt = scan_to_gt(copy.as_bytes(), 1)?;
-    let span = find_attr_spans(copy, attrs)
+///
+/// A class-less element has no attribute to append to, so `new_attr` is spliced
+/// in fresh right after the tag name instead — the copy still needs a unique
+/// class of its own to stay selectable (issue #318).
+fn append_class_token(copy: &str, attrs: &[&str], token: &str, new_attr: &str) -> Option<String> {
+    let bytes = copy.as_bytes();
+    let gt = scan_to_gt(bytes, 1)?;
+    if let Some(span) = find_attr_spans(copy, attrs)
         .into_iter()
-        .find(|s| s.value_end <= gt)?;
-    Some(format!(
-        "{} {token}{}",
-        &copy[..span.value_end],
-        &copy[span.value_end..]
-    ))
+        .find(|s| s.value_end <= gt)
+    {
+        return Some(format!(
+            "{} {token}{}",
+            &copy[..span.value_end],
+            &copy[span.value_end..]
+        ));
+    }
+    let mut name_end = 1;
+    while name_end < gt && (bytes[name_end].is_ascii_alphanumeric() || bytes[name_end] == b'-') {
+        name_end += 1;
+    }
+    (name_end > 1).then(|| {
+        format!(
+            "{} {new_attr}=\"{token}\"{}",
+            &copy[..name_end],
+            &copy[name_end..]
+        )
+    })
 }
 
 /// The tag name at the start of an element span (`<tag …`), lowercased.
@@ -377,7 +395,8 @@ pub fn insert_element(
     let snippet =
         render_template(kind, attr, &class, indent_unit(anchor_indent)).expect("kind validated");
     let (updated, offset) = splice_snippet(&src, start, end, position, &snippet)?;
-    std::fs::write(&abs, &updated).map_err(CommandError::from)?;
+    std::fs::write(&abs, &updated)
+        .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
     invalidate_index_cache(&root);
     Ok(InsertedElement {
         file,
@@ -407,13 +426,18 @@ pub fn duplicate_element(
     }
     let root = validate_project_path(&project_path)?;
     let token = generate_class(&root, &tag);
-    let copy =
-        append_class_token(&src[start..end], attrs_for_path(&file), &token).ok_or_else(|| {
-            validation(
-                "element",
-                "couldn't find the element's class attribute to distinguish the copy",
-            )
-        })?;
+    let copy = append_class_token(
+        &src[start..end],
+        attrs_for_path(&file),
+        &token,
+        class_attr_for_path(&file),
+    )
+    .ok_or_else(|| {
+        validation(
+            "element",
+            "couldn't find the element's class attribute to distinguish the copy",
+        )
+    })?;
     // A line-anchored element gets its copy on the next line at the same depth.
     // The copy's inner lines already carry their absolute indentation — no
     // reindent. Inline anchors keep flowing inline.
@@ -422,12 +446,15 @@ pub fn duplicate_element(
             Some(indent) => splice_at(&src, end, &format!("\n{indent}"), &copy, ""),
             None => splice_at(&src, end, "", &copy, ""),
         };
-    std::fs::write(&abs, &updated).map_err(CommandError::from)?;
+    std::fs::write(&abs, &updated)
+        .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
     invalidate_index_cache(&root);
     Ok(InsertedElement {
         file,
         line: line_of(&updated, offset),
-        class_name: format!("{sig_class} {token}"),
+        // A class-less original contributes nothing, so the copy's class is the
+        // generated token alone — never a leading space (issue #318).
+        class_name: format!("{} {token}", sig_class.trim()).trim().to_string(),
         tag_name: tag,
     })
 }
@@ -453,7 +480,8 @@ pub fn delete_element(
         return Err(validation("element", format!("<{tag}> can't be deleted.")));
     }
     let updated = remove_span(&src, start, end);
-    std::fs::write(&abs, updated).map_err(CommandError::from)?;
+    std::fs::write(&abs, updated)
+        .map_err(|e| classify_fs_error("save your change to this file", &abs, &e))?;
     let root = validate_project_path(&project_path)?;
     invalidate_index_cache(&root);
     Ok(())
@@ -587,7 +615,7 @@ mod tests {
     #[test]
     fn duplicate_token_lands_on_own_tag_not_children() {
         let copy = "<div class=\"a b\">\n  <span class=\"c\">x</span>\n</div>";
-        let out = append_class_token(copy, &["class"], "ss-div-1234").unwrap();
+        let out = append_class_token(copy, &["class"], "ss-div-1234", "class").unwrap();
         assert_eq!(
             out,
             "<div class=\"a b ss-div-1234\">\n  <span class=\"c\">x</span>\n</div>"
@@ -597,8 +625,23 @@ mod tests {
     #[test]
     fn duplicate_token_handles_jsx_brace_form() {
         let copy = "<div className={\"a\"}>x</div>";
-        let out = append_class_token(copy, &["className"], "t0k3").unwrap();
+        let out = append_class_token(copy, &["className"], "t0k3", "className").unwrap();
         assert_eq!(out, "<div className={\"a t0k3\"}>x</div>");
+    }
+
+    #[test]
+    fn duplicate_token_inserts_a_fresh_attribute_on_a_classless_element() {
+        // Issue #318: a class-less element has nothing to append to, but the
+        // copy still needs its own unique class to stay selectable.
+        let copy = "<section id=\"hero\">\n  <span class=\"c\">x</span>\n</section>";
+        let out = append_class_token(copy, &["class"], "ss-section-1234", "class").unwrap();
+        assert_eq!(
+            out,
+            "<section class=\"ss-section-1234\" id=\"hero\">\n  <span class=\"c\">x</span>\n</section>"
+        );
+        // JSX authors `className`, and a self-closing tag is spliced the same way.
+        let jsx = append_class_token("<div />", &["className"], "t0k3", "className").unwrap();
+        assert_eq!(jsx, "<div className=\"t0k3\" />");
     }
 
     #[test]

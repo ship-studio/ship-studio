@@ -645,6 +645,10 @@ pub fn git_environment_gap(stderr: &str) -> Option<crate::errors::CommandError> 
 /// - `ETIMEDOUT` (Unix os error 60): the file lives on a cloud-sync provider
 ///   (Google Drive / OneDrive / Dropbox / iCloud) whose daemon didn't
 ///   materialize it in time — environment friction, not corruption (#758).
+/// - Windows `ERROR_USER_MAPPED_FILE` (os error 1224): another process holds a
+///   memory-mapped view of the file, so Windows refuses the truncating write.
+///   Typically a dev server/bundler, an editor, or antivirus holding the file
+///   open for a moment (issue #722).
 ///
 /// Anything else stays a labeled `Io` for diagnosability.
 pub fn classify_fs_error(
@@ -692,6 +696,13 @@ pub fn classify_fs_error(
             "Ship Studio timed out trying to {action} ({}). The folder looks like it's on a \
              cloud drive (Google Drive, OneDrive, Dropbox, iCloud) that's still syncing — \
              wait for sync to finish and try again, or keep the project on your local disk.",
+            path.display()
+        ))
+    } else if cfg!(windows) && e.raw_os_error() == Some(1224) {
+        crate::errors::CommandError::expected(format!(
+            "Ship Studio couldn't {action} ({}) — another program currently has the file open \
+             (often a dev server, code editor, or antivirus). Close it or wait a moment, then \
+             try again.",
             path.display()
         ))
     } else {
@@ -1786,6 +1797,27 @@ mod tests {
             let msg = err.to_string();
             assert!(msg.contains("read-only"), "got: {msg}");
             assert!(msg.contains("project.json"), "got: {msg}");
+        }
+
+        // The #722 shape: ERROR_USER_MAPPED_FILE on a visual-editor source
+        // write ("...ett användarmappat avsnitt är öppnat. (os error 1224)") —
+        // matched by code so the localized OS text never reaches the user.
+        #[test]
+        #[cfg(windows)]
+        fn windows_user_mapped_file_becomes_expected() {
+            let e = std::io::Error::from_raw_os_error(1224);
+            let err = classify_fs_error(
+                "save your change to this file",
+                std::path::Path::new("C:\\p\\src\\Hero.tsx"),
+                &e,
+            );
+            assert!(
+                matches!(err, crate::errors::CommandError::Expected { .. }),
+                "got: {err:?}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("another program"), "got: {msg}");
+            assert!(msg.contains("Hero.tsx"), "got: {msg}");
         }
 
         // Unix EPERM outside macOS (and any other permission error not

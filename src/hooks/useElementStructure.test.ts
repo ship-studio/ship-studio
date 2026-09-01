@@ -26,7 +26,11 @@ vi.mock('../lib/edit-html', () => ({
 // trackEvent would otherwise reach for a real Tauri IPC on a saved edit.
 vi.mock('../lib/analytics', () => ({ trackEvent: vi.fn().mockResolvedValue(undefined) }));
 
-import { useElementStructure, structuralEditMessage } from './useElementStructure';
+import {
+  useElementStructure,
+  structuralEditMessage,
+  isExpectedStructuralRefusal,
+} from './useElementStructure';
 import { insertElement, duplicateElement, deleteElement } from '../lib/edit-structure';
 import { resolveElementHtml } from '../lib/edit-html';
 
@@ -214,6 +218,28 @@ describe('useElementStructure', () => {
     vi.useRealTimers();
   });
 
+  it('the structural-tag guard toasts friendly wording as info, not a bug', async () => {
+    const { result, iframeRef, onToast } = setup();
+    const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
+    await dispatch({ type: 'ss:select', signature: { ...SIG, tagName: 'body' }, count: 1 }, source);
+    // The backend refuses by design; the raw wording used to reach the user
+    // verbatim AND file a bug on every occurrence (issues #723/#740).
+    (deleteElement as Fn).mockRejectedValue({
+      type: 'Validation',
+      field: 'element',
+      reason: "<body> can't be deleted.",
+    });
+
+    await act(async () => {
+      await result.current.remove();
+    });
+    expect(onToast).toHaveBeenCalledWith(
+      expect.stringContaining('part of the page itself'),
+      'info'
+    );
+    expect(onToast).not.toHaveBeenCalledWith(expect.stringContaining("can't be deleted."), 'error');
+  });
+
   it('an unrecognized failure keeps the reportable error toast type', async () => {
     const { result, iframeRef, onToast } = setup();
     const source = iframeRef.current!.contentWindow as unknown as MessageEventSource;
@@ -279,5 +305,48 @@ describe('structuralEditMessage', () => {
       )
     ).toContain('generated dynamically');
     expect(structuralEditMessage('disk full')).toBe('disk full');
+  });
+
+  // The STRUCTURAL_TAGS guard in edit_structure.rs (issues #723/#740).
+  it('rephrases the html/head/body structural-tag guard', () => {
+    expect(structuralEditMessage("<body> can't be deleted.")).toBe(
+      "<body> is part of the page itself, so it can't be deleted. Pick an element inside it instead."
+    );
+    expect(structuralEditMessage("<html> can't be duplicated.")).toContain("can't be duplicated");
+    expect(
+      structuralEditMessage("Can't insert next to <head> — insert inside it instead.")
+    ).toContain('Nothing can sit beside <head>');
+  });
+
+  // Issue #789: raw internal wording reached the toast verbatim.
+  it('rephrases the span-mapping failure but keeps it reportable', () => {
+    const raw = "couldn't map this element to its source markup";
+    expect(structuralEditMessage(raw)).toContain("couldn't read this element's full markup");
+    expect(isExpectedStructuralRefusal(raw)).toBe(false);
+  });
+});
+
+describe('isExpectedStructuralRefusal', () => {
+  it('recognizes the by-design refusals, including the structural-tag guard', () => {
+    for (const raw of [
+      'This element has no class in source to anchor its markup on.',
+      'This element appears in several places whose markup differs',
+      'This element appears in several identical places',
+      "This element can't be matched to its source markup",
+      "Couldn't tell which <img> in source to add the class to \u2014 7 classless <img> tag(s) matched",
+      "Couldn't find a <div> without a class in source to add a class to",
+      "<body> can't be deleted.",
+      "<html> can't be duplicated.",
+      "Can't insert next to <body>",
+    ]) {
+      expect(isExpectedStructuralRefusal(raw)).toBe(true);
+    }
+  });
+
+  it('does not swallow genuine failures', () => {
+    expect(isExpectedStructuralRefusal('I/O error: disk full')).toBe(false);
+    expect(isExpectedStructuralRefusal("couldn't map this element to its source markup")).toBe(
+      false
+    );
   });
 });

@@ -88,6 +88,10 @@ import { asCommandError, formatCommandError } from '../lib/errors';
  */
 export type EditTarget = { kind: 'element' } | { kind: 'class'; name: string; baseline: string };
 
+/** The resolutions that have a class literal to write over (`no_class` /
+ *  `read_only` elements are never written to). */
+type WritableResolution = Extract<Resolution, { status: 'resolved' | 'multi' }>;
+
 /** A breakpoint-scoped slice of the live-preview stylesheet: `decls` applied at
  *  `minPx` and up (0 = base, all widths). A null value deletes that property from
  *  the preview (Reset). Mirrors `select_script.html`'s contract. */
@@ -513,6 +517,56 @@ export function useVisualEditor({
     [postMutate, setLiveClass, activeBreakpoint, known]
   );
 
+  /** Write `next` over `prev` at the element's resolved source location(s).
+   *
+   *  On an `old_class` drift rejection — the file changed between selection and
+   *  save (a formatter, HMR, an agent edit), so the baseline no longer matches —
+   *  re-resolve the element against the CURRENT source and re-apply against the
+   *  fresh baseline rather than dropping the user's styling. That's the recovery
+   *  inline text edits have had since #557, extended to class/style writes
+   *  (#739); the guard itself stays intact, since the retry writes against a
+   *  just-read baseline and never forces a stale one through.
+   *
+   *  Returns the resolution the write actually landed on, so callers advance
+   *  their drift baseline to where the element really is now. */
+  const writeClassToSource = useCallback(
+    async (
+      sig: ElementSignature,
+      res: WritableResolution,
+      prev: string,
+      next: string
+    ): Promise<WritableResolution> => {
+      const write = async (r: WritableResolution, oldClass: string) => {
+        if (r.status === 'resolved') {
+          await applyClassnameEdit(projectPath, r.file, r.line, oldClass, next);
+        } else {
+          // Honor the user's multi-location pick ('all' vs one index).
+          const mt = multiTargetRef.current;
+          const edits = mt === 'all' ? r.locations : r.locations.filter((_, i) => i === mt);
+          await applyClassnameEditMulti(projectPath, edits, oldClass, next);
+        }
+      };
+      try {
+        await write(res, prev);
+        return res;
+      } catch (err) {
+        const cmdErr = asCommandError(err);
+        if (!(cmdErr.type === 'Validation' && cmdErr.field === 'old_class')) throw err;
+        const fresh = await resolveClassnameSource(projectPath, sig);
+        if (fresh.status !== 'resolved' && fresh.status !== 'multi') throw err;
+        // Already carrying the class we wanted (someone else's write beat us to
+        // the same result) — nothing left to do.
+        if (fresh.class_name !== next) await write(fresh, fresh.class_name);
+        // Recovered drift is an expected environment state, not a bug.
+        logger.warn('[VisualEditor] stale class save recovered by re-resolving', {
+          error: formatCommandError(cmdErr),
+        });
+        return fresh;
+      }
+    },
+    [projectPath]
+  );
+
   /** Persist the current live class to source. `silent` suppresses the success
    *  toast (used by auto-save, which shouldn't toast on every debounced write —
    *  errors still surface). */
@@ -567,19 +621,11 @@ export function useVisualEditor({
       // live preview doesn't briefly revert), while agent edits still reload.
       post({ type: 'ss:suppressReload' });
       try {
-        if (res.status === 'resolved') {
-          await applyClassnameEdit(projectPath, res.file, res.line, prev, next);
-        } else {
-          // Multi: write to all matching source spots, or the one the user picked.
-          const target = multiTargetRef.current;
-          const edits =
-            target === 'all' ? res.locations : res.locations.filter((_, i) => i === target);
-          await applyClassnameEditMulti(projectPath, edits, prev, next);
-        }
+        const landed = await writeClassToSource(sel.signature, res, prev, next);
         // Advance the drift baseline so consecutive edits keep working. Keep
         // selectedSigRef in lockstep — the structural gestures use it as the live
         // source-className baseline, so it must reflect saved style edits too.
-        setSelection({ ...sel, resolution: { ...res, class_name: next } });
+        setSelection({ ...sel, resolution: { ...landed, class_name: next } });
         if (selectedSigRef.current) {
           selectedSigRef.current = { ...selectedSigRef.current, className: next };
         }
@@ -599,7 +645,7 @@ export function useVisualEditor({
         onToast?.(formatCommandError(asCommandError(err)), 'error');
       }
     },
-    [selection, projectPath, onToast, post, setEditTarget, recordCommit]
+    [selection, projectPath, onToast, post, setEditTarget, recordCommit, writeClassToSource]
   );
 
   /** Rewrite the selected element's className in source to `next` (single or
@@ -619,18 +665,11 @@ export function useVisualEditor({
       const prev = selectedSigRef.current?.className ?? res.class_name;
       if (next === prev) return true;
       post({ type: 'ss:suppressReload' });
-      if (res.status === 'resolved') {
-        await applyClassnameEdit(projectPath, res.file, res.line, prev, next);
-      } else {
-        // Honor the user's multi-location pick ('all' vs one index), same as commit().
-        const mt = multiTargetRef.current;
-        const edits = mt === 'all' ? res.locations : res.locations.filter((_, i) => i === mt);
-        await applyClassnameEditMulti(projectPath, edits, prev, next);
-      }
+      const landed = await writeClassToSource(sel.signature, res, prev, next);
       // Keep BOTH the selection signature (drives the class-bar chips) and the
       // resolution baseline (drift guard) in sync with the element's new class.
       const nextSig = { ...sel.signature, className: next };
-      setSelection({ ...sel, signature: nextSig, resolution: { ...res, class_name: next } });
+      setSelection({ ...sel, signature: nextSig, resolution: { ...landed, class_name: next } });
       selectedSigRef.current = nextSig;
       // Reflect on the element itself (in element mode the live class is the element).
       if (editTargetRef.current.kind === 'element') setLiveClass(next);
@@ -638,7 +677,7 @@ export function useVisualEditor({
       post({ type: 'ss:commit' });
       return true;
     },
-    [selection, projectPath, onToast, post, setLiveClass]
+    [selection, onToast, post, setLiveClass, writeClassToSource]
   );
 
   /** Add the FIRST class to a class-less element (a `no_class` resolution): the
