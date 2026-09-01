@@ -21,6 +21,8 @@ import {
   checkPluginUpdate,
   updatePlugin,
   fetchPluginRegistry,
+  isExpectedPluginFailure,
+  isRegistryUnreachableError,
   linkDevPlugin,
   unlinkDevPlugin,
   type PluginInfo,
@@ -60,6 +62,9 @@ export function PluginManager({
   // Library state
   const [registry, setRegistry] = useState<PluginRegistryEntry[]>([]);
   const [isLoadingRegistry, setIsLoadingRegistry] = useState(false);
+  /** Set when the library fetch failed, so an empty list isn't read as "the
+   *  library is empty" — it's usually rate limiting or no connection (#713). */
+  const [registryUnreachable, setRegistryUnreachable] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showUrlInput, setShowUrlInput] = useState(false);
@@ -165,7 +170,9 @@ export function PluginManager({
       void autoCheckUpdates(result);
     } catch (err) {
       trackError('plugin_list_load', err, 'Plugin Manager');
-      logger.error('Failed to load plugins', {
+      // A vanished project folder / denied plugin registry is an environment
+      // state the backend classifies Expected (#831, #762) — warn, don't file.
+      logger[isExpectedPluginFailure(err) ? 'warn' : 'error']('Failed to load plugins', {
         error: formatCommandError(asCommandError(err)),
       });
       setPlugins([]);
@@ -185,12 +192,18 @@ export function PluginManager({
     try {
       const result = await fetchPluginRegistry();
       setRegistry(result);
+      setRegistryUnreachable(false);
     } catch (err) {
       trackError('plugin_registry_load', err, 'Plugin Manager');
-      logger.error('Failed to fetch plugin registry', {
-        error: formatCommandError(asCommandError(err)),
-      });
+      // A reachability failure survived the retry/backoff (#713) — that's the
+      // network or GitHub's rate limiter, not an app defect. A malformed
+      // registry body still errors: that one IS ours to fix.
+      const msg = formatCommandError(asCommandError(err));
+      const unreachable = isRegistryUnreachableError(err);
+      logger[unreachable ? 'warn' : 'error']('Failed to fetch plugin registry', { error: msg });
       setRegistry([]);
+      // The user sees "couldn't load" either way — only the log level differs.
+      setRegistryUnreachable(true);
     } finally {
       setIsLoadingRegistry(false);
     }
@@ -258,7 +271,8 @@ export function PluginManager({
       }));
     } catch (err) {
       trackError('plugin_update_check', err, 'Plugin Manager');
-      logger.error('Failed to check for update', {
+      // Offline / auth-walled / deleted remotes are Expected (#803, #732).
+      logger[isExpectedPluginFailure(err) ? 'warn' : 'error']('Failed to check for update', {
         error: formatCommandError(asCommandError(err)),
       });
       setUpdateStates((prev) => ({ ...prev, [pluginId]: 'idle' }));
@@ -277,7 +291,7 @@ export function PluginManager({
       setUpdateStates((prev) => ({ ...prev, [pluginId]: 'up_to_date' }));
     } catch (err) {
       trackError('plugin_update', err, 'Plugin Manager');
-      logger.error('Failed to update plugin', {
+      logger[isExpectedPluginFailure(err) ? 'warn' : 'error']('Failed to update plugin', {
         error: formatCommandError(asCommandError(err)),
       });
       setUpdateStates((prev) => ({ ...prev, [pluginId]: 'available' }));
@@ -303,14 +317,17 @@ export function PluginManager({
       setInstallingId(null);
     } catch (err) {
       trackError('plugin_install', err, 'Plugin Manager');
-      logger.error('Failed to install plugin', {
-        error: formatCommandError(asCommandError(err)),
-      });
       const msg = formatCommandError(asCommandError(err));
+      // A by-design refusal (bad manifest, unclonable URL, version mismatch…)
+      // is the app working correctly. logger.error files a bug report, and so
+      // does an 'error' toast — both had to be downgraded, since logger.error
+      // fires before the toast (issues #734, #833).
+      const expected = isExpectedPluginFailure(err);
+      logger[expected ? 'warn' : 'error']('Failed to install plugin', { error: msg });
       setError(msg);
       // Toast too — the inline error renders below the plugin list, off-screen
       // in a long library, so a failure otherwise looks like nothing happened.
-      showToast(msg, 'error');
+      showToast(msg, expected ? 'info' : 'error');
       setInstallingId(null);
     }
   };
@@ -334,12 +351,13 @@ export function PluginManager({
       onPluginsChanged();
     } catch (err) {
       trackError('plugin_install_url', err, 'Plugin Manager');
-      logger.error('Failed to install plugin from URL', {
-        error: formatCommandError(asCommandError(err)),
-      });
       const msg = formatCommandError(asCommandError(err));
+      // Same downgrade as handleLibraryInstall — a pasted URL that isn't a
+      // clonable repo is user input, not a defect (issues #734, #833, #803).
+      const expected = isExpectedPluginFailure(err);
+      logger[expected ? 'warn' : 'error']('Failed to install plugin from URL', { error: msg });
       setError(msg);
-      showToast(msg, 'error');
+      showToast(msg, expected ? 'info' : 'error');
     } finally {
       setIsInstallingUrl(false);
     }
@@ -363,7 +381,10 @@ export function PluginManager({
       }
     } catch (err) {
       trackError('plugin_dev_link', err, 'Plugin Manager');
-      logger.error('Failed to link dev plugin', {
+      // link_dev_plugin's manifest/bundle/id checks are by-design refusals of
+      // the folder the developer picked (issue #760) — the inline error still
+      // tells them what's wrong, but it isn't a bug to file.
+      logger[isExpectedPluginFailure(err) ? 'warn' : 'error']('Failed to link dev plugin', {
         error: formatCommandError(asCommandError(err)),
       });
       setError(formatCommandError(asCommandError(err)));
@@ -555,7 +576,15 @@ export function PluginManager({
 
               {!isLoadingRegistry && registry.length === 0 && (
                 <div className="plugins-empty">
-                  Could not load plugin library. Try installing from a URL below.
+                  {registryUnreachable ? (
+                    <>
+                      Couldn&apos;t reach the plugin library. Check your connection, or try again in
+                      a minute — GitHub sometimes rate-limits this request. You can still install
+                      from a URL below.
+                    </>
+                  ) : (
+                    'The plugin library is empty right now. You can still install from a URL below.'
+                  )}
                 </div>
               )}
 

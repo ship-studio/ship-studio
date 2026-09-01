@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listPlugins, updatePlugin, PluginInfo } from '../lib/plugins';
+import { listPlugins, updatePlugin, isExpectedPluginFailure, PluginInfo } from '../lib/plugins';
 import { loadPluginModule, unloadPluginModule, PluginModule } from '../lib/plugin-loader';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { logger } from '../lib/logger';
@@ -217,7 +217,11 @@ export function usePlugins(
           setFailures(failed);
         }
       } catch (e) {
-        logger.error('Failed to list plugins', {
+        // Full Disk Access / read-only volume / a project folder that's gone
+        // are environment states the backend classifies Expected — the UI
+        // already surfaces them in `failures`, so logger.error would file a
+        // bug report for the app behaving correctly (issue #762).
+        logger[isExpectedPluginFailure(e) ? 'warn' : 'error']('Failed to list plugins', {
           error: formatCommandError(asCommandError(e)),
         });
         if (mountedRef.current && currentPathRef.current === path) {

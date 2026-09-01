@@ -325,7 +325,12 @@ fn plugins_owner_root(validated: &Path) -> PathBuf {
 
 /// Get the plugins directory for a project: `<main worktree>/.shipstudio/plugins/`.
 /// All git worktrees of one repository share a single plugin store.
-pub(crate) fn get_plugins_dir(project_path: &str) -> Result<PathBuf, String> {
+///
+/// Returns `CommandError` rather than `String`: `validate_project_path`
+/// classifies a vanished project folder as `Expected`, and round-tripping that
+/// through `String` collapsed it back to `Other`, so every plugin command
+/// auto-reported "folder no longer exists" to telemetry (issue #831).
+pub(crate) fn get_plugins_dir(project_path: &str) -> Result<PathBuf, CommandError> {
     let validated = validate_project_path(project_path)?;
     Ok(plugins_owner_root(&validated)
         .join(".shipstudio")
@@ -424,8 +429,12 @@ pub(crate) fn validate_plugin_id(plugin_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Get the storage file path for a plugin
-pub(crate) fn get_storage_path(plugin_id: &str, project_path: &str) -> Result<PathBuf, String> {
+/// Get the storage file path for a plugin. `CommandError` for the same reason
+/// as [`get_plugins_dir`] — a `String` hop erases `Expected` (issue #831).
+pub(crate) fn get_storage_path(
+    plugin_id: &str,
+    project_path: &str,
+) -> Result<PathBuf, CommandError> {
     validate_plugin_id(plugin_id)?;
 
     let plugins_dir = get_plugins_dir(project_path)?;
@@ -458,8 +467,17 @@ pub fn read_plugin_bundle(project_path: String, plugin_id: String) -> Result<Str
             .join("index.js")
     };
 
+    // Expected, not Other: a missing bundle is a broken-install machine state
+    // the frontend already handles (usePlugins' self-heal re-installs from
+    // source, then warns). `Other` auto-reported it at the IPC boundary before
+    // any of that ran, so every session re-filed the same bug (issue #770).
+    // The message text is load-bearing — usePlugins' `isMissingBundleError`
+    // matches on it — so it stays byte-identical.
     if !bundle_path.exists() {
-        return Err((format!("Plugin bundle not found: {}", bundle_path.display())).into());
+        return Err(CommandError::expected(format!(
+            "Plugin bundle not found: {}",
+            bundle_path.display()
+        )));
     }
 
     fs::read_to_string(&bundle_path).map_err(|e| CommandError::Io {
@@ -531,6 +549,21 @@ mod tests {
         assert_eq!(manifest.id, "test");
         assert!(manifest.slots.is_empty());
         assert!(manifest.setup.is_empty());
+    }
+
+    /// Issue #831: these helpers used to return `Result<_, String>`, which
+    /// collapsed `validate_project_path`'s `Expected` ("folder no longer
+    /// exists") into `Other` — auto-reporting a vanished project folder as a
+    /// bug from every plugin command.
+    #[test]
+    fn plugins_dir_keeps_expected_for_a_vanished_project() {
+        let gone = std::env::temp_dir().join("shipstudio-not-a-real-project-831");
+        assert!(!gone.exists());
+        let err = get_plugins_dir(&gone.to_string_lossy()).unwrap_err();
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+
+        let err = get_storage_path("vercel", &gone.to_string_lossy()).unwrap_err();
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
     }
 
     #[test]

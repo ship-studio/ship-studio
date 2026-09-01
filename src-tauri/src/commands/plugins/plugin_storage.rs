@@ -268,24 +268,30 @@ pub async fn link_dev_plugin(
         None => return Ok(None), // User cancelled
     };
 
+    // Every check below rejects the *folder the developer picked*, not an app
+    // malfunction, so they're all `Expected` — mirroring install_plugin's #472
+    // treatment, which link_dev_plugin was simply never given (issue #760).
+
     // Validate plugin.json exists
-    let manifest = read_manifest(&folder_path)?;
+    let manifest = read_manifest(&folder_path)
+        .map_err(|e| CommandError::expected(format!("Invalid plugin: {e}")))?;
 
     warn_on_setup_items(&manifest);
 
     // Validate dist/index.js exists
     let bundle_path = folder_path.join("dist").join("index.js");
     if !bundle_path.exists() {
-        return Err((format!(
+        return Err(CommandError::expected(format!(
             "Plugin bundle not found at {}/dist/index.js. Did you run the build?",
             folder_path.display()
-        ))
-        .into());
+        )));
     }
 
     // Validate manifest has required fields
     if manifest.id.is_empty() || manifest.name.is_empty() {
-        return Err(("Plugin manifest must have 'id' and 'name' fields".to_string()).into());
+        return Err(CommandError::expected(
+            "Plugin manifest must have 'id' and 'name' fields",
+        ));
     }
 
     // Validate plugin ID is safe for filesystem
@@ -294,14 +300,16 @@ pub async fn link_dev_plugin(
         || manifest.id.contains("..")
         || manifest.id.starts_with('.')
     {
-        return Err(("Plugin ID contains invalid characters".to_string()).into());
+        return Err(CommandError::expected(
+            "Plugin ID contains invalid characters",
+        ));
     }
 
     // Check min_app_version compatibility
-    check_min_app_version(&manifest, &app)?;
+    check_min_app_version(&manifest, &app).map_err(CommandError::expected)?;
 
     // Validate required_commands are all in the allowed set
-    validate_required_commands(&manifest)?;
+    validate_required_commands(&manifest).map_err(CommandError::expected)?;
 
     // Check for existing plugin with same ID
     let mut registry = read_registry(&project_path)?;
@@ -310,11 +318,10 @@ pub async fn link_dev_plugin(
         .iter()
         .any(|e| e.plugin_id == manifest.id && !e.is_dev)
     {
-        return Err((format!(
+        return Err(CommandError::expected(format!(
             "A non-dev plugin '{}' is already installed. Uninstall it first.",
             manifest.id
-        ))
-        .into());
+        )));
     }
 
     // Remove existing dev entry for this plugin if present (re-link)

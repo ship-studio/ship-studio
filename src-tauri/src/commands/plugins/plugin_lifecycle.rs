@@ -21,13 +21,16 @@ use super::{
 /// 2. Local/command-executing transports — git's `ext::` transport runs an
 ///    arbitrary command, and `file://`/bare local paths can pull from anywhere
 ///    on disk. Only network transports to a remote host are allowed.
+///
+/// Every refusal here is `Expected`: the URL is user input, so a bad one is the
+/// app working correctly, not a malfunction to auto-report (issue #803).
 fn validate_clone_url(url: &str) -> Result<(), CommandError> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
-        return Err("Plugin repository URL is empty".to_string().into());
+        return Err(CommandError::expected("Plugin repository URL is empty"));
     }
     if trimmed.starts_with('-') {
-        return Err("Invalid plugin repository URL".to_string().into());
+        return Err(CommandError::expected("Invalid plugin repository URL"));
     }
     let lowered = trimmed.to_ascii_lowercase();
     let allowed = lowered.starts_with("https://")
@@ -35,13 +38,116 @@ fn validate_clone_url(url: &str) -> Result<(), CommandError> {
         || lowered.starts_with("ssh://")
         || lowered.starts_with("git@");
     if !allowed {
-        return Err(
-            "Plugin repository URL must be an https://, ssh://, git:// or git@ remote"
-                .to_string()
-                .into(),
-        );
+        return Err(CommandError::expected(
+            "Plugin repository URL must be an https://, ssh://, git:// or git@ remote",
+        ));
+    }
+    // A link to a *page inside* a repository (GitHub's /blob/ or /tree/ web
+    // views) is well-formed but not clonable — pasting a docs page URL is a
+    // common mistake, and it used to sail through validation and only fail on
+    // git's "repository not found" 404 (issue #803). Reject it up front with
+    // wording that points at the repository root.
+    if lowered.contains("/blob/") || lowered.contains("/tree/") {
+        return Err(CommandError::expected(
+            "That link points at a page inside a repository, not the repository itself. \
+             Use the repository's main URL (e.g. https://github.com/owner/repo).",
+        ));
     }
     Ok(())
+}
+
+/// Network-git failures that are the user's URL, credentials, or connection —
+/// not a Ship Studio defect. `Some(Expected)` with actionable wording for the
+/// shapes we recognize (issues #803, #732); `None` for anything else so a
+/// genuinely novel git failure still reaches telemetry with its raw stderr.
+fn classify_remote_git_failure(stderr: &str) -> Option<CommandError> {
+    let lower = stderr.to_lowercase();
+    // git fell back to an interactive credential prompt and there's no tty in a
+    // GUI-spawned process, so it dies with "Device not configured" (macOS) or
+    // "terminal prompts disabled" (with GIT_TERMINAL_PROMPT=0). Mirrors
+    // github.rs's gh_auth_error / publishing.rs's push_auth_error (issue #732).
+    if lower.contains("could not read username")
+        || lower.contains("could not read password")
+        || lower.contains("terminal prompts disabled")
+        || lower.contains("authentication failed")
+    {
+        return Some(CommandError::expected(
+            "This plugin's repository requires sign-in, and Ship Studio can't authenticate to \
+             it automatically. Use a plugin hosted in a public repository, or clone it yourself \
+             and add it with Link Dev Plugin.",
+        ));
+    }
+    // A mistyped, renamed, deleted, or private repository URL (issue #803).
+    if lower.contains("repository not found")
+        || lower.contains("could not read from remote repository")
+        || (lower.contains("not found") && lower.contains("fatal:"))
+    {
+        return Some(CommandError::expected(
+            "Couldn't find a git repository at that URL. Double-check the plugin's repository \
+             link — it may be mistyped, private, renamed, or deleted.",
+        ));
+    }
+    // Offline / DNS / firewall — the machine's network, not the app.
+    if lower.contains("could not resolve host")
+        || lower.contains("could not resolve proxy")
+        || lower.contains("connection timed out")
+        || lower.contains("connection refused")
+        || lower.contains("network is unreachable")
+    {
+        return Some(CommandError::expected(
+            "Couldn't reach the plugin's repository — check your internet connection and \
+             try again.",
+        ));
+    }
+    None
+}
+
+/// [`classify_remote_git_failure`] with the clone call sites' raw fallback.
+fn classify_clone_failure(stderr: &str) -> CommandError {
+    classify_remote_git_failure(stderr)
+        .unwrap_or_else(|| CommandError::from(format!("Git clone failed: {stderr}")))
+}
+
+/// Run `git clone` for a plugin, with the shared spawn-pressure retry and the
+/// no-interactive-prompt guard.
+///
+/// * The spawn is retried on transient EAGAIN/EMFILE (a one-shot install used
+///   to die outright on momentary process-table pressure, issue #774).
+/// * `GIT_TERMINAL_PROMPT=0` makes a credential-requiring host fail fast
+///   instead of blocking on a prompt no one can answer, matching `run_git_net`
+///   in `commands/git/mod.rs` (issue #732).
+fn run_plugin_clone(
+    git: &Path,
+    repo_url: &str,
+    dest: &Path,
+) -> Result<std::process::Output, CommandError> {
+    let dest = dest.to_string_lossy().to_string();
+    crate::external_command::spawn_with_pressure_retry("git clone", || {
+        create_command(git)
+            .args(["clone", "--depth", "1", "--", repo_url, &dest])
+            .env("PATH", get_extended_path())
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+    })
+}
+
+/// `remove_dir_all_relaxed` with the same backoff `rename_with_retry` uses.
+/// A stale `.tmp-install` left by a previous run can be transiently locked
+/// (Windows AV/indexer, a cloud-sync daemon); the old single best-effort
+/// attempt silently gave up, and `git clone` then failed with the baffling
+/// "destination path already exists" (issue #839).
+fn remove_dir_all_with_retry(dir: &Path) -> std::io::Result<()> {
+    let mut result = remove_dir_all_relaxed(dir);
+    let mut delay = std::time::Duration::from_millis(100);
+    for _ in 0..4 {
+        if result.is_ok() || !dir.exists() {
+            return Ok(());
+        }
+        std::thread::sleep(delay);
+        delay = (delay * 2).min(std::time::Duration::from_millis(800));
+        result = remove_dir_all_relaxed(dir);
+    }
+    result
 }
 
 /// Resolve the `git` executable to an absolute path, mirroring how the setup
@@ -50,10 +156,11 @@ fn validate_clone_url(url: &str) -> Result<(), CommandError> {
 /// path first avoids that and lets us return a clear "install git" error.
 fn resolve_git() -> Result<PathBuf, CommandError> {
     find_executable("git").ok_or_else(|| {
-        "Git isn't installed or couldn't be located. Install Git (https://git-scm.com) \
-         and restart Ship Studio, then try again."
-            .to_string()
-            .into()
+        // A missing tool is an environment gap, not an app malfunction.
+        CommandError::expected(
+            "Git isn't installed or couldn't be located. Install Git (https://git-scm.com) \
+             and restart Ship Studio, then try again.",
+        )
     })
 }
 
@@ -242,33 +349,36 @@ pub async fn install_plugin(
     validate_clone_url(&repo_url)?;
 
     let plugins_dir = get_plugins_dir(&project_path)?;
-    fs::create_dir_all(&plugins_dir).map_err(|e| format!("Failed to create plugins dir: {e}"))?;
+    // classify_fs_error, like write_registry: a denied/read-only project folder
+    // is an environment state with a user-side fix, not telemetry (#762/#831).
+    fs::create_dir_all(&plugins_dir).map_err(|e| {
+        crate::utils::classify_fs_error("create this project's plugins folder", &plugins_dir, &e)
+    })?;
 
     let git = resolve_git()?;
 
-    // Clone into a temp directory first, then move
+    // Clone into a temp directory first, then move. A leftover .tmp-install
+    // from an interrupted run must actually be gone before the clone: git's
+    // own "destination path already exists" is unactionable for a directory
+    // the user never made and can't see (issue #839).
     let temp_dir = plugins_dir.join(".tmp-install");
     if temp_dir.exists() {
-        let _ = remove_dir_all_relaxed(&temp_dir);
+        remove_dir_all_with_retry(&temp_dir).map_err(|e| {
+            CommandError::expected(format!(
+                "Couldn't clear the leftover install folder at {} ({e}). Something else is \
+                 holding it open — close other apps that may be scanning or syncing this \
+                 project, then try again.",
+                temp_dir.display()
+            ))
+        })?;
     }
 
-    let output = create_command(&git)
-        .args([
-            "clone",
-            "--depth",
-            "1",
-            "--",
-            &repo_url,
-            &temp_dir.to_string_lossy(),
-        ])
-        .env("PATH", get_extended_path())
-        .output()
-        .map_err(|e| format!("Failed to run git clone: {e}"))?;
+    let output = run_plugin_clone(&git, &repo_url, &temp_dir)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let _ = remove_dir_all_relaxed(&temp_dir);
-        return Err((format!("Git clone failed: {stderr}")).into());
+        return Err(classify_clone_failure(&stderr));
     }
 
     // Read manifest to get plugin ID
@@ -470,22 +580,11 @@ pub async fn update_plugin(
     }
 
     // Clone fresh
-    let output = create_command(&git)
-        .args([
-            "clone",
-            "--depth",
-            "1",
-            "--",
-            &source_url,
-            &plugin_dir.to_string_lossy(),
-        ])
-        .env("PATH", get_extended_path())
-        .output()
-        .map_err(|e| format!("Failed to run git clone: {e}"))?;
+    let output = run_plugin_clone(&git, &source_url, &plugin_dir)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err((format!("Git clone failed: {stderr}")).into());
+        return Err(classify_clone_failure(&stderr));
     }
 
     // Validate the built bundle exists — same guard as install_plugin (issue
@@ -574,16 +673,24 @@ pub async fn check_plugin_update(
     let installed_version = manifest.version.clone();
 
     // Get remote HEAD commit via git ls-remote
+    // Same guards as the clone paths: no interactive credential prompt with no
+    // tty to answer it (#732), an EAGAIN-tolerant spawn (#774), and Expected
+    // classification for URL/auth/offline failures (#803). This one runs
+    // unattended for every installed plugin on each Plugin Manager open, so an
+    // unreachable remote would otherwise file a report per plugin per open.
     let git = resolve_git()?;
-    let output = create_command(&git)
-        .args(["ls-remote", &source_url, "HEAD"])
-        .env("PATH", get_extended_path())
-        .output()
-        .map_err(|e| format!("Failed to run git ls-remote: {e}"))?;
+    let output = crate::external_command::spawn_with_pressure_retry("git ls-remote", || {
+        create_command(&git)
+            .args(["ls-remote", &source_url, "HEAD"])
+            .env("PATH", get_extended_path())
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err((format!("Failed to check remote: {stderr}")).into());
+        return Err(classify_remote_git_failure(&stderr)
+            .unwrap_or_else(|| CommandError::from(format!("Failed to check remote: {stderr}"))));
     }
 
     let remote_output = String::from_utf8_lossy(&output.stdout);
@@ -636,8 +743,9 @@ pub fn toggle_plugin(
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_repo_url, remove_dir_all_relaxed, rename_with_retry, repo_urls_match,
-        validate_clone_url,
+        classify_clone_failure, classify_remote_git_failure, normalize_repo_url,
+        remove_dir_all_relaxed, remove_dir_all_with_retry, rename_with_retry, repo_urls_match,
+        validate_clone_url, CommandError,
     };
     use std::fs;
 
@@ -757,6 +865,88 @@ mod tests {
         assert_eq!(fs::read(to.join("a/b/leaf.txt")).unwrap(), b"3");
         // Source is untouched by the copy itself.
         assert!(from.join("a/b/leaf.txt").exists());
+    }
+
+    #[test]
+    fn rejects_repository_page_urls() {
+        // A GitHub docs page isn't clonable — issue #803's actual occurrence.
+        for url in [
+            "https://github.com/ship-studio/ship-studio/blob/main/docs/plugins.md",
+            "https://github.com/owner/repo/tree/main/packages/plugin",
+        ] {
+            let err = validate_clone_url(url).unwrap_err();
+            assert!(matches!(err, CommandError::Expected { .. }));
+            assert!(err.to_string().contains("repository's main URL"));
+        }
+    }
+
+    #[test]
+    fn url_refusals_are_expected_not_telemetry() {
+        // Bad user input is the app working correctly, not a bug to file.
+        for url in ["", "-oProxyCommand=evil", "file:///etc/passwd"] {
+            assert!(matches!(
+                validate_clone_url(url),
+                Err(CommandError::Expected { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn classifies_missing_repository_as_expected() {
+        // Issue #803: a mistyped/deleted/private repo URL.
+        let err = classify_clone_failure(
+            "Cloning into '.tmp-install'...\n\
+             fatal: repository 'https://github.com/owner/nope/' not found\n",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("Couldn't find a git repository"));
+    }
+
+    #[test]
+    fn classifies_credential_prompt_as_expected() {
+        // Issue #732: no tty for git's interactive credential prompt.
+        let err = classify_clone_failure(
+            "fatal: could not read Username for 'https://replit-mcp.com': Device not configured\n",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("requires sign-in"));
+        // …including the wording GIT_TERMINAL_PROMPT=0 itself produces.
+        assert!(classify_remote_git_failure(
+            "fatal: could not read Username for 'https://x.dev': terminal prompts disabled"
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn classifies_offline_clone_as_expected() {
+        let err = classify_clone_failure(
+            "fatal: unable to access '...': Could not resolve host: github.com",
+        );
+        assert!(matches!(err, CommandError::Expected { .. }));
+    }
+
+    #[test]
+    fn leaves_unrecognized_clone_failures_reportable() {
+        // Anything we don't recognize must keep reaching telemetry raw.
+        assert!(classify_remote_git_failure("error: object file is empty").is_none());
+        let err = classify_clone_failure("error: object file is empty");
+        assert!(matches!(err, CommandError::Other { .. }));
+        assert!(err.to_string().starts_with("Git clone failed:"));
+    }
+
+    #[test]
+    fn remove_dir_all_with_retry_clears_stale_tmp_install() {
+        // Issue #839: the leftover temp dir must actually be gone, otherwise
+        // git fails with an unactionable "destination path already exists".
+        let tmp = tempfile::tempdir().unwrap();
+        let stale = tmp.path().join(".tmp-install");
+        fs::create_dir_all(stale.join("dist")).unwrap();
+        fs::write(stale.join("dist/index.js"), b"x").unwrap();
+
+        remove_dir_all_with_retry(&stale).unwrap();
+        assert!(!stale.exists());
+        // Already-gone is success, not an error.
+        remove_dir_all_with_retry(&stale).unwrap();
     }
 
     #[test]
