@@ -85,7 +85,47 @@ export function structuralEditMessage(message: string): string {
   if (message.includes("can't be matched to its source markup")) {
     return "This element can't be matched to its source code (its classes are generated dynamically). Ask your agent to make this change instead.";
   }
+  // STRUCTURAL_TAGS guard (edit_structure.rs): the document's own <html>/<head>/
+  // <body> can't be removed or displaced. A by-design refusal, but the raw
+  // wording reads like an internal rule (issues #723/#740).
+  const structural = /<(html|head|body)> can't be (deleted|duplicated)\./.exec(message);
+  if (structural) {
+    return `<${structural[1]}> is part of the page itself, so it can't be ${structural[2]}. Pick an element inside it instead.`;
+  }
+  const insertNextTo = /Can't insert next to <(html|head|body)>/.exec(message);
+  if (insertNextTo) {
+    return `Nothing can sit beside <${insertNextTo[1]}> — it's part of the page itself. Use "Insert inside" instead.`;
+  }
+  // `element_span` walked off the end of the file looking for this element's
+  // closing tag — raw internal wording that meant nothing to the user (issue
+  // #789). Rephrased, but NOT treated as expected below: it still points at
+  // markup the span mapper can't read, which is worth a report.
+  if (message.includes("couldn't map this element to its source markup")) {
+    return "Ship Studio couldn't read this element's full markup in your code. Select a more specific element, or ask your agent to make this change.";
+  }
   return message;
+}
+
+/**
+ * Whether a structural-edit failure is a by-design refusal rather than a bug:
+ * the backend declining to guess (ambiguous/unanchorable element) or the
+ * structural-tag guard. These already give the user an accurate, actionable
+ * message, so they route to `logger.warn` + a non-'error' toast instead of the
+ * bug pipeline (issues #402/#515/#723/#740).
+ */
+export function isExpectedStructuralRefusal(message: string): boolean {
+  return (
+    message.includes('no class in source to anchor') ||
+    message.includes('several places whose markup differs') ||
+    message.includes('several identical places') ||
+    message.includes("can't be matched to its source markup") ||
+    // The classless-anchor ladder refusing to pick among look-alike tags — its
+    // own wording is already user-facing and names what it searched (#318/#818).
+    message.includes("Couldn't tell which <") ||
+    message.includes('without a class in source') ||
+    /<(html|head|body)> can't be (deleted|duplicated)\./.test(message) ||
+    /Can't insert next to <(html|head|body)>/.test(message)
+  );
 }
 
 export function useElementStructure({ iframeRef, projectPath, enabled, onToast }: Params) {
@@ -198,23 +238,26 @@ export function useElementStructure({ iframeRef, projectPath, enabled, onToast }
         await action();
       } catch (err) {
         const message = formatCommandError(asCommandError(err));
+        // Wording and reportability are decided separately: a failure can
+        // deserve better phrasing AND still be a bug worth filing (issue #789).
         const friendly = structuralEditMessage(message);
-        if (friendly === message) {
-          // Unrecognized failure — a genuine bug candidate, report it.
-          logger.error('[ElementStructure] structural edit failed', { error: message });
-        } else {
-          // A known by-design refusal (ambiguous/unanchorable element). The
-          // user already gets an accurate toast; logger.error would ship it
-          // to the bug pipeline on every occurrence even though #299 already
-          // classified these as non-reportable on the Rust side (issue #402).
+        const expected = isExpectedStructuralRefusal(message);
+        if (expected) {
+          // A known by-design refusal (ambiguous/unanchorable element, or the
+          // structural-tag guard). The user already gets an accurate toast;
+          // logger.error would ship it to the bug pipeline on every occurrence
+          // even though #299 already classified these as non-reportable on the
+          // Rust side (issues #402/#723/#740).
           logger.warn('[ElementStructure] structural edit refused', { error: message });
+        } else {
+          logger.error('[ElementStructure] structural edit failed', { error: message });
         }
         // Recognized refusals also skip the 'error' toast type: error toasts
         // re-enter telemetry through useToasts' `source: 'toast'` reporting
         // path, re-reporting what the logger.warn branch above deliberately
         // kept out (issues #437/#515). 'info' keeps the toast visible without
         // filing a bug.
-        onToast?.(friendly, friendly === message ? 'error' : 'info');
+        onToast?.(friendly, expected ? 'info' : 'error');
       } finally {
         busyRef.current = false;
         setBusy(false);

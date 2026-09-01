@@ -254,9 +254,33 @@ describe('useTextEditing', () => {
       expect(logger.error).not.toHaveBeenCalled();
     });
 
-    it('does not retry when the source has not actually drifted (identical re-resolve)', async () => {
-      // A Validation rejection whose re-resolve returns the SAME target would
-      // fail identically — the hook must not write the same thing twice.
+    it('retries even when the re-resolve matches the stale baseline exactly', async () => {
+      // The rejection came from the backend's own read a moment earlier, so an
+      // identical re-resolve means the transient writer (formatter, HMR) has
+      // already settled back — the same write plausibly succeeds now. Giving up
+      // here threw away saves that could have landed (issue #769).
+      (applyTextEdit as Fn).mockRejectedValueOnce(DRIFT_REJECTION);
+      (resolveTextSource as Fn).mockResolvedValue({
+        status: 'resolved',
+        file: 'src/pages/index.astro',
+        line: 7,
+        column: 3,
+        text: 'Old copy',
+      });
+      const { iframeRef, onToast } = setup();
+      const src = iframeRef.current!.contentWindow!;
+      await dispatch({ type: 'ss:select', signature: SIG, leafText: true }, src);
+      await dispatch({ type: 'ss:textCommit', text: 'New copy' }, src);
+      await settle();
+
+      expect(applyTextEdit).toHaveBeenCalledTimes(2);
+      expect(posts(iframeRef)).not.toContainEqual({ type: 'ss:textRevert' });
+      expect(onToast).toHaveBeenCalledWith('Saved to source', 'success');
+    });
+
+    it('still reverts when the retry is rejected too', async () => {
+      // The retry is an extra chance, not a way around the guard: a second
+      // rejection still explains, reverts, and stays out of the bug pipeline.
       (applyTextEdit as Fn).mockRejectedValue(DRIFT_REJECTION);
       (resolveTextSource as Fn).mockResolvedValue({
         status: 'resolved',
@@ -271,9 +295,14 @@ describe('useTextEditing', () => {
       await dispatch({ type: 'ss:textCommit', text: 'New copy' }, src);
       await settle();
 
-      expect(applyTextEdit).toHaveBeenCalledTimes(1);
+      expect(applyTextEdit).toHaveBeenCalledTimes(2);
       expect(posts(iframeRef)).toContainEqual({ type: 'ss:textRevert' });
-      expect(onToast).toHaveBeenCalledWith(expect.any(String), 'error');
+      expect(onToast).toHaveBeenCalledWith(
+        expect.stringContaining("Couldn't save your text"),
+        'error'
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- asserting on the mock, not invoking it bound
+      expect(logger.error).not.toHaveBeenCalled();
     });
   });
 

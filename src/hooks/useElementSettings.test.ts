@@ -131,16 +131,23 @@ describe('useElementSettings addClass', () => {
 
     await add(result, 'mt-4');
 
+    // A by-design refusal: the backend declining to guess which of several
+    // look-alike tags was clicked. The user still gets the specific reason, but
+    // as 'info' — an 'error' toast re-files it as a bug on every occurrence
+    // through useToasts' `source: 'toast'` reporting (issue #818).
     expect(onToast).toHaveBeenCalledWith(
       expect.stringContaining("Couldn't tell which <div> in source"),
-      'error'
+      'info'
     );
-    // The log carries the same formatted message — a plain CommandError object
-    // through String(err) would log "[object Object]" (issues #516/#517).
     // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
     const errorLog = logger.error as Fn;
-    const logged = (errorLog.mock.calls as Array<[string, { error: string }]>).find(
-      ([msg]) => msg === '[ElementSettings] add class failed'
+    expect(errorLog).not.toHaveBeenCalled();
+    // The warn log carries the same formatted message — a plain CommandError
+    // object through String(err) would log "[object Object]" (issues #516/#517).
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    const warnLog = logger.warn as Fn;
+    const logged = (warnLog.mock.calls as Array<[string, { error: string }]>).find(
+      ([msg]) => msg === '[ElementSettings] add class refused'
     );
     expect(logged?.[1].error).toContain("Couldn't tell which <div>");
     // Nothing was written — the class list stays empty.

@@ -29,9 +29,35 @@ import { setAttribute as setAttrInHtml } from '../lib/htmlAttrs';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import { isExpectedStructuralRefusal } from './useElementStructure';
 
 function toastText(err: unknown): string {
   return formatCommandError(asCommandError(err));
+}
+
+/**
+ * Log a settings-write failure at the right level, then toast it.
+ *
+ * The backend refuses by design when it can't tell which element in source the
+ * user clicked (`edit.rs`'s classname-resolution ladder: "Couldn't tell which
+ * <img> in source to add the class to…"). Those messages are already accurate
+ * and actionable, so they must not reach the bug pipeline — `logger.error` and
+ * an 'error' toast would both file one on every occurrence (issue #818, same
+ * distinction `useElementStructure` makes in #402/#723).
+ */
+function reportSettingsFailure(
+  what: string,
+  err: unknown,
+  onToast: (message: string, type?: 'success' | 'error' | 'info') => void
+): void {
+  const message = toastText(err);
+  const expected = isExpectedStructuralRefusal(message);
+  if (expected) {
+    logger.warn(`[ElementSettings] ${what} refused`, { error: message });
+  } else {
+    logger.error(`[ElementSettings] ${what} failed`, { error: message });
+  }
+  onToast(message, expected ? 'info' : 'error');
 }
 
 export interface ElementAttr {
@@ -79,7 +105,7 @@ interface Params {
   projectPath: string;
   enabled: boolean;
   signature: ElementSignature | null;
-  onToast: (message: string, type?: 'success' | 'error') => void;
+  onToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export function useElementSettings({
@@ -158,8 +184,7 @@ export function useElementSettings({
         setAttributes(parseAttributes(newHtml));
         void trackEvent('visual_style_saved', { mode: 'css-code', attr_edit: true });
       } catch (err) {
-        logger.error('[ElementSettings] attribute edit failed', { error: toastText(err) });
-        onToast(toastText(err), 'error');
+        reportSettingsFailure('attribute edit', err, onToast);
       } finally {
         setBusy(false);
       }
@@ -189,8 +214,7 @@ export function useElementSettings({
         setAttributes(parseAttributes(newHtml));
         void trackEvent('visual_style_saved', { mode: 'css-code', attr_edit: true });
       } catch (err) {
-        logger.error('[ElementSettings] attribute rename failed', { error: toastText(err) });
-        onToast(toastText(err), 'error');
+        reportSettingsFailure('attribute rename', err, onToast);
       } finally {
         setBusy(false);
       }
@@ -259,8 +283,7 @@ export function useElementSettings({
           void trackEvent('visual_class_added', { mode: 'css-code' });
         }
       } catch (err) {
-        logger.error('[ElementSettings] add class failed', { error: toastText(err) });
-        onToast(toastText(err), 'error');
+        reportSettingsFailure('add class', err, onToast);
       } finally {
         setBusy(false);
       }
@@ -278,8 +301,7 @@ export function useElementSettings({
           void trackEvent('visual_class_removed', { mode: 'css-code' });
         }
       } catch (err) {
-        logger.error('[ElementSettings] remove class failed', { error: toastText(err) });
-        onToast(toastText(err), 'error');
+        reportSettingsFailure('remove class', err, onToast);
       } finally {
         setBusy(false);
       }

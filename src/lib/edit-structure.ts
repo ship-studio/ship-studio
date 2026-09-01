@@ -71,6 +71,12 @@ export const VOID_ELEMENTS = new Set([
   'wbr',
 ]);
 
+/** Tags that ARE the document — mirrors `STRUCTURAL_TAGS` in `edit_structure.rs`.
+ *  Deleting, duplicating, or inserting beside one would break the page, so the
+ *  backend refuses; the UI disables those actions rather than round-tripping to
+ *  a refusal (issues #723/#740). */
+export const STRUCTURAL_ELEMENTS = new Set(['html', 'head', 'body']);
+
 /** Insert a new `elementKind` before/after/inside the selected element. */
 export function insertElement(
   projectPath: string,
