@@ -238,7 +238,9 @@ pub async fn list_mcp_servers(
         {
             return Ok(Vec::new());
         }
-        return Err((format!("{} mcp list failed: {}", agent.display_name, stderr)).into());
+        // The same config-parse / gateway / policy conditions that break add
+        // and remove break listing too (issue #755).
+        return Err(classify_mcp_failure("list MCP servers", &stderr));
     }
 
     let mut servers = parse_mcp_list_output(&stdout);
@@ -499,17 +501,23 @@ pub async fn add_mcp_server(
         } else {
             stderr
         };
-        return Err(classify_mcp_add_failure(&details));
+        return Err(classify_mcp_failure("add MCP server", &details));
     }
 
     Ok(())
 }
 
-/// Turn a failed `<agent> mcp add` invocation's output into a `CommandError`,
-/// classifying the shapes that reflect machine state or org policy — not a
-/// Ship Studio bug — as `Expected` so they stay out of telemetry.
-fn classify_mcp_add_failure(details: &str) -> CommandError {
-    let message = format!("Failed to add MCP server: {details}");
+/// Turn a failed `<agent> mcp …` invocation's output into a `CommandError`,
+/// classifying the shapes that reflect machine state, org policy or the
+/// user's own agent config — not a Ship Studio bug — as `Expected` so they
+/// stay out of telemetry.
+///
+/// Shared by the add, remove and list paths: the add path has classified
+/// these since #675/#677 while remove and list forwarded the very same CLI
+/// failures raw (issues #746, #755, #800). `action` completes "Failed to …"
+/// ("add MCP server", "remove MCP server", "list MCP servers").
+fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
+    let message = format!("Failed to {action}: {details}");
     let lower = details.to_ascii_lowercase();
 
     // "Already exists" is a benign race with a concurrent registration —
@@ -526,6 +534,46 @@ fn classify_mcp_add_failure(details: &str) -> CommandError {
     if lower.contains("enterprise policy") || lower.contains("enterprise mcp configuration") {
         return CommandError::expected(format!(
             "{message}\n\nYour organization's managed agent settings block this MCP server. Ask your admin to allowlist it, then try again."
+        ));
+    }
+
+    // Enterprise Claude Code installs route through an org-managed "Cloud
+    // gateway"; when it's unreachable or the session with it has expired the
+    // CLI refuses to run at all ("Couldn't load settings from Cloud gateway
+    // <host>. Check your network connection, or run `claude auth login` to
+    // re-authenticate."). An org network/session condition on the user's
+    // machine, not an app bug (issues #799, #800).
+    if lower.contains("cloud gateway")
+        || (lower.contains("couldn't load settings") && lower.contains("auth login"))
+    {
+        return CommandError::expected(format!(
+            "{message}\n\nYour organization's agent gateway couldn't be reached. Check your network (or VPN) connection, or run `claude auth login` in a terminal to sign in again, then try again."
+        ));
+    }
+
+    // Recent Claude Code CLI versions mis-parse `mcp add -e KEY=value …` and
+    // echo a stray token back as an invalid environment variable — an
+    // upstream regression (anthropics/claude-code#23365) Ship Studio can't
+    // fix from here, so give the workaround instead of filing it as our bug
+    // (issue #763).
+    if lower.contains("invalid environment variable format") {
+        return CommandError::expected(format!(
+            "{message}\n\nThis is a known bug in recent Claude Code CLI versions — its `mcp add` parser mishandles `-e` environment variables (anthropics/claude-code#23365). Add the server without its `-e` flags for now (set those variables in the server's own config instead), or update Claude Code once the fix ships."
+        ));
+    }
+
+    // The agent CLI parses its entire config file before running any `mcp`
+    // subcommand, so a single value the installed version no longer accepts
+    // (e.g. `service_tier = "default"` in ~/.codex/config.toml) breaks add,
+    // remove and list alike. The user's own config, not our call (issue #755).
+    if lower.contains("failed to load configuration")
+        || (lower.contains("unknown variant") && lower.contains("config.toml"))
+    {
+        let setting = invalid_config_key(details)
+            .map(|key| format!(" (`{key}`)"))
+            .unwrap_or_default();
+        return CommandError::expected(format!(
+            "{message}\n\nThe agent CLI couldn't read its own config file — a setting in it{setting} has a value this version no longer accepts. Fix or remove that setting in the config file named above, then try again."
         ));
     }
 
@@ -550,6 +598,20 @@ fn classify_mcp_add_failure(details: &str) -> CommandError {
     }
 
     message.into()
+}
+
+/// Pull the offending setting's name out of a Codex config-parse error,
+/// whose final line is `in \`service_tier\`` (issue #755). Without that shape
+/// the guidance simply omits the name rather than guessing one.
+fn invalid_config_key(details: &str) -> Option<String> {
+    details.lines().rev().find_map(|line| {
+        let key = line.trim().strip_prefix("in `")?.strip_suffix('`')?;
+        if key.is_empty() {
+            None
+        } else {
+            Some(key.to_string())
+        }
+    })
 }
 
 /// Does this CLI error text mean "no server with that name exists"?
@@ -632,7 +694,20 @@ pub async fn remove_mcp_server(
             tracing::info!(server = %name, "mcp remove: server already absent — treating as success");
             return Ok(());
         }
-        return Err((format!("Failed to remove MCP server: {details}")).into());
+        // A non-zero exit with nothing on either stream used to surface as
+        // "Failed to remove MCP server: " — an empty string with no signal
+        // for the user or for telemetry. Keep the exit code instead (#710).
+        if details.trim().is_empty() {
+            return Err(CommandError::Process {
+                cmd: format!("{} mcp remove", agent.binary_name),
+                exit_code: output.status.code().unwrap_or(-1),
+                stderr: String::new(),
+            });
+        }
+        // Everything the add path already classifies — enterprise policy,
+        // config read/write failures, gateway auth — fails the same way here
+        // (issues #746, #755, #800).
+        return Err(classify_mcp_failure("remove MCP server", &details));
     }
 
     Ok(())
@@ -866,7 +941,8 @@ mod tests {
 
     #[test]
     fn add_failure_already_exists_is_expected() {
-        let err = classify_mcp_add_failure(
+        let err = classify_mcp_failure(
+            "add MCP server",
             "MCP server shipstudio-preview already exists in local config",
         );
         assert!(matches!(err, CommandError::Expected { .. }));
@@ -875,7 +951,8 @@ mod tests {
     #[test]
     fn add_failure_enterprise_policy_is_expected() {
         // Exact wording from issue #675.
-        let err = classify_mcp_add_failure(
+        let err = classify_mcp_failure(
+            "add MCP server",
             "Cannot add MCP server \"shipstudio-preview\": not allowed by enterprise policy",
         );
         match err {
@@ -887,11 +964,15 @@ mod tests {
         }
         // Wording variants of the same policy denial.
         assert!(matches!(
-            classify_mcp_add_failure("MCP server \"x\" is explicitly blocked by enterprise policy"),
+            classify_mcp_failure(
+                "add MCP server",
+                "MCP server \"x\" is explicitly blocked by enterprise policy"
+            ),
             CommandError::Expected { .. }
         ));
         assert!(matches!(
-            classify_mcp_add_failure(
+            classify_mcp_failure(
+                "add MCP server",
                 "Cannot modify MCP servers: enterprise MCP configuration is active"
             ),
             CommandError::Expected { .. }
@@ -901,8 +982,7 @@ mod tests {
     #[test]
     fn add_failure_windows_config_access_denied_is_expected() {
         // Exact shape from issue #677 (Codex CLI on Windows).
-        let err = classify_mcp_add_failure(
-            "Error: failed to write MCP servers to C:\\Users\\me\\.codex\n\nCaused by:\n    0: failed to persist config at C:\\Users\\me\\.codex\\config.toml\n    1: Access is denied. (os error 5)",
+        let err = classify_mcp_failure("add MCP server", "Error: failed to write MCP servers to C:\\Users\\me\\.codex\n\nCaused by:\n    0: failed to persist config at C:\\Users\\me\\.codex\\config.toml\n    1: Access is denied. (os error 5)",
         );
         match err {
             CommandError::Expected { message } => {
@@ -913,8 +993,7 @@ mod tests {
         }
         // POSIX flavor of the same machine state.
         assert!(matches!(
-            classify_mcp_add_failure(
-                "failed to persist config at /Users/me/.codex/config.toml: Permission denied (os error 13)"
+            classify_mcp_failure("add MCP server", "failed to persist config at /Users/me/.codex/config.toml: Permission denied (os error 13)"
             ),
             CommandError::Expected { .. }
         ));
@@ -925,14 +1004,69 @@ mod tests {
         // Unrecognized failures must remain `Other` so telemetry still sees
         // genuine bugs.
         assert!(matches!(
-            classify_mcp_add_failure("unexpected argument '--transport'"),
+            classify_mcp_failure("add MCP server", "unexpected argument '--transport'"),
             CommandError::Other { .. }
         ));
         // Access-denied wording without any config-write context isn't the
         // #677 shape — don't over-classify.
         assert!(matches!(
-            classify_mcp_add_failure("Access is denied."),
+            classify_mcp_failure("add MCP server", "Access is denied."),
             CommandError::Other { .. }
         ));
+    }
+
+    #[test]
+    fn cloud_gateway_failure_is_expected_on_every_action() {
+        // Exact wording from issues #799 (add) and #800 (remove).
+        let details = "Couldn't load settings from Cloud gateway https://claude-gateway.internal.example.com. Check your network connection, or run `claude auth login` to re-authenticate.";
+        for action in ["add MCP server", "remove MCP server", "list MCP servers"] {
+            match classify_mcp_failure(action, details) {
+                CommandError::Expected { message } => {
+                    assert!(message.contains(&format!("Failed to {action}")));
+                    assert!(message.contains("claude auth login"));
+                }
+                other => panic!("expected Expected for {action}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn config_parse_failure_is_expected_and_names_the_setting() {
+        // Exact shape from issue #755 (Codex CLI, Windows).
+        let details = "Error: failed to load configuration\n\nCaused by:\n    0: C:\\Users\\me\\.codex\\config.toml:3:16: unknown variant `default`, expected `fast` or `flex`\n    1: unknown variant `default`, expected `fast` or `flex`\n       in `service_tier`";
+        // The same broken config breaks list and remove too — the CLI parses
+        // it before running any `mcp` subcommand.
+        for action in ["add MCP server", "remove MCP server", "list MCP servers"] {
+            match classify_mcp_failure(action, details) {
+                CommandError::Expected { message } => {
+                    assert!(message.contains("`service_tier`"));
+                    assert!(message.contains("config file"));
+                }
+                other => panic!("expected Expected for {action}, got {other:?}"),
+            }
+        }
+        // Without the trailing `in \`key\`` line the guidance just omits the
+        // name instead of guessing one.
+        assert!(matches!(
+            classify_mcp_failure("add MCP server", "Error: failed to load configuration"),
+            CommandError::Expected { .. }
+        ));
+        assert_eq!(invalid_config_key(details).as_deref(), Some("service_tier"));
+        assert_eq!(invalid_config_key("no key here"), None);
+    }
+
+    #[test]
+    fn invalid_env_var_format_is_expected() {
+        // Upstream Claude Code CLI regression (issue #763,
+        // anthropics/claude-code#23365) — nothing Ship Studio can fix.
+        match classify_mcp_failure(
+            "add MCP server",
+            "Invalid environment variable format: \\, environment variables should be added as: -e KEY1=value1 -e KEY2=value2",
+        ) {
+            CommandError::Expected { message } => {
+                assert!(message.contains("anthropics/claude-code#23365"));
+            }
+            other => panic!("expected Expected, got {other:?}"),
+        }
     }
 }
