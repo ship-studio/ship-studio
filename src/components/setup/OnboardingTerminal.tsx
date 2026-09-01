@@ -19,6 +19,11 @@ import { loadNerdFonts } from '../../lib/fonts';
 import { isWindows, needsCmdExeWrapper, resolveCliPath, ResolvedCli } from '../../lib/setup';
 import { isPasteChord, readClipboardText } from '../../lib/clipboard';
 import { createPtyChunkDecoder, toPtyBytes, type PtyChunk } from '../../lib/terminalDiagnostics';
+import {
+  decideStartupTimeoutAction,
+  RESPAWN_GRACE_MS,
+  STARTUP_TIMEOUT_MS,
+} from '../terminal/startupWatchdog';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import '@xterm/xterm/css/xterm.css';
@@ -447,13 +452,23 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
         // (Windows ConPTY especially, and occasionally macOS) — the main agent
         // terminal recovers from this by respawning (Terminal.tsx), but this
         // onboarding terminal previously just sat at "Starting…" forever with
-        // no feedback (issues #156, #164). If no output arrives within 10s,
-        // kill the silent PTY and respawn once; if the respawn is also silent,
-        // surface an actionable message instead of hanging.
+        // no feedback (issues #156, #164). If no output arrives within the
+        // startup window, kill the silent PTY and respawn once; if the respawn
+        // is also silent, surface an actionable message instead of hanging.
+        //
+        // The policy (one respawn per mount) and the timings are the SAME ones
+        // the workspace terminal uses — both read them from
+        // terminal/startupWatchdog.ts rather than keeping private copies, which
+        // is how these two watchdogs drifted apart (issues #245/#384).
         if (startupTimer) clearTimeout(startupTimer);
         startupTimer = setTimeout(() => {
-          if (!mounted || receivedOutput) return;
-          if (!autoRespawnUsed) {
+          const action = decideStartupTimeoutAction({
+            receivedOutput,
+            mounted,
+            autoRespawnUsed,
+          });
+          if (action === 'none') return;
+          if (action === 'respawn') {
             autoRespawnUsed = true;
             logger.warn('[OnboardingTerminal] No output after 10s — respawning', { command });
             terminalRef.current?.write('\r\n\x1b[33mNo output — restarting…\x1b[0m\r\n');
@@ -475,7 +490,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             // Brief grace period so the killed PTY tears down before respawn.
             startupTimer = setTimeout(() => {
               if (mounted) void setupPty();
-            }, 500);
+            }, RESPAWN_GRACE_MS);
             return;
           }
           logger.error('[OnboardingTerminal] Still no output after respawn', { command });
@@ -496,7 +511,7 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
           // without this the terminal showed the message but the wizard sat
           // in "connecting" forever (issue #245).
           onExitRef.current(1, failure);
-        }, 10_000);
+        }, STARTUP_TIMEOUT_MS);
 
         // Focus the terminal
         term.focus();

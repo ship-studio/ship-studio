@@ -576,10 +576,12 @@ async fn handle_request(
     match proxy_http_request(req, target_port).await {
         Ok(resp) => Ok(resp),
         Err(e) => {
-            // Connect failures never reach here — proxy_http_request handles
-            // them inline (retry + warn-level classification, issue #683).
-            // What's left is post-connect breakage (handshake, send, body
-            // timeouts): genuinely unexpected, so it keeps reporting.
+            // Every environment condition is handled inline in
+            // proxy_http_request with a warn-level log and a plain-English
+            // 502: connect failures (issue #683), handshake/send breakage
+            // (issue #709) and the response-budget timeout (issue #795).
+            // What reaches here is a genuine proxy defect — malformed
+            // headers, body-buffering faults — so it keeps reporting.
             tracing::error!("[Proxy] Request failed: {}", e);
             let body = format!("Proxy error: {e}");
             Ok(Response::builder()
@@ -630,13 +632,7 @@ async fn proxy_http_request(
                     UPSTREAM_CONNECT_TIMEOUT,
                     e
                 );
-                return Ok(Response::builder()
-                    .status(StatusCode::BAD_GATEWAY)
-                    .header(hyper::header::CONTENT_TYPE, "text/plain; charset=utf-8")
-                    .header(hyper::header::CACHE_CONTROL, "no-store")
-                    .body(full_body(Bytes::from(format!(
-                        "The dev server on localhost:{target_port} isn't reachable right now — it may be restarting or stopped. Reload the preview once it's running again."
-                    ))))?);
+                return Ok(dev_server_unavailable_response(target_port)?);
             }
             // Genuinely unexpected connect failure (not refused/silent) —
             // keep this at error level so it still reports.
@@ -657,11 +653,30 @@ async fn proxy_http_request(
     };
     let io = TokioIo::new(stream);
 
-    let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
+    // Handshake. A dev server that restarts between accepting the socket and
+    // completing the HTTP/1 handshake drops the connection here — the same
+    // environment condition the connect retry above already rides out, so it
+    // gets the same warn-level classification instead of auto-filing a bug
+    // report (issue #709). The request body is a streaming `Incoming` that
+    // can't be replayed, so this path reports the dev server as unreachable
+    // and lets the browser retry rather than resending.
+    let (mut sender, conn) = match hyper::client::conn::http1::Builder::new()
         .preserve_header_case(true)
         .title_case_headers(true)
         .handshake(io)
-        .await?;
+        .await
+    {
+        Ok(pair) => pair,
+        Err(e) if upstream_connection_lost(&e) => {
+            tracing::warn!(
+                "[Proxy] HTTP handshake with localhost:{} failed: {} (dev server restarting or stopped)",
+                target_port,
+                e
+            );
+            return Ok(dev_server_unavailable_response(target_port)?);
+        }
+        Err(e) => return Err(Box::new(e)),
+    };
 
     // Spawn connection driver
     tokio::spawn(async move {
@@ -712,17 +727,47 @@ async fn proxy_http_request(
 
     let forwarded_req = builder.body(body)?;
 
-    // Send request and get response
-    let resp = tokio::time::timeout(
+    // Send request and get response.
+    //
+    // Both failure shapes here are dev-server states, not proxy defects, so
+    // neither auto-files a bug report (issues #709/#795):
+    //   * the connection breaking mid-send — the dev server restarted after
+    //     the handshake completed;
+    //   * the response budget elapsing — per UPSTREAM_RESPONSE_TIMEOUT's doc
+    //     comment that budget is a backstop against a wedged upstream, and a
+    //     dev server stuck compiling for five minutes is an environment
+    //     problem the user has to fix at the dev server, not here.
+    let resp = match tokio::time::timeout(
         UPSTREAM_RESPONSE_TIMEOUT,
         sender.send_request(forwarded_req),
     )
     .await
-    .map_err(|_| {
-        format!(
-            "dev server on localhost:{target_port} didn't answer within {UPSTREAM_RESPONSE_TIMEOUT:?}"
-        )
-    })??;
+    {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) if upstream_connection_lost(&e) => {
+            tracing::warn!(
+                "[Proxy] Sending to localhost:{} failed: {} (dev server restarting or stopped)",
+                target_port,
+                e
+            );
+            return Ok(dev_server_unavailable_response(target_port)?);
+        }
+        Ok(Err(e)) => return Err(Box::new(e)),
+        Err(_elapsed) => {
+            tracing::warn!(
+                "[Proxy] Dev server on localhost:{} didn't answer within {:?} (stuck compiling or wedged)",
+                target_port,
+                UPSTREAM_RESPONSE_TIMEOUT
+            );
+            return Ok(Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .header(hyper::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                .header(hyper::header::CACHE_CONTROL, "no-store")
+                .body(full_body(Bytes::from(format!(
+                    "The dev server on localhost:{target_port} didn't respond within 5 minutes — it may be stuck compiling or wedged. Restart the dev server, then reload the preview."
+                ))))?);
+        }
+    };
 
     // Intercept auth-handshake redirect loops before they leave the proxy.
     // Forwarding the redirect would bounce the iframe through a third-party
@@ -875,6 +920,64 @@ fn upstream_unavailable(kind: std::io::ErrorKind) -> bool {
         kind,
         std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::TimedOut
     )
+}
+
+/// The connect-time classification's post-connect twin: I/O kinds that mean
+/// the dev server went away *after* the socket was established (restarted
+/// between accept and handshake, or mid-send). Same environment condition as
+/// [`upstream_unavailable`], one step later in the request lifecycle.
+fn upstream_connection_lost_kind(kind: std::io::ErrorKind) -> bool {
+    upstream_unavailable(kind)
+        || matches!(
+            kind,
+            std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::NotConnected
+                | std::io::ErrorKind::UnexpectedEof
+        )
+}
+
+/// True when a post-connect failure means the dev server dropped the
+/// connection rather than the proxy misbehaving.
+///
+/// hyper wraps the underlying `io::Error` (when there is one) somewhere down
+/// the source chain, so the chain is walked rather than downcast at the top.
+/// hyper's own "peer closed" shapes — a half-written message, a closed or
+/// canceled dispatch — carry no `io::Error` at all, so they're matched
+/// separately by the caller-facing [`upstream_connection_lost`].
+fn upstream_connection_lost_source(err: &(dyn std::error::Error + 'static)) -> bool {
+    let mut current = Some(err);
+    while let Some(e) = current {
+        if let Some(io) = e.downcast_ref::<std::io::Error>() {
+            return upstream_connection_lost_kind(io.kind());
+        }
+        current = e.source();
+    }
+    false
+}
+
+/// [`upstream_connection_lost_source`] plus hyper's own peer-closed flags.
+fn upstream_connection_lost(err: &hyper::Error) -> bool {
+    err.is_closed()
+        || err.is_incomplete_message()
+        || err.is_canceled()
+        || upstream_connection_lost_source(err)
+}
+
+/// The 502 shown whenever the dev server isn't answering for an expected
+/// reason (restarting, stopped, connection dropped mid-request). Shared by
+/// every environment-condition path so the user always reads the same thing.
+fn dev_server_unavailable_response(
+    target_port: u16,
+) -> Result<Response<ProxyBody>, hyper::http::Error> {
+    Response::builder()
+        .status(StatusCode::BAD_GATEWAY)
+        .header(hyper::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(hyper::header::CACHE_CONTROL, "no-store")
+        .body(full_body(Bytes::from(format!(
+            "The dev server on localhost:{target_port} isn't reachable right now — it may be restarting or stopped. Reload the preview once it's running again."
+        ))))
 }
 
 /// Race IPv4 and IPv6 loopback concurrently rather than connecting to
@@ -1282,7 +1385,7 @@ mod tests {
     use super::{
         connect_upstream_with_retry, is_auth_redirect_loop, is_document_navigation,
         redact_handshake_values, rewrite_localhost_origin, sanitize_csp_for_preview,
-        upstream_unavailable,
+        upstream_connection_lost_kind, upstream_connection_lost_source, upstream_unavailable,
     };
     use hyper::header::HeaderValue;
     use hyper::StatusCode;
@@ -1297,6 +1400,78 @@ mod tests {
         assert!(!upstream_unavailable(std::io::ErrorKind::PermissionDenied));
         assert!(!upstream_unavailable(std::io::ErrorKind::AddrNotAvailable));
         assert!(!upstream_unavailable(std::io::ErrorKind::Other));
+    }
+
+    #[test]
+    fn post_connect_breakage_is_classified_as_the_dev_server_going_away() {
+        // Handshake/send failures after the socket is up (issue #709): the
+        // dev server restarted mid-request. Expected, warn level.
+        assert!(upstream_connection_lost_kind(
+            std::io::ErrorKind::ConnectionReset
+        ));
+        assert!(upstream_connection_lost_kind(
+            std::io::ErrorKind::ConnectionAborted
+        ));
+        assert!(upstream_connection_lost_kind(
+            std::io::ErrorKind::BrokenPipe
+        ));
+        assert!(upstream_connection_lost_kind(
+            std::io::ErrorKind::UnexpectedEof
+        ));
+        assert!(upstream_connection_lost_kind(
+            std::io::ErrorKind::NotConnected
+        ));
+        // Everything the connect path already treats as expected stays so.
+        assert!(upstream_connection_lost_kind(
+            std::io::ErrorKind::ConnectionRefused
+        ));
+        assert!(upstream_connection_lost_kind(std::io::ErrorKind::TimedOut));
+        // Genuine proxy problems keep reporting.
+        assert!(!upstream_connection_lost_kind(
+            std::io::ErrorKind::PermissionDenied
+        ));
+        assert!(!upstream_connection_lost_kind(
+            std::io::ErrorKind::InvalidData
+        ));
+        assert!(!upstream_connection_lost_kind(std::io::ErrorKind::Other));
+    }
+
+    /// Stand-in for hyper's error wrapper: the `io::Error` is never the top
+    /// error, it hangs off the source chain.
+    #[derive(Debug)]
+    struct WrappedIo(std::io::Error);
+
+    impl std::fmt::Display for WrappedIo {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "wrapped: {}", self.0)
+        }
+    }
+
+    impl std::error::Error for WrappedIo {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[test]
+    fn connection_lost_classification_walks_the_error_source_chain() {
+        let reset = WrappedIo(std::io::Error::from(std::io::ErrorKind::ConnectionReset));
+        assert!(upstream_connection_lost_source(&reset));
+
+        let denied = WrappedIo(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        assert!(!upstream_connection_lost_source(&denied));
+
+        // No io::Error anywhere in the chain — not classifiable from I/O
+        // alone (hyper's own peer-closed flags cover those shapes).
+        #[derive(Debug)]
+        struct Bare;
+        impl std::fmt::Display for Bare {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "bare")
+            }
+        }
+        impl std::error::Error for Bare {}
+        assert!(!upstream_connection_lost_source(&Bare));
     }
 
     // ── connect_upstream_with_retry (issues #258/#353/#683) ────────────────

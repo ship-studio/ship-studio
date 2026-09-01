@@ -20,6 +20,37 @@ interface Activity {
   level: number;
 }
 
+/** The activity shape react-github-calendar hands to — and expects back from — `transformData`. */
+type CalendarActivity = { date: string; count: number; level: 0 | 1 | 2 | 3 | 4 };
+
+/**
+ * A full year of zero-count days, used when the contributions fetch comes
+ * back empty.
+ *
+ * react-activity-calendar throws `Activity data must not be empty.` from
+ * inside its render when handed a zero-length array — a transient API
+ * failure, a rate limit, or an account with no activity for the requested
+ * year would therefore crash the whole app to the error boundary rather than
+ * degrade (issue #721). Handing it a valid all-zero year keeps it renderable
+ * while the caller keeps the skeleton on top of it.
+ *
+ * Mirrors react-activity-calendar's own internal `generateEmptyData()`.
+ */
+export function placeholderYearActivity(year: number): CalendarActivity[] {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const days: CalendarActivity[] = [];
+  const cursor = new Date(year, 0, 1);
+  while (cursor.getFullYear() === year) {
+    days.push({
+      date: `${year}-${pad(cursor.getMonth() + 1)}-${pad(cursor.getDate())}`,
+      count: 0,
+      level: 0,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
 interface GitHubCalendarProps {
   /** GitHub username to display contributions for */
   username: string | null | undefined;
@@ -101,12 +132,19 @@ export const GitHubCalendar = memo(function GitHubCalendar({
   // Stable transformData callback — prevents the library from re-fetching/re-processing
   // data on every parent re-render (unstable function refs trigger library effects).
   const handleTransformData = useCallback(
-    (data: Array<{ date: string; count: number; level: 0 | 1 | 2 | 3 | 4 }>) => {
+    (data: CalendarActivity[]) => {
+      if (data.length === 0) {
+        // No contributions came back (transient API failure, rate limit, or
+        // an account with nothing in this year). Stay in the loading state —
+        // the calendar keeps rendering, but off a placeholder year, because
+        // an empty array makes the library throw during render (issue #721).
+        return placeholderYearActivity(currentYear);
+      }
       // Called when data is loaded
       setDataLoaded(true);
       return data;
     },
-    []
+    [currentYear]
   );
 
   // Only hide after auth check is DONE and confirmed NOT authenticated
