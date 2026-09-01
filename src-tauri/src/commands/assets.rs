@@ -46,10 +46,16 @@ fn assets_root_dir(repo_root: &Path, workspace: &Path) -> PathBuf {
 
 /// Validates that an asset path is within the project's assets folder.
 /// Prevents path traversal attacks.
-fn validate_asset_path(root_dir: &Path, asset_path: &str) -> Result<PathBuf, String> {
+///
+/// Returns `CommandError` rather than `String`: `canonicalize_tagged`
+/// classifies a vanished folder as `Expected`, and a `String` hop collapsed it
+/// back to `Other`, auto-reporting it to telemetry (issue #831).
+fn validate_asset_path(root_dir: &Path, asset_path: &str) -> Result<PathBuf, CommandError> {
     // Check for obvious path traversal attempts
     if crate::utils::has_parent_dir_component(asset_path) {
-        return Err("Invalid path: path traversal not allowed".to_string());
+        return Err(CommandError::expected(
+            "Invalid path: path traversal not allowed",
+        ));
     }
 
     let full_path = root_dir.join(asset_path);
@@ -60,20 +66,25 @@ fn validate_asset_path(root_dir: &Path, asset_path: &str) -> Result<PathBuf, Str
         crate::utils::canonicalize_tagged(&full_path, "assets")?
     } else {
         // For non-existent paths, verify parent exists and is within the root
-        let parent = full_path
-            .parent()
-            .ok_or_else(|| format!("Invalid path {}: no parent directory", full_path.display()))?;
+        let parent = full_path.parent().ok_or_else(|| {
+            CommandError::from(format!(
+                "Invalid path {}: no parent directory",
+                full_path.display()
+            ))
+        })?;
         if !parent.exists() {
-            return Err("Parent directory does not exist".to_string());
+            return Err(CommandError::expected("Parent directory does not exist"));
         }
         let canonical_parent = crate::utils::canonicalize_tagged(parent, "assets")?;
         let canonical_root = if root_dir.exists() {
             crate::utils::canonicalize_tagged(root_dir, "assets")?
         } else {
-            return Err("Assets folder does not exist".to_string());
+            return Err(CommandError::expected("Assets folder does not exist"));
         };
         if !canonical_parent.starts_with(&canonical_root) {
-            return Err("Security error: path is outside the assets folder".to_string());
+            return Err(CommandError::expected(
+                "Security error: path is outside the assets folder",
+            ));
         }
         return Ok(full_path);
     };
@@ -81,7 +92,9 @@ fn validate_asset_path(root_dir: &Path, asset_path: &str) -> Result<PathBuf, Str
     let canonical_root = crate::utils::canonicalize_tagged(root_dir, "assets")?;
 
     if !check_path.starts_with(&canonical_root) {
-        return Err("Security error: path is outside the assets folder".to_string());
+        return Err(CommandError::expected(
+            "Security error: path is outside the assets folder",
+        ));
     }
 
     Ok(check_path)
