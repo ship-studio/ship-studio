@@ -27,8 +27,12 @@ vi.mock('../../lib/logger', () => ({
 vi.mock('../../contexts/ModalContext', () => ({
   useModal: () => ({ isOpen: true, close: vi.fn() }),
 }));
+const { showToast } = vi.hoisted(() => ({ showToast: vi.fn() }));
+vi.mock('../../contexts/ToastContext', () => ({
+  useOptionalToast: () => ({ showToast }),
+}));
 
-import { listMcpServers, addMcpServer } from '../../lib/mcp';
+import { listMcpServers, addMcpServer, removeMcpServer } from '../../lib/mcp';
 import { logger } from '../../lib/logger';
 
 type Fn = ReturnType<typeof vi.fn>;
@@ -208,5 +212,61 @@ describe('McpModal error flows', () => {
     expect(await screen.findByText(/something exploded/)).toBeInTheDocument();
     // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
     expect(logger.error as Fn).toHaveBeenCalled();
+  });
+
+  // #799/#800/#755/#763 — classify_mcp_failure marks these Expected on the
+  // backend and writes the guidance into the message; the modal's catch-alls
+  // still sent them to logger.error, auto-filing a bug report for an org
+  // policy, an unreachable gateway, the user's own agent config, or an
+  // upstream CLI regression.
+  it("logs the backend's Expected environment failures at warn, not error (#799/#800)", async () => {
+    vi.mocked(addMcpServer).mockRejectedValue({
+      type: 'Other',
+      message:
+        "Failed to add MCP server: Couldn't load settings from Cloud gateway gw.example.com.\n\nYour organization's agent gateway couldn't be reached. Check your network (or VPN) connection, or run `claude auth login` in a terminal to sign in again, then try again.",
+    });
+
+    render(<McpModal />);
+    const input = await openAddTab();
+
+    fireEvent.change(input, { target: { value: 'my-server -- npx -y @some/mcp-server' } });
+    clickAddSubmit();
+
+    expect(await screen.findByText(/agent gateway couldn't be reached/i)).toBeInTheDocument();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.warn as Fn).toHaveBeenCalledWith(
+      'Failed to add MCP server: environment or agent-config condition',
+      expect.objectContaining({ error: expect.stringContaining('Cloud gateway') as unknown })
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an Expected remove failure as an info toast at warn level (#755)', async () => {
+    vi.mocked(listMcpServers).mockResolvedValue([
+      {
+        name: 'sentry',
+        command_or_url: 'https://mcp.sentry.dev/mcp',
+        status: 'connected',
+        scope: 'user',
+      },
+    ]);
+    vi.mocked(removeMcpServer).mockRejectedValue({
+      type: 'Other',
+      message:
+        "Failed to remove MCP server: failed to load configuration\n\nThe agent CLI couldn't read its own config file — a setting in it (`service_tier`) has a value this version no longer accepts. Fix or remove that setting in the config file named above, then try again.",
+    });
+
+    render(<McpModal />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => {
+      expect(showToast).toHaveBeenCalledWith(
+        expect.stringContaining("couldn't read its own config file"),
+        'info'
+      );
+    });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
   });
 });
