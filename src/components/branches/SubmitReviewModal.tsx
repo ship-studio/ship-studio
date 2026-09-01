@@ -235,7 +235,18 @@ export function SubmitReviewModal({
       } else {
         const message = humanizeGitError(e, { branch: branchName, base: baseBranch });
         setError(message);
-        onToast?.(message, 'error');
+        if (isRecognizedGitFailure(e, { branch: branchName, base: baseBranch })) {
+          // Same reasoning as handleSubmit above: a known refusal (the head
+          // branch gone, auth, network, GitHub 5xx) is already Expected on the
+          // backend, so an 'error' toast here re-reports it through the toast
+          // telemetry pipeline (issue #730).
+          logger.warn('[SubmitReview] Merge refused for a recognized reason', {
+            error: formatCommandError(asCommandError(e)),
+          });
+          onToast?.(message, 'info');
+        } else {
+          onToast?.(message, 'error');
+        }
       }
     } finally {
       setIsMerging(false);

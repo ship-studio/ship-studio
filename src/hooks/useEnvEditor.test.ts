@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useEnvEditor } from './useEnvEditor';
+import { describeInvalidEnvKey, splitEnvEntry, useEnvEditor } from './useEnvEditor';
 
 // Mock external dependencies
 vi.mock('@tauri-apps/api/core', () => ({
@@ -91,5 +91,102 @@ describe('useEnvEditor', () => {
 
       expect(result.current.error).toBe('file already exists');
     });
+  });
+
+  describe('variable name field (issue #824)', () => {
+    /** Render with one loaded .env.local holding a single variable. */
+    async function renderWithVar() {
+      vi.mocked(core.invoke).mockImplementation((cmd: string) => {
+        if (cmd === 'list_env_files')
+          return Promise.resolve([{ name: '.env.local', path: '/test/project/.env.local' }]);
+        if (cmd === 'read_env_file') return Promise.resolve([{ key: 'FOO', value: 'bar' }]);
+        return Promise.resolve(undefined);
+      });
+      const rendered = renderEnvEditor();
+      await waitFor(() => expect(rendered.result.current.vars).toHaveLength(1));
+      return rendered;
+    }
+
+    it('splits a pasted KEY=value into both fields and explains what happened', async () => {
+      const { result } = await renderWithVar();
+
+      act(() => {
+        result.current.handleUpdateVar(0, 'key', 'API_KEY=sk-123');
+      });
+
+      expect(result.current.vars[0]).toEqual({ key: 'API_KEY', value: 'sk-123' });
+      expect(result.current.keyNotice).toContain('name and value fields');
+    });
+
+    it('strips quotes from the split value, like the bulk paste flow', async () => {
+      const { result } = await renderWithVar();
+
+      act(() => {
+        result.current.handleUpdateVar(0, 'key', 'GREETING="hello world"');
+      });
+
+      expect(result.current.vars[0]).toEqual({ key: 'GREETING', value: 'hello world' });
+    });
+
+    it('refuses to save an invalid name inline instead of letting the backend reject it', async () => {
+      const { result } = await renderWithVar();
+      act(() => {
+        result.current.handleUpdateVar(0, 'key', 'my key');
+      });
+
+      await act(async () => {
+        await result.current.handleSave();
+      });
+
+      expect(result.current.error).toContain('valid variable name');
+      expect(core.invoke).not.toHaveBeenCalledWith('write_env_file', expect.anything());
+    });
+
+    it('still saves a valid name', async () => {
+      const { result } = await renderWithVar();
+      act(() => {
+        result.current.handleUpdateVar(0, 'key', 'FOO_2');
+      });
+
+      await act(async () => {
+        await result.current.handleSave();
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(core.invoke).toHaveBeenCalledWith('write_env_file', expect.anything());
+    });
+  });
+});
+
+describe('splitEnvEntry', () => {
+  it('splits at the first "=" and trims both halves', () => {
+    expect(splitEnvEntry(' API_KEY = sk-1=2 ')).toEqual({ key: 'API_KEY', value: 'sk-1=2' });
+  });
+
+  it('leaves the value untouched (null) when there is no "="', () => {
+    expect(splitEnvEntry('  API_KEY ')).toEqual({ key: 'API_KEY', value: null });
+  });
+
+  it('keeps a lone quote character as-is', () => {
+    expect(splitEnvEntry('K="')).toEqual({ key: 'K', value: '"' });
+  });
+});
+
+describe('describeInvalidEnvKey', () => {
+  it('accepts names write_env_file accepts', () => {
+    for (const key of ['FOO', '_private', 'A1_b2']) {
+      expect(describeInvalidEnvKey(key)).toBeNull();
+    }
+  });
+
+  it('explains empty, leading-digit and illegal-character names', () => {
+    expect(describeInvalidEnvKey('   ')).toContain('needs a name');
+    expect(describeInvalidEnvKey('1FOO')).toContain("can't start with a number");
+    expect(describeInvalidEnvKey('MY KEY')).toContain('valid variable name');
+    expect(describeInvalidEnvKey('KEY=value')).toContain('valid variable name');
+  });
+
+  it('rejects a name longer than the backend limit', () => {
+    expect(describeInvalidEnvKey('A'.repeat(257))).toContain('too long');
   });
 });

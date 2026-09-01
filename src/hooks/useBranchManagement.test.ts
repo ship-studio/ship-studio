@@ -530,10 +530,33 @@ describe('useBranchManagement', () => {
       });
 
       const [message, type] = vi.mocked(params.showToast).mock.calls[1]; // [0] is the "Preparing..." toast
-      expect(type).toBe('error');
+      // A worktree collision is a recognized, by-design git refusal — 'info',
+      // not the 'error' channel that auto-files a bug report (issue #843).
+      expect(type).toBe('info');
       expect(message).toContain('already checked out in another worktree');
       expect(message).not.toContain('fatal:');
       expect(message).not.toContain('/private/tmp');
+    });
+
+    it('keeps a gone head branch out of the error channel (issue #843)', async () => {
+      vi.mocked(branches.switchBranch).mockResolvedValue({
+        success: false,
+        stashedChanges: false,
+        pendingStashFrom: null,
+        stashApplied: false,
+        error: "error: pathspec 'feature/gone' did not match any file(s) known to git",
+      });
+      const params = createParams();
+      const { result } = renderHook(() => useBranchManagement(params));
+
+      await act(async () => {
+        await result.current.handleResolveConflicts('feature/gone', 'main');
+      });
+
+      const [message, type] = vi.mocked(params.showToast).mock.calls[1];
+      expect(type).toBe('info');
+      expect(message).toContain('no longer exists');
+      expect(message).not.toContain('pathspec');
     });
 
     it('explains when git reported a switch failure with no detail', async () => {

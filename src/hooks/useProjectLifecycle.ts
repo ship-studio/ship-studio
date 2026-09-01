@@ -68,7 +68,12 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
 import { trackEvent, trackError, setActiveProject } from '../lib/analytics';
-import { asCommandError, formatCommandError, isExpectedProjectImportRefusal } from '../lib/errors';
+import {
+  asCommandError,
+  describeProcessError,
+  formatCommandError,
+  isExpectedProjectImportRefusal,
+} from '../lib/errors';
 import { describeExitStatus, extractTerminalError } from '../lib/terminalDiagnostics';
 import { getProjectId } from '../lib/projectIdentity';
 import { startProjectSession, endProjectSession } from '../lib/session';
@@ -822,6 +827,25 @@ export function useProjectLifecycle({
       // libuv codes, or their huge u32 wraps from older backends) render as
       // hex instead of a nonsense number like 4294963238 (issue #622).
       const exitDesc = describeExitStatus(exitCode);
+      // Classify the raw tail the same way the import/create flows classify
+      // their install failures. Recognized package-manager conditions (npm's
+      // ERESOLVE peer conflict, a corrupted pnpm store, pnpm's build-script
+      // gate, an expired npm login…) are properties of the project or the
+      // machine, not app bugs — an unconditional 'error' toast auto-files a
+      // bug report for every one of them (issues #717/#788).
+      const classified = describeProcessError(outputTail);
+      if (classified.expected) {
+        logger.warn('[Install] Install failed for a recognized reason', {
+          packageManager: cfg.packageManager,
+          exitCode,
+          detail: scrubbedDetail,
+        });
+        showToast(
+          `${classified.message} (Install exited with ${exitDesc} — the terminal has the full output.)`,
+          'info'
+        );
+        return; // keep overlay open so user can read stderr + close manually
+      }
       showToast(
         detail
           ? `Install exited with ${exitDesc}: ${detail} — check the terminal for the full output.`

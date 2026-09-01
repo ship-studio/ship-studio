@@ -455,22 +455,32 @@ export function BranchesTab({
       onRefresh();
     } catch (e) {
       trackError('branch_revert', e, 'Workspace');
-      if (/no tracking information/i.test(errText(e))) {
-        // Expected: the branch has never been pushed, so there's no GitHub
-        // version to pull — git's normal refusal, not an app malfunction
-        // (the backend classifies it Expected too). The discard above already
-        // ran, so local edits ARE gone — say so honestly. Info toast + warn
-        // log, never the error channels that auto-file bug reports (#539).
-        logger.warn('[BranchesTab] Revert pull skipped: branch has no upstream', {
+      // Two git refusals mean the same thing here: there's nothing on GitHub
+      // to pull. "no tracking information" is the never-pushed branch; "no
+      // such ref was fetched" is a configured upstream whose remote ref is
+      // gone (branch deleted or renamed on GitHub) — that second signature
+      // fell through to the raw-error branch (issues #539/#809).
+      if (/no tracking information|no such ref was fetched/i.test(errText(e))) {
+        // Expected: git's normal refusal, not an app malfunction (the backend
+        // classifies it Expected too). The discard above already ran, so local
+        // edits ARE gone — say so honestly. Info toast + warn log, never the
+        // error channels that auto-file bug reports (#539).
+        logger.warn('[BranchesTab] Revert pull skipped: no matching branch on GitHub', {
           error: errText(e),
         });
         onToast?.(
-          `Your local changes were discarded, but ${currentBranch} has never been pushed to GitHub, so there was no GitHub version to pull. Send the branch to GitHub first if you want a copy to revert to next time.`,
+          `Your local changes were discarded, but there's no matching branch on GitHub for ${currentBranch} to pull — it may have been deleted, renamed, or never pushed. Send the branch to GitHub if you want a copy to revert to next time.`,
           'info'
         );
         onRefresh();
       } else {
-        onToast?.(`Failed to revert: ${humanizeGitError(e, { branch: currentBranch })}`, 'error');
+        // Everything else still goes through the same recognized/unrecognized
+        // split the rest of this file uses, so an anticipated git condition
+        // (auth, network, worktree collision…) doesn't auto-file a bug report.
+        onToast?.(
+          `Failed to revert: ${humanizeGitError(e, { branch: currentBranch })}`,
+          isRecognizedGitFailure(e, { branch: currentBranch }) ? 'info' : 'error'
+        );
       }
     } finally {
       setIsReverting(false);

@@ -107,6 +107,35 @@ describe('extractTerminalError', () => {
     expect(extractTerminalError(tail)).toBe('error: could not connect to registry');
   });
 
+  it("skips npm's bug-report boilerplate footer for the real cause (issue #717)", () => {
+    const tail = [
+      'npm error code ETARGET',
+      'npm error notarget No matching version found for left-pad@9.9.9',
+      'npm error This is an error with npm itself. Please report this error at:',
+      'npm error   <https://github.com/npm/cli/issues>',
+    ].join('\n');
+    expect(extractTerminalError(tail)).toBe(
+      'npm error notarget No matching version found for left-pad@9.9.9'
+    );
+  });
+
+  it('explains an npm ERESOLVE peer conflict instead of echoing the tail (issue #781)', () => {
+    const tail = [
+      'npm error code ERESOLVE',
+      'npm error ERESOLVE unable to resolve dependency tree',
+      'npm error peer astro@"^7.2.0" from @astrojs/cloudflare@14.2.3',
+    ].join('\n');
+    const result = extractTerminalError(tail);
+    expect(result).toContain('--legacy-peer-deps');
+    expect(result).not.toContain('npm error');
+  });
+
+  it("recognizes ERESOLVE from npm's debug-log filename alone (issue #788)", () => {
+    const tail =
+      'npm error C:\\Users\\me\\AppData\\Local\\npm-cache\\_logs\\2026-08-21T13_59_11_384Z-eresolve-report.txt';
+    expect(extractTerminalError(tail)).toContain('version conflict');
+  });
+
   it('caps very long lines at 200 characters', () => {
     const longLine = `npm ERR! ${'x'.repeat(400)}`;
     const result = extractTerminalError(longLine);

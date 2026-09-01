@@ -13,6 +13,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { trackEvent, trackError } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
 import { logger } from '../lib/logger';
+import type { ToastType } from './useToasts';
 
 /** Represents an environment file in the project */
 export interface EnvFile {
@@ -30,6 +31,56 @@ export interface EnvVar {
   value: string;
 }
 
+/**
+ * What `write_env_file` (src-tauri/src/commands/env.rs) accepts as a variable
+ * name: ASCII letters, digits and underscores, never leading with a digit.
+ * Mirrored here so the editor can refuse a bad name inline instead of letting
+ * the save fail with the backend's raw validation string (issue #824).
+ */
+const VALID_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Matches `MAX_ENV_KEY_LENGTH` in src-tauri/src/commands/env.rs. */
+const MAX_ENV_KEY_LENGTH = 256;
+
+/**
+ * Split a pasted `KEY=value` entry into its two halves (surrounding quotes
+ * stripped from the value, as {@link parseEnvContent} does). Returns a null
+ * value when the text carries no `=` at all, so callers can leave the
+ * existing value alone.
+ */
+export function splitEnvEntry(raw: string): { key: string; value: string | null } {
+  const eq = raw.indexOf('=');
+  if (eq === -1) return { key: raw.trim(), value: null };
+  const key = raw.slice(0, eq).trim();
+  let value = raw.slice(eq + 1).trim();
+  if (
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
+  ) {
+    value = value.slice(1, -1);
+  }
+  return { key, value };
+}
+
+/**
+ * Plain-language reason a variable name would be rejected, or null when it's
+ * fine. Keeps the backend's raw "Invalid environment variable name: …" string
+ * (which reads like an app malfunction) off the save path (issue #824).
+ */
+export function describeInvalidEnvKey(key: string): string | null {
+  if (key.trim().length === 0) return 'Every variable needs a name.';
+  if (key.length > MAX_ENV_KEY_LENGTH) {
+    return `"${key.slice(0, 40)}…" is too long for a variable name (max ${MAX_ENV_KEY_LENGTH} characters).`;
+  }
+  if (/^[0-9]/.test(key))
+    return `"${key}" can't be used — a variable name can't start with a number.`;
+  if (!VALID_ENV_KEY_PATTERN.test(key)) {
+    return `"${key}" isn't a valid variable name. Use letters, numbers and underscores only — no spaces, quotes or "=".`;
+  }
+  return null;
+}
+
 /** Params for the useEnvEditor hook */
 interface UseEnvEditorParams {
   /** Absolute path to the project directory */
@@ -39,7 +90,7 @@ interface UseEnvEditorParams {
   /** Callback to close the editor */
   onClose: () => void;
   /** Optional callback to show toast notifications */
-  onToast?: (message: string, type?: 'success' | 'error') => void;
+  onToast?: (message: string, type?: ToastType) => void;
 }
 
 /** Sync status between .env.local and .env.example */
@@ -57,6 +108,8 @@ export interface UseEnvEditorReturn {
   isLoading: boolean;
   isSaving: boolean;
   error: string | null;
+  /** Friendly inline note about the variable-name field (issue #824). */
+  keyNotice: string | null;
   showNewFileInput: boolean;
   setShowNewFileInput: React.Dispatch<React.SetStateAction<boolean>>;
   newFileName: string;
@@ -106,6 +159,7 @@ export function useEnvEditor({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [keyNotice, setKeyNotice] = useState<string | null>(null);
   const [showNewFileInput, setShowNewFileInput] = useState(false);
   const [newFileName, setNewFileName] = useState('.env.local');
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -208,8 +262,23 @@ export function useEnvEditor({
   const handleSave = async () => {
     if (!selectedFile) return;
 
+    // Catch a name the backend would reject before the write, so the user
+    // gets an inline explanation instead of write_env_file's raw validation
+    // string in an error toast (which also auto-files a bug report — this is
+    // a typo, not a malfunction; issue #824).
+    for (const v of vars) {
+      const reason = describeInvalidEnvKey(v.key);
+      if (reason) {
+        setError(reason);
+        setKeyNotice(null);
+        onToast?.(reason, 'info');
+        return;
+      }
+    }
+
     setIsSaving(true);
     setError(null);
+    setKeyNotice(null);
     try {
       await invoke('write_env_file', { filePath: selectedFile.path, vars });
       setHasChanges(false);
@@ -301,7 +370,21 @@ export function useEnvEditor({
 
   const handleUpdateVar = (index: number, field: 'key' | 'value', newValue: string) => {
     const updated = [...vars];
-    updated[index] = { ...updated[index], [field]: newValue };
+    if (field === 'key' && newValue.includes('=')) {
+      // Pasting a whole `KEY=value` line into the name field is the obvious
+      // thing to try, and it used to be accepted silently — then the save
+      // failed with write_env_file's raw "Invalid environment variable name"
+      // string, which reads like an app bug (issue #824). Split it the same
+      // way the bulk-paste flow does and say what happened.
+      const { key, value } = splitEnvEntry(newValue);
+      updated[index] = { key, value: value ?? updated[index].value };
+      setKeyNotice(
+        `Split "${newValue.trim()}" into the name and value fields — the name field takes just the variable name.`
+      );
+    } else {
+      updated[index] = { ...updated[index], [field]: newValue };
+      if (field === 'key') setKeyNotice(null);
+    }
     setVars(updated);
     setHasChanges(true);
   };
@@ -474,6 +557,7 @@ export function useEnvEditor({
     isLoading,
     isSaving,
     error,
+    keyNotice,
     showNewFileInput,
     setShowNewFileInput,
     newFileName,
