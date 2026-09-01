@@ -32,6 +32,21 @@ export function asCommandError(value: unknown): CommandError {
   if (value instanceof Error) {
     return { type: 'Other', message: value.message };
   }
+  // Anything else that reaches here is a plain object with no `type` tag (a
+  // rejected non-CommandError payload, a DOM/plugin error bag, …). `String()`
+  // renders those as the literal "[object Object]", which defeats every call
+  // site that dutifully routes through this helper — the real cause becomes
+  // unrecoverable from telemetry (issue #790). Serialize instead, falling
+  // back to String() for values JSON can't represent (undefined, symbols,
+  // functions) or refuses to walk (circular refs, throwing getters).
+  try {
+    const serialized = JSON.stringify(value);
+    if (typeof serialized === 'string') {
+      return { type: 'Other', message: serialized };
+    }
+  } catch {
+    // fall through to String()
+  }
   return { type: 'Other', message: String(value) };
 }
 
@@ -101,6 +116,10 @@ const BACKEND_HUMANIZED_GIT_PHRASES = [
   "couldn't start because the system is low on memory",
   // create_branch's vanished base ref (issue #692)
   'no longer exists on github',
+  // git_stage_and_commit's pre-commit hook refusal (issues #604/#766) — the
+  // project's own husky/lint-staged/test chain rejecting the commit is the
+  // project working as configured, not an app malfunction.
+  'pre-commit checks blocked the commit',
 ];
 
 /** True when a message is one the backend already humanized (see
@@ -362,6 +381,22 @@ export function isProjectFolderGoneError(value: unknown): boolean {
 }
 
 /**
+ * True when a caught backend error is the spawn-time resource-pressure
+ * refusal — `spawn_resource_pressure_error` in
+ * `src-tauri/src/external_command.rs` ("Couldn't start `<cmd>` — your system
+ * is temporarily low on process resources or open files…"), raised when the
+ * OS can't fork/exec because the machine is out of PIDs or file descriptors.
+ *
+ * The backend classifies it `CommandError::expected`, but Expected serializes
+ * identically to Other across IPC, so callers re-check the wording. It's a
+ * transient machine state, not a bug: route it to warn logs / info toasts
+ * instead of the channels that auto-file bug reports.
+ */
+export function isResourcePressureError(value: unknown): boolean {
+  return /temporarily low on process resources/i.test(formatCommandError(asCommandError(value)));
+}
+
+/**
  * Exit-code → actionable-message mappings shared by the PTY-driven flows
  * (project creation, GitHub import) that run `git clone` / package installs.
  */
@@ -457,9 +492,12 @@ export function describeProcessError(
   // respond to your request in time…" from api.github.com/graphql during
   // `gh repo clone`). gh exits with the generic code 1, so only the wording
   // identifies it — a GitHub-side blip with a built-in retry suggestion, not
-  // an app bug (issue #620).
+  // an app bug (issue #620). HTTP 499 ("Client Closed Request", nginx's code
+  // for a request GitHub's edge abandoned before responding) is the same
+  // class of transient, GitHub-side blip despite not being a 5xx — it fell
+  // through the `5\d\d` regex and reached telemetry unclassified (issue #806).
   if (
-    /http 5\d\d/.test(lower) ||
+    /http (?:499|5\d\d)/.test(lower) ||
     lower.includes('respond to your request in time') ||
     lower.includes('gateway timeout') ||
     lower.includes('service unavailable') ||
@@ -484,6 +522,18 @@ export function describeProcessError(
       expected: true,
       message:
         "npm couldn't sign in to the package registry — your saved npm login or token is expired or incorrect. Open a terminal and run `npm login` (or refresh the token in your .npmrc if this project uses a private registry), then try again.",
+    };
+  }
+  // npm refusing a peer-dependency conflict declared by the project itself
+  // ("npm error code ERESOLVE" / "unable to resolve dependency tree"). npm
+  // exits with the generic code 1, so only the wording identifies it — a
+  // property of the target repo's own package.json, not an app bug, and the
+  // raw multi-line dump gave the user nothing to act on (issues #781/#788).
+  if (lower.includes('eresolve') || lower.includes('unable to resolve dependency tree')) {
+    return {
+      expected: true,
+      message:
+        "This project's dependencies have a version conflict npm won't resolve on its own (see the peer dependency mismatch in the output). Update the conflicting package to a version they agree on, or re-run the install with `--legacy-peer-deps` if that's safe for this project.",
     };
   }
   // Corrupted pnpm store: the content-addressable cache has dangling links,

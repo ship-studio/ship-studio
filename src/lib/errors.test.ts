@@ -11,6 +11,7 @@ import {
   isMergeConflictError,
   isProjectFolderGoneError,
   isRecognizedGitFailure,
+  isResourcePressureError,
   type CommandError,
 } from './errors';
 
@@ -566,5 +567,82 @@ describe('describeAccountsLoadError (issue #686)', () => {
   it('keeps sign-out advice for non-timeout failures', () => {
     const msg = describeAccountsLoadError({ type: 'Other', message: 'HTTP 401 bad credentials' });
     expect(msg).toContain('Try signing out and back into GitHub.');
+  });
+});
+
+describe('asCommandError fallback (issue #790)', () => {
+  it('serializes a plain non-CommandError object instead of "[object Object]"', () => {
+    const err = asCommandError({ code: 'ENOENT', path: '/tmp/x' });
+    expect(err.type).toBe('Other');
+    expect(formatCommandError(err)).toBe('{"code":"ENOENT","path":"/tmp/x"}');
+    expect(formatCommandError(err)).not.toContain('[object Object]');
+  });
+
+  it('falls back to String() for values JSON cannot serialize', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(formatCommandError(asCommandError(circular))).toBe('[object Object]');
+    expect(asCommandError(undefined)).toEqual({ type: 'Other', message: 'undefined' });
+  });
+});
+
+describe('isRecognizedGitFailure — pre-commit hook refusal (issue #766)', () => {
+  it("recognizes git_stage_and_commit's Expected hook message", () => {
+    const message =
+      "This project's pre-commit checks blocked the commit — they run the project's own " +
+      'lint/tests before every commit. Fix what they reported (the end of their output is ' +
+      'below), then try again.\n\nhusky - pre-commit script failed (code 1)';
+    expect(isRecognizedGitFailure({ type: 'Other', message })).toBe(true);
+  });
+});
+
+describe('describeProcessError — npm ERESOLVE (issues #781/#788)', () => {
+  const raw = [
+    'npm error code ERESOLVE',
+    'npm error ERESOLVE unable to resolve dependency tree',
+    'npm error Found: astro@7.1.3',
+    'npm error peer astro@"^7.2.0" from @astrojs/cloudflare@14.2.3',
+  ].join('\n');
+
+  it('classifies a peer-dependency conflict as expected with actionable guidance', () => {
+    const info = describeProcessError(raw);
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain('--legacy-peer-deps');
+    expect(info.message).not.toContain('npm error code');
+  });
+
+  it('matches the wording alone, without the ERESOLVE code', () => {
+    expect(describeProcessError('ERESOLVE unable to resolve dependency tree').expected).toBe(true);
+  });
+});
+
+describe('describeProcessError — GitHub HTTP 499 (issue #806)', () => {
+  it('classifies a 499 the same way as a 5xx', () => {
+    const info = describeProcessError('HTTP 499: 499  (https://api.github.com/graphql)');
+    expect(info.expected).toBe(true);
+    expect(info.message).toContain("GitHub's API is temporarily unavailable");
+  });
+
+  it('still classifies the 5xx family', () => {
+    expect(describeProcessError('HTTP 503: Service Unavailable').expected).toBe(true);
+  });
+
+  it('does not swallow unrelated status codes', () => {
+    expect(describeProcessError('HTTP 404: Not Found').expected).toBe(false);
+  });
+});
+
+describe('isResourcePressureError', () => {
+  it('recognizes the backend spawn_resource_pressure_error wording', () => {
+    const message =
+      "Couldn't start `git` — your system is temporarily low on process resources or " +
+      'open files. Close some apps or terminal tabs and try again.';
+    expect(isResourcePressureError({ type: 'Other', message })).toBe(true);
+    expect(isResourcePressureError(message)).toBe(true);
+  });
+
+  it('is false for unrelated failures', () => {
+    expect(isResourcePressureError('fatal: not a git repository')).toBe(false);
+    expect(isResourcePressureError(null)).toBe(false);
   });
 });

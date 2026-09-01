@@ -122,7 +122,7 @@ describe('BranchesTab — Revert to GitHub with no upstream (#539)', () => {
     await waitFor(() => expect(showToast).toHaveBeenCalled());
     const [message, type] = showToast.mock.calls[0];
     expect(type).toBe('info');
-    expect(message).toContain('never been pushed');
+    expect(message).toContain('never pushed');
     expect(message).toContain('feat/unpushed');
     // Honest about the discard that already happened.
     expect(message).toContain('discarded');
@@ -133,6 +133,29 @@ describe('BranchesTab — Revert to GitHub with no upstream (#539)', () => {
     // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
     expect(logger.error as Fn).not.toHaveBeenCalled();
     expect(props.onRefresh).toHaveBeenCalled();
+  });
+
+  it('treats a vanished upstream ref the same as a never-pushed branch (issue #809)', async () => {
+    // git's refusal when branch.<name>.merge points at a ref the remote no
+    // longer has (branch deleted or renamed on GitHub) — a different stderr
+    // signature for the same "nothing on GitHub to pull" situation.
+    vi.mocked(gitPull).mockRejectedValue({
+      type: 'Other',
+      message:
+        "Failed to pull: Your configuration specifies to merge with the ref 'refs/heads/feat/unpushed'\nfrom the remote, but no such ref was fetched.",
+    });
+
+    const { showToast } = renderWithToasts(<BranchesTab {...props} />);
+    await clickThroughRevert();
+
+    await waitFor(() => expect(showToast).toHaveBeenCalled());
+    const [message, type] = showToast.mock.calls[0];
+    expect(type).toBe('info');
+    expect(message).toContain('no matching branch on GitHub');
+    expect(message).toContain('deleted, renamed, or never pushed');
+    expect(message).not.toContain('refs/heads');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
+    expect(logger.error as Fn).not.toHaveBeenCalled();
   });
 
   it('humanizes other pull failures instead of leaking raw stderr', async () => {
@@ -146,9 +169,25 @@ describe('BranchesTab — Revert to GitHub with no upstream (#539)', () => {
 
     await waitFor(() => expect(showToast).toHaveBeenCalled());
     const [message, type] = showToast.mock.calls[0];
-    expect(type).toBe('error');
+    // A recognized condition (offline) — humanized and kept off the 'error'
+    // channel that auto-files bug reports (issues #809/#538).
+    expect(type).toBe('info');
     expect(message).toContain('Failed to revert:');
     expect(message).toMatch(/couldn't reach GitHub/i);
     expect(message).not.toContain('fatal:');
+  });
+
+  it('still reports an unrecognized pull failure as an error', async () => {
+    vi.mocked(gitPull).mockRejectedValue({
+      type: 'Other',
+      message: 'Failed to pull: something nobody has ever seen before',
+    });
+
+    const { showToast } = renderWithToasts(<BranchesTab {...props} />);
+    await clickThroughRevert();
+
+    await waitFor(() => expect(showToast).toHaveBeenCalled());
+    const [, type] = showToast.mock.calls[0];
+    expect(type).toBe('error');
   });
 });

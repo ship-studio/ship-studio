@@ -52,11 +52,15 @@ export function createPtyChunkDecoder(): (data: PtyChunk) => string {
 const ERROR_LINE_PATTERN = /error|not recognized|not found|EACCES|EPERM|EEXIST|ENOENT|npm ERR!/i;
 
 /**
- * npm's trailing pointer at its debug log (the sentence and the log-file path
- * line that follows it) — present on every failure and says nothing about the
- * cause, so never pick it as "the" error line.
+ * npm's boilerplate footer — the pointer at its debug log (the sentence and
+ * the log-file path line that follows it) and the "report this to npm"
+ * blurb. Both are printed on failures regardless of cause, and both match
+ * {@link ERROR_LINE_PATTERN}, so without this filter the last "error" line is
+ * a log path or a bug-tracker URL instead of what actually broke (issue
+ * #717).
  */
-const NOISE_LINE_PATTERN = /complete log of this run|[\\/]_logs[\\/].*\.log\b/i;
+const NOISE_LINE_PATTERN =
+  /complete log of this run|[\\/]_logs[\\/].*\.log\b|report this error at|this is an error with npm itself|github\.com[\\/]npm[\\/]cli[\\/]issues/i;
 
 /**
  * "npm/node isn't on PATH" — cmd.exe ("'npm' is not recognized as an internal
@@ -65,6 +69,12 @@ const NOISE_LINE_PATTERN = /complete log of this run|[\\/]_logs[\\/].*\.log\b/i;
  */
 const NODE_MISSING_PATTERN =
   /'(npm|node)(\.cmd|\.exe)?' is not recognized|\b(npm|node): (command )?not found/i;
+
+/**
+ * npm's peer-dependency conflict refusal: "npm error code ERESOLVE" /
+ * "ERESOLVE unable to resolve dependency tree" (issues #781/#788).
+ */
+const ERESOLVE_PATTERN = /\bERESOLVE\b|unable to resolve dependency tree/i;
 
 /** Maximum length of an extracted error message shown in the UI / telemetry. */
 const MAX_ERROR_LENGTH = 200;
@@ -100,6 +110,14 @@ export function extractTerminalError(tail: string): string | null {
   // with no next step left users stuck (issue #469) — say what to actually do.
   if (lines.some((line) => line.includes('approve-builds'))) {
     return 'pnpm blocked dependency build scripts pending your approval. In the terminal, run `pnpm approve-builds`, approve the listed packages, then retry the install';
+  }
+
+  // npm refusing a peer-dependency conflict the project itself declares. The
+  // raw tail is npm's debug-log filename (which merely *ends* in "-eresolve")
+  // or a fragment of the conflict tree — neither says what to do, and both
+  // read like an app failure (issues #781/#788).
+  if (lines.some((line) => ERESOLVE_PATTERN.test(line))) {
+    return "This project's dependencies have a version conflict npm won't resolve on its own. Update the conflicting package to a version they agree on, or re-run the install with `--legacy-peer-deps` if that's safe for this project";
   }
 
   const errorLines = lines.filter(

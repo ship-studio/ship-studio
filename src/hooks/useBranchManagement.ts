@@ -331,7 +331,23 @@ export function useBranchManagement({
             const detail = switchResult.error
               ? humanizeGitError(switchResult.error, { branch: headBranch })
               : '(git reported failure with no detail — check for uncommitted changes)';
-            showToast(`Couldn't switch to "${headBranch}": ${detail}`, 'error');
+            // Recognized states (the PR's head branch deleted on GitHub, a
+            // worktree collision, unsaved changes) are anticipated conditions
+            // the backend already classified Expected — an 'error' toast here
+            // re-reports them through toast telemetry (issue #843). Mirror the
+            // merge-failure branch below: info + warn for recognized causes.
+            const recognized =
+              !!switchResult.error &&
+              isRecognizedGitFailure(switchResult.error, { branch: headBranch });
+            if (recognized) {
+              logger.warn('Switch for conflict resolution refused for a recognized reason', {
+                message: switchResult.error,
+              });
+            }
+            showToast(
+              `Couldn't switch to "${headBranch}": ${detail}`,
+              recognized ? 'info' : 'error'
+            );
             return;
           }
 

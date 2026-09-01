@@ -24,7 +24,14 @@ import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { asCommandError, formatCommandError, isMergeConflictError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  humanizeGitError,
+  isMergeConflictError,
+  isRecognizedGitFailure,
+} from '../../lib/errors';
+import { logger } from '../../lib/logger';
 
 interface PullRequestsTabProps {
   /** Project path for PR operations */
@@ -139,7 +146,20 @@ export function PullRequestsTab({
         onToast?.('This pull request has merge conflicts', 'info');
         onResolveConflicts(headRef, baseRef);
       } else {
-        onToast?.(`Failed to merge: ${formatCommandError(asCommandError(e))}`, 'error');
+        // Everything else: a recognized git/GitHub condition (GitHub 5xx, the
+        // head branch deleted, auth, network) is already Expected on the
+        // backend, so an unconditional 'error' toast re-reports it through the
+        // toast telemetry pipeline — and the raw gh stderr told the user
+        // nothing (issue #715).
+        const message = humanizeGitError(e, { branch: headRef, base: baseRef });
+        if (isRecognizedGitFailure(e, { branch: headRef, base: baseRef })) {
+          logger.warn('[PullRequests] Merge refused for a recognized reason', {
+            error: formatCommandError(asCommandError(e)),
+          });
+          onToast?.(`Couldn't merge: ${message}`, 'info');
+        } else {
+          onToast?.(`Failed to merge: ${message}`, 'error');
+        }
       }
     } finally {
       setMergingPr(null);

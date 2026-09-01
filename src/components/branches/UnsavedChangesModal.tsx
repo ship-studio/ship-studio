@@ -15,7 +15,14 @@ import { publishBranch, discardChanges, switchBranch } from '../../lib/branches'
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { asCommandError, formatCommandError } from '../../lib/errors';
+import {
+  asCommandError,
+  formatCommandError,
+  humanizeGitError,
+  isRecognizedGitFailure,
+} from '../../lib/errors';
+import { logger } from '../../lib/logger';
+import type { ToastType } from '../../hooks/useToasts';
 
 interface UnsavedChangesModalProps {
   /** Current branch name */
@@ -38,9 +45,32 @@ export function UnsavedChangesModal({
   onClose,
 }: UnsavedChangesModalProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
+  const onToast = (message: string, type?: ToastType) => showToast(message, type);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
+
+  /**
+   * Toast a git failure without re-reporting it. Recognized conditions (a
+   * push race the remote rejected, auth, network) are already classified
+   * Expected on the backend and have nothing to do with an app malfunction —
+   * an 'error' toast auto-files a bug report for each one (issue #726).
+   */
+  const toastGitFailure = (prefix: string, e: unknown) => {
+    // git can fail with nothing to say; don't dress up an empty string.
+    if (!e) {
+      onToast(prefix, 'error');
+      return;
+    }
+    const message = humanizeGitError(e, { branch: currentBranch, base: targetBranch });
+    if (isRecognizedGitFailure(e, { branch: currentBranch, base: targetBranch })) {
+      logger.warn('[UnsavedChanges] Action refused for a recognized reason', {
+        error: formatCommandError(asCommandError(e)),
+      });
+      onToast(`${prefix}: ${message}`, 'info');
+    } else {
+      onToast(`${prefix}: ${message}`, 'error');
+    }
+  };
 
   // The working tree can pick up new changes between this modal's action and
   // the switch (dev-server config writes, background tooling), in which case
@@ -65,10 +95,10 @@ export function UnsavedChangesModal({
         onSwitchComplete(targetBranch);
         onClose();
       } else {
-        onToast?.(result.error || 'Failed to switch branch', 'error');
+        toastGitFailure('Failed to switch branch', result.error);
       }
     } catch (e) {
-      onToast?.(`Failed to publish: ${formatCommandError(asCommandError(e))}`, 'error');
+      toastGitFailure('Failed to publish', e);
     } finally {
       setIsPublishing(false);
     }
@@ -84,10 +114,10 @@ export function UnsavedChangesModal({
         onSwitchComplete(targetBranch);
         onClose();
       } else {
-        onToast?.(result.error || 'Failed to switch branch', 'error');
+        toastGitFailure('Failed to switch branch', result.error);
       }
     } catch (e) {
-      onToast?.(`Failed to discard changes: ${formatCommandError(asCommandError(e))}`, 'error');
+      toastGitFailure('Failed to discard changes', e);
     } finally {
       setIsDiscarding(false);
     }
