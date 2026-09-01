@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { mockIPC, clearMocks } from '@tauri-apps/api/mocks';
-import { dedupeKey, shouldReport, reportError } from './errorReporting';
+import { dedupeKey, shouldReport, reportError, isResourcePressureError } from './errorReporting';
 
 afterEach(() => {
   clearMocks();
@@ -33,6 +33,27 @@ describe('shouldReport', () => {
   it('treats different fingerprints independently', () => {
     expect(shouldReport({ message: 'a', fingerprint: 'independent-test-a' })).toBe(true);
     expect(shouldReport({ message: 'a', fingerprint: 'independent-test-b' })).toBe(true);
+  });
+});
+
+describe('isResourcePressureError', () => {
+  const message =
+    "Couldn't start `opencode` — your system is temporarily low on process resources or open files. Close some apps or terminal tabs and try again.";
+
+  it('recognizes spawn_resource_pressure_error as a CommandError object (#772/#773/#775)', () => {
+    expect(isResourcePressureError({ type: 'Other', message })).toBe(true);
+  });
+
+  it('recognizes it as a plain string or Error', () => {
+    expect(isResourcePressureError(message)).toBe(true);
+    expect(isResourcePressureError(new Error(message))).toBe(true);
+  });
+
+  it('leaves genuine spawn failures reporting as bugs', () => {
+    expect(isResourcePressureError('binary not found: no viable candidates found in PATH')).toBe(
+      false
+    );
+    expect(isResourcePressureError(undefined)).toBe(false);
   });
 });
 

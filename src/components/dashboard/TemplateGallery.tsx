@@ -20,6 +20,15 @@ interface TemplateGalleryProps {
   selectedId: string | null;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  /**
+   * Why the template fetch failed, or null when it succeeded. A failed fetch
+   * used to be indistinguishable from a search that matched nothing — both
+   * rendered "No templates found", so an offline user was told the gallery was
+   * empty (issue #754).
+   */
+  loadError?: string | null;
+  /** Re-runs the fetch behind the error state's retry action. */
+  onRetry?: () => void;
 }
 
 function SkeletonCard() {
@@ -100,6 +109,8 @@ export function TemplateGallery({
   selectedId,
   searchQuery,
   onSearchChange,
+  loadError = null,
+  onRetry,
 }: TemplateGalleryProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -137,7 +148,8 @@ export function TemplateGallery({
     [updateScrollButtons]
   );
 
-  const showEmpty = !loading && templates.length === 0;
+  const showError = !loading && loadError !== null;
+  const showEmpty = !loading && !showError && templates.length === 0;
 
   return (
     <div className="tg-container">
@@ -231,6 +243,17 @@ export function TemplateGallery({
           {showEmpty && (
             <div className="tg-empty">
               <span>No templates found</span>
+            </div>
+          )}
+
+          {showError && (
+            <div className="tg-empty tg-error">
+              <span>Couldn't load templates. {loadError}</span>
+              {onRetry && (
+                <button type="button" className="tg-retry" onClick={onRetry}>
+                  Try again
+                </button>
+              )}
             </div>
           )}
         </div>

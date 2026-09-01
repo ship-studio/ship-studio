@@ -15,7 +15,7 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { homeDir } from '@tauri-apps/api/path';
 import { logger } from './logger';
 import { readProjectFile } from './code';
-import { asCommandError, formatCommandError } from './errors';
+import { asCommandError, formatCommandError, isProjectFolderGoneError } from './errors';
 import { trackError } from './analytics';
 import { isWindows } from './setup';
 
@@ -423,6 +423,13 @@ export async function startDevServer(
         // useDevServer skips the spawn for the common case (issue #593), and
         // remaining paths (restarts, monorepo cwd) must not page telemetry.
         logger.warn('[DevServer] No package.json found; falling back to npm run dev', {
+          projectPath,
+        });
+      } else if (isProjectFolderGoneError(e)) {
+        // The project folder was moved, renamed, or deleted outside Ship Studio
+        // while its session stayed open — an environment state, not an app bug
+        // (issue #822). Same treatment as the missing-package.json case.
+        logger.warn('[DevServer] Project folder is gone; falling back to npm run dev', {
           projectPath,
         });
       } else {

@@ -83,6 +83,12 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
   const [communitySearch, setCommunitySearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
+  /**
+   * Set when the fetch itself failed (offline, API down, parse error) so the
+   * gallery can say so and offer a retry, instead of the identical-looking
+   * "No templates found" the search-miss case shows (issue #754).
+   */
+  const [communityError, setCommunityError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
 
   // Debounce search input — hit the API server-side
@@ -94,6 +100,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
   // Fetch templates from API (server-side search)
   const fetchTemplates = useCallback(() => {
     setCommunityLoading(true);
+    setCommunityError(null);
     const params: Record<string, string | number> = {};
     if (debouncedSearch) params.search = debouncedSearch;
     invoke<string>('fetch_community_templates', params)
@@ -101,8 +108,14 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
         const data = JSON.parse(raw) as { templates: CommunityTemplate[] };
         setCommunityTemplates(data.templates);
       })
-      .catch(() => {
-        // Silently fail — user sees empty state
+      .catch((err: unknown) => {
+        // The backend classifies these Expected (offline / API unreachable), so
+        // warn rather than error — but the user must still be told the fetch
+        // failed instead of being shown "No templates found" (issue #754).
+        const message = formatCommandError(asCommandError(err));
+        logger.warn('[CreateProject] Failed to fetch community templates', { error: message });
+        setCommunityTemplates([]);
+        setCommunityError(message);
       })
       .finally(() => setCommunityLoading(false));
   }, [debouncedSearch]);
@@ -328,6 +341,8 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
                 selectedId={selectedCommunityId}
                 searchQuery={communitySearch}
                 onSearchChange={setCommunitySearch}
+                loadError={communityError}
+                onRetry={fetchTemplates}
               />
 
               <div className="template-divider">

@@ -215,6 +215,27 @@ describe('handleSelectProject — folder-gone toast routing (#640)', () => {
     expect(logger.error as Fn).not.toHaveBeenCalled();
   });
 
+  it('shows the by-design auto-register refusal as an info toast (#752)', async () => {
+    rejectRegistration(
+      "Refusing to auto-register '/x/notes': it does not look like a project directory. Add it via the folder picker instead."
+    );
+    const params = createParams();
+    const { result } = renderHook(() => useProjectLifecycle(params));
+
+    await act(async () => {
+      await result.current.handleSelectProject({
+        name: 'notes',
+        path: '/x/notes',
+        thumbnail: null,
+      });
+    });
+
+    const [message, type] = vi.mocked(params.showToast).mock.calls[0];
+    expect(message).toContain("isn't a recognized project location");
+    // 'error' toasts auto-file a bug report; this refusal is the guard working.
+    expect(type).toBe('info');
+  });
+
   it('keeps the unrecognized-location refusal as an error toast', async () => {
     rejectRegistration('Invalid path in validate_project_path: /x/elsewhere');
     const params = createParams();

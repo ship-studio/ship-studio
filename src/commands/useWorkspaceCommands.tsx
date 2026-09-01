@@ -22,7 +22,10 @@ export interface UseWorkspaceCommandsParams {
   openPushDropdown: () => void;
   /** Pulls the latest changes from GitHub (routes conflicts to the resolver) */
   handlePullLatest: () => void;
-  /** Push/pull commands only make sense with a connected GitHub repo */
+  /**
+   * Push/pull need a remote, and the Branches/PRs panes only render for a
+   * connected repo — commands that land there are hidden otherwise (#612).
+   */
   isGitHubConnected: boolean;
   /** Opens the "New worktree" modal. */
   openWorktreeCreate: () => void;
@@ -106,7 +109,10 @@ export function useWorkspaceCommands({
         subtitle: currentBranch ? `Currently on ${currentBranch}` : undefined,
         icon: <BranchIcon size={14} />,
         category: 'branch',
-        when: 'project',
+        // `useWorkspaceLayout` projects the branches/prs tabs back to preview
+        // when GitHub isn't connected, so without this gate the command was
+        // listed, selectable, and did nothing at all (issue #612).
+        when: ({ kind }) => kind === 'project' && isGitHubConnected,
         keywords: ['checkout', 'change', 'git'],
         run: () => setWorkspaceTab('branches'),
       },
@@ -115,7 +121,7 @@ export function useWorkspaceCommands({
         title: 'Create new branch…',
         icon: <PlusIcon size={14} />,
         category: 'branch',
-        when: 'project',
+        when: ({ kind }) => kind === 'project' && isGitHubConnected,
         keywords: ['new', 'git', 'checkout -b'],
         run: () => setWorkspaceTab('branches'),
       },
@@ -142,7 +148,7 @@ export function useWorkspaceCommands({
         title: 'View open pull requests',
         icon: <PullRequestGlyph />,
         category: 'branch',
-        when: 'project',
+        when: ({ kind }) => kind === 'project' && isGitHubConnected,
         keywords: ['prs', 'reviews'],
         run: () => setWorkspaceTab('prs'),
       },
@@ -161,7 +167,8 @@ export function useWorkspaceCommands({
         title: 'Manage worktrees',
         icon: <BranchIcon size={14} />,
         category: 'branch',
-        when: ({ kind }) => kind === 'project' && hasWorktreeData,
+        // Lives inside the Branches pane, so it needs the same gate (#612).
+        when: ({ kind }) => kind === 'project' && hasWorktreeData && isGitHubConnected,
         keywords: ['worktree', 'remove', 'prune', 'git'],
         run: () => setWorkspaceTab('branches'),
       },

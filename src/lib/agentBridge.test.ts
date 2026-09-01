@@ -164,6 +164,45 @@ describe('executeBridgeTool', () => {
     );
   });
 
+  it('warns instead of erroring when a capture races a dev-server restart (#735)', async () => {
+    vi.mocked(logger.warn).mockClear();
+    vi.mocked(logger.error).mockClear();
+    invokeMock.mockRejectedValue({
+      type: 'Other',
+      message:
+        'The dev server at http://localhost:4173/ stopped responding while the screenshot was being captured. Wait for the preview to finish reloading, then try again.',
+    });
+    const result = await executeBridgeTool(
+      { requestId: 40, tool: 'preview_screenshot' },
+      makeCtx()
+    );
+
+    // The agent still sees the failure…
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toContain('stopped responding');
+    // …but logger.error would auto-file a bug report for an Expected race.
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[AgentBridge] Tool execution failed',
+      expect.objectContaining({ tool: 'preview_screenshot' })
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('still errors on an unclassified tool failure', async () => {
+    vi.mocked(logger.error).mockClear();
+    invokeMock.mockRejectedValue(new Error('kaboom'));
+    const result = await executeBridgeTool(
+      { requestId: 41, tool: 'preview_screenshot' },
+      makeCtx()
+    );
+
+    expect(result.isError).toBe(true);
+    expect(logger.error).toHaveBeenCalledWith(
+      '[AgentBridge] Tool execution failed',
+      expect.objectContaining({ tool: 'preview_screenshot' })
+    );
+  });
+
   it('returns an isError result for unknown tools', async () => {
     const result = await executeBridgeTool({ requestId: 6, tool: 'preview_dance' }, makeCtx());
     expect(result.isError).toBe(true);

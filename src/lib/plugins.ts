@@ -68,6 +68,16 @@ export interface PluginRegistryEntry {
 /** Official Vercel plugin repository URL */
 export const VERCEL_PLUGIN_REPO = 'https://github.com/ship-studio/plugin-vercel';
 
+/**
+ * Built-in hosting integrations. They install like any other plugin (cloned
+ * into `.shipstudio/plugins/<id>`) but the app renders them in a dedicated
+ * header slot and the user never chose to add them — so a missing-on-disk
+ * deactivation is an app-provisioning gap, not something the user did (issue
+ * #386). Lives here rather than in a component so non-UI code can check it
+ * without importing the workspace header.
+ */
+export const HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare', 'netlify'];
+
 const REGISTRY_URL =
   'https://raw.githubusercontent.com/ship-studio/plugin-registry/main/registry.json';
 

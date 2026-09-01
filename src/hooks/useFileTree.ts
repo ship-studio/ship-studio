@@ -32,6 +32,25 @@ import { useAsyncState } from './useAsyncState';
 const CODE_EDIT_MODE_KEY = 'shipstudio:code-edit-mode';
 
 /**
+ * True when a failed file read is an environment state rather than an app bug:
+ * the file vanished under a stale tab / tree entry (build tool, branch switch,
+ * external editor — `resolve_error`'s NotFound branch in `code.rs`, issue
+ * #834), or the OS refused access because another program holds a lock or the
+ * ACL denies us (issue #837). The backend classifies both
+ * `CommandError::Expected`, but Expected serializes identically to Other
+ * across IPC, so the message shape is re-checked here.
+ */
+function isExpectedFileAccessError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('file not found:') ||
+    lower.includes('locked by another program') ||
+    lower.includes('permission denied') ||
+    lower.includes("doesn't have permission")
+  );
+}
+
+/**
  * A pending action that would discard the current edit buffer and so needs a
  * discard confirmation first: switching to `path`, or turning Edit mode off.
  */
@@ -112,7 +131,11 @@ export function useFileTree(projectPath: string): UseFileTreeResult {
       // CommandError rejections are plain objects — String() renders
       // "[object Object]" (issue #396); format to the real message.
       const msg = formatCommandError(asCommandError(err));
-      logger.error('Failed to read file', { path, error: msg });
+      // logger.error auto-files a bug report; a gone or locked file isn't one.
+      logger[isExpectedFileAccessError(msg) ? 'warn' : 'error']('Failed to read file', {
+        path,
+        error: msg,
+      });
       throw err;
     }
   }, []);

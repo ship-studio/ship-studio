@@ -171,6 +171,52 @@ describe('buildContext failure reporting', () => {
     expect(showToast).toHaveBeenCalledTimes(1);
   });
 
+  it('routes a transient spawn-pressure failure to an info toast (#775)', async () => {
+    mockIPC(() => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- plain CommandError shape under test
+      throw {
+        type: 'Other',
+        message:
+          "Couldn't start `brew` — your system is temporarily low on process resources or open files. Close some apps or terminal tabs and try again.",
+      };
+    });
+    const { actions, showToast } = makeActions();
+    const ctx = buildContext('vercel', 'Vercel', project, actions, theme, []);
+
+    await expect(ctx.shell.exec('brew', ['list'])).rejects.toBeTruthy();
+    expect(showToast).toHaveBeenCalledTimes(1);
+    expect(showToast.mock.calls[0][0]).toContain('temporarily low on process resources');
+    // 'error' would re-report an environment state to telemetry.
+    expect(showToast.mock.calls[0][1]).toBe('info');
+  });
+
+  it('does not error-toast a bundled hosting plugin whose files vanished (#386)', async () => {
+    mockIPC(() => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- plain CommandError shape under test
+      throw { type: 'Other', message: "Plugin 'cloudflare' not found" };
+    });
+    const { actions, showToast } = makeActions();
+    const ctx = buildContext('cloudflare', 'Cloudflare Pages', project, actions, theme, []);
+
+    await expect(ctx.shell.exec('wrangler', ['whoami'])).rejects.toBeTruthy();
+    expect(showToast).toHaveBeenCalledTimes(1);
+    expect(showToast.mock.calls[0][0]).toContain('was deactivated');
+    expect(showToast.mock.calls[0][1]).toBe('info');
+  });
+
+  it('still error-toasts a user-installed plugin whose files vanished (#315)', async () => {
+    mockIPC(() => {
+      // eslint-disable-next-line @typescript-eslint/only-throw-error -- plain CommandError shape under test
+      throw { type: 'Other', message: "Plugin 'sanity' not found" };
+    });
+    const { actions, showToast } = makeActions();
+    const ctx = buildContext('sanity', 'Sanity', project, actions, theme, []);
+
+    await expect(ctx.shell.exec('sanity', ['deploy'])).rejects.toBeTruthy();
+    expect(showToast).toHaveBeenCalledTimes(1);
+    expect(showToast.mock.calls[0][1]).toBe('error');
+  });
+
   it('does not toast when the call succeeds', async () => {
     mockIPC((cmd) => {
       if (cmd === 'read_plugin_storage') return { key: 'value' };

@@ -32,7 +32,9 @@ import type { IntegrationState } from '../../hooks/useIntegrationStatus';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 import type { PluginThemeData } from '../../contexts/PluginContext';
 
-export const HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare', 'netlify'];
+/** Re-exported from lib/plugins so non-UI code can share the list (issue #386). */
+export { HOSTING_PLUGIN_IDS } from '../../lib/plugins';
+import { HOSTING_PLUGIN_IDS } from '../../lib/plugins';
 
 export interface WorkspaceHeaderProps {
   // Project

@@ -77,10 +77,17 @@
   white-space: nowrap;
 }
 
-.main-branch-banner-action:hover {
+.main-branch-banner-action:hover:not(:disabled) {
   background: rgba(var(--warning-rgb), 0.3);
   border-color: rgba(var(--warning-rgb), 0.5);
   color: var(--banner-amber-bright);
+}
+
+/* Branches live behind a connected GitHub repo (issue #612) — the button stays
+   visible so the offered fix is still discoverable, with the reason on hover. */
+.main-branch-banner-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .main-branch-banner-checkbox {

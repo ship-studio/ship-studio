@@ -327,15 +327,21 @@ export function useProjectLifecycle({
       // Distinguish "the folder is gone" (moved/renamed/deleted outside the
       // app — issue #365) from "the path isn't in an allowed location"; the
       // "re-add via Select Project Folder" advice only fits the latter.
-      const folderGone = formatCommandError(asCommandError(e)).includes('no longer exists');
+      const errorMessage = formatCommandError(asCommandError(e));
+      const folderGone = errorMessage.includes('no longer exists');
+      // `ensure_external_project_registered` refuses paths that don't look like
+      // a project root — a by-design security guard the backend classifies
+      // Expected (issue #598).
+      const notAProject = errorMessage.includes('does not look like a project directory');
       const message = folderGone
         ? `Can't open "${project.name}" — its folder no longer exists. It may have been moved, renamed, or deleted outside Ship Studio.`
         : `Can't open "${project.name}" — its folder isn't a recognized project location. Re-add it via "Select Project Folder".`;
-      // A folder deleted/moved outside the app is a user-caused environment
-      // change the backend already classifies Expected — info toast, NOT
-      // 'error': error toasts auto-file bug reports (issue #640, same
-      // pattern as #535's import-refusal gating below).
-      showToast(message, folderGone ? 'info' : 'error');
+      // A folder deleted/moved outside the app, or a path the auto-register
+      // guard declines, is a user-caused environment state the backend already
+      // classifies Expected — info toast, NOT 'error': error toasts auto-file
+      // bug reports (issues #640/#752, same pattern as #535's import-refusal
+      // gating below). 'error' stays for genuine I/O failures.
+      showToast(message, folderGone || notAProject ? 'info' : 'error');
       return;
     }
 
