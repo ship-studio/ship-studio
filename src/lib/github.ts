@@ -133,7 +133,9 @@ export async function listCollaboratorRepos(): Promise<GitHubRepo[]> {
 
 /**
  * Detect the package manager used in a project.
- * Checks for lock files in the following order: pnpm, yarn, bun, npm (default).
+ * Checks lock files first (pnpm, yarn, bun); with none committed, falls back to
+ * what package.json declares (`packageManager`, `workspace:`/`catalog:` deps) or
+ * a pnpm-workspace.yaml, then npm.
  * @param projectPath - Absolute path to the project directory
  * @returns Package manager name ("pnpm", "yarn", "bun", or "npm")
  */

@@ -898,7 +898,84 @@ pub async fn list_collaborator_repos() -> Result<Vec<GitHubRepo>, CommandError> 
     Ok(repos)
 }
 
-/// Detects the package manager used in a project by checking for lock files
+/// True when any dependency map in a package.json uses pnpm/yarn's
+/// `workspace:` or pnpm's `catalog:` specifier. npm understands neither and
+/// aborts the whole install with EUNSUPPORTEDPROTOCOL (issues #707/#708), so
+/// their presence is a stronger signal than the missing lockfile.
+fn manifest_uses_workspace_protocol(manifest: &serde_json::Value) -> bool {
+    const DEP_KEYS: [&str; 4] = [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+    ];
+    DEP_KEYS.iter().any(|key| {
+        manifest
+            .get(key)
+            .and_then(|deps| deps.as_object())
+            .is_some_and(|deps| {
+                deps.values().any(|spec| {
+                    spec.as_str()
+                        .is_some_and(|s| s.starts_with("workspace:") || s.starts_with("catalog:"))
+                })
+            })
+    })
+}
+
+/// The package manager a project structurally requires, ignoring whether that
+/// tool is actually installed. `None` means "no signal" — the caller defaults
+/// to npm.
+///
+/// Lockfiles come first: they're the repo's own record of what it was installed
+/// with. When none is committed (gitignored lockfile, a workspace package cloned
+/// without its root lockfile), fall back to what the manifest declares —
+/// Corepack's `packageManager` field, a `pnpm-workspace.yaml`, or `workspace:`/
+/// `catalog:` dependency specifiers. Defaulting to npm in those cases ran the
+/// one package manager the project can't be installed with (issues #707/#708).
+fn preferred_package_manager(path: &Path) -> Option<String> {
+    // Check in order of specificity
+    if path.join("pnpm-lock.yaml").exists() {
+        return Some("pnpm".to_string());
+    }
+    if path.join("yarn.lock").exists() {
+        return Some("yarn".to_string());
+    }
+    if path.join("bun.lockb").exists() {
+        return Some("bun".to_string());
+    }
+
+    let manifest = std::fs::read_to_string(path.join("package.json"))
+        .ok()
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok());
+
+    // Corepack declaration, e.g. "packageManager": "pnpm@9.0.0"
+    if let Some(spec) = manifest
+        .as_ref()
+        .and_then(|m| m.get("packageManager"))
+        .and_then(|v| v.as_str())
+    {
+        let name = spec.split('@').next().unwrap_or("").trim();
+        if matches!(name, "pnpm" | "yarn" | "bun" | "npm") {
+            return Some(name.to_string());
+        }
+    }
+
+    // pnpm-only markers: a workspace file, or workspace:/catalog: deps.
+    if path.join("pnpm-workspace.yaml").exists() || path.join("pnpm-workspace.yml").exists() {
+        return Some("pnpm".to_string());
+    }
+    if manifest
+        .as_ref()
+        .is_some_and(manifest_uses_workspace_protocol)
+    {
+        return Some("pnpm".to_string());
+    }
+
+    None
+}
+
+/// Detects the package manager a project needs (lockfiles first, then the
+/// manifest's own declarations), falling back to npm.
 #[tauri::command]
 #[tracing::instrument]
 pub async fn detect_package_manager(project_path: String) -> Result<String, CommandError> {
@@ -921,18 +998,11 @@ pub async fn detect_package_manager(project_path: String) -> Result<String, Comm
         }
     }
 
-    // Check in order of specificity
-    if path.join("pnpm-lock.yaml").exists() {
-        return Ok(or_npm("pnpm"));
+    match preferred_package_manager(path) {
+        Some(preferred) if preferred != "npm" => Ok(or_npm(&preferred)),
+        // No signal (or the project asks for npm explicitly) → npm.
+        _ => Ok("npm".to_string()),
     }
-    if path.join("yarn.lock").exists() {
-        return Ok(or_npm("yarn"));
-    }
-    if path.join("bun.lockb").exists() {
-        return Ok(or_npm("bun"));
-    }
-    // Default to npm
-    Ok("npm".to_string())
 }
 
 #[cfg(test)]
@@ -1390,5 +1460,91 @@ mod tests {
         )
         .is_some());
         assert!(gh_auth_error("fatal: not a git repository").is_none());
+    }
+
+    // Issues #707/#708: a repo whose lockfile isn't committed but whose
+    // manifest structurally requires pnpm must not be installed with npm.
+    mod package_manager_detection {
+        use super::*;
+        use std::fs;
+
+        fn project(files: &[(&str, &str)]) -> tempfile::TempDir {
+            let dir = tempfile::tempdir().expect("tempdir");
+            for (name, contents) in files {
+                fs::write(dir.path().join(name), contents).expect("write");
+            }
+            dir
+        }
+
+        #[test]
+        fn lockfiles_still_win() {
+            let dir = project(&[("pnpm-lock.yaml", ""), ("package.json", "{}")]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("pnpm")
+            );
+            let dir = project(&[("yarn.lock", "")]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("yarn")
+            );
+            let dir = project(&[("bun.lockb", "")]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("bun")
+            );
+        }
+
+        #[test]
+        fn corepack_package_manager_field_is_honored_without_a_lockfile() {
+            let dir = project(&[(
+                "package.json",
+                r#"{"name":"x","packageManager":"pnpm@9.0.0"}"#,
+            )]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("pnpm")
+            );
+        }
+
+        #[test]
+        fn workspace_and_catalog_specifiers_select_pnpm() {
+            let dir = project(&[(
+                "package.json",
+                r#"{"dependencies":{"@acme/ui":"workspace:*"}}"#,
+            )]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("pnpm")
+            );
+            let dir = project(&[(
+                "package.json",
+                r#"{"devDependencies":{"eslint":"catalog:lint"}}"#,
+            )]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("pnpm")
+            );
+        }
+
+        #[test]
+        fn pnpm_workspace_file_selects_pnpm() {
+            let dir = project(&[("pnpm-workspace.yaml", "packages:\n  - apps/*\n")]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("pnpm")
+            );
+        }
+
+        #[test]
+        fn plain_npm_projects_keep_falling_back_to_npm() {
+            let dir = project(&[("package.json", r#"{"dependencies":{"react":"^19.0.0"}}"#)]);
+            assert_eq!(preferred_package_manager(dir.path()), None);
+            // Unparseable or absent manifests must not panic or misdetect.
+            let dir = project(&[("package.json", "not json {")]);
+            assert_eq!(preferred_package_manager(dir.path()), None);
+            let dir = project(&[]);
+            assert_eq!(preferred_package_manager(dir.path()), None);
+        }
     }
 }

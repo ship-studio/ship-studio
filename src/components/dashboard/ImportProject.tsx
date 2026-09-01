@@ -39,11 +39,11 @@ import {
   Step3WorkspacePicker,
   type WorkspacePick,
 } from '../import-project/steps/Step3WorkspacePicker';
+import { describeImportError } from '../import-project/importErrors';
 import { logger } from '../../lib/logger';
 import {
   asCommandError,
   describeAccountsLoadError,
-  describeProcessError,
   formatCommandError,
   friendlyProcessError,
 } from '../../lib/errors';
@@ -165,7 +165,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       await new Promise((r) => setTimeout(r, 800));
       onComplete(importedProjectPath);
     } catch (err) {
-      const info = describeProcessError(err);
+      const info = describeImportError(err);
       // Recognized user-environment failures (stale npm login, SSH auth, …)
       // log at warn — logger.error auto-files bug reports (issues #505/#531).
       const logContext = {
@@ -292,7 +292,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
 
       await finishImport(projectPath);
     } catch (err) {
-      const info = describeProcessError(err);
+      const info = describeImportError(err);
       // Recognized user-environment failures (SSH keys not set up, stale
       // auth, …) log at warn — logger.error auto-files bug reports
       // (issue #531).
@@ -342,7 +342,7 @@ export function ImportProject({ onComplete, onCancel }: ImportProjectProps) {
       await new Promise((r) => setTimeout(r, 800));
       onComplete(projectPath);
     } catch (err) {
-      const info = describeProcessError(err);
+      const info = describeImportError(err);
       // Recognized user-environment failures (stale npm login, missing
       // tool, …) log at warn — logger.error auto-files bug reports
       // (issue #505).
