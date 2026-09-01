@@ -84,6 +84,42 @@ export function isMcpInvalidInputError(value: unknown): boolean {
 }
 
 /**
+ * Wording of the guidance sentences `classify_mcp_failure`
+ * (src-tauri/src/commands/mcp.rs) appends when an `<agent> mcp add|remove|list`
+ * failure reflects machine state, org policy, the user's own agent config, or
+ * an upstream CLI bug — never a Ship Studio defect. The backend returns those
+ * as `CommandError::Expected`, but Expected serializes identically to Other
+ * across IPC, so the wording is the only signal left by the time the modal
+ * catches it. Keep these in sync with the Rust strings byte-for-byte.
+ */
+const MCP_EXPECTED_FAILURE_PHRASES = [
+  // Enterprise MCP allowlist (issue #675)
+  "your organization's managed agent settings block this mcp server",
+  // Org-managed Cloud gateway unreachable / session expired (issues #799, #800)
+  "your organization's agent gateway couldn't be reached",
+  // Upstream `mcp add -e` parser regression (issue #763)
+  'this is a known bug in recent claude code cli versions',
+  // The agent CLI's own config file has a value it no longer accepts (#755)
+  "the agent cli couldn't read its own config file",
+  // The OS denied the agent's config write (issues #471, #677)
+  "the agent couldn't write its own config file",
+];
+
+/**
+ * True when an `mcp add/remove/list` failure is one the backend already
+ * classified `Expected` with its own guidance (see
+ * {@link MCP_EXPECTED_FAILURE_PHRASES}). These are the user's environment,
+ * organization, or agent CLI — routing them to `logger.error` auto-files a bug
+ * report for something Ship Studio can't fix (issues #755, #763, #799, #800),
+ * so callers log them at warn level and surface them as information, following
+ * the #655 precedent above.
+ */
+export function isMcpExpectedFailure(value: unknown): boolean {
+  const message = formatCommandError(asCommandError(value)).toLowerCase();
+  return MCP_EXPECTED_FAILURE_PHRASES.some((phrase) => message.includes(phrase));
+}
+
+/**
  * Split a raw `mcp add` argument string like a shell would — whitespace
  * separates tokens, single/double quotes group, `\"` and `\\` escape inside
  * double quotes. Mirrors the backend's `shell_split`

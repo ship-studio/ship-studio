@@ -232,8 +232,22 @@ export function PullRequestsTab({
       await fetchPullRequests();
       onRefresh();
     } catch (e) {
-      trackError('pr_close', e, 'Workspace');
-      onToast?.(`Failed to close PR: ${formatCommandError(asCommandError(e))}`, 'error');
+      // gh refuses to close a PR GitHub already merged — the list this button
+      // was clicked from can be stale by seconds, so the backend classifies it
+      // Expected (issue #798), as it does for the auth/network/no-repo
+      // refusals. trackError + an 'error' toast filed all of those as bugs.
+      const message = humanizeGitError(e);
+      if (isRecognizedGitFailure(e)) {
+        logger.warn('[PullRequests] Close refused for a recognized reason', {
+          error: formatCommandError(asCommandError(e)),
+        });
+        onToast?.(`Couldn't close: ${message}`, 'info');
+        // Whatever the reason, the on-screen list may no longer match GitHub.
+        await fetchPullRequests();
+      } else {
+        trackError('pr_close', e, 'Workspace');
+        onToast?.(`Failed to close PR: ${message}`, 'error');
+      }
     } finally {
       setClosingPr(null);
     }

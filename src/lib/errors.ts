@@ -120,6 +120,35 @@ const BACKEND_HUMANIZED_GIT_PHRASES = [
   // project's own husky/lint-staged/test chain rejecting the commit is the
   // project working as configured, not an app malfunction.
   'pre-commit checks blocked the commit',
+  // create_branch's taken-name refusal (issue #791). Paired with the raw-git
+  // case in humanizeGitError below: because that case reconstructs this exact
+  // sentence, the inequality test alone can't see it.
+  'already exists. pick a different name',
+  // delete_branch's default-branch refusal (issue #792). GitHub's own
+  // pre-receive rejection wording never reaches the frontend, and the
+  // friendly replacement contains none of the network/auth/"rejected"
+  // substrings humanizeGitError keys on.
+  'default branch on github',
+  // pr_create_refusal's unrelated-histories case (issue #838)
+  'shares no history with',
+  // push_to_github's existing-origin refusals (issue #779) — the project is
+  // already wired to another repo, or gh created the repo but couldn't add
+  // the remote. Both are user-side git state, not a malfunction.
+  'already connected to a different github repository',
+  "was created on github, but this project couldn't be connected",
+  // gh_shadowed_binary_error: PATH resolved something that isn't the GitHub
+  // CLI (issue #737)
+  "isn't github's cli",
+  // publish_branch / get_current_branch's detached-HEAD guard (issues
+  // #317/#794) — a normal git state with a user-side fix.
+  'detached head',
+  // delete_branch's remote-delete timeout (issue #819's sibling): the other
+  // push/create timeouts already say "check your internet connection", but
+  // this one says "check your connection".
+  "didn't respond in time",
+  // close_pull_request's already-merged refusal (issue #798) — the PR list
+  // the Close button was clicked from went stale, an anticipated race.
+  "already merged, so there's nothing to close",
 ];
 
 /** True when a message is one the backend already humanized (see
@@ -254,6 +283,24 @@ export function humanizeGitError(value: unknown, ctx: GitErrorContext = {}): str
   // A PR is already open for this branch.
   if (m.includes('already exists') && m.includes('pull request')) {
     return `There's already an open pull request for ${branch}.`;
+  }
+
+  // Creating a branch under a name that's taken — "fatal: a branch named 'X'
+  // already exists" (issue #791). create_branch classifies its own hit
+  // Expected with this same wording (see BACKEND_HUMANIZED_GIT_PHRASES); this
+  // covers git's raw phrasing on any path that misses that classification.
+  if (m.includes('a branch named') && m.includes('already exists')) {
+    const taken = raw.match(/a branch named '([^']+)' already exists/i)?.[1];
+    return `A branch named ${taken ? `'${taken}'` : 'that'} already exists. Pick a different name, or switch to the existing branch.`;
+  }
+
+  // The branch name exists on several remotes and nowhere locally, so git's
+  // DWIM checkout refuses to guess: "fatal: 'X' matched multiple (2) remote
+  // tracking branches". switch_branch qualifies against origin when origin
+  // has it (issue #729), so this is the residual case — the branch is on
+  // other remotes but not origin.
+  if (m.includes('matched multiple') && m.includes('remote tracking branches')) {
+    return `${branch} exists on more than one remote and not on origin, so git can't tell which copy to check out. In a terminal, create a local branch from the remote you want (\`git checkout -b <name> <remote>/<name>\`), then switch to it here.`;
   }
 
   // A checkout would clobber unsaved work.
@@ -561,6 +608,42 @@ export function describeProcessError(
       expected: true,
       message:
         'pnpm blocked dependency build scripts pending your approval. In a terminal, run `pnpm approve-builds` in the project folder, approve the listed packages, then retry the install.',
+    };
+  }
+  // Git exits 128 for many fatal, non-auth reasons, but the exit-code table
+  // below maps every 128 to "Git authentication failed" — actively wrong for
+  // the project-creation clone, whose templates are public repos fetched
+  // anonymously with no GitHub sign-in involved at all. The reported cases
+  // were a NAS / mapped network drive: git couldn't create or write the
+  // destination, or its dubious-ownership check tripped on a share reporting
+  // foreign owner metadata (issue #841). Named causes first, so the blanket
+  // mapping only ever sees what none of these explain.
+  if (lower.includes('detected dubious ownership')) {
+    return {
+      expected: true,
+      message:
+        "Git refused to use this folder because the operating system reports it as owned by a different user — common on NAS, network, and external drives. Open a terminal and run `git config --global --add safe.directory '<the project folder>'`, or move your projects folder to a local disk, then try again.",
+    };
+  }
+  if (
+    lower.includes('could not create work tree dir') ||
+    lower.includes('could not create leading directories') ||
+    lower.includes('unable to create directory') ||
+    lower.includes('unable to write new index file') ||
+    lower.includes('read-only file system') ||
+    lower.includes('input/output error')
+  ) {
+    return {
+      expected: true,
+      message:
+        "Git couldn't write to your projects folder. That usually means it's on a NAS, network, or external drive that dropped out or won't accept the write — this isn't a GitHub sign-in problem. Check the drive is connected and writable, or move your projects folder to a local disk, then try again.",
+    };
+  }
+  if (lower.includes('no space left on device')) {
+    return {
+      expected: true,
+      message:
+        'The drive your projects folder is on has run out of space. Free some up, then try again.',
     };
   }
   // The tool itself is missing: Windows' cmd.exe says "'bun' is not

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { validateMcpAddCommand, isMcpUnsupportedCliError, isMcpInvalidInputError } from './mcp';
+import {
+  validateMcpAddCommand,
+  isMcpUnsupportedCliError,
+  isMcpInvalidInputError,
+  isMcpExpectedFailure,
+} from './mcp';
 
 describe('validateMcpAddCommand (#588)', () => {
   const validInputs = [
@@ -134,5 +139,43 @@ describe('isMcpUnsupportedCliError (#550)', () => {
     expect(isMcpUnsupportedCliError('Codex binary not found')).toBe(false);
     // The CLI's *own* argument validation for a user typo is not a version gap.
     expect(isMcpUnsupportedCliError("error: missing required argument 'commandOrUrl'")).toBe(false);
+  });
+});
+
+describe('isMcpExpectedFailure', () => {
+  // Guidance sentences authored by classify_mcp_failure
+  // (src-tauri/src/commands/mcp.rs) — kept byte-identical to the Rust strings.
+  const expectedFailures: [string, string][] = [
+    [
+      '#675 enterprise MCP allowlist',
+      'Failed to add MCP server: Cannot add MCP server "x": not allowed by enterprise policy\n\nYour organization\'s managed agent settings block this MCP server. Ask your admin to allowlist it, then try again.',
+    ],
+    [
+      '#799/#800 org Cloud gateway unreachable',
+      "Failed to list MCP servers: Couldn't load settings from Cloud gateway gw.example.com.\n\nYour organization's agent gateway couldn't be reached. Check your network (or VPN) connection, or run `claude auth login` in a terminal to sign in again, then try again.",
+    ],
+    [
+      '#763 upstream `mcp add -e` parser bug',
+      "Failed to add MCP server: Invalid environment variable format\n\nThis is a known bug in recent Claude Code CLI versions — its `mcp add` parser mishandles `-e` environment variables (anthropics/claude-code#23365). Add the server without its `-e` flags for now (set those variables in the server's own config instead), or update Claude Code once the fix ships.",
+    ],
+    [
+      "#755 the agent CLI's own config has an unusable value",
+      "Failed to remove MCP server: failed to load configuration\n\nThe agent CLI couldn't read its own config file — a setting in it (`service_tier`) has a value this version no longer accepts. Fix or remove that setting in the config file named above, then try again.",
+    ],
+    [
+      "#471/#677 the OS denied the agent's config write",
+      "Failed to add MCP server: Access is denied. (os error 5)\n\nThe agent couldn't write its own config file — the OS denied access. Check that the file isn't read-only or locked by another program (antivirus, OneDrive/cloud sync), and that its folder is owned by your user account, then try again.",
+    ],
+  ];
+
+  it.each(expectedFailures)('recognizes %s', (_label, message) => {
+    expect(isMcpExpectedFailure(message)).toBe(true);
+    expect(isMcpExpectedFailure({ type: 'Other', message })).toBe(true);
+  });
+
+  it('does not swallow failures that could be app defects', () => {
+    expect(isMcpExpectedFailure('Failed to add MCP server: connection refused')).toBe(false);
+    expect(isMcpExpectedFailure('Failed to list MCP servers: unexpected panic')).toBe(false);
+    expect(isMcpExpectedFailure(null)).toBe(false);
   });
 });

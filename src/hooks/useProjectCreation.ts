@@ -17,7 +17,8 @@
  * Consumed solely by `components/dashboard/CreateProject.tsx`.
  *
  * Boundaries: `spawn_pty` + the `pty-output`/`pty-exit` events (exit codes
- * mapped to friendly errors: 243 npm cache, 128 git auth, 69 Xcode license),
+ * mapped to friendly errors: 243 npm cache, 128 fatal git failure, 69 Xcode
+ * license),
  * `list_projects` (duplicate-name check), `ensure_shipstudio_dir`,
  * lib/setup (`checkNpmCachePermissions`), lib/plugins.
  *
@@ -49,6 +50,15 @@ import { basename } from '../lib/paths';
 /** Extra PTY exit-code mappings specific to the creation flow (template scaffolds). */
 const CREATE_FLOW_EXIT_MESSAGES: Record<number, string> = {
   69: 'Xcode Command Line Tools license has not been accepted. Open Terminal and run:\nsudo xcodebuild -license accept\n\nThen try creating the project again.',
+  // Git exits 128 for many fatal reasons. The shared table maps it to "Git
+  // authentication failed. Make sure you're signed into GitHub." — true for
+  // the import flow's private-repo clones, but wrong here: every template is
+  // a public repo cloned anonymously, so no GitHub sign-in is involved and
+  // that advice sent a reporter chasing re-auth instead of the real (NAS)
+  // problem (issue #841). describeProcessError recognizes the specific
+  // filesystem/ownership causes before this; this is the honest fallback for
+  // everything it couldn't name.
+  128: "The template couldn't be downloaded — git stopped with a fatal error. Check that your projects folder is on a connected, writable drive and that this computer can reach github.com, then try again.",
 };
 
 /** Grouping for the template picker, so the grid isn't an undifferentiated list. */

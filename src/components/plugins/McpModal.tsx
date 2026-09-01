@@ -20,11 +20,13 @@ import {
   validateMcpAddCommand,
   isMcpUnsupportedCliError,
   isMcpInvalidInputError,
+  isMcpExpectedFailure,
 } from '../../lib/mcp';
 import { trackEvent, trackSearch } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError, isAgentNotInstalledError } from '../../lib/errors';
 import { useModal } from '../../contexts/ModalContext';
+import { useOptionalToast } from '../../contexts/ToastContext';
 
 type Tab = 'connected' | 'add';
 type ScopeFilter = 'all' | 'user' | 'project';
@@ -44,6 +46,7 @@ export function McpModal({
   agentBinaryName = 'claude',
 }: McpModalProps) {
   const { isOpen, close: onClose } = useModal('mcp');
+  const { showToast } = useOptionalToast();
   const [activeTab, setActiveTab] = useState<Tab>('connected');
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
   const [servers, setServers] = useState<McpServer[]>([]);
@@ -164,6 +167,16 @@ export function McpModal({
           error: message,
         });
         setAddError(message);
+      } else if (isMcpExpectedFailure(err)) {
+        // Enterprise policy, an unreachable org gateway, the agent CLI's own
+        // config, or an upstream `mcp add -e` parser bug — the backend already
+        // classified all of these Expected and wrote the guidance into the
+        // message. Nothing Ship Studio can fix, so don't auto-file a report
+        // (issues #755, #763, #799, #800).
+        logger.warn('Failed to add MCP server: environment or agent-config condition', {
+          error: message,
+        });
+        setAddError(message);
       } else {
         logger.error('Failed to add MCP server', { error: message });
         setAddError(message);
@@ -199,6 +212,18 @@ export function McpModal({
         logger.warn('Failed to remove MCP server: agent CLI lacks mcp subcommands', {
           error: message,
         });
+        showToast(
+          `Your ${agentDisplayName} CLI is too old to manage MCP servers — update it, then try again.`,
+          'info'
+        );
+      } else if (isMcpExpectedFailure(err)) {
+        // Same Expected shapes as the add path (#755, #763, #799, #800). The
+        // remove path had no user-facing feedback at all on failure, so the
+        // row simply stopped spinning — surface the backend's guidance.
+        logger.warn('Failed to remove MCP server: environment or agent-config condition', {
+          error: message,
+        });
+        showToast(message, 'info');
       } else {
         logger.error('Failed to remove MCP server', { error: message });
       }

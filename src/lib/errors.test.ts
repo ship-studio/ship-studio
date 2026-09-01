@@ -646,3 +646,139 @@ describe('isResourcePressureError', () => {
     expect(isResourcePressureError(null)).toBe(false);
   });
 });
+
+// Wave-2 recognition of wordings the wave-1 backend fixes introduced. Each
+// literal below is copied byte-for-byte from the Rust
+// `CommandError::expected(...)` string it mirrors — if one drifts, the
+// frontend silently starts auto-filing bug reports for a condition the backend
+// deliberately kept out of telemetry.
+describe('isRecognizedGitFailure — backend wordings added in sweep 18', () => {
+  const backendMessages: [string, string][] = [
+    [
+      '#838 pr_create_refusal (unrelated histories)',
+      'This branch shares no history with "main", so GitHub can\'t compare them for a pull request. It was most likely started separately instead of from "main".',
+    ],
+    [
+      '#779 push_to_github (origin points elsewhere)',
+      'This project is already connected to a different GitHub repository (git@github.com:me/other.git). Publish to that repository, or remove the existing remote (`git remote remove origin`) before creating a new one.',
+    ],
+    [
+      '#779 push_to_github (repo created, remote-add lost the race)',
+      'The repository "my-app" was created on GitHub, but this project couldn\'t be connected to it because it already has a remote named "origin". Point that remote at the new repository (`git remote set-url origin <url>`) and push, or remove it and try again.',
+    ],
+    [
+      "#737 gh_shadowed_binary_error (PATH found something that isn't gh)",
+      'The program named `gh` on this computer isn\'t GitHub\'s CLI — something else (most often an unrelated global npm package called "gh") is being found first. Remove it (`npm uninstall -g gh`) or reinstall the GitHub CLI, then try again.',
+    ],
+    [
+      '#792 delete_branch (GitHub refuses to delete the default branch)',
+      "'trunk' is this repository's default branch on GitHub, so GitHub won't let it be deleted. The local copy has been removed; change the default branch in the repository's GitHub settings if you also want the remote one gone.",
+    ],
+    [
+      '#791 create_branch (name taken)',
+      "A branch named 'feature/x' already exists. Pick a different name, or switch to the existing branch.",
+    ],
+    ['#317 get_current_branch (detached HEAD)', 'Detached HEAD state'],
+    [
+      '#794 publish_branch (detached HEAD)',
+      "This project isn't on a branch right now (git calls this a detached HEAD — it happens mid-rebase or after checking out a specific commit or tag). Switch to a branch first, then publish.",
+    ],
+    [
+      '#819 push_branch timeout',
+      "Publishing took too long — GitHub didn't respond in time. Check your internet connection and try again.",
+    ],
+    [
+      '#771 gh repo create --push timeout',
+      'Creating the repository on GitHub took too long and timed out. Larger projects can take a while to upload — check your internet connection and try again.',
+    ],
+    [
+      '#819 sibling: delete_branch remote-delete timeout',
+      "GitHub didn't respond in time while deleting the remote branch. The local branch is gone — check your connection and try deleting the remote copy again.",
+    ],
+    [
+      '#798 close_pull_request (already merged)',
+      "This pull request was already merged, so there's nothing to close. Refresh to see its current state.",
+    ],
+  ];
+
+  it.each(backendMessages)('recognizes %s', (_label, message) => {
+    expect(isRecognizedGitFailure(message)).toBe(true);
+    expect(isRecognizedGitFailure({ type: 'Other', message })).toBe(true);
+  });
+
+  it('still reports genuinely unknown git failures', () => {
+    expect(isRecognizedGitFailure('fatal: bad object 0000000')).toBe(false);
+  });
+});
+
+describe('humanizeGitError — raw-git cases added in sweep 18', () => {
+  it("rephrases git's taken-branch-name refusal and names the branch (#791)", () => {
+    const message = humanizeGitError("fatal: a branch named 'feature/x' already exists");
+    expect(message).toContain("'feature/x'");
+    expect(message).toMatch(/pick a different name/i);
+    // Must not be mistaken for the open-PR collision, which also says
+    // "already exists".
+    expect(message).not.toMatch(/pull request/i);
+  });
+
+  it('still recognizes the open-PR collision (#428)', () => {
+    expect(
+      humanizeGitError('a pull request for branch "feature/x" already exists', {
+        branch: 'feature/x',
+      })
+    ).toMatch(/already an open pull request/i);
+  });
+
+  it("explains git's multi-remote checkout refusal (#729 residual)", () => {
+    const raw = "fatal: 'shared' matched multiple (2) remote tracking branches";
+    const message = humanizeGitError(raw, { branch: 'shared' });
+    expect(message).toMatch(/more than one remote/i);
+    expect(message).toContain('git checkout -b');
+    expect(isRecognizedGitFailure(raw)).toBe(true);
+  });
+});
+
+describe('describeProcessError — git exit-128 causes that are not auth (issue #841)', () => {
+  // The templates the creation flow clones are public repos fetched
+  // anonymously, so "make sure you're signed into GitHub" is always wrong
+  // advice for them. Each of these must be named before the exit-code table.
+  const clone = (stderr: string) =>
+    describeProcessError(`Process exited with code 128\n\n${stderr}`);
+
+  it('names the dubious-ownership check instead of blaming GitHub auth', () => {
+    const info = clone(
+      "fatal: detected dubious ownership in repository at '/Volumes/nas/Projects'"
+    );
+    expect(info.expected).toBe(true);
+    expect(info.message).toMatch(/safe\.directory/);
+    expect(info.message).not.toMatch(/signed into GitHub/i);
+  });
+
+  it('names an unwritable projects folder instead of blaming GitHub auth', () => {
+    for (const stderr of [
+      "fatal: could not create work tree dir 'uicpick': Permission denied",
+      "fatal: could not create leading directories of 'Z:/mainframe/Projects/uicpick'",
+      'error: unable to create directory for .git/objects: Input/output error',
+      'fatal: Unable to write new index file',
+      'error: copy-fd: write returned: Read-only file system',
+    ]) {
+      const info = clone(stderr);
+      expect(info.expected, stderr).toBe(true);
+      expect(info.message, stderr).toMatch(/NAS, network, or external drive/);
+      expect(info.message, stderr).not.toMatch(/signed into GitHub/i);
+    }
+  });
+
+  it('names a full disk', () => {
+    const info = clone('fatal: write error: No space left on device');
+    expect(info.expected).toBe(true);
+    expect(info.message).toMatch(/run out of space/i);
+  });
+
+  it('still falls back to the caller-supplied 128 message when nothing is recognized', () => {
+    const info = describeProcessError('Process exited with code 128', {
+      128: 'creation-flow fallback',
+    });
+    expect(info).toEqual({ expected: true, message: 'creation-flow fallback' });
+  });
+});
