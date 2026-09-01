@@ -139,6 +139,21 @@ pub fn is_registered_external_path(canonical: &Path) -> Result<bool, String> {
     Ok(false)
 }
 
+/// True when `canonical` sits directly inside an allowed projects root, which
+/// is exactly what the dashboard's single-level scan lists. A deeper folder is
+/// *contained* by the root but invisible to that scan (issue #747).
+fn is_direct_child_of_projects_root(canonical: &Path) -> bool {
+    is_direct_child_of_any(canonical, &crate::utils::allowed_project_roots())
+}
+
+/// Testable core of [`is_direct_child_of_projects_root`].
+fn is_direct_child_of_any(canonical: &Path, roots: &[PathBuf]) -> bool {
+    match canonical.parent() {
+        Some(parent) => roots.iter().any(|root| parent == root),
+        None => false,
+    }
+}
+
 // ============ Tauri Commands ============
 
 /// Opens a native folder picker and registers the selected folder as an external project.
@@ -233,10 +248,14 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
 
     // Reject folders that already live under a projects root (configured or
     // default) — those are listed automatically and aren't "external".
-    if crate::utils::allowed_project_roots()
-        .iter()
-        .any(|root| canonical.starts_with(root))
-    {
+    //
+    // Only *direct children* qualify: `list_projects`/`get_dashboard_projects`
+    // scan the projects root one level deep, so a folder nested deeper is never
+    // discovered. Refusing it with "it will appear automatically" left those
+    // projects permanently invisible, with no way to add them (issue #747) —
+    // they fall through to normal external registration instead, which does
+    // list them.
+    if is_direct_child_of_projects_root(&canonical) {
         if crate::commands::projects::restore_removed_project(&canonical)? {
             return Ok(Some(canonical_str));
         }
@@ -462,8 +481,35 @@ pub async fn is_project_external(path: String) -> Result<bool, CommandError> {
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_project_root;
+    use super::{is_direct_child_of_any, looks_like_project_root};
     use std::fs;
+    use std::path::{Path, PathBuf};
+
+    // Issue #747: the "already inside your projects folder, it will appear
+    // automatically" refusal must only cover folders the single-level dashboard
+    // scan actually lists — deeper ones need external registration to show up.
+    #[test]
+    fn only_direct_children_count_as_inside_a_projects_root() {
+        let roots = vec![PathBuf::from("/Users/me/ShipStudio")];
+        assert!(is_direct_child_of_any(
+            Path::new("/Users/me/ShipStudio/my-app"),
+            &roots
+        ));
+        assert!(!is_direct_child_of_any(
+            Path::new("/Users/me/ShipStudio/clients/my-app"),
+            &roots
+        ));
+        // The root itself and unrelated paths aren't direct children either.
+        assert!(!is_direct_child_of_any(
+            Path::new("/Users/me/ShipStudio"),
+            &roots
+        ));
+        assert!(!is_direct_child_of_any(
+            Path::new("/Users/me/other"),
+            &roots
+        ));
+        assert!(!is_direct_child_of_any(Path::new("/"), &roots));
+    }
 
     #[test]
     fn rejects_sensitive_non_project_dirs() {
