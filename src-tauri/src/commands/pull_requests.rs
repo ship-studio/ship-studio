@@ -119,6 +119,31 @@ fn is_push_rejection(stderr: &str) -> bool {
         || lower.contains("tip of your current branch is behind")
 }
 
+/// gh's by-design refusals for `pr create`, classified `Expected` so routine
+/// states stay out of telemetry.
+///
+/// "no commits between" and "a pull request already exists" keep gh's raw text
+/// because the frontend already rephrases both (humanizeGitError, issue #428).
+/// "no history in common" — GitHub refusing to compare an orphan/unrelated-
+/// history branch with the base — has no frontend rephrasing, so the friendly
+/// wording is authored here rather than forwarding the GraphQL text
+/// (issue #838).
+fn pr_create_refusal(stderr: &str, base: &str) -> Option<CommandError> {
+    let lower = stderr.to_lowercase();
+    if lower.contains("no commits between")
+        || (lower.contains("already exists") && lower.contains("pull request"))
+    {
+        return Some(CommandError::expected(stderr.to_string()));
+    }
+    if lower.contains("no history in common") {
+        return Some(CommandError::expected(format!(
+            "This branch shares no history with \"{base}\", so GitHub can't compare them for a \
+             pull request. It was most likely started separately instead of from \"{base}\"."
+        )));
+    }
+    None
+}
+
 /// Create a new pull request.
 /// Automatically pushes the branch to the remote first if needed.
 #[tauri::command]
@@ -205,15 +230,8 @@ pub async fn create_pull_request(
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
         }
-        // gh's by-design refusals for `pr create` — the frontend already
-        // rephrases both into friendly guidance (humanizeGitError), so keep
-        // the raw text but mark them Expected so they stay out of telemetry
-        // (issue #428).
-        let lower = stderr.to_lowercase();
-        if lower.contains("no commits between")
-            || (lower.contains("already exists") && lower.contains("pull request"))
-        {
-            return Err(CommandError::expected(stderr.to_string()));
+        if let Some(err) = pr_create_refusal(&stderr, &base) {
+            return Err(err);
         }
         return Err(truncate_output(&stderr).into());
     }
@@ -325,6 +343,14 @@ pub async fn checkout_pull_request(
     Ok(branch)
 }
 
+/// Match gh's refusal to close an already-merged pull request. Kept narrow —
+/// "already merged" alone would also claim unrelated merge chatter, so both
+/// halves of gh's sentence must be present (issue #798).
+fn is_already_merged_stderr(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("already merged") && lower.contains("can't be closed")
+}
+
 /// Close a pull request without merging
 #[tauri::command]
 #[tracing::instrument(skip(project_path), fields(project = %project_path, pr = pr_number))]
@@ -346,6 +372,16 @@ pub async fn close_pull_request(project_path: String, pr_number: i32) -> Result<
         }
         if let Some(err) = crate::commands::github::gh_git_repo_error(&stderr) {
             return Err(err);
+        }
+        // gh refuses to close a PR that GitHub already merged ("can't be
+        // closed because it was already merged"). The list the Close button
+        // was clicked from can be stale by seconds — an anticipated race, not
+        // a malfunction (issue #798, same class as #482/#601).
+        if is_already_merged_stderr(&stderr) {
+            return Err(CommandError::expected(
+                "This pull request was already merged, so there's nothing to close. \
+                 Refresh to see its current state.",
+            ));
         }
         return Err(format!("Failed to close PR: {}", truncate_output(&stderr)).into());
     }
@@ -401,6 +437,53 @@ mod tests {
         let ise = "remote: Internal Server Error\n ! [remote rejected] main -> main (Internal Server Error)\nerror: failed to push some refs to 'https://github.com/o/r.git'";
         assert!(is_push_rejection(ise));
         assert!(crate::commands::publishing::push_transient_server_error(ise).is_some());
+    }
+
+    /// The #838 shape: an orphan-history branch GitHub can't compare with the
+    /// base. A by-design refusal — Expected, with wording that doesn't forward
+    /// gh's GraphQL text.
+    #[test]
+    fn pr_create_refusal_classifies_no_history_in_common() {
+        let stderr = "pull request create failed: GraphQL: The site branch has no history in common with main (createPullRequest)";
+        let err = pr_create_refusal(stderr, "main").expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("shares no history"), "got: {msg}");
+        assert!(
+            msg.contains("main"),
+            "must name the base branch, got: {msg}"
+        );
+        assert!(!msg.contains("GraphQL"), "must not forward gh's raw text");
+    }
+
+    /// The #428 refusals must keep their raw text (the frontend rephrases
+    /// them) and stay Expected.
+    #[test]
+    fn pr_create_refusal_keeps_the_428_cases_and_ignores_the_rest() {
+        let no_commits = "GraphQL: No commits between main and feat/empty (createPullRequest)";
+        let err = pr_create_refusal(no_commits, "main").expect("should classify as expected");
+        assert!(err.to_string().contains("No commits between"));
+        assert!(pr_create_refusal(
+            "GraphQL: A pull request already exists for julian:feat/x.",
+            "main"
+        )
+        .is_some());
+        assert!(pr_create_refusal("something genuinely unexplained", "main").is_none());
+        assert!(pr_create_refusal("", "main").is_none());
+    }
+
+    /// The #798 shape: the Close button clicked off a list that went stale
+    /// after the PR was merged elsewhere. A race, not a malfunction.
+    #[test]
+    fn is_already_merged_stderr_matches_ghs_close_refusal() {
+        assert!(is_already_merged_stderr(
+            "X Pull request owner/repo#12 (Add thing) can't be closed because it was already merged"
+        ));
+        // Merge chatter that isn't gh's close refusal must stay unclassified.
+        assert!(!is_already_merged_stderr(
+            "fatal: refusing to merge unrelated histories; branch was already merged"
+        ));
+        assert!(!is_already_merged_stderr(""));
     }
 
     #[test]

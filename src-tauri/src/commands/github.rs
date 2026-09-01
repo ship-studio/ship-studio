@@ -196,6 +196,14 @@ fn gh_command_and_account(project_path: Option<&str>) -> Result<(Command, String
 const GH_TIMEOUT_MESSAGE: &str =
     "GitHub took too long to respond. Check your internet connection and try again.";
 
+/// User-facing message when `gh repo create --push` blows its (longer) time
+/// budget — a big repo or a slow uplink, not a malfunction (issue #771).
+/// Keeps the "check your internet connection" wording so errors.ts's
+/// BACKEND_HUMANIZED_GIT_PHRASES still recognizes it as already-humanized.
+const GH_PUSH_TIMEOUT_MESSAGE: &str =
+    "Creating the repository on GitHub took too long and timed out. Larger projects can take a \
+     while to upload — check your internet connection and try again.";
+
 #[tauri::command]
 #[tracing::instrument]
 pub async fn get_github_username(project_path: Option<String>) -> Result<String, CommandError> {
@@ -455,6 +463,75 @@ pub fn ensure_git_identity(repo_path: &std::path::Path) -> Result<(), CommandErr
     Ok(())
 }
 
+/// The project's configured `origin` remote URL, if it has one. A missing
+/// remote (or a repo git can't read) is simply "none" — the caller only uses
+/// this to decide whether `gh repo create --remote origin` can safely run.
+fn existing_origin_url(repo_path: &Path) -> Option<String> {
+    let output = crate::utils::git_command_in(repo_path)
+        .ok()?
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!url.is_empty()).then_some(url)
+}
+
+/// True when an existing `origin` already points at the repository the user is
+/// asking to create — the signature of a half-finished earlier run (`gh repo
+/// create` succeeded, the push after it didn't). `repo_name` is either bare
+/// ("my-app") or owner-qualified ("acme/my-app"); a bare name can only be
+/// matched on the repo segment, since which account gh would create it under
+/// isn't known here.
+fn origin_matches_repo(origin_url: &str, repo_name: &str) -> bool {
+    let Some(existing) = parse_github_repo(origin_url) else {
+        return false;
+    };
+    let existing = existing.to_lowercase();
+    let target = repo_name.trim().to_lowercase();
+    if target.is_empty() {
+        return false;
+    }
+    if target.contains('/') {
+        return existing == target;
+    }
+    existing.rsplit('/').next() == Some(target.as_str())
+}
+
+/// Finish a run that already created the GitHub repo and wired up `origin`:
+/// push the branch and report the repo URL derived from the *actual* remote
+/// (never a guessed one). Failures classify through the shared git/gh
+/// classifiers so a connectivity blip here reads like it does everywhere else.
+async fn push_to_existing_origin(
+    repo_path: &Path,
+    origin_url: &str,
+) -> Result<String, CommandError> {
+    let output =
+        crate::commands::git::run_git_net(&["push", "-u", "origin", "HEAD"], repo_path, "push")
+            .await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.contains("Everything up-to-date") {
+            if let Some(err) = crate::commands::git::classify_git_net_error(&stderr) {
+                return Err(err);
+            }
+            return Err(CommandError::Process {
+                cmd: "git push".to_string(),
+                exit_code: output.status.code().unwrap_or(-1),
+                stderr: truncate_output(&stderr),
+            });
+        }
+    }
+
+    let slug = parse_github_repo(origin_url).ok_or_else(|| CommandError::Other {
+        message: format!("Couldn't read the GitHub repository from the remote URL {origin_url}"),
+    })?;
+    Ok(format!("https://github.com/{slug}"))
+}
+
 #[tauri::command]
 #[tracing::instrument(skip(options), fields(project = %options.project_path, repo = %options.repo_name))]
 pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, CommandError> {
@@ -517,6 +594,25 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
         }
     }
 
+    // `gh repo create --remote origin` runs `git remote add origin` itself —
+    // *after* creating the repo on GitHub — so a project that already has an
+    // origin leaves a partial success: the repo exists, the project isn't
+    // linked, and the user sees gh's raw `Unable to add remote "origin"`
+    // (issue #779). Settle it before anything is created.
+    if let Some(origin_url) = existing_origin_url(&validated_path) {
+        if origin_matches_repo(&origin_url, repo_name) {
+            // The remote already points at the repo being created — a retry of
+            // an earlier run whose push failed after the create succeeded.
+            // Reuse it and finish the job instead of re-creating anything.
+            return push_to_existing_origin(&validated_path, &origin_url).await;
+        }
+        return Err(CommandError::expected(format!(
+            "This project is already connected to a different GitHub repository ({origin_url}). \
+             Publish to that repository, or remove the existing remote \
+             (`git remote remove origin`) before creating a new one."
+        )));
+    }
+
     // Create GitHub repo and push, scoped to the project's workspace so the repo
     // is created under that workspace's GitHub account, not the active one.
     let mut gh_cmd = get_gh_command_for_project(&validated_path);
@@ -527,7 +623,15 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
         ])
         .current_dir(&validated_path);
     // Longer timeout: create+push can take a while for bigger repos.
-    let output = run_command_with_timeout(gh_cmd, "gh repo create --push", 60).await?;
+    let output = match run_command_with_timeout(gh_cmd, "gh repo create --push", 60).await {
+        // A blown time budget on a big upload is the network, not a
+        // malfunction — the same mapping the gh api calls above use
+        // (issues #771/#686).
+        Err(CommandError::Timeout { .. }) => {
+            return Err(CommandError::expected(GH_PUSH_TIMEOUT_MESSAGE))
+        }
+        other => other?,
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -538,6 +642,21 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
         if stderr.contains("Name already exists on this account") {
             return Err(CommandError::expected(format!(
                 "A repository named \"{repo_name}\" already exists on this account. Choose a different name."
+            )));
+        }
+        // The remote-add step still lost the race (a remote appeared between
+        // the pre-flight check and now). gh creates the repo on GitHub before
+        // wiring the remote up, so the repo exists and only the local link is
+        // missing — say that instead of forwarding gh's raw wording, and don't
+        // silently repoint a remote the user set up (issue #779).
+        let lower = stderr.to_lowercase();
+        if lower.contains("unable to add remote") || lower.contains("remote origin already exists")
+        {
+            return Err(CommandError::expected(format!(
+                "The repository \"{repo_name}\" was created on GitHub, but this project couldn't \
+                 be connected to it because it already has a remote named \"origin\". Point that \
+                 remote at the new repository (`git remote set-url origin <url>`) and push, or \
+                 remove it and try again."
             )));
         }
         // Connectivity blips and GitHub's transient API 400s are the
@@ -672,25 +791,31 @@ pub(crate) fn gh_malformed_request_error(stderr: &str) -> Option<CommandError> {
         })
 }
 
-/// GitHub's API answering with a transient server-side 5xx — gh passes the
+/// GitHub's API answering with a transient server-side status — gh passes the
 /// response text through ("HTTP 504: We couldn't respond to your request in
 /// time…", "HTTP 502: Bad Gateway", …). The request reached GitHub and
 /// GitHub fell over; nothing the app did wrong and nothing the user can do
 /// but retry — the sibling of the HTTP 400 case below (issues #627/#602).
 /// `Expected` keeps it out of telemetry.
+///
+/// HTTP 499 ("Client Closed Request") belongs here too despite not being a
+/// 5xx: it's the nginx-originated status GitHub's edge returns when the
+/// request is abandoned before a response is produced — an infrastructure
+/// blip on the same retry-and-it-works footing (issue #806).
 pub(crate) fn gh_server_error(stderr: &str) -> Option<CommandError> {
     let s = stderr.to_lowercase();
-    let is_5xx = s.contains("http 500")
+    let is_transient = s.contains("http 500")
         || s.contains("http 502")
         || s.contains("http 503")
         || s.contains("http 504")
+        || s.contains("http 499")
         || s.contains("bad gateway")
         || s.contains("service unavailable")
         || s.contains("gateway timeout")
         // The prose GitHub uses for its GraphQL 504s ("We couldn't respond to
         // your request in time. Sorry about that. Please try resubmitting…").
         || s.contains("respond to your request in time");
-    is_5xx.then(|| {
+    is_transient.then(|| {
         CommandError::expected(
             "GitHub's API is temporarily unavailable (a GitHub server error). \
              Try again in a moment.",
@@ -749,11 +874,32 @@ pub(crate) fn gh_crash_error(stderr: &str) -> Option<CommandError> {
     })
 }
 
+/// A Node.js crash dump from a program named `gh` that isn't GitHub's CLI.
+/// GitHub ships `gh` as a Go binary — it never emits `node:internal/...`
+/// frames — so this shape means PATH resolved something else: in the reported
+/// case the unrelated npm package literally named `gh`, installed globally
+/// under `%APPDATA%\npm` where `find_executable` can find it ahead of the real
+/// `gh.exe`. Handed real-gh arguments and the null stdin
+/// [`get_gh_command`] sets, its `inquirer` prompt tears down an already-closed
+/// readline, which Node ≥ 24 turns into a thrown `ERR_USE_AFTER_CLOSE`
+/// (issue #737). Nothing the app can retry: `Expected` keeps the dump out of
+/// telemetry and the message names the real fix.
+pub(crate) fn gh_shadowed_binary_error(stderr: &str) -> Option<CommandError> {
+    let is_node_crash = stderr.contains("node:internal/") || stderr.contains("ERR_USE_AFTER_CLOSE");
+    is_node_crash.then(|| {
+        CommandError::expected(
+            "The program named `gh` on this computer isn't GitHub's CLI — something else \
+             (most often an unrelated global npm package called \"gh\") is being found first. \
+             Remove it (`npm uninstall -g gh`) or reinstall the GitHub CLI, then try again.",
+        )
+    })
+}
+
 /// A `gh` invocation that hits GitHub can fail these ways regardless of which
 /// subcommand ran: a connectivity blip, GitHub's transient HTTP 400 or 5xx,
-/// an unreadable gh config file, or gh itself crashing. One-stop
-/// classification for the shared cases — call sites still layer their own
-/// auth / subcommand-specific checks on top.
+/// an unreadable gh config file, gh itself crashing, or `gh` not being
+/// GitHub's CLI at all. One-stop classification for the shared cases — call
+/// sites still layer their own auth / subcommand-specific checks on top.
 pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
     // TLS first: a cert-verification failure needs its trust-store guidance,
     // not the generic "check your internet connection" message (issue #658).
@@ -762,6 +908,9 @@ pub(crate) fn gh_common_error(stderr: &str) -> Option<CommandError> {
         .or_else(|| gh_malformed_request_error(stderr))
         .or_else(|| gh_server_error(stderr))
         .or_else(|| gh_config_error(stderr))
+        // Before gh_crash_error: a wrong-binary crash needs its own remedy,
+        // not "reinstalling the GitHub CLI may help" (issue #737).
+        .or_else(|| gh_shadowed_binary_error(stderr))
         .or_else(|| gh_crash_error(stderr))
 }
 
@@ -953,6 +1102,17 @@ mod tests {
     fn gh_timeout_message_keeps_the_frontend_matched_wording() {
         assert!(GH_TIMEOUT_MESSAGE.contains("took too long"));
         assert!(GH_TIMEOUT_MESSAGE
+            .to_lowercase()
+            .contains("check your internet connection"));
+    }
+
+    /// The #771 mapping: a timed-out `gh repo create --push` must still read
+    /// as a network condition to errors.ts's BACKEND_HUMANIZED_GIT_PHRASES,
+    /// which matches on "check your internet connection".
+    #[test]
+    fn gh_push_timeout_message_keeps_the_frontend_matched_wording() {
+        assert!(GH_PUSH_TIMEOUT_MESSAGE.contains("took too long"));
+        assert!(GH_PUSH_TIMEOUT_MESSAGE
             .to_lowercase()
             .contains("check your internet connection"));
     }
@@ -1345,12 +1505,98 @@ mod tests {
         assert!(gh_server_error("HTTP 503: Service Unavailable").is_some());
     }
 
+    // The #806 shape: GitHub's edge answering 499 ("Client Closed Request")
+    // — not a 5xx, but the same abandoned-request blip that retrying fixes.
+    #[test]
+    fn gh_server_error_classifies_http_499_as_expected() {
+        let stderr = "HTTP 499: 499  (https://api.github.com/graphql)";
+        let err = gh_server_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        assert!(err.to_string().contains("Try again"), "got: {err}");
+        // And through the shared classifier every gh call site funnels into.
+        assert!(gh_common_error(stderr).is_some());
+    }
+
     #[test]
     fn gh_server_error_ignores_non_5xx_stderr() {
         assert!(gh_server_error("HTTP 404: Not Found (https://api.github.com/graphql)").is_none());
         assert!(gh_server_error("HTTP 400: We received a malformed request").is_none());
         assert!(gh_server_error("GraphQL: name already exists on this account").is_none());
         assert!(gh_server_error("").is_none());
+    }
+
+    // The #737 shape: an unrelated global npm package named `gh` resolving
+    // ahead of GitHub's CLI and dying with a Node crash dump. GitHub's gh is a
+    // Go binary, so Node frames mean the wrong program ran.
+    #[test]
+    fn gh_shadowed_binary_error_classifies_node_crash_as_expected() {
+        let stderr = "node:internal/readline/interface:564\n      throw new ERR_USE_AFTER_CLOSE('readline');\n      ^\n\nError [ERR_USE_AFTER_CLOSE]: readline was closed\n    at Interface.pause (node:internal/readline/interface:564:13)\n    at PromptUI.close (C:\\Users\\x\\AppData\\Roaming\\npm\\node_modules\\gh\\node_modules\\inquirer\\lib\\ui\\baseUI.js:57:13)\n\nNode.js v24.14.0";
+        let err = gh_shadowed_binary_error(stderr).expect("should classify as expected");
+        assert!(matches!(err, CommandError::Expected { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("isn't GitHub's CLI"), "got: {msg}");
+        assert!(
+            msg.contains("npm uninstall -g gh"),
+            "must name the fix, got: {msg}"
+        );
+        assert!(!msg.contains("node:internal"), "must not forward the dump");
+        // Routed through the shared classifier, and ahead of gh_crash_error so
+        // it doesn't get the misleading "reinstall the GitHub CLI" advice.
+        let common = gh_common_error(stderr).expect("common classifier must cover it");
+        assert!(format!("{common}").contains("isn't GitHub's CLI"));
+    }
+
+    #[test]
+    fn gh_shadowed_binary_error_ignores_real_gh_output() {
+        // A genuine Go crash stays with gh_crash_error's wording.
+        assert!(gh_shadowed_binary_error(
+            "panic: runtime error: nil pointer\n\ngoroutine 1 [running]:"
+        )
+        .is_none());
+        assert!(gh_shadowed_binary_error("GraphQL: no commits between main and x").is_none());
+        assert!(gh_shadowed_binary_error("").is_none());
+    }
+
+    // The #779 pre-flight: an existing `origin` decides whether the create
+    // step can run at all. A remote pointing at the repo being created means a
+    // half-finished earlier run (create succeeded, push didn't) — reuse it.
+    #[test]
+    fn origin_matches_repo_recognizes_the_repo_being_created() {
+        assert!(origin_matches_repo(
+            "https://github.com/alice/my-app.git",
+            "my-app"
+        ));
+        assert!(origin_matches_repo(
+            "git@github.com:alice/my-app.git",
+            "alice/my-app"
+        ));
+        // Case differences in GitHub repo names are not meaningful.
+        assert!(origin_matches_repo(
+            "https://github.com/Alice/My-App",
+            "my-app"
+        ));
+    }
+
+    #[test]
+    fn origin_matches_repo_rejects_a_different_remote() {
+        // A remote for some other project — the case that must stop the
+        // create instead of leaving an orphan repo on GitHub.
+        assert!(!origin_matches_repo(
+            "https://github.com/alice/other-project.git",
+            "my-app"
+        ));
+        // Same repo name under a different owner, when the owner was given.
+        assert!(!origin_matches_repo(
+            "https://github.com/bob/my-app.git",
+            "alice/my-app"
+        ));
+        // Non-GitHub and unparseable remotes are never a match.
+        assert!(!origin_matches_repo(
+            "https://gitlab.com/alice/my-app.git",
+            "my-app"
+        ));
+        assert!(!origin_matches_repo("", "my-app"));
+        assert!(!origin_matches_repo("https://github.com/alice/my-app", ""));
     }
 
     // The #631 shape: gh dying at startup because its own config file is
