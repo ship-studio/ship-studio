@@ -9,6 +9,7 @@ import {
   isAgentNotInstalledError,
   isExpectedProjectImportRefusal,
   isMergeConflictError,
+  isMissingUpstreamError,
   isProjectFolderGoneError,
   isRecognizedGitFailure,
   isResourcePressureError,
@@ -480,6 +481,41 @@ describe('humanizeGitError', () => {
     } as unknown as CommandError;
     // Timeout formats to a "timed out" message → the network case.
     expect(humanizeGitError(err)).toMatch(/couldn't reach GitHub/i);
+  });
+});
+
+describe('isMissingUpstreamError', () => {
+  // One signature shared by Revert-to-GitHub (BranchesTab) and Pull latest
+  // (useBranchManagement) — they used to carry their own copy of this regex.
+  it('matches both of git\'s "nothing on GitHub to pull" refusals (#600/#809)', () => {
+    expect(
+      isMissingUpstreamError(
+        'Failed to pull: There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.'
+      )
+    ).toBe(true);
+    expect(
+      isMissingUpstreamError(
+        "Failed to pull: Your configuration specifies to merge with the ref 'refs/heads/feat/unpushed'\nfrom the remote, but no such ref was fetched."
+      )
+    ).toBe(true);
+  });
+
+  it('reads a CommandError object, not just a string', () => {
+    expect(
+      isMissingUpstreamError({
+        type: 'Process',
+        cmd: 'git',
+        exit_code: 1,
+        stderr: 'There is no tracking information for the current branch.',
+      })
+    ).toBe(true);
+  });
+
+  it('does not match unrelated git failures', () => {
+    expect(isMissingUpstreamError('error: your local changes would be overwritten by merge')).toBe(
+      false
+    );
+    expect(isMissingUpstreamError(new Error('fatal: not a git repository'))).toBe(false);
   });
 });
 

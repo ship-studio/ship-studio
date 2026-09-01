@@ -415,6 +415,13 @@ fn command_error_fingerprint(err: &crate::errors::CommandError) -> Option<String
 /// instead catches both word orders while still excluding remote URLs, where
 /// `.git` is glued to the repo name (`…/repo.git'` tokenizes as `…/repo.git`,
 /// never a bare `.git`).
+///
+/// Quotes are deliberately NOT separators. Git substitutes the probe marker
+/// into the not-a-repo sentence bare (`…): .git`) in every locale, but quotes
+/// paths in access failures (`fatal: cannot access '.git': Operation not
+/// permitted` — a real macOS TCC / permissions problem). Treating quotes as
+/// separators made `'.git'` tokenize to `.git`, so that genuine failure was
+/// suppressed as benign and the user's report never arrived.
 fn is_not_a_git_repo_message(message: &str) -> bool {
     if message
         .to_ascii_lowercase()
@@ -423,7 +430,7 @@ fn is_not_a_git_repo_message(message: &str) -> bool {
         return true;
     }
     message
-        .split(|c: char| c.is_whitespace() || "\"'()（）:：".contains(c))
+        .split(|c: char| c.is_whitespace() || "()（）:：".contains(c))
         .any(|token| token == ".git")
 }
 
@@ -608,6 +615,15 @@ mod tests {
         // not treat ".git/index" as the bare probe marker (issue #727).
         assert!(!is_not_a_git_repo_message(
             "error: unable to write to .git/index"
+        ));
+        // A macOS TCC / permissions failure quotes the path. Git never quotes
+        // the bare probe marker in the not-a-repo sentence, so a quoted '.git'
+        // is a genuine access problem — suppressing it hid the real failure.
+        assert!(!is_not_a_git_repo_message(
+            "fatal: cannot access '.git': Operation not permitted"
+        ));
+        assert!(!is_not_a_git_repo_message(
+            "Failed to list branches: fatal: cannot access '.git': Operation not permitted"
         ));
         assert!(!is_not_a_git_repo_message(""));
     }

@@ -41,8 +41,13 @@ fn list_branches_failure_message(stderr_trimmed: &str, exit_code: Option<i32>) -
         };
     }
     // Include git's stderr — a bare "Failed to list branches" is
-    // undiagnosable from telemetry (issue #252).
-    format!("Failed to list branches: {stderr_trimmed}")
+    // undiagnosable from telemetry (issue #252) — but capped, like its
+    // status.rs twin: an unbounded dump floods the toast and telemetry
+    // (issue #547).
+    format!(
+        "Failed to list branches: {}",
+        super::status::truncate_stderr(stderr_trimmed)
+    )
 }
 
 /// List all branches (local and remote) with metadata
@@ -658,26 +663,14 @@ pub async fn push_branch(project_path: String, branch_name: String) -> Result<()
     }
 
     info!("Publishing branch to GitHub");
-    let output = match run_git_net(
+    // A blown network budget maps to Expected inside run_git_net itself, so
+    // every push path gets it, not just this one (issue #819).
+    let output = run_git_net(
         &["push", "-u", "origin", &branch_name],
         &validated_path,
         "push branch",
     )
-    .await
-    {
-        // A blown network budget is the connection (or a large repo), not a
-        // malfunction — the bare `?` used to send every slow push to telemetry
-        // as `cmderr-timeout-git push branch` (issue #819). Same mapping as
-        // get_github_username's gh timeouts (#686).
-        Err(CommandError::Timeout { .. }) => {
-            warn!("Publishing branch timed out waiting for GitHub");
-            return Err(CommandError::expected(
-                "Publishing took too long — GitHub didn't respond in time. Check your internet \
-                 connection and try again.",
-            ));
-        }
-        other => other?,
-    };
+    .await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -809,24 +802,13 @@ pub async fn delete_branch(
 
     // Delete remote branch if requested
     if delete_remote {
-        let remote_output = match run_git_net(
+        // Timeouts map to Expected inside run_git_net (issue #819).
+        let remote_output = run_git_net(
             &["push", "origin", "--delete", &branch_name],
             &validated_path,
             "push origin --delete",
         )
-        .await
-        {
-            // Same network-not-malfunction mapping as push_branch (issue #819).
-            Err(CommandError::Timeout { .. }) => {
-                warn!("Remote branch delete timed out waiting for GitHub");
-                return Err(CommandError::expected(
-                    "GitHub didn't respond in time while deleting the remote branch. The local \
-                     branch is gone — check your connection and try deleting the remote copy \
-                     again.",
-                ));
-            }
-            other => other?,
-        };
+        .await?;
 
         if !remote_output.status.success() {
             let stderr = String::from_utf8_lossy(&remote_output.stderr);
@@ -982,6 +964,17 @@ mod tests {
             list_branches_failure_message("fatal: bad object", Some(128)),
             "Failed to list branches: fatal: bad object"
         );
+    }
+
+    /// Same cap as `git_status_failure_message` (issue #547): an unbounded
+    /// stderr dump floods the toast and telemetry.
+    #[test]
+    fn list_branches_failure_message_truncates_a_huge_stderr() {
+        let huge = "x".repeat(5000);
+        let msg = list_branches_failure_message(&huge, Some(128));
+        assert!(msg.len() < 700, "must be capped, got {} chars", msg.len());
+        assert!(msg.ends_with('…'), "got tail: {}", &msg[msg.len() - 20..]);
+        assert!(msg.starts_with("Failed to list branches: xxx"));
     }
 
     #[test]

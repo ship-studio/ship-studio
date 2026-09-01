@@ -48,9 +48,7 @@ pub async fn stash_changes(project_path: String) -> Result<bool, CommandError> {
                 "Ship Studio: set aside before creating a branch",
             ])
             .output()
-            .map_err(|e| CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(CommandError::from)
     })?;
 
     if !output.status.success() {
@@ -76,9 +74,7 @@ pub async fn apply_stash(project_path: String) -> Result<bool, CommandError> {
         crate::utils::git_command_in(&validated_path)?
             .args(["stash", "pop"])
             .output()
-            .map_err(|e| CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(CommandError::from)
     })?;
 
     if pop_output.status.success() {
@@ -109,9 +105,7 @@ pub async fn drop_stash(project_path: String) -> Result<bool, CommandError> {
         crate::utils::git_command_in(&validated_path)?
             .args(["stash", "drop"])
             .output()
-            .map_err(|e| CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(CommandError::from)
     })?;
 
     // Clear stash info from metadata regardless of drop success
@@ -227,9 +221,7 @@ pub async fn restore_backup(
             crate::utils::git_command_in(&validated_path)?
                 .args(["stash", "push", "-m", "Auto-stash before restore"])
                 .output()
-                .map_err(|e| CommandError::Io {
-                    message: e.to_string(),
-                })
+                .map_err(CommandError::from)
         })?;
 
         if !stash_output.status.success() {
@@ -259,9 +251,7 @@ pub async fn restore_backup(
         crate::utils::git_command_in(&validated_path)?
             .args(["checkout", "-b", &branch_name])
             .output()
-            .map_err(|e| CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(CommandError::from)
     })?;
 
     if !create_output.status.success() {
@@ -286,9 +276,7 @@ pub async fn restore_backup(
         crate::utils::git_command_in(&validated_path)?
             .args(["checkout", &commit_hash, "--", "."])
             .output()
-            .map_err(|e| CommandError::Io {
-                message: e.to_string(),
-            })
+            .map_err(CommandError::from)
     })?;
 
     if !checkout_output.status.success() {
@@ -378,4 +366,27 @@ pub async fn restore_backup(
         branch_name,
         commit_message,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CommandError;
+
+    /// Every `git` spawn in this file maps its `io::Error` with
+    /// `CommandError::from`, never by hand-constructing `CommandError::Io`.
+    /// Six copy-pasted `map_err(|e| CommandError::Io { … })` blocks bypassed
+    /// the `From` impl's `windows_out_of_memory` classification, so a Windows
+    /// paging-file exhaustion during a stash/checkout reached the user as a
+    /// bare OS string and telemetry as an app malfunction (issues #356/#783).
+    #[test]
+    fn spawn_failures_keep_the_windows_out_of_memory_classification() {
+        let oom = std::io::Error::from_raw_os_error(1455);
+        let err = CommandError::from(oom);
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        assert!(err.to_string().contains("paging file"), "got: {err}");
+
+        // Ordinary spawn failures still land in Io so telemetry keeps them.
+        let other = std::io::Error::other("boom");
+        assert!(matches!(CommandError::from(other), CommandError::Io { .. }));
+    }
 }

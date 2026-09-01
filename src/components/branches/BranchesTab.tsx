@@ -52,6 +52,7 @@ import {
   asCommandError,
   formatCommandError,
   humanizeGitError,
+  isMissingUpstreamError,
   isRecognizedGitFailure,
 } from '../../lib/errors';
 import { logger } from '../../lib/logger';
@@ -455,12 +456,11 @@ export function BranchesTab({
       onRefresh();
     } catch (e) {
       trackError('branch_revert', e, 'Workspace');
-      // Two git refusals mean the same thing here: there's nothing on GitHub
-      // to pull. "no tracking information" is the never-pushed branch; "no
-      // such ref was fetched" is a configured upstream whose remote ref is
-      // gone (branch deleted or renamed on GitHub) — that second signature
-      // fell through to the raw-error branch (issues #539/#809).
-      if (/no tracking information|no such ref was fetched/i.test(errText(e))) {
+      // Both of git's "nothing on GitHub to pull" refusals (never-pushed
+      // branch; upstream ref deleted or renamed) land here — the second used to
+      // fall through to the raw-error branch (issues #539/#809). The signature
+      // lives in lib/errors so Pull latest can't drift away from it.
+      if (isMissingUpstreamError(e)) {
         // Expected: git's normal refusal, not an app malfunction (the backend
         // classifies it Expected too). The discard above already ran, so local
         // edits ARE gone — say so honestly. Info toast + warn log, never the

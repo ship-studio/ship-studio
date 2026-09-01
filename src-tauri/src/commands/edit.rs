@@ -1785,7 +1785,7 @@ enum SrcInTag {
 /// `{…}`-aware so a `>` inside an attribute string or an arrow function
 /// (`onLoad={() => a > b}`) can't end the tag early. Unlike [`text_run_in_tag`]'s
 /// scan, self-closing tags are fine — that's the common `<img />`.
-fn open_tag_end(src: &str, from: usize) -> Option<usize> {
+pub(crate) fn open_tag_end(src: &str, from: usize) -> Option<usize> {
     let bytes = src.as_bytes();
     let mut i = from;
     let mut in_str: u8 = 0;

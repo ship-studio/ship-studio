@@ -128,6 +128,27 @@ describe('useEnvEditor', () => {
       expect(result.current.vars[0]).toEqual({ key: 'GREETING', value: 'hello world' });
     });
 
+    it('a trailing "=" (a .env.example line) never wipes the row\'s existing value', async () => {
+      // `API_KEY=` carries a name and NO value. Treating the empty half as a
+      // real value overwrote the stored secret with '', and Save destroyed it.
+      const { result } = await renderWithVar();
+
+      act(() => {
+        result.current.handleUpdateVar(0, 'key', 'API_KEY=');
+      });
+
+      expect(result.current.vars[0]).toEqual({ key: 'API_KEY', value: 'bar' });
+      expect(result.current.keyNotice).toContain('left as it was');
+
+      await act(async () => {
+        await result.current.handleSave();
+      });
+      expect(core.invoke).toHaveBeenCalledWith('write_env_file', {
+        filePath: '/test/project/.env.local',
+        vars: [{ key: 'API_KEY', value: 'bar' }],
+      });
+    });
+
     it('refuses to save an invalid name inline instead of letting the backend reject it', async () => {
       const { result } = await renderWithVar();
       act(() => {
@@ -169,6 +190,12 @@ describe('splitEnvEntry', () => {
 
   it('keeps a lone quote character as-is', () => {
     expect(splitEnvEntry('K="')).toEqual({ key: 'K', value: '"' });
+  });
+
+  it('reports a trailing "=" as no value at all, so callers keep the existing one', () => {
+    expect(splitEnvEntry('API_KEY=')).toEqual({ key: 'API_KEY', value: null });
+    expect(splitEnvEntry('API_KEY=   ')).toEqual({ key: 'API_KEY', value: null });
+    expect(splitEnvEntry('API_KEY=""')).toEqual({ key: 'API_KEY', value: null });
   });
 });
 

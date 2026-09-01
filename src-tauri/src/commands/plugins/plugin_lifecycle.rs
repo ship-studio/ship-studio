@@ -108,27 +108,72 @@ fn classify_clone_failure(stderr: &str) -> CommandError {
         .unwrap_or_else(|| CommandError::from(format!("Git clone failed: {stderr}")))
 }
 
-/// Run `git clone` for a plugin, with the shared spawn-pressure retry and the
-/// no-interactive-prompt guard.
+/// Time budget for a plugin's shallow clone. Generous — a plugin repo is small
+/// but the uplink may not be — while still bounded: `GIT_TERMINAL_PROMPT=0`
+/// only prevents a *prompt* from hanging, and a stalled TCP connection would
+/// otherwise leave install/update spinning forever.
+const PLUGIN_CLONE_TIMEOUT_SECS: u64 = 120;
+
+/// Time budget for the remote HEAD lookup. Much tighter than the clone: this
+/// runs unattended for every installed plugin each time the Plugin Manager
+/// opens, so a stalled host must not wedge the whole panel.
+const PLUGIN_LS_REMOTE_TIMEOUT_SECS: u64 = 20;
+
+/// Message for a plugin git call that blows its time budget — the network, not
+/// an app malfunction, so `Expected` keeps it out of telemetry.
+fn plugin_git_timeout_error(what: &str) -> CommandError {
+    CommandError::expected(format!(
+        "{what} took too long and timed out — check your internet connection and try again."
+    ))
+}
+
+/// Run a plugin's network git command with the shared timeout runner.
 ///
-/// * The spawn is retried on transient EAGAIN/EMFILE (a one-shot install used
-///   to die outright on momentary process-table pressure, issue #774).
+/// * `run_with_timeout` bounds the call and kills the child on expiry, retries
+///   transient EAGAIN/EMFILE spawns in place (a one-shot install used to die
+///   outright on momentary process-table pressure, issue #774), and classifies
+///   spawn failures the same way every other call site does.
 /// * `GIT_TERMINAL_PROMPT=0` makes a credential-requiring host fail fast
 ///   instead of blocking on a prompt no one can answer, matching `run_git_net`
 ///   in `commands/git/mod.rs` (issue #732).
-fn run_plugin_clone(
+async fn run_plugin_git(
+    git: &Path,
+    args: &[&str],
+    label: &str,
+    timeout_secs: u64,
+    timed_out_what: &str,
+) -> Result<std::process::Output, CommandError> {
+    let mut cmd = create_command(git);
+    cmd.args(args)
+        .env("PATH", get_extended_path())
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let result = crate::external_command::run_with_timeout(
+        tokio::process::Command::from(cmd),
+        label.to_string(),
+        timeout_secs,
+    )
+    .await;
+    match result {
+        Err(CommandError::Timeout { .. }) => Err(plugin_git_timeout_error(timed_out_what)),
+        other => other,
+    }
+}
+
+/// Run `git clone` for a plugin, bounded and prompt-free.
+async fn run_plugin_clone(
     git: &Path,
     repo_url: &str,
     dest: &Path,
 ) -> Result<std::process::Output, CommandError> {
     let dest = dest.to_string_lossy().to_string();
-    crate::external_command::spawn_with_pressure_retry("git clone", || {
-        create_command(git)
-            .args(["clone", "--depth", "1", "--", repo_url, &dest])
-            .env("PATH", get_extended_path())
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
-    })
+    run_plugin_git(
+        git,
+        &["clone", "--depth", "1", "--", repo_url, &dest],
+        "git clone",
+        PLUGIN_CLONE_TIMEOUT_SECS,
+        "Downloading the plugin",
+    )
+    .await
 }
 
 /// `remove_dir_all_relaxed` with the same backoff `rename_with_retry` uses.
@@ -373,7 +418,7 @@ pub async fn install_plugin(
         })?;
     }
 
-    let output = run_plugin_clone(&git, &repo_url, &temp_dir)?;
+    let output = run_plugin_clone(&git, &repo_url, &temp_dir).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -580,7 +625,7 @@ pub async fn update_plugin(
     }
 
     // Clone fresh
-    let output = run_plugin_clone(&git, &source_url, &plugin_dir)?;
+    let output = run_plugin_clone(&git, &source_url, &plugin_dir).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -673,19 +718,21 @@ pub async fn check_plugin_update(
     let installed_version = manifest.version.clone();
 
     // Get remote HEAD commit via git ls-remote
-    // Same guards as the clone paths: no interactive credential prompt with no
-    // tty to answer it (#732), an EAGAIN-tolerant spawn (#774), and Expected
-    // classification for URL/auth/offline failures (#803). This one runs
-    // unattended for every installed plugin on each Plugin Manager open, so an
-    // unreachable remote would otherwise file a report per plugin per open.
+    // Same guards as the clone paths: a bounded time budget, no interactive
+    // credential prompt with no tty to answer it (#732), an EAGAIN-tolerant
+    // spawn (#774), and Expected classification for URL/auth/offline failures
+    // (#803). This one runs unattended for every installed plugin on each
+    // Plugin Manager open, so an unreachable remote would otherwise file a
+    // report per plugin per open — and a stalled one would hang the panel.
     let git = resolve_git()?;
-    let output = crate::external_command::spawn_with_pressure_retry("git ls-remote", || {
-        create_command(&git)
-            .args(["ls-remote", &source_url, "HEAD"])
-            .env("PATH", get_extended_path())
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
-    })?;
+    let output = run_plugin_git(
+        &git,
+        &["ls-remote", &source_url, "HEAD"],
+        "git ls-remote",
+        PLUGIN_LS_REMOTE_TIMEOUT_SECS,
+        "Checking the plugin's repository",
+    )
+    .await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -744,10 +791,60 @@ pub fn toggle_plugin(
 mod tests {
     use super::{
         classify_clone_failure, classify_remote_git_failure, normalize_repo_url,
-        remove_dir_all_relaxed, remove_dir_all_with_retry, rename_with_retry, repo_urls_match,
-        validate_clone_url, CommandError,
+        plugin_git_timeout_error, remove_dir_all_relaxed, remove_dir_all_with_retry,
+        rename_with_retry, repo_urls_match, run_plugin_git, validate_clone_url, CommandError,
+        PLUGIN_CLONE_TIMEOUT_SECS, PLUGIN_LS_REMOTE_TIMEOUT_SECS,
     };
     use std::fs;
+
+    // The network git calls behind install / update / "check for updates" had
+    // no execution timeout at all: `GIT_TERMINAL_PROMPT=0` stops a *prompt* from
+    // hanging, but a stalled TCP connection left them spinning forever — and
+    // ls-remote runs per installed plugin on every Plugin Manager open.
+    #[test]
+    fn plugin_git_calls_have_bounded_budgets_and_expected_timeout_errors() {
+        // The unattended per-plugin check must not wait as long as a download.
+        assert!(
+            (1..PLUGIN_CLONE_TIMEOUT_SECS).contains(&PLUGIN_LS_REMOTE_TIMEOUT_SECS),
+            "ls-remote budget must be positive and tighter than the clone's"
+        );
+
+        let err = plugin_git_timeout_error("Downloading the plugin");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("Downloading the plugin"), "got: {msg}");
+        assert!(msg.contains("check your internet connection"), "got: {msg}");
+    }
+
+    /// A hung remote must be killed at the deadline and reported as Expected,
+    /// not left running. `git ls-remote` against a black-holed address never
+    /// answers, so a 1s budget must fire.
+    #[tokio::test]
+    async fn a_stalled_plugin_git_call_times_out_instead_of_hanging() {
+        let Some(git) = crate::utils::find_executable("git") else {
+            return; // no git on this machine — nothing to exercise
+        };
+        let started = std::time::Instant::now();
+        let err = run_plugin_git(
+            &git,
+            // 203.0.113.0/24 is TEST-NET-3: reserved, routed nowhere.
+            &["ls-remote", "https://203.0.113.1/repo.git", "HEAD"],
+            "git ls-remote",
+            1,
+            "Checking the plugin's repository",
+        )
+        .await
+        .expect_err("a black-holed host can't answer");
+        // Either the deadline fired, or the network stack refused fast — both
+        // are bounded, which is the point. Only assert on the timeout shape.
+        if err.to_string().contains("took too long") {
+            assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(15),
+                "must return at the deadline, not hang"
+            );
+        }
+    }
 
     #[test]
     fn accepts_normal_remotes() {

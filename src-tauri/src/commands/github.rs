@@ -884,15 +884,47 @@ pub(crate) fn gh_crash_error(stderr: &str) -> Option<CommandError> {
 /// readline, which Node ≥ 24 turns into a thrown `ERR_USE_AFTER_CLOSE`
 /// (issue #737). Nothing the app can retry: `Expected` keeps the dump out of
 /// telemetry and the message names the real fix.
+///
+/// The Node-crash shape alone isn't enough to conclude that: `gh_common_error`
+/// is also reached from [`classify_git_net_error`], which sees plain
+/// `git push` stderr, and a husky/Node pre-push hook crashing there has
+/// nothing to do with `gh`. The dump must also point at a program actually
+/// named `gh` — otherwise the user gets the wrong remedy and the real failure
+/// is hidden behind it.
 pub(crate) fn gh_shadowed_binary_error(stderr: &str) -> Option<CommandError> {
     let is_node_crash = stderr.contains("node:internal/") || stderr.contains("ERR_USE_AFTER_CLOSE");
-    is_node_crash.then(|| {
+    (is_node_crash && stderr_names_gh_program(stderr)).then(|| {
         CommandError::expected(
             "The program named `gh` on this computer isn't GitHub's CLI — something else \
              (most often an unrelated global npm package called \"gh\") is being found first. \
              Remove it (`npm uninstall -g gh`) or reinstall the GitHub CLI, then try again.",
         )
     })
+}
+
+/// Whether a stack trace points at a file or directory actually named `gh` —
+/// `…\node_modules\gh\…`, `…/bin/gh`, `…\gh.cmd`. Requires `gh` to be a whole
+/// path component (or a script stem), so `github.com`, `gh-pages` and
+/// `~/gh-repos` don't count.
+fn stderr_names_gh_program(stderr: &str) -> bool {
+    let bytes = stderr.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = stderr[from..].find("gh") {
+        let i = from + rel;
+        from = i + 2;
+        let after_sep = i > 0 && matches!(bytes[i - 1], b'/' | b'\\');
+        let ends_component = match bytes.get(i + 2) {
+            None => true,
+            Some(c) => matches!(
+                c,
+                b'/' | b'\\' | b'.' | b'\'' | b'"' | b' ' | b'\t' | b'\r' | b'\n' | b':'
+            ),
+        };
+        if after_sep && ends_component {
+            return true;
+        }
+    }
+    false
 }
 
 /// A `gh` invocation that hits GitHub can fail these ways regardless of which
@@ -1109,7 +1141,7 @@ fn preferred_package_manager(path: &Path) -> Option<String> {
         }
     }
 
-    // pnpm-only markers: a workspace file, or workspace:/catalog: deps.
+    // A pnpm workspace file is pnpm's alone.
     if path.join("pnpm-workspace.yaml").exists() || path.join("pnpm-workspace.yml").exists() {
         return Some("pnpm".to_string());
     }
@@ -1117,6 +1149,14 @@ fn preferred_package_manager(path: &Path) -> Option<String> {
         .as_ref()
         .is_some_and(manifest_uses_workspace_protocol)
     {
+        // `workspace:` is NOT pnpm-only — Yarn 2+ (berry) uses the same
+        // protocol, and `catalog:` landed in Yarn 4.9. A berry repo whose
+        // yarn.lock isn't reachable (gitignored, or a package cloned without
+        // its root lockfile) would otherwise get a pnpm install it can't use,
+        // so check berry's own on-disk markers first.
+        if path.join(".yarnrc.yml").exists() || path.join(".yarn").is_dir() {
+            return Some("yarn".to_string());
+        }
         return Some("pnpm".to_string());
     }
 
@@ -1627,6 +1667,32 @@ mod tests {
         assert!(gh_shadowed_binary_error("").is_none());
     }
 
+    // gh_common_error is reached from classify_git_net_error, so it also sees
+    // plain `git push` stderr. A husky/Node pre-push hook crashing there is not
+    // a shadowed `gh`: blaming npm would give the wrong fix and bury the real
+    // failure. The dump must name a program called `gh`.
+    #[test]
+    fn a_node_pre_push_hook_crash_is_not_a_shadowed_gh() {
+        let stderr = "node:internal/modules/cjs/loader:1215\n  throw err;\n  ^\n\nError: Cannot find module '/Users/me/proj/.husky/lint-staged.mjs'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1212:15)\n\nNode.js v22.3.0\nhusky - pre-push script failed (code 1)\nerror: failed to push some refs to 'https://github.com/o/r.git'";
+        assert!(gh_shadowed_binary_error(stderr).is_none());
+        assert!(gh_common_error(stderr).is_none());
+        assert!(crate::commands::git::classify_git_net_error(stderr).is_none());
+    }
+
+    #[test]
+    fn stderr_names_gh_program_needs_a_whole_path_component() {
+        assert!(stderr_names_gh_program(
+            "C:\\npm\\node_modules\\gh\\index.js"
+        ));
+        assert!(stderr_names_gh_program("/usr/local/bin/gh"));
+        assert!(stderr_names_gh_program("/opt/homebrew/bin/gh.cmd:1"));
+        // Near-misses that must not count.
+        assert!(!stderr_names_gh_program("https://github.com/o/r.git"));
+        assert!(!stderr_names_gh_program("/Users/me/gh-repos/app/index.js"));
+        assert!(!stderr_names_gh_program("running the gh command"));
+        assert!(!stderr_names_gh_program(""));
+    }
+
     // The #779 pre-flight: an existing `origin` decides whether the create
     // step can run at all. A remote pointing at the repo being created means a
     // half-finished earlier run (create succeeded, push didn't) — reuse it.
@@ -1767,6 +1833,45 @@ mod tests {
                 "package.json",
                 r#"{"devDependencies":{"eslint":"catalog:lint"}}"#,
             )]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("pnpm")
+            );
+        }
+
+        // `workspace:` is Yarn 2+'s protocol too, so berry's own markers decide
+        // before the pnpm fallback does — otherwise a berry repo without a
+        // reachable yarn.lock gets a pnpm install it can't use.
+        #[test]
+        fn yarn_berry_markers_beat_the_workspace_protocol_fallback() {
+            let dir = project(&[
+                (
+                    "package.json",
+                    r#"{"dependencies":{"@acme/ui":"workspace:*"}}"#,
+                ),
+                (".yarnrc.yml", "nodeLinker: node-modules\n"),
+            ]);
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("yarn")
+            );
+
+            // A `.yarn/` directory (releases, plugins, cache) counts the same.
+            let dir = project(&[(
+                "package.json",
+                r#"{"devDependencies":{"eslint":"catalog:lint"}}"#,
+            )]);
+            fs::create_dir(dir.path().join(".yarn")).expect("mkdir");
+            assert_eq!(
+                preferred_package_manager(dir.path()).as_deref(),
+                Some("yarn")
+            );
+
+            // A pnpm workspace file is still pnpm's alone, berry markers or not.
+            let dir = project(&[
+                ("pnpm-workspace.yaml", "packages:\n  - apps/*\n"),
+                (".yarnrc.yml", ""),
+            ]);
             assert_eq!(
                 preferred_package_manager(dir.path()).as_deref(),
                 Some("pnpm")

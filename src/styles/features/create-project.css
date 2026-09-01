@@ -809,18 +809,3 @@
   text-align: center;
   color: var(--text-secondary);
 }
-
-.tg-retry {
-  padding: var(--spacing-xs) var(--spacing-md);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.tg-retry:hover {
-  background: var(--bg-secondary);
-}

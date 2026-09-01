@@ -142,9 +142,10 @@ fn headless_invocation(agent: &AgentConfig, prompt: &str) -> Option<HeadlessInvo
 ///   `codex_models_manager::cache`): a corrupt/outdated local cache file the
 ///   user can just delete (issue #689).
 /// - Codex's OAuth refresh-token rotation failing — "Failed to refresh token",
-///   "refresh_token_reused", "Please log out and sign in again": the stored
-///   credential can't be renewed, so it folds into the expired-sign-in case
-///   above (issue #836).
+///   "refresh_token_reused": the stored credential can't be renewed, so it
+///   folds into the expired-sign-in case above (issue #836). Only these
+///   distinctive wordings count — a bare "sign in again" is ordinary prose that
+///   appears in the transcripts callers pass in.
 /// - Org policy disabling subscription access — "Your organization has disabled
 ///   Claude subscription access … ask your admin to enable access": an
 ///   account-level setting only the user's admin can change (issue #765).
@@ -187,7 +188,10 @@ fn classify_agent_cli_failure(agent_name: &str, detail: &str) -> Option<CommandE
         // class as an expired session, different wording (issue #836).
         || lower.contains("failed to refresh token")
         || lower.contains("refresh_token_reused")
-        || lower.contains("sign in again")
+    // NOT a bare "sign in again": callers pass whole transcripts through here,
+    // and those three ordinary words show up in the user's own prose (or in an
+    // agent's advice about some unrelated service), which would misreport a
+    // working session as expired. Only distinctive CLI wordings qualify.
     {
         return Some(CommandError::expected(format!(
             "{agent_name} isn't signed in anymore (its session expired). Open an agent \
@@ -959,9 +963,20 @@ mod tests {
             "got: {err}"
         );
 
-        // Either marker alone must classify too.
+        // Either distinctive marker alone must classify too.
         assert!(classify_agent_cli_failure("Codex", "refresh_token_reused").is_some());
-        assert!(classify_agent_cli_failure("Codex", "Please log out and sign in again.").is_some());
+        assert!(classify_agent_cli_failure("Codex", "Failed to refresh token").is_some());
+
+        // But "sign in again" on its own must NOT: callers pass whole session
+        // transcripts, so those three ordinary words appear in the user's own
+        // prose and in advice about unrelated services. Matching them reported
+        // a working session as expired and hid the real failure.
+        assert!(classify_agent_cli_failure(
+            "Codex",
+            "The user asked me to check whether they need to sign in again to Vercel."
+        )
+        .is_none());
+        assert!(classify_agent_cli_failure("Codex", "Please log out and sign in again.").is_none());
     }
 
     // The #765 shape: an org admin disabled subscription-based Claude Code

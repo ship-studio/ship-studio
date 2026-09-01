@@ -154,6 +154,27 @@ fn is_direct_child_of_any(canonical: &Path, roots: &[PathBuf]) -> bool {
     }
 }
 
+/// Whether the picked folder IS a projects root (configured or default).
+///
+/// A root is not a direct child of itself, so the #747 narrowing to direct
+/// children stopped covering it — leaving `~/ShipStudio` itself registerable as
+/// an "external project", which would scope destructive git ops to the whole
+/// workspace tree.
+fn is_projects_root(canonical: &Path) -> bool {
+    is_any_of_roots(canonical, &crate::utils::allowed_project_roots())
+}
+
+/// Testable core of [`is_projects_root`]. Roots come from config/home lookups
+/// and may not be canonical, so compare both forms.
+fn is_any_of_roots(canonical: &Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| {
+        canonical == root
+            || dunce::canonicalize(root)
+                .map(|c| c == canonical)
+                .unwrap_or(false)
+    })
+}
+
 // ============ Tauri Commands ============
 
 /// Opens a native folder picker and registers the selected folder as an external project.
@@ -255,6 +276,14 @@ pub async fn register_external_project(app: AppHandle) -> Result<Option<String>,
     // projects permanently invisible, with no way to add them (issue #747) —
     // they fall through to normal external registration instead, which does
     // list them.
+    // The root folder itself is a container, never a project.
+    if is_projects_root(&canonical) {
+        return Err(CommandError::expected(
+            "That folder is your projects folder itself, not a project. Pick one of the project \
+             folders inside it instead.",
+        ));
+    }
+
     if is_direct_child_of_projects_root(&canonical) {
         if crate::commands::projects::restore_removed_project(&canonical)? {
             return Ok(Some(canonical_str));
@@ -481,7 +510,7 @@ pub async fn is_project_external(path: String) -> Result<bool, CommandError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_direct_child_of_any, looks_like_project_root};
+    use super::{is_any_of_roots, is_direct_child_of_any, looks_like_project_root};
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -509,6 +538,25 @@ mod tests {
             &roots
         ));
         assert!(!is_direct_child_of_any(Path::new("/"), &roots));
+    }
+
+    // The #747 direct-child narrowing must not leave the projects root itself
+    // registerable — a separate guard covers it.
+    #[test]
+    fn the_projects_root_itself_is_still_refused() {
+        let roots = vec![PathBuf::from("/Users/me/ShipStudio")];
+        assert!(is_any_of_roots(Path::new("/Users/me/ShipStudio"), &roots));
+        // Children — direct or deeper — are not the root and stay registerable
+        // by this predicate.
+        assert!(!is_any_of_roots(
+            Path::new("/Users/me/ShipStudio/my-app"),
+            &roots
+        ));
+        assert!(!is_any_of_roots(
+            Path::new("/Users/me/ShipStudio/clients/my-app"),
+            &roots
+        ));
+        assert!(!is_any_of_roots(Path::new("/Users/me/other"), &roots));
     }
 
     #[test]

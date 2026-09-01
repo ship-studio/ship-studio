@@ -551,14 +551,15 @@ fn classify_mcp_failure(action: &str, details: &str) -> CommandError {
         ));
     }
 
-    // Recent Claude Code CLI versions mis-parse `mcp add -e KEY=value …` and
-    // echo a stray token back as an invalid environment variable — an
-    // upstream regression (anthropics/claude-code#23365) Ship Studio can't
-    // fix from here, so give the workaround instead of filing it as our bug
-    // (issue #763).
+    // The CLI rejected an `-e` environment variable. Usually a typo in the
+    // user's own entry (a missing `=`, a stray quote), but recent Claude Code
+    // versions also mis-parse valid `-e KEY=value` pairs and echo a stray
+    // token back (anthropics/claude-code#23365). Either way the app can't fix
+    // it from here, so state the format requirement first and offer the known
+    // CLI bug as a possibility rather than asserting it (issue #763).
     if lower.contains("invalid environment variable format") {
         return CommandError::expected(format!(
-            "{message}\n\nThis is a known bug in recent Claude Code CLI versions — its `mcp add` parser mishandles `-e` environment variables (anthropics/claude-code#23365). Add the server without its `-e` flags for now (set those variables in the server's own config instead), or update Claude Code once the fix ships."
+            "{message}\n\nEnvironment variables must be entered as `KEY=value`, one per line, with no surrounding quotes — check the entries for a missing `=` or a stray character. If they already look right, recent Claude Code CLI versions have a known `mcp add` parsing bug (anthropics/claude-code#23365): add the server without its `-e` variables for now (set them in the server's own config instead), or update Claude Code."
         ));
     }
 
@@ -1057,14 +1058,23 @@ mod tests {
 
     #[test]
     fn invalid_env_var_format_is_expected() {
-        // Upstream Claude Code CLI regression (issue #763,
-        // anthropics/claude-code#23365) — nothing Ship Studio can fix.
+        // Nothing Ship Studio can fix, either way — but the same refusal fires
+        // for a genuine typo in the user's own entry, so the message must lead
+        // with the format requirement and offer the known upstream CLI bug
+        // (issue #763, anthropics/claude-code#23365) as a possibility rather
+        // than asserting it.
         match classify_mcp_failure(
             "add MCP server",
             "Invalid environment variable format: \\, environment variables should be added as: -e KEY1=value1 -e KEY2=value2",
         ) {
             CommandError::Expected { message } => {
+                assert!(message.contains("KEY=value"), "got: {message}");
                 assert!(message.contains("anthropics/claude-code#23365"));
+                // Not asserted as the cause.
+                assert!(
+                    !message.contains("This is a known bug"),
+                    "must not blame the CLI outright, got: {message}"
+                );
             }
             other => panic!("expected Expected, got {other:?}"),
         }

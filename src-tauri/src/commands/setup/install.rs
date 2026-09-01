@@ -350,12 +350,25 @@ fn extract_winget_error(stderr: &str, stdout: &str) -> String {
         lower.starts_with("installer log is available at")
             || lower.starts_with("please refer to the log")
     };
-    format!("{stderr}\n{stdout}")
-        .replace('\r', "\n")
+    let normalized = format!("{stderr}\n{stdout}").replace('\r', "\n");
+    let meaningful = normalized
         .lines()
         .map(str::trim)
-        .filter(|&l| !l.is_empty() && !is_progress_only(l) && !is_log_pointer(l))
-        .last()
+        .filter(|&l| !l.is_empty() && !is_progress_only(l));
+    let mut last_real = None;
+    let mut last_pointer = None;
+    for line in meaningful {
+        if is_log_pointer(line) {
+            last_pointer = Some(line);
+        } else {
+            last_real = Some(line);
+        }
+    }
+    // Dropping the log pointer only helps when something better remains. When
+    // it's the ONLY line winget produced, showing it beats a bare "Unknown
+    // error" — the path is at least somewhere the user can look.
+    last_real
+        .or(last_pointer)
         .unwrap_or("Unknown error")
         .to_string()
 }
@@ -680,6 +693,19 @@ mod tests {
             "failed when searching source: msstore"
         );
         assert_eq!(extract_winget_error("", ""), "Unknown error");
+    }
+
+    /// The #745 filter must not be able to leave the user with nothing: when
+    /// the log pointer is the ONLY line winget produced, the path is better
+    /// than a bare "Unknown error".
+    #[test]
+    fn winget_error_falls_back_to_the_log_pointer_when_nothing_else_remains() {
+        let stdout = "██████  50.0%\r\n\
+                      Installer log is available at: C:\\Users\\me\\AppData\\Local\\Temp\\WinGet\\x.log\n";
+        assert_eq!(
+            extract_winget_error("", stdout),
+            "Installer log is available at: C:\\Users\\me\\AppData\\Local\\Temp\\WinGet\\x.log"
+        );
     }
 
     /// Issue #780: winget's post-install temp-file delete losing a race with

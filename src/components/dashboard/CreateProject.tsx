@@ -11,7 +11,7 @@
  * @module components/CreateProject
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { trackEvent } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
@@ -26,6 +26,7 @@ import {
   STEPS,
   STATUS_MESSAGES,
 } from '../../hooks/useProjectCreation';
+import { useAsyncState } from '../../hooks/useAsyncState';
 import { TemplateGallery, type CommunityTemplate } from './TemplateGallery';
 import { TemplateCard } from './TemplateCard';
 
@@ -78,17 +79,9 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
   const [activeTab, setActiveTab] = useState<'scratch' | 'template'>('scratch');
 
   // Community templates from API
-  const [communityTemplates, setCommunityTemplates] = useState<CommunityTemplate[]>([]);
-  const [communityLoading, setCommunityLoading] = useState(true);
   const [communitySearch, setCommunitySearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
-  /**
-   * Set when the fetch itself failed (offline, API down, parse error) so the
-   * gallery can say so and offer a retry, instead of the identical-looking
-   * "No templates found" the search-miss case shows (issue #754).
-   */
-  const [communityError, setCommunityError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
 
   // Debounce search input — hit the API server-side
@@ -97,39 +90,53 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
     return () => clearTimeout(timer);
   }, [communitySearch]);
 
-  // Fetch templates from API (server-side search)
-  const fetchTemplates = useCallback(() => {
-    setCommunityLoading(true);
-    setCommunityError(null);
-    const params: Record<string, string | number> = {};
-    if (debouncedSearch) params.search = debouncedSearch;
-    invoke<string>('fetch_community_templates', params)
-      .then((raw) => {
-        const data = JSON.parse(raw) as { templates: CommunityTemplate[] };
-        setCommunityTemplates(data.templates);
-      })
-      .catch((err: unknown) => {
+  // Fetch templates from API (server-side search). The search term is an
+  // argument, not a closure, so `execute` stays stable across keystrokes.
+  const {
+    data: fetchedTemplates,
+    isLoading: isFetchingTemplates,
+    error: fetchTemplatesError,
+    execute: fetchTemplates,
+  } = useAsyncState<CommunityTemplate[], [string]>(
+    async (search: string) => {
+      const params: Record<string, string | number> = {};
+      if (search) params.search = search;
+      const raw = await invoke<string>('fetch_community_templates', params);
+      return (JSON.parse(raw) as { templates: CommunityTemplate[] }).templates;
+    },
+    {
+      onError: (err) => {
         // The backend classifies these Expected (offline / API unreachable), so
         // warn rather than error — but the user must still be told the fetch
         // failed instead of being shown "No templates found" (issue #754).
-        const message = formatCommandError(asCommandError(err));
-        logger.warn('[CreateProject] Failed to fetch community templates', { error: message });
-        setCommunityTemplates([]);
-        setCommunityError(message);
-      })
-      .finally(() => setCommunityLoading(false));
-  }, [debouncedSearch]);
+        logger.warn('[CreateProject] Failed to fetch community templates', { error: err.message });
+      },
+    }
+  );
+
+  /**
+   * Set when the fetch itself failed (offline, API down, parse error) so the
+   * gallery can say so and offer a retry, instead of the identical-looking
+   * "No templates found" the search-miss case shows (issue #754).
+   */
+  const communityError = fetchTemplatesError?.message ?? null;
+  // A failed fetch shows the error, never a stale list from an earlier search.
+  const communityTemplates = communityError ? [] : (fetchedTemplates ?? []);
+  // `data === null` means the first fetch hasn't landed yet — still loading, so
+  // the first paint is skeletons rather than a momentary "No templates found".
+  const communityLoading =
+    isFetchingTemplates || (fetchedTemplates === null && fetchTemplatesError === null);
 
   // Fetch on mount and when search changes
   useEffect(() => {
-    fetchTemplates();
-  }, [fetchTemplates]);
+    void fetchTemplates(debouncedSearch);
+  }, [fetchTemplates, debouncedSearch]);
 
   // Re-fetch every 50 minutes to keep signed zip_urls fresh (they expire after 1 hour)
   useEffect(() => {
-    const interval = setInterval(fetchTemplates, 50 * 60 * 1000);
+    const interval = setInterval(() => void fetchTemplates(debouncedSearch), 50 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [fetchTemplates]);
+  }, [fetchTemplates, debouncedSearch]);
 
   const handleCommunitySelect = (template: CommunityTemplate) => {
     setSelectedCommunityId(template.id === selectedCommunityId ? null : template.id);
@@ -342,7 +349,7 @@ export function CreateProject({ onComplete, onCancel }: CreateProjectProps) {
                 searchQuery={communitySearch}
                 onSearchChange={setCommunitySearch}
                 loadError={communityError}
-                onRetry={fetchTemplates}
+                onRetry={() => void fetchTemplates(debouncedSearch)}
               />
 
               <div className="template-divider">

@@ -25,6 +25,7 @@ import {
   asCommandError,
   formatCommandError,
   humanizeGitError,
+  isMissingUpstreamError,
   isRecognizedGitFailure,
 } from '../lib/errors';
 import { trackEvent, trackError } from '../lib/analytics';
@@ -265,7 +266,7 @@ export function useBranchManagement({
         void trackEvent('git_pulled', { result: 'merge_conflict', $screen_name: 'Workspace' });
         logger.warn('Pull produced merge conflicts', { message });
         setShowConflictResolution(true);
-      } else if (/no tracking information|no such ref was fetched/i.test(message)) {
+      } else if (isMissingUpstreamError(e)) {
         // Expected, by-design refusal (unpushed branch) — info toast + warn
         // log, NOT the error channels: error toasts and logger.error both
         // auto-file bug reports, and this isn't a bug (issue #600).

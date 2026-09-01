@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { Button } from '../primitives/Button';
 
 /** Shape of a community template from the API */
 export interface CommunityTemplate {
@@ -250,9 +251,9 @@ export function TemplateGallery({
             <div className="tg-empty tg-error">
               <span>Couldn't load templates. {loadError}</span>
               {onRetry && (
-                <button type="button" className="tg-retry" onClick={onRetry}>
+                <Button variant="secondary" size="sm" onClick={onRetry}>
                   Try again
-                </button>
+                </Button>
               )}
             </div>
           )}

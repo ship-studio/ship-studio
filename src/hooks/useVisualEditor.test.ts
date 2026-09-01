@@ -361,6 +361,78 @@ describe('useVisualEditor class drift recovery (issue #739)', () => {
     expect(applyClassnameEdit).toHaveBeenCalledTimes(1);
     expect(onToast).toHaveBeenCalledWith(expect.stringContaining('disk full'), 'error');
   });
+
+  it('refuses the retry when the drift added instances the picker never showed', async () => {
+    // Selected as a SINGLE-location element, so no multi picker was ever shown.
+    // The drift then turns it into a 3-location multi; multiTarget is still its
+    // 'all' default, so a naive retry would rewrite two spots the user never
+    // chose. It must fail loudly instead.
+    (applyClassnameEdit as Fn).mockRejectedValueOnce({
+      type: 'Validation',
+      field: 'old_class',
+      reason: 'source no longer matches — reselect the element',
+    });
+    const { result, iframeRef, onToast } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('p-3', iframeRef.current!.contentWindow!);
+
+    (resolveClassnameSource as Fn).mockResolvedValue({
+      status: 'multi',
+      class_name: 'p-3',
+      locations: [
+        { file: 'app/page.tsx', line: 9, column: 1 },
+        { file: 'app/page.tsx', line: 20, column: 1 },
+        { file: 'components/card.tsx', line: 4, column: 1 },
+      ],
+      confidence: 'ambiguous',
+    });
+
+    act(() => result.current.applyEnum('p-8', { padding: '2rem' }));
+    await act(async () => {
+      await result.current.commit();
+    });
+
+    // The original (failed) write only; nothing was written to the new spots.
+    expect(applyClassnameEdit).toHaveBeenCalledTimes(1);
+    expect(applyClassnameEditMulti).not.toHaveBeenCalled();
+    expect(onToast).toHaveBeenCalledWith(
+      expect.stringContaining('more places in the source'),
+      'error'
+    );
+  });
+
+  it('still retries when the drift did not widen the write', async () => {
+    // Same multi shape at selection AND after the drift — the user's 'all' pick
+    // still covers exactly what they saw, so the recovery runs as before.
+    const multi = {
+      status: 'multi',
+      class_name: 'p-3',
+      locations: [
+        { file: 'app/page.tsx', line: 9, column: 1 },
+        { file: 'app/page.tsx', line: 20, column: 1 },
+      ],
+      confidence: 'ambiguous',
+    };
+    (resolveClassnameSource as Fn).mockResolvedValue(multi);
+    (applyClassnameEditMulti as Fn)
+      .mockRejectedValueOnce({
+        type: 'Validation',
+        field: 'old_class',
+        reason: 'source no longer matches — reselect the element',
+      })
+      .mockResolvedValue(undefined);
+    const { result, iframeRef, onToast } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('p-3', iframeRef.current!.contentWindow!);
+
+    act(() => result.current.applyEnum('p-8', { padding: '2rem' }));
+    await act(async () => {
+      await result.current.commit();
+    });
+
+    expect(applyClassnameEditMulti).toHaveBeenCalledTimes(2);
+    expect(onToast).toHaveBeenCalledWith('Saved to source', 'success');
+  });
 });
 
 describe('useVisualEditor custom classes', () => {

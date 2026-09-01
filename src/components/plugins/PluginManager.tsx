@@ -62,9 +62,11 @@ export function PluginManager({
   // Library state
   const [registry, setRegistry] = useState<PluginRegistryEntry[]>([]);
   const [isLoadingRegistry, setIsLoadingRegistry] = useState(false);
-  /** Set when the library fetch failed, so an empty list isn't read as "the
-   *  library is empty" — it's usually rate limiting or no connection (#713). */
-  const [registryUnreachable, setRegistryUnreachable] = useState(false);
+  /** Why the library fetch failed, so an empty list isn't read as "the library
+   *  is empty" (#713). `unreachable` is the user's network or GitHub's rate
+   *  limiter; `malformed` is a registry body we couldn't parse — a different
+   *  problem, with a different fix, so it gets its own copy. */
+  const [registryFailure, setRegistryFailure] = useState<'unreachable' | 'malformed' | null>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showUrlInput, setShowUrlInput] = useState(false);
@@ -192,18 +194,18 @@ export function PluginManager({
     try {
       const result = await fetchPluginRegistry();
       setRegistry(result);
-      setRegistryUnreachable(false);
+      setRegistryFailure(null);
     } catch (err) {
       trackError('plugin_registry_load', err, 'Plugin Manager');
       // A reachability failure survived the retry/backoff (#713) — that's the
       // network or GitHub's rate limiter, not an app defect. A malformed
-      // registry body still errors: that one IS ours to fix.
+      // registry body still errors: that one IS ours to fix, and telling the
+      // user to check their connection would send them after the wrong thing.
       const msg = formatCommandError(asCommandError(err));
       const unreachable = isRegistryUnreachableError(err);
       logger[unreachable ? 'warn' : 'error']('Failed to fetch plugin registry', { error: msg });
       setRegistry([]);
-      // The user sees "couldn't load" either way — only the log level differs.
-      setRegistryUnreachable(true);
+      setRegistryFailure(unreachable ? 'unreachable' : 'malformed');
     } finally {
       setIsLoadingRegistry(false);
     }
@@ -576,15 +578,21 @@ export function PluginManager({
 
               {!isLoadingRegistry && registry.length === 0 && (
                 <div className="plugins-empty">
-                  {registryUnreachable ? (
+                  {registryFailure === 'unreachable' && (
                     <>
                       Couldn&apos;t reach the plugin library. Check your connection, or try again in
                       a minute — GitHub sometimes rate-limits this request. You can still install
                       from a URL below.
                     </>
-                  ) : (
-                    'The plugin library is empty right now. You can still install from a URL below.'
                   )}
+                  {registryFailure === 'malformed' && (
+                    <>
+                      The plugin library loaded but we couldn&apos;t read it — that&apos;s a problem
+                      on our side, not your connection. You can still install from a URL below.
+                    </>
+                  )}
+                  {registryFailure === null &&
+                    'The plugin library is empty right now. You can still install from a URL below.'}
                 </div>
               )}
 

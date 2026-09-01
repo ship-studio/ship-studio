@@ -378,6 +378,23 @@ export function isRecognizedGitFailure(value: unknown, ctx: GitErrorContext = {}
 }
 
 /**
+ * True when a git failure means there is nothing on GitHub for this branch to
+ * pull. Two refusals say the same thing: "no tracking information" is the
+ * never-pushed branch (issue #600), and "no such ref was fetched" is a
+ * configured upstream whose remote ref is gone — deleted or renamed on GitHub
+ * (issue #809). Both are git's normal, by-design refusals rather than app
+ * malfunctions, so callers route them to an info toast + `logger.warn` instead
+ * of the error channels that auto-file a bug report.
+ *
+ * Shared by the Revert-to-GitHub flow (`BranchesTab`) and Pull latest
+ * (`useBranchManagement`) so the two can't drift apart.
+ */
+export function isMissingUpstreamError(value: unknown): boolean {
+  const message = formatCommandError(asCommandError(value));
+  return /no tracking information|no such ref was fetched/i.test(message);
+}
+
+/**
  * Phrases from `register_external_project`'s by-design refusals of a folder
  * pick (backend returns `CommandError::expected` for them, issue #416 — but
  * Expected serializes identically to Other across IPC, so the frontend

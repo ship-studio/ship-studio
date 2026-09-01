@@ -92,6 +92,11 @@ export type EditTarget = { kind: 'element' } | { kind: 'class'; name: string; ba
  *  `read_only` elements are never written to). */
 type WritableResolution = Extract<Resolution, { status: 'resolved' | 'multi' }>;
 
+/** How many source spots a writable resolution covers (1 for a single location). */
+function locationCount(res: WritableResolution): number {
+  return res.status === 'multi' ? res.locations.length : 1;
+}
+
 /** A breakpoint-scoped slice of the live-preview stylesheet: `decls` applied at
  *  `minPx` and up (0 = base, all widths). A null value deletes that property from
  *  the preview (Reset). Mirrors `select_script.html`'s contract. */
@@ -525,7 +530,10 @@ export function useVisualEditor({
    *  fresh baseline rather than dropping the user's styling. That's the recovery
    *  inline text edits have had since #557, extended to class/style writes
    *  (#739); the guard itself stays intact, since the retry writes against a
-   *  just-read baseline and never forces a stale one through.
+   *  just-read baseline and never forces a stale one through. The retry also
+   *  refuses to widen the blast radius: if the fresh resolve covers MORE source
+   *  spots than the one the user picked against, it fails instead of letting the
+   *  default 'all' write to instances the picker never showed.
    *
    *  Returns the resolution the write actually landed on, so callers advance
    *  their drift baseline to where the element really is now. */
@@ -554,6 +562,17 @@ export function useVisualEditor({
         if (!(cmdErr.type === 'Validation' && cmdErr.field === 'old_class')) throw err;
         const fresh = await resolveClassnameSource(projectPath, sig);
         if (fresh.status !== 'resolved' && fresh.status !== 'multi') throw err;
+        // The multi-location pick ('all' by default) was made against the
+        // locations resolved at SELECTION time. If the re-resolve now finds MORE
+        // of them, the drift added instances the user never saw in the picker —
+        // silently writing to all of them (or to a shifted index) would edit
+        // markup they never chose. Fail the retry instead and let the caller's
+        // revert+toast path run.
+        if (locationCount(fresh) > locationCount(res)) {
+          throw new Error(
+            "Couldn't save — this element now appears in more places in the source than when you selected it. Reselect it and choose which one to edit."
+          );
+        }
         // Already carrying the class we wanted (someone else's write beat us to
         // the same result) — nothing left to do.
         if (fresh.class_name !== next) await write(fresh, fresh.class_name);

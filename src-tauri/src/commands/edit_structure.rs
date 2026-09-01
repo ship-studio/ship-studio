@@ -21,7 +21,7 @@
 
 use crate::commands::edit::{
     attrs_for_path, class_token_in_index, find_attr_spans, invalidate_index_cache, locate_element,
-    scan_to_gt, ElementSignature,
+    open_tag_end, ElementSignature,
 };
 use crate::commands::edit_css::css_class_exists;
 use crate::errors::CommandError;
@@ -234,7 +234,7 @@ fn splice_inside(
     snippet: &str,
 ) -> Result<(String, usize), CommandError> {
     let bytes = src.as_bytes();
-    let gt = scan_to_gt(bytes, start + 1)
+    let gt = open_tag_end(src, start + 1)
         .ok_or_else(|| validation("element", "couldn't parse the element's opening tag"))?;
     let open_end = gt + 1;
     // An open-tag-only span (void element or self-closing) has no inside.
@@ -319,14 +319,20 @@ fn remove_span(src: &str, start: usize, end: usize) -> String {
 
 /// Append ` token` inside the FIRST class attribute of the copy's own opening
 /// tag (the copy starts at its `<`, so the first class-bearing attribute before
-/// the first unquoted `>` is the element's own — children come later).
+/// the tag's own `>` is the element's own — children come later).
+///
+/// The tag end comes from the `{…}`-aware [`open_tag_end`], not a bare `>` scan:
+/// a JSX handler prop before className (`onClick={() => go()}`) hides a `>` that
+/// would otherwise end the tag early, push the real className span past `gt`, and
+/// send us down the class-less path — splicing in a SECOND className attribute
+/// and writing a compile error into the user's source (issue #789).
 ///
 /// A class-less element has no attribute to append to, so `new_attr` is spliced
 /// in fresh right after the tag name instead — the copy still needs a unique
 /// class of its own to stay selectable (issue #318).
 fn append_class_token(copy: &str, attrs: &[&str], token: &str, new_attr: &str) -> Option<String> {
     let bytes = copy.as_bytes();
-    let gt = scan_to_gt(bytes, 1)?;
+    let gt = open_tag_end(copy, 1)?;
     if let Some(span) = find_attr_spans(copy, attrs)
         .into_iter()
         .find(|s| s.value_end <= gt)
@@ -627,6 +633,32 @@ mod tests {
         let copy = "<div className={\"a\"}>x</div>";
         let out = append_class_token(copy, &["className"], "t0k3", "className").unwrap();
         assert_eq!(out, "<div className={\"a t0k3\"}>x</div>");
+    }
+
+    #[test]
+    fn duplicate_token_survives_a_handler_prop_before_classname() {
+        // Issue #789: a bare `>` scan stops at the arrow in `=>`, so the real
+        // className span lands past the tag end and the class-less path splices
+        // in a SECOND className — a TSX compile error written into user source.
+        let copy = "<div onClick={() => go()} className=\"a\">x</div>";
+        let out = append_class_token(copy, &["className"], "t0k3", "className").unwrap();
+        assert_eq!(
+            out,
+            "<div onClick={() => go()} className=\"a t0k3\">x</div>"
+        );
+        assert_eq!(out.matches("className").count(), 1);
+    }
+
+    #[test]
+    fn insert_inside_survives_a_handler_prop_with_a_gt() {
+        // Same `{…}`-aware scan on the opening tag that bounds `Inside` inserts:
+        // stopping at the arrow's `>` would misplace the child.
+        let src = "<div onClick={() => go()} className=\"a\">x</div>";
+        let (out, _) = splice_inside(src, 0, src.len(), "<p>new</p>").unwrap();
+        assert_eq!(
+            out,
+            "<div onClick={() => go()} className=\"a\">x<p>new</p></div>"
+        );
     }
 
     #[test]

@@ -44,9 +44,13 @@ const MAX_ENV_KEY_LENGTH = 256;
 
 /**
  * Split a pasted `KEY=value` entry into its two halves (surrounding quotes
- * stripped from the value, as {@link parseEnvContent} does). Returns a null
- * value when the text carries no `=` at all, so callers can leave the
- * existing value alone.
+ * stripped from the value, as {@link parseEnvContent} does).
+ *
+ * The value is null when the text carries NO value to apply — either no `=` at
+ * all, or a trailing `=` with nothing after it (the `.env.example` shape,
+ * `API_KEY=`). Both mean "the name is all that was typed", so callers keep the
+ * row's existing value instead of overwriting a stored secret with an empty
+ * string.
  */
 export function splitEnvEntry(raw: string): { key: string; value: string | null } {
   const eq = raw.indexOf('=');
@@ -60,7 +64,7 @@ export function splitEnvEntry(raw: string): { key: string; value: string | null 
   ) {
     value = value.slice(1, -1);
   }
-  return { key, value };
+  return { key, value: value === '' ? null : value };
 }
 
 /**
@@ -377,9 +381,14 @@ export function useEnvEditor({
       // string, which reads like an app bug (issue #824). Split it the same
       // way the bulk-paste flow does and say what happened.
       const { key, value } = splitEnvEntry(newValue);
+      // A null value means the text carried no value to apply (a bare
+      // `.env.example`-style `API_KEY=`). Keep the row's existing value — an
+      // empty string here would silently wipe a stored secret on the next Save.
       updated[index] = { key, value: value ?? updated[index].value };
       setKeyNotice(
-        `Split "${newValue.trim()}" into the name and value fields — the name field takes just the variable name.`
+        value === null
+          ? `Took "${key}" as the variable name — the name field takes just the name, so the value was left as it was.`
+          : `Split "${newValue.trim()}" into the name and value fields — the name field takes just the variable name.`
       );
     } else {
       updated[index] = { ...updated[index], [field]: newValue };

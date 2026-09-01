@@ -32,6 +32,16 @@ use tracing::{debug, error, info, instrument};
 /// generous but protects the UI/worker against an indefinitely-hanging remote.
 const GIT_NETWORK_TIMEOUT_SECS: u64 = 60;
 
+/// User-facing message when a [`run_git_net`] call blows its network budget.
+///
+/// Keeps the "check your internet connection" wording that errors.ts's
+/// `BACKEND_HUMANIZED_GIT_PHRASES` keys on (same as github.rs's
+/// `GH_PUSH_TIMEOUT_MESSAGE`), so the frontend still recognizes it as
+/// already-humanized and doesn't re-word it.
+pub(crate) const GIT_NET_TIMEOUT_MESSAGE: &str =
+    "GitHub took too long to respond and the operation timed out. Larger projects can take a \
+     while to upload — check your internet connection and try again.";
+
 /// Run a git command that touches the network (fetch / pull / push), scoped to
 /// the workspace the project at `cwd` belongs to.
 ///
@@ -90,7 +100,28 @@ pub(crate) async fn run_git_net(
     // background, holding .git locks and stalling the next push/fetch too
     // (issue #556; same pattern as projects/mod.rs et al.).
     tokio_cmd.kill_on_drop(true);
-    run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await
+
+    map_git_net_timeout(
+        run_with_timeout(tokio_cmd, format!("git {label}"), GIT_NETWORK_TIMEOUT_SECS).await,
+        label,
+    )
+}
+
+/// A blown network budget is the connection (or a large repo), not a
+/// malfunction, so it belongs in `Expected` and out of telemetry.
+///
+/// Applied inside [`run_git_net`] rather than per call site: only push_branch
+/// and delete_branch carried the mapping, so pushes from publishing.rs (4
+/// sites), pull_requests.rs and github.rs still reported every slow push as
+/// `cmderr-timeout-git push` (issue #819).
+fn map_git_net_timeout<T>(result: Result<T, CommandError>, label: &str) -> Result<T, CommandError> {
+    match result {
+        Err(CommandError::Timeout { .. }) => {
+            tracing::warn!(label, "git network operation timed out waiting for GitHub");
+            Err(CommandError::expected(GIT_NET_TIMEOUT_MESSAGE))
+        }
+        other => other,
+    }
 }
 
 /// [`run_git_net`] plus a bounded retry when git loses the `.git/index.lock`
@@ -611,6 +642,39 @@ mod tests {
     use super::*;
     use std::process::Command;
     use tempfile::TempDir;
+
+    // Issue #819: every run_git_net call site — not just push_branch and
+    // delete_branch — must classify a blown network budget as Expected, or
+    // slow pushes from publishing.rs / pull_requests.rs / github.rs keep
+    // reaching telemetry as `cmderr-timeout-git push`.
+    #[test]
+    fn git_net_timeouts_map_to_expected_not_telemetry() {
+        let timed_out: Result<(), CommandError> = Err(CommandError::Timeout {
+            cmd: "git push".into(),
+            secs: GIT_NETWORK_TIMEOUT_SECS,
+        });
+        let err = map_git_net_timeout(timed_out, "push").expect_err("still an error");
+        assert!(matches!(err, CommandError::Expected { .. }), "got: {err:?}");
+        // errors.ts's BACKEND_HUMANIZED_GIT_PHRASES keys on this phrase to know
+        // the backend already humanized the message.
+        assert!(
+            err.to_string()
+                .to_lowercase()
+                .contains("check your internet connection"),
+            "got: {err}"
+        );
+
+        // Nothing else is touched: successes and other failures pass through.
+        assert_eq!(
+            map_git_net_timeout(Ok::<_, CommandError>(7), "push").ok(),
+            Some(7)
+        );
+        let other: Result<(), CommandError> = Err(CommandError::expected("nope"));
+        assert_eq!(
+            map_git_net_timeout(other, "push").unwrap_err().to_string(),
+            "nope"
+        );
+    }
 
     // The #560 shape: a connectivity blip during `git push` (credentials
     // resolved via gh, so the error text is gh's GraphQL dial failure) must
