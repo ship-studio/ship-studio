@@ -547,6 +547,91 @@ fn scan_nextjs_pages_at(
     Ok(())
 }
 
+/// Scan Next.js Pages Router pages (`pages/` or `src/pages/`): every
+/// .js/.jsx/.ts/.tsx file is a route. `api/` routes and Next's special
+/// files (`_app`, `_document`, `_error`, `404`, `500`) aren't navigable
+/// pages, so they're skipped.
+pub(crate) fn scan_nextjs_pages_router(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+) -> Result<Vec<PageInfo>, CommandError> {
+    let mut pages = Vec::new();
+    if !dir.exists() {
+        return Ok(pages);
+    }
+    scan_nextjs_pages_router_at(dir, base_dir, 0, &mut pages)?;
+    Ok(pages)
+}
+
+fn scan_nextjs_pages_router_at(
+    dir: &std::path::Path,
+    base_dir: &std::path::Path,
+    depth: usize,
+    pages: &mut Vec<PageInfo>,
+) -> Result<(), CommandError> {
+    for entry in read_scan_dir(dir, depth)? {
+        let path = entry.path;
+
+        if entry.is_dir {
+            let dir_name = entry.file_name;
+            if dir_name.starts_with('.') || dir_name.starts_with('_') || dir_name == "api" {
+                continue;
+            }
+
+            scan_nextjs_pages_router_at(&path, base_dir, depth + 1, pages)?;
+        } else {
+            let file_name = entry.file_name;
+            let Some(stem) = ["tsx", "jsx", "ts", "js"]
+                .iter()
+                .find_map(|ext| file_name.strip_suffix(&format!(".{ext}")))
+            else {
+                continue;
+            };
+            if stem.starts_with('_')
+                || stem.starts_with('.')
+                || stem.ends_with(".d")
+                || stem == "404"
+                || stem == "500"
+            {
+                continue;
+            }
+
+            let relative = path.strip_prefix(base_dir).unwrap_or(&path);
+            let mut segments: Vec<String> = relative
+                .components()
+                .filter_map(|c| match c {
+                    std::path::Component::Normal(s) => Some(s.to_string_lossy().to_string()),
+                    _ => None,
+                })
+                .collect();
+            // The filename (minus extension) is the last route segment;
+            // `index` maps to the parent directory's route.
+            segments.pop();
+            if stem != "index" {
+                segments.push(stem.to_string());
+            }
+            let route = if segments.is_empty() {
+                "/".to_string()
+            } else {
+                format!("/{}", segments.join("/"))
+            };
+
+            // Dynamic route syntax [id] and [...slug] display as :id / :slug.
+            let display_route = route
+                .replace("[...", ":")
+                .replace('[', ":")
+                .replace(']', "");
+
+            pages.push(PageInfo {
+                route: display_route,
+                file_path: path.to_string_lossy().to_string(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Scan SvelteKit pages (src/routes/ directory with +page.svelte files)
 pub(crate) fn scan_sveltekit_pages(
     dir: &std::path::Path,
@@ -1128,6 +1213,45 @@ mod tests {
         sort_pages(&mut pages);
         let routes: Vec<_> = pages.iter().map(|p| p.route.as_str()).collect();
         assert_eq!(routes, vec!["/", "/about"]);
+    }
+
+    #[test]
+    fn pages_router_scan_maps_files_to_routes() {
+        // Pages Router: every source file under pages/ is a route; index maps
+        // to the parent path, dynamic segments display as :param, and Next's
+        // special files plus api/ routes are not navigable pages.
+        let tmp = TempDir::new().unwrap();
+        let pages_dir = tmp.path().join("src").join("pages");
+        std::fs::create_dir_all(pages_dir.join("blog")).unwrap();
+        std::fs::create_dir_all(pages_dir.join("api")).unwrap();
+        std::fs::write(pages_dir.join("index.tsx"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("about.tsx"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("blog/index.tsx"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("blog/[slug].tsx"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("_app.tsx"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("_document.tsx"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("404.tsx"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("api/hello.ts"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("types.d.ts"), "declare ...").unwrap();
+
+        let mut pages = scan_nextjs_pages_router(&pages_dir, &pages_dir).unwrap();
+        sort_pages(&mut pages);
+        let routes: Vec<_> = pages.iter().map(|p| p.route.as_str()).collect();
+        assert_eq!(routes, vec!["/", "/about", "/blog", "/blog/:slug"]);
+    }
+
+    #[test]
+    fn pages_router_scan_handles_catch_all_and_js_files() {
+        let tmp = TempDir::new().unwrap();
+        let pages_dir = tmp.path().join("pages");
+        std::fs::create_dir_all(pages_dir.join("docs")).unwrap();
+        std::fs::write(pages_dir.join("docs/[...slug].js"), "export default ...").unwrap();
+        std::fs::write(pages_dir.join("contact.jsx"), "export default ...").unwrap();
+
+        let mut pages = scan_nextjs_pages_router(&pages_dir, &pages_dir).unwrap();
+        sort_pages(&mut pages);
+        let routes: Vec<_> = pages.iter().map(|p| p.route.as_str()).collect();
+        assert_eq!(routes, vec!["/contact", "/docs/:slug"]);
     }
 
     #[test]

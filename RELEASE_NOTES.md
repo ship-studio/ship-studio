@@ -12,6 +12,7 @@ facing language — what changed, in plain English — not commit subjects.
 - **Windows terminal fixed** - Claude Code no longer fails to launch with "too many arguments"; agent CLIs spawn correctly whether real executables or npm shims
 - **Three crash fixes** - Full-disk startup, empty GitHub contribution calendar, and terminal GPU hiccups no longer crash the app
 - **Smarter imports** - pnpm/yarn workspace repos install with the right package manager instead of failing with npm errors
+- **Pages Router discovery** - Next.js projects with routes in `pages/` or `src/pages/` now show their pages instead of "No pages found"
 - **Sturdier git & publishing** - Existing origin remotes are reused, detached-HEAD publishes are refused clearly, stash/undo rides out index.lock contention
 - **Calmer errors everywhere** - ~50 error paths that auto-filed bug reports for routine environmental states (cloud-drive stalls, antivirus locks, offline networks, slow dev servers) now explain themselves quietly
 - **~118 auto-reported issues fixed since 0.18.6** - the largest sweep yet

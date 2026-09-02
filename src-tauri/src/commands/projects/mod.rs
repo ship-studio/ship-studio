@@ -815,24 +815,30 @@ pub async fn list_pages(project_path: String) -> Result<Vec<PageInfo>, CommandEr
         // Router project is NOT a Next.js app router and must not be scanned.
         ProjectType::Reactnative | ProjectType::Flutter => Ok(Vec::new()),
         _ => {
-            // Default to Next.js app router
-            let app_dir = project.join("app");
-            if !app_dir.exists() {
-                let src_app_dir = project.join("src").join("app");
-                if !src_app_dir.exists() {
-                    return Ok(Vec::new());
+            // Default to Next.js: App Router first (app/ or src/app/), then
+            // the Pages Router (pages/ or src/pages/) — projects with routes
+            // only under src/pages/ used to come back empty ("No pages
+            // found").
+            for app_dir in [project.join("app"), project.join("src").join("app")] {
+                if app_dir.exists() {
+                    let mut pages = detection::scan_nextjs_pages(&app_dir, &app_dir)?;
+                    detection::sort_pages(&mut pages);
+                    // Stripping the [locale] segment can alias routes (e.g. a
+                    // stray app/page.tsx next to app/[locale]/page.tsx) —
+                    // list each once.
+                    pages.dedup_by(|a, b| a.route == b.route);
+                    return Ok(pages);
                 }
-                let mut pages = detection::scan_nextjs_pages(&src_app_dir, &src_app_dir)?;
-                detection::sort_pages(&mut pages);
-                pages.dedup_by(|a, b| a.route == b.route);
-                return Ok(pages);
             }
-            let mut pages = detection::scan_nextjs_pages(&app_dir, &app_dir)?;
-            detection::sort_pages(&mut pages);
-            // Stripping the [locale] segment can alias routes (e.g. a stray
-            // app/page.tsx next to app/[locale]/page.tsx) — list each once.
-            pages.dedup_by(|a, b| a.route == b.route);
-            Ok(pages)
+            for pages_dir in [project.join("pages"), project.join("src").join("pages")] {
+                if pages_dir.exists() {
+                    let mut pages = detection::scan_nextjs_pages_router(&pages_dir, &pages_dir)?;
+                    detection::sort_pages(&mut pages);
+                    pages.dedup_by(|a, b| a.route == b.route);
+                    return Ok(pages);
+                }
+            }
+            Ok(Vec::new())
         }
     }
 }
