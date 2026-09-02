@@ -9,7 +9,7 @@ testing, and known gotchas. This file is just the contract in brief.
 
 1. **Run the CI gates before declaring work done:**
    ```bash
-   pnpm check:all     # typecheck + lint + prettier + rustfmt + clippy + pattern/LOC checks
+   pnpm check:all     # config integrity + typecheck + lint + prettier + rustfmt + clippy + pattern/LOC checks
    pnpm test:run      # frontend tests (Vitest)
    pnpm rust:test     # backend tests (cargo test)
    ```
