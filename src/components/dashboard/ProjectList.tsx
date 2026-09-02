@@ -55,6 +55,7 @@ import { ProjectBulkActionConfirm } from './ProjectBulkActionConfirm';
 import { DashboardPreferencesCard } from './DashboardPreferencesCard';
 import { DashboardCommunityBanner } from './DashboardCommunityBanner';
 import { Spinner } from '../primitives/Spinner';
+import { Button } from '../primitives/Button';
 import { GitHubCalendar } from './GitHubCalendar';
 import { useModal } from '../../contexts/ModalContext';
 import {
@@ -87,6 +88,9 @@ interface ProjectWithThumbnail extends DashboardProject {
 
 /** Available sort options for the project list */
 type SortOption = 'last_opened' | 'name';
+
+/** Projects shown before the list truncates behind a "View all" button. */
+const PROJECT_DISPLAY_LIMIT = 30;
 
 const PROJECT_VIEW_MODE_STORAGE_KEY = 'ship-studio-project-view-mode';
 
@@ -200,6 +204,7 @@ export function ProjectList({
   // dead useState.
   const searchQuery: string = '';
   const [sortBy, setSortBy] = useState<SortOption>('last_opened');
+  const [showAllProjects, setShowAllProjects] = useState(false);
   const [projectViewMode, setProjectViewMode] =
     useState<ProjectViewMode>(getInitialProjectViewMode);
 
@@ -351,6 +356,20 @@ export function ProjectList({
     return result;
   }, [projects, displayedProjects, searchQuery, sortBy]);
 
+  // Re-collapse the list when the visible collection changes (folder
+  // navigation or workspace switch) so each view starts truncated.
+  useEffect(() => {
+    setShowAllProjects(false);
+  }, [currentFolderId, activeAccountId]);
+
+  // Cap the rendered list so large dashboards don't force endless scrolling;
+  // "View all" lifts the cap for the current view.
+  const visibleProjects = useMemo(
+    () => (showAllProjects ? filteredProjects : filteredProjects.slice(0, PROJECT_DISPLAY_LIMIT)),
+    [filteredProjects, showAllProjects]
+  );
+  const hiddenProjectCount = filteredProjects.length - visibleProjects.length;
+
   // Filter folders by search query
   const filteredFolders = useMemo(() => {
     if (!searchQuery || currentFolderId) return folders;
@@ -374,7 +393,7 @@ export function ProjectList({
     handleBeginBulkProjectAction,
     handleBulkProjectAction,
   } = useProjectBulkActions({
-    filteredProjects,
+    filteredProjects: visibleProjects,
     pinnedSet,
     onTogglePin,
     loadAll,
@@ -700,7 +719,7 @@ export function ProjectList({
           searchQuery={searchQuery}
           totalCount={totalCount}
           filteredFolders={filteredFolders}
-          filteredProjects={filteredProjects}
+          filteredProjects={visibleProjects}
           selectedProjectPaths={selectedProjectPaths}
           allVisibleSelected={allVisibleSelected}
           someVisibleSelected={someVisibleSelected}
@@ -724,6 +743,14 @@ export function ProjectList({
           onTogglePin={onTogglePin}
           onCreateProject={onCreateProject}
         />
+
+        {hiddenProjectCount > 0 && (
+          <div className="project-list-view-all">
+            <Button variant="secondary" onClick={() => setShowAllProjects(true)}>
+              + View all {filteredProjects.length} projects
+            </Button>
+          </div>
+        )}
 
         <AgentsPanel />
 
