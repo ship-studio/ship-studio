@@ -56,19 +56,20 @@
 .code-tab-search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 8px;
-  padding: 0 8px;
+  gap: var(--spacing-xs, 6px);
+  margin: var(--spacing-xs, 8px);
+  padding: 0 var(--spacing-xs, 8px);
   height: 28px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-primary);
   color: var(--text-muted);
   flex-shrink: 0;
+  transition: border-color 0.15s ease;
 }
 
 .code-tab-search:focus-within {
-  border-color: var(--accent);
+  border-color: var(--info-light);
 }
 
 .code-tab-search-input {
@@ -84,6 +85,207 @@
 
 .code-tab-search-input::placeholder {
   color: var(--text-muted);
+}
+
+/* Segmented mode switcher inside search bar */
+.code-search-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.code-search-mode-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.code-search-mode-toggle.active {
+  color: var(--text-bright);
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+.code-search-mode-label {
+  display: inline;
+}
+
+@media (max-width: 220px) {
+  .code-search-mode-label {
+    display: none;
+  }
+}
+
+/* Cross-file Code Search Results */
+.code-search-results {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px;
+  gap: 6px;
+}
+
+.code-search-file-group {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid transparent;
+}
+
+.code-search-file-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  user-select: none;
+}
+
+.code-search-file-header:hover {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.code-search-file-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-search-file-count {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full, 9999px);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.code-search-file-matches {
+  display: flex;
+  flex-direction: column;
+  padding-left: 8px;
+  margin-top: 2px;
+  gap: 2px;
+}
+
+.code-search-match-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono, monospace);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  width: 100%;
+  overflow: hidden;
+}
+
+.code-search-match-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.code-search-match-line {
+  color: var(--info-light);
+  font-size: 11px;
+  flex-shrink: 0;
+  min-width: 24px;
+}
+
+.code-search-match-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* CodeMirror Find Panel styling override to align with Ship Studio Dark UI */
+.cm-panels {
+  background: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text-primary) !important;
+  font-family: inherit !important;
+  padding: 6px 12px !important;
+  box-shadow: var(--shadow) !important;
+}
+
+.cm-panels-top {
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.cm-search {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: var(--font-size-sm) !important;
+}
+
+.cm-search input[name='search'],
+.cm-search input[name='replace'] {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 3px 8px !important;
+  font-size: var(--font-size-sm) !important;
+  outline: none !important;
+  min-width: 120px !important;
+  max-width: 260px !important;
+}
+
+.cm-search input[name='search']:focus,
+.cm-search input[name='replace']:focus {
+  border-color: var(--info-light) !important;
+}
+
+.cm-search button {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 3px 8px !important;
+  font-size: var(--font-size-xs) !important;
+  cursor: pointer !important;
+}
+
+.cm-search button:hover {
+  color: var(--text-primary) !important;
+  background: var(--bg-primary) !important;
+}
+
+.cm-search label {
+  color: var(--text-muted) !important;
+  font-size: var(--font-size-xs) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  user-select: none !important;
 }
 
 .code-tab-sidebar-content {

@@ -86,6 +86,20 @@ export async function readProjectFile(projectPath: string, filePath: string): Pr
   };
 }
 
+/** A match within a file for code search. */
+export interface CodeSearchMatch {
+  lineNumber: number;
+  lineText: string;
+  matchStart: number;
+  matchEnd: number;
+}
+
+/** Code search result item grouped by file path. */
+export interface CodeSearchResult {
+  filePath: string;
+  matches: CodeSearchMatch[];
+}
+
 /** Overwrite a project file with new content (Code tab inline editor). */
 export async function saveProjectFile(
   projectPath: string,
@@ -93,6 +107,35 @@ export async function saveProjectFile(
   content: string
 ): Promise<void> {
   await invoke('save_project_file', { projectPath, filePath, content });
+}
+
+/** Search project files for matching code content. */
+export async function searchProjectCode(
+  projectPath: string,
+  query: string,
+  caseSensitive?: boolean
+): Promise<CodeSearchResult[]> {
+  const results = await invoke<
+    Array<{
+      file_path: string;
+      matches: Array<{
+        line_number: number;
+        line_text: string;
+        match_start: number;
+        match_end: number;
+      }>;
+    }>
+  >('search_project_code', { projectPath, query, caseSensitive: caseSensitive ?? false });
+
+  return results.map((res) => ({
+    filePath: res.file_path,
+    matches: res.matches.map((m) => ({
+      lineNumber: m.line_number,
+      lineText: m.line_text,
+      matchStart: m.match_start,
+      matchEnd: m.match_end,
+    })),
+  }));
 }
 
 /** Build a nested tree structure from a flat list of file entries. */

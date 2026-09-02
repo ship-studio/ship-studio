@@ -18,7 +18,15 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { Spinner } from '../primitives/Spinner';
 import { Button } from '../primitives/Button';
-import { ChevronIcon, CodeIcon, FileIcon, VSCodeIcon, CursorIcon, CopyIcon } from '../icons';
+import {
+  ChevronIcon,
+  CodeIcon,
+  FileIcon,
+  VSCodeIcon,
+  CursorIcon,
+  CopyIcon,
+  SearchIcon,
+} from '../icons';
 import { trackEvent } from '../../lib/analytics';
 import { fileExtensionForAnalytics } from '../../lib/code';
 import { CodeFileEditor } from './CodeFileEditor';
@@ -48,6 +56,8 @@ interface CodeViewerProps {
   /** Global, persisted "Code tab is editable" opt-in (drives the header toggle). */
   editModeEnabled?: boolean;
   onToggleEditMode?: (enabled: boolean) => void;
+  openSearchTrigger?: number;
+  onTriggerSearch?: () => void;
 }
 
 interface SelectionInfo {
@@ -82,6 +92,8 @@ export function CodeViewer({
   onSave,
   editModeEnabled = false,
   onToggleEditMode,
+  openSearchTrigger,
+  onTriggerSearch,
 }: CodeViewerProps) {
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
@@ -339,6 +351,17 @@ export function CodeViewer({
               </Button>
             </div>
           )}
+          {onTriggerSearch && (
+            <button
+              type="button"
+              className="code-viewer-open-btn"
+              onClick={onTriggerSearch}
+              title="Find in current file (Cmd+F / Ctrl+F)"
+            >
+              <SearchIcon size={12} />
+              <span>Find</span>
+            </button>
+          )}
           {onToggleEditMode && (
             // Same control as the visual editor's Edit toggle (shared
             // `preview-edit-toggle` classes) so the two read as one feature.
@@ -422,6 +445,7 @@ export function CodeViewer({
           onSave={() => void handleSave()}
           revealLine={revealLine}
           onSelectionChange={handleSelectionChange}
+          openSearchTrigger={openSearchTrigger}
         />
         {isEditing && saveError && (
           <div className="code-viewer-save-error">Save failed: {saveError}</div>

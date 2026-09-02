@@ -1,10 +1,3 @@
-/**
- * Code browser tab container component.
- *
- * Combines a file tree sidebar with a syntax-highlighted code viewer.
- * Includes a draggable divider for resizing the two panes.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFileTree } from '../../hooks/useFileTree';
 import { FileTree } from './FileTree';
@@ -12,8 +5,13 @@ import { CodeViewer } from './CodeViewer';
 import { ProjectActionConfirmModal } from '../dashboard/ProjectActionConfirmModal';
 import { Spinner } from '../primitives/Spinner';
 import { Button } from '../primitives/Button';
-import { ResetIcon, SearchIcon, EditIcon } from '../icons';
-import { type FileTreeNode, fileExtensionForAnalytics } from '../../lib/code';
+import { ResetIcon, SearchIcon, EditIcon, FileIcon, CodeIcon } from '../icons';
+import {
+  type FileTreeNode,
+  type CodeSearchResult,
+  searchProjectCode,
+  fileExtensionForAnalytics,
+} from '../../lib/code';
 import { trackEvent, trackSearch } from '../../lib/analytics';
 import { useCommands } from '../../commands/useCommands';
 
@@ -52,12 +50,20 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     cancelPendingAction,
   } = useFileTree(projectPath);
 
+  const [activeRevealTarget, setActiveRevealTarget] = useState<{
+    file: string;
+    line: number;
+  } | null>(revealTarget ?? null);
+
   const selectFile = useCallback(
-    (path: string) => {
+    (path: string, line?: number) => {
       void trackEvent('code_file_opened', {
         file_extension: fileExtensionForAnalytics(path),
       });
       selectFileRaw(path);
+      if (line != null) {
+        setActiveRevealTarget({ file: path, line });
+      }
     },
     [selectFileRaw]
   );
@@ -67,8 +73,13 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     refreshTreeRaw();
   }, [refreshTreeRaw]);
 
-  // Expose the persisted edit-mode toggle in the command palette (the palette is
-  // a contract — every user-facing feature registers its primary action).
+  const [searchMode, setSearchMode] = useState<'files' | 'code'>('files');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<CodeSearchResult[]>([]);
+  const [isSearchingCode, setIsSearchingCode] = useState(false);
+  const [openSearchTrigger, setOpenSearchTrigger] = useState<number>(0);
+
+  // Expose search & edit commands in the Cmd+K palette.
   useCommands(
     () => [
       {
@@ -81,19 +92,70 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
         keywords: ['edit', 'code', 'editor', 'read only', 'write', 'ide'],
         run: () => setEditMode(!editModeEnabled),
       },
+      {
+        id: 'code.findInFile',
+        title: 'Find in current file',
+        subtitle: 'Code tab — open in-file search panel in editor',
+        icon: <SearchIcon size={14} />,
+        category: 'action',
+        when: 'project',
+        keywords: ['find', 'search', 'file', 'code', 'buffer'],
+        run: () => setOpenSearchTrigger((prev) => prev + 1),
+      },
+      {
+        id: 'code.toggleSearchMode',
+        title:
+          searchMode === 'files' ? 'Switch to code content search' : 'Switch to file path search',
+        subtitle: 'Code tab — toggle search mode in sidebar',
+        icon: <CodeIcon size={14} />,
+        category: 'action',
+        when: 'project',
+        keywords: ['search', 'grep', 'mode', 'content', 'path', 'files'],
+        run: () => setSearchMode((prev) => (prev === 'files' ? 'code' : 'files')),
+      },
     ],
-    [editModeEnabled, setEditMode]
+    [editModeEnabled, setEditMode, searchMode]
   );
 
-  // Jump-to-code: open the targeted file. The line is forwarded to CodeViewer
-  // (which scrolls + highlights it) independently, so re-targeting the same file
-  // still reveals the new line even though selectFile early-returns.
+  // Jump-to-code: open targeted file & store reveal line.
   useEffect(() => {
-    if (revealTarget) selectFileRaw(revealTarget.file);
+    if (revealTarget) {
+      selectFileRaw(revealTarget.file);
+      const timer = setTimeout(() => {
+        setActiveRevealTarget(revealTarget);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
   }, [revealTarget, selectFileRaw]);
 
+  // Debounced cross-file code search execution.
+  useEffect(() => {
+    if (searchMode !== 'code' || !searchQuery.trim()) {
+      const timer = setTimeout(() => {
+        setSearchResults([]);
+        setIsSearchingCode(false);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+
+    const timer = setTimeout(() => {
+      setIsSearchingCode(true);
+      searchProjectCode(projectPath, searchQuery.trim())
+        .then((results) => {
+          setSearchResults(results);
+        })
+        .catch(() => {
+          setSearchResults([]);
+        })
+        .finally(() => {
+          setIsSearchingCode(false);
+        });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchMode, searchQuery, projectPath]);
+
   const [sidebarWidth, setSidebarWidth] = useState(250);
-  const [searchQuery, setSearchQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
@@ -151,7 +213,9 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
     <div className="code-tab" ref={containerRef}>
       <div className="code-tab-sidebar" style={{ width: sidebarWidth }}>
         <div className="code-tab-sidebar-header">
-          <span className="code-tab-sidebar-title">Files</span>
+          <span className="code-tab-sidebar-title">
+            {searchMode === 'files' ? 'Files' : 'Code Search'}
+          </span>
           <button className="code-tab-refresh-btn" onClick={refreshTree} title="Refresh file tree">
             <ResetIcon size={12} />
           </button>
@@ -161,7 +225,7 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
           <input
             className="code-tab-search-input"
             type="text"
-            placeholder="Search files..."
+            placeholder={searchMode === 'files' ? 'Search file paths...' : 'Search code content...'}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
@@ -172,6 +236,21 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
               trackSearch('code_files', e.target.value);
             }}
           />
+          <button
+            type="button"
+            className={`code-search-mode-toggle${searchMode === 'code' ? ' active' : ''}`}
+            onClick={() => setSearchMode((prev) => (prev === 'files' ? 'code' : 'files'))}
+            title={
+              searchMode === 'files'
+                ? 'Switch to Code Content Search (cross-file grep)'
+                : 'Switch to File Path Search'
+            }
+          >
+            {searchMode === 'files' ? <FileIcon size={12} /> : <CodeIcon size={12} />}
+            <span className="code-search-mode-label">
+              {searchMode === 'files' ? 'Files' : 'Code'}
+            </span>
+          </button>
         </div>
         <div className="code-tab-sidebar-content">
           {isLoadingTree ? (
@@ -185,6 +264,48 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
                 Retry
               </Button>
             </div>
+          ) : searchMode === 'code' ? (
+            isSearchingCode ? (
+              <div className="code-tab-sidebar-loading">
+                <Spinner size="sm" style={{ color: 'var(--accent)' }} />
+                <span>Searching code...</span>
+              </div>
+            ) : !searchQuery.trim() ? (
+              <div className="code-tab-sidebar-empty">Type query to search across files</div>
+            ) : searchResults.length === 0 ? (
+              <div className="code-tab-sidebar-empty">No matching code content</div>
+            ) : (
+              <div className="code-search-results">
+                {searchResults.map((res) => (
+                  <div key={res.filePath} className="code-search-file-group">
+                    <div
+                      className="code-search-file-header"
+                      onClick={() => selectFile(res.filePath)}
+                      title={res.filePath}
+                    >
+                      <FileIcon size={12} />
+                      <span className="code-search-file-path">{res.filePath}</span>
+                      <span className="code-search-file-count">{res.matches.length}</span>
+                    </div>
+                    <div className="code-search-file-matches">
+                      {res.matches.map((m) => (
+                        <button
+                          key={`${res.filePath}:${m.lineNumber}`}
+                          type="button"
+                          className="code-search-match-item"
+                          onClick={() => selectFile(res.filePath, m.lineNumber)}
+                        >
+                          <span className="code-search-match-line">{m.lineNumber}</span>
+                          <span className="code-search-match-text" title={m.lineText}>
+                            {m.lineText}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
           ) : filteredTree.length === 0 ? (
             <div className="code-tab-sidebar-empty">
               {searchQuery.trim() ? 'No matching files' : 'No files found'}
@@ -210,7 +331,9 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
           error={fileError}
           onSendToAgent={onSendToAgent}
           revealLine={
-            revealTarget && revealTarget.file === selectedFilePath ? revealTarget.line : null
+            activeRevealTarget && activeRevealTarget.file === selectedFilePath
+              ? activeRevealTarget.line
+              : null
           }
           isEditing={isEditing}
           draft={draft}
@@ -222,6 +345,8 @@ export function CodeTab({ projectPath, onSendToAgent, revealTarget }: CodeTabPro
           onSave={saveFile}
           editModeEnabled={editModeEnabled}
           onToggleEditMode={setEditMode}
+          openSearchTrigger={openSearchTrigger}
+          onTriggerSearch={() => setOpenSearchTrigger((prev) => prev + 1)}
         />
       </div>
       {pendingAction && (

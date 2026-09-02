@@ -26,6 +26,7 @@ import {
 } from '@codemirror/view';
 import { EditorState, StateEffect, StateField, Compartment } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
 import { indentUnit, bracketMatching } from '@codemirror/language';
 import {
   ghDarkExtension,
@@ -56,6 +57,8 @@ interface Props {
   revealLine?: number | null;
   /** Fires with the current text selection in view mode (null when empty/editing). */
   onSelectionChange?: (sel: EditorSelectionInfo | null) => void;
+  /** When true/incremented, opens the in-file search panel in the editor. */
+  openSearchTrigger?: number;
 }
 
 // Transient line highlight for jump-to-code reveal.
@@ -85,6 +88,7 @@ export function CodeFileEditor({
   onSave,
   revealLine,
   onSelectionChange,
+  openSearchTrigger,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -117,6 +121,7 @@ export function CodeFileEditor({
         indentUnit.of('  '),
         EditorState.tabSize.of(2),
         revealLineField,
+        search({ top: true }),
         keymap.of([
           {
             key: 'Mod-s',
@@ -127,6 +132,7 @@ export function CodeFileEditor({
               return true;
             },
           },
+          ...searchKeymap,
           ...defaultKeymap,
           ...historyKeymap,
           indentWithTab,
@@ -224,6 +230,13 @@ export function CodeFileEditor({
     if (editable) view.focus();
     else onSelRef.current?.(null);
   }, [editable]);
+
+  // Open in-file search panel when openSearchTrigger is updated.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !openSearchTrigger) return;
+    openSearchPanel(view);
+  }, [openSearchTrigger]);
 
   // Jump-to-code: scroll the target line into view and briefly highlight it.
   useEffect(() => {
