@@ -365,7 +365,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: var(--size-sidebar-project-row);
+  /* +1px hairline compensation, mirroring .sidebar-group-header. */
+  height: calc(var(--size-sidebar-project-row) + var(--stroke-1));
   color: var(--text-faint);
   border-bottom: var(--stroke-1) solid var(--border-subtle);
 }
