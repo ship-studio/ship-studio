@@ -7,11 +7,13 @@
  * instead of screenshotted.
  */
 
+import { createPortal } from 'react-dom';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { SuccessIcon, InfoIcon, CloseIcon, CopyIcon } from '@/components/icons';
 import type { Toast } from '../../hooks/useToasts';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
+import { MODAL_INERT_EXEMPT_ATTR } from './ModalFrame';
 
 interface ToastListProps {
   toasts: Toast[];
@@ -50,13 +52,36 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number)
   );
 }
 
+/**
+ * Toasts render into a body-level host instead of inline, because ModalFrame
+ * marks every other body child `inert` while a dialog is open — inline toasts
+ * would be aria-hidden and their Copy/Dismiss buttons unclickable. The host
+ * opts out of that sweep; the container is `position: fixed` either way, so
+ * nothing moves visually.
+ */
+function ensureToastRoot(): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+  const existing = document.querySelector<HTMLElement>('[data-toast-root]');
+  if (existing?.isConnected) return existing;
+
+  const host = document.createElement('div');
+  host.dataset.toastRoot = 'true';
+  host.setAttribute(MODAL_INERT_EXEMPT_ATTR, '');
+  document.body.appendChild(host);
+  return host;
+}
+
 export function ToastList({ toasts, onDismiss }: ToastListProps) {
   if (toasts.length === 0) return null;
-  return (
+  const host = ensureToastRoot();
+  if (!host) return null;
+
+  return createPortal(
     <div className="toast-container">
       {toasts.map((t) => (
         <ToastItem key={t.id} toast={t} onDismiss={onDismiss} />
       ))}
-    </div>
+    </div>,
+    host
   );
 }

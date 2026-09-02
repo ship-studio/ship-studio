@@ -70,7 +70,9 @@ export function EditPopover({
     textRef.current = text;
   }, [text]);
 
-  const isColor = !inline && enableColorPicker && colorSwatch(initial) !== null;
+  // A color value opens the floating picker even in inline mode — the picker is a
+  // dockable panel of its own, so it never has to fit the value's text column.
+  const isColor = enableColorPicker && colorSwatch(initial) !== null;
   const width = isColor ? COLOR_PICKER_WIDTH : 220;
 
   // Filter the options by what's typed; hide the menu when the sole match is exactly
@@ -99,10 +101,11 @@ export function EditPopover({
   // Position just below-left of the anchor, clamped into the viewport. Computed
   // from the anchor's measured rect at open time (anchor is stable while open).
   const pos = useMemo(() => {
-    if (inline) return { top: 0, left: 0 };
-    if (!anchor) return null;
-    const r = anchor.getBoundingClientRect();
     if (isColor) {
+      // No anchor (inline rows pass none): open at the gutter — the dockable panel
+      // remembers where the user last put it anyway.
+      const r = anchor?.getBoundingClientRect();
+      if (!r) return { top: COLOR_PICKER_GUTTER, left: COLOR_PICKER_GUTTER };
       let left = r.left - width - COLOR_PICKER_GUTTER;
       if (left < COLOR_PICKER_GUTTER) left = r.right + COLOR_PICKER_GUTTER;
       left = Math.min(
@@ -116,8 +119,11 @@ export function EditPopover({
       const top = Math.min(Math.max(COLOR_PICKER_GUTTER, r.top), maxTop);
       return { top, left };
     }
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
-    const top = Math.min(r.bottom + 4, window.innerHeight - 60);
+    if (inline) return { top: 0, left: 0 };
+    if (!anchor) return null;
+    const rect = anchor.getBoundingClientRect();
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    const top = Math.min(rect.bottom + 4, window.innerHeight - 60);
     return { top, left };
   }, [anchor, width, isColor, inline]);
 
@@ -343,7 +349,9 @@ export function EditPopover({
     </div>
   );
 
-  return inline ? editor : createPortal(editor, document.body);
+  // The color editor is always a floating panel, so it portals out of the row even
+  // when the text editor for that row would have rendered in flow.
+  return inline && !isColor ? editor : createPortal(editor, document.body);
 }
 
 /** Per-pixel step scaled to the value's magnitude, so big numbers (700) move fast and

@@ -65,6 +65,9 @@ export function DeclarationRow(props: Props) {
   const autoEditValue = props.editable && props.autoEditValue;
   // Editing-flow: a newly added row mounts directly into its inline value input.
   const [editing, setEditing] = useState<null | 'prop' | 'value'>(autoEditValue ? 'value' : null);
+  // The clicked value button, so a color value's floating picker opens beside the
+  // row it belongs to (and clicking the button again closes it).
+  const [valueAnchor, setValueAnchor] = useState<HTMLElement | null>(null);
 
   if (!props.editable) {
     return (
@@ -111,10 +114,9 @@ export function DeclarationRow(props: Props) {
       {editing === 'value' ? (
         <EditPopover
           inline
-          anchor={null}
+          anchor={valueAnchor}
           initial={decl.important ? `${decl.value} !important` : decl.value}
           options={suggestValues(decl.prop, props.variables ?? [], props.animations ?? [])}
-          enableColorPicker={false}
           placeholder="value"
           onCommit={(raw) => {
             // `!important` is typed inline (no toggle button) — split it back out.
@@ -134,7 +136,10 @@ export function DeclarationRow(props: Props) {
         <button
           type="button"
           className="ss-decl__value ss-decl__edit"
-          onClick={() => setEditing('value')}
+          onClick={(e) => {
+            setValueAnchor(e.currentTarget);
+            setEditing('value');
+          }}
         >
           <Swatch value={decl.value} />
           {decl.value ? (

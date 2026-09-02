@@ -1,8 +1,12 @@
 /**
- * Conditional unsaved-changes segment shown beside the Push button.
+ * Current-branch chip shown beside the Push button.
  *
- * The segment only appears while the working tree is dirty. Clicking it opens
- * a compact changed-files review; Push remains a separate adjacent control.
+ * The branch name is always shown — knowing which branch you're about to
+ * publish from is the point of the chip, and hiding it on a clean tree let a
+ * user hit Publish believing they were on main. What's conditional is the
+ * *affordance*: with unsaved changes the chip opens a compact changed-files
+ * review (or the shared Push menu, via `opensPushMenu`); with nothing to open
+ * it degrades to a plain label rather than a button that does nothing.
  *
  * @module components/branches/BranchIndicator
  */
@@ -79,10 +83,13 @@ export function BranchIndicator({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isOpen, opensPushMenu, setOpen]);
 
+  // The changed-files popover has nothing to show once the tree is clean.
+  // Doesn't apply in push-menu mode: there the open state belongs to the
+  // header's Push dropdown, which is still meaningful with no changes.
   useEffect(() => {
-    if (hasUncommittedChanges) return;
+    if (hasUncommittedChanges || opensPushMenu) return;
     setOpen(false);
-  }, [hasUncommittedChanges, setOpen]);
+  }, [hasUncommittedChanges, opensPushMenu, setOpen]);
 
   useEffect(
     () => () => {
@@ -138,8 +145,6 @@ export function BranchIndicator({
     return parts.length > 1 ? `${parts.slice(0, -1).join('/')}/` : '';
   };
 
-  if (!hasUncommittedChanges) return null;
-
   const changeCount = changedFiles.length;
   const visibleStatus = changeCount > 0 ? `${changeCount} unsaved` : 'Unsaved';
   const accessibleStatus =
@@ -147,22 +152,44 @@ export function BranchIndicator({
       ? `${changeCount} unsaved ${changeCount === 1 ? 'change' : 'changes'}`
       : 'unsaved changes';
 
+  // Clean tree and no Push menu behind the chip: there's nothing for a click
+  // to open, so render the branch name as a label instead of a dead button.
+  if (!hasUncommittedChanges && !opensPushMenu) {
+    return (
+      <div className="branch-indicator is-clean" data-education-id="branch-indicator">
+        <span className="branch-indicator-label">
+          <BranchIcon size={14} />
+          <span className="branch-name">{currentBranch}</span>
+          {isLive && <span className="branch-live-badge">Live</span>}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <>
-      <div className="branch-indicator" ref={wrapperRef} data-education-id="branch-indicator">
+      <div
+        className={`branch-indicator${hasUncommittedChanges ? '' : ' is-clean'}`}
+        ref={wrapperRef}
+        data-education-id="branch-indicator"
+      >
         {opensPushMenu ? (
           <Button
             ref={triggerRef}
             className="branch-indicator-button branch-indicator-push-trigger"
             aria-haspopup="menu"
             aria-expanded={isOpen}
-            aria-label={`Open Push options for ${accessibleStatus} on ${currentBranch}`}
+            aria-label={
+              hasUncommittedChanges
+                ? `Open Push options for ${accessibleStatus} on ${currentBranch}`
+                : `Open Push options for ${currentBranch}`
+            }
             onClick={() => setOpen(!isOpen)}
             leftIcon={<BranchIcon size={14} />}
           >
             <span className="branch-name">{currentBranch}</span>
             {isLive && <span className="branch-live-badge">Live</span>}
-            <span className="branch-unsaved-label">{visibleStatus}</span>
+            {hasUncommittedChanges && <span className="branch-unsaved-label">{visibleStatus}</span>}
           </Button>
         ) : (
           <Button

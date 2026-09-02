@@ -10,9 +10,14 @@
   padding: var(--spacing-lg);
 }
 
+/* A modal behind a nested one stays visible — a small confirm must not make the
+   dialog that opened it vanish. The topmost overlay's own scrim is what dims it,
+   so this one drops its scrim (stacking two would black the parent out) and only
+   goes non-interactive. `inert` on the overlay does the real blocking;
+   pointer-events is belt and braces. */
 .modal-frame-overlay[data-modal-inactive='true'] {
-  visibility: hidden;
   pointer-events: none;
+  background: transparent;
 }
 
 .modal-frame-content {

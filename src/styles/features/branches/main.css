@@ -77,6 +77,32 @@
   color: var(--accent-warning);
 }
 
+/* Clean tree: the chip is just "which branch am I on". The warning tint
+   belongs to the unsaved state, so neutralise the inherited colours (the
+   surface/border already only apply under `.has-unsaved-changes`). */
+.branch-indicator.is-clean .branch-indicator-label,
+.branch-indicator.is-clean .branch-indicator-button.button,
+.branch-indicator.is-clean .branch-name {
+  color: var(--text-secondary);
+}
+
+.branch-indicator.is-clean .branch-indicator-button.button:hover:not(:disabled),
+.branch-indicator.is-clean .branch-indicator-button.button:hover .branch-name {
+  color: var(--text-primary);
+}
+
+.branch-indicator-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--button-gap);
+  height: var(--button-height);
+  padding: 0 var(--button-padding);
+  max-width: calc(var(--source-control-branch-max-width) + var(--spacing-xl));
+  font-size: var(--button-font-size);
+  font-weight: var(--button-font-weight);
+  white-space: nowrap;
+}
+
 .branch-indicator .branch-indicator-push-trigger.button {
   min-height: 0;
   gap: var(--space-04);

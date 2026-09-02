@@ -6,9 +6,12 @@ import { fileURLToPath } from 'node:url';
 
 const CSS_EXTENSIONS = new Set(['.css']);
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
-const VAR_REFERENCE = /var\(\s*(--[a-zA-Z0-9-]+)/g;
-const CSS_DEFINITION = /--[a-zA-Z0-9-]+(?=\s*:)/g;
-const RUNTIME_DEFINITION = /['"](--[a-zA-Z0-9-]+)['"]/g;
+// Custom-property names are `--` followed by any CSS ident characters, which
+// includes `_` — leaving it out silently split names like `--foo_bar` in two,
+// so a reference to an undefined token could pass the check.
+const VAR_REFERENCE = /var\(\s*(--[a-zA-Z0-9_-]+)/g;
+const CSS_DEFINITION = /--[a-zA-Z0-9_-]+(?=\s*:)/g;
+const RUNTIME_DEFINITION = /['"](--[a-zA-Z0-9_-]+)['"]/g;
 
 function listFiles(root, extensions) {
   if (!fs.existsSync(root)) return [];

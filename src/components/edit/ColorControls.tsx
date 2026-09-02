@@ -5,7 +5,7 @@
  * previewed live via inline color/background-color.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
 import {
   arbitraryColorRaw,
@@ -209,16 +209,22 @@ export function ColorField({
     [format, handlePick]
   );
 
-  const handleFormatChange = useCallback(
-    (next: string) => {
-      const nextFormat = next as ColorFormat;
-      setFormat(nextFormat);
-      const raw = (explicit ?? computedRaw ?? '#000000').trim();
-      const parsed = toCss(raw);
-      handlePick(parsed ? toFormat(raw, nextFormat) : raw);
-    },
-    [computedRaw, explicit, handlePick]
-  );
+  // Switching HEX/RGB/HSL/OKLCH only changes how the current value is DISPLAYED
+  // and how the next committed value is written. It must never apply a color:
+  // with no explicit value that would write the `#000000` fallback into source,
+  // and with only a computed value it would silently promote the browser's
+  // rendered color into an explicit class the user never chose.
+  const handleFormatChange = useCallback((next: string) => {
+    setFormat(next as ColorFormat);
+  }, []);
+
+  // The field shows the current value re-rendered in the selected format —
+  // purely cosmetic until the user actually commits something.
+  const fieldValue = useMemo(() => {
+    const raw = (explicit ?? computedRaw ?? '').trim();
+    if (!raw || /^var\(/i.test(raw)) return raw;
+    return toCss(raw) ? toFormat(raw, format) : raw;
+  }, [computedRaw, explicit, format]);
 
   return (
     <div className="ss-edit-panel__control">
@@ -236,7 +242,7 @@ export function ColorField({
         <ValueField
           className="ss-edit-panel__text ss-color-field__value"
           variant="color"
-          value={explicit ?? computedRaw ?? ''}
+          value={fieldValue}
           variables={variables}
           format={format}
           onFormatChange={handleFormatChange}

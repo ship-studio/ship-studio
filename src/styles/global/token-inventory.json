@@ -1361,7 +1361,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 4
     },
     {
       "name": "--button-border-outline",
@@ -1370,7 +1370,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 6
     },
     {
       "name": "--button-text-default",
@@ -1379,7 +1379,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 12
+      "consumerCount": 13
     },
     {
       "name": "--button-text-hover",
@@ -1388,7 +1388,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 13
+      "consumerCount": 14
     },
     {
       "name": "--button-font-size",
@@ -1397,7 +1397,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 6
+      "consumerCount": 8
     },
     {
       "name": "--button-font-weight",
@@ -1406,7 +1406,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 7
     },
     {
       "name": "--button-height",
@@ -1415,7 +1415,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 28
+      "consumerCount": 31
     },
     {
       "name": "--button-height-compact",
@@ -1433,7 +1433,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 8
+      "consumerCount": 10
     },
     {
       "name": "--button-gap",
@@ -1442,7 +1442,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 42
+      "consumerCount": 44
     },
     {
       "name": "--button-radius",
@@ -1451,7 +1451,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 21
+      "consumerCount": 22
     },
     {
       "name": "--button-shadow",
@@ -1460,7 +1460,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 11
+      "consumerCount": 12
     },
     {
       "name": "--button-disabled-opacity",
@@ -1469,7 +1469,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 4
+      "consumerCount": 5
     },
     {
       "name": "--button-active-scale",
@@ -1478,7 +1478,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 7
+      "consumerCount": 8
     },
     {
       "name": "--button-primary-start",
@@ -1487,7 +1487,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 2
     },
     {
       "name": "--button-primary-mid",
@@ -1496,7 +1496,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 5
     },
     {
       "name": "--button-primary-end",
@@ -1505,7 +1505,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 2
     },
     {
       "name": "--button-variable-surface",
@@ -2162,7 +2162,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 3
     },
     {
       "name": "--z-dropdown",
@@ -3269,7 +3269,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 82
+      "consumerCount": 83
     },
     {
       "name": "--stroke-2",
@@ -3764,7 +3764,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 403
+      "consumerCount": 404
     },
     {
       "name": "--text-secondary",
@@ -3773,7 +3773,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 310
+      "consumerCount": 311
     },
     {
       "name": "--text-muted",
@@ -3863,7 +3863,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 28
+      "consumerCount": 29
     },
     {
       "name": "--accent-active",
@@ -3899,7 +3899,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 12
+      "consumerCount": 13
     },
     {
       "name": "--focus-ring-width",
@@ -3908,7 +3908,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 6
     },
     {
       "name": "--focus-ring-offset",
@@ -3917,7 +3917,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 3
     },
     {
       "name": "--accent-success",
@@ -3998,7 +3998,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 11
+      "consumerCount": 12
     },
     {
       "name": "--color-red-traffic",
@@ -4034,7 +4034,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 40
+      "consumerCount": 41
     },
     {
       "name": "--font-code",
@@ -4277,7 +4277,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 4
+      "consumerCount": 5
     },
     {
       "name": "--line-height-compact",
@@ -4313,7 +4313,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 8
+      "consumerCount": 13
     },
     {
       "name": "--transition-interaction-slow",
@@ -4484,7 +4484,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 54
+      "consumerCount": 55
     },
     {
       "name": "--spacing-2xl",

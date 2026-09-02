@@ -1259,6 +1259,7 @@ export const WorkspaceView = memo(function WorkspaceView({
                       undoTitle={undoTitle}
                       redoTitle={redoTitle}
                       isWebProject={isWebProject}
+                      isPreviewCaptureAvailable={previewVisible}
                       isCapturing={isCapturing}
                       isCropMode={isCropMode}
                       isCropCapturing={isCropCapturing}

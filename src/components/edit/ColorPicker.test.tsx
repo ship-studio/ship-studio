@@ -178,6 +178,32 @@ describe('ColorPicker', () => {
     expect(onChange).toHaveBeenLastCalledWith(expect.stringMatching(/^hsl\(/));
   });
 
+  it('keeps hue and saturation across HSB field edits that pass through black', () => {
+    const { onChange } = renderControlledPicker('#ff0000');
+    fireEvent.click(screen.getByRole('button', { name: 'HSB' }));
+    expect(screen.getByLabelText('H')).toHaveValue('0');
+    expect(screen.getByLabelText('S')).toHaveValue('100');
+
+    // Brightness 0 is black, which has no recoverable hue/saturation in RGB:
+    // the fields must keep showing the HSB the user is editing.
+    const brightness = screen.getByLabelText('B');
+    fireEvent.change(brightness, { target: { value: '0' } });
+    fireEvent.blur(brightness);
+    expect(onChange).toHaveBeenLastCalledWith('rgb(0, 0, 0)');
+    expect(screen.getByLabelText('H')).toHaveValue('0');
+    expect(screen.getByLabelText('S')).toHaveValue('100');
+
+    // Typing a hue while black, then raising brightness, gives that hue back.
+    const hueField = screen.getByLabelText('H');
+    fireEvent.change(hueField, { target: { value: '240' } });
+    fireEvent.blur(hueField);
+    expect(screen.getByLabelText('H')).toHaveValue('240');
+
+    fireEvent.change(screen.getByLabelText('B'), { target: { value: '100' } });
+    fireEvent.blur(screen.getByLabelText('B'));
+    expect(onChange).toHaveBeenLastCalledWith('rgb(0, 0, 255)');
+  });
+
   it('preserves alpha when the picker surface changes', () => {
     const { onChange } = renderPicker('rgba(255, 0, 0, 0.5)');
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Alpha' }), {

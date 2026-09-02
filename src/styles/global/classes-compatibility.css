@@ -1,0 +1,89 @@
+/*
+ * ============================================================================
+ * PLUGIN-STABLE CLASS API — do not remove or rename
+ * ============================================================================
+ * `.btn-primary` and `.btn-secondary` are part of Ship Studio's published
+ * contract with third-party plugins (see CLAUDE.md → "Shared CSS Classes
+ * (Plugin-Stable)", docs/plugins.md and docs/design-system.md). Product code
+ * has moved to the `<Button variant>` primitive, whose selectors are
+ * `.button` / `.button--*` in base.css — but plugins built against the older
+ * names are already installed in users' projects, and dropping these
+ * selectors leaves them rendering unstyled native buttons.
+ *
+ * These are shims, not a second design system: they reproduce the current
+ * Button visual recipe from the same component tokens, so the two stay in
+ * step. Product code must NOT use them — use `<Button variant="primary">` /
+ * `<Button variant="secondary">` instead (enforced by `pnpm check:patterns`).
+ * ============================================================================
+ */
+
+/* Base recipe — mirrors `.button` in base.css. */
+.btn-primary,
+.btn-secondary {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--button-gap);
+  height: var(--button-height);
+  min-height: var(--button-height);
+  padding: 0 var(--button-padding);
+  border-radius: var(--button-radius);
+  border: var(--border-width-default) solid transparent;
+  font-family: var(--font-ui);
+  font-size: var(--button-font-size);
+  line-height: var(--line-height-control);
+  font-weight: var(--button-font-weight);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-interaction),
+    color var(--transition-interaction),
+    border-color var(--transition-interaction),
+    opacity var(--transition-interaction),
+    transform var(--transition-interaction);
+  box-shadow: var(--button-shadow);
+  white-space: nowrap;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: var(--button-disabled-opacity);
+  cursor: not-allowed;
+}
+
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled) {
+  transform: scale(var(--button-active-scale));
+}
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Variants — mirror `.button--primary` / `.button--secondary`. */
+.btn-primary {
+  background: linear-gradient(0deg, var(--button-primary-start), var(--button-primary-mid));
+  color: var(--text-on-accent);
+  border-color: transparent;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(0deg, var(--button-primary-mid), var(--button-primary-end));
+  border-color: transparent;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--button-text-default);
+  border-color: var(--button-border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: transparent;
+  color: var(--button-text-hover);
+  border-color: var(--button-border-outline);
+}

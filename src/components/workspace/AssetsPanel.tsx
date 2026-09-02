@@ -125,6 +125,26 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
   // null = not editing; string = custom folder input value
   const [customRoot, setCustomRoot] = useState<string | null>(null);
   const rootPickerRef = useRef<HTMLDivElement>(null);
+  // Escape-cancelled renames must not be committed by the unmounting input's
+  // blur — the blur closure still holds the pre-cancel renameTarget.
+  const renameCancelledRef = useRef(false);
+  const commitRenameOnBlur = () => {
+    if (renameCancelledRef.current) {
+      renameCancelledRef.current = false;
+      return;
+    }
+    void handleRename();
+  };
+  const renameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') void handleRename();
+    if (e.key === 'Escape') {
+      // Claim the key so the enclosing modal doesn't also close (see
+      // ModalFrame's escape handling), and cancel without committing.
+      e.stopPropagation();
+      renameCancelledRef.current = true;
+      setRenameTarget(null);
+    }
+  };
 
   const selectRoot = (root: string) => {
     setCustomRoot(null);
@@ -439,11 +459,8 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
                         className="assets-rename-input"
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void handleRename();
-                          if (e.key === 'Escape') setRenameTarget(null);
-                        }}
-                        onBlur={() => void handleRename()}
+                        onKeyDown={renameKeyDown}
+                        onBlur={commitRenameOnBlur}
                         autoFocus
                         autoComplete="off"
                         autoCorrect="off"
@@ -533,11 +550,8 @@ export function AssetsModal({ projectPath, isOpen, onClose, pick }: AssetsModalP
                         className="assets-rename-input"
                         value={renameValue}
                         onChange={(e) => setRenameValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void handleRename();
-                          if (e.key === 'Escape') setRenameTarget(null);
-                        }}
-                        onBlur={() => void handleRename()}
+                        onKeyDown={renameKeyDown}
+                        onBlur={commitRenameOnBlur}
                         autoFocus
                         autoComplete="off"
                         autoCorrect="off"

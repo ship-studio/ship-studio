@@ -105,6 +105,30 @@ describe('Dropdown', () => {
 
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('leaves focus where a pointer put it on outside dismissal', async () => {
+    const user = userEvent.setup();
+    renderMenu();
+
+    const trigger = screen.getByRole('button', { name: 'Open menu' });
+    const outside = screen.getByRole('button', { name: 'Outside' });
+
+    await user.click(trigger);
+    expect(screen.getByRole('menuitem', { name: 'Alpha' })).toHaveFocus();
+
+    // What the user clicked keeps focus — pulling it back to the trigger would
+    // steal it from the terminal/panel they just aimed at.
+    outside.focus();
+    fireEvent.mouseDown(outside);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(outside).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
+
+    // Keyboard dismissal still hands focus back to the trigger.
+    await user.click(trigger);
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Alpha' }), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
 

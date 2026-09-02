@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { usePolling } from './usePolling';
 
 /** One element in the snapshot, mapped from the compact wire format. */
 export interface ElementTreeNode {
@@ -55,27 +56,47 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
   const [truncated, setTruncated] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [affectedIds, setAffectedIds] = useState<number[]>([]);
+  /** A request is out and the iframe hasn't answered with a snapshot yet. */
+  const [awaitingTree, setAwaitingTree] = useState(enabled);
+  // Re-opening the navigator always refetches — the page has moved on since the
+  // snapshot we're holding. Adjusted during render rather than in an effect so the
+  // first request goes out in the same commit the panel becomes visible.
+  const [wasEnabled, setWasEnabled] = useState(enabled);
+  if (wasEnabled !== enabled) {
+    setWasEnabled(enabled);
+    if (enabled) setAwaitingTree(true);
+  }
 
   const post = useCallback(
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
     [iframeRef]
   );
 
+  /** Ask for a snapshot: the poll below owns the actual posting, so a request that
+   *  goes unanswered is retried on one schedule instead of several. */
+  const requestTree = useCallback(() => setAwaitingTree(true), []);
+
+  // The injected script may not be listening yet (first paint, a full HMR reload),
+  // so a request can land before anyone can answer it. Retry until a snapshot
+  // arrives — every unanswered attempt backs the interval off (0.5s → 4s) instead
+  // of hammering the iframe at a fixed 500ms for as long as the panel is open.
+  usePolling(
+    () => {
+      post({ type: 'ss:requestTree' });
+      // Rejecting is what drives the backoff: the request is only "answered" by an
+      // `ss:tree` message, which stops the poll by clearing `awaitingTree`.
+      return Promise.reject(new Error('No element tree snapshot yet'));
+    },
+    {
+      intervalMs: 500,
+      maxIntervalMs: 4000,
+      enabled: enabled && awaitingTree,
+      name: 'elementTree',
+    }
+  );
+
   useEffect(() => {
     if (!enabled) return;
-
-    let retryTimer: number | null = null;
-    const stopRetrying = () => {
-      if (retryTimer !== null) {
-        window.clearInterval(retryTimer);
-        retryTimer = null;
-      }
-    };
-    const requestUntilReady = () => {
-      stopRetrying();
-      post({ type: 'ss:requestTree' });
-      retryTimer = window.setInterval(() => post({ type: 'ss:requestTree' }), 500);
-    };
 
     const onMessage = (e: MessageEvent) => {
       // SECURITY: only trust messages from the actual preview iframe (untrusted
@@ -92,11 +113,11 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
         | undefined;
       if (!d || typeof d.type !== 'string') return;
       if (d.type === 'ss:tree' && d.tree) {
-        stopRetrying();
+        setAwaitingTree(false);
         setTree(mapNode(d.tree));
         setTruncated(!!d.truncated);
       } else if (d.type === 'ss:treeDirty') {
-        requestUntilReady();
+        requestTree();
       } else if (d.type === 'ss:select') {
         setSelectedId(typeof d.nodeId === 'number' ? d.nodeId : null);
         setAffectedIds(
@@ -112,17 +133,15 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
     // so re-request on iframe load to keep the navigator alive across HMR
     // full-reloads and manual refreshes.
     const iframe = iframeRef.current;
-    const onLoad = () => requestUntilReady();
+    const onLoad = () => requestTree();
     iframe?.addEventListener('load', onLoad);
-    requestUntilReady();
 
     return () => {
-      stopRetrying();
       post({ type: 'ss:treeOff' });
       window.removeEventListener('message', onMessage);
       iframe?.removeEventListener('load', onLoad);
     };
-  }, [enabled, post, iframeRef]);
+  }, [enabled, post, requestTree, iframeRef]);
 
   const selectNode = useCallback((id: number) => post({ type: 'ss:selectNode', id }), [post]);
   const hoverNode = useCallback((id: number | null) => post({ type: 'ss:hoverNode', id }), [post]);

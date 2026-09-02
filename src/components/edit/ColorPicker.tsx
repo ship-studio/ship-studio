@@ -88,7 +88,7 @@ function currentColor(value: string) {
   return parse(value) ?? parse('#000000')!;
 }
 
-function channelDefinitions(value: string, format: ColorFormat): ChannelDefinition[] {
+function channelDefinitions(value: string, format: ColorFormat, hsva: Hsva): ChannelDefinition[] {
   const rgba = toRgba(value);
   const alpha = alphaPercent(rgba.a);
 
@@ -119,7 +119,9 @@ function channelDefinitions(value: string, format: ColorFormat): ChannelDefiniti
   }
 
   if (format === 'hsb') {
-    const hsva = toHsva(value);
+    // Read the live HSB state, not a round-trip through RGB: black and the greys
+    // have no recoverable hue/saturation, so re-deriving them here would reset the
+    // fields to 0 the moment brightness hit 0.
     return [
       { id: 'h', label: 'H', value: round(normalizeHue(hsva.h), 1) },
       { id: 's', label: 'S', value: round(clamp(hsva.s, 0, 100)), suffix: '%' },
@@ -142,6 +144,8 @@ function channelDefinitions(value: string, format: ColorFormat): ChannelDefiniti
   ];
 }
 
+/** Apply one typed channel value, in the CSS-representable formats. HSB is handled
+ *  on the picker's own HSVA state instead — see `updateField`. */
 function updateChannel(
   value: string,
   format: ColorFormat,
@@ -169,16 +173,6 @@ function updateChannel(
     }
     if ((channel === 'r' || channel === 'g' || channel === 'b') && number !== null) {
       return rgbaToCss({ ...rgba, [channel]: clamp(number, 0, 255) });
-    }
-    return null;
-  }
-
-  if (format === 'hsb') {
-    if (channel === 'a' && number !== null) {
-      return hsvaToCss(updateHsvaChannel(toHsva(value), 'a', clamp(number, 0, 100) / 100));
-    }
-    if ((channel === 'h' || channel === 's' || channel === 'v') && number !== null) {
-      return hsvaToCss(updateHsvaChannel(toHsva(value), channel, number));
     }
     return null;
   }
@@ -290,7 +284,7 @@ export function ColorPicker({ value, onChange, onClose }: Props) {
   const localValue = hsvaToCss(hsva);
   const rgba = toRgba(localValue);
   const originalRgba = toRgba(hsvaToCss(originalHsva));
-  const channels = channelDefinitions(localValue, format);
+  const channels = channelDefinitions(localValue, format, hsva);
   const eyeDropper = eyeDropperConstructor();
   const { copy, isCopied, error: copyError } = useCopyToClipboard();
 
@@ -314,6 +308,22 @@ export function ColorPicker({ value, onChange, onClose }: Props) {
 
   const updateField = useCallback(
     (channel: ChannelId, raw: string) => {
+      // HSB edits stay in HSVA. Round-tripping them through RGB would throw away
+      // the hue and saturation of any colour RGB can't express them in (black,
+      // greys), so typing B=0 then B=50 used to come back as grey.
+      if (format === 'hsb') {
+        const number = parseNumber(raw);
+        if (number === null) return false;
+        if (channel === 'a') {
+          emitHsva(updateHsvaChannel(hsva, 'a', clamp(number, 0, 100) / 100));
+          return true;
+        }
+        if (channel === 'h' || channel === 's' || channel === 'v') {
+          emitHsva(updateHsvaChannel(hsva, channel, number));
+          return true;
+        }
+        return false;
+      }
       const next = updateChannel(hsvaToCss(hsva), format, channel, raw);
       if (next) emitHsva(toHsva(next));
       return next !== null;

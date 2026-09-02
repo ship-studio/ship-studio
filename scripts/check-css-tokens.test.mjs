@@ -52,3 +52,13 @@ test('explicit token override is allowed', () => {
 test('runtime-defined token satisfies CSS references', () => {
   assert.deepEqual(checkFixture('runtime').diagnostics, []);
 });
+
+test('token names containing underscores are matched whole', () => {
+  const { diagnostics } = checkFixture('underscore-name');
+  // `--legacy_brand` is defined, so its reference resolves; `--missing_token`
+  // is not, and must be reported under its full name rather than being split
+  // at the underscore into a `--missing` that matches nothing.
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].code, 'undefined');
+  assert.match(diagnostics[0].message, /--missing_token/);
+});

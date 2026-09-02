@@ -208,6 +208,10 @@ API** (selectors in `src/styles/global/base.css`, variables in the token files o
 
 - `toolbar-icon-btn` — icon button matching the workspace toolbar chrome
 - `button` with a `button--*` variant class — standard action buttons
+- `btn-primary` / `btn-secondary` — legacy aliases for the primary/secondary
+  button look, kept as shims in `src/styles/global/classes-compatibility.css`.
+  They still work; prefer `button button--primary` / `button button--secondary`
+  in new plugins.
 - CSS variables: `--bg-primary/secondary/tertiary`, `--text-primary/secondary/muted`,
   `--border`, `--accent`, `--action`, `--success`, `--warning`, `--error`,
   `--font-mono`, `--radius`, …

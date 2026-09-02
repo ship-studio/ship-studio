@@ -1332,8 +1332,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
 
         {/* Page Switcher */}
         <div className="page-switcher" data-education-id="page-switcher">
+          {/* Controlled rather than uncontrolled: selecting a page with Enter
+              from the search field has to close the menu, and the only handle
+              on an uncontrolled Dropdown's open state is DropdownItem's own
+              click. `showPageDropdown` was already being mirrored here — now
+              it's the source of truth, so Enter and Escape can act on it. */}
           <Dropdown
             menuClassName="page-dropdown"
+            open={conn.showPageDropdown}
             onOpenChange={(open) => {
               conn.setShowPageDropdown(open);
               if (!open) conn.setPageSearch('');
@@ -1360,9 +1366,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               onChange={(e) => conn.setPageSearch(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && conn.filteredPages.length > 0) {
+                  e.preventDefault();
                   selectPageKeepingLocale(conn.filteredPages[0].route);
+                  conn.setShowPageDropdown(false);
+                  conn.setPageSearch('');
                 }
                 if (e.key === 'Escape') {
+                  e.preventDefault();
                   conn.setShowPageDropdown(false);
                   conn.setPageSearch('');
                 }

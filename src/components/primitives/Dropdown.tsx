@@ -95,6 +95,7 @@ export function Dropdown({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
+  const restoreFocusOnCloseRef = useRef(true);
   const typeaheadRef = useRef('');
   const typeaheadTimerRef = useRef<number | null>(null);
 
@@ -117,9 +118,23 @@ export function Dropdown({
     [isOpen, setOpen]
   );
 
+  // Dismissal by clicking elsewhere: the user has just put focus (or their
+  // attention) on whatever they clicked — a terminal, another panel — so the
+  // menu closes without dragging focus back to its trigger. Escape and menu
+  // selection still restore it.
+  const closeFromOutsidePointer = useCallback(() => {
+    restoreFocusOnCloseRef.current = false;
+    setOpen(false);
+  }, [setOpen]);
+
   // The portaled menu isn't a DOM descendant of the container; exclude it so
   // clicks inside the menu don't count as "outside".
-  useClickOutside(containerRef, close, isOpen, portal ? '.ss-dropdown__menu' : undefined);
+  useClickOutside(
+    containerRef,
+    closeFromOutsidePointer,
+    isOpen,
+    portal ? '.ss-dropdown__menu' : undefined
+  );
 
   const focusMenuItem = useCallback((item: HTMLElement | null) => {
     const items = getMenuItems(menuRef.current);
@@ -151,12 +166,14 @@ export function Dropdown({
       }
       if (wasOpenRef.current) {
         wasOpenRef.current = false;
-        triggerRef.current?.focus({ preventScroll: true });
+        if (restoreFocusOnCloseRef.current) triggerRef.current?.focus({ preventScroll: true });
+        restoreFocusOnCloseRef.current = true;
       }
       return;
     }
 
     wasOpenRef.current = true;
+    restoreFocusOnCloseRef.current = true;
     focusEnabledMenuItemAt(0);
   }, [focusEnabledMenuItemAt, isOpen]);
 
@@ -251,6 +268,8 @@ export function Dropdown({
 
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // Claim the key so an enclosing dialog doesn't also close on it.
+        e.preventDefault();
         close();
         triggerRef.current?.focus();
       }

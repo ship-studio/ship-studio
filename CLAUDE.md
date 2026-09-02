@@ -293,12 +293,13 @@ Key files:
 
 ## Shared CSS Classes (Plugin-Stable)
 
-These classes are defined in `src/styles/global/base.css` and are part of Ship Studio's public API for plugins. Plugins can use them directly without injecting their own styles. **Do not rename or remove these classes without updating the plugin starter repo.**
+These classes are part of Ship Studio's public API for plugins. Plugins can use them directly without injecting their own styles. **Do not rename or remove these classes without updating the plugin starter repo.**
 
 | Class | Defined In | Description |
 |-------|-----------|-------------|
 | `toolbar-icon-btn` | `base.css` | Legacy plugin-facing toolbar class. Internal React code uses `IconButton`; keep this class only for plugin compatibility. |
 | `button` + `button--*` | `base.css` | Plugin-facing CSS for the semantic action family. Internal React code uses the primitives below rather than applying these classes directly. |
+| `btn-primary` / `btn-secondary` | `classes-compatibility.css` | Pre-primitive names for the primary/secondary button look, kept as shims onto the same component tokens so already-installed plugins keep rendering. Product code uses `<Button variant>`. |
 
 A set of CSS variables is also plugin-stable: `--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--text-primary`, `--text-secondary`, `--text-muted`, `--border`, `--accent`, `--action`, `--success`, `--warning`, `--error` (plus their `-rgb` companions), `--font-mono`, and `--radius`.
 

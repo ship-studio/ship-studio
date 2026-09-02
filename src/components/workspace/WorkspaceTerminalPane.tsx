@@ -90,6 +90,12 @@ export interface WorkspaceTerminalPaneProps {
   undoTitle: string;
   redoTitle: string;
   isWebProject: boolean;
+  /**
+   * Whether there is actually a web preview on screen to capture — the
+   * Preview tab is selected and the preview pane isn't collapsed. Gates the
+   * screenshot/crop buttons so they can't silently no-op.
+   */
+  isPreviewCaptureAvailable: boolean;
   isCapturing: boolean;
   isCropMode: boolean;
   isCropCapturing: boolean;
@@ -150,6 +156,7 @@ export function WorkspaceTerminalPane(props: WorkspaceTerminalPaneProps) {
     undoTitle,
     redoTitle,
     isWebProject,
+    isPreviewCaptureAvailable,
     isCapturing,
     isCropMode,
     isCropCapturing,
@@ -366,14 +373,21 @@ export function WorkspaceTerminalPane(props: WorkspaceTerminalPaneProps) {
 
           <div className="terminal-pane-footer-center">
             {/* Screenshot actions only make sense when the Preview
-        tab has a web preview to capture. */}
+        tab has a web preview to capture. The project being a web project
+        isn't enough — with Code/Branches/PRs showing (or the preview pane
+        collapsed) there is no iframe to grab, so capture would no-op
+        silently and crop mode would latch on with nothing to crop. */}
             {isWebProject && (
               <>
                 <Button
                   variant="ghost"
                   onClick={() => void handleCaptureScreenshot()}
-                  disabled={isCapturing || isCropMode}
-                  title={`Screenshot preview for Claude (${kbd('mod', 'shift', 'S')})`}
+                  disabled={isCapturing || isCropMode || !isPreviewCaptureAvailable}
+                  title={
+                    isPreviewCaptureAvailable
+                      ? `Screenshot preview for Claude (${kbd('mod', 'shift', 'S')})`
+                      : 'Open the Preview tab to capture a screenshot'
+                  }
                   data-education-id="screenshot-button"
                 >
                   {isCapturing ? (
@@ -388,8 +402,16 @@ export function WorkspaceTerminalPane(props: WorkspaceTerminalPaneProps) {
                   variant="ghost"
                   pressed={isCropMode}
                   onClick={() => setIsCropMode(!isCropMode)}
-                  disabled={isCapturing || isCropCapturing}
-                  title={`Crop screenshot for Claude (${kbd('mod', 'shift', 'C')})`}
+                  // Still clickable while crop mode is already on, so a mode
+                  // latched before the tab changed can always be switched off.
+                  disabled={
+                    isCapturing || isCropCapturing || (!isPreviewCaptureAvailable && !isCropMode)
+                  }
+                  title={
+                    isPreviewCaptureAvailable || isCropMode
+                      ? `Crop screenshot for Claude (${kbd('mod', 'shift', 'C')})`
+                      : 'Open the Preview tab to crop a screenshot'
+                  }
                   data-education-id="crop-button"
                 >
                   {isCropCapturing ? (

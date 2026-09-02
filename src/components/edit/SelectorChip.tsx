@@ -114,6 +114,11 @@ export function SelectorChip({
   const [text, setText] = useState(selector);
   const [active, setActive] = useState(0);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  // `dirty` = the user typed since opening the field; `navigated` = they moved the
+  // highlight with the arrow keys. Without them, Enter straight after clicking the
+  // chip would commit the first browse suggestion and silently rename the rule.
+  const [dirty, setDirty] = useState(false);
+  const [navigated, setNavigated] = useState(false);
   const listId = useId();
 
   if (!editing) {
@@ -124,6 +129,8 @@ export function SelectorChip({
         onActivate={() => {
           setText(selector);
           setActive(0);
+          setDirty(false);
+          setNavigated(false);
           setEditing(true);
         }}
       />
@@ -184,16 +191,23 @@ export function SelectorChip({
         onChange={(e) => {
           setText(e.target.value);
           setActive(0);
+          setDirty(true);
+          setNavigated(false);
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            commit(matches[active]?.value ?? text);
+            // Apply the highlighted suggestion only if the user typed (so the menu
+            // reflects their text) or explicitly navigated it — never when merely
+            // browsing, which would clobber the rule's existing selector.
+            commit(dirty || navigated ? (matches[active]?.value ?? text) : text);
           } else if (e.key === 'ArrowDown') {
             e.preventDefault();
+            setNavigated(true);
             setActive((a) => Math.min(a + 1, matches.length - 1));
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
+            setNavigated(true);
             setActive((a) => Math.max(a - 1, 0));
           } else if (e.key === 'Escape') {
             e.preventDefault();

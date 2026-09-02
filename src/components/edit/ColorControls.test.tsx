@@ -130,6 +130,49 @@ describe('ColorField', () => {
     expect(swatch.querySelector('.ss-color-swatch__chip--checkerboard')).toBeInTheDocument();
   });
 
+  it('switching the display format never writes a color', () => {
+    const onApplyEnum = vi.fn();
+    const { unmount } = render(
+      <ColorField
+        label="Text"
+        css="color"
+        prefix="text"
+        currentClass=""
+        layer={LAYER}
+        onApplyEnum={onApplyEnum}
+        onReset={vi.fn()}
+      />
+    );
+
+    // No value at all: switching format must not commit the #000000 fallback.
+    fireEvent.click(screen.getByRole('button', { name: 'Text value format' }));
+    fireEvent.click(screen.getByRole('option', { name: 'RGB' }));
+    expect(onApplyEnum).not.toHaveBeenCalled();
+    unmount();
+
+    // Only a computed (browser-rendered) color: switching format must not promote
+    // it into an explicit class either — but the field does re-render it.
+    render(
+      <ColorField
+        label="Text"
+        css="color"
+        prefix="text"
+        currentClass=""
+        layer={LAYER}
+        onApplyEnum={onApplyEnum}
+        onReset={vi.fn()}
+        computed={{ color: '#ff0000' }}
+      />
+    );
+    const field = screen.getByRole('textbox', { name: 'Text value' });
+    expect(field).toHaveValue('#ff0000');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Text value format' }));
+    fireEvent.click(screen.getByRole('option', { name: 'RGB' }));
+    expect(onApplyEnum).not.toHaveBeenCalled();
+    expect(field).toHaveValue('rgb(255, 0, 0)');
+  });
+
   it('does not treat an unresolved color variable as transparent', () => {
     render(
       <ColorField

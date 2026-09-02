@@ -525,6 +525,29 @@ describe('useVisualEditor CSS variable deletion reconciliation', () => {
     ]);
     expect(post.mock.calls).toContainEqual([{ type: 'ss:commit' }, '*']);
   });
+
+  it('inlines a variable referenced inside another reference’s fallback', async () => {
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('text-[var(--brand,var(--fallback,red))]', iframeRef.current!.contentWindow!);
+
+    // Deleting the nested `--fallback` must rewrite it in place; the outer
+    // reference (still a live variable) is kept.
+    act(() => result.current.reconcileDeletedVariable('--fallback', 'rgb(1, 2, 3)'));
+
+    expect(result.current.currentClass).toBe('text-[var(--brand,rgb(1,_2,_3))]');
+  });
+
+  it('leaves a class alone when neither the reference nor its fallback names the variable', async () => {
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    const className = 'text-[var(--brand,var(--fallback,red))]';
+    await select(className, iframeRef.current!.contentWindow!);
+
+    act(() => result.current.reconcileDeletedVariable('--other', 'red'));
+
+    expect(result.current.currentClass).toBe(className);
+  });
 });
 
 describe('useVisualEditor class gestures (apply / unapply / extract / delete)', () => {

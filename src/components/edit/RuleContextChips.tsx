@@ -17,6 +17,19 @@ function MediaChip({
   const [text, setText] = useState(condition);
   const [active, setActive] = useState(0);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  // `dirty` = the user typed since opening the field; `navigated` = they moved the
+  // highlight with the arrow keys. Without them, Enter straight after clicking the
+  // chip would commit the first browse suggestion and silently rewrite the rule's
+  // condition.
+  const [dirty, setDirty] = useState(false);
+  const [navigated, setNavigated] = useState(false);
+  const startEditing = () => {
+    setText(condition);
+    setActive(0);
+    setDirty(false);
+    setNavigated(false);
+    setEditing(true);
+  };
   const listId = useId();
   if (!editing) {
     return (
@@ -26,17 +39,11 @@ function MediaChip({
         title="Click to edit the condition"
         role="button"
         tabIndex={0}
-        onClick={() => {
-          setText(condition);
-          setActive(0);
-          setEditing(true);
-        }}
+        onClick={startEditing}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            setText(condition);
-            setActive(0);
-            setEditing(true);
+            startEditing();
           }
         }}
       >
@@ -71,16 +78,22 @@ function MediaChip({
         onChange={(e) => {
           setText(e.target.value);
           setActive(0);
+          setDirty(true);
+          setNavigated(false);
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            commit(matches[active]?.value ?? text);
+            // Only take the highlighted suggestion when the user typed or arrowed
+            // to it; a bare Enter commits exactly what the field shows.
+            commit(dirty || navigated ? (matches[active]?.value ?? text) : text);
           } else if (e.key === 'ArrowDown') {
             e.preventDefault();
+            setNavigated(true);
             setActive((a) => Math.min(a + 1, matches.length - 1));
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
+            setNavigated(true);
             setActive((a) => Math.max(a - 1, 0));
           } else if (e.key === 'Escape') {
             e.preventDefault();

@@ -1585,26 +1585,27 @@ fn add_custom_property_to_source(
 ) -> Result<String, CommandError> {
     let rules = index_rules(src);
 
-    if rules
-        .iter()
-        .filter(|r| selector_has_part(&r.selector, ":root"))
-        .any(|r| {
-            declarations_in(src, r)
-                .iter()
-                .any(|d| d.property == property)
-        })
-    {
+    // One predicate for both the duplicate check and the insertion target: they
+    // used to disagree, the check scanning every `:root` while insertion only
+    // ever wrote to a base one. A `--token` defined solely inside, say,
+    // `@media (prefers-color-scheme: dark) { :root { … } }` is not a duplicate
+    // of a base definition — it's the *reason* you'd add the base one — yet the
+    // add was refused, which also made the "create a base :root" fallback below
+    // unreachable for that name.
+    let is_base_root = |r: &&RuleSpan| r.media.is_none() && selector_has_part(&r.selector, ":root");
+
+    if rules.iter().filter(is_base_root).any(|r| {
+        declarations_in(src, r)
+            .iter()
+            .any(|d| d.property == property)
+    }) {
         return Err(CommandError::Validation {
             field: "property".into(),
             reason: "a variable with this name already exists".into(),
         });
     }
 
-    if let Some(root) = rules
-        .iter()
-        .filter(|r| r.media.is_none() && selector_has_part(&r.selector, ":root"))
-        .next_back()
-    {
+    if let Some(root) = rules.iter().rfind(is_base_root) {
         return Ok(set_declaration_in_block(
             src,
             root.block_inner_start,
@@ -3400,6 +3401,34 @@ mod tests {
             CommandError::Validation { field, reason }
                 if field == "property" && reason == "a variable with this name already exists"
         ));
+    }
+
+    #[test]
+    fn adds_a_base_definition_for_a_variable_that_only_exists_under_media() {
+        // The duplicate check used to scan media-scoped `:root` blocks that the
+        // insertion never writes to, so a dark-mode-only token could never be
+        // given the base definition the UI was offering to add.
+        let css = "@media (prefers-color-scheme: dark) {\n  :root {\n    --brand: black;\n  }\n}\n\
+                   :root {\n  --other: blue;\n}\n";
+        let out = add_custom_property_to_source(css, "--brand", "white").unwrap();
+        assert_eq!(
+            out,
+            "@media (prefers-color-scheme: dark) {\n  :root {\n    --brand: black;\n  }\n}\n\
+             :root {\n  --other: blue;\n  --brand: white;\n}\n"
+        );
+    }
+
+    #[test]
+    fn creates_a_base_root_for_a_variable_that_only_exists_under_media() {
+        // Same divergence, taken to the point where it made the "no base
+        // `:root` at all" fallback unreachable.
+        let css = "@media (prefers-color-scheme: dark) { :root { --dark: black; } }";
+        let out = add_custom_property_to_source(css, "--dark", "white").unwrap();
+        assert_eq!(
+            out,
+            "@media (prefers-color-scheme: dark) { :root { --dark: black; } }\n\n\
+             :root {\n  --dark: white;\n}\n"
+        );
     }
 
     #[test]

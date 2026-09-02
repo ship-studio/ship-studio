@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useCommands } from './useCommands';
+import type { PaletteCtx } from './types';
 import { useOpenModal } from '../contexts/ModalContext';
 import { getDashboardProjects, type DashboardProject, type Project } from '../lib/project';
 import { sessionRegistry } from '../lib/sessionRegistry';
@@ -335,16 +336,30 @@ export function useAppCommands({
         when: 'project' as const,
         run: handleBackToProjects,
       },
+      // Start vs Restart are two commands rather than one with a computed
+      // title: `title` is a static string baked in at registration time, and
+      // `isDevServerRunning` is ref-backed, so a single entry would keep
+      // whichever label was true when the bucket was last registered. `when`
+      // predicates *are* re-evaluated every time the palette opens, so gating
+      // on them is what keeps the label honest.
       {
-        id: 'devserver.restart',
-        title:
-          currentProject && isDevServerRunning(currentProject.path)
-            ? 'Restart dev server'
-            : 'Start dev server',
+        id: 'devserver.start',
+        title: 'Start dev server',
         icon: <ResetIcon size={14} />,
         category: 'action' as const,
-        when: 'project' as const,
-        keywords: ['dev', 'server', 'vite', 'next', 'start', 'restart'],
+        when: ({ kind }: PaletteCtx) =>
+          kind === 'project' && !!currentProject && !isDevServerRunning(currentProject.path),
+        keywords: ['dev', 'server', 'vite', 'next', 'start', 'restart', 'run'],
+        run: restart,
+      },
+      {
+        id: 'devserver.restart',
+        title: 'Restart dev server',
+        icon: <ResetIcon size={14} />,
+        category: 'action' as const,
+        when: ({ kind }: PaletteCtx) =>
+          kind === 'project' && !!currentProject && isDevServerRunning(currentProject.path),
+        keywords: ['dev', 'server', 'vite', 'next', 'start', 'restart', 'reload'],
         run: restart,
       },
       {
@@ -394,6 +409,7 @@ export function useAppCommands({
     currentProject,
     handleBackToProjects,
     restart,
+    isDevServerRunning,
     runFinder,
     runIde,
     ide,

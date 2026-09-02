@@ -253,6 +253,15 @@ exact core or semantic match. Suggested next owners are:
 `--font-code`, plus the `toolbar-icon-btn` and `button` / `button--*` classes, are public
 API for plugins. Renaming any of them is a breaking change (see CLAUDE.md "Shared CSS Classes").
 
+| Class | Defined in | Notes |
+| --- | --- | --- |
+| `toolbar-icon-btn` | `global/base.css` | Icon button matching workspace toolbar chrome. |
+| `button`, `button--*` | `global/base.css` | Current recipe, emitted by the `Button` primitive. |
+| `btn-primary`, `btn-secondary` | `global/classes-compatibility.css` | **Legacy shim.** Predates the `Button` primitive; kept because installed plugins style bare `<button>`s with them. Reproduces the `button--primary` / `button--secondary` recipe from the same component tokens. Product code must use `<Button variant>` instead. |
+
+`classes-compatibility.css` is the class-level counterpart to `tokens-compatibility.css`: nothing
+new goes in it, and when the Button recipe changes the shim has to be updated alongside it.
+
 ## Primitives
 
 All in [src/components/primitives/](../src/components/primitives/). Plugin-stable `button` and

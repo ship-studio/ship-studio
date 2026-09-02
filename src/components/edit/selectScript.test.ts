@@ -619,6 +619,51 @@ it('uses domPath to reselect the exact classless empty sibling', async () => {
   send({ type: 'ss:deactivate' });
 });
 
+it('falls back to class/text scoring when the saved domPath now holds a different element', async () => {
+  // The element moved (an HMR render inserted a sibling above it): the saved path
+  // now points at a different card, so the structural fast path must not take it.
+  document.body.innerHTML =
+    '<section><div class="filler"></div><div class="other">Other</div><div class="card">Card</div></section>';
+  send({ type: 'ss:activate' });
+  const selected = nextSelect();
+  send({
+    type: 'ss:reselect',
+    signature: {
+      className: 'card',
+      tagName: 'div',
+      text: 'Card',
+      ancestorClasses: [],
+      domPath: 'body:1>section:0>div:1',
+    },
+  });
+  const msg = await selected;
+  expect(msg.signature.className).toBe('card');
+  expect(document.querySelector('.card')!.hasAttribute('data-ss-sel')).toBe(true);
+  expect(document.querySelector('.other')!.hasAttribute('data-ss-sel')).toBe(false);
+  send({ type: 'ss:deactivate' });
+});
+
+it('never resolves a signature to an editor overlay sitting at the saved domPath', async () => {
+  document.body.innerHTML = '<div data-ss-overlay="1"></div><div id="real">Hello</div>';
+  send({ type: 'ss:activate' });
+  const selected = nextSelect();
+  send({
+    type: 'ss:reselect',
+    signature: {
+      className: '',
+      tagName: 'div',
+      text: 'Hello',
+      ancestorClasses: [],
+      domPath: 'body:1>div:0', // the overlay's slot
+    },
+  });
+  const msg = await selected;
+  expect(msg.signature.text).toBe('Hello');
+  expect(document.querySelector('#real')!.hasAttribute('data-ss-sel')).toBe(true);
+  expect(document.querySelector('[data-ss-overlay]')!.hasAttribute('data-ss-sel')).toBe(false);
+  send({ type: 'ss:deactivate' });
+});
+
 it('omits hidden comment-only Next streaming wrappers from the element tree', async () => {
   document.body.innerHTML =
     '<div hidden><!--$--><!--/$--></div><main><div id="authored"></div></main>';

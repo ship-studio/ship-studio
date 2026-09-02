@@ -72,6 +72,33 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
+/**
+ * Body children carrying this attribute are left interactive while a modal is
+ * open. Toasts are the canonical case: they are app-level feedback that must
+ * stay clickable (dismiss / copy-error) on top of a dialog, so their host lives
+ * at the body level and opts out of the background `inert` sweep.
+ */
+export const MODAL_INERT_EXEMPT_ATTR = 'data-modal-inert-exempt';
+
+/**
+ * Controls that get first refusal on Escape before the dialog closes: text
+ * entry (an inline rename, a search box) and anything inside — or owning — an
+ * open menu/listbox. See `handleEscape` for the one-grace-press contract.
+ */
+const TEXT_ENTRY_SELECTOR = [
+  'input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"])',
+  'textarea',
+  '[contenteditable=""]',
+  '[contenteditable="true"]',
+].join(',');
+
+const NESTED_POPUP_SELECTOR = '[role="menu"],[role="listbox"],[aria-expanded="true"]';
+
+function claimsEscape(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.matches(TEXT_ENTRY_SELECTOR) || target.closest(NESTED_POPUP_SELECTOR) !== null;
+}
+
 const modalStack: ModalRegistration[] = [];
 const ModalFrameDepthContext = createContext(0);
 const backgroundStates = new Map<HTMLElement, BackgroundState>();
@@ -129,6 +156,7 @@ function syncModalEnvironment() {
     lockBodyScroll();
     for (const child of Array.from(document.body.children)) {
       if (child === root || child.hasAttribute('data-modal-root')) continue;
+      if (child.hasAttribute(MODAL_INERT_EXEMPT_ATTR)) continue;
       const element = child as HTMLElement;
       if (!backgroundStates.has(element)) {
         backgroundStates.set(element, {
@@ -258,6 +286,8 @@ export function ModalFrame({
   const contentRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const pressBeganOnOverlay = useRef(false);
+  // True once an Escape has been left to a nested control; the next one closes.
+  const escapeDeferredRef = useRef(false);
   const onCloseRef = useRef(onClose);
   const dismissableRef = useRef(dismissable);
 
@@ -293,18 +323,40 @@ export function ModalFrame({
   useLayoutEffect(() => {
     if (!isOpen || !portalRoot || !contentRef.current) return;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!isTopmost(modalId)) return;
-
-      if (event.key === 'Escape') {
-        if (dismissableRef.current) {
-          event.preventDefault();
-          event.stopPropagation();
-          onCloseRef.current();
-        }
+    // Escape runs in the *bubble* phase, after the key has passed through
+    // whatever is focused inside the dialog, so a nested control gets first
+    // refusal. Two ways to claim it:
+    //   - explicitly: stopPropagation() (we never see it) or preventDefault()
+    //     (honoured for as long as the control keeps claiming);
+    //   - implicitly: the key was aimed at a text field or an open menu, in
+    //     which case the *first* press is left to that control and the next
+    //     one closes the dialog — so it can never get stuck open.
+    // Capture phase would close the dialog first and unmount the control
+    // mid-edit (an inline rename would commit its half-typed value on blur).
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        escapeDeferredRef.current = false;
         return;
       }
+      if (!isTopmost(modalId) || !dismissableRef.current) return;
+      if (event.defaultPrevented) {
+        escapeDeferredRef.current = false;
+        return;
+      }
+      if (!escapeDeferredRef.current && claimsEscape(event.target)) {
+        escapeDeferredRef.current = true;
+        return;
+      }
+      escapeDeferredRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+      onCloseRef.current();
+    };
 
+    // Tab stays in the capture phase: the focus trap must not be defeatable by
+    // content inside the dialog.
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isTopmost(modalId)) return;
       if (event.key !== 'Tab') return;
       const focusable = getFocusableElements(contentRef.current!);
       if (focusable.length === 0) {
@@ -336,9 +388,11 @@ export function ModalFrame({
       focusInitialElement(contentRef.current!, initialFocusRef ?? { current: null });
     };
 
+    document.addEventListener('keydown', handleEscape);
     document.addEventListener('keydown', handleKeyDown, true);
     document.addEventListener('focusin', handleFocusIn, true);
     return () => {
+      document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('focusin', handleFocusIn, true);
     };

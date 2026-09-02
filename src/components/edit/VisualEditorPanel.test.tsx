@@ -757,6 +757,93 @@ describe('VisualEditorPanel', () => {
     expect(onApplyEnum).toHaveBeenCalledWith('w-full', { width: '100%' });
   });
 
+  it('applies a typed fraction as a fraction token, ignoring the active unit', () => {
+    vi.stubGlobal('CSS', { supports: () => true });
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass="w-[480px]"
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    const width = screen.getByLabelText<HTMLInputElement>('Width');
+    fireEvent.change(width, { target: { value: '1/2' } });
+    fireEvent.keyDown(width, { key: 'Enter' });
+
+    // `1/2` is a complete value: it must not pick up the field's `px` unit.
+    expect(onApplyEnum).toHaveBeenCalledWith('w-1/2', { width: '50%' });
+    vi.unstubAllGlobals();
+  });
+
+  it('offers the sizing presets (full, fractions) in the format menu', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass=""
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Width format' }));
+    fireEvent.click(screen.getByRole('option', { name: 'FULL' }));
+    expect(onApplyEnum).toHaveBeenLastCalledWith('w-full', { width: '100%' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Width format' }));
+    fireEvent.click(screen.getByRole('option', { name: '1/2' }));
+    expect(onApplyEnum).toHaveBeenLastCalledWith('w-1/2', { width: '50%' });
+  });
+
+  it('clamps arrow-key stepping of a length at zero', () => {
+    vi.stubGlobal('CSS', { supports: () => true });
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass="w-[0px]"
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    fireEvent.keyDown(screen.getByLabelText('Width'), { key: 'ArrowDown' });
+    expect(onApplyEnum).not.toHaveBeenCalledWith('w-[-1px]', expect.anything());
+    expect(onApplyEnum).toHaveBeenLastCalledWith('w-[0px]', { width: '0px' });
+    vi.unstubAllGlobals();
+  });
+
+  // ── Opacity ──
+
+  it('writes an off-scale opacity as an arbitrary value Tailwind can generate', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass=""
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    const opacity = screen.getByLabelText<HTMLInputElement>('Opacity value');
+    fireEvent.change(opacity, { target: { value: '37.5' } });
+    fireEvent.keyDown(opacity, { key: 'Enter' });
+    // `opacity-37.5` is never generated — the style would vanish on save.
+    expect(onApplyEnum).toHaveBeenCalledWith('opacity-[0.375]', { opacity: '0.375' });
+
+    fireEvent.change(opacity, { target: { value: '40' } });
+    fireEvent.keyDown(opacity, { key: 'Enter' });
+    expect(onApplyEnum).toHaveBeenLastCalledWith('opacity-40', { opacity: '0.4' });
+  });
+
+  it('reads an arbitrary opacity value back into the control', () => {
+    render(
+      <VisualEditorPanel {...mk()} selection={resolvedSelection} currentClass="opacity-[0.375]" />
+    );
+    expect(screen.getByLabelText<HTMLInputElement>('Opacity value').value).toBe('37.5');
+    expect(screen.getByLabelText<HTMLInputElement>('Opacity').value).toBe('37.5');
+  });
+
   it('suppresses the preset menu on numeric text so arrows keep stepping', () => {
     const onApplyEnum = vi.fn();
     render(

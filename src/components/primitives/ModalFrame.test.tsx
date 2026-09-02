@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ModalFrame } from './ModalFrame';
+import { ToastList } from './ToastList';
 
 describe('ModalFrame', () => {
   it('labels the dialog, focuses its first control, and restores the opener', () => {
@@ -92,6 +93,69 @@ describe('ModalFrame', () => {
 
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'Busy dialog' }), { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the first Escape to a nested control and closes on the second', () => {
+    const onClose = vi.fn();
+    const onCancelEdit = vi.fn();
+    render(
+      <ModalFrame isOpen onClose={onClose} ariaLabel="Rename dialog" showCloseButton={false}>
+        <input
+          aria-label="New name"
+          defaultValue="draft"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') onCancelEdit();
+          }}
+        />
+      </ModalFrame>
+    );
+
+    const input = screen.getByRole('textbox', { name: 'New name' });
+    input.focus();
+
+    // The inline rename cancels; the dialog must not unmount it mid-edit.
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(onCancelEdit).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Second press falls through to the dialog, so it can't get stuck open.
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('honours a nested handler that claims Escape outright', () => {
+    const onClose = vi.fn();
+    render(
+      <ModalFrame isOpen onClose={onClose} ariaLabel="Menu dialog" showCloseButton={false}>
+        <button type="button" onKeyDown={(event) => event.stopPropagation()}>
+          Claiming control
+        </button>
+      </ModalFrame>
+    );
+
+    const control = screen.getByRole('button', { name: 'Claiming control' });
+    fireEvent.keyDown(control, { key: 'Escape' });
+    fireEvent.keyDown(control, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps toasts interactive while a dialog is open', () => {
+    const onDismiss = vi.fn();
+    render(
+      <>
+        <ToastList toasts={[{ id: 7, message: 'Saved', type: 'success' }]} onDismiss={onDismiss} />
+        <ModalFrame isOpen onClose={vi.fn()} ariaLabel="Blocking dialog" showCloseButton={false}>
+          <button type="button">Action</button>
+        </ModalFrame>
+      </>
+    );
+
+    const dismiss = screen.getByRole('button', { name: 'Dismiss' });
+    expect(dismiss.closest('[inert]')).toBeNull();
+    expect(dismiss.closest('[aria-hidden="true"]')).toBeNull();
+
+    fireEvent.click(dismiss);
+    expect(onDismiss).toHaveBeenCalledWith(7);
   });
 
   it('dismisses on an overlay click without treating content clicks as outside clicks', () => {

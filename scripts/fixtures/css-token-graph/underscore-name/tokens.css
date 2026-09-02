@@ -1,0 +1,8 @@
+/* `_` is a legal ident character in a custom-property name. The token-name
+   pattern used to omit it, which truncated both sides of the graph so an
+   undefined reference slipped through. */
+:root {
+  --legacy_brand: #123456;
+  --uses-underscore: var(--legacy_brand);
+  --uses-missing_token: var(--missing_token);
+}

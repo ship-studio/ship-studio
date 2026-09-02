@@ -111,61 +111,79 @@ const AUTOSAVE_KEY = 'ss:visualEditor:autoSave';
  *  drag (many rapid mutations) saves once when it settles, not on every frame. */
 const AUTOSAVE_DEBOUNCE_MS = 700;
 
+/** Index just past the `)` that closes the group opened before `from`, or -1 when
+ * the text is malformed/truncated. Quote- and nesting-aware. */
+function closingParenIndex(text: string, from: number): number {
+  let depth = 1;
+  let quote = '';
+  for (let i = from; i < text.length; i += 1) {
+    const char = text[i];
+    if (quote) {
+      if (char === quote && text[i - 1] !== '\\') quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '(') {
+      depth += 1;
+    } else if (char === ')') {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
 /** Replace a deleted custom property inside Tailwind arbitrary-value classes.
  * Tailwind uses underscores to encode spaces inside an arbitrary value, so
- * `hsl(0, 0%, 0%)` must become `hsl(0,_0%,_0%)` in the class string. */
+ * `hsl(0, 0%, 0%)` must become `hsl(0,_0%,_0%)` in the class string.
+ *
+ * A reference can be nested inside another reference's fallback
+ * (`var(--a,var(--b,red))`), so a kept `var()` still has its fallback rewritten —
+ * otherwise deleting `--b` would leave a dangling reference behind. */
 function replaceCssVariableInClass(className: string, variableName: string, value: string) {
   const replacement = value.trim().replace(/\s+/g, '_');
-  const lowerClassName = className.toLowerCase();
-  let cursor = 0;
-  let output = '';
   let changed = false;
 
-  while (cursor < className.length) {
-    const start = lowerClassName.indexOf('var(', cursor);
-    if (start === -1) {
-      output += className.slice(cursor);
-      break;
-    }
+  const rewrite = (text: string): string => {
+    const lower = text.toLowerCase();
+    let cursor = 0;
+    let output = '';
 
-    let depth = 1;
-    let quote = '';
-    let end = start + 4;
-    for (; end < className.length && depth > 0; end += 1) {
-      const char = className[end];
-      if (quote) {
-        if (char === quote && className[end - 1] !== '\\') quote = '';
-        continue;
+    while (cursor < text.length) {
+      const start = lower.indexOf('var(', cursor);
+      if (start === -1) {
+        output += text.slice(cursor);
+        break;
       }
-      if (char === '"' || char === "'") {
-        quote = char;
-      } else if (char === '(') {
-        depth += 1;
-      } else if (char === ')') {
-        depth -= 1;
+
+      const end = closingParenIndex(text, start + 4);
+      // Leave malformed/incomplete class text untouched.
+      if (end === -1) {
+        output += text.slice(cursor);
+        break;
       }
+
+      const body = text.slice(start + 4, end - 1);
+      const comma = body.indexOf(',');
+      const referencedName = (comma === -1 ? body : body.slice(0, comma)).trim();
+      output += text.slice(cursor, start);
+      if (referencedName === variableName) {
+        output += replacement;
+        changed = true;
+      } else if (comma === -1) {
+        output += text.slice(start, end);
+      } else {
+        output += `var(${body.slice(0, comma + 1)}${rewrite(body.slice(comma + 1))})`;
+      }
+      cursor = end;
     }
 
-    // Leave malformed/incomplete class text untouched.
-    if (depth !== 0) {
-      output += className.slice(cursor);
-      break;
-    }
+    return output;
+  };
 
-    const body = className.slice(start + 4, end - 1);
-    const comma = body.indexOf(',');
-    const referencedName = (comma === -1 ? body : body.slice(0, comma)).trim();
-    output += className.slice(cursor, start);
-    if (referencedName === variableName) {
-      output += replacement;
-      changed = true;
-    } else {
-      output += className.slice(start, end);
-    }
-    cursor = end;
-  }
-
-  return changed ? output : className;
+  const next = rewrite(className);
+  return changed ? next : className;
 }
 
 interface Params {

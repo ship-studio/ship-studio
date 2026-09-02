@@ -25,9 +25,30 @@
         "rightIcon",
         "native button attributes"
       ],
-      "variants": ["default", "primary", "secondary", "danger", "ghost", "warning", "variable"],
-      "sizes": ["default", "compact", "medium", "large"],
-      "states": ["default", "hover", "focus-visible", "active", "disabled", "pressed", "expanded"],
+      "variants": [
+        "default",
+        "primary",
+        "secondary",
+        "danger",
+        "ghost",
+        "warning",
+        "variable"
+      ],
+      "sizes": [
+        "default",
+        "compact",
+        "medium",
+        "large"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus-visible",
+        "active",
+        "disabled",
+        "pressed",
+        "expanded"
+      ],
       "accessibility": "Uses native button semantics, forwards the ref and native attributes, and defaults type to button.",
       "style": "src/styles/global/base.css",
       "example": "docs/design-system.md#button-family",
@@ -37,7 +58,9 @@
     {
       "name": "DockablePanel",
       "file": "src/components/primitives/DockablePanel.tsx",
-      "exports": ["DockablePanel"],
+      "exports": [
+        "DockablePanel"
+      ],
       "purpose": "Keeps stateful panel contents mounted while switching between a docked slot and a draggable floating surface.",
       "owner": "primitives/panels",
       "props": [
@@ -52,18 +75,35 @@
         "resizable",
         "drag handle data attribute"
       ],
-      "variants": ["docked", "floating"],
-      "states": ["visible", "hidden", "dragging", "resizing", "docked", "floating"],
+      "variants": [
+        "docked",
+        "floating"
+      ],
+      "states": [
+        "visible",
+        "hidden",
+        "dragging",
+        "resizing",
+        "docked",
+        "floating"
+      ],
       "accessibility": "Requires an accessible ariaLabel for the panel surface and exposes the drag/resize contract without replacing keyboard-operable content.",
       "style": "src/styles/components/dockable-panel.css",
       "example": "docs/design-system.md#development-primitive-lab",
-      "tests": ["src/components/primitives/DockablePanel.test.tsx"],
+      "tests": [
+        "src/components/primitives/DockablePanel.test.tsx"
+      ],
       "lifecycle": "canonical"
     },
     {
       "name": "Dropdown family",
       "file": "src/components/primitives/Dropdown.tsx",
-      "exports": ["DropdownTriggerProps", "Dropdown", "DropdownItem", "DropdownDivider"],
+      "exports": [
+        "DropdownTriggerProps",
+        "Dropdown",
+        "DropdownItem",
+        "DropdownDivider"
+      ],
       "purpose": "Accessible menu trigger, menu items, dividers, keyboard navigation, typeahead, dismissal, and optional portal positioning.",
       "owner": "primitives/menus",
       "props": [
@@ -89,22 +129,47 @@
         "active/disabled item",
         "portal/non-portal"
       ],
-      "states": ["closed", "open", "focused item", "typeahead", "disabled item", "danger item"],
+      "states": [
+        "closed",
+        "open",
+        "focused item",
+        "typeahead",
+        "disabled item",
+        "danger item"
+      ],
       "accessibility": "Uses menu semantics, focuses the first enabled item, supports Arrow/Home/End/typeahead/Enter/Space/Escape, and restores focus to the trigger.",
       "style": "src/styles/components/dropdown.css",
       "example": "docs/design-system.md#development-primitive-lab",
-      "tests": ["src/components/primitives/Dropdown.test.tsx"],
+      "tests": [
+        "src/components/primitives/Dropdown.test.tsx"
+      ],
       "lifecycle": "canonical"
     },
     {
       "name": "EmptyState",
       "file": "src/components/primitives/EmptyState.tsx",
-      "exports": ["EmptyState"],
+      "exports": [
+        "EmptyState"
+      ],
       "purpose": "Centered icon, title, description, and action stack for zero-data panels and lists.",
       "owner": "primitives/status",
-      "props": ["icon", "title", "description", "action", "className"],
-      "variants": ["with icon", "with description", "with action"],
-      "states": ["empty", "long description", "localized content"],
+      "props": [
+        "icon",
+        "title",
+        "description",
+        "action",
+        "className"
+      ],
+      "variants": [
+        "with icon",
+        "with description",
+        "with action"
+      ],
+      "states": [
+        "empty",
+        "long description",
+        "localized content"
+      ],
       "accessibility": "Preserves the semantics of supplied title, description, and action content; the owner supplies the appropriate heading context.",
       "style": "src/styles/components/empty-state.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -114,12 +179,28 @@
     {
       "name": "IconButton",
       "file": "src/components/primitives/IconButton.tsx",
-      "exports": ["IconButtonProps", "IconButton"],
+      "exports": [
+        "IconButtonProps",
+        "IconButton"
+      ],
       "purpose": "Icon-only action button with the shared Button semantics and hit-area contract.",
       "owner": "primitives/actions",
-      "props": ["icon", "aria-label", "Button props except children and icon slots"],
-      "variants": ["all Button variants", "all Button sizes"],
-      "states": ["default", "hover", "focus-visible", "active", "disabled"],
+      "props": [
+        "icon",
+        "aria-label",
+        "Button props except children and icon slots"
+      ],
+      "variants": [
+        "all Button variants",
+        "all Button sizes"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus-visible",
+        "active",
+        "disabled"
+      ],
       "accessibility": "Requires an explicit aria-label and retains native button keyboard and disabled behavior.",
       "style": "src/styles/global/base.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -129,12 +210,27 @@
     {
       "name": "MenuButton",
       "file": "src/components/primitives/MenuButton.tsx",
-      "exports": ["MenuButtonProps", "MenuButton"],
+      "exports": [
+        "MenuButtonProps",
+        "MenuButton"
+      ],
       "purpose": "Button-family trigger for a menu with explicit expanded state and menu-haspopup semantics.",
       "owner": "primitives/menus",
-      "props": ["expanded", "Button props except aria-expanded and aria-haspopup"],
-      "variants": ["all Button variants", "all Button sizes"],
-      "states": ["closed", "expanded", "hover", "focus-visible", "disabled"],
+      "props": [
+        "expanded",
+        "Button props except aria-expanded and aria-haspopup"
+      ],
+      "variants": [
+        "all Button variants",
+        "all Button sizes"
+      ],
+      "states": [
+        "closed",
+        "expanded",
+        "hover",
+        "focus-visible",
+        "disabled"
+      ],
       "accessibility": "Adds aria-haspopup=menu and synchronizes aria-expanded with the owning menu state.",
       "style": "src/styles/global/base.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -144,22 +240,45 @@
     {
       "name": "MiddleTruncate",
       "file": "src/components/primitives/MiddleTruncate.tsx",
-      "exports": ["MiddleTruncateProps", "MiddleTruncate"],
+      "exports": [
+        "MiddleTruncateProps",
+        "MiddleTruncate"
+      ],
       "purpose": "Measured single-line truncation that preserves readable portions of both ends of a string.",
       "owner": "primitives/typography",
-      "props": ["text", "className", "dir", "aria-label", "native span attributes"],
-      "variants": ["full", "middle-truncated"],
-      "states": ["fits", "truncated", "resized", "font-loaded"],
+      "props": [
+        "text",
+        "className",
+        "dir",
+        "aria-label",
+        "native span attributes"
+      ],
+      "variants": [
+        "full",
+        "middle-truncated"
+      ],
+      "states": [
+        "fits",
+        "truncated",
+        "resized",
+        "font-loaded"
+      ],
       "accessibility": "Retains the complete value through aria-label when supplied and exposes a single text span to assistive technology.",
       "style": "src/styles/components/middle-truncate.css",
       "example": "docs/design-system.md#development-primitive-lab",
-      "tests": ["src/components/primitives/MiddleTruncate.test.tsx"],
+      "tests": [
+        "src/components/primitives/MiddleTruncate.test.tsx"
+      ],
       "lifecycle": "canonical"
     },
     {
       "name": "ModalFrame",
       "file": "src/components/primitives/ModalFrame.tsx",
-      "exports": ["ModalFrameProps", "ModalFrame"],
+      "exports": [
+        "MODAL_INERT_EXEMPT_ATTR",
+        "ModalFrameProps",
+        "ModalFrame"
+      ],
       "purpose": "Canonical modal overlay and dialog frame with dismissal, focus management, nesting, inert siblings, and scroll locking.",
       "owner": "primitives/overlays",
       "props": [
@@ -172,7 +291,13 @@
         "ariaLabel",
         "initialFocusRef"
       ],
-      "variants": ["titled", "headerless", "dismissable", "non-dismissable", "nested"],
+      "variants": [
+        "titled",
+        "headerless",
+        "dismissable",
+        "non-dismissable",
+        "nested"
+      ],
       "states": [
         "closed",
         "open",
@@ -185,13 +310,17 @@
       "accessibility": "Provides dialog role and labelling, traps focus within the topmost modal, makes background siblings inert, and restores focus on close.",
       "style": "src/styles/components/modal-frame.css",
       "example": "docs/design-system.md#development-primitive-lab",
-      "tests": ["src/components/primitives/ModalFrame.test.tsx"],
+      "tests": [
+        "src/components/primitives/ModalFrame.test.tsx"
+      ],
       "lifecycle": "canonical"
     },
     {
       "name": "PanelResizeHandle",
       "file": "src/components/primitives/PanelResizeHandle.tsx",
-      "exports": ["PanelResizeHandle"],
+      "exports": [
+        "PanelResizeHandle"
+      ],
       "purpose": "Shared pointer and keyboard separator for resizing adjacent panels.",
       "owner": "primitives/layout",
       "props": [
@@ -205,8 +334,17 @@
         "onDragChange",
         "className"
       ],
-      "variants": ["vertical", "horizontal"],
-      "states": ["idle", "hover", "focus-visible", "dragging", "keyboard resize"],
+      "variants": [
+        "vertical",
+        "horizontal"
+      ],
+      "states": [
+        "idle",
+        "hover",
+        "focus-visible",
+        "dragging",
+        "keyboard resize"
+      ],
       "accessibility": "Exposes an accessible separator label and supports keyboard resizing alongside pointer dragging.",
       "style": "src/styles/components/panel-resize-handle.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -216,10 +354,22 @@
     {
       "name": "PixelLoader",
       "file": "src/components/primitives/PixelLoader.tsx",
-      "exports": ["PixelLoaderSize", "PixelLoaderVariant", "PixelLoaderProps", "PixelLoader"],
+      "exports": [
+        "PixelLoaderSize",
+        "PixelLoaderVariant",
+        "PixelLoaderProps",
+        "PixelLoader"
+      ],
       "purpose": "Accessible square-pixel activity indicator with customizable grid geometry and animated light patterns.",
       "owner": "primitives/status",
-      "props": ["size", "variant", "gridSize", "coreSize", "label", "native div attributes"],
+      "props": [
+        "size",
+        "variant",
+        "gridSize",
+        "coreSize",
+        "label",
+        "native div attributes"
+      ],
       "variants": [
         "rings",
         "ripple",
@@ -230,12 +380,22 @@
         "scan",
         "spark"
       ],
-      "sizes": ["sm", "md", "lg"],
-      "states": ["loading", "custom label", "reduced motion"],
+      "sizes": [
+        "sm",
+        "md",
+        "lg"
+      ],
+      "states": [
+        "loading",
+        "custom label",
+        "reduced motion"
+      ],
       "accessibility": "Uses role=status and announces the supplied loading label while hiding decorative pixels from assistive technology.",
       "style": "src/styles/components/pixel-loader.css",
       "example": "docs/design-system.md#pixelloader--pixelloadertsx",
-      "tests": ["src/components/primitives/PixelLoader.test.tsx"],
+      "tests": [
+        "src/components/primitives/PixelLoader.test.tsx"
+      ],
       "lifecycle": "experimental"
     },
     {
@@ -250,10 +410,28 @@
       ],
       "purpose": "Interactive visual-editor property value control, kept separate from action buttons.",
       "owner": "primitives/editor",
-      "props": ["variant", "size", "native button attributes"],
-      "variants": ["value", "select", "variable"],
-      "sizes": ["default", "compact"],
-      "states": ["default", "hover", "focus-visible", "expanded", "active", "disabled"],
+      "props": [
+        "variant",
+        "size",
+        "native button attributes"
+      ],
+      "variants": [
+        "value",
+        "select",
+        "variable"
+      ],
+      "sizes": [
+        "default",
+        "compact"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus-visible",
+        "expanded",
+        "active",
+        "disabled"
+      ],
       "accessibility": "Uses native button semantics and keeps the property meaning in the surrounding label/state rather than changing value-field semantics.",
       "style": "src/styles/components/property-field.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -263,28 +441,66 @@
     {
       "name": "SegmentedControl",
       "file": "src/components/primitives/SegmentedControl.tsx",
-      "exports": ["SegmentedControlOption", "SegmentedControlProps", "SegmentedControl"],
+      "exports": [
+        "SegmentedControlOption",
+        "SegmentedControlProps",
+        "SegmentedControl"
+      ],
       "purpose": "Mutually exclusive in-place choice group for filters and settings.",
       "owner": "primitives/choices",
-      "props": ["value", "options", "onValueChange", "aria-label", "className", "size"],
-      "variants": ["selected", "unselected", "disabled option"],
-      "sizes": ["all Button sizes"],
-      "states": ["selected", "unselected", "disabled", "focus-visible"],
+      "props": [
+        "value",
+        "options",
+        "onValueChange",
+        "aria-label",
+        "className",
+        "size"
+      ],
+      "variants": [
+        "selected",
+        "unselected",
+        "disabled option"
+      ],
+      "sizes": [
+        "all Button sizes"
+      ],
+      "states": [
+        "selected",
+        "unselected",
+        "disabled",
+        "focus-visible"
+      ],
       "accessibility": "Uses a labelled group of ToggleButtons with aria-pressed state; it is not a navigation tablist.",
       "style": "src/styles/components/segmented-control.css",
       "example": "docs/design-system.md#development-primitive-lab",
-      "tests": ["src/components/primitives/SegmentedControl.test.tsx"],
+      "tests": [
+        "src/components/primitives/SegmentedControl.test.tsx"
+      ],
       "lifecycle": "canonical"
     },
     {
       "name": "Spinner",
       "file": "src/components/primitives/Spinner.tsx",
-      "exports": ["SpinnerSize", "Spinner"],
+      "exports": [
+        "SpinnerSize",
+        "Spinner"
+      ],
       "purpose": "Accessible progress indicator for inline, control, and section loading states.",
       "owner": "primitives/status",
-      "props": ["size", "label", "native SVG attributes"],
-      "variants": ["sm", "md", "lg"],
-      "states": ["loading", "custom label"],
+      "props": [
+        "size",
+        "label",
+        "native SVG attributes"
+      ],
+      "variants": [
+        "sm",
+        "md",
+        "lg"
+      ],
+      "states": [
+        "loading",
+        "custom label"
+      ],
       "accessibility": "Uses role=status and announces the supplied loading label to assistive technology.",
       "style": "src/styles/components/spinner.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -317,7 +533,12 @@
         "TabsTab value/disabled",
         "TabsPanel value/keepMounted"
       ],
-      "variants": ["panel", "navigation", "default/stretch list", "segmented/underline appearance"],
+      "variants": [
+        "panel",
+        "navigation",
+        "default/stretch list",
+        "segmented/underline appearance"
+      ],
       "states": [
         "active",
         "inactive",
@@ -329,13 +550,19 @@
       "accessibility": "Uses tablist/tab/tabpanel relationships, roving tabIndex, Arrow/Home/End navigation, and inert hidden kept-mounted panels.",
       "style": "src/styles/components/tabs.css",
       "example": "docs/design-system.md#development-primitive-lab",
-      "tests": ["src/components/primitives/Tabs.test.tsx"],
+      "tests": [
+        "src/components/primitives/Tabs.test.tsx"
+      ],
       "lifecycle": "canonical"
     },
     {
       "name": "TextButton",
       "file": "src/components/primitives/TextButton.tsx",
-      "exports": ["TextButtonVariant", "TextButtonProps", "TextButton"],
+      "exports": [
+        "TextButtonVariant",
+        "TextButtonProps",
+        "TextButton"
+      ],
       "purpose": "Inline prose and metadata action that retains native button, ref, disabled, focus, and icon behavior without a fixed surface.",
       "owner": "primitives/actions",
       "props": [
@@ -344,8 +571,19 @@
         "rightIcon",
         "native button attributes except Button surface props"
       ],
-      "variants": ["default", "primary", "accent", "danger"],
-      "states": ["default", "hover", "focus-visible", "active", "disabled"],
+      "variants": [
+        "default",
+        "primary",
+        "accent",
+        "danger"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus-visible",
+        "active",
+        "disabled"
+      ],
       "accessibility": "Uses native button semantics and keeps inline actions keyboard reachable and disabled correctly.",
       "style": "src/styles/components/text-button.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -355,27 +593,62 @@
     {
       "name": "TextField",
       "file": "src/components/primitives/TextField.tsx",
-      "exports": ["TextFieldProps", "TextField"],
+      "exports": [
+        "TextFieldProps",
+        "TextField"
+      ],
       "purpose": "Shared native text input with compact, code, invalid, disabled, focus, placeholder, and optional suffix contracts.",
       "owner": "primitives/forms",
-      "props": ["invalid", "suffix", "native input attributes"],
-      "variants": ["default", "compact", "code", "with suffix"],
-      "states": ["default", "focus", "invalid", "disabled", "placeholder"],
+      "props": [
+        "invalid",
+        "suffix",
+        "native input attributes"
+      ],
+      "variants": [
+        "default",
+        "compact",
+        "code",
+        "with suffix"
+      ],
+      "states": [
+        "default",
+        "focus",
+        "invalid",
+        "disabled",
+        "placeholder"
+      ],
       "accessibility": "Preserves native input semantics, forwards the ref, and synchronizes invalid state with aria-invalid.",
       "style": "src/styles/components/text-field.css",
       "example": "docs/design-system.md#textfield-textfieldtsx",
-      "tests": ["src/components/primitives/TextField.test.tsx"],
+      "tests": [
+        "src/components/primitives/TextField.test.tsx"
+      ],
       "lifecycle": "canonical"
     },
     {
       "name": "ToastList",
       "file": "src/components/primitives/ToastList.tsx",
-      "exports": ["ToastList"],
+      "exports": [
+        "ToastList"
+      ],
       "purpose": "Shared rendering surface for success, info, and error notifications with dismissal and error-copy actions.",
       "owner": "primitives/notifications",
-      "props": ["toasts", "onDismiss"],
-      "variants": ["success", "info", "error", "error with copy"],
-      "states": ["empty", "visible", "dismissed", "copied error"],
+      "props": [
+        "toasts",
+        "onDismiss"
+      ],
+      "variants": [
+        "success",
+        "info",
+        "error",
+        "error with copy"
+      ],
+      "states": [
+        "empty",
+        "visible",
+        "dismissed",
+        "copied error"
+      ],
       "accessibility": "Uses the supplied message content and labelled dismiss/copy controls; notification announcements remain owned by the toast source.",
       "style": "src/styles/features/publish/toasts.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -385,12 +658,28 @@
     {
       "name": "ToggleButton",
       "file": "src/components/primitives/ToggleButton.tsx",
-      "exports": ["ToggleButtonProps", "ToggleButton"],
+      "exports": [
+        "ToggleButtonProps",
+        "ToggleButton"
+      ],
       "purpose": "Boolean Button-family control with explicit pressed state.",
       "owner": "primitives/choices",
-      "props": ["pressed", "Button props except aria-pressed"],
-      "variants": ["all Button variants", "all Button sizes"],
-      "states": ["pressed", "unpressed", "hover", "focus-visible", "active", "disabled"],
+      "props": [
+        "pressed",
+        "Button props except aria-pressed"
+      ],
+      "variants": [
+        "all Button variants",
+        "all Button sizes"
+      ],
+      "states": [
+        "pressed",
+        "unpressed",
+        "hover",
+        "focus-visible",
+        "active",
+        "disabled"
+      ],
       "accessibility": "Uses aria-pressed to expose the boolean state while retaining native button keyboard behavior.",
       "style": "src/styles/global/base.css",
       "example": "docs/design-system.md#development-primitive-lab",
@@ -400,16 +689,36 @@
     {
       "name": "Tooltip family",
       "file": "src/components/primitives/Tooltip.tsx",
-      "exports": ["Tooltip", "TooltipProvider"],
+      "exports": [
+        "Tooltip",
+        "TooltipProvider"
+      ],
       "purpose": "App-wide tooltip promotion and positioning surface for title attributes and explicit tooltip content.",
       "owner": "primitives/overlays",
-      "props": ["content", "delayMs", "children", "TooltipProvider children"],
-      "variants": ["explicit content", "promoted title", "custom delay"],
-      "states": ["hidden", "hover", "focus", "positioned", "anchor removed"],
+      "props": [
+        "content",
+        "delayMs",
+        "children",
+        "TooltipProvider children"
+      ],
+      "variants": [
+        "explicit content",
+        "promoted title",
+        "custom delay"
+      ],
+      "states": [
+        "hidden",
+        "hover",
+        "focus",
+        "positioned",
+        "anchor removed"
+      ],
       "accessibility": "Keeps the original trigger element, applies aria-describedby, and removes competing native title tooltips.",
       "style": "src/styles/components/tooltip.css",
       "example": "docs/design-system.md#development-primitive-lab",
-      "tests": ["src/components/primitives/Tooltip.test.tsx"],
+      "tests": [
+        "src/components/primitives/Tooltip.test.tsx"
+      ],
       "lifecycle": "canonical"
     },
     {
@@ -426,8 +735,22 @@
       ],
       "purpose": "Editable property value paired with a finite unit/format listbox and controlled commit behavior.",
       "owner": "primitives/editor",
-      "props": ["value", "variant", "keywords", "variables", "onCommit", "native input attributes"],
-      "variants": ["number", "length", "angle", "time", "color", "keyword options"],
+      "props": [
+        "value",
+        "variant",
+        "keywords",
+        "variables",
+        "onCommit",
+        "native input attributes"
+      ],
+      "variants": [
+        "number",
+        "length",
+        "angle",
+        "time",
+        "color",
+        "keyword options"
+      ],
       "states": [
         "default",
         "focused",
@@ -441,7 +764,9 @@
       "accessibility": "Uses an editable text input plus a select-only unit listbox; when variables are supplied, the input exposes combobox semantics with an associated filtered listbox and keyboard selection.",
       "style": "src/styles/components/value-field.css",
       "example": "docs/design-system.md#development-primitive-lab",
-      "tests": ["src/components/primitives/ValueField.test.tsx"],
+      "tests": [
+        "src/components/primitives/ValueField.test.tsx"
+      ],
       "lifecycle": "canonical"
     }
   ]

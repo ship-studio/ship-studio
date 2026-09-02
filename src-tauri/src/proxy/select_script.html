@@ -666,6 +666,18 @@ function onMove(e){if(!active||txtEditing)return;ensureHover();var t=pickTarget(
 
 function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;var primaryNodeId=treeIdFor(el),affectedNodeIds=[];for(var ai=0;ai<selectedSet.length;ai++){var affectedId=treeIdFor(selectedSet[ai]);if(affectedId!==primaryNodeId)affectedNodeIds.push(affectedId);}window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:primaryNodeId,affectedNodeIds:affectedNodeIds},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:primaryNodeId},'*');}catch(e){}}}
 
+/* Is `el` a plausible stand-in for the signature? Shared by the structural fast
+   path and the fuzzy scan: never an editor overlay / internal node, and it must
+   still carry every class the signature had (the user may have ADDED some). */
+function sigCandidate(el,orig){
+  if(!el||(el.getAttribute&&el.getAttribute('data-ss-overlay'))||ssInternalNode(el))return null;
+  var cls=((el.getAttribute&&el.getAttribute('class'))||'').split(/\s+/).filter(Boolean);
+  for(var c=0;c<orig.length;c++)if(cls.indexOf(orig[c])===-1)return null;
+  return cls;
+}
+
+function sigText(el){return (el.innerText||el.textContent||'').trim().slice(0,80);}
+
 /* Re-find a previously-selected element by its signature after an HMR reload (the
    DOM is fresh, so the old handle is gone). Best-effort: match the tag, require the
    original classes to still be present (the user may have ADDED some), and score by
@@ -675,20 +687,29 @@ function findBySignature(sig){
   if(!sig)return null;
   var tag=(sig.tagName||'').toLowerCase();
   var all=document.querySelectorAll(tag||'*');
-  /* A classless empty signature has no semantic discriminator. Its structural
-     path is exact across an HMR render of the same tree, so honor it before the
-     fuzzy class/text scoring below (which would otherwise pick the first div). */
-  if(sig.domPath){for(var pi=0;pi<all.length;pi++){var pe=all[pi];if(!ssInternalNode(pe)&&ssDomPath(pe)===sig.domPath)return pe;}}
   var orig=(sig.className||'').split(/\s+/).filter(Boolean);
   var wantText=(sig.text||'').trim().slice(0,80);
+  /* Structural fast path: the DOM path is exact across an HMR render of the same
+     tree, and it's the ONLY discriminator a classless, textless signature has (the
+     fuzzy scan below would just pick the first div). It's only trustworthy while
+     the element there still looks like the one we saved, though — after a
+     structural change that slot can hold something else entirely (including one of
+     our own overlays), so validate the candidate and fall through to scoring when
+     it no longer matches the signature's classes/text. */
+  if(sig.domPath){
+    for(var pi=0;pi<all.length;pi++){
+      var pe=all[pi];
+      if(ssDomPath(pe)!==sig.domPath)continue;
+      if(sigCandidate(pe,orig)&&(!wantText||sigText(pe)===wantText))return pe;
+      break; /* the path is unique — one failed candidate means fall through */
+    }
+  }
   var anc=sig.ancestorClasses||[];
   var best=null,bestScore=-1;
   for(var i=0;i<all.length;i++){var el=all[i];
-    if((el.getAttribute&&el.getAttribute('data-ss-overlay'))||ssInternalNode(el))continue;
-    var cls=((el.getAttribute&&el.getAttribute('class'))||'').split(/\s+/).filter(Boolean);
-    if(orig.length){var ok=true;for(var c=0;c<orig.length;c++){if(cls.indexOf(orig[c])===-1){ok=false;break;}}if(!ok)continue;}
+    if(!sigCandidate(el,orig))continue;
     var score=orig.length?10:0;
-    var t=(el.innerText||el.textContent||'').trim().slice(0,80);
+    var t=sigText(el);
     if(wantText&&t===wantText)score+=6;
     if(anc.length){var p=el.parentElement,ai=0;while(p&&ai<anc.length){var pc=p.getAttribute&&p.getAttribute('class');if(pc&&pc.trim()===anc[ai]){score++;ai++;}p=p.parentElement;}}
     if(score>bestScore){bestScore=score;best=el;}

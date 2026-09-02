@@ -556,12 +556,23 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     // Ensure git identity is configured (required for commits)
     ensure_git_identity(&validated_path)?;
 
+    // Whether the repo already has a commit decides the message. `git_dir`
+    // can't answer that here — the `git init` above just created it, so the
+    // very first commit of a brand-new repo used to be labelled "Update from
+    // Ship Studio". Ask for HEAD instead, which is also correct for a repo
+    // that was initialised outside the app but never committed to.
+    let had_commits = crate::utils::git_command_in(&validated_path)?
+        .args(["rev-parse", "--verify", "HEAD"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
     // Stage and commit any files. Do not continue to repo creation when a
     // commit hook rejects the commit: doing so creates the remote and then
     // reports the hook output as a misleading push failure.
     git_stage_and_commit(
         &validated_path,
-        if git_dir.exists() {
+        if had_commits {
             "Update from Ship Studio"
         } else {
             "Initial commit from Ship Studio"

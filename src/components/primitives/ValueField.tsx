@@ -73,6 +73,8 @@ interface SplitValue {
 }
 
 const NUMERIC_VALUE = /^([+-]?(?:\d+\.?\d*|\.\d+))\s*([a-z%]*)$/i;
+/** A CSS/Tailwind fraction (`1/2`) — a complete value that takes no unit. */
+const FRACTION_VALUE = /^\d+\/\d+$/;
 const CSS_VARIABLE_VALUE = /^var\(\s*(--[\w-]+)\s*\)$/i;
 const VARIABLE_OPTION: ValueFieldOption = { value: 'var', label: 'VAR', kind: 'variable' };
 const EMPTY_VARIABLES: ValueFieldVariable[] = [];
@@ -82,6 +84,13 @@ const EMPTY_VARIABLES: ValueFieldVariable[] = [];
 const VARIABLE_SCROLL_HOLD_MS = 2000;
 const VARIABLE_SCROLL_SPEED_PX_PER_SECOND = 32;
 const VARIABLE_OVERFLOW_EPSILON_PX = 1;
+
+/** A finite numeric `min`/`max` prop, or null when absent/non-numeric. */
+function numericBound(bound: string | number | undefined): number | null {
+  if (bound === undefined || bound === '') return null;
+  const parsed = typeof bound === 'number' ? bound : Number(bound);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 /** Returns the resolved pixel length of a custom property from computed style. */
 function readPixelCustomProperty(element: Element, property: string): number {
@@ -284,6 +293,10 @@ export function ValueField({
   className,
   onKeyDown,
   placeholder,
+  // Consumed here rather than forwarded: the field is a text input (the browser
+  // would ignore them), but arrow-key stepping honours them as the value's range.
+  min,
+  max,
   'aria-label': ariaLabel,
   ...inputProps
 }: ValueFieldProps) {
@@ -415,7 +428,11 @@ export function ValueField({
   const combinedValue = (nextText = text, nextUnit = unit) => {
     const trimmed = nextText.trim();
     if (nextUnit === 'var') return `var(${trimmed})`;
-    return isFormatField ? trimmed : `${trimmed}${nextUnit}`;
+    // A fraction is a complete value: appending the field's active unit would
+    // commit `1/2px`, which every consumer rejects (typing `1/2` into Width used
+    // to apply `w-1/2`).
+    if (isFormatField || FRACTION_VALUE.test(trimmed)) return trimmed;
+    return `${trimmed}${nextUnit}`;
   };
 
   const commit = (nextText = text, nextUnit = unit) => {
@@ -497,6 +514,15 @@ export function ValueField({
     inputRef.current?.select();
   };
 
+  const minValue = numericBound(min);
+  const maxValue = numericBound(max);
+  const clampToRange = (n: number) => {
+    let clamped = n;
+    if (minValue !== null) clamped = Math.max(minValue, clamped);
+    if (maxValue !== null) clamped = Math.min(maxValue, clamped);
+    return clamped;
+  };
+
   const stepNumericValue = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false;
     const match = /^([+-]?(?:\d+\.?\d*|\.\d+))$/.exec(text.trim());
@@ -504,7 +530,10 @@ export function ValueField({
     const baseStep = unit ? 0.1 : 1;
     const amount = event.shiftKey ? 10 : event.altKey ? baseStep : 1;
     const direction = event.key === 'ArrowUp' ? 1 : -1;
-    const next = String(Math.round((Number(match[1]) + direction * amount) * 100) / 100);
+    // Respect the field's own range: sizes and opacity have no meaning below 0,
+    // and stepping past the bound used to commit a value the consumer rejects.
+    const stepped = clampToRange(Math.round((Number(match[1]) + direction * amount) * 100) / 100);
+    const next = String(stepped);
     event.preventDefault();
     setText(next);
     commit(next, unit);
@@ -626,7 +655,13 @@ export function ValueField({
               setUnit(parsed.unit);
             } else {
               setText(next);
-              if (!isFormatField && /[a-z%)]$/i.test(next.trim())) setUnit('');
+              // A keyword/function value (`auto`, `calc(…)`) or a fraction carries
+              // its own meaning — drop the unit so the picker mirrors the value.
+              if (
+                !isFormatField &&
+                (/[a-z%)]$/i.test(next.trim()) || FRACTION_VALUE.test(next.trim()))
+              )
+                setUnit('');
             }
           }
           if (invalid) setInvalid(false);

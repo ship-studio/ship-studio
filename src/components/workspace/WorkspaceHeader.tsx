@@ -279,6 +279,12 @@ export function WorkspaceHeader({
   const currentBranchIsLive =
     currentBranch !== null &&
     (branches.find((branch) => branch.name === currentBranch)?.isDefault ?? false);
+  // PublishBranchDropdown renders a bare disabled trigger (no menu at all)
+  // until the project has a GitHub repo, so anything that claims to "open
+  // Push" has to be gated on the same condition or it opens nothing.
+  const pushMenuAvailable =
+    integrations.projectGithub?.status === 'connected' &&
+    Boolean(integrations.projectGithub?.github_repo);
   const projectPathContainerRef = useRef<HTMLDivElement>(null);
   const [expandedProjectPathWidth, setExpandedProjectPathWidth] = useState<number | null>(null);
 
@@ -363,12 +369,16 @@ export function WorkspaceHeader({
       <div
         className={`source-control-push${hasUncommittedChanges ? ' has-unsaved-changes' : ''}`}
         onClick={(event) => {
-          if (!hasUncommittedChanges) return;
+          if (!pushMenuAvailable) return;
           if ((event.target as HTMLElement).closest('button')) return;
           setOpenSourceMenu(openSourceMenu === 'push' ? null : 'push');
         }}
       >
-        {hasUncommittedChanges && currentBranch && (
+        {/* Always show which branch you're on — that's what makes Publish
+            safe to click. Only wire the chip to the Push menu when that menu
+            has something to show; otherwise it falls back to the changed-
+            files review, or to a plain label on a clean tree. */}
+        {currentBranch && (
           <BranchIndicator
             currentBranch={currentBranch}
             hasUncommittedChanges={hasUncommittedChanges}
@@ -377,7 +387,7 @@ export function WorkspaceHeader({
             onDiscard={onDiscardChanges}
             isOpen={openSourceMenu === 'push'}
             onOpenChange={(open) => setOpenSourceMenu(open ? 'push' : null)}
-            opensPushMenu
+            opensPushMenu={pushMenuAvailable}
             isLive={currentBranchIsLive}
           />
         )}
