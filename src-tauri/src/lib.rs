@@ -611,6 +611,11 @@ pub fn run() {
             commands::conflicts::resolve_conflict,
             commands::conflicts::abort_merge,
             commands::conflicts::complete_merge,
+            // Project containers (Docker)
+            commands::containers::list_project_containers,
+            commands::containers::start_project_container,
+            commands::containers::stop_project_container,
+            commands::containers::restart_project_container,
             // Preview Proxy
             commands::proxy::start_preview_proxy,
             commands::proxy::stop_preview_proxy,

@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { SearchIcon, ChevronIcon, ResetIcon, LayersIcon } from '../icons';
+import { SearchIcon, ChevronIcon, ResetIcon, LayersIcon, PlayIcon, StopIcon } from '../icons';
 import { Button } from '../primitives/Button';
 import { BrowserDropdown } from '../preview/BrowserDropdown';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
@@ -24,6 +24,15 @@ import {
 } from '../../lib/worktreeFamilies';
 import { formatRelativeTime } from '../../lib/branches';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
+import { useContainers } from '../../hooks/useContainers';
+import {
+  containerDotState,
+  containerLabel,
+  containerMeta,
+  isContainerRunning,
+} from '../../lib/containers';
+import { asCommandError, formatCommandError } from '../../lib/errors';
+import { useOptionalToast } from '../../contexts/ToastContext';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useCommands } from '../../commands/useCommands';
@@ -37,7 +46,7 @@ import {
   type TabStatus,
 } from '../../lib/sessionRegistry';
 
-type SectionId = 'agents' | 'terminals' | 'worktrees' | 'commands';
+type SectionId = 'agents' | 'terminals' | 'worktrees' | 'commands' | 'containers';
 type GroupId = 'pinned' | 'projects';
 
 interface SidebarItem {
@@ -140,13 +149,22 @@ const SECTION_STORAGE_KEY = 'ship-studio:workspace-sidebar:collapsed';
 const PROJECT_EXPAND_STORAGE_KEY = 'ship-studio:workspace-sidebar:expanded-projects';
 
 function readCollapsed(): Record<SectionId, boolean> {
+  // Merge over defaults — stored state written before a section existed
+  // (e.g. 'containers') simply falls back to expanded.
+  const defaults: Record<SectionId, boolean> = {
+    agents: false,
+    terminals: false,
+    worktrees: false,
+    commands: false,
+    containers: false,
+  };
   try {
     const raw = localStorage.getItem(SECTION_STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Record<SectionId, boolean>;
+    if (raw) return { ...defaults, ...(JSON.parse(raw) as Partial<Record<SectionId, boolean>>) };
   } catch {
     // ignore
   }
-  return { agents: false, terminals: false, worktrees: false, commands: false };
+  return defaults;
 }
 
 function writeCollapsed(state: Record<SectionId, boolean>) {
@@ -275,6 +293,68 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onSwitchAccount,
 }: Props) {
   const { activeAccount, accounts } = useActiveAccount(currentProjectPath);
+  const { showToast } = useOptionalToast();
+  // Detected Docker containers for the current project (compose/devcontainer
+  // label matches only). Polls while a project is open; the section below
+  // stays hidden for the (majority of) projects with no containers.
+  const {
+    containers,
+    pendingIds: pendingContainerIds,
+    startProjectContainer,
+    stopProjectContainer,
+    restartProjectContainer,
+  } = useContainers(currentProjectPath);
+
+  // Palette contract: container actions are reachable via ⌘K, one entry per
+  // detected container. Failures surface as toasts (rule 3) — a rejected
+  // invoke is a CommandError object, not an Error.
+  useCommands(
+    () =>
+      containers.flatMap((c) => {
+        const label = containerLabel(c);
+        const guarded = (fn: (id: string) => Promise<void>) => async () => {
+          try {
+            await fn(c.id);
+          } catch (e) {
+            showToast(formatCommandError(asCommandError(e)), 'error');
+          }
+        };
+        const keywords = ['docker', 'container', c.name, c.image];
+        return isContainerRunning(c)
+          ? [
+              {
+                id: `containers.stop.${c.id}`,
+                title: `Stop container: ${label}`,
+                icon: <StopIcon size={14} />,
+                category: 'project' as const,
+                when: 'project' as const,
+                keywords,
+                run: guarded(stopProjectContainer),
+              },
+              {
+                id: `containers.restart.${c.id}`,
+                title: `Restart container: ${label}`,
+                icon: <ResetIcon size={14} />,
+                category: 'project' as const,
+                when: 'project' as const,
+                keywords,
+                run: guarded(restartProjectContainer),
+              },
+            ]
+          : [
+              {
+                id: `containers.start.${c.id}`,
+                title: `Start container: ${label}`,
+                icon: <PlayIcon size={14} />,
+                category: 'project' as const,
+                when: 'project' as const,
+                keywords,
+                run: guarded(startProjectContainer),
+              },
+            ];
+      }),
+    [containers, startProjectContainer, stopProjectContainer, restartProjectContainer, showToast]
+  );
   // The Workspaces feature is invisible until you actually have more than one.
   // For the ~80% single-workspace users the footer switcher stays hidden; the
   // picker is still reachable any time via the ⌘K command below.
@@ -494,6 +574,33 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
     });
   }, [worktrees, registryVersion, onSelectProject, onCloseProject]);
 
+  // Container rows: one action button toggling start/stop (restart lives in
+  // the palette). The dot speaks the same idle/active/attention vocabulary
+  // as agent rows; meta shows published ports for running containers.
+  const containerItems = useMemo<SidebarItem[]>(
+    () =>
+      containers.map((c) => {
+        const running = isContainerRunning(c);
+        const busy = pendingContainerIds.has(c.id);
+        const label = containerLabel(c);
+        return {
+          key: `container-${c.id}`,
+          label,
+          dotState: containerDotState(c.state),
+          meta: busy ? (running ? 'stopping' : 'starting') : containerMeta(c),
+          onAction: () => {
+            void (running ? stopProjectContainer(c.id) : startProjectContainer(c.id)).catch((e) =>
+              showToast(formatCommandError(asCommandError(e)), 'error')
+            );
+          },
+          actionIcon: running ? <StopIcon size={11} /> : <PlayIcon size={11} />,
+          actionLabel: running ? `Stop ${label}` : `Start ${label}`,
+          actionBusy: busy,
+        };
+      }),
+    [containers, pendingContainerIds, startProjectContainer, stopProjectContainer, showToast]
+  );
+
   const filterLower = filter.trim().toLowerCase();
   const matchesFilter = (label: string) =>
     !filterLower || label.toLowerCase().includes(filterLower);
@@ -501,6 +608,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   const filteredAgents = agentItems.filter((i) => matchesFilter(i.label));
   const filteredTerminals = terminalItems.filter((i) => matchesFilter(i.label));
   const filteredCommands = commandItems.filter((i) => matchesFilter(i.label));
+  const filteredContainers = containerItems.filter((i) => matchesFilter(i.label));
 
   const atMaxTabs = terminalTabs.length >= maxTabs;
 
@@ -719,6 +827,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 items={filteredCommands}
                 emptyHint={filter ? 'No matches' : 'Not running'}
               />
+              {containerItems.length > 0 && (
+                <SidebarSection
+                  id="containers"
+                  label="Containers"
+                  total={containerItems.length}
+                  collapsed={collapsed.containers}
+                  onToggle={() => toggleSection('containers')}
+                  items={filteredContainers}
+                  emptyHint={filter ? 'No matches' : 'None detected'}
+                />
+              )}
             </div>
           ) : (
             <div key="inactive-body" className="sidebar-project-body-inner">

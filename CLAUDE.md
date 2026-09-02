@@ -8,6 +8,7 @@ Ship Studio is a desktop app for web developers that provides:
 - **Live Preview** - Responsive breakpoints, zoom, fullscreen mode, and a locale switcher for multilingual projects
 - **Visual Editing** - Point-and-click edit mode on the preview with a pinnable editor panel and a Webflow-style element tree (fullscreen)
 - **Mobile App Preview** - Build and mirror Expo / React Native / Flutter apps on the iOS simulator inside the workspace
+- **Container Detection** - Detect the project's Docker containers (Compose / devcontainers) in the workspace sidebar, with start/stop/restart actions
 - **Branch Management** - Create, switch, and manage git branches
 - **Pull Request Creation** - Submit PRs with AI-generated titles and descriptions
 - **Merge Conflict Resolution** - Visual UI for resolving git merge conflicts
@@ -67,6 +68,7 @@ Single-file domains:
 - `claude.rs` - Claude Code binary detection and version checking
 - `code.rs` - Code mode (in-app file browsing/editing)
 - `conflicts.rs` - Merge conflict detection, parsing, and resolution
+- `containers.rs` - Project container detection (Docker): label-based attribution (Compose `working_dir` / devcontainer `local_folder`), engine status, start/stop/restart
 - `edit.rs` - Visual editor backend (mutations, committing edits back to source)
 - `env.rs` - Environment variable management
 - `external_projects.rs` - Registry for projects outside `~/ShipStudio`
@@ -127,6 +129,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `branches.ts` - Branch operations and PR status management
 - `claude.ts` - Claude Code detection and availability checking
 - `conflicts.ts` - Conflict resolution operations
+- `containers.ts` - Project container detection wrappers + row-display helpers (paired with `hooks/useContainers.ts` polling)
 - `edit.ts` / `editControls.ts` / `inspectStore.ts` - Visual editor state and iframe protocol
 - `errors.ts` - TypeScript mirror of `CommandError` + `asCommandError`/`formatCommandError` helpers
 - `external-projects.ts` / `folders.ts` / `pins.ts` - Dashboard organization (external repos, folders, pinned rail)

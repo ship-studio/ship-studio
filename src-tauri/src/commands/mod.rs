@@ -12,6 +12,7 @@ pub mod claude;
 pub mod clipboard;
 pub mod code;
 pub mod conflicts;
+pub mod containers;
 pub mod custom_classes;
 pub mod edit;
 pub mod edit_css;
