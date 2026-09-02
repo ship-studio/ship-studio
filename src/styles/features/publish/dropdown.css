@@ -68,6 +68,17 @@
   width: 100%;
 }
 
+/* The rules below inline the plugins' own toolbar popovers (they ship as
+   `position: absolute` hover menus) into this section's flow. They match the
+   plugins' class names, which have drifted before — `.vercel-dropdown-wrapper`
+   became `.vercel-button-container`. Containing block + stacking context here
+   means the next rename degrades to a misplaced card inside the section rather
+   than one floating over the push status line above it. */
+.publish-hosting-plugins {
+  position: relative;
+  isolation: isolate;
+}
+
 .publish-hosting-plugins .cf-dropdown-wrapper,
 .publish-hosting-plugins .cf-dropdown,
 .publish-hosting-plugins .vercel-button-container,

@@ -2183,13 +2183,22 @@
       "consumerCount": 3
     },
     {
+      "name": "--z-preview-toolbar",
+      "definitionFile": "src/styles/global/tokens-components.css",
+      "layer": "components",
+      "owner": "GlobalOverlay",
+      "status": "canonical",
+      "pluginStable": false,
+      "consumerCount": 1
+    },
+    {
       "name": "--z-workspace-header",
       "definitionFile": "src/styles/global/tokens-components.css",
       "layer": "components",
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 12
+      "consumerCount": 11
     },
     {
       "name": "--z-preview-fullscreen",

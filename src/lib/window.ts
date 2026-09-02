@@ -84,6 +84,52 @@ export function getWindowLabel(): string {
 }
 
 /**
+ * Per-window sessionStorage keys behind the auto-open / HMR-recovery
+ * sentinel.
+ *
+ * `<storageKey>` records "this window currently has project X open"; it is
+ * written when a project opens and is what `useAppSetup`'s HMR-recovery
+ * effect keys on to restore the workspace after a Vite reload. `<dismissedKey>`
+ * records "the user deliberately left the workspace", which suppresses both
+ * the HMR-recovery and the auto-open effects.
+ *
+ * Every path that ends a project's presence in this window (Home button,
+ * close button) must clear the sentinel — otherwise the next `view` change
+ * re-triggers HMR recovery and silently re-opens the project that just went
+ * away.
+ */
+function autoOpenKeys(): { storageKey: string; dismissedKey: string } {
+  const windowLabel = getWindowLabel();
+  return {
+    storageKey: `ship-studio-project-loaded-${windowLabel}`,
+    dismissedKey: `ship-studio-auto-open-dismissed-${windowLabel}`,
+  };
+}
+
+/**
+ * Forget the "a project is open in this window" sentinel.
+ *
+ * @param matchPath - When given, only clears the sentinel if it points at
+ *   this exact project (so closing a background project can't wipe the
+ *   record of the one you're actually looking at). Omit to clear
+ *   unconditionally.
+ */
+export function clearStoredAutoOpenProject(matchPath?: string): void {
+  const { storageKey } = autoOpenKeys();
+  if (matchPath !== undefined && sessionStorage.getItem(storageKey) !== matchPath) return;
+  sessionStorage.removeItem(storageKey);
+}
+
+/**
+ * Record that the user deliberately left the workspace, so neither HMR
+ * recovery nor multi-window auto-open re-opens a project behind their back.
+ */
+export function markAutoOpenDismissed(): void {
+  const { dismissedKey } = autoOpenKeys();
+  sessionStorage.setItem(dismissedKey, 'true');
+}
+
+/**
  * Find and reserve an available port for a project's dev server.
  * Keyed by (windowLabel, projectPath) so multiple projects in the same
  * window can each hold their own port simultaneously.

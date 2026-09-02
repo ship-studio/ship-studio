@@ -64,6 +64,8 @@ import {
   findAndReservePort,
   getProjectWindow,
   focusWindowByLabel,
+  clearStoredAutoOpenProject,
+  markAutoOpenDismissed,
 } from '../lib/window';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '../lib/logger';
@@ -999,11 +1001,8 @@ export function useProjectLifecycle({
 
     // Mark that user explicitly went back to projects - this prevents auto-open from
     // firing again even after HMR reloads (survives page refresh)
-    const windowLabel = getWindowLabel();
-    const storageKey = `ship-studio-project-loaded-${windowLabel}`;
-    const dismissedKey = `ship-studio-auto-open-dismissed-${windowLabel}`;
-    sessionStorage.removeItem(storageKey);
-    sessionStorage.setItem(dismissedKey, 'true');
+    clearStoredAutoOpenProject();
+    markAutoOpenDismissed();
 
     // Bump navigation version so any in-flight handleSelectProject chain
     // sees it's been superseded.

@@ -216,6 +216,13 @@
      but below chrome — a separator that outranks a toolbar's own menus draws
      its line straight through them. */
   --z-pane-separator: 150;
+  /* Preview toolbar. Its own menus are absolutely positioned inside its
+     stacking context, so it has to outrank the pane separators that run the
+     full height of the container. It must stay BELOW the header tier: the
+     titlebar/header is a stacking context of its own, so a menu opened from
+     it can never rise above a later-painted sibling at the same level — at
+     --z-workspace-header the toolbar covered the top of the Push menu. */
+  --z-preview-toolbar: 160;
   /* Header popovers must paint above preview error/status overlays. */
   --z-workspace-header: 200;
   --z-preview-fullscreen: 900;

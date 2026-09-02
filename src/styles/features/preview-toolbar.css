@@ -12,8 +12,11 @@
   /* Chrome tier: the toolbar's own menus are absolutely positioned inside
      this stacking context, so it has to outrank the pane separators that run
      the full height of the container (they used to paint over any menu opened
-     near a docked panel edge). Still below floating panels and modals. */
-  z-index: var(--z-workspace-header);
+     near a docked panel edge). It must stay below --z-workspace-header: the
+     titlebar is its own stacking context, so its dropdowns are capped at the
+     header's level and a toolbar tied with it paints straight over them.
+     Still below floating panels and modals. */
+  z-index: var(--z-preview-toolbar);
   display: flex;
   align-items: center;
   gap: var(--button-gap);

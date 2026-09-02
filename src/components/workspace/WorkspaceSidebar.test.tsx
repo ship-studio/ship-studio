@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ModalProvider } from '../../contexts/ModalContext';
 import { PaletteContextProvider } from '../CommandPalette/paletteContext';
 import { sessionRegistry } from '../../lib/sessionRegistry';
@@ -134,6 +135,119 @@ describe('WorkspaceSidebar project activity indicator', () => {
         container.querySelector('.sidebar-project-status .sidebar-row-dot')
       ).toBeInTheDocument();
       expect(container.querySelector('.sidebar-project-body .ss-pixel-loader')).toBeInTheDocument();
+    });
+  });
+});
+
+/**
+ * The close ("X") button on an ACTIVE-group row. These rows are rendered
+ * straight off the session registry, so destroying the session is what makes
+ * them go away — except for the row of the CURRENT project, which the sidebar
+ * synthesizes from `currentProjectPath` when the registry has no entry (the
+ * initial-open gap). That synthesis is why closing the current project must
+ * also leave the workspace in the same tick; see `handleCloseProject`.
+ */
+describe('WorkspaceSidebar project close button', () => {
+  const ACTIVE_PATH = '/tmp/active-project';
+  const OTHER_PATH = '/tmp/other-project';
+
+  function activeSidebarProps(): ComponentProps<typeof WorkspaceSidebar> {
+    return {
+      ...sidebarProps(),
+      // Nothing pinned: the row can only come from the session registry.
+      projects: [],
+      currentProjectPath: null,
+      currentProjectName: null,
+      terminalTabs: [],
+    };
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    mockInvokeResponse('list_accounts', []);
+    mockInvokeResponse('get_project_account_id', null);
+    mockInvokeResponse('get_active_account_id', 'default');
+    sessionRegistry._resetForTests();
+    sessionRegistry.getOrCreate(ACTIVE_PATH);
+    sessionRegistry.getOrCreate(OTHER_PATH);
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    sessionRegistry._resetForTests();
+  });
+
+  it('removes a background project row and never re-registers it on the next mirror sync', async () => {
+    const user = userEvent.setup();
+    const onCloseProject = vi.fn((path: string) => {
+      // What App.tsx's handleCloseProject does synchronously.
+      sessionRegistry.destroy(path);
+    });
+
+    render(<WorkspaceSidebar {...activeSidebarProps()} onCloseProject={onCloseProject} />, {
+      wrapper: Providers,
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'Close active-project' }));
+    expect(onCloseProject).toHaveBeenCalledWith(ACTIVE_PATH);
+
+    // Source of truth first…
+    expect(sessionRegistry.snapshot(ACTIVE_PATH)).toBeUndefined();
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Close active-project' })).toBeNull();
+    });
+
+    // …then the mirror sync App.tsx runs whenever terminal state changes. It
+    // iterates the surviving sessions only; a closed project must not be
+    // resurrected by it (`setTerminalTabs` auto-creates missing entries).
+    act(() => {
+      for (const path of [OTHER_PATH]) {
+        sessionRegistry.setTerminalTabs(
+          path,
+          [{ id: 1, agentId: 'claude-code', sessionId: 's' }],
+          0
+        );
+      }
+    });
+    expect(sessionRegistry.snapshot(ACTIVE_PATH)).toBeUndefined();
+    expect(screen.queryByRole('button', { name: 'Close active-project' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Close other-project' })).toBeInTheDocument();
+  });
+
+  it('keeps synthesizing the current project row until the workspace is left', async () => {
+    const user = userEvent.setup();
+    const onCloseProject = vi.fn((path: string) => sessionRegistry.destroy(path));
+
+    const { rerender } = render(
+      <WorkspaceSidebar
+        {...activeSidebarProps()}
+        currentProjectPath={ACTIVE_PATH}
+        currentProjectName="active-project"
+        onCloseProject={onCloseProject}
+      />,
+      { wrapper: Providers }
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Close active-project' }));
+    expect(onCloseProject).toHaveBeenCalledWith(ACTIVE_PATH);
+    expect(sessionRegistry.snapshot(ACTIVE_PATH)).toBeUndefined();
+
+    // Destroying the session is NOT enough on its own — the row is re-derived
+    // from `currentProjectPath`. This is the flicker users reported.
+    expect(screen.getByRole('button', { name: 'Close active-project' })).toBeInTheDocument();
+
+    // handleCloseProject clears the current project in the same tick, which
+    // is what actually retires the row.
+    rerender(
+      <WorkspaceSidebar
+        {...activeSidebarProps()}
+        currentProjectPath={null}
+        currentProjectName={null}
+        onCloseProject={onCloseProject}
+      />
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Close active-project' })).toBeNull();
     });
   });
 });
