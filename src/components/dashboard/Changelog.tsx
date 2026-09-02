@@ -26,6 +26,18 @@ interface ChangelogEntry {
 // Keep ~15 most recent versions for the sidebar
 const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.0.0', // v1.0.0
+    items: [
+      'Ship Studio 1.0 — out of beta. A ground-up visual redesign by Martin Crandon: the Geist typeface, deeper dark surfaces, machined controls with crisp 1px depth, and a four-layer design-token system underneath it all',
+      'Edit CSS variables visually: click any design token in the visual editor, change it with a live preview, and delete safely — Ship Studio shows every place the variable is used and inlines values so nothing breaks',
+      'Make it yours: choose a brand, dark, or light Dock icon, and try the opt-in compact toolbar that collapses the workspace header into a single row',
+      'A rebuilt workspace shell: aligned titlebar and window controls, dockable panels, an element tree, and one consistent row rhythm across the sidebar, rail, and toolbars',
+      'Dozens of fit-and-finish fixes from launch QA — UI text is no longer selectable like content, folders and calendars render pixel-perfect, sliders and dropdowns are fully styled, and resize handles layer and snap correctly',
+      'Closing a project now truly closes it: background agent processes are stopped instead of quietly living on',
+      "Includes everything from v0.18.7's 118-issue reliability sweep",
+    ],
+  },
+  {
     version: '0.18.7', // v0.18.7
     items: [
       'Visual editor: elements without a class attribute can now be inserted, duplicated, and deleted; JSX props like onClick={() => …} no longer break element mapping (a long-standing cause of failed edits); and class/style edits now survive a file being reformatted mid-edit, just like text edits already did',

@@ -6,6 +6,17 @@ The latest entry is rendered inside the in-app update dialog, so write user-
 facing language — what changed, in plain English — not commit subjects.
 -->
 
+## What's New in v1.0.0
+
+- Ship Studio 1.0 — out of beta. A ground-up visual redesign by Martin Crandon: new Geist typeface, deeper dark surfaces, machined controls, and a four-layer design-token system
+- New: edit CSS variables visually — click any design token in the visual editor, change it live, and delete safely with impact analysis
+- New: pick your Dock icon (brand, dark, or light) and an opt-in compact single-row toolbar
+- The workspace was rebuilt: cleaner titlebar with properly aligned window controls, decomposed panes, dockable panels, and a consistent 46px rhythm everywhere
+- Dozens of fit-and-finish fixes from launch QA: no more selectable UI chrome, no clipped calendars or double borders, sliders and dropdowns styled properly, resize handles layer correctly
+- Closing a project now truly closes it — background agent processes are stopped, not orphaned
+- Everything from v0.18.7's 118-issue sweep is included
+- Thanks to Martin Crandon for the redesign this release is built on
+
 ## What's New in v0.18.7
 
 - **Visual editor breakthroughs** - Elements without a class can finally be inserted/duplicated/deleted, JSX arrow-function props no longer break element mapping, and class/style edits survive mid-edit file changes
