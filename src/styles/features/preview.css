@@ -782,7 +782,7 @@
 
 .preview-logs-header {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   justify-content: space-between;
   gap: var(--spacing-sm);
   /* Same band height and inline gutter as the preview toolbar above the
@@ -791,6 +791,7 @@
   height: var(--preview-toolbar-h);
   padding-inline: var(--spacing-md);
   background: var(--surface-panel);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
@@ -799,6 +800,15 @@
    from the Tabs primitive (`variant="stretch" appearance="underline"`). */
 .preview-logs-tabs {
   min-width: 0;
+  /* Fill the header band so the underline indicator lands on the band's
+     bottom edge instead of floating mid-band (the primitive defaults to
+     fit-content height). */
+  align-self: stretch;
+  height: auto;
+}
+
+.preview-logs-tabs .tabs__tab.button {
+  height: 100%;
 }
 
 .preview-logs-tab {
@@ -820,6 +830,8 @@
   display: grid;
   grid-template-rows: 1fr;
   grid-template-columns: 1fr;
+  /* Any slack renders as the log surface, never a panel-colored void. */
+  background: var(--surface-recessed);
 }
 
 /* Hide via opacity (not visibility): the BrowserTools slot has its
@@ -897,6 +909,10 @@
   flex: 1;
   min-height: 0;
   background: var(--surface-recessed);
+  /* Same inline gutter as the hint bar above — log text must not touch the
+     panel edges. */
+  padding-inline: var(--spacing-md);
+  padding-block: var(--space-08);
 }
 
 /* Crop selection overlay */

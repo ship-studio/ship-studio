@@ -1132,6 +1132,12 @@
     },
     {
       "path": "src/styles/features/preview.css",
+      "token": "--space-08",
+      "count": 1,
+      "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."
+    },
+    {
+      "path": "src/styles/features/preview.css",
       "token": "--space-32",
       "count": 2,
       "reason": "Transitional primitive consumer; replace with an owner-appropriate semantic or component role."

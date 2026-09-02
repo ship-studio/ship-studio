@@ -3206,7 +3206,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 51
+      "consumerCount": 52
     },
     {
       "name": "--space-09",
@@ -3719,7 +3719,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 11
+      "consumerCount": 12
     },
     {
       "name": "--surface-terminal-input",
@@ -3836,7 +3836,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 38
+      "consumerCount": 39
     },
     {
       "name": "--border-strong",
@@ -3863,7 +3863,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 29
+      "consumerCount": 30
     },
     {
       "name": "--accent-active",
@@ -4466,7 +4466,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 220
+      "consumerCount": 221
     },
     {
       "name": "--spacing-lg",
