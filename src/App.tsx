@@ -49,12 +49,7 @@ import { Project, setTerminalState } from './lib/project';
 import { markSetupComplete, getDefaultAgentId as fetchDefaultAgentId } from './lib/setup';
 import { initDefaultAgent } from './lib/agent';
 import { sessionRegistry } from './lib/sessionRegistry';
-import { closeProjectSession } from './lib/projectSessions';
-import {
-  clearStoredAutoOpenProject,
-  markAutoOpenDismissed,
-  releaseReservedPort,
-} from './lib/window';
+import { useCloseProject } from './hooks/useCloseProject';
 import { MonorepoPickerModal } from './components/dashboard/MonorepoPickerModal';
 import { ThumbnailConsentModal } from './components/preview/ThumbnailConsentModal';
 import { QuitConfirmModal } from './components/QuitConfirmModal';
@@ -77,9 +72,8 @@ import { TooltipProvider } from './components/primitives/Tooltip';
 import { DevDesignSystemTools } from './components/design-system/DevDesignSystemTools';
 import { logger } from './lib/logger';
 import { asCommandError, formatCommandError } from './lib/errors';
-import { trackEvent, setActiveProject, trackPageview } from './lib/analytics';
+import { trackEvent, trackPageview } from './lib/analytics';
 import { useCompactWorkspaceToolbar } from './hooks/useCompactWorkspaceToolbar';
-import { endProjectSession } from './lib/session';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
 import type { AppView } from './lib/types';
 import './styles/index.css';
@@ -550,85 +544,17 @@ function AppContents({ initialProjectPath }: AppProps) {
     showToast,
   });
 
-  // Close an active session from the sidebar: stop its dev server, tear
-  // down the registry entry + backend session, and route home if it was
-  // the current project. This is the only path (besides app quit) that
-  // reaps a hot project.
-  const handleCloseProject = useCallback(
-    (projectPath: string) => {
-      const wasCurrent = currentProject?.path === projectPath;
-      logger.info('[CloseProject] Closing', { projectPath, wasCurrent });
-
-      // ─── SYNCHRONOUS: everything the UI's source of truth depends on ───
-      // This block runs before any await so a single click always removes
-      // the row. Doing it after `await stopServer(...)` (as we used to) made
-      // the close hostage to a slow or wedged backend call.
-      closeAllTerminalsForProject(projectPath);
-      sessionRegistry.destroy(projectPath);
-      // The sidebar synthesizes a row for `currentProjectPath` when the
-      // registry has no entry for it (the initial-open gap), so the current
-      // project's row survives `destroy` until we actually leave the
-      // workspace — hence the navigation below happens in the same tick.
-      //
-      // And the window's "a project is open here" sentinel must die with the
-      // session: left behind, useAppSetup's HMR-recovery effect re-runs on
-      // the very view change we're about to make, still finds a reserved
-      // port for this project, and re-opens the workspace we just closed.
-      // That is what made the close look like a flicker with the row intact.
-      clearStoredAutoOpenProject(projectPath);
-      if (wasCurrent) {
-        markAutoOpenDismissed();
-        // Closing the current project ends its analytics session. Switching
-        // away to projects view also clears active project context so any
-        // home-screen events that follow aren't tagged with stale project_id.
-        const ended = endProjectSession();
-        if (ended) {
-          void trackEvent('project_session_ended', {
-            project_session_id: ended.session_id,
-            duration_seconds: ended.duration_seconds,
-            reason: 'project_closed',
-          });
-        }
-        setActiveProject(null);
-        setCurrentProject(null);
-        currentProjectPathRef.current = null;
-        setView('projects');
-        // The view-change effect above fires the Dashboard pageview.
-      }
-
-      // ─── ASYNC: stop the processes the session owned ───
-      void (async () => {
-        try {
-          await stopServer(projectPath);
-        } catch (err) {
-          logger.warn('[CloseProject] stopServer threw', {
-            error: formatCommandError(asCommandError(err)),
-          });
-        }
-        try {
-          // Kills any PTY the ref-based teardown above couldn't reach (a
-          // background project renders no Terminal components), then drops
-          // the backend session entry.
-          await closeProjectSession(projectPath);
-        } catch (err) {
-          logger.warn('[CloseProject] closeProjectSession failed', {
-            error: formatCommandError(asCommandError(err)),
-          });
-        }
-        try {
-          // Give the port back. Besides being correct once the dev server is
-          // gone, a lingering reservation is exactly what HMR recovery reads
-          // as "this project is still open in this window".
-          await releaseReservedPort(projectPath);
-        } catch (err) {
-          logger.warn('[CloseProject] releaseReservedPort failed', {
-            error: formatCommandError(asCommandError(err)),
-          });
-        }
-      })();
-    },
-    [stopServer, closeAllTerminalsForProject, currentProject, setView]
-  );
+  // Close an active session from the sidebar (dashboard, collapsed rail, or
+  // workspace). Ordering and the auto-open sentinel are load-bearing — see
+  // hooks/useCloseProject.
+  const handleCloseProject = useCloseProject({
+    currentProjectPath: currentProject?.path ?? null,
+    currentProjectPathRef,
+    stopServer,
+    closeAllTerminalsForProject,
+    setCurrentProject,
+    setView,
+  });
 
   // Switch to another project AND focus a specific tab within it. Writes the
   // desired active tab index to backend first so the restore flow on open
