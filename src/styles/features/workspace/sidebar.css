@@ -1192,6 +1192,15 @@
   z-index: var(--z-dropdown);
 }
 
+/* The workspace-switch button sits outside the actions row but under the same
+ * scroll-fade overlay (whose bottom bleed otherwise paints over the button's
+ * top border, making it look clipped) — lift it the same way as the actions. */
+.workspace-sidebar-footer > .workspace-sidebar-ws-switch {
+  position: relative;
+  z-index: var(--z-dropdown);
+  margin-top: var(--button-gap);
+}
+
 /* Keep the fade attached to the fixed action group so it stays at the bottom
  * while the sidebar content scrolls behind it. The gradient reaches full
  * opacity exactly at the scroll area's clip line (fade height minus the 8px

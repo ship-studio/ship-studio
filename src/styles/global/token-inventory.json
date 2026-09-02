@@ -1442,7 +1442,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 41
+      "consumerCount": 42
     },
     {
       "name": "--button-radius",
@@ -2171,7 +2171,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 34
+      "consumerCount": 35
     },
     {
       "name": "--z-pane-separator",
