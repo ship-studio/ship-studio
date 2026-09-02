@@ -159,6 +159,12 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Rows must always stack vertically. Stated explicitly because an
+     ancestor recipe once leaked a horizontal flex context in the redesign,
+     rendering console entries side-by-side as letter-wide columns. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   /* Reserve the scrollbar gutter so the Console doesn't get 15px
      wider than Network/Elements (or itself when empty) — otherwise
      content reflows horizontally on tab switch. */
