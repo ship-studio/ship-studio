@@ -610,6 +610,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       }
     }
     return families;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- registryVersion/familiesVersion are change counters that force re-derivation from the mutable sessionRegistry; they aren't read in the body by design
   }, [registryVersion, familiesVersion]);
 
   // Edge case: current project isn't in pinned or active (e.g. the session
