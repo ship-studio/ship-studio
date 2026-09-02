@@ -10,9 +10,13 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
 import { check, Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { logger } from './logger';
+
+/** Injected by Vite/Vitest from package.json; absent in bare test runners. */
+declare const __APP_VERSION__: string | undefined;
 
 /** Information about an available update */
 export interface UpdateInfo {
@@ -69,6 +73,109 @@ export function isPlatformMissingFromManifest(message: string): boolean {
   return /platform .* was not found on the response/i.test(message);
 }
 
+interface ParsedVersion {
+  release: number[];
+  prerelease: string[];
+}
+
+/** Parse a `v?1.2.3(-pre)(+build)` string. Returns null when it isn't one. */
+function parseVersion(value: string): ParsedVersion | null {
+  const trimmed = value.trim().replace(/^v/i, '');
+  const match = /^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(trimmed);
+  if (!match) return null;
+  return {
+    release: match[1].split('.').map((part) => Number(part)),
+    prerelease: match[2] ? match[2].split('.') : [],
+  };
+}
+
+function comparePrerelease(left: string[], right: string[]): number {
+  // Semver precedence: a release outranks any prerelease of the same numbers.
+  if (left.length === 0 && right.length === 0) return 0;
+  if (left.length === 0) return 1;
+  if (right.length === 0) return -1;
+
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (a === undefined) return -1;
+    if (b === undefined) return 1;
+    const aNumeric = /^\d+$/.test(a);
+    const bNumeric = /^\d+$/.test(b);
+    if (aNumeric && bNumeric) {
+      const diff = Number(a) - Number(b);
+      if (diff !== 0) return diff < 0 ? -1 : 1;
+      continue;
+    }
+    if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+    if (a !== b) return a < b ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * Compare two version strings. Returns -1/0/1, or null when either side isn't
+ * a version we can reason about (never guess — see "Never Assume Data").
+ */
+export function compareVersions(a: string, b: string): number | null {
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  if (!left || !right) return null;
+
+  const length = Math.max(left.release.length, right.release.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (left.release[index] ?? 0) - (right.release[index] ?? 0);
+    if (diff !== 0) return diff < 0 ? -1 : 1;
+  }
+  return comparePrerelease(left.prerelease, right.prerelease);
+}
+
+/**
+ * True when `candidate` is strictly newer than `current`. An uncomparable pair
+ * counts as newer: swallowing a real update is worse than one odd banner.
+ */
+export function isNewerVersion(candidate: string, current: string): boolean {
+  const result = compareVersions(candidate, current);
+  if (result === null) return true;
+  return result > 0;
+}
+
+/**
+ * The version actually running, as the highest of the two sources that can
+ * disagree:
+ *
+ * - `getVersion()` — the compiled binary's `tauri.conf.json` version. In
+ *   `tauri dev` this is whatever the last `cargo` build baked in, so it goes
+ *   stale the moment the version is bumped without a Rust rebuild.
+ * - `__APP_VERSION__` — package.json at bundle time. The Vite dev server
+ *   re-reads it, so it is the fresher of the two in development.
+ *
+ * Taking the max means a stale dev binary can't make the just-released version
+ * look like an available update.
+ */
+export async function getRunningAppVersion(): Promise<string | null> {
+  const candidates: string[] = [];
+
+  if (typeof __APP_VERSION__ === 'string' && __APP_VERSION__) {
+    candidates.push(__APP_VERSION__);
+  }
+
+  try {
+    const binaryVersion = await getVersion();
+    if (binaryVersion) candidates.push(binaryVersion);
+  } catch (error) {
+    logger.warn('[Updater] Could not read the running app version', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  if (candidates.length === 0) return null;
+  return candidates.reduce((highest, candidate) =>
+    (compareVersions(candidate, highest) ?? 0) > 0 ? candidate : highest
+  );
+}
+
 /**
  * Check if an update is available.
  * @returns Update object if available, null otherwise
@@ -92,6 +199,19 @@ export async function checkForUpdate(): Promise<{ update: UpdateHandle; info: Up
   try {
     const update = await check();
     if (update) {
+      // Never offer an update to the version already running (or an older
+      // one). The plugin compares against the compiled binary's version, which
+      // in `tauri dev` can lag behind a freshly bumped package.json and turn
+      // the current release into a phantom "update available".
+      const currentVersion = await getRunningAppVersion();
+      if (currentVersion && !isNewerVersion(update.version, currentVersion)) {
+        logger.info('[Updater] Offered version is not newer than the running app; ignoring', {
+          offeredVersion: update.version,
+          currentVersion,
+        });
+        return null;
+      }
+
       return {
         update,
         info: {

@@ -2,6 +2,12 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import svgr from "vite-plugin-svgr";
 import path from "path";
+import { readFileSync } from "fs";
+
+// Mirror vite.config.ts so code reading __APP_VERSION__ behaves under test.
+const pkg = JSON.parse(
+  readFileSync(path.resolve(__dirname, "package.json"), "utf-8")
+) as { version: string };
 
 export default defineConfig({
   plugins: [
@@ -30,6 +36,9 @@ export default defineConfig({
     }),
     react(),
   ],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   test: {
     environment: "jsdom",
     globals: true,

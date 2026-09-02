@@ -37,12 +37,21 @@ export interface ReleaseNote {
 }
 
 function cleanInlineMarkdown(value: string): string {
-  return value
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .trim();
+  return (
+    value
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      // Unbalanced leftovers (a bold marker split across lines, a stray
+      // backtick) must never reach the UI verbatim.
+      .replace(/\*\*/g, '')
+      .replace(/`/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
 }
 
 /** Parse only the available version's bullets from the updater's Markdown body. */
@@ -54,15 +63,21 @@ export function parseReleaseNotes(body: string | undefined, version: string): Re
   const matchingHeadingIndex = lines.findIndex((line) => versionHeading.test(line.trim()));
   const start = matchingHeadingIndex >= 0 ? matchingHeadingIndex + 1 : 0;
   const notes: ReleaseNote[] = [];
+  // Some releases ship prose instead of bullets. Without this, every such line
+  // was dropped and the modal claimed there was nothing to say.
+  const hasBullets = lines.slice(start).some((line) => /^(?:[-*+]|•)\s+/.test(line.trim()));
+
+  let previousLineWasBlank = true;
 
   for (let index = start; index < lines.length; index += 1) {
     const line = lines[index].trim();
     if (/^#{1,6}\s+/.test(line)) {
       if (notes.length > 0 || matchingHeadingIndex >= 0) break;
+      previousLineWasBlank = true;
       continue;
     }
 
-    const bullet = line.match(/^(?:[-*]|•)\s+(.+)$/);
+    const bullet = line.match(/^(?:[-*+]|•)\s+(.+)$/);
     if (bullet) {
       const content = bullet[1].trim();
       const emphasized = content.match(/^\*\*(.+?)\*\*\s*(?:[-–—:]\s*)?(.*)$/);
@@ -78,13 +93,32 @@ export function parseReleaseNotes(body: string | undefined, version: string): Re
           detail: separated ? cleanInlineMarkdown(separated[2]) : undefined,
         });
       }
+      previousLineWasBlank = false;
       continue;
     }
 
-    if (line && notes.length > 0) {
+    if (!line) {
+      previousLineWasBlank = true;
+      continue;
+    }
+
+    // A wrapped continuation line belongs to the note above it. In a
+    // bullet-less body a blank line starts a new note instead.
+    if (notes.length > 0 && (hasBullets || !previousLineWasBlank)) {
       const current = notes[notes.length - 1];
       current.detail = cleanInlineMarkdown([current.detail, line].filter(Boolean).join(' '));
+      previousLineWasBlank = false;
+      continue;
     }
+
+    if (!hasBullets) {
+      const separated = line.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+      notes.push({
+        title: cleanInlineMarkdown(separated?.[1] ?? line),
+        detail: separated ? cleanInlineMarkdown(separated[2]) : undefined,
+      });
+    }
+    previousLineWasBlank = false;
   }
 
   return notes;

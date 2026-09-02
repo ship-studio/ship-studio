@@ -40,6 +40,72 @@ describe('UpdateBanner', () => {
     ]);
   });
 
+  it('strips markdown from the published manifest body (bullet-dot notes, no heading)', () => {
+    // Verbatim shape of latest.json's `notes`: a leading blank line, "•"
+    // bullets, bold titles and backticked paths — no version heading at all.
+    const body =
+      '\n• **Visual editor breakthroughs** - Elements without a class can finally be inserted\n' +
+      '• **Pages Router discovery** - Next.js projects with routes in `pages/` now show their pages\n';
+
+    const notes = parseReleaseNotes(body, '0.18.7');
+
+    expect(notes).toEqual([
+      {
+        title: 'Visual editor breakthroughs',
+        detail: 'Elements without a class can finally be inserted',
+      },
+      {
+        title: 'Pages Router discovery',
+        detail: 'Next.js projects with routes in pages/ now show their pages',
+      },
+    ]);
+    const rendered = notes.map((note) => `${note.title} ${note.detail ?? ''}`).join(' ');
+    expect(rendered).not.toContain('**');
+    expect(rendered).not.toContain('`');
+  });
+
+  it('keeps prose release notes instead of dropping them, markdown stripped', () => {
+    const body = `## What's New in v0.19.0
+
+**Visual editor breakthroughs** — elements without a class can be inserted.
+
+A second paragraph mentioning \`pages/\` and a [link](https://example.com).`;
+
+    const notes = parseReleaseNotes(body, '0.19.0');
+
+    expect(notes).toEqual([
+      {
+        title: 'Visual editor breakthroughs',
+        detail: 'elements without a class can be inserted.',
+      },
+      { title: 'A second paragraph mentioning pages/ and a link.', detail: undefined },
+    ]);
+  });
+
+  it('never renders raw bold markers in the modal', async () => {
+    vi.mocked(checkForUpdate).mockResolvedValue({
+      update: {} as Update,
+      info: {
+        version: '0.18.7',
+        date: undefined,
+        body: '\n• **Visual editor breakthroughs** - Elements without a class can be inserted\n',
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<UpdateBanner />);
+
+    await user.click(
+      await screen.findByRole('button', { name: "View what's new in version 0.18.7" })
+    );
+
+    const dialog = screen.getByRole('dialog', { name: "What's New in v0.18.7" });
+    expect(
+      within(dialog).getByRole('heading', { name: 'Visual editor breakthroughs' })
+    ).toBeVisible();
+    expect(dialog.textContent).not.toContain('**');
+  });
+
   it('opens the release-specific modal from the sidebar indicator', async () => {
     vi.mocked(checkForUpdate).mockResolvedValue({
       update: {} as Update,
