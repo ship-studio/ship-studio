@@ -161,7 +161,16 @@
   scrollbar-width: none;
   display: flex;
   align-items: center;
-  justify-content: center;
+  /* `safe center` keeps the left edge reachable when the calendar overflows;
+     plain `center` clips both edges of centered overflow. */
+  justify-content: safe center;
+}
+
+/* The calendar renders as an inline SVG: without display:block it sits on the
+   text baseline, and the phantom descender space pushes the bottom row past
+   the wrapper's clip by a couple of pixels. */
+.github-calendar-wrapper svg {
+  display: block;
 }
 
 .github-calendar-hide-btn {
