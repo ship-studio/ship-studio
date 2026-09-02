@@ -3827,7 +3827,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 421
+      "consumerCount": 422
     },
     {
       "name": "--border-subtle",
