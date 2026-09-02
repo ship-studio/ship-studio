@@ -381,7 +381,9 @@
   justify-content: space-between;
   gap: var(--space-06);
   width: 100%;
-  height: var(--control-height-standard);
+  /* Same height as project rows (and the toolbar) so the sidebar reads as
+     one consistent rhythm — the shorter control-height looked out of place. */
+  height: var(--size-sidebar-project-row);
   padding: 0 var(--space-16) 0 var(--space-06);
   background: transparent;
   border: none;

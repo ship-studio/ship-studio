@@ -16,12 +16,16 @@ use tauri::{LogicalPosition, LogicalSize, Window};
 #[cfg(target_os = "macos")]
 const TRAFFIC_LIGHT_LEADING_INSET: f64 = 20.0;
 
-/// Height of the system titlebar AppKit vertically centres the buttons in.
-/// The top inset is derived from it and the button's measured height rather
-/// than hard-coded, so we never assume how tall the controls are on a given
-/// macOS version.
+/// Height of Ship Studio's custom titlebar (the 46pt bar the sidebar-toggle
+/// and Home buttons are centred in). The traffic lights are centred in the
+/// same box so the whole row reads as one aligned strip — and because the
+/// constraints hold in release builds too (they retry until AppKit builds the
+/// titlebar), prod gets this placement rather than AppKit's higher default.
+/// The top inset is derived from the button's measured height rather than
+/// hard-coded, so we never assume how tall the controls are on a given macOS
+/// version.
 #[cfg(target_os = "macos")]
-const SYSTEM_TITLEBAR_HEIGHT: f64 = 28.0;
+const CUSTOM_TITLEBAR_HEIGHT: f64 = 46.0;
 
 /// How long to keep waiting for AppKit to build the titlebar before giving up.
 #[cfg(target_os = "macos")]
@@ -97,9 +101,9 @@ unsafe fn constrain_macos_traffic_lights(ns_window: *mut objc2::runtime::AnyObje
     let miniaturize_frame: CGRect = msg_send![miniaturize_button, frame];
     let button_spacing = miniaturize_frame.origin.x - close_frame.origin.x;
     // Measured, not assumed: whatever height the controls have on this macOS
-    // version, centring them in the system titlebar reproduces the placement
-    // an unmodified window would get.
-    let top_inset = ((SYSTEM_TITLEBAR_HEIGHT - close_frame.size.height) / 2.0).max(0.0);
+    // version, centring them in the app's 46pt titlebar keeps them on the
+    // same axis as the titlebar buttons beside them.
+    let top_inset = ((CUSTOM_TITLEBAR_HEIGHT - close_frame.size.height) / 2.0).max(0.0);
 
     let titlebar_view: *mut objc2::runtime::AnyObject = msg_send![close_button, superview];
     if titlebar_view.is_null() {
