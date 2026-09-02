@@ -3206,7 +3206,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 50
+      "consumerCount": 51
     },
     {
       "name": "--space-09",
@@ -3269,7 +3269,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 81
+      "consumerCount": 82
     },
     {
       "name": "--stroke-2",

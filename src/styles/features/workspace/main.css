@@ -12,9 +12,14 @@
   align-items: center;
   gap: 0;
   height: calc(var(--control-height-standard) + (var(--space-08) * 2));
-  /* Clear the macOS traffic lights while matching the Home navigation row. */
+  /* Clear the macOS traffic lights while matching the Home navigation row —
+     plus a breath of extra space so the first button's hover pill doesn't
+     graze the green light. */
   padding: 0 var(--spacing-lg) 0
-    calc(var(--spacing-2xl) + var(--spacing-2xl) + var(--spacing-md) + var(--button-gap));
+    calc(
+      var(--spacing-2xl) + var(--spacing-2xl) + var(--spacing-md) + var(--button-gap) +
+        var(--space-08)
+    );
   background: var(--surface-panel);
   border-bottom: 1px solid var(--border-default);
   -webkit-user-select: none;

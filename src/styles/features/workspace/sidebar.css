@@ -382,8 +382,9 @@
   gap: var(--space-06);
   width: 100%;
   /* Same height as project rows (and the toolbar) so the sidebar reads as
-     one consistent rhythm — the shorter control-height looked out of place. */
-  height: var(--size-sidebar-project-row);
+     one consistent rhythm — the shorter control-height looked out of place.
+     +1px compensates for the bottom hairline the project rows don't carry. */
+  height: calc(var(--size-sidebar-project-row) + var(--stroke-1));
   padding: 0 var(--space-16) 0 var(--space-06);
   background: transparent;
   border: none;
