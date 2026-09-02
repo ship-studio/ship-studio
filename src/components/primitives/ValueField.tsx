@@ -301,6 +301,10 @@ export function ValueField({
     ...(availableVariables.length > 0 || variableValue ? [VARIABLE_OPTION] : []),
     ...keywords,
   ];
+  // A field whose only option is the empty "no unit" entry has nothing to
+  // pick: rendering its trigger just parks a stray "-" beside the number
+  // (the Opacity row read "100 -").
+  const hasSelectableOptions = options.some((option) => option.value !== '');
   const isFormatField = variant === 'color';
   const initial = splitValueFieldValue(value, options);
   const placeholderValue =
@@ -698,55 +702,57 @@ export function ValueField({
           }
         }}
       />
-      <button
-        ref={triggerRef}
-        type="button"
-        className="value-field__unit"
-        aria-label={`${ariaLabel ?? 'Value'} format`}
-        aria-haspopup="listbox"
-        aria-controls={listId}
-        aria-expanded={open}
-        onPointerDown={(event) => {
-          // Toggle on pointerdown so the opening gesture is complete before the
-          // outside-dismiss listener can be attached. Keep focus in the input;
-          // moving focus to this segment can make WebKit commit the value and
-          // refresh the editor before the menu opens.
-          event.preventDefault();
-          event.stopPropagation();
-          pointerToggleRef.current = true;
-          keyboardToggleRef.current = false;
-          setVariableOpen(false);
-          setOpen((current) => !current);
-        }}
-        onClick={(event) => {
-          event.stopPropagation();
-          // Pointerdown already toggles the menu. Ignore its later click even
-          // when the browser reports a zero click detail or dispatches it late.
-          if (pointerToggleRef.current) {
-            pointerToggleRef.current = false;
-            return;
-          }
-          // Enter/Space opens from onKeyDown; ignore that keyboard-generated
-          // click so keyboard activation does not toggle twice.
-          if (keyboardToggleRef.current) {
+      {hasSelectableOptions && (
+        <button
+          ref={triggerRef}
+          type="button"
+          className="value-field__unit"
+          aria-label={`${ariaLabel ?? 'Value'} format`}
+          aria-haspopup="listbox"
+          aria-controls={listId}
+          aria-expanded={open}
+          onPointerDown={(event) => {
+            // Toggle on pointerdown so the opening gesture is complete before the
+            // outside-dismiss listener can be attached. Keep focus in the input;
+            // moving focus to this segment can make WebKit commit the value and
+            // refresh the editor before the menu opens.
+            event.preventDefault();
+            event.stopPropagation();
+            pointerToggleRef.current = true;
             keyboardToggleRef.current = false;
-            return;
-          }
-          setActiveIndex(selectedIndex);
-          setVariableOpen(false);
-          setOpen((current) => !current);
-        }}
-        onKeyDown={(event) => {
-          if (open || !['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) return;
-          event.preventDefault();
-          keyboardToggleRef.current = true;
-          setActiveIndex(selectedIndex);
-          setVariableOpen(false);
-          setOpen(true);
-        }}
-      >
-        {selectedLabel ?? '-'}
-      </button>
+            setVariableOpen(false);
+            setOpen((current) => !current);
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            // Pointerdown already toggles the menu. Ignore its later click even
+            // when the browser reports a zero click detail or dispatches it late.
+            if (pointerToggleRef.current) {
+              pointerToggleRef.current = false;
+              return;
+            }
+            // Enter/Space opens from onKeyDown; ignore that keyboard-generated
+            // click so keyboard activation does not toggle twice.
+            if (keyboardToggleRef.current) {
+              keyboardToggleRef.current = false;
+              return;
+            }
+            setActiveIndex(selectedIndex);
+            setVariableOpen(false);
+            setOpen((current) => !current);
+          }}
+          onKeyDown={(event) => {
+            if (open || !['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) return;
+            event.preventDefault();
+            keyboardToggleRef.current = true;
+            setActiveIndex(selectedIndex);
+            setVariableOpen(false);
+            setOpen(true);
+          }}
+        >
+          {selectedLabel ?? '-'}
+        </button>
+      )}
       {open &&
         menuRect &&
         createPortal(

@@ -136,3 +136,56 @@ test('restricted primitive consumers are bounded by the migration baseline', () 
     []
   );
 });
+
+test('a plugin-stable token missing from every layer is reported', () => {
+  const contractManifest = {
+    ...manifest,
+    pluginStableApi: {
+      prefixes: ['--bg-', '--text-'],
+      tokens: ['--accent', '--font-size-12'],
+    },
+  };
+  const diagnostics = validateTokenTaxonomy({
+    manifest: contractManifest,
+    indexSource,
+    definitions,
+    references: [],
+    root,
+  });
+  const missing = diagnostics.filter((diagnostic) => diagnostic.code === 'plugin-stable-missing');
+  assert.equal(missing.length, 1);
+  assert.match(missing[0].message, /^--accent /);
+});
+
+test('a fully defined plugin-stable contract passes', () => {
+  const contractManifest = {
+    ...manifest,
+    pluginStableApi: {
+      prefixes: ['--bg-', '--text-'],
+      tokens: ['--font-size-12', '--font-size-body-md'],
+    },
+  };
+  assert.deepEqual(
+    validateTokenTaxonomy({
+      manifest: contractManifest,
+      indexSource,
+      definitions,
+      references: [],
+      root,
+    }),
+    []
+  );
+});
+
+test('the shipped manifest declares the documented plugin-stable API', async () => {
+  const { default: shippedManifest } = await import(
+    '../src/styles/global/token-manifest.json',
+    { with: { type: 'json' } }
+  );
+  for (const name of ['--accent', '--action', '--border', '--error', '--success', '--warning']) {
+    assert.ok(
+      shippedManifest.pluginStableApi.tokens.includes(name),
+      name + ' must stay in the plugin-stable contract'
+    );
+  }
+});

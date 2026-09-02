@@ -300,7 +300,9 @@ These classes are defined in `src/styles/global/base.css` and are part of Ship S
 | `toolbar-icon-btn` | `base.css` | Legacy plugin-facing toolbar class. Internal React code uses `IconButton`; keep this class only for plugin compatibility. |
 | `button` + `button--*` | `base.css` | Plugin-facing CSS for the semantic action family. Internal React code uses the primitives below rather than applying these classes directly. |
 
-CSS variables (`--surface-app`, `--surface-panel`, `--surface-control`, `--text-primary`, `--text-secondary`, `--text-muted`, `--border`, `--accent`, `--action`, etc.) are also stable and available to plugins.
+A set of CSS variables is also plugin-stable: `--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--text-primary`, `--text-secondary`, `--text-muted`, `--border`, `--accent`, `--action`, `--success`, `--warning`, `--error` (plus their `-rgb` companions), `--font-mono`, and `--radius`.
+
+These names predate the layered token system. Product code must use the canonical semantic roles instead (`--surface-app`, `--surface-panel`, `--surface-control`, `--accent-active`, `--accent-error`, …); the plugin names survive as aliases onto those roles in [src/styles/global/tokens-compatibility.css](src/styles/global/tokens-compatibility.css). The authoritative list lives in `pluginStableApi` in [src/styles/global/token-manifest.json](src/styles/global/token-manifest.json), and `pnpm check:patterns` fails if any of them stops resolving. Renaming or dropping one is a breaking change for every installed plugin.
 
 ## Common Patterns
 

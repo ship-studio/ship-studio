@@ -1,6 +1,69 @@
 /* Ship Studio design tokens */
 /* Frozen raw compatibility values. Do not add new product usage here. */
 
+/*
+ * ============================================================================
+ * PLUGIN-STABLE TOKEN API — do not remove or rename
+ * ============================================================================
+ * These names are Ship Studio's published contract with third-party plugins
+ * (see CLAUDE.md → "Shared CSS Classes (Plugin-Stable)" and the plugin starter
+ * repo). They predate the core/semantic/component token layers and are kept as
+ * thin aliases onto the canonical semantic roles so existing plugin
+ * stylesheets keep resolving. Removing or renaming any of them is a breaking
+ * change for every installed plugin.
+ *
+ * Product code must NOT use these — use the semantic role on the right-hand
+ * side instead. The required set is declared in token-manifest.json
+ * (`pluginStableApi`) and a missing definition fails `pnpm check:patterns`.
+ * ============================================================================
+ */
+:root {
+  /* Surfaces (--bg-*) */
+  --bg-primary: var(--surface-app);
+  --bg-secondary: var(--surface-panel);
+  --bg-tertiary: var(--surface-control);
+  --bg-deep: var(--surface-recessed);
+  --bg-hover: var(--surface-control-hover);
+
+  /* Text (--text-primary/secondary/muted are canonical in tokens-semantic.css) */
+  --text-bright: var(--text-white);
+
+  /* Brand / interactive */
+  --accent: var(--text-white);
+  --accent-hover: var(--text-primary);
+  --action: var(--accent-active);
+  --action-hover: var(--accent-active-hover);
+  --action-text: var(--text-on-accent);
+
+  /* Structure */
+  --border: var(--border-default);
+
+  /* Status */
+  --success: var(--accent-success);
+  --success-light: var(--accent-success);
+  --warning: var(--accent-warning);
+  --warning-light: var(--accent-warning-light);
+  --error: var(--accent-error);
+  --error-light: var(--accent-error-light);
+  --error-deep: var(--accent-error-deep);
+
+  /* RGB triplets — for alpha tints: rgba(var(--error-rgb), 0.1) */
+  --action-rgb: var(--accent-active-rgb);
+  --success-rgb: var(--accent-success-rgb);
+  --success-light-rgb: var(--accent-success-rgb);
+  --warning-rgb: var(--accent-warning-rgb);
+  --warning-light-rgb: var(--accent-warning-light-rgb);
+  --error-rgb: var(--accent-error-rgb);
+  --error-light-rgb: var(--accent-error-light-rgb);
+  --error-deep-rgb: var(--accent-error-deep-rgb);
+
+  /* Typography */
+  --font-mono: var(--font-code);
+
+  /* Shape (docs/plugins.md names --radius explicitly) */
+  --radius: var(--radius-control);
+}
+
 :root {
   --modified-yellow: #eab308;
   --info: #3b82f6;

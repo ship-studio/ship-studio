@@ -139,7 +139,7 @@ reattachments are automated; unresolved values remain explicit and are marked fo
 | Figma color, spacing, radius, stroke, and type Variables | Exact | Imported into `--color-*`, `--space-*`, `--radius-*`, `--stroke-*`, and `--font-*` primitives. |
 | Figma `background-*`, `text-*`, `border-*`, and `accent-*` Variables | Obvious semantic | Reattached to category-first `--surface-*`, `--text-*`, `--border-*`, and `--accent-*` roles. |
 | Figma `Body M/Regular`, `Body S/Regular`, `Code S/Regular`, `Button Effects`, `Input inner shadow`, and `Window shadow` styles | Obvious semantic | Exposed through `--font-ui`, `--font-code`, `--shadow-button`, `--shadow-input-inset`, and `--shadow-window`; these are not primitives. |
-| Legacy `--bg-*`, `--accent`, `--action`, `--border`, `--warning`, `--success`, `--error`, and `--font-code` names | Migrated | Internal product usages are reattached to canonical semantic roles; the compatibility layer now retains only unresolved raw values. |
+| Legacy `--bg-*`, `--accent`, `--action`, `--border`, `--warning`, `--success`, `--error`, and `--font-mono` names | Migrated, but publicly retained | Internal product usages are reattached to canonical semantic roles. The names themselves are the plugin-stable API and stay in `tokens-compatibility.css` as aliases onto those roles — see [Plugin-stable token API](#plugin-stable-token-api). |
 | Existing error palette (`#f44747`, `#ef4444`, `#dc2626`) | Ambiguous / review | Retained as explicit `--color-red-error*` values because no corresponding Figma semantic was observed. |
 | Feature-local info, purple, Slack, ANSI, and code-syntax colors | Feature semantic | Preserved where their product meaning is specific; do not use them as general surface or text roles. |
 | Terminal colors and icon/symbol typography | Platform/component input | xterm keeps explicit canvas colors; Geist Mono is used for code, while JetBrains Mono Nerd Font is retained for glyph coverage. |
@@ -197,10 +197,37 @@ order, duplicate definitions, allowed layer direction, inventory freshness, and 
 baseline for existing primitive or migration-alias consumers. The baseline prevents new direct
 primitive usage while existing domains are migrated one at a time.
 
+### Plugin-stable token API
+
+`tokens-compatibility.css` opens with a frozen block of names that third-party plugins are
+documented to use (see [docs/plugins.md](plugins.md)). They are thin aliases onto canonical
+semantic roles:
+
+| Plugin-stable name | Canonical role |
+| --- | --- |
+| `--bg-primary` / `--bg-secondary` / `--bg-tertiary` / `--bg-deep` / `--bg-hover` | `--surface-app` / `--surface-panel` / `--surface-control` / `--surface-recessed` / `--surface-control-hover` |
+| `--text-primary` / `--text-secondary` / `--text-muted` | Canonical in `tokens-semantic.css` — no alias needed |
+| `--text-bright` | `--text-white` |
+| `--accent` / `--accent-hover` | `--text-white` / `--text-primary` |
+| `--action` / `--action-hover` / `--action-text` | `--accent-active` / `--accent-active-hover` / `--text-on-accent` |
+| `--border` | `--border-default` |
+| `--success` / `--warning` / `--warning-light` | `--accent-success` / `--accent-warning` / `--accent-warning-light` |
+| `--error` / `--error-light` / `--error-deep` | `--accent-error` / `--accent-error-light` / `--accent-error-deep` |
+| `--font-mono` | `--font-code` |
+| `--radius` | `--radius-control` |
+
+The `-rgb` companions (`--action-rgb`, `--success-rgb`, `--warning-rgb`, `--error-rgb`, …) alias the
+matching `--accent-*-rgb` triplets for `rgba(var(--error-rgb), 0.1)` tints.
+
+Product code must not consume these — use the canonical role. The required set is declared under
+`pluginStableApi` in `token-manifest.json`, and `pnpm check:token-layers` (run by
+`pnpm check:patterns`) emits `plugin-stable-missing` if one stops resolving. Removing or renaming
+one is a breaking change for every installed plugin.
+
 ### Compatibility follow-up
 
-`tokens-compatibility.css` now contains only raw legacy values with no exact core or semantic match.
-Suggested next owners are:
+Beyond the plugin-stable block, `tokens-compatibility.css` contains only raw legacy values with no
+exact core or semantic match. Suggested next owners are:
 
 - Move info blue and modified-yellow into semantic status/feedback roles with paired RGB tokens.
 - Move AI purple into an AI/agent semantic family; keep Slack colors as feature-local brand tokens.

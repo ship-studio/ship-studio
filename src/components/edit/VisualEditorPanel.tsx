@@ -573,7 +573,10 @@ export function VisualEditorPanel({
               label="Breakpoint"
               value={activeBreakpoint.name}
               options={breakpointOptions.map((bp) => ({
-                label: bp.minPx > 0 ? `${bp.name} · ≥${bp.minPx}px` : 'Base · all widths',
+                // Plain "Base" rather than "Base · all widths": the trigger is
+                // a single-line control and this was the one option long
+                // enough to need two.
+                label: bp.minPx > 0 ? `${bp.name} · ≥${bp.minPx}px` : 'Base',
                 token: bp.name,
               }))}
               optionIcons={breakpointIcons}

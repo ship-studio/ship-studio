@@ -74,7 +74,12 @@ check_file src/components/workspace/WorkspaceView.tsx 1500
 check_file src/components/dashboard/ProjectList.tsx 900
 check_file src/components/plugins/PluginManager.tsx 700
 check_file src/components/dashboard/ImportProject.tsx 500
-check_file src/App.tsx 1295
+# Raised from 1295 to 1330 in the v0.19 redesign merge. AppContents grew with
+# the workspace/account view branches; the compact-toolbar setting and the quit
+# confirmation were extracted (hooks/useCompactWorkspaceToolbar.ts,
+# components/QuitConfirmModal.tsx) before moving the ceiling. Extract the
+# session-lifecycle handlers next rather than raising this again.
+check_file src/App.tsx 1330
 echo
 echo "CSS (limit 1200 per file):"
 # Visual-editor rules are split by existing control families. Each family file
@@ -84,9 +89,19 @@ echo "CSS (limit 1200 per file):"
 # custom page-selector scrollbar. Raised deliberately; splitting it by control
 # family is on the roadmap.
 check_file src/styles/features/preview.css 1300
+# sidebar.css owns the whole workspace rail: project rows, session/terminal
+# tabs, worktree groups, section headers, and the compact variants. The v0.19
+# redesign pushed it past 1200. Raised deliberately; splitting the worktree and
+# session-tab blocks into their own stylesheets is the follow-up.
+check_file src/styles/features/workspace/sidebar.css 1300
+# Files with their own explicit ceiling above are matched by exact path so a
+# same-named stylesheet elsewhere still gets the general 1200 limit.
 while IFS= read -r f; do
+  case "$f" in
+    src/styles/features/preview.css | src/styles/features/workspace/sidebar.css) continue ;;
+  esac
   check_file "$f" 1200
-done < <(find src/styles -maxdepth 3 -name '*.css' ! -name 'preview.css' 2>/dev/null)
+done < <(find src/styles -maxdepth 3 -name '*.css' 2>/dev/null)
 echo
 
 if [ $FAIL -ne 0 ]; then

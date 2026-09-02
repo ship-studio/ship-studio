@@ -34,9 +34,10 @@
 
 /* The pinned Agent surface is body-portaled at the dock slot's bounds. Keep
    the shared separator above that surface so its hover cursor and hit area
-   remain available at the panel edge. */
+   remain available at the panel edge — but below the header's menus, which
+   the separator used to cut a line through (Plugin Manager dropdown). */
 .split-pane > .panel-resize-handle {
-  z-index: var(--z-floating-panel);
+  z-index: var(--z-pane-separator);
 }
 
 .terminal-pane {

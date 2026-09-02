@@ -70,8 +70,10 @@
   grid-area: 1 / 1 / -1 / 2;
   justify-self: end;
   /* Docked panel surfaces are body-portaled. Keep this separator above both
-     adjacent surfaces while remaining below modal and tooltip layers. */
-  z-index: var(--z-floating-panel);
+     adjacent surfaces, and below toolbar/header menus — the handles span every
+     grid row, including the toolbar band, so a higher tier drew a line across
+     any menu opened near the panel edge. */
+  z-index: var(--z-pane-separator);
 }
 
 .ss-tree-panel-dock {
@@ -91,102 +93,6 @@
   cursor: ew-resize;
 }
 
-.preview-toolbar {
-  position: relative;
-  /* Ordinary chrome must stay below floating editor panels/tooltips and
-     modal overlays. Dropdowns opened from this toolbar still render above
-     its surface inside this stacking context. */
-  z-index: var(--z-dropdown);
-  display: flex;
-  align-items: center;
-  gap: var(--button-gap);
-  height: var(--preview-toolbar-h);
-  padding: 9px 12px;
-  background: var(--surface-panel);
-  border-bottom: 1px solid var(--border-default);
-  overflow: visible;
-}
-
-/*
- * Toolbar layout mirrors the visual hierarchy of the reference:
- * navigation left, viewport controls centered between flexible gutters,
- * and preview actions right. `order` changes presentation only — control
- * behavior and mounting remain untouched.
- */
-.preview-toolbar > .locale-switcher,
-.preview-toolbar > .page-switcher {
-  order: 1;
-}
-
-.preview-toolbar > .preview-refresh {
-  order: 9;
-  margin-left: auto;
-}
-
-.preview-toolbar > .preview-history-btn {
-  order: 1;
-}
-
-.preview-toolbar > .preview-breakpoints {
-  order: 10;
-}
-
-.preview-toolbar > .preview-fullscreen-btn:not(.preview-history-btn) {
-  order: 12;
-}
-
-.preview-toolbar > .preview-tree-btn {
-  order: 13;
-}
-
-.preview-toolbar-actions {
-  order: 20;
-  display: flex;
-  align-items: center;
-  margin-left: auto;
-}
-
-.preview-toolbar-control-group {
-  display: flex;
-  align-items: center;
-  gap: var(--button-group-spacing);
-}
-
-/* Preview toolbar toggles use the outlined active treatment: the panel remains
-   visible behind the control, while the border communicates that the tool is
-   engaged. The shared button primitive's pressed state is intentionally a
-   filled surface for ordinary toggles, so keep this override local to these
-   panel controls. */
-.preview-toolbar-control-group .preview-edit-control.button--secondary[aria-pressed='true'],
-.preview-toolbar-control-group .preview-inspect-control.button--secondary[aria-pressed='true'] {
-  background: var(--surface-panel);
-  color: var(--button-text-default);
-  border-color: var(--button-border);
-}
-
-.preview-toolbar
-  .preview-toolbar-control-group
-  .preview-edit-control.button--secondary[aria-pressed='true']:hover:not(:disabled),
-.preview-toolbar
-  .preview-toolbar-control-group
-  .preview-inspect-control.button--secondary[aria-pressed='true']:hover:not(:disabled) {
-  background: var(--surface-panel);
-  color: var(--button-text-hover);
-  border-color: var(--button-border-outline);
-}
-
-.preview-toolbar-control-group > .preview-toolbar-plugins {
-  /* PluginSlot's isolation wrappers use `display: contents`. Keep this
-     slot transparent to the parent flex row too; otherwise it becomes a
-     zero-width flex item and inserts a second gap before Open in Browser. */
-  display: contents;
-}
-
-/* Keep an actually empty slot out of the accessibility tree as well. */
-.preview-toolbar-control-group > .preview-toolbar-plugins:empty {
-  display: none;
-}
-
 /* Page Switcher */
 .page-switcher {
   position: relative;
@@ -194,6 +100,11 @@
 
 .page-switcher-trigger {
   font-family: var(--font-code);
+  /* Lets the trigger follow its shrinking flex parent instead of forcing the
+     toolbar wider than its column. */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .page-switcher-trigger svg {
@@ -202,6 +113,7 @@
 
 .page-route {
   max-width: 200px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -471,7 +383,13 @@
   top: 0;
   bottom: 0;
   left: 0;
-  z-index: var(--z-floating-panel);
+  z-index: var(--z-pane-separator);
+}
+
+/* Fullscreen docks the panel at the floating tier, so the separator has to
+   climb with it to stay grabbable. */
+.preview-container--fullscreen .ss-edit-panel-dock__resize {
+  z-index: calc(var(--z-floating-panel) + 1);
 }
 
 .ss-edit-panel.ss-edit-panel--pinned {
@@ -509,7 +427,11 @@
 .preview-breakpoints {
   display: flex;
   gap: var(--spacing-3xs);
-  min-width: 0;
+  /* Fixed-size chrome: shrinking this group below its content used to push
+     the tabs and the dimensions readout out of their own box and over the
+     neighbouring controls. Density is handled by the tiers above instead. */
+  flex: 0 0 auto;
+  min-width: max-content;
   align-items: center;
   height: calc(var(--control-height-standard) + var(--spacing-xs) + var(--stroke-2));
   box-sizing: border-box;
@@ -762,6 +684,28 @@
   background: var(--accent-active);
 }
 
+/* At full width the handle sits directly against the pane's right border. Its
+   own surface + two borders read as extra vertical lines stacked beside the
+   scrollbar, so it drops them and keeps only the grab bar, toned down to the
+   border colour; hover brings the full affordance back. */
+.preview-frame-grid--full-width .preview-resize-handle {
+  background: transparent;
+  border-left: none;
+  border-right: none;
+}
+
+.preview-frame-grid--full-width .preview-resize-handle-bar {
+  background: var(--border-default);
+}
+
+.preview-frame-grid--full-width .preview-resize-handle:hover {
+  background: var(--surface-control);
+}
+
+.preview-frame-grid--full-width .preview-resize-handle:hover .preview-resize-handle-bar {
+  background: var(--accent-active);
+}
+
 /* Vertical (bottom) resize handle — flips the right-handle layout */
 .preview-resize-handle--vertical {
   grid-area: bottom;
@@ -840,78 +784,29 @@
   display: flex;
   align-items: stretch;
   justify-content: space-between;
+  gap: var(--spacing-sm);
+  /* Same band height and inline gutter as the preview toolbar above the
+     canvas, so the two rows of chrome line up instead of each inventing its
+     own padding. */
+  height: var(--preview-toolbar-h);
+  padding-inline: var(--spacing-md);
   background: var(--surface-panel);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
-  padding-right: var(--spacing-md);
 }
 
+/* Layout only — height, radius, colours and the active indicator all come
+   from the Tabs primitive (`variant="stretch" appearance="underline"`). */
 .preview-logs-tabs {
-  display: flex;
-  align-items: stretch;
+  min-width: 0;
 }
 
 .preview-logs-tab {
-  position: relative;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: var(--font-size-body-lg);
-  font-weight: 500;
-  cursor: pointer;
-  transition: color var(--transition);
-  outline: none;
-}
-
-.preview-logs-tab:hover,
-.preview-logs-tab:focus-visible {
-  color: var(--text-secondary);
-  outline: none;
-}
-
-.preview-logs-tab.is-active {
-  color: var(--text-primary);
-}
-
-.preview-logs-tab.is-active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: currentColor;
-  border-radius: 2px 2px 0 0;
+  flex: 0 0 auto;
 }
 
 .preview-logs-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Center within the header row — the header is `align-items: stretch`
-     for the tabs (so their `::after` underline spans the full height),
-     so the close button needs align-self:center to vertical-center its
-     fixed 22px box in the taller stretched row. */
   align-self: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-
-.preview-logs-close:hover {
-  background: var(--surface-control);
-  color: var(--text-primary);
 }
 
 /* Body stacks both tab contents in a single grid cell. The active
@@ -976,41 +871,26 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--button-gap);
-  padding: var(--spacing-xs) var(--spacing-md);
-  background: var(--surface-panel);
-  border-bottom: 1px solid var(--border-default);
+  /* Belongs to the log body, not to the tab strip above it: same recessed
+     surface as the terminal and the same inline gutter as the panel header,
+     so it reads as a caption over the output instead of a second toolbar
+     competing with the tabs. */
+  /* Tall enough for a compact button plus its breathing room, deliberately
+     shorter than the panel header band above it. */
+  height: calc(var(--control-height-compact) + var(--spacing-md));
+  padding-inline: var(--spacing-md);
+  background: var(--surface-recessed);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
   flex-shrink: 0;
 }
 
 .dev-server-logs-hint {
+  min-width: 0;
   color: var(--text-muted);
   font-size: var(--font-size-body-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.dev-server-logs-send {
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: var(--font-size-body-sm);
-  cursor: pointer;
-  transition:
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.dev-server-logs-send:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--accent-active);
-}
-
-.dev-server-logs-send:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .dev-server-logs-terminal {

@@ -258,6 +258,8 @@ describe('ValueField', () => {
 
   it('constrains the variable picker to its padded panel boundary', () => {
     render(
+      // inline-style-ok: the padding under test — the fixture exists to prove the
+      // menu clamps to a padded boundary, so the value must live here, not in a class.
       <div data-value-field-menu-boundary style={{ paddingLeft: '12px', paddingRight: '12px' }}>
         <ValueField
           aria-label="Width"
@@ -290,5 +292,20 @@ describe('ValueField', () => {
       left: '112px',
       width: '216px',
     });
+  });
+  it('hides the unit trigger for a plain number field with nothing to choose', () => {
+    render(
+      <ValueField aria-label="Opacity value" variant="number" value="100" onCommit={vi.fn()} />
+    );
+
+    // The number variant's only option is the empty "no unit" entry, which
+    // used to render as a stray "-" beside the value (Opacity read "100 -").
+    expect(screen.queryByRole('button', { name: 'Opacity value format' })).toBeNull();
+  });
+
+  it('keeps the unit trigger when the field actually has units', () => {
+    render(<ValueField aria-label="Width" variant="length" value="24px" onCommit={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Width format' })).toHaveTextContent('PX');
   });
 });

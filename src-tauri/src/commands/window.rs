@@ -8,46 +8,106 @@ use crate::errors::CommandError;
 use crate::types::{CompactModePreferences, WindowPosition};
 use tauri::{LogicalPosition, LogicalSize, Window};
 
+/// Leading inset of the close button, matching AppKit's own placement for a
+/// standard titled window. That placement — not the one a 46pt custom titlebar
+/// would suggest — is what the shipped build renders, so it is the reference
+/// the CSS titlebar safe area (`.workspace-titlebar` padding, 82pt) is sized
+/// against: 20 + 2 x spacing (20) + 12pt button = 72pt of occupied width.
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHT_LEADING_INSET: f64 = 20.0;
+
+/// Height of the system titlebar AppKit vertically centres the buttons in.
+/// The top inset is derived from it and the button's measured height rather
+/// than hard-coded, so we never assume how tall the controls are on a given
+/// macOS version.
+#[cfg(target_os = "macos")]
+const SYSTEM_TITLEBAR_HEIGHT: f64 = 28.0;
+
+/// How long to keep waiting for AppKit to build the titlebar before giving up.
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHT_MAX_ATTEMPTS: u32 = 20;
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHT_RETRY_MS: u64 = 100;
+
 /// Pins the native macOS window controls inside Ship Studio's 46pt custom
 /// titlebar. Persistent Auto Layout constraints are required here: AppKit and
 /// Wry both lay out the titlebar during live resize, so one-off frame changes
 /// visibly alternate with the system position.
+///
+/// The constraints reproduce AppKit's own geometry (see the constants above)
+/// so a dev run shows exactly what a release build ships — the two used to
+/// disagree because the window's titlebar is built lazily: a dev launch is
+/// slow enough that the buttons already exist on the first attempt, while a
+/// release launch could reach this before they do, silently skip the
+/// constraints, and fall back to whatever the platform did on its own. Hence
+/// the retry: attempt until the buttons exist, then install once.
 #[cfg(target_os = "macos")]
 pub fn center_macos_traffic_lights(window: &tauri::WebviewWindow) -> tauri::Result<()> {
-    let ns_window = window.ns_window()? as usize;
-    window.run_on_main_thread(move || unsafe {
-        constrain_macos_traffic_lights(ns_window as *mut objc2::runtime::AnyObject);
-    })
+    schedule_macos_traffic_light_constraints(window.clone(), 0);
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn constrain_macos_traffic_lights(ns_window: *mut objc2::runtime::AnyObject) {
+fn schedule_macos_traffic_light_constraints(window: tauri::WebviewWindow, attempt: u32) {
+    if attempt >= TRAFFIC_LIGHT_MAX_ATTEMPTS {
+        tracing::warn!(
+            "Traffic-light constraints not installed after {} attempts; window controls keep their default placement",
+            TRAFFIC_LIGHT_MAX_ATTEMPTS
+        );
+        return;
+    }
+
+    let Ok(ns_window) = window.ns_window() else {
+        return;
+    };
+    let ns_window = ns_window as usize;
+    let retry_window = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        let installed =
+            unsafe { constrain_macos_traffic_lights(ns_window as *mut objc2::runtime::AnyObject) };
+        if installed {
+            return;
+        }
+        // Off the main thread so the UI keeps running while we wait.
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(TRAFFIC_LIGHT_RETRY_MS));
+            schedule_macos_traffic_light_constraints(retry_window, attempt + 1);
+        });
+    });
+}
+
+/// Returns `true` once the constraints are installed; `false` while AppKit has
+/// not built the titlebar yet (the caller retries).
+#[cfg(target_os = "macos")]
+unsafe fn constrain_macos_traffic_lights(ns_window: *mut objc2::runtime::AnyObject) -> bool {
     use objc2::msg_send;
     use objc2_foundation::CGRect;
-
-    const TRAFFIC_LIGHT_INSET: f64 = 16.0;
 
     let close_button: *mut objc2::runtime::AnyObject =
         msg_send![ns_window, standardWindowButton: 0usize];
     if close_button.is_null() {
-        return;
+        return false;
     }
     let close_frame: CGRect = msg_send![close_button, frame];
     let miniaturize_button: *mut objc2::runtime::AnyObject =
         msg_send![ns_window, standardWindowButton: 1usize];
     if miniaturize_button.is_null() {
-        return;
+        return false;
     }
     let miniaturize_frame: CGRect = msg_send![miniaturize_button, frame];
     let button_spacing = miniaturize_frame.origin.x - close_frame.origin.x;
+    // Measured, not assumed: whatever height the controls have on this macOS
+    // version, centring them in the system titlebar reproduces the placement
+    // an unmodified window would get.
+    let top_inset = ((SYSTEM_TITLEBAR_HEIGHT - close_frame.size.height) / 2.0).max(0.0);
 
     let titlebar_view: *mut objc2::runtime::AnyObject = msg_send![close_button, superview];
     if titlebar_view.is_null() {
-        return;
+        return false;
     }
     let titlebar_container: *mut objc2::runtime::AnyObject = msg_send![titlebar_view, superview];
     if titlebar_container.is_null() {
-        return;
+        return false;
     }
     let container_leading_anchor: *mut objc2::runtime::AnyObject =
         msg_send![titlebar_container, leadingAnchor];
@@ -65,14 +125,15 @@ unsafe fn constrain_macos_traffic_lights(ns_window: *mut objc2::runtime::AnyObje
         let _: () = msg_send![button, setTranslatesAutoresizingMaskIntoConstraints: false];
         let leading_anchor: *mut objc2::runtime::AnyObject = msg_send![button, leadingAnchor];
         let top_anchor: *mut objc2::runtime::AnyObject = msg_send![button, topAnchor];
-        let leading = TRAFFIC_LIGHT_INSET + button_kind as f64 * button_spacing;
+        let leading = TRAFFIC_LIGHT_LEADING_INSET + button_kind as f64 * button_spacing;
         let leading_constraint: *mut objc2::runtime::AnyObject = msg_send![leading_anchor, constraintEqualToAnchor: container_leading_anchor constant: leading];
-        let top_constraint: *mut objc2::runtime::AnyObject = msg_send![top_anchor, constraintEqualToAnchor: container_top_anchor constant: TRAFFIC_LIGHT_INSET];
+        let top_constraint: *mut objc2::runtime::AnyObject = msg_send![top_anchor, constraintEqualToAnchor: container_top_anchor constant: top_inset];
         let _: () = msg_send![leading_constraint, setActive: true];
         let _: () = msg_send![top_constraint, setActive: true];
     }
 
     let _: () = msg_send![titlebar_container, layoutSubtreeIfNeeded];
+    true
 }
 
 /// Compact mode dimensions

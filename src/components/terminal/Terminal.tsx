@@ -67,12 +67,6 @@ import '@xterm/xterm/css/xterm.css';
 /** Agent status based on terminal title */
 export type AgentStatus = 'thinking' | 'waiting' | 'idle';
 
-/** Set once the user sends their first input to any agent terminal. */
-const FIRST_AGENT_INPUT_KEY = 'shipstudio.sentFirstAgentMessage';
-/** In-process broadcast so every mounted terminal (split panes / tabs) clears
- *  its first-run hint the moment the user types into ANY of them. */
-const FIRST_AGENT_INPUT_EVENT = 'shipstudio:first-agent-input';
-
 /** Props for the Terminal component */
 interface TerminalProps {
   /** Agent configuration to use for this terminal */
@@ -157,24 +151,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   const restartRequestedRef = useRef(false);
   const [isReady, setIsReady] = useState(false);
   const [isFocused, setIsFocused] = useState(false); // Start unfocused to show overlay until user clicks
-
-  // First-run hint: show "this is your AI builder, type here" over the terminal
-  // until the user sends their first input, then never again (global flag, so it
-  // covers every agent terminal / tab / project, not just this one).
-  const [showFirstRunHint, setShowFirstRunHint] = useState(
-    () => localStorage.getItem(FIRST_AGENT_INPUT_KEY) !== '1'
-  );
-  const firstInputDoneRef = useRef(!showFirstRunHint);
-  // Clear this instance's hint when any sibling terminal reports first input.
-  useEffect(() => {
-    if (firstInputDoneRef.current) return;
-    const onFirstInput = () => {
-      firstInputDoneRef.current = true;
-      setShowFirstRunHint(false);
-    };
-    window.addEventListener(FIRST_AGENT_INPUT_EVENT, onFirstInput);
-    return () => window.removeEventListener(FIRST_AGENT_INPUT_EVENT, onFirstInput);
-  }, []);
 
   // Mirror `isActive` to a ref so non-effect closures (input handler,
   // resize observer) can read it without re-creating.
@@ -1049,22 +1025,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           onExitRef.current?.(attach.exitCode ?? -1);
         }
 
-        // Dismiss the first-run hint on the user's first real keystroke — and
-        // broadcast so sibling terminals (split panes / tabs) clear theirs too.
-        // We gate on onKey (genuine keyboard input) rather than onData, because
-        // onData also fires for xterm's automatic replies to the program's
-        // terminal-capability queries (Device Attributes / cursor-position
-        // reports an agent's TUI sends on startup). Using onData would dismiss
-        // the hint a frame after it appears — before the user could read it.
-        const firstKeyDisposable = term.onKey(() => {
-          if (firstInputDoneRef.current) return;
-          firstInputDoneRef.current = true;
-          localStorage.setItem(FIRST_AGENT_INPUT_KEY, '1');
-          setShowFirstRunHint(false);
-          window.dispatchEvent(new Event(FIRST_AGENT_INPUT_EVENT));
-        });
-        ptyDisposablesRef.current.push(firstKeyDisposable);
-
         // Handle terminal input -> PTY. Resolves the session id lazily
         // from the ref so re-attach doesn't need a new listener.
         const inputDisposable = term.onData((data) => {
@@ -1368,20 +1328,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
           cursor: 'text',
         }}
       />
-      {/* First-run instruction so a non-developer knows this is a chat box, not
-          a scary console. pointer-events:none lets the click-to-focus below it
-          still work; it clears on the first keystroke. */}
-      {isReady && showFirstRunHint && (
-        <div className="terminal-firstrun-hint">
-          <div className="terminal-firstrun-hint-card" role="note">
-            <strong>This is your agent</strong>
-            <span>
-              Whether you use Claude Code, Codex, Opencode, or something else, your agent runs right
-              here. Tell it what you want to build in plain English, then press Enter.
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   );
 });

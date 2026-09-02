@@ -30,6 +30,7 @@ import { MainBranchBanner } from '../branches/MainBranchBanner';
 import type { HealthTabPanelRef } from '../code/HealthTabPanel';
 import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { useIsCompact } from '../../hooks/useIsCompact';
+import { useLocalStorageFlag } from '../../hooks/useLocalStorageFlag';
 import { WorkspaceModalHost } from './WorkspaceModalHost';
 import { WorkspaceModes } from './WorkspaceModes';
 import { WorkspacePreviewPane } from './WorkspacePreviewPane';
@@ -711,32 +712,29 @@ export const WorkspaceView = memo(function WorkspaceView({
   const [isAgentPanelHidden, setIsAgentPanelHidden] = useState(false);
   const [forceBranchesOpen, setForceBranchesOpen] = useState(false);
   const [createBranchRequest, setCreateBranchRequest] = useState(0);
-  const [agentPanelPinned, setAgentPanelPinned] = useState(
-    () => localStorage.getItem('agentPanelPinned') !== '0'
+  const [agentPanelPinned, , toggleAgentPanelPinned] = useLocalStorageFlag(
+    'agentPanelPinned',
+    true
   );
   const [elementTreePreviewAvailable, setElementTreePreviewAvailable] = useState(false);
-  const [elementTreeVisible, setElementTreeVisible] = useState(
-    () => localStorage.getItem('elementTreeVisible') !== '0'
+  const [elementTreeVisible, setElementTreeVisible, toggleElementTree] = useLocalStorageFlag(
+    'elementTreeVisible',
+    true
   );
-  const [elementTreePinned, setElementTreePinned] = useState(
-    () => localStorage.getItem('elementTreePinned') !== '0'
+  const [elementTreePinned, , toggleElementTreePinned] = useLocalStorageFlag(
+    'elementTreePinned',
+    true
   );
-  const toggleElementTree = useCallback(() => {
-    setElementTreeVisible((visible) => {
-      localStorage.setItem('elementTreeVisible', visible ? '0' : '1');
-      return !visible;
-    });
-  }, []);
   const closeElementTree = useCallback(() => {
-    localStorage.setItem('elementTreeVisible', '0');
     setElementTreeVisible(false);
-  }, []);
+  }, [setElementTreeVisible]);
   const elementTreeAvailable =
     workspaceTab === 'preview' && !isPreviewHidden && elementTreePreviewAvailable;
   const elementTreePanelVisible = elementTreeAvailable && elementTreeVisible;
   const [variablesPanelVisible, setVariablesPanelVisible] = useState(false);
-  const [variablesPanelPinned, setVariablesPanelPinned] = useState(
-    () => localStorage.getItem('variablesPanelPinned') === '1'
+  const [variablesPanelPinned, , toggleVariablesPanelPinned] = useLocalStorageFlag(
+    'variablesPanelPinned',
+    false
   );
   const variablesPanelOpen =
     isWebProject && workspaceTab === 'preview' && !isPreviewHidden && variablesPanelVisible;
@@ -752,24 +750,6 @@ export const WorkspaceView = memo(function WorkspaceView({
       void handleStartDevServer();
     }
   }, [handleStartDevServer, setIsPreviewHidden, setWorkspaceTab, variablesPanelOpen]);
-  const toggleAgentPanelPinned = useCallback(() => {
-    setAgentPanelPinned((pinned) => {
-      localStorage.setItem('agentPanelPinned', pinned ? '0' : '1');
-      return !pinned;
-    });
-  }, []);
-  const toggleElementTreePinned = useCallback(() => {
-    setElementTreePinned((pinned) => {
-      localStorage.setItem('elementTreePinned', pinned ? '0' : '1');
-      return !pinned;
-    });
-  }, []);
-  const toggleVariablesPanelPinned = useCallback(() => {
-    setVariablesPanelPinned((pinned) => {
-      localStorage.setItem('variablesPanelPinned', pinned ? '0' : '1');
-      return !pinned;
-    });
-  }, []);
   const toggleAgentPanel = useCallback(() => {
     if (!isAgentPanelHidden) {
       setIsPreviewHidden(false);

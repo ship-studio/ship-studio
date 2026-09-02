@@ -13,15 +13,24 @@ const baselinePath = path.join(projectRoot, 'scripts/token-layer-baseline.json')
 const indexPath = path.join(projectRoot, 'src/styles/index.css');
 const tokenReference = /var\(\s*(--[a-zA-Z0-9-]+)/g;
 
-const pluginStableExact = new Set([
-  '--accent',
-  '--action',
-  '--border',
-  '--error',
-  '--font-code',
-  '--success',
-  '--warning',
-]);
+// Fallback contract used when a manifest carries no `pluginStableApi` block
+// (older manifests and unit-test fixtures). The real contract lives in
+// src/styles/global/token-manifest.json.
+const DEFAULT_PLUGIN_STABLE = {
+  tokens: ['--accent', '--action', '--border', '--error', '--font-code', '--success', '--warning'],
+  prefixes: ['--bg-', '--text-'],
+};
+
+function pluginStableApi(manifest) {
+  const declared = manifest?.pluginStableApi;
+  return {
+    // Only a manifest that declares the contract gets it enforced; the
+    // fallback classifies tokens but requires none, so fixtures stay valid.
+    required: declared?.tokens ?? [],
+    tokens: new Set(declared?.tokens ?? DEFAULT_PLUGIN_STABLE.tokens),
+    prefixes: declared?.prefixes ?? DEFAULT_PLUGIN_STABLE.prefixes,
+  };
+}
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -43,8 +52,8 @@ function tokenFilesAbsolute(manifest) {
   return new Set(manifestFiles(manifest).map((file) => path.resolve(projectRoot, file)));
 }
 
-function pluginStable(name) {
-  return pluginStableExact.has(name) || name.startsWith('--bg-') || name.startsWith('--text-');
+function pluginStable(name, contract) {
+  return contract.tokens.has(name) || contract.prefixes.some((prefix) => name.startsWith(prefix));
 }
 
 function ownerFor(name, layer, isPluginStable) {
@@ -117,8 +126,8 @@ function runtimeReferenceCounts() {
   return counts;
 }
 
-function tokenMetadata(definition, layer) {
-  const isPluginStable = pluginStable(definition.name);
+function tokenMetadata(definition, layer, contract) {
+  const isPluginStable = pluginStable(definition.name, contract);
   const status = statusFor(layer, isPluginStable);
   const metadata = {
     name: definition.name,
@@ -195,6 +204,7 @@ function validateTokenTaxonomy({
   root = projectRoot,
 }) {
   const diagnostics = [];
+  const contract = pluginStableApi(manifest);
   const files = manifestFiles(manifest);
   const layersByFile = layerByFile(manifest);
   const tokenFiles = new Set(files);
@@ -241,12 +251,33 @@ function validateTokenTaxonomy({
     ...validateLayerDirection(tokenDefinitions, layersByFile, definitionsByName, root)
   );
 
+  // The plugin-stable API is a published contract: every token a plugin may
+  // reference has to resolve, or installed plugins silently lose their styling.
+  const compatibilityFile =
+    manifest.layers.find((layer) => layer.name === 'compatibility')?.files[0] ??
+    'src/styles/global/tokens-compatibility.css';
+  for (const name of contract.required) {
+    if (definitionsByName.has(name)) continue;
+    diagnostics.push({
+      code: 'plugin-stable-missing',
+      filePath: path.join(root, compatibilityFile),
+      line: 1,
+      message:
+        name +
+        ' is declared plugin-stable in token-manifest.json but is not defined in any token layer. ' +
+        'Plugins reference it — add an alias onto the canonical semantic role in ' +
+        compatibilityFile +
+        '.',
+    });
+  }
+
   const metadataByName = new Map(
     tokenDefinitions.map((definition) => [
       definition.name,
       tokenMetadata(
         definition,
-        layersByFile.get(path.relative(root, definition.filePath).split(path.sep).join('/'))
+        layersByFile.get(path.relative(root, definition.filePath).split(path.sep).join('/')),
+        contract
       ),
     ])
   );
@@ -288,6 +319,7 @@ function validateTokenTaxonomy({
 }
 
 function buildInventory({ manifest, definitions, references }) {
+  const contract = pluginStableApi(manifest);
   const layersByFile = layerByFile(manifest);
   const tokenFiles = tokenFilesAbsolute(manifest);
   const tokenDefinitions = definitions
@@ -297,7 +329,7 @@ function buildInventory({ manifest, definitions, references }) {
   const runtimeCounts = runtimeReferenceCounts();
   const inventory = tokenDefinitions.map((definition) => {
     const layer = layersByFile.get(relativePath(definition.filePath));
-    const metadata = tokenMetadata(definition, layer);
+    const metadata = tokenMetadata(definition, layer, contract);
     const tokenCounts = [...counts.entries()]
       .filter(([key]) => key.endsWith('\u0000' + definition.name))
       .reduce((total, [, count]) => total + count, 0);
@@ -318,13 +350,14 @@ function buildInventory({ manifest, definitions, references }) {
 }
 
 function buildBaseline({ manifest, definitions, references }) {
+  const contract = pluginStableApi(manifest);
   const layersByFile = layerByFile(manifest);
   const definitionsByName = new Map(
     definitions
       .filter((definition) => manifestFiles(manifest).includes(relativePath(definition.filePath)))
       .map((definition) => [
         definition.name,
-        tokenMetadata(definition, layersByFile.get(relativePath(definition.filePath))),
+        tokenMetadata(definition, layersByFile.get(relativePath(definition.filePath)), contract),
       ])
   );
   const counts = referenceCounts(externalReferences(references, tokenFilesAbsolute(manifest)));

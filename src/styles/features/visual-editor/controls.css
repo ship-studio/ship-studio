@@ -24,6 +24,15 @@
   align-items: center;
   gap: var(--spacing-xs);
 }
+/* The trigger is a fixed-height control in a two-column row: a value long
+   enough to wrap doubles the row's height and knocks the control out of
+   alignment with every neighbour. Single line, ellipsis, always. */
+.ss-enum__current > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ss-enum__trigger svg {
   flex-shrink: 0;
   color: var(--text-muted);
@@ -66,6 +75,7 @@
   align-items: center;
   gap: var(--spacing-xs);
   padding: 4px var(--spacing-sm);
+  white-space: nowrap;
   font-size: var(--font-size-body-sm);
   text-align: left;
   color: var(--text-secondary);
@@ -86,19 +96,66 @@
   background: var(--tint-strong);
 }
 
+/* Range input, fully custom in both engines. WebKit only honours track/thumb
+   pseudo-elements once the native appearance is off; styling the track alone
+   (as this did) left the platform's own oversized knob floating over it and
+   spilling into the row below. Every dimension is a token so the control lines
+   up with the other 26px panel controls. */
 .ss-edit-panel__slider {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100px;
   height: var(--size-control-medium);
-  accent-color: var(--accent-active);
+  margin: 0;
+  background: transparent;
   cursor: pointer;
 }
 
 .ss-edit-panel__slider::-webkit-slider-runnable-track {
   height: var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  background: var(--surface-control);
+  box-shadow: var(--shadow-input-inset);
 }
 
 .ss-edit-panel__slider::-moz-range-track {
   height: var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  background: var(--surface-control);
+  box-shadow: var(--shadow-input-inset);
+}
+
+.ss-edit-panel__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+  /* WebKit aligns the thumb's top edge with the track's, so centring is the
+     caller's job — this is what kept the knob hanging below the track. */
+  margin-top: calc((var(--spacing-xs) - var(--size-icon-sm)) / 2);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--accent-active);
+  box-shadow: var(--shadow-button);
+}
+
+.ss-edit-panel__slider::-moz-range-thumb {
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--accent-active);
+  box-shadow: var(--shadow-button);
+}
+
+.ss-edit-panel__slider:focus-visible::-webkit-slider-thumb {
+  border-color: var(--accent-active);
+  box-shadow: 0 0 0 var(--focus-ring-width) rgba(var(--accent-active-rgb), 0.4);
+}
+
+.ss-edit-panel__slider:focus-visible::-moz-range-thumb {
+  border-color: var(--accent-active);
+  box-shadow: 0 0 0 var(--focus-ring-width) rgba(var(--accent-active-rgb), 0.4);
 }
 
 /* Color swatch trigger + popover picker */

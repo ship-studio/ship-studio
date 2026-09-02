@@ -233,7 +233,7 @@ describe('VisualEditorPanel', () => {
       'lg · ≥1024px',
       'md · ≥768px',
       'sm · ≥640px',
-      'Base · all widths',
+      'Base',
     ]);
     expect(options.every((option) => option.querySelector('svg'))).toBe(true);
   });

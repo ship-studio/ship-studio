@@ -1,0 +1,159 @@
+/**
+ * Preview toolbar: layout, ordering, and density tiers.
+ *
+ * Split out of `preview.css` because the toolbar is its own responsive
+ * system — with a side panel pinned its grid column shrinks independently of
+ * the pane, so it acts as its own query container and collapses controls in a
+ * defined order rather than letting them overlap.
+ */
+
+.preview-toolbar {
+  position: relative;
+  /* Chrome tier: the toolbar's own menus are absolutely positioned inside
+     this stacking context, so it has to outrank the pane separators that run
+     the full height of the container (they used to paint over any menu opened
+     near a docked panel edge). Still below floating panels and modals. */
+  z-index: var(--z-workspace-header);
+  display: flex;
+  align-items: center;
+  gap: var(--button-gap);
+  height: var(--preview-toolbar-h);
+  padding: 9px 12px;
+  background: var(--surface-panel);
+  border-bottom: 1px solid var(--border-default);
+  overflow: visible;
+  /* The toolbar is its own query container, not just a consumer of
+     `preview-pane`: when the visual editor (or the Elements / Variables
+     panel) is pinned, the toolbar's grid column shrinks by the panel width
+     while the pane keeps its size. Only the toolbar knows how much room its
+     controls actually have, so the density tiers below key off this. Its
+     inline size comes from the grid track, never from content, so
+     inline-size containment is safe here. */
+  container-type: inline-size;
+  container-name: preview-toolbar;
+}
+
+/* Toolbar controls are fixed-size chrome and must never shrink below their
+   content: a shrunk flex item with `overflow: visible` is what let the
+   breakpoint tabs and the dimensions readout paint on top of the Edit
+   toggle once a pinned panel narrowed the column. The page switcher is the
+   one flexible item — it absorbs the slack and truncates its route. */
+.preview-toolbar > * {
+  flex: 0 0 auto;
+}
+
+.preview-toolbar > .page-switcher {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/*
+ * Toolbar layout mirrors the visual hierarchy of the reference:
+ * navigation left, viewport controls centered between flexible gutters,
+ * and preview actions right. `order` changes presentation only — control
+ * behavior and mounting remain untouched.
+ */
+.preview-toolbar > .locale-switcher,
+.preview-toolbar > .page-switcher {
+  order: 1;
+}
+
+.preview-toolbar > .preview-refresh {
+  order: 9;
+  margin-left: auto;
+}
+
+.preview-toolbar > .preview-history-btn {
+  order: 1;
+}
+
+.preview-toolbar > .preview-breakpoints {
+  order: 10;
+}
+
+.preview-toolbar > .preview-fullscreen-btn:not(.preview-history-btn) {
+  order: 12;
+}
+
+.preview-toolbar > .preview-tree-btn {
+  order: 13;
+}
+
+.preview-toolbar-actions {
+  order: 20;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.preview-toolbar-control-group {
+  display: flex;
+  align-items: center;
+  gap: var(--button-group-spacing);
+}
+
+/* Preview toolbar toggles use the outlined active treatment: the panel remains
+   visible behind the control, while the border communicates that the tool is
+   engaged. The shared button primitive's pressed state is intentionally a
+   filled surface for ordinary toggles, so keep this override local to these
+   panel controls. */
+.preview-toolbar-control-group .preview-edit-control.button--secondary[aria-pressed='true'],
+.preview-toolbar-control-group .preview-inspect-control.button--secondary[aria-pressed='true'] {
+  background: var(--surface-panel);
+  color: var(--button-text-default);
+  border-color: var(--button-border);
+}
+
+.preview-toolbar
+  .preview-toolbar-control-group
+  .preview-edit-control.button--secondary[aria-pressed='true']:hover:not(:disabled),
+.preview-toolbar
+  .preview-toolbar-control-group
+  .preview-inspect-control.button--secondary[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--surface-panel);
+  color: var(--button-text-hover);
+  border-color: var(--button-border-outline);
+}
+
+.preview-toolbar-control-group > .preview-toolbar-plugins {
+  /* PluginSlot's isolation wrappers use `display: contents`. Keep this
+     slot transparent to the parent flex row too; otherwise it becomes a
+     zero-width flex item and inserts a second gap before Open in Browser. */
+  display: contents;
+}
+
+/* Keep an actually empty slot out of the accessibility tree as well. */
+.preview-toolbar-control-group > .preview-toolbar-plugins:empty {
+  display: none;
+}
+
+/* Density tiers for the toolbar itself (see `container-name: preview-toolbar`
+   above). Each tier drops the lowest-priority control that still has another
+   way in, so the row degrades in a defined order instead of overlapping.
+   Order of sacrifice: breakpoint icon strip → undo/redo → open-in-browser and
+   the locale switcher. Edit, Inspect, the page switcher, refresh, fullscreen
+   and the dimensions readout survive at every width. */
+@container preview-toolbar (max-width: 820px) {
+  /* The dimensions readout beside it opens the same viewport controls
+     (presets + exact size), and ⌘K's "Set exact preview size…" reaches the
+     popover directly — so the icon strip is the cheapest thing to drop. */
+  .preview-breakpoint-tabs {
+    display: none;
+  }
+}
+
+@container preview-toolbar (max-width: 660px) {
+  /* Undo/redo keep their ⌘Z / ⌘⇧Z shortcuts. */
+  .preview-toolbar > .preview-history-btn {
+    display: none;
+  }
+}
+
+@container preview-toolbar (max-width: 520px) {
+  /* Last resort before controls would collide. Both come back as soon as the
+     pane widens or the pinned panel is narrowed/unpinned. */
+  .preview-toolbar > .locale-switcher,
+  .preview-toolbar-control-group > .preview-browser-control {
+    display: none;
+  }
+}

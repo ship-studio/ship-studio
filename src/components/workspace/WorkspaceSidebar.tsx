@@ -927,10 +927,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
           </div>
           {onSwitchAccount && activeAccount && hasMultipleWorkspaces && (
             <>
-              <div className="workspace-sidebar-footer-divider" />
+              {/* Same button family as the footer row above it — the hairline
+                  divider it used to sit under only made sense while this was a
+                  borderless ghost row. */}
               <Button
-                variant="ghost"
-                block
+                variant="default"
+                width="fill"
                 className="workspace-sidebar-ws-switch"
                 onClick={onSwitchAccount}
                 title={`Switch workspace (${activeAccount.name})`}

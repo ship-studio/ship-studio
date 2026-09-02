@@ -211,6 +211,11 @@
   --popover-source-control-width: var(--size-source-control-popover);
   --source-control-branch-max-width: var(--size-source-control-branch);
   --z-dropdown: 100;
+  /* Pane separators (split-pane, docked preview panels). Above a docked panel
+     surface (which sits at --z-dropdown) so the drag target stays reachable,
+     but below chrome — a separator that outranks a toolbar's own menus draws
+     its line straight through them. */
+  --z-pane-separator: 150;
   /* Header popovers must paint above preview error/status overlays. */
   --z-workspace-header: 200;
   --z-preview-fullscreen: 900;

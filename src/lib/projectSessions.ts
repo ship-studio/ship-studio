@@ -15,6 +15,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { logger } from './logger';
+import { asCommandError, formatCommandError } from './errors';
 
 /** Mirror of the backend `SessionStatus` enum. */
 export type BackendSessionStatus = 'active' | 'suspended';
@@ -67,6 +69,38 @@ export async function suspendProjectSession(projectPath: string): Promise<number
  */
 export async function unregisterProjectSession(projectPath: string): Promise<void> {
   return invoke<void>('unregister_project_session', { projectPath });
+}
+
+/**
+ * Full teardown for an explicitly closed project ("Close project (stops dev
+ * server)" in the rail).
+ *
+ * The frontend's own PTY teardown (`closeAllTerminalsForProject`) can only
+ * reach *mounted* `Terminal` components through `terminalRefsMap`. A project
+ * closed from the dashboard — or any project whose workspace isn't rendered —
+ * has no mounted terminals, so that call is a silent no-op and its agent PTYs
+ * keep running after the row is gone. Sweeping the backend PTY registry for
+ * the project first makes the close authoritative regardless of what the UI
+ * currently has mounted; it targets only PTYs registered under this project
+ * path, so it can't touch another session's processes.
+ *
+ * Suspend failures are non-fatal: unregistering is what actually removes the
+ * session, so it always runs.
+ *
+ * @returns the number of PTYs the backend reaped (0 when the sweep failed).
+ */
+export async function closeProjectSession(projectPath: string): Promise<number> {
+  let killed = 0;
+  try {
+    killed = await suspendProjectSession(projectPath);
+  } catch (err) {
+    logger.warn('[closeProjectSession] PTY sweep failed', {
+      projectPath,
+      error: formatCommandError(asCommandError(err)),
+    });
+  }
+  await unregisterProjectSession(projectPath);
+  return killed;
 }
 
 /**

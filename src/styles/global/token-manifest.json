@@ -1,6 +1,39 @@
 {
   "schemaVersion": 1,
   "entry": "src/styles/index.css",
+  "pluginStableApi": {
+    "policy": "Published contract with third-party plugins. Every token listed here MUST resolve to a definition in one of the token layers below; a missing one fails `pnpm check:patterns`. Renaming or removing one is a breaking change — see src/styles/global/tokens-compatibility.css.",
+    "prefixes": ["--bg-", "--text-"],
+    "tokens": [
+      "--accent",
+      "--accent-hover",
+      "--action",
+      "--action-hover",
+      "--action-rgb",
+      "--action-text",
+      "--bg-primary",
+      "--bg-secondary",
+      "--bg-tertiary",
+      "--border",
+      "--border-rgb",
+      "--error",
+      "--error-deep",
+      "--error-deep-rgb",
+      "--error-light",
+      "--error-light-rgb",
+      "--error-rgb",
+      "--font-code",
+      "--font-mono",
+      "--radius",
+      "--success",
+      "--success-rgb",
+      "--text-muted",
+      "--text-primary",
+      "--text-secondary",
+      "--warning",
+      "--warning-rgb"
+    ]
+  },
   "layers": [
     {
       "name": "core",

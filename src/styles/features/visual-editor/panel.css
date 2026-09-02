@@ -132,6 +132,17 @@
   font-size: var(--font-size-body-lg);
 }
 
+/* No label or value inside the panel wraps. Every property row is a
+   fixed-height two-column grid, so a second line grows the row and knocks the
+   control out of alignment with its neighbours (the Breakpoint trigger's
+   "Base · all widths" was the visible case). Long text ellipsizes instead;
+   the full string stays available through the control's own title/tooltip. */
+.ss-edit-panel :is(.ss-edit-panel__label, .segmented-control .button, .value-field__unit) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The fixed context bar (breakpoint + edit target) lives in
    visual-editor-classes.css. */
 

@@ -80,6 +80,54 @@ body {
   background: var(--surface-app);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
+  /* Chrome is furniture, not text. A desktop app's section headers, nav
+     labels, tabs, badges and counts should never highlight blue when a drag
+     starts on them — this is the app-wide default, and everything the user
+     may legitimately want to copy opts back in below. Adding
+     `user-select: none` per component was how "WORKTREES" ended up
+     selectable in the first place. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ── Selectable content ───────────────────────────────────────────────────
+   The opt-in half of the rule above. Anything a user has a real reason to
+   copy — terminal and server output, code, diffs, error text, env values,
+   URLs, long-form copy in modals — must stay selectable. Add new content
+   regions here (or give the element `.selectable`) rather than flipping the
+   default back on. xterm is deliberately absent: it implements its own
+   selection model and sets its own `user-select`. */
+input,
+textarea,
+select,
+[contenteditable=''],
+[contenteditable='true'],
+pre,
+code,
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Failure text is the single most copy-worthy thing in the app (users paste it
+   into an agent or a bug report), and it is spread across dozens of
+   feature-local `*-error` classes — match them all rather than chasing each. */
+[class*='-error'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.code-viewer-editor,
+.code-file-editor,
+.dev-server-logs-terminal,
+.diff-body,
+.conflict-content,
+.changelog-items,
+.help-modal-body,
+.support-panel-body,
+.toast-message {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Themed scrollbars everywhere. Without a global default, WebKit paints the

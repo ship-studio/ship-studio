@@ -190,8 +190,7 @@
   border-right: var(--stroke-1) solid var(--border-default);
 }
 
-.workspace-sidebar.is-hidden .workspace-sidebar-ws-switch,
-.workspace-sidebar.is-hidden .workspace-sidebar-footer-divider {
+.workspace-sidebar.is-hidden .workspace-sidebar-ws-switch {
   display: none;
 }
 
@@ -359,11 +358,14 @@
   padding: var(--space-08);
 }
 
+/* Collapsed-rail group markers (Pinned / Active). Same row band as the
+ * project rows and the search trigger they sit between — a shorter row here
+ * made the rail read as a column of mismatched cells. */
 .sidebar-group-marker {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: var(--control-height-standard);
+  height: var(--size-sidebar-project-row);
   color: var(--text-faint);
   border-bottom: var(--stroke-1) solid var(--border-subtle);
 }
@@ -1233,18 +1235,18 @@
   flex: 0 0 var(--control-height-standard);
 }
 
-/* Workspace switcher — same full-bleed ghost button as "Open project",
- * stacked directly below it (separated by a hairline). Only rendered when
- * the user has 2+ workspaces; shows the active workspace's color + name. */
-.workspace-sidebar-footer-divider {
-  height: 1px;
-  background: var(--border-default);
+/* Workspace switcher — the same button as "Open project" directly above it:
+ * border, radius, height and hover all come from the Button primitive, so
+ * only the footer spacing and the dot/name row belong here. Only rendered
+ * when the user has 2+ workspaces; shows the active workspace's color + name. */
+.workspace-sidebar-ws-switch {
+  margin-top: var(--button-gap);
+  gap: var(--space-06);
+  min-width: 0;
 }
 
-.workspace-sidebar-ws-switch {
-  height: 44px;
-  font-size: var(--font-size-body-md);
-  gap: var(--spacing-sm);
+.workspace-sidebar-ws-switch .workspace-switch-account-name {
+  min-width: 0;
 }
 
 /* Project picker styles removed — replaced by the command palette (⌘O). */

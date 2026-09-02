@@ -3,6 +3,271 @@
   "manifest": "src/styles/global/token-manifest.json",
   "tokens": [
     {
+      "name": "--bg-primary",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--bg-secondary",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--bg-tertiary",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--bg-deep",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--bg-hover",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--text-bright",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--accent",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 3
+    },
+    {
+      "name": "--accent-hover",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--action",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--action-hover",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--action-text",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--border",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--success",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--success-light",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "migration",
+      "status": "migration",
+      "pluginStable": false,
+      "removalCondition": "Remove after internal consumers migrate to the canonical semantic role.",
+      "consumerCount": 0
+    },
+    {
+      "name": "--warning",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--warning-light",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "migration",
+      "status": "migration",
+      "pluginStable": false,
+      "removalCondition": "Remove after internal consumers migrate to the canonical semantic role.",
+      "consumerCount": 0
+    },
+    {
+      "name": "--error",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--error-light",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--error-deep",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--action-rgb",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--success-rgb",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--success-light-rgb",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "migration",
+      "status": "migration",
+      "pluginStable": false,
+      "removalCondition": "Remove after internal consumers migrate to the canonical semantic role.",
+      "consumerCount": 0
+    },
+    {
+      "name": "--warning-rgb",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--warning-light-rgb",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "migration",
+      "status": "migration",
+      "pluginStable": false,
+      "removalCondition": "Remove after internal consumers migrate to the canonical semantic role.",
+      "consumerCount": 0
+    },
+    {
+      "name": "--error-rgb",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--error-light-rgb",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--error-deep-rgb",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--font-mono",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
+      "name": "--radius",
+      "definitionFile": "src/styles/global/tokens-compatibility.css",
+      "layer": "compatibility",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
+      "consumerCount": 0
+    },
+    {
       "name": "--modified-yellow",
       "definitionFile": "src/styles/global/tokens-compatibility.css",
       "layer": "compatibility",
@@ -166,10 +431,9 @@
       "name": "--border-rgb",
       "definitionFile": "src/styles/global/tokens-compatibility.css",
       "layer": "compatibility",
-      "owner": "migration",
-      "status": "migration",
-      "pluginStable": false,
-      "removalCondition": "Remove after internal consumers migrate to the canonical semantic role.",
+      "owner": "plugin-compatibility",
+      "status": "compatibility",
+      "pluginStable": true,
       "consumerCount": 0
     },
     {
@@ -250,7 +514,7 @@
       "status": "migration",
       "pluginStable": false,
       "removalCondition": "Remove after internal consumers migrate to the canonical semantic role.",
-      "consumerCount": 376
+      "consumerCount": 373
     },
     {
       "name": "--transition-slow",
@@ -287,7 +551,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 21
+      "consumerCount": 20
     },
     {
       "name": "--size-control-compact",
@@ -296,7 +560,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 3
     },
     {
       "name": "--size-titlebar-project-path",
@@ -350,7 +614,7 @@
       "owner": "WorkspaceSidebar",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 2
     },
     {
       "name": "--size-sidebar-section-row",
@@ -377,7 +641,7 @@
       "owner": "IconGallery",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 14
+      "consumerCount": 19
     },
     {
       "name": "--size-icon-button",
@@ -386,7 +650,7 @@
       "owner": "IconGallery",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 19
+      "consumerCount": 22
     },
     {
       "name": "--size-icon-md",
@@ -827,7 +1091,7 @@
       "owner": "PropertyField",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 7
+      "consumerCount": 10
     },
     {
       "name": "--property-field-hover",
@@ -935,7 +1199,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 0
+      "consumerCount": 1
     },
     {
       "name": "--variable-surface-hover",
@@ -962,7 +1226,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 8
+      "consumerCount": 10
     },
     {
       "name": "--variable-text-hover",
@@ -971,7 +1235,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 3
     },
     {
       "name": "--variable-field-hover",
@@ -980,7 +1244,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 2
     },
     {
       "name": "--variable-field-selected",
@@ -989,7 +1253,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 4
     },
     {
       "name": "--class-text",
@@ -1115,7 +1379,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 11
+      "consumerCount": 12
     },
     {
       "name": "--button-text-hover",
@@ -1142,7 +1406,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 4
+      "consumerCount": 5
     },
     {
       "name": "--button-height",
@@ -1151,7 +1415,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 23
+      "consumerCount": 28
     },
     {
       "name": "--button-height-compact",
@@ -1178,7 +1442,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 40
+      "consumerCount": 41
     },
     {
       "name": "--button-radius",
@@ -1205,7 +1469,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 4
     },
     {
       "name": "--button-active-scale",
@@ -1214,7 +1478,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 6
+      "consumerCount": 7
     },
     {
       "name": "--button-primary-start",
@@ -1304,7 +1568,7 @@
       "owner": "Button",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 3
     },
     {
       "name": "--control-height-standard",
@@ -1313,7 +1577,7 @@
       "owner": "Control",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 26
+      "consumerCount": 39
     },
     {
       "name": "--control-height-large",
@@ -1331,7 +1595,7 @@
       "owner": "Control",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 8
+      "consumerCount": 13
     },
     {
       "name": "--text-field-height",
@@ -1907,7 +2171,16 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 32
+      "consumerCount": 34
+    },
+    {
+      "name": "--z-pane-separator",
+      "definitionFile": "src/styles/global/tokens-components.css",
+      "layer": "components",
+      "owner": "GlobalOverlay",
+      "status": "canonical",
+      "pluginStable": false,
+      "consumerCount": 3
     },
     {
       "name": "--z-workspace-header",
@@ -1916,7 +2189,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 12
     },
     {
       "name": "--z-preview-fullscreen",
@@ -1934,7 +2207,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 7
+      "consumerCount": 8
     },
     {
       "name": "--editor-panel-w",
@@ -1952,7 +2225,7 @@
       "owner": "VisualEditor",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 8
     },
     {
       "name": "--editor-panel-inline-pad",
@@ -2249,7 +2522,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 3
+      "consumerCount": 4
     },
     {
       "name": "--tree-panel-w",
@@ -2258,7 +2531,7 @@
       "owner": "ElementTree",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 12
     },
     {
       "name": "--tree-code-w",
@@ -2267,7 +2540,7 @@
       "owner": "ElementTree",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 5
     },
     {
       "name": "--hint-card-max-w",
@@ -2276,7 +2549,7 @@
       "owner": "global/component",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 0
     },
     {
       "name": "--z-modal-overlay",
@@ -2303,7 +2576,7 @@
       "owner": "GlobalOverlay",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 9
+      "consumerCount": 10
     },
     {
       "name": "--z-notification",
@@ -2906,7 +3179,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 27
+      "consumerCount": 29
     },
     {
       "name": "--space-04",
@@ -2915,7 +3188,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 47
+      "consumerCount": 46
     },
     {
       "name": "--space-06",
@@ -2924,7 +3197,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 28
+      "consumerCount": 30
     },
     {
       "name": "--space-08",
@@ -2933,7 +3206,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 37
+      "consumerCount": 50
     },
     {
       "name": "--space-09",
@@ -2951,7 +3224,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 0
+      "consumerCount": 2
     },
     {
       "name": "--space-12",
@@ -2960,7 +3233,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 16
+      "consumerCount": 17
     },
     {
       "name": "--space-16",
@@ -2969,7 +3242,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 20
+      "consumerCount": 18
     },
     {
       "name": "--space-24",
@@ -2987,7 +3260,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 18
+      "consumerCount": 19
     },
     {
       "name": "--stroke-1",
@@ -2996,7 +3269,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 77
+      "consumerCount": 81
     },
     {
       "name": "--stroke-2",
@@ -3311,7 +3584,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 0
+      "consumerCount": 1
     },
     {
       "name": "--duration-loader-fast",
@@ -3365,7 +3638,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 3
     },
     {
       "name": "--ease-icon-swap",
@@ -3401,7 +3674,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 76
+      "consumerCount": 79
     },
     {
       "name": "--surface-panel",
@@ -3410,7 +3683,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 194
+      "consumerCount": 192
     },
     {
       "name": "--surface-control",
@@ -3446,7 +3719,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 10
+      "consumerCount": 11
     },
     {
       "name": "--surface-terminal-input",
@@ -3482,7 +3755,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 5
+      "consumerCount": 6
     },
     {
       "name": "--text-primary",
@@ -3491,7 +3764,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 409
+      "consumerCount": 403
     },
     {
       "name": "--text-secondary",
@@ -3500,7 +3773,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 309
+      "consumerCount": 310
     },
     {
       "name": "--text-muted",
@@ -3509,7 +3782,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 555
+      "consumerCount": 550
     },
     {
       "name": "--text-faint",
@@ -3545,7 +3818,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 29
+      "consumerCount": 30
     },
     {
       "name": "--border-default",
@@ -3554,7 +3827,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 417
+      "consumerCount": 421
     },
     {
       "name": "--border-subtle",
@@ -3563,7 +3836,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 36
+      "consumerCount": 38
     },
     {
       "name": "--border-strong",
@@ -3572,7 +3845,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 28
+      "consumerCount": 27
     },
     {
       "name": "--border-accent",
@@ -3590,7 +3863,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 12
+      "consumerCount": 28
     },
     {
       "name": "--accent-active",
@@ -3599,7 +3872,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 176
+      "consumerCount": 179
     },
     {
       "name": "--accent-active-hover",
@@ -3626,7 +3899,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 11
+      "consumerCount": 12
     },
     {
       "name": "--focus-ring-width",
@@ -3635,7 +3908,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 2
+      "consumerCount": 5
     },
     {
       "name": "--focus-ring-offset",
@@ -3770,7 +4043,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 124
+      "consumerCount": 125
     },
     {
       "name": "--font-symbol",
@@ -3815,7 +4088,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 22
+      "consumerCount": 21
     },
     {
       "name": "--font-size-subhead-lg",
@@ -3833,7 +4106,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 73
+      "consumerCount": 72
     },
     {
       "name": "--font-size-body-lg",
@@ -3842,7 +4115,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 163
+      "consumerCount": 164
     },
     {
       "name": "--font-size-body-md",
@@ -3851,7 +4124,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 184
+      "consumerCount": 185
     },
     {
       "name": "--font-size-body-sm",
@@ -3860,7 +4133,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 211
+      "consumerCount": 210
     },
     {
       "name": "--font-size-control",
@@ -3914,7 +4187,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 110
+      "consumerCount": 109
     },
     {
       "name": "--font-size-3xl",
@@ -3959,7 +4232,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 8
+      "consumerCount": 9
     },
     {
       "name": "--font-weight-heading",
@@ -4013,7 +4286,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 4
+      "consumerCount": 5
     },
     {
       "name": "--line-height-help",
@@ -4022,7 +4295,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 6
     },
     {
       "name": "--transition-interaction-fast",
@@ -4040,7 +4313,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 8
     },
     {
       "name": "--transition-interaction-slow",
@@ -4067,7 +4340,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 13
+      "consumerCount": 16
     },
     {
       "name": "--shadow-source-control-attention",
@@ -4094,7 +4367,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 1
+      "consumerCount": 3
     },
     {
       "name": "--accent-active-rgb",
@@ -4103,7 +4376,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 15
+      "consumerCount": 17
     },
     {
       "name": "--accent-success-rgb",
@@ -4157,7 +4430,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 4
+      "consumerCount": 5
     },
     {
       "name": "--spacing-2xs",
@@ -4166,7 +4439,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 19
+      "consumerCount": 20
     },
     {
       "name": "--spacing-xs",
@@ -4175,7 +4448,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 204
+      "consumerCount": 210
     },
     {
       "name": "--spacing-sm",
@@ -4184,7 +4457,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 276
+      "consumerCount": 281
     },
     {
       "name": "--spacing-md",
@@ -4193,7 +4466,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 212
+      "consumerCount": 220
     },
     {
       "name": "--spacing-lg",
@@ -4202,7 +4475,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 90
+      "consumerCount": 104
     },
     {
       "name": "--spacing-xl",
@@ -4211,7 +4484,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 51
+      "consumerCount": 54
     },
     {
       "name": "--spacing-2xl",
@@ -4220,7 +4493,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 15
+      "consumerCount": 21
     },
     {
       "name": "--radius-control",
@@ -4229,7 +4502,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 123
+      "consumerCount": 124
     },
     {
       "name": "--radius-card",
@@ -4238,7 +4511,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 115
+      "consumerCount": 117
     },
     {
       "name": "--radius-sm",
@@ -4247,7 +4520,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 181
+      "consumerCount": 176
     },
     {
       "name": "--radius-lg",
@@ -4265,7 +4538,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 5
+      "consumerCount": 10
     },
     {
       "name": "--tint-subtle",
@@ -4490,7 +4763,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 26
+      "consumerCount": 25
     },
     {
       "name": "--shadow-lg",

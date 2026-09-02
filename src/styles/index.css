@@ -49,6 +49,7 @@
 @import './features/workspace/compact-workspace.css';
 @import './features/toolbar.css';
 @import './features/preview.css';
+@import './features/preview-toolbar.css';
 @import './features/preview-size.css';
 @import './features/agent-activity.css';
 @import './features/thumbnail-consent.css';

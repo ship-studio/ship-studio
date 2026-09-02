@@ -58,16 +58,7 @@ import { DashboardCommunityBanner } from './DashboardCommunityBanner';
 import { Spinner } from '../primitives/Spinner';
 import { GitHubCalendar } from './GitHubCalendar';
 import { useModal } from '../../contexts/ModalContext';
-import {
-  DASHBOARD_VISIBILITY_CHANGED_EVENT,
-  type DashboardVisibilityChangedDetail,
-  getCalendarHidden,
-  setCalendarHidden as persistCalendarHidden,
-  getSlackCtaHidden,
-  setSlackCtaHidden as persistSlackCtaHidden,
-  getDashboardHeaderHidden,
-  setDashboardHeaderHidden as persistDashboardHeaderHidden,
-} from '../../lib/settings';
+import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
 import { moveProjectToAccount, getProjectAccountId } from '../../lib/accounts';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useProjectBulkActions } from '../../hooks/useProjectBulkActions';
@@ -179,44 +170,17 @@ export function ProjectList({
   // Settings / Changelog modal state
   const [showSettings, setShowSettings] = useState(false);
   const changelogModal = useModal('changelog');
-  const [dashboardHeaderHidden, setDashboardHeaderHidden] = useState(false);
-  const [calendarHidden, setCalendarHidden] = useState(false);
-  const [slackCtaHidden, setSlackCtaHidden] = useState(false);
-
-  useEffect(() => {
-    void getDashboardHeaderHidden().then(setDashboardHeaderHidden);
-    void getCalendarHidden().then(setCalendarHidden);
-    void getSlackCtaHidden().then(setSlackCtaHidden);
-  }, []);
-
-  useEffect(() => {
-    const handleVisibilityChanged = (event: Event) => {
-      const detail = (event as CustomEvent<DashboardVisibilityChangedDetail>).detail;
-      if (!detail) return;
-      if (detail.key === 'dashboardHeader') setDashboardHeaderHidden(detail.hidden);
-      if (detail.key === 'calendar') setCalendarHidden(detail.hidden);
-      if (detail.key === 'slackCta') setSlackCtaHidden(detail.hidden);
-    };
-
-    window.addEventListener(DASHBOARD_VISIBILITY_CHANGED_EVENT, handleVisibilityChanged);
-    return () =>
-      window.removeEventListener(DASHBOARD_VISIBILITY_CHANGED_EVENT, handleVisibilityChanged);
-  }, []);
-
-  const hideDashboardHeader = useCallback(() => {
-    setDashboardHeaderHidden(true);
-    void persistDashboardHeaderHidden(true);
-  }, []);
-
-  const hideSlackCta = useCallback(() => {
-    setSlackCtaHidden(true);
-    void persistSlackCtaHidden(true);
-  }, []);
-
-  const hideCalendar = useCallback(() => {
-    setCalendarHidden(true);
-    void persistCalendarHidden(true);
-  }, []);
+  const {
+    dashboardHeaderHidden,
+    calendarHidden,
+    slackCtaHidden,
+    hideDashboardHeader,
+    hideCalendar,
+    hideSlackCta,
+    setDashboardHeaderHidden,
+    setCalendarHidden,
+    setSlackCtaHidden,
+  } = useDashboardVisibility();
 
   // Search and sort state
   // NOTE: search filtering now flows through the Cmd+K palette; this is kept
