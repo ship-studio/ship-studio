@@ -1,103 +1,101 @@
-/* Branch Indicator */
+/* Conditional unsaved-changes segment beside Push */
+.source-control-actions,
+.source-control-push {
+  display: flex;
+  align-items: center;
+}
+
+.source-control-actions {
+  gap: var(--button-group-spacing);
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.source-control-push.has-unsaved-changes {
+  box-sizing: border-box;
+  height: var(--button-height);
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transition:
+    box-shadow var(--transition),
+    transform var(--transition);
+}
+
+.source-control-push.has-unsaved-changes:hover {
+  background: transparent;
+  box-shadow: var(--shadow-source-control-attention);
+}
+
+/* The unsaved branch indicator and Push trigger are one visual control. Move
+   the press scale to their shared wrapper so pressing either segment scales
+   the whole orange-outlined control together. */
+.source-control-push.has-unsaved-changes:has(
+    > .branch-indicator .branch-indicator-button:active:not(:disabled),
+    > .publish-dropdown > .source-control-push-button:active:not(:disabled)
+  ) {
+  transform: scale(var(--button-active-scale));
+}
+
+.source-control-push.has-unsaved-changes
+  > .branch-indicator
+  .branch-indicator-button.button:active:not(:disabled),
+.source-control-push.has-unsaved-changes
+  > .publish-dropdown
+  > .source-control-push-button.button:active:not(:disabled) {
+  transform: none;
+}
+
 .branch-indicator {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  align-self: stretch;
+  border-radius: var(--button-radius) 0 0 var(--button-radius);
 }
 
-/* Small pull-latest button beside the branch chip (git pull). Icon + "Pull"
-   label at full width; the label collapses at the header's icon-only
-   breakpoint (workspace/main.css), which also squares the button. */
-.branch-pull-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 28px;
-  /* Optically balanced: the icon glyph carries ~2px of built-in air on its
-     left while the text ends flush right, so equal padding reads lopsided. */
-  padding: 0 var(--spacing-md) 0 var(--spacing-sm);
-  flex-shrink: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
+.source-control-push.has-unsaved-changes .branch-indicator {
+  box-sizing: border-box;
+  height: var(--button-height);
+  background: var(--surface-warning);
+  border: var(--stroke-1) solid var(--accent-warning);
+  border-radius: var(--button-radius) 0 0 var(--button-radius);
+  overflow: clip;
 }
 
-.branch-pull-button:hover:not(:disabled) {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+.branch-indicator .branch-indicator-button.button {
+  height: 100%;
+  min-height: var(--button-height);
+  max-width: calc(var(--source-control-branch-max-width) + var(--spacing-xl));
+  background: transparent;
+  border: 0;
+  border-radius: var(--button-radius) 0 0 var(--button-radius);
+  box-shadow: none;
+  color: var(--accent-warning);
 }
 
-.branch-pull-button:disabled {
-  cursor: default;
-  opacity: 0.7;
+.branch-indicator .branch-indicator-push-trigger.button {
+  min-height: 0;
+  gap: var(--space-04);
+  padding-right: calc(var(--button-padding) + var(--space-04));
 }
 
-.branch-indicator-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
+.branch-indicator .branch-indicator-push-trigger.button:hover {
+  background: transparent;
+  color: var(--accent-warning);
 }
 
-/* Match the branch chip's height to the toolbar buttons (.toolbar-icon-btn,
-   28px) now that it lives in the header row alongside them. */
-.workspace-header .branch-indicator-button {
-  height: 28px;
-  padding: 0 var(--spacing-md);
+.branch-indicator .branch-indicator-button.button:hover:not(.branch-indicator-push-trigger) {
+  background: var(--surface-warning);
+  color: var(--accent-warning-light);
 }
 
-/* In the header the chip shares the row with the tabs and toolbar, so truncate
-   the branch name much sooner than the standalone chip's 280px to keep long
-   names from crowding out the tabs. */
+.workspace-titlebar .branch-name,
 .workspace-header .branch-name {
-  max-width: 150px;
-}
-
-.branch-indicator-button:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.branch-indicator-button svg {
-  opacity: 0.7;
-}
-
-/* Main branch warning style */
-.branch-indicator-button.main-branch {
-  background: rgba(var(--warning-rgb), 0.15);
-  border-color: rgba(var(--warning-rgb), 0.4);
-  color: var(--warning);
-}
-
-.branch-indicator-button.main-branch:hover {
-  background: rgba(var(--warning-rgb), 0.25);
-  border-color: rgba(var(--warning-rgb), 0.6);
-  color: var(--warning-light);
-}
-
-.branch-indicator-button.main-branch svg {
-  opacity: 1;
-  color: var(--warning);
+  max-width: var(--source-control-branch-max-width);
 }
 
 .branch-name {
@@ -105,20 +103,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--accent-warning);
+}
+
+.branch-indicator-push-trigger .branch-name {
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
 }
 
 .branch-live-badge {
-  font-size: var(--font-size-xs);
-  padding: 1px 5px;
-  background: rgba(var(--success-light-rgb), 0.15);
-  color: var(--success-light);
-  border-radius: 3px;
-  font-weight: 500;
+  padding: var(--space-04);
+  border-radius: var(--radius-2);
+  background: rgba(var(--accent-active-rgb), 0.15);
+  color: var(--accent-active);
+  font-size: var(--font-size-10);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
 }
 
 /* Sync state: is this branch on GitHub or only local? */
 .branch-sync-badge {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   padding: 1px 6px;
   border-radius: 3px;
   font-weight: 500;
@@ -128,47 +133,58 @@
 /* "On GitHub" is the normal state — neutral. "Local only" is the one that
    might need action (not backed up), so it carries the gentle warning tint. */
 .branch-sync-badge.synced {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-secondary);
 }
 
 .branch-sync-badge.local {
-  background: rgba(var(--warning-rgb), 0.12);
-  color: var(--warning);
+  background: rgba(var(--accent-warning-rgb), 0.12);
+  color: var(--accent-warning);
 }
 
 .branch-changes-dot {
   width: 6px;
   height: 6px;
-  background: var(--warning);
+  background: var(--accent-warning);
   border-radius: var(--radius-full);
   flex-shrink: 0;
 }
 
-.branch-unsaved-badge {
-  font-size: var(--font-size-xs);
-  padding: 1px 5px;
-  background: rgba(var(--warning-rgb), 0.15);
-  color: var(--warning);
-  border-radius: 3px;
-  font-weight: 500;
+.branch-unsaved-label {
+  padding: var(--space-04);
+  border-radius: var(--radius-2);
+  background: var(--surface-warning);
+  color: var(--accent-warning);
+  font-size: var(--font-size-10);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
 }
 
-/* Back to Preview button */
-.branch-indicator-back .back-chevron {
-  transform: rotate(90deg);
+/* The warning segment sheds secondary context in stages as the titlebar
+   narrows: the live marker first, then the branch name. The Push affordance
+   and its unsaved state remain visible throughout. */
+@media (max-width: 1100px) {
+  .workspace-titlebar .source-control-push .branch-live-badge {
+    display: none;
+  }
 }
 
-/* Branch Changes Hover Dropdown */
+@media (max-width: 900px) {
+  .workspace-titlebar .source-control-push .branch-name {
+    display: none;
+  }
+}
+
+/* Changed-files review */
 .branch-changes-dropdown {
   position: absolute;
   top: calc(100% + 8px);
-  left: 0;
-  min-width: 280px;
-  max-width: 400px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  right: 0;
+  left: auto;
+  width: var(--popover-source-control-width);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-md);
   overflow: hidden;
   z-index: var(--z-modal-overlay);
@@ -176,8 +192,8 @@
 
 .branch-changes-header {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  font-size: var(--font-size-base);
+  border-bottom: 1px solid var(--border-default);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -193,12 +209,16 @@
   gap: 8px;
   padding: 8px 12px;
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   transition: background var(--transition-fast);
+  width: 100%;
+  background: transparent;
+  border: 0;
+  text-align: left;
 }
 
 .branch-changes-item:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .branch-changes-item-clickable {
@@ -216,7 +236,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   line-height: 1;
   border-radius: 3px;
@@ -227,17 +247,17 @@
 
 .change-modified {
   background: rgba(var(--modified-yellow-rgb), 0.2);
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .change-added {
-  background: rgba(var(--success-light-rgb), 0.2);
-  color: var(--success);
+  background: rgba(var(--accent-success-rgb), 0.2);
+  color: var(--accent-success);
 }
 
 .change-deleted {
-  background: rgba(var(--error-light-rgb), 0.2);
-  color: var(--error);
+  background: rgba(var(--accent-error-light-rgb), 0.2);
+  color: var(--accent-error);
 }
 
 .change-renamed {
@@ -266,65 +286,23 @@
 
 .branch-changes-footer {
   padding: 8px 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
 }
 
-.branch-changes-save-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--info);
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-bright);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
+.branch-changes-empty {
+  padding: var(--spacing-md);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
 }
 
-.branch-changes-save-btn:hover {
-  background: var(--info-hover);
-}
-
-.branch-changes-discard-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--error);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.branch-changes-discard-btn:hover:not(:disabled) {
-  background: rgba(var(--error-light-rgb), 0.1);
-  border-color: var(--error);
-}
-
-.branch-changes-discard-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.branch-changes-discard-btn.confirming {
-  background: var(--error);
-  border-color: var(--error);
-  color: var(--text-bright);
+.branch-changes-discard-btn.button.confirming {
+  background: var(--accent-error);
+  border-color: var(--accent-error);
+  color: var(--text-inverse);
   animation: pulse-danger 0.6s ease-in-out infinite;
 }
 
@@ -338,8 +316,374 @@
   }
 }
 
-.branch-changes-discard-btn svg {
+.branch-changes-discard-btn .button__icon {
   flex-shrink: 0;
+}
+
+/* Header Branches workflow */
+.branches-menu {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.branches-menu-trigger.is-active {
+  color: var(--button-text-hover);
+  border-color: var(--button-border-outline);
+}
+
+.branches-menu-popover {
+  position: absolute;
+  top: calc(100% + var(--spacing-sm));
+  right: 0;
+  left: auto;
+  width: var(--popover-source-control-width);
+  min-width: var(--popover-source-control-width);
+  max-width: var(--popover-source-control-width);
+  max-height: calc(100vh - var(--spacing-2xl) - var(--panel-header-h));
+  padding: 0;
+  overflow-y: auto;
+  background: var(--surface-panel);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-modal-overlay);
+  --branches-menu-subline-gap: var(--spacing-2xs);
+}
+
+.branches-menu-section,
+.branches-menu-setup {
+  padding: var(--spacing-md);
+}
+
+.branches-menu-section + .branches-menu-section {
+  border-top: var(--stroke-1) solid var(--border-default);
+}
+
+.branches-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md);
+}
+
+.branches-menu-header h3 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-semibold);
+}
+
+.branches-menu-repository-button {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.branches-menu-section-title {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-code);
+  text-transform: uppercase;
+}
+
+.branches-menu-section > .branches-menu-section-title,
+.branches-menu-section-heading {
+  margin-bottom: var(--spacing-sm);
+}
+
+.branches-menu-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.branches-menu-section-heading-main {
+  display: flex;
+  align-items: center;
+  gap: var(--branches-menu-subline-gap);
+  min-width: 0;
+}
+
+.branches-menu-section-view-all {
+  flex: 0 0 auto;
+  font-size: var(--font-size-body-sm);
+  white-space: nowrap;
+}
+
+.branches-menu-section-heading .branches-menu-section-title {
+  margin-bottom: 0;
+}
+
+.branches-menu-count {
+  min-width: var(--control-height-compact);
+  padding: var(--spacing-2xs) var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-badge);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.branches-menu-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  min-height: var(--button-height);
+  padding: 0 var(--spacing-sm);
+  background: transparent;
+  border: 0;
+  border-radius: var(--button-radius);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-body-md);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition);
+}
+
+.branches-menu-branch-row {
+  align-items: stretch;
+  gap: var(--spacing-2xs);
+  min-height: var(--button-height);
+}
+
+.branches-menu-row-icon {
+  display: inline-flex;
+  flex: 0 0 var(--button-height);
+  align-items: center;
+  justify-content: center;
+  width: var(--button-height);
+  height: var(--button-height);
+  aspect-ratio: 1 / 1;
+}
+
+.branches-menu-row-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.branches-menu-row-content {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  gap: var(--spacing-sm);
+  padding-block: var(--spacing-sm);
+}
+
+.branches-menu-row:hover:not(:disabled) {
+  background: var(--surface-control);
+}
+
+.branches-menu-row:focus-visible {
+  outline: var(--stroke-1) solid var(--accent-focus);
+  outline-offset: calc(var(--stroke-1) * -1);
+}
+
+.branches-menu-row:disabled {
+  cursor: default;
+}
+
+.branches-menu-row.is-current {
+  background: rgba(var(--accent-active-rgb), 0.15);
+  color: var(--accent-active);
+}
+
+.branches-menu-pr-row {
+  display: grid;
+  grid-template-columns: var(--size-icon-button) minmax(0, 1fr);
+  align-items: stretch;
+  column-gap: var(--button-gap);
+}
+
+.branches-menu-pr-leading-icon {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  margin-top: var(--spacing-2xs);
+}
+
+.branches-menu-pr-leading-icon {
+  grid-column: 1;
+  grid-row: 1;
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+}
+
+.branches-menu-pr-content {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--branches-menu-subline-gap);
+  padding-block: var(--spacing-xs);
+}
+
+.branches-menu-pr-main,
+.branches-menu-pr-meta {
+  min-width: 0;
+  line-height: var(--line-height-body);
+}
+
+.branches-menu-pr-main {
+  display: block;
+}
+
+.branches-menu-pr-inline {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-secondary);
+  line-height: var(--line-height-compact);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.branches-menu-pr-number {
+  margin-inline-end: var(--spacing-xs);
+  color: var(--text-muted);
+}
+
+.branches-menu-pr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: var(--spacing-xs);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.branches-menu-pr-branches {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  gap: var(--spacing-2xs);
+}
+
+.branches-menu-pr-branch {
+  min-width: 0;
+  padding: var(--spacing-3xs) var(--spacing-xs);
+  background: var(--surface-control);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-code);
+  overflow-wrap: anywhere;
+}
+
+.branches-menu-pr-row:hover:not(:disabled) .branches-menu-pr-branch {
+  background: var(--surface-control-hover);
+}
+
+.branches-menu-pr-author {
+  overflow-wrap: anywhere;
+}
+
+.branches-menu-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branches-menu-row-meta,
+.branches-menu-empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.branches-menu-empty {
+  padding: var(--spacing-sm);
+}
+
+.branches-menu-action {
+  height: auto;
+  min-height: var(--button-height);
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: var(--spacing-xs);
+  text-align: left;
+  color: var(--accent-active);
+  white-space: normal;
+}
+
+.branches-menu-action:hover:not(:disabled) {
+  color: var(--accent-active-hover);
+}
+
+.branches-menu-action-content {
+  display: grid;
+  grid-template-columns: var(--size-icon-button) minmax(0, 1fr);
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  column-gap: var(--button-gap);
+  row-gap: var(--branches-menu-subline-gap);
+  padding-block: var(--spacing-xs);
+}
+
+.branches-menu-action-main {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  min-width: 0;
+  gap: var(--button-gap);
+}
+
+.branches-menu-action-icon {
+  display: inline-flex;
+  flex: 0 0 var(--size-icon-button);
+  align-items: center;
+  justify-content: center;
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+}
+
+.branches-menu-action-icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.branches-menu-action .branches-menu-row-label {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.branches-menu-action .branches-menu-row-meta {
+  grid-column: 2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branches-menu-setup p {
+  margin: var(--spacing-sm) 0 var(--spacing-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+}
+
+.branches-menu-setup .button {
+  width: 100%;
 }
 
 /* Branch Indicator Dropdown */
@@ -348,8 +692,8 @@
   top: calc(100% + 8px);
   left: 0;
   min-width: 260px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   box-shadow: var(--shadow-md);
   z-index: var(--z-modal-overlay);
@@ -358,7 +702,7 @@
 
 .branch-dropdown-header {
   padding: 12px 14px 8px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -371,7 +715,7 @@
 
 .branch-dropdown-section-label {
   padding: 8px 14px 4px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 
@@ -385,14 +729,14 @@
   border: none;
   border-radius: 0;
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   text-align: left;
   cursor: pointer;
   transition: background var(--transition);
 }
 
 .branch-dropdown-item:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-radius: 0;
 }
 
@@ -402,12 +746,12 @@
 }
 
 .branch-dropdown-item.current {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   cursor: default;
 }
 
 .branch-dropdown-item.current:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .branch-item-icon {
@@ -423,33 +767,33 @@
 }
 
 .branch-item-badge {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   padding: 1px 5px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: 3px;
   color: var(--text-muted);
 }
 
 .branch-item-badge.live {
-  background: rgba(var(--success-light-rgb), 0.15);
+  background: rgba(var(--accent-success-rgb), 0.15);
   border-color: transparent;
-  color: var(--success-light);
+  color: var(--accent-success);
 }
 
 .branch-item-meta {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 
 .branch-item-meta.behind {
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .branch-dropdown-footer {
   padding: 8px 0;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-control);
 }
 
 .branch-dropdown-link {
@@ -459,7 +803,7 @@
   background: none;
   border: none;
   color: var(--info);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   text-align: left;
   cursor: pointer;
   transition:
@@ -470,5 +814,5 @@
 
 .branch-dropdown-link:hover {
   color: var(--info-light);
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }

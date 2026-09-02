@@ -24,7 +24,7 @@ import { useModal } from '../../contexts/ModalContext';
 import { useAsyncState } from '../../hooks/useAsyncState';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { GlobeIcon, CloseIcon } from '../icons';
+import { GlobeIcon, CloseIcon } from '@/components/icons';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { trackEvent } from '../../lib/analytics';
 import {
@@ -453,7 +453,7 @@ export function LanguagesModal({ projectPath, onSendToClaude }: LanguagesModalPr
             <div className="languages-error">
               {saveError}
               {needsAiFallback && (
-                <Button variant="secondary" size="sm" onClick={handleAiFallback}>
+                <Button variant="secondary" onClick={handleAiFallback}>
                   Fix with AI
                 </Button>
               )}

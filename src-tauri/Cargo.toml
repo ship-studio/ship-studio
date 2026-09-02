@@ -82,5 +82,5 @@ tempfile = "3"
 # macOS-specific dependencies for WebKit JavaScript evaluation
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
-objc2-foundation = { version = "0.2", features = ["NSString", "NSGeometry"] }
+objc2-foundation = { version = "0.2", features = ["NSString", "NSGeometry", "NSData"] }
 block2 = "0.5"

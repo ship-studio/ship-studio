@@ -541,7 +541,7 @@ describe('useDevServer', () => {
   });
 
   describe('stopServer', () => {
-    it('clears project type', async () => {
+    it('keeps the last-known project type so the Preview tab survives a stop', async () => {
       const { result } = renderHook(() => useDevServer('/path/to/project'));
 
       act(() => {
@@ -552,7 +552,11 @@ describe('useDevServer', () => {
         await result.current.stopServer();
       });
 
-      expect(result.current.projectType).toBe('unknown');
+      // Live state is dropped (isServerRunning false), but the scalar view
+      // falls back to the last-known type — this is what keeps hasPreview
+      // (and therefore the Preview tab) true while nothing is running.
+      expect(result.current.isServerRunning('/path/to/project')).toBe(false);
+      expect(result.current.projectType).toBe('nextjs');
     });
   });
 

@@ -4,7 +4,8 @@
  * @module components/accounts/AccountCard
  */
 
-import { SettingsIcon } from '../icons';
+import { SettingsIcon } from '@/components/icons';
+import { IconButton } from '../primitives/IconButton';
 import type { Account } from '../../lib/accounts';
 
 interface AccountCardProps {
@@ -25,8 +26,9 @@ export function AccountCard({ account, isActive, onSelect, onOpenSettings }: Acc
           <div className="account-card-name">{account.name}</div>
           {isActive && <div className="account-card-badge">Current</div>}
         </div>
-        <button
-          type="button"
+        <IconButton
+          variant="ghost"
+          size="compact"
           className="account-card-settings"
           onClick={(e) => {
             e.stopPropagation();
@@ -34,9 +36,8 @@ export function AccountCard({ account, isActive, onSelect, onOpenSettings }: Acc
           }}
           aria-label={`${account.name} settings`}
           title="Workspace settings"
-        >
-          <SettingsIcon size={14} />
-        </button>
+          icon={<SettingsIcon size={14} />}
+        />
       </div>
     </div>
   );

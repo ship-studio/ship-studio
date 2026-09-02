@@ -2,8 +2,8 @@
 .changelog {
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -26,18 +26,18 @@
 
 .changelog-header {
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .changelog-header h3 {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 
 .changelog-subtitle {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   margin-top: 2px;
   display: block;
@@ -56,7 +56,7 @@
 
 .changelog-entry {
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .changelog-entry:last-child {
@@ -71,10 +71,10 @@
 }
 
 .changelog-version {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
-  color: var(--accent);
-  font-family: 'SF Mono', Monaco, monospace;
+  color: var(--accent-active);
+  font-family: var(--font-code);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -98,10 +98,10 @@
   font-size: 9px;
   font-weight: 500;
   color: var(--text-muted);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   padding: 1px 5px;
   border-radius: var(--radius-sm);
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-ui);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
@@ -113,7 +113,7 @@
 }
 
 .changelog-items li {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-secondary);
   padding: 1px 0;
   padding-left: 10px;
@@ -126,7 +126,7 @@
   position: absolute;
   left: 0;
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
 }
 
 /* Rewind Modal */
@@ -143,8 +143,8 @@
 
 .rewind-content {
   width: 400px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -155,8 +155,8 @@
   align-items: center;
   gap: 10px;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  color: var(--warning);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--accent-warning);
 }
 
 .rewind-header h3 {
@@ -172,7 +172,7 @@
 
 .rewind-body p {
   margin: 0;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -185,14 +185,14 @@
 .rewind-progress {
   margin-top: 12px;
   height: 4px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .rewind-progress-bar {
   height: 100%;
-  background: var(--action);
+  background: var(--accent-active);
   border-radius: 2px;
 }
 
@@ -211,9 +211,9 @@
 }
 
 .rewind-body p.rewind-error-text {
-  color: var(--error);
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: var(--font-size-base);
+  color: var(--accent-error);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-md);
 }
 
 .rewind-actions {
@@ -221,8 +221,8 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 20px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-control);
 }
 
 /* Hide on very narrow screens only — the dashboard column is single-column

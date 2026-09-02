@@ -3,22 +3,32 @@
  * the toolbar "1440 × 900" button and the width/height inputs it opens.
  */
 
-/* Wrapper anchors the size popover; owns the auto-margin push right. */
+/* Wrapper anchors the size popover inside the breakpoint control group. */
 .preview-size-wrap {
   position: relative;
   display: inline-flex;
-  margin-left: auto;
+  align-items: center;
+  flex-shrink: 0;
+  width: var(--size-preview-dimensions);
+  min-width: var(--size-preview-dimensions);
+  height: var(--control-height-standard);
 }
 
 .preview-dimensions {
-  padding: 2px 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  width: 100%;
+  padding: 0 var(--spacing-xs);
+  border: var(--stroke-1) solid transparent;
+  border-radius: var(--radius-control);
   background: transparent;
   font: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-md);
   font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
+  color: var(--text-faint);
   user-select: none;
   white-space: nowrap;
   cursor: pointer;
@@ -28,38 +38,40 @@
     border-color var(--transition);
 }
 
-.preview-dimensions:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  border-color: var(--border);
+.preview-dimensions > svg {
+  display: none;
+  flex-shrink: 0;
+}
+
+.preview-dimensions-label {
+  white-space: nowrap;
+}
+
+.preview-dimensions:hover:not(:disabled):not([aria-expanded='true']) {
+  background: var(--surface-control-hover);
+  border-color: transparent;
+  color: var(--text-primary);
+}
+
+.preview-dimensions[aria-expanded='true'],
+.preview-dimensions[aria-expanded='true']:hover:not(:disabled) {
+  background: var(--surface-control);
+  border-color: transparent;
+  box-shadow: var(--shadow-button);
+  color: var(--text-primary);
+}
+
+.preview-dimensions:focus-visible {
+  border-color: transparent;
   color: var(--text-primary);
 }
 
 .preview-dimensions:active:not(:disabled) {
-  background: var(--border);
+  background: var(--border-default);
 }
 
 .preview-dimensions:disabled {
   cursor: default;
-}
-
-.preview-breakpoints {
-  display: flex;
-  align-self: stretch;
-  align-items: stretch;
-  gap: 0;
-  /* Cancel the parent .preview-toolbar's 9px top/bottom padding so the
-     tabs span the full toolbar height — lets the active underline sit
-     flush with the toolbar's bottom border. */
-  margin-top: -9px;
-  margin-bottom: -9px;
-  margin-left: auto;
-  margin-right: 0;
-}
-
-/* When the dimensions readout precedes the breakpoints, it owns the
-   auto-margin push so the two sit together on the right edge. */
-.preview-size-wrap + .preview-breakpoints {
-  margin-left: var(--spacing-xs);
 }
 
 /* Exact-size popover under the dimensions readout. */
@@ -72,10 +84,18 @@
   flex-direction: column;
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-md);
+}
+
+.preview-size-title {
+  margin: 0 0 var(--spacing-xs);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-control);
 }
 
 .preview-size-inputs {
@@ -84,45 +104,45 @@
   gap: var(--spacing-xs);
 }
 
-.preview-size-input {
-  width: 72px;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-  /* WebKit's native number spinners don't theme (black on our dark UI). */
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.preview-size-input::-webkit-outer-spin-button,
-.preview-size-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.preview-size-input:focus {
-  outline: none;
-  border-color: var(--accent);
+.preview-size-field {
+  flex: 0 0 var(--size-preview-dimensions);
+  width: var(--size-preview-dimensions);
 }
 
 .preview-size-x {
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
 }
 
 .preview-size-note {
   margin: 0;
   max-width: 200px;
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   line-height: 1.4;
 }
 
 .preview-size-actions {
   display: flex;
   gap: var(--spacing-sm);
+}
+
+@container preview-pane (max-width: 800px) {
+  .preview-size-wrap {
+    width: var(--control-height-standard);
+    min-width: var(--control-height-standard);
+  }
+
+  .preview-dimensions {
+    width: var(--control-height-standard);
+    padding-inline: 0;
+  }
+
+  .preview-dimensions > svg {
+    display: block;
+  }
+
+  .preview-dimensions-label {
+    display: none;
+  }
 }

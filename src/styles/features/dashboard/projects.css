@@ -1,9 +1,10 @@
 /* Dashboard Section Header */
 .dashboard-section-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--dashboard-section-gap);
+  margin-bottom: var(--dashboard-section-gap);
 }
 
 .dashboard-section-heading {
@@ -13,10 +14,19 @@
   min-width: 0;
 }
 
+.dashboard-section-heading-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
 .dashboard-section-title {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.dashboard-section-count {
+  color: var(--text-faint);
 }
 
 /* Workspace indicator beside "All Projects" — click to open the switcher.
@@ -27,13 +37,10 @@
   gap: var(--spacing-xs);
   height: 24px;
   padding: 0 var(--spacing-sm);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  line-height: 1;
   cursor: pointer;
   transition:
     border-color var(--transition),
@@ -42,8 +49,8 @@
 }
 
 .dashboard-workspace-chip:hover {
-  border-color: var(--accent);
-  background: var(--bg-hover);
+  border-color: var(--accent-active);
+  background: var(--surface-control-hover);
   color: var(--text-primary);
 }
 
@@ -68,53 +75,53 @@
 }
 
 .dashboard-section-controls {
-  --dashboard-control-height: calc(var(--spacing-xl) + var(--spacing-md));
-
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.dashboard-section-actions-left,
+.dashboard-section-actions-right {
+  display: flex;
+  align-items: center;
+  gap: var(--button-gap);
+  flex-wrap: wrap;
+}
+
+.dashboard-section-actions-right {
+  margin-left: auto;
 }
 
 .dashboard-view-toggle {
+  --tabs-list-padding: var(--space-02);
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-xs);
-  height: var(--dashboard-control-height);
-  padding: var(--spacing-xs);
+  gap: var(--space-04);
+  height: var(--control-height-standard);
+  padding: var(--tabs-list-padding);
   box-sizing: border-box;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: calc(var(--radius-4) + var(--tabs-list-padding));
+}
+
+.dashboard-view-toggle.tabs__list--stretch {
+  align-items: stretch;
 }
 
 .dashboard-view-toggle-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-xs);
-  height: 100%;
-  padding: 0 var(--spacing-sm);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: var(--font-size-base);
-  line-height: 1;
-  transition:
-    background-color var(--transition),
-    border-color var(--transition),
-    color var(--transition);
+  flex-shrink: 0;
 }
 
-.dashboard-view-toggle-btn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-.dashboard-view-toggle-btn[aria-pressed='true'] {
-  background: var(--bg-tertiary);
-  border-color: var(--border);
-  color: var(--text-primary);
+.dashboard-view-toggle .tabs__tab {
+  height: auto;
+  min-height: 0;
+  align-self: stretch;
 }
 
 .project-bulk-actions {
@@ -123,10 +130,10 @@
   justify-content: space-between;
   gap: var(--spacing-lg);
   padding: var(--spacing-sm) var(--spacing-md);
-  margin-bottom: var(--spacing-md);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-sm);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
 }
 
 .project-bulk-actions-summary {
@@ -135,7 +142,7 @@
   gap: var(--spacing-md);
   min-width: 0;
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 .project-bulk-actions-summary strong {
@@ -144,33 +151,14 @@
 }
 
 .project-bulk-actions-summary span {
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .project-bulk-actions-controls {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   flex-shrink: 0;
-}
-
-.dashboard-section-controls .new-folder-btn {
-  height: var(--dashboard-control-height);
-}
-
-.dashboard-section-controls .btn-icon {
-  height: var(--dashboard-control-height);
-  padding: 0 var(--spacing-sm);
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
-}
-
-.dashboard-section-controls .btn-icon:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--text-muted);
-  color: var(--text-primary);
 }
 
 /* .dashboard-settings-row removed in favor of .dashboard-card + .dashboard-card-row */
@@ -178,27 +166,13 @@
 /* Sort Dropdown — menu/items come from the Dropdown primitive (ss-dropdown__*);
    only the trigger button and small scoped menu tweaks live here. */
 .sort-dropdown-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: var(--dashboard-control-height);
-  padding: 0 var(--spacing-md);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
+  flex-shrink: 0;
 }
 
-.sort-dropdown-btn:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--text-muted);
-  color: var(--text-primary);
+.dashboard-projects-panel > .project-list-empty {
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  background: transparent;
+  border: none;
 }
 
 /* Keep the selected-option checkmark pushed to the right edge of the menu. */
@@ -211,7 +185,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   margin-top: 2px;
   min-width: 0;
@@ -237,7 +211,7 @@
 }
 
 .project-card-changes {
-  color: var(--warning);
+  color: var(--accent-warning);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -252,7 +226,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   margin-top: 4px;
   min-width: 0;
@@ -285,16 +259,16 @@
 }
 
 .status-dot.status-ready {
-  background: var(--success);
+  background: var(--accent-success);
 }
 
 .status-dot.status-building {
-  background: var(--warning);
+  background: var(--accent-warning);
   animation: pulse 1.5s infinite;
 }
 
 .status-dot.status-error {
-  background: var(--error);
+  background: var(--accent-error);
 }
 
 .status-dot.status-queued {
@@ -312,7 +286,12 @@
 .integration-bar {
   /* Last card in the dashboard stack — extra room below so it doesn't
      butt up against the scroll edge. */
-  margin-bottom: var(--spacing-2xl);
+  margin-bottom: 0;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    border-color var(--transition);
 }
 
 /* When collapsed, drop the header's bottom margin so the card reads as a
@@ -321,20 +300,47 @@
   margin-bottom: 0;
 }
 
-.integration-bar-header-btn {
+.integration-bar:hover {
+  background: var(--surface-control-hover);
+  border-color: var(--text-muted);
+}
+
+.integration-bar:focus-visible {
+  outline: var(--stroke-2) solid var(--accent-focus);
+  outline-offset: var(--space-04);
+}
+
+.integration-bar-header {
   width: 100%;
-  padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
+  padding: var(--spacing-lg);
+  box-sizing: border-box;
+  margin: 0;
+  background: transparent;
+  border: 0;
   color: inherit;
   text-align: left;
   font: inherit;
   align-items: center;
 }
 
-.integration-bar-header-btn:hover .dashboard-card-title {
+.integration-bar .dashboard-card-title {
+  color: var(--text-secondary);
+  transition: color var(--transition);
+}
+
+.integration-bar .dashboard-card-subtitle {
+  color: var(--text-muted);
+  transition: color var(--transition);
+}
+
+.integration-bar:hover .dashboard-card-title,
+.integration-bar:focus-visible .dashboard-card-title {
   color: var(--text-primary);
+}
+
+.integration-bar:hover .dashboard-card-subtitle,
+.integration-bar:focus-visible .dashboard-card-subtitle {
+  color: var(--text-secondary);
 }
 
 .integration-bar-subtitle {
@@ -350,16 +356,21 @@
 }
 
 .integration-bar-status-icon.success {
-  color: var(--success);
+  color: var(--accent-success);
 }
 
 .integration-bar-status-icon.warning {
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .integration-bar-chevron {
   color: var(--text-muted);
   transition: transform var(--transition);
+}
+
+.integration-bar:hover .integration-bar-chevron,
+.integration-bar:focus-visible .integration-bar-chevron {
+  color: var(--text-primary);
 }
 
 .integration-bar-chevron.up {
@@ -368,11 +379,11 @@
 
 .integration-bar-item-connect {
   padding: var(--spacing-xs) var(--spacing-md);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   cursor: pointer;
   transition:
     background-color var(--transition),
@@ -381,9 +392,13 @@
 }
 
 .integration-bar-item-connect:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--text-bright);
+  background: var(--accent-active);
+  border-color: var(--accent-active);
+  color: var(--text-inverse);
+}
+
+.integration-bar > .dashboard-card-rows {
+  padding: 0 var(--spacing-lg) var(--spacing-lg);
 }
 
 /* ============ Responsive Dashboard Styles ============ */
@@ -391,13 +406,7 @@
 /* Medium screens - 2 column grid */
 @media (max-width: 700px) {
   .project-list.dashboard {
-    padding: 44px 16px 20px;
-  }
-
-  .dashboard-header {
-    gap: 8px;
-    padding-bottom: 20px;
-    margin-bottom: 12px;
+    padding: 32px 16px 20px;
   }
 
   .dashboard-search {
@@ -414,39 +423,21 @@
 /* Narrow screens - single column, compact header */
 @media (max-width: 550px) {
   .project-list.dashboard {
-    padding: 44px 12px 16px;
-  }
-
-  .dashboard-header {
-    flex-wrap: wrap;
-    gap: 8px;
-    padding-bottom: 16px;
-    margin-bottom: 12px;
-  }
-
-  /* Search takes full width on narrow screens */
-  .dashboard-search {
-    order: 2;
-    flex: 1 1 100%;
-    max-width: none;
-  }
-
-  /* Actions stay on the right of first row */
-  .dashboard-header-actions {
-    order: 1;
-    margin-left: auto;
-  }
-
-  /* Compact buttons at narrow widths */
-  .dashboard-header-actions .button {
-    padding: 0 var(--spacing-sm);
-    font-size: var(--font-size-sm);
+    padding: 32px 12px 16px;
   }
 
   /* Section header adjustments */
   .dashboard-section-header {
-    flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--dashboard-section-gap);
+  }
+
+  .dashboard-section-controls {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-section-actions-right {
+    margin-left: 0;
   }
 
   .dashboard-view-toggle-label {
@@ -468,12 +459,8 @@
     justify-content: flex-end;
   }
 
-  .dashboard-section-title {
-    font-size: var(--font-size-md);
-  }
-
   /* Integration card — tighter spacing on narrow screens */
   .integration-bar {
-    margin-top: var(--spacing-lg);
+    margin-top: 0;
   }
 }

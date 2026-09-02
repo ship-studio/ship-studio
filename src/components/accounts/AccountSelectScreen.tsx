@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
+import { NewWorkspaceIcon } from '@/components/icons';
 import { AccountCard } from './AccountCard';
 import { NewAccountModal } from './NewAccountModal';
 import { AccountSettingsModal } from './AccountSettingsModal';
@@ -90,8 +91,12 @@ export function AccountSelectScreen({ onContinue }: AccountSelectScreenProps) {
         <span className="account-select-title">
           Select a Workspace {accounts.length > 0 && `(${accounts.length})`}
         </span>
-        <Button variant="primary" onClick={() => setShowNewModal(true)}>
-          + New Workspace
+        <Button
+          variant="primary"
+          onClick={() => setShowNewModal(true)}
+          leftIcon={<NewWorkspaceIcon size={14} />}
+        >
+          New Workspace
         </Button>
       </div>
 

@@ -7,7 +7,7 @@
  * @module components/GitErrorHandler
  */
 
-import { WarningIcon, CopyIcon } from '../icons';
+import { WarningIcon, CopyIcon } from '@/components/icons';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { describeClipboardError, useCopyToClipboard } from '../../hooks/useCopyToClipboard';
@@ -123,18 +123,17 @@ Please help me understand what went wrong and how to fix it.`,
           <>
             <Button
               variant="secondary"
-              size="sm"
               leftIcon={<CopyIcon size={12} />}
               onClick={handleCopyPrompt}
             >
               Copy Prompt
             </Button>
             {onSendToClaude && (
-              <Button variant="secondary" size="sm" onClick={handleSendToClaude}>
+              <Button variant="secondary" onClick={handleSendToClaude}>
                 Send to Agent
               </Button>
             )}
-            <Button variant="primary" size="sm" onClick={onResolveConflicts}>
+            <Button variant="primary" onClick={onResolveConflicts}>
               Resolve Conflicts
             </Button>
           </>
@@ -142,14 +141,13 @@ Please help me understand what went wrong and how to fix it.`,
           <>
             <Button
               variant="secondary"
-              size="sm"
               leftIcon={<CopyIcon size={12} />}
               onClick={handleCopyPrompt}
             >
               Copy to Clipboard
             </Button>
             {onSendToClaude && (
-              <Button variant="primary" size="sm" onClick={handleSendToClaude}>
+              <Button variant="primary" onClick={handleSendToClaude}>
                 Send to Agent
               </Button>
             )}

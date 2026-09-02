@@ -35,8 +35,8 @@
   container-name: preview-pane;
 }
 
-/* Narrow pane: Edit / Inspect / Open drop their text and become icon
-   buttons. The little toggle switches stay — they carry the on/off state. */
+/* Narrow pane: Open drops its text and becomes an icon button. Edit and Inspect
+   are icon-only at every width; their little toggle switches carry the state. */
 @container preview-pane (max-width: 800px) {
   .preview-toolbar-btn-label {
     display: none;
@@ -65,57 +65,126 @@
   grid-template-areas: 'iframe right';
 }
 
-/* Inspect-panel resize handle. Mirrors the visual language of the
-   preview's vertical resize handle, but lives in the outer
-   .preview-container grid (not the .preview-frame-grid). */
-.inspect-resize-handle {
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  cursor: ns-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background var(--transition),
-    border-color var(--transition);
+.panel-resize-handle--tree,
+.panel-resize-handle--variables {
+  grid-area: 1 / 1 / -1 / 2;
+  justify-self: end;
+  /* Docked panel surfaces are body-portaled. Keep this separator above both
+     adjacent surfaces while remaining below modal and tooltip layers. */
+  z-index: var(--z-floating-panel);
 }
 
-.inspect-resize-handle:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--accent);
-}
-
-.inspect-resize-handle-bar {
-  width: 40px;
-  height: 2px;
-  background: var(--text-muted);
-  border-radius: 1px;
-  transition: background var(--transition);
-}
-
-.inspect-resize-handle:hover .inspect-resize-handle-bar {
-  background: var(--accent);
+.ss-tree-panel-dock {
+  grid-area: 1 / 1 / -1 / 2;
 }
 
 /* Full-container overlay during drag — prevents iframes inside the
    viewport or the inspect panel from swallowing mouse events. */
-.inspect-resize-overlay {
+.panel-resize-overlay {
   position: absolute;
   inset: 0;
   z-index: var(--z-dropdown);
   cursor: ns-resize;
 }
 
+.panel-resize-overlay--vertical {
+  cursor: ew-resize;
+}
+
 .preview-toolbar {
+  position: relative;
+  /* Ordinary chrome must stay below floating editor panels/tooltips and
+     modal overlays. Dropdowns opened from this toolbar still render above
+     its surface inside this stacking context. */
+  z-index: var(--z-dropdown);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--button-gap);
   height: var(--preview-toolbar-h);
   padding: 9px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-bottom: 1px solid var(--border-default);
   overflow: visible;
+}
+
+/*
+ * Toolbar layout mirrors the visual hierarchy of the reference:
+ * navigation left, viewport controls centered between flexible gutters,
+ * and preview actions right. `order` changes presentation only — control
+ * behavior and mounting remain untouched.
+ */
+.preview-toolbar > .locale-switcher,
+.preview-toolbar > .page-switcher {
+  order: 1;
+}
+
+.preview-toolbar > .preview-refresh {
+  order: 9;
+  margin-left: auto;
+}
+
+.preview-toolbar > .preview-history-btn {
+  order: 1;
+}
+
+.preview-toolbar > .preview-breakpoints {
+  order: 10;
+}
+
+.preview-toolbar > .preview-fullscreen-btn:not(.preview-history-btn) {
+  order: 12;
+}
+
+.preview-toolbar > .preview-tree-btn {
+  order: 13;
+}
+
+.preview-toolbar-actions {
+  order: 20;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.preview-toolbar-control-group {
+  display: flex;
+  align-items: center;
+  gap: var(--button-group-spacing);
+}
+
+/* Preview toolbar toggles use the outlined active treatment: the panel remains
+   visible behind the control, while the border communicates that the tool is
+   engaged. The shared button primitive's pressed state is intentionally a
+   filled surface for ordinary toggles, so keep this override local to these
+   panel controls. */
+.preview-toolbar-control-group .preview-edit-control.button--secondary[aria-pressed='true'],
+.preview-toolbar-control-group .preview-inspect-control.button--secondary[aria-pressed='true'] {
+  background: var(--surface-panel);
+  color: var(--button-text-default);
+  border-color: var(--button-border);
+}
+
+.preview-toolbar
+  .preview-toolbar-control-group
+  .preview-edit-control.button--secondary[aria-pressed='true']:hover:not(:disabled),
+.preview-toolbar
+  .preview-toolbar-control-group
+  .preview-inspect-control.button--secondary[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--surface-panel);
+  color: var(--button-text-hover);
+  border-color: var(--button-border-outline);
+}
+
+.preview-toolbar-control-group > .preview-toolbar-plugins {
+  /* PluginSlot's isolation wrappers use `display: contents`. Keep this
+     slot transparent to the parent flex row too; otherwise it becomes a
+     zero-width flex item and inserts a second gap before Open in Browser. */
+  display: contents;
+}
+
+/* Keep an actually empty slot out of the accessibility tree as well. */
+.preview-toolbar-control-group > .preview-toolbar-plugins:empty {
+  display: none;
 }
 
 /* Page Switcher */
@@ -123,29 +192,11 @@
   position: relative;
 }
 
-.page-switcher-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-primary);
-  font-family: monospace;
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
+.page-switcher-trigger {
+  font-family: var(--font-code);
 }
 
-.page-switcher-btn:hover {
-  border-color: var(--accent);
-}
-
-.page-switcher-btn svg {
+.page-switcher-trigger svg {
   color: var(--text-muted);
 }
 
@@ -156,6 +207,15 @@
   white-space: nowrap;
 }
 
+.page-route-context {
+  padding-left: var(--space-02);
+  border-left: var(--stroke-1) solid var(--border-default);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-medium);
+}
+
 .page-dropdown {
   position: absolute;
   top: 100%;
@@ -163,9 +223,9 @@
   margin-top: 4px;
   min-width: 220px;
   max-width: 300px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-md);
   z-index: var(--z-dropdown);
   overflow: hidden;
@@ -174,11 +234,11 @@
 .page-search {
   width: 100%;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   outline: none;
 }
 
@@ -191,7 +251,7 @@
   overflow-y: auto;
   /* Custom, theme-matched scrollbar — never the device's white default. */
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: var(--border-default) transparent;
 }
 .page-list::-webkit-scrollbar {
   width: 10px;
@@ -200,9 +260,9 @@
   background: transparent;
 }
 .page-list::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--border-default);
   border-radius: 999px;
-  border: 2px solid var(--bg-secondary);
+  border: 2px solid var(--surface-panel);
 }
 .page-list::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
@@ -212,61 +272,24 @@
   padding: 16px;
   text-align: center;
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
-.page-item {
-  position: relative;
-  display: flex;
+.page-dropdown .ss-dropdown__item {
   align-items: baseline;
-  gap: var(--spacing-sm);
-  width: 100%;
-  padding: 10px 12px;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--text-secondary);
-  font-family: monospace;
-  font-size: var(--font-size-md);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color var(--transition-fast),
-    color var(--transition-fast),
-    border-color var(--transition-fast);
-}
-
-.page-item:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.page-item.active {
-  background: var(--tint);
-  color: var(--text-primary);
-}
-
-.page-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--accent);
-  border-radius: 0 2px 2px 0;
+  font-family: var(--font-code);
 }
 
 .page-item-hint {
   font-family: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   font-style: italic;
 }
 
 .preview-url {
-  font-family: monospace;
-  font-size: var(--font-size-base);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
 }
 
@@ -292,7 +315,7 @@
 .preview-refresh:hover:not(:disabled),
 .preview-fullscreen-btn:hover:not(:disabled),
 .preview-tree-btn:hover:not(:disabled) {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 
@@ -306,7 +329,7 @@
 }
 
 .preview-tree-btn.active {
-  color: var(--accent);
+  color: var(--text-primary);
 }
 
 /* Fullscreen: the container covers the window below the workspace header
@@ -317,19 +340,19 @@
   position: fixed;
   inset: 0;
   z-index: var(--z-preview-fullscreen);
-  background: var(--bg-primary);
+  background: var(--surface-app);
 }
 
 /* ===== Visual editor pin-as-sidebar =====
-   The container grows a second grid column that hosts the panel in-tree. The
-   toolbar keeps the full width (row 1 spans both columns); the panel sits
-   below it, spanning the canvas + inspect rows, so it matches the preview's
-   height and can never overlap any bar. Works unchanged in fullscreen mode. */
+   The container grows side columns for docked panels. Each side panel spans
+   the complete preview height, including the toolbar row; the toolbar stays
+   with the canvas column so its width always matches the preview it controls.
+   Works unchanged in fullscreen mode. */
 .preview-container--editor-pinned {
-  grid-template-columns: minmax(0, 1fr) var(--editor-panel-w);
+  grid-template-columns: minmax(0, 1fr) var(--editor-panel-visual-w);
 }
 
-/* Element tree (navigator) on the left in fullscreen edit mode. Composes with
+/* Element tree (navigator) on the left in visual edit mode. Composes with
    the pinned editor: tree | canvas | editor. Panels use negative column lines
    so each works with or without the other. */
 .preview-container--tree {
@@ -337,7 +360,7 @@
 }
 
 .preview-container--tree.preview-container--editor-pinned {
-  grid-template-columns: var(--tree-panel-w) minmax(0, 1fr) var(--editor-panel-w);
+  grid-template-columns: var(--tree-panel-w) minmax(0, 1fr) var(--editor-panel-visual-w);
 }
 
 /* Code (markup-edit) view of the Elements panel: widen the left track so the
@@ -346,12 +369,66 @@
   grid-template-columns: var(--tree-code-w) minmax(0, 1fr);
 }
 .preview-container--tree.preview-container--tree-code.preview-container--editor-pinned {
-  grid-template-columns: var(--tree-code-w) minmax(0, 1fr) var(--editor-panel-w);
+  grid-template-columns: var(--tree-code-w) minmax(0, 1fr) var(--editor-panel-visual-w);
 }
 
-.preview-container--editor-pinned .preview-toolbar,
+/* Variables is the optional outer-left dock. When Elements is also pinned it
+   sits between the Agent dock and Elements: variables | tree | canvas. */
+.preview-container--variables-pinned {
+  grid-template-columns: var(--tree-panel-w) minmax(0, 1fr);
+}
+
+.preview-container--variables-pinned.preview-container--editor-pinned {
+  grid-template-columns: var(--tree-panel-w) minmax(0, 1fr) var(--editor-panel-visual-w);
+}
+
+.preview-container--variables-pinned.preview-container--tree {
+  grid-template-columns: var(--tree-panel-w) var(--tree-panel-w) minmax(0, 1fr);
+}
+
+.preview-container--variables-pinned.preview-container--tree.preview-container--tree-code {
+  grid-template-columns: var(--tree-panel-w) var(--tree-code-w) minmax(0, 1fr);
+}
+
+.preview-container--variables-pinned.preview-container--tree.preview-container--editor-pinned {
+  grid-template-columns:
+    var(--tree-panel-w) var(--tree-panel-w) minmax(0, 1fr)
+    var(--editor-panel-visual-w);
+}
+
+.preview-container--variables-pinned.preview-container--tree.preview-container--tree-code.preview-container--editor-pinned {
+  grid-template-columns:
+    var(--tree-panel-w) var(--tree-code-w) minmax(0, 1fr)
+    var(--editor-panel-visual-w);
+}
+
+.preview-container--editor-pinned .preview-toolbar {
+  grid-column: 1 / -2;
+}
+
 .preview-container--tree .preview-toolbar {
-  grid-column: 1 / -1;
+  grid-column: 2 / -1;
+}
+
+.preview-container--tree.preview-container--editor-pinned .preview-toolbar {
+  grid-column: 2 / -2;
+}
+
+.preview-container--variables-pinned .preview-toolbar {
+  grid-column: 2 / -1;
+}
+
+.preview-container--variables-pinned.preview-container--editor-pinned .preview-toolbar {
+  grid-column: 2 / -2;
+}
+
+.preview-container--variables-pinned.preview-container--tree .preview-toolbar {
+  grid-column: 3 / -1;
+}
+
+.preview-container--variables-pinned.preview-container--tree.preview-container--editor-pinned
+  .preview-toolbar {
+  grid-column: 3 / -2;
 }
 
 /* Compound selector: this file loads before visual-editor.css, so the pinned
@@ -361,11 +438,40 @@
    canvas column, which is bounded. This is what finally lets the panel body
    scroll: an in-flow panel was growing its own row past the viewport in WebKit. */
 .ss-edit-panel-dock {
-  grid-area: 2 / -2 / -1 / -1;
+  grid-area: 1 / -2 / -1 / -1;
   position: relative;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+.ss-edit-panel-dock-host--floating {
+  display: contents;
+}
+
+.ss-edit-panel-dock__slot {
+  width: 100%;
+  height: 100%;
+}
+
+.ss-variables-panel-dock {
+  grid-area: 1 / 1 / -1 / 2;
+}
+
+.ss-tree-panel-dock--after-variables {
+  grid-area: 1 / 2 / -1 / 3;
+}
+
+.panel-resize-handle--tree-after-variables {
+  grid-area: 1 / 2 / -1 / 3;
+}
+
+.ss-edit-panel-dock__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-floating-panel);
 }
 
 .ss-edit-panel.ss-edit-panel--pinned {
@@ -387,7 +493,7 @@
 .ss-edit-panel.ss-edit-panel--pinned .ss-edit-panel__header {
   height: var(--preview-toolbar-h);
   flex-shrink: 0;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 .ss-edit-panel.ss-edit-panel--pinned .ss-edit-panel__header,
 .ss-edit-panel.ss-edit-panel--pinned .ss-edit-panel__header:active {
@@ -397,70 +503,51 @@
 .ss-edit-panel__header-actions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--button-gap);
 }
 
-.ss-edit-panel__pin {
+.preview-breakpoints {
+  display: flex;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+  align-items: center;
+  height: calc(var(--control-height-standard) + var(--spacing-xs) + var(--stroke-2));
+  box-sizing: border-box;
+  padding: var(--spacing-2xs);
+  border: var(--stroke-1) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-panel);
+}
+
+.preview-breakpoint-tabs {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: var(--spacing-xs);
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition:
-    background-color var(--transition),
-    color var(--transition);
-}
-.ss-edit-panel__pin:hover {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-.ss-edit-panel__pin.is-pinned {
-  color: var(--accent);
 }
 
-.breakpoint-btn {
-  position: relative;
-  padding: 0 var(--spacing-md);
-  background: transparent;
+.preview-breakpoint-tabs .tabs__list {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3xs);
+  padding: 0;
   border: none;
   border-radius: 0;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: color var(--transition);
-  outline: none;
-}
-
-.breakpoint-btn svg {
-  display: block;
-}
-
-.breakpoint-btn:hover,
-.breakpoint-btn:focus-visible {
   background: transparent;
-  color: var(--text-secondary);
+  box-shadow: none;
 }
 
-.breakpoint-btn.active {
-  background: transparent;
-  color: var(--text-primary);
+.preview-breakpoint-tabs .preview-breakpoint-tab.button.button--icon-only {
+  width: var(--space-32);
+  min-width: var(--space-32);
+  height: var(--control-height-standard);
+  min-height: var(--control-height-standard);
+  padding: 0 var(--spacing-sm);
+  border-radius: var(--radius-control);
 }
 
-.breakpoint-btn.active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--accent);
-  border-radius: 2px 2px 0 0;
+.preview-breakpoint-tabs .tabs__indicator {
+  border-radius: var(--radius-control);
+  background: var(--surface-control);
+  box-shadow: var(--shadow-button);
 }
 
 .preview-zoom {
@@ -469,7 +556,7 @@
   gap: 6px;
   margin-left: 8px;
   padding-left: 8px;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--border-default);
 }
 
 .preview-zoom button {
@@ -479,31 +566,31 @@
   background: transparent;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .preview-zoom button:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 
 .preview-zoom input {
   width: 48px;
   padding: 4px 6px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   text-align: center;
 }
 
 .preview-zoom input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 /* Branch Switching Overlay */
@@ -513,7 +600,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--bg-primary);
+  background: var(--surface-app);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -521,7 +608,7 @@
   gap: 16px;
   z-index: var(--z-dropdown);
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
 }
 
 /* Blank-iframe watchdog overlay — the dev server is healthy but the page never
@@ -533,7 +620,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--bg-primary);
+  background: var(--surface-app);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -547,7 +634,7 @@
 .preview-iframe-error-overlay h3 {
   margin: 0;
   color: var(--text-primary);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   font-weight: 600;
 }
 
@@ -555,13 +642,13 @@
   margin: 0;
   max-width: var(--preview-error-copy-max-width);
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   line-height: 1.6;
 }
 
 .preview-iframe-error-actions {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   margin-top: var(--spacing-sm);
 }
 
@@ -571,7 +658,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   overflow: hidden;
   padding: 0;
   position: relative;
@@ -600,10 +687,10 @@
    bottom-right cell. The handles drop their own outer borders so the grid's
    border is the single outer line. */
 .preview-frame-grid--floating {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   overflow: hidden;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
 .preview-frame-grid--floating .preview-resize-handle {
@@ -626,7 +713,7 @@
   width: 100%;
   height: 100%;
   border: none;
-  background: var(--bg-primary);
+  background: var(--surface-app);
 }
 
 /* Preview resize overlay (captures mouse during drag) */
@@ -647,9 +734,9 @@
 /* Preview resize handle (right edge by default; placed by grid). */
 .preview-resize-handle {
   grid-area: right;
-  background: var(--bg-secondary);
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-left: 1px solid var(--border-default);
+  border-right: 1px solid var(--border-default);
   cursor: ew-resize;
   display: flex;
   align-items: center;
@@ -660,8 +747,8 @@
 }
 
 .preview-resize-handle:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--accent);
+  background: var(--surface-control);
+  border-color: var(--border-strong);
 }
 
 .preview-resize-handle-bar {
@@ -672,7 +759,7 @@
 }
 
 .preview-resize-handle:hover .preview-resize-handle-bar {
-  background: var(--accent);
+  background: var(--accent-active);
 }
 
 /* Vertical (bottom) resize handle — flips the right-handle layout */
@@ -680,36 +767,14 @@
   grid-area: bottom;
   border-left: none;
   border-right: none;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
   cursor: ns-resize;
 }
 
 .preview-resize-handle-bar--vertical {
   width: 40px;
   height: 2px;
-}
-
-/* Dev server logs toggle (toolbar button) */
-.preview-logs-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 6px 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.preview-logs-toggle:hover {
-  color: var(--text-primary);
 }
 
 /* iOS-style toggle pill next to the Inspect label. Reflects the open
@@ -721,8 +786,8 @@
   width: 22px;
   height: 12px;
   margin-left: 2px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
   border-radius: 999px;
   transition:
     background var(--transition),
@@ -744,13 +809,13 @@
 }
 
 .preview-logs-toggle-switch.is-on {
-  background: var(--success-light);
-  border-color: var(--success-light);
+  background: var(--accent-success);
+  border-color: var(--accent-success);
 }
 
 .preview-logs-toggle-switch.is-on::after {
   transform: translateX(10px);
-  background: var(--text-bright);
+  background: var(--text-inverse);
 }
 
 /* Collapsible dev server logs panel (bottom of preview) */
@@ -759,20 +824,24 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: #1a1a1a; /* css-ok: must match xterm theme bg */
-  border-top: 1px solid var(--border);
+  background: var(--surface-recessed);
+  border-top: 1px solid var(--border-default);
   /* Isolate the panel's internal layout from ancestors: any Network
      row / DOM tree / console line change inside the panel won't
      trigger re-layout upward. */
   contain: layout size;
 }
 
+.preview-logs-panel > .tabs {
+  display: contents;
+}
+
 .preview-logs-header {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
   padding-right: var(--spacing-md);
 }
@@ -790,7 +859,7 @@
   border-radius: 0;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
   cursor: pointer;
   transition: color var(--transition);
@@ -814,7 +883,7 @@
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: var(--accent);
+  background: currentColor;
   border-radius: 2px 2px 0 0;
 }
 
@@ -841,7 +910,7 @@
 }
 
 .preview-logs-close:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 
@@ -891,32 +960,31 @@
 }
 
 /* DevServerLogs layout: optional toolbar above the xterm container.
-   The terminal area keeps its hard-coded 1a1a1a to match xterm's
-   theme background exactly — tokenizing this pulls in a theme-aware
-   value that won't match the renderer. */
+   The terminal area uses the same recessed semantic role as xterm's
+   dark theme background. */
 .dev-server-logs {
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: #1a1a1a; /* css-ok: must match xterm theme bg */
+  background: var(--surface-recessed);
 }
 
 .dev-server-logs-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   padding: var(--spacing-xs) var(--spacing-md);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
 .dev-server-logs-hint {
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -925,10 +993,10 @@
 .dev-server-logs-send {
   padding: 4px 10px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   cursor: pointer;
   transition:
     color var(--transition),
@@ -937,7 +1005,7 @@
 
 .dev-server-logs-send:hover:not(:disabled) {
   color: var(--text-primary);
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .dev-server-logs-send:disabled {
@@ -948,7 +1016,7 @@
 .dev-server-logs-terminal {
   flex: 1;
   min-height: 0;
-  background: #1a1a1a; /* css-ok: must match xterm theme bg */
+  background: var(--surface-recessed);
 }
 
 /* Crop selection overlay */
@@ -964,7 +1032,7 @@
 
 .crop-selection {
   position: absolute;
-  border: 1px solid rgba(var(--white-rgb), 0.8);
+  border: 1px solid color-mix(in srgb, var(--text-white) 80%, transparent);
   background: transparent;
   box-shadow: 0 0 0 9999px var(--overlay-50);
   pointer-events: none;
@@ -976,10 +1044,10 @@
   left: 50%;
   transform: translate(-50%, -50%);
   background: var(--overlay-80);
-  color: var(--text-bright);
+  color: var(--text-inverse);
   padding: 16px 24px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-lg);
+  border-radius: var(--radius-card);
+  font-size: var(--font-size-subhead);
   text-align: center;
   pointer-events: none;
   display: flex;
@@ -988,8 +1056,8 @@
 }
 
 .crop-hint {
-  font-size: var(--font-size-base);
-  color: rgba(var(--white-rgb), 0.6);
+  font-size: var(--font-size-body-md);
+  color: color-mix(in srgb, var(--text-white) 60%, transparent);
 }
 
 /* Preview loading and error states */
@@ -1001,13 +1069,13 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
-.preview-loading .hint,
-.preview-error .hint {
+.preview-loading .text-style-hint,
+.preview-error .text-style-hint {
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
 }
 
 .preview-install-prompt {
@@ -1018,29 +1086,29 @@
   justify-content: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xl);
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   text-align: center;
 }
 
 .preview-install-prompt h3 {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-h4);
   font-weight: 600;
   color: var(--text-primary);
   margin: var(--spacing-xs) 0 0;
 }
 
-.preview-install-prompt .hint {
-  font-size: var(--font-size-md);
+.preview-install-prompt .text-style-hint {
+  font-size: var(--font-size-body-lg);
   color: var(--text-muted);
   margin: 0 0 var(--spacing-md);
 }
 
 .preview-install-prompt code {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  background: var(--bg-tertiary);
+  font-family: var(--font-code);
+  background: var(--surface-control);
   padding: 1px 5px;
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
 }
 
@@ -1058,12 +1126,12 @@
   justify-content: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xl);
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   text-align: center;
 }
-.preview-status .hint {
+.preview-status .text-style-hint {
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   margin: 0;
   max-width: 420px;
 }
@@ -1077,16 +1145,16 @@
   color: var(--text-muted);
 }
 .preview-status--error .preview-status__icon {
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 .preview-status__attempt {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   margin: 0;
 }
 .preview-status__actions {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   margin-top: var(--spacing-xs);
 }
 .preview-status__logs {
@@ -1100,13 +1168,13 @@
   align-items: center;
   gap: 5px;
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-secondary);
   padding: 2px 0;
 }
 .preview-status__logs-toggle:hover {
-  /* Only brighten the label — override the global button:hover background. */
+  /* Only brighten the label; this compact control has no surface state. */
   background: none;
   color: var(--text-primary);
 }
@@ -1122,11 +1190,11 @@
   padding: var(--spacing-sm);
   max-height: 160px;
   overflow: auto;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   line-height: 1.5;
   color: var(--text-secondary);
   white-space: pre-wrap;
@@ -1140,12 +1208,12 @@
 }
 .preview-status__logs-body--interactive:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .preview-status__logs-hint {
   margin: var(--spacing-xs) 0 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 
@@ -1159,18 +1227,18 @@
   align-items: center;
   gap: var(--spacing-xs);
   padding: 6px 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-base);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-md);
   cursor: pointer;
   transition: border-color var(--transition);
 }
 
 .locale-switcher-btn:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .locale-switcher-btn svg {
@@ -1183,9 +1251,9 @@
   left: 0;
   margin-top: 4px;
   min-width: 180px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-md);
   z-index: var(--z-dropdown);
   overflow: hidden;
@@ -1201,22 +1269,22 @@
   background: none;
   border: none;
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   text-align: left;
   cursor: pointer;
   transition: background var(--transition);
 }
 
 .locale-item:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .locale-item.active {
-  color: var(--action);
+  color: var(--accent-active);
 }
 
 .locale-item-code {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }

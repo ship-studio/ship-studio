@@ -9,6 +9,7 @@ import { getArticle, recordArticleView } from '../../lib/support';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import type { LibraryArticle } from '../../lib/support';
 import type { SupportView } from './SupportPanel';
+import { Button } from '../primitives/Button';
 
 interface ArticleViewProps {
   slug: string;
@@ -75,14 +76,16 @@ export function ArticleView({ slug, onNavigate }: ArticleViewProps) {
 
       <div className="support-article-footer">
         <p>Still need help?</p>
-        <button
+        <Button
+          variant="secondary"
+          width="fill"
           className="support-action-btn"
           onClick={() => onNavigate({ type: 'new-ticket', ticketType: 'support' })}
         >
           <span className="action-icon">💬</span>
           Contact Support
           <span className="action-arrow">→</span>
-        </button>
+        </Button>
       </div>
     </>
   );

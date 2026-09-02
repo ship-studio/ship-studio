@@ -1,216 +1,113 @@
-/**
- * Navigation and UI chrome icons.
- *
- * Chevrons, check marks, warnings, close, info, search, arrows, and more/dots menus.
- */
+import ChevronDownSvg from '../../assets/icons/chevron-down.svg?react';
+import ChevronRightSvg from '../../assets/icons/chevron-right.svg?react';
+import TickSvg from '../../assets/icons/tick.svg?react';
+import WarningAlertSvg from '../../assets/icons/warning-alert.svg?react';
+import AlertSvg from '../../assets/icons/alert.svg?react';
+import CancelSvg from '../../assets/icons/cancel.svg?react';
+import InfoAlertSvg from '../../assets/icons/info-alert.svg?react';
+import SearchSvg from '../../assets/icons/search.svg?react';
+import LeftSvg from '../../assets/icons/left.svg?react';
+import RightSvg from '../../assets/icons/right.svg?react';
+import GridSvg from '../../assets/icons/grid.svg?react';
+import ListSvg from '../../assets/icons/list.svg?react';
+import CommandPlaceholderSvg from '../../assets/icons/old-icons/command-placeholder.svg?react';
+import MoreHorizontalSvg from '../../assets/icons/old-icons/more-horizontal.svg?react';
+import { createIcon } from './icon-base';
 
-interface IconProps {
-  size?: number;
-  className?: string;
-}
-
-export function ChevronIcon({ size = 12, className }: IconProps) {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
-
-export function ChevronRightIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-
-export function CheckIcon({ size = 14, className }: IconProps) {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-export function WarningIcon({ size = 16, className }: IconProps) {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  );
-}
-
-export function CloseIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-export function InfoIcon({ size = 16 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
-
-export function SearchIcon({ size = 16 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.35-4.35" />
-    </svg>
-  );
-}
-
-export function ArrowLeftIcon({ size = 14, className }: IconProps) {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M19 12H5" />
-      <polyline points="12 19 5 12 12 5" />
-    </svg>
-  );
-}
-
-export function MoreHorizontalIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="1" />
-      <circle cx="5" cy="12" r="1" />
-      <circle cx="19" cy="12" r="1" />
-    </svg>
-  );
-}
-
-/** Icon representing card/grid layout. */
-export function GridIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  );
-}
-
-/** Icon representing row/list layout. */
-export function ListIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <line x1="8" y1="6" x2="21" y2="6" />
-      <line x1="8" y1="12" x2="21" y2="12" />
-      <line x1="8" y1="18" x2="21" y2="18" />
-      <circle cx="4" cy="6" r="1" />
-      <circle cx="4" cy="12" r="1" />
-      <circle cx="4" cy="18" r="1" />
-    </svg>
-  );
-}
+export const ChevronIcon = createIcon(ChevronDownSvg, {
+  name: 'ChevronIcon',
+  source: 'icons/chevron-down.svg',
+  kind: 'ui',
+  defaultSize: 14,
+  compact: true,
+  strokeWidth: '1px',
+});
+export const ChevronRightIcon = createIcon(ChevronRightSvg, {
+  name: 'ChevronRightIcon',
+  source: 'icons/chevron-right.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CheckIcon = createIcon(TickSvg, {
+  name: 'CheckIcon',
+  source: 'icons/tick.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const WarningIcon = createIcon(WarningAlertSvg, {
+  name: 'WarningIcon',
+  source: 'icons/warning-alert.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const AlertIcon = createIcon(AlertSvg, {
+  name: 'AlertIcon',
+  source: 'icons/alert.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CloseIcon = createIcon(CancelSvg, {
+  name: 'CloseIcon',
+  source: 'icons/cancel.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const InfoIcon = createIcon(InfoAlertSvg, {
+  name: 'InfoIcon',
+  source: 'icons/info-alert.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const SearchIcon = createIcon(SearchSvg, {
+  name: 'SearchIcon',
+  source: 'icons/search.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ArrowLeftIcon = createIcon(LeftSvg, {
+  name: 'ArrowLeftIcon',
+  source: 'icons/left.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ArrowRightIcon = createIcon(RightSvg, {
+  name: 'ArrowRightIcon',
+  source: 'icons/right.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const GridIcon = createIcon(GridSvg, {
+  name: 'GridIcon',
+  source: 'icons/grid.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ListIcon = createIcon(ListSvg, {
+  name: 'ListIcon',
+  source: 'icons/list.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CommandPlaceholderIcon = createIcon(CommandPlaceholderSvg, {
+  name: 'CommandPlaceholderIcon',
+  source: 'icons/old-icons/command-placeholder.svg',
+  kind: 'ui',
+  defaultSize: 14,
+});
+export const MoreHorizontalIcon = createIcon(MoreHorizontalSvg, {
+  name: 'MoreHorizontalIcon',
+  source: 'icons/old-icons/more-horizontal.svg',
+  kind: 'ui',
+  defaultSize: 14,
+});

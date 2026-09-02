@@ -1,77 +1,142 @@
-/* Element tree panel — read-only navigator shown as the preview container's
-   left grid column in fullscreen edit mode (see preview.css for the grid). */
+/* Element tree panel — read-only navigator shown in the preview container's
+   left grid column (see preview.css for the grid). */
 
 .ss-tree-panel {
-  grid-area: 2 / 1 / -1 / 2;
+  grid-area: 1 / 1 / -1 / 2;
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
-  font-size: var(--font-size-base);
+  background: var(--surface-panel);
+  border-right: var(--stroke-1) solid var(--border-subtle);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-11);
 }
 
 .ss-tree-panel__header {
   display: flex;
   align-items: center;
+  gap: var(--space-04);
   height: var(--preview-toolbar-h);
   flex-shrink: 0;
   padding: 0 var(--spacing-md);
   /* Same surface as the preview toolbar so the bars read as one row. */
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-bottom: var(--stroke-1) solid var(--border-subtle);
 }
 
 .ss-tree-panel__title {
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 600;
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 /* Visual / Code toggle in the header. */
 .ss-tree-panel__modes {
   margin-left: auto;
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-}
-.ss-tree-panel__mode {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-.ss-tree-panel__mode.is-active {
-  background: var(--tint-strong);
-  color: var(--text-primary);
+  flex-shrink: 0;
 }
 
-.ss-tree-panel__body {
+.ss-tree-panel__view-only {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Compact the segmented control just enough for the title and both choices to
+   coexist at the panel's narrowest supported width. The shared Tabs primitive
+   still supplies the active indicator and all keyboard behavior. */
+.ss-tree-panel__modes .tabs__tab.button {
+  padding-inline: var(--space-06);
+}
+
+.ss-tree-panel > .tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.ss-tree-panel__active-view {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dockable-panel__surface--floating .ss-tree-panel {
+  border-right: none;
+}
+
+.dockable-panel__surface--floating .ss-tree-panel__header {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.dockable-panel__surface--floating .ss-tree-panel__header:active {
+  cursor: grabbing;
+}
+
+.ss-tree-panel .ss-tree-panel__body {
+  /* Keep the tree in normal block flow. A flex scroll body can let the
+     intrinsic width of the recursive root become the cross-axis alignment
+     target, which leaves the whole tree floating against the right edge. */
+  display: block;
   flex: 1;
   min-height: 0;
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
   overflow: auto;
-  padding: var(--spacing-xs) 0;
+  padding: var(--spacing-xs);
+}
+
+.ss-tree-node {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  margin-inline: 0 auto;
 }
 
 /* Code (Edit-HTML) view. The body is just the positioning context; the tab
    itself fills it absolutely (see below) so nothing can shrink it. */
-.ss-tree-panel__body--code {
+.ss-tree-panel .ss-tree-panel__body--code {
   position: relative;
   padding: 0;
   overflow: hidden;
+}
+
+.ss-tree-panel__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-top: var(--border-width-default) solid var(--border-subtle);
+  background: var(--surface-panel);
+}
+
+.ss-tree-panel__tag-toggle {
+  color: var(--text-muted);
+}
+
+.ss-tree-panel__tag-toggle:hover:not(:disabled),
+.ss-tree-panel__tag-toggle[aria-pressed='true'] {
+  color: var(--text-primary);
 }
 
 /* ── HTML code tab ──────────────────────────────────────────────────
@@ -91,18 +156,18 @@
   gap: var(--spacing-xs);
   flex-shrink: 0;
   padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 .ss-htmltab__tag {
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
-  color: var(--accent);
+  color: var(--tag-text);
 }
 .ss-htmltab__cls {
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
+  color: var(--class-text);
 }
 .ss-htmltab__main {
   position: relative;
@@ -119,7 +184,7 @@
   width: 100%;
 }
 .ss-htmltab__msg {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
   line-height: 1.5;
 }
@@ -129,15 +194,20 @@
   gap: var(--spacing-xs);
   flex-shrink: 0;
   padding: var(--spacing-sm) var(--spacing-md);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
 }
 
 .ss-tree-row {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--spacing-xs);
-  height: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  height: var(--size-control-medium);
+  margin-inline: 0;
   padding-right: var(--spacing-sm);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -145,13 +215,28 @@
 }
 
 .ss-tree-row:hover {
-  background: var(--bg-tertiary);
+  background: var(--property-field-hover);
 }
 
 .ss-tree-row.selected {
-  background: var(--bg-tertiary);
+  background: var(--property-field-selected);
+  color: var(--property-text);
+}
+
+/* The read-only navigator uses neutral highlights; blue is reserved for active
+   visual-editing state. */
+.ss-tree-panel--view-only .ss-tree-row:hover {
+  background: var(--surface-control-hover);
+}
+
+.ss-tree-panel--view-only .ss-tree-row.selected {
+  background: var(--surface-selected);
   color: var(--text-primary);
-  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ss-tree-row.affected {
+  background: color-mix(in srgb, var(--color-orange-400) 14%, transparent);
+  color: var(--color-orange-400);
 }
 
 .ss-tree-chevron {
@@ -180,22 +265,32 @@
 
 .ss-tree-tag {
   flex-shrink: 0;
-  color: var(--text-primary);
-  font-family: monospace;
+  color: var(--tag-text);
+  font-family: var(--font-code);
+}
+
+.ss-tree-tag-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--size-icon-button);
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+  color: var(--tag-text);
 }
 
 .ss-tree-class {
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--text-muted);
-  font-family: monospace;
+  color: var(--class-text);
+  font-family: var(--font-code);
 }
 
 .ss-tree-text {
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--text-muted);
-  font-style: italic;
+  color: var(--text-primary);
+  font-style: normal;
 }
 
 .ss-tree-panel__empty,

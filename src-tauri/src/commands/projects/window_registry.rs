@@ -66,13 +66,19 @@ pub async fn open_project_in_new_window(
     #[cfg(target_os = "macos")]
     {
         builder = builder
+            .decorations(true)
             .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 32.0))
             .hidden_title(true);
     }
 
-    builder
+    let window = builder
         .build()
         .map_err(|e| format!("Failed to create window: {e}"))?;
+
+    #[cfg(target_os = "macos")]
+    crate::commands::window::center_macos_traffic_lights(&window)
+        .map_err(|e| format!("Failed to align macOS window controls: {e}"))?;
 
     // Register this window in global state
     register_project_window(project_path, window_label.clone());
@@ -181,13 +187,19 @@ pub fn spawn_blank_window(app: &AppHandle) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
         builder = builder
+            .decorations(true)
             .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 32.0))
             .hidden_title(true);
     }
 
-    builder
+    let window = builder
         .build()
         .map_err(|e| format!("Failed to create window: {e}"))?;
+
+    #[cfg(target_os = "macos")]
+    crate::commands::window::center_macos_traffic_lights(&window)
+        .map_err(|e| format!("Failed to align macOS window controls: {e}"))?;
 
     tracing::info!("Spawned blank window {}", window_label);
     Ok(window_label)

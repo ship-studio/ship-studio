@@ -1,0 +1,68 @@
+/* Inline action primitive. It delegates behavior to Button but intentionally
+   opts out of standard control geometry and elevation. */
+.text-button.button {
+  display: inline-flex;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-secondary);
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  white-space: normal;
+  vertical-align: baseline;
+}
+
+.text-button.button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: var(--space-02);
+}
+
+.text-button.button:active:not(:disabled) {
+  transform: none;
+}
+
+.text-button.button:focus-visible {
+  outline-offset: var(--space-02);
+}
+
+.text-button.button .button__icon {
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+}
+
+.text-button.button .button__icon > svg {
+  width: auto;
+  height: auto;
+}
+
+.text-button--primary.button {
+  color: var(--accent-active);
+}
+
+.text-button--primary.button:hover:not(:disabled) {
+  color: var(--accent-active-hover);
+}
+
+.text-button--accent.button {
+  color: var(--accent-focus);
+}
+
+.text-button--accent.button:hover:not(:disabled) {
+  color: var(--info-light);
+}
+
+.text-button--danger.button {
+  color: var(--accent-error-light);
+}
+
+.text-button--danger.button:hover:not(:disabled) {
+  color: var(--accent-error);
+}

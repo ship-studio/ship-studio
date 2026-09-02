@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "entry": "src/styles/index.css",
+  "layers": [
+    {
+      "name": "core",
+      "files": ["src/styles/global/fonts.css", "src/styles/global/tokens-core.css"]
+    },
+    {
+      "name": "semantic",
+      "files": ["src/styles/global/tokens-semantic.css"]
+    },
+    {
+      "name": "components",
+      "files": ["src/styles/global/tokens-components.css"]
+    },
+    {
+      "name": "compatibility",
+      "files": ["src/styles/global/tokens-compatibility.css"]
+    }
+  ]
+}

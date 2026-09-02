@@ -1,0 +1,19 @@
+.middle-truncate {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.middle-truncate__measure {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  width: max-content;
+  max-width: none;
+  overflow: visible;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}

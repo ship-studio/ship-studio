@@ -4,7 +4,7 @@
   display: flex;
   flex: 1;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--surface-app);
 }
 
 /* Sidebar */
@@ -14,7 +14,7 @@
   min-width: 150px;
   max-width: 500px;
   min-height: 0;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
 .code-tab-sidebar-header {
@@ -23,34 +23,16 @@
   justify-content: space-between;
   padding: 0 12px;
   min-height: 48px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
 .code-tab-sidebar-title {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-}
-
-.code-tab-refresh-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-
-.code-tab-refresh-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
 }
 
 .code-tab-search {
@@ -60,15 +42,15 @@
   margin: 8px;
   padding: 0 8px;
   height: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-app);
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .code-tab-search:focus-within {
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .code-tab-search-input {
@@ -77,7 +59,7 @@
   border: none;
   background: none;
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-family: inherit;
   outline: none;
 }
@@ -108,30 +90,7 @@
   padding: 24px 16px;
   gap: 8px;
   color: var(--text-muted);
-  font-size: var(--font-size-base);
-}
-
-/* Divider */
-.code-tab-divider {
-  width: 1px;
-  cursor: col-resize;
-  background: var(--border);
-  flex-shrink: 0;
-  position: relative;
-}
-
-.code-tab-divider::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -2px;
-  width: 5px;
-}
-
-.code-tab-divider:hover,
-.code-tab-divider:active {
-  background: var(--accent);
+  font-size: var(--font-size-body-md);
 }
 
 /* Viewer */
@@ -158,7 +117,7 @@
   border-radius: 0;
   background: none;
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-family: inherit;
   cursor: pointer;
   text-align: left;
@@ -168,12 +127,12 @@
 }
 
 .file-tree-item:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .file-tree-item.selected {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-active) 15%, transparent);
+  color: var(--accent-active);
 }
 
 .file-tree-chevron {
@@ -198,7 +157,7 @@
 }
 
 .file-tree-item.selected .file-tree-icon {
-  color: var(--accent);
+  color: var(--accent-active);
 }
 
 .file-tree-name {
@@ -220,10 +179,10 @@
   gap: 6px;
   padding: 0 12px;
   min-height: 48px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-panel);
   color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   flex-shrink: 0;
 }
 
@@ -235,7 +194,7 @@
 
 .code-viewer-size {
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   flex-shrink: 0;
 }
 
@@ -244,7 +203,7 @@
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   flex-shrink: 0;
 }
 
@@ -252,36 +211,9 @@
 .code-viewer-edit-actions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   padding-right: var(--spacing-sm);
-  border-right: 1px solid var(--border);
-}
-
-/* Match every header action control to the Edit toggle's height (28px). */
-.code-viewer-actions .button,
-.code-viewer-open-btn {
-  height: 28px;
-}
-
-.code-viewer-open-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
-  font-family: inherit;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.code-viewer-open-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-default);
 }
 
 /* Unsaved-changes dot, shown next to the path while editing. */
@@ -289,7 +221,7 @@
   width: 8px;
   height: 8px;
   border-radius: var(--radius-full);
-  background: var(--warning);
+  background: var(--accent-warning);
   flex-shrink: 0;
 }
 
@@ -320,10 +252,10 @@
 .code-viewer-save-error {
   flex-shrink: 0;
   padding: var(--spacing-sm) var(--spacing-md);
-  border-top: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--error);
-  font-size: var(--font-size-sm);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-panel);
+  color: var(--accent-error);
+  font-size: var(--font-size-body-sm);
 }
 
 .code-viewer-placeholder {
@@ -334,7 +266,7 @@
   flex: 1;
   gap: 12px;
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 /* Selection Popover */
@@ -344,11 +276,14 @@
   width: 320px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-md);
   overflow: hidden;
+  /* Only `top` is animated (vertical tracking of the selection); `left` stays
+     pinned to where the highlight starts, so it must not transition. */
+  transition: top var(--duration-slow) var(--ease-standard);
 }
 
 .code-selection-reference {
@@ -358,12 +293,12 @@
   width: 100%;
   padding: 8px 12px;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   border-radius: 0;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: var(--font-size-body-sm);
+  font-family: var(--font-code);
   cursor: pointer;
   text-align: left;
 }
@@ -388,11 +323,11 @@
   max-height: 150px;
   overflow: auto;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   border-radius: 0;
-  background: var(--bg-primary);
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  font-size: var(--font-size-sm);
+  background: var(--surface-app);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   line-height: 18px;
   color: var(--text-secondary);
   white-space: pre;
@@ -402,10 +337,10 @@
   width: 100%;
   padding: 10px 12px;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   background: transparent;
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-family: inherit;
   outline: none;
 }
@@ -418,7 +353,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--button-gap);
   padding: 8px 12px;
 }
 
@@ -428,7 +363,7 @@
   border-radius: var(--radius-sm);
   background: none;
   color: var(--text-muted);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-family: inherit;
   cursor: pointer;
 }
@@ -444,13 +379,13 @@
   padding: 4px 12px;
   border: none;
   border-radius: var(--radius-sm);
-  background: var(--action);
-  color: var(--action-text);
-  font-size: var(--font-size-base);
+  background: var(--accent-active);
+  color: var(--text-on-accent);
+  font-size: var(--font-size-body-md);
   font-family: inherit;
   cursor: pointer;
 }
 
 .code-selection-copy:hover {
-  background: var(--action-hover);
+  background: var(--accent-active-hover);
 }

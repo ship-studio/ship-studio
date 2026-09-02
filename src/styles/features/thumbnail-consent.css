@@ -15,7 +15,7 @@
 
 .thumbnail-consent-body p {
   margin: 0;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   line-height: 1.5;
 }

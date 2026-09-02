@@ -4,6 +4,7 @@
 :root {
   --dash-slack-grad-start: rgba(97, 31, 105, 0.15);
   --dash-slack-grad-end: rgba(78, 29, 129, 0.1);
+  --dashboard-section-gap: var(--spacing-lg);
 }
 
 /* Dashboard with changelog sidebar layout */
@@ -73,13 +74,19 @@
   cursor: default;
 }
 
+/* The dashboard now sits below the shared workspace titlebar on the Home
+ * view, so keep its overlay drag region out of the titlebar controls. */
+.app.workspace-home.has-workspace-titlebar .dashboard-drag-region {
+  top: calc(var(--control-height-standard) + (var(--space-08) * 2));
+}
+
 /* Dashboard Layout */
 .project-list.dashboard {
   display: flex;
   flex-direction: column;
   /* Top padding accounts for macOS traffic lights in overlay mode;
      bottom padding keeps the last card (Integrations) off the scroll edge. */
-  padding: 44px 24px var(--spacing-2xl);
+  padding: 32px 24px var(--spacing-2xl);
   gap: 0;
   width: 100%;
   max-width: 900px;
@@ -90,14 +97,102 @@
   overflow-y: visible;
 }
 
+.app.workspace-home.has-workspace-titlebar .project-list.dashboard {
+  padding-top: 0;
+}
+
 /* Explicit bottom spacer at the end of the dashboard column — the
    nested .dashboard-with-changelog / .dashboard-scroll-container layout
    has enough padding/overflow indirection that relying purely on
    margin-bottom was not producing a visible gap. A physical block is
    deterministic. */
 .dashboard-bottom-spacer {
-  height: 24px;
+  height: 32px;
   flex-shrink: 0;
+}
+
+/* Figma-specific hero geometry: the 48px mark, 16px type gap, and 24px
+   vertical padding create the intended compact display block. */
+.dashboard-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xl) 0;
+  margin-bottom: var(--dashboard-section-gap);
+  text-align: center;
+}
+
+.dashboard-hero-hide {
+  position: absolute;
+  top: var(--spacing-sm);
+  right: var(--spacing-sm);
+  color: var(--text-muted);
+  opacity: 0;
+}
+
+.dashboard-hero:hover .dashboard-hero-hide,
+.dashboard-hero-hide:focus-visible {
+  opacity: 1;
+}
+
+.dashboard-hero-hide:hover {
+  color: var(--text-primary);
+}
+
+.dashboard-hero-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.dashboard-hero-icon-button {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dashboard-hero-icon-button:focus-visible {
+  outline: var(--stroke-2) solid var(--accent-focus);
+  outline-offset: var(--space-04);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dashboard-hero-icon-button:not(.dashboard-hero-icon-button--hover-suppressed):hover
+    .dashboard-hero-icon {
+    animation: dashboard-hero-icon-pulse var(--transition-slow);
+  }
+
+  .dashboard-hero-icon--click-pulsing {
+    animation: dashboard-hero-icon-click-pulse var(--transition-slow);
+  }
+}
+
+@keyframes dashboard-hero-icon-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes dashboard-hero-icon-click-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.16);
+  }
+}
+
+.dashboard-hero-title {
+  color: var(--text-primary);
 }
 
 /* Slack Community CTA */
@@ -105,16 +200,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--spacing-md);
   padding: 12px 16px;
-  margin-bottom: 20px;
+  margin-bottom: var(--dashboard-section-gap);
   background: linear-gradient(
     135deg,
     var(--dash-slack-grad-start) 0%,
     var(--dash-slack-grad-end) 100%
   );
   border: 1px solid rgba(var(--purple-deep-rgb), 0.2);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
 }
 
 .slack-cta-content {
@@ -131,7 +226,7 @@
 }
 
 .slack-cta-content span {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -145,9 +240,9 @@
   padding: 4px 10px;
   background: rgba(var(--purple-deep-rgb), 0.2);
   border: 1px solid rgba(var(--purple-deep-rgb), 0.3);
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   color: var(--slack-lavender);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -164,108 +259,77 @@
   color: var(--slack-lavender-bright);
 }
 
+.slack-cta-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--button-group-spacing);
+  flex: 0 0 auto;
+}
+
 .slack-cta-hide {
-  background: none;
-  border: none;
-  padding: 4px;
   color: var(--text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  border-radius: var(--radius-sm);
-  transition:
-    color var(--transition),
-    background-color var(--transition);
 }
 
 .slack-cta-hide:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
-/* Dashboard Header */
-.dashboard-header {
-  --dashboard-header-control-height: calc(var(--spacing-xl) + var(--spacing-md));
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding-bottom: 24px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-
+/* Standalone command-palette search. The inner well keeps the field visually
+   distinct from the surrounding panel while preserving one keyboard target. */
 .dashboard-search {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex: 1;
-  height: var(--dashboard-header-control-height);
-  padding: 0 var(--spacing-md);
+  /* Figma-specific one-off: normalize the 45px reference to an even 44px. */
+  display: block;
+  width: 100%;
+  height: 44px;
+  padding: var(--spacing-2xs);
   box-sizing: border-box;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
   transition:
     border-color var(--transition),
-    background-color var(--transition);
+    background-color var(--transition),
+    color var(--transition-interaction-fast);
   font: inherit;
-  font-size: var(--font-size-md);
   text-align: left;
   cursor: pointer;
-  color: var(--text-muted);
+  color: var(--text-faint);
+  margin-bottom: var(--dashboard-section-gap);
 }
 
 .dashboard-search:hover,
 .dashboard-search:focus-visible {
   border-color: var(--text-muted);
-  background: var(--bg-tertiary);
+  background: var(--surface-panel);
+  color: var(--text-secondary);
   outline: none;
 }
 
+.dashboard-search-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--spacing-sm) 0 var(--spacing-md);
+  background: var(--surface-app);
+  border-radius: var(--radius-4);
+}
+
 .dashboard-search svg {
-  color: var(--text-muted);
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
 }
 
 .dashboard-search-placeholder {
   flex: 1;
-  color: var(--text-muted);
-  font-size: var(--font-size-md);
-  line-height: 1;
+  color: currentColor;
 }
 
-.dashboard-search-shortcut {
-  font-size: var(--font-size-sm);
-  color: var(--text-muted);
-  padding: 2px 5px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  letter-spacing: 0.5px;
-}
-
-.dashboard-header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-}
-
-/* Compact button styles for dashboard header - matches editor UI */
-.dashboard-header-actions .button {
-  height: var(--dashboard-header-control-height);
-  padding: 0 var(--spacing-md);
-  font-size: var(--font-size-base);
-}
-
-.dashboard-header-actions .button--secondary,
-.dashboard-header-actions .btn-secondary {
-  background: var(--bg-secondary);
-}
-
-.dashboard-header-actions .btn-icon {
-  height: var(--dashboard-header-control-height);
-  padding: 0 var(--spacing-sm);
+.dashboard-projects-panel {
+  padding: var(--spacing-lg);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  margin-bottom: var(--dashboard-section-gap);
 }

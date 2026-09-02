@@ -115,6 +115,17 @@ Single-file domains:
 - `primitives/`, `icons/`, `setup/`, `edit/`, `support/`, `CommandPalette/`, `import-project/` - pre-existing groups
 - Root holds only cross-cutting files: ErrorBoundary, UpdateBanner, EducationOverlay, ConnectOverlay, AppGlobalModals, HelpModal
 
+Shared icons are imported from `@/components/icons`, never from an internal icon module or a raw
+SVG asset. Static inline SVG is prohibited in feature components; use the shared icon modules or
+`src/assets/graphics/` for feature artwork. The marked dynamic `BranchGraph.tsx` exception is the
+only inline SVG. See [Icons and SVG graphics](docs/design-system.md#icons-and-svg-graphics).
+
+When a request adds an icon to a feature, always follow
+[Importing a new icon](docs/design-system.md#importing-a-new-icon): process files from the temporary
+`src/assets/icons/import/` inbox, convert UI artwork colours to `currentColor` without changing
+transparency, move the finished asset to its owned location, register a semantic `createIcon`
+export in the correct category, consume it through `@/components/icons`, and validate it.
+
 #### Frontend Libraries
 Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `agents-management.ts` / `agent.ts` - Agent CLI detection, install state, default-agent selection
@@ -286,11 +297,10 @@ These classes are defined in `src/styles/global/base.css` and are part of Ship S
 
 | Class | Defined In | Description |
 |-------|-----------|-------------|
-| `toolbar-icon-btn` | `base.css` | Icon button for the workspace toolbar (32px height, border, rounded corners, hover states). Used by all header action buttons and toolbar plugins. |
-| `btn-primary` | `base.css` | Primary action button (accent background, white text) |
-| `btn-secondary` | `base.css` | Secondary button (tertiary background, border) |
+| `toolbar-icon-btn` | `base.css` | Legacy plugin-facing toolbar class. Internal React code uses `IconButton`; keep this class only for plugin compatibility. |
+| `button` + `button--*` | `base.css` | Plugin-facing CSS for the semantic action family. Internal React code uses the primitives below rather than applying these classes directly. |
 
-CSS variables (`--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--text-primary`, `--text-secondary`, `--text-muted`, `--border`, `--accent`, `--action`, etc.) are also stable and available to plugins.
+CSS variables (`--surface-app`, `--surface-panel`, `--surface-control`, `--text-primary`, `--text-secondary`, `--text-muted`, `--border`, `--accent`, `--action`, etc.) are also stable and available to plugins.
 
 ## Common Patterns
 
@@ -364,12 +374,12 @@ import { Spinner } from './primitives/Spinner';
 
 <Spinner size="sm" />                                  {/* 14px — inline, inside buttons */}
 <Spinner />                                            {/* 20px — default */}
-<Spinner size="lg" style={{ color: 'var(--accent)' }} /> {/* 32px — section loading */}
+<Spinner size="lg" style={{ color: 'var(--accent-active)' }} /> {/* 32px — section loading */}
 ```
 
 The arc uses `currentColor` — set `color` on the spinner or let it inherit (inside a green action button it's automatically dark).
 
-### New button → use `<Button variant="...">` from `src/components/primitives/Button.tsx`
+### New button → use the semantic button family from `src/components/primitives/`
 
 Don't invent per-domain button classes (`foo-btn`, `xyz-action`, etc.) — they fragment the design system.
 
@@ -383,15 +393,35 @@ import { Button } from './primitives/Button';
 <Button variant="primary" onClick={...}>Publish</Button>
 ```
 
-Variants: `primary | secondary | danger | ghost`. Sizes: `md | sm`. Use `block` for full-width.
+`Button.tsx` is the component/API source of truth; the `base.css` `.button*` rules are its
+token-driven implementation and the plugin-compatible CSS surface. Do not style an internal action
+by applying `.button` classes to a raw element.
 
-**When a raw `<button>` is fine** (don't force these into `<Button>`):
+Variants: `default | primary | secondary | danger | ghost | warning | variable`. The default is
+the neutral solid Figma button; `secondary` is the neutral outline treatment. Sizes:
+`default | compact | large`; omitted `size` means the 30px `default`, while `compact` is reserved
+for dense rows, toolbars, and tight popovers. Buttons hug their contents by default; use
+`width="fill"` for full-width (`block` remains a backwards-compatible alias).
 
-- `toolbar-icon-btn` buttons — plugin-stable shared class for icon-only toolbar chrome
-- Icon-only buttons ≤ 28px (close ×, hover-reveal row actions, inline input confirm/cancel) — Button's padding would distort them
-- Toggle/switch UI (`aria-pressed` pills), segmented controls, tab buttons (`role="tab"`)
-- Dropdown triggers (the render-prop keeps the feature's own button) and anything inside a primitive
-- Brand-colored CTAs whose hue is intentional (connect overlay green, conflict yours/theirs pair) — changing them is a design decision, not a cleanup
+Choose by behavior: `Button` for actions, `IconButton` for icon-only actions, `ToggleButton` for
+boolean state, `MenuButton` for dropdown triggers, and `SplitButton` for an action/menu pair. They
+share the same appearance, variant, size, width, and token-driven states. Use `TextButton` for an
+inline action in prose or metadata; it delegates button semantics and focus behavior to `Button`
+but deliberately has no control surface, fixed height, radius, or shadow. Use `Tabs` for tab
+navigation rather than hand-rolling `role="tab"` buttons, and `SegmentedControl` for mutually
+exclusive filters or settings that update a value in place.
+
+Use `PropertyField` for interactive values in the visual/CSS editors rather than treating them as
+actions. Its `value` and `select` variants stay neutral. The `variable` variant uses the shared
+purple variable tokens. Inherited/modified state is communicated by the accompanying label, not by
+recoloring the field.
+
+**When a raw `<button>` is fine** (don't force these into the button family):
+
+- Geometry controls such as canvas handles, timeline points, and colour swatches
+- Internals of another primitive where that primitive owns the interaction
+- Large selection surfaces/cards with richer content than a normal label and icon
+- Special equal-choice controls such as the conflict yours/theirs pair — changing their hierarchy is a design decision, not a cleanup
 
 Everything else that's a standalone action button (CTA, submit, cancel, delete, confirm) uses `<Button variant>`.
 
@@ -444,7 +474,7 @@ usePolling(async () => refreshStatus(path), { intervalMs: 3000, enabled: isFocus
 
 Full token + primitive reference: [docs/design-system.md](docs/design-system.md)
 
-The tokens live at the top of [src/styles/global/base.css](src/styles/global/base.css) under a documented block. Never use raw hex colors, raw spacing px, raw z-index numbers, or raw durations.
+Token import order is defined by [src/styles/global/token-manifest.json](src/styles/global/token-manifest.json). Definitions are split across core, semantic, component, and compatibility token files under `src/styles/global/`. Never use raw hex colors, raw spacing px, raw z-index numbers, or raw durations in consuming stylesheets.
 
 ```css
 /* ❌ Don't */
@@ -464,15 +494,15 @@ The tokens live at the top of [src/styles/global/base.css](src/styles/global/bas
   border-radius: var(--radius-md);
   z-index: var(--z-modal-overlay);
   box-shadow: var(--shadow-md);
-  transition: background var(--transition);
+  transition: background var(--transition-interaction);
 }
 ```
 
-Need a value that doesn't exist yet? Add the token to `:root` in [base.css](src/styles/global/base.css) first, then use it.
+Need a value that doesn't exist yet? Add it to the correct layer named by the token manifest: reusable literals in `tokens-core.css`, product intent in `tokens-semantic.css`, owner-specific contracts in `tokens-components.css`, and externally stable legacy aliases only in `tokens-compatibility.css`.
 
 **Raw color literals fail CI** (`pnpm check:patterns`). The rules:
 
-- Colors used in 2+ files or belonging to a semantic family (status, info, purple, ANSI) → global token in base.css. Alpha tints use the RGB-triplet companions: `rgba(var(--error-rgb), 0.1)`, white tints use `--tint/--tint-subtle/--tint-strong`, black scrims use `--overlay-30…80`.
+- Colors used in 2+ files or belonging to a semantic family (status, info, purple, ANSI) → define a core color primitive and expose it through a semantic role. Alpha tints use the RGB-triplet companions; white tints and black scrims use the existing semantic overlay roles.
 - Intentional one-off colors (brand hues, feature-specific accents) → a file-local token in a `:root` block at the top of that feature's CSS file, prefixed with the feature name (`--dm-failed-red`, `--setup-wizard-green`).
 - A raw value that genuinely must stay (e.g. backgrounds matching xterm's theme) → tag the line with a `/* css-ok: reason */` comment.
 - Font sizes use the type scale (`--font-size-xs` … `--font-size-3xl`). Off-scale sizes (15px, 17px…) are migration debt — round to the nearest token when touching that code.
@@ -485,7 +515,7 @@ CSS lives under this folder structure:
 
 ```
 src/styles/
-├── global/      base.css (tokens, primitives' styles, shared keyframes)
+├── global/      token layers and manifest, base rules, typography, shared keyframes
 ├── features/    branches/, plugins/, dashboard/, publish/, workspace/, …
 ├── modes/       compact-mode, education-mode, code-mode
 └── components/  modal, command-palette
@@ -579,7 +609,7 @@ CI (`pnpm check:patterns`, `pnpm check:loc`) and/or a reviewer.
 - **Raw `setInterval` polling** — use `usePolling`. Handles backoff on error and teardown.
 - **`Result<T, String>` on `#[tauri::command]` entry points** — use `Result<T, CommandError>` from `src-tauri/src/errors.rs`. String errors can't be discriminated by the frontend.
 - **Bare `.output().await` on network CLI calls** — use `run_with_timeout` from `src-tauri/src/external_command.rs`. Unbounded CLI calls can hang the UI forever.
-- **Raw hex colors, raw px spacing, raw z-index numbers in CSS** — use tokens from `src/styles/global/base.css`. Adding a new value? Add the token first.
+- **Raw hex colors, raw px spacing, raw z-index numbers in CSS** — use the manifest-ordered token layers under `src/styles/global/`. Adding a new value? Add it to the correct layer first.
 
 ## Known Gotchas
 

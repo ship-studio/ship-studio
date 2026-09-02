@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { FolderInfo, listFolders, createFolder } from '../../lib/folders';
-import { FolderIcon, CheckIcon, PlusIcon } from '../icons';
+import { FolderIcon, CheckIcon, PlusIcon } from '@/components/icons';
 import { logger } from '../../lib/logger';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
@@ -107,7 +107,7 @@ export function MoveFolderModal({
       className="move-folder-modal"
       dismissable={!selecting}
     >
-      <div style={{ padding: 'var(--spacing-xl)' }}>
+      <div className="move-folder-modal-body">
         <p className="modal-subtitle">
           Move <strong>{projectName}</strong> to:
         </p>

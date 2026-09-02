@@ -23,44 +23,45 @@ const renderControl = (overrides = {}) => {
 describe('PreviewSizeControl', () => {
   it('shows the current size and opens the popover on click', () => {
     renderControl();
-    const button = screen.getByRole('button', { name: '1440 × 900' });
+    const button = screen.getByRole('button', { name: /1440 × 900/ });
     fireEvent.click(button);
-    expect(screen.getByRole('dialog', { name: 'Set preview size' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Width in pixels')).toHaveValue(1440);
+    expect(screen.getByRole('dialog', { name: 'Preview size' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Preview size' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Width in pixels')).toHaveValue('1440');
     // Auto height renders as an empty input with the 'auto' placeholder.
-    expect(screen.getByLabelText('Height in pixels (empty for auto)')).toHaveValue(null);
+    expect(screen.getByLabelText('Height in pixels (empty for auto)')).toHaveValue('');
   });
 
   it('applies a typed width with auto height', () => {
     const props = renderControl();
-    fireEvent.click(screen.getByRole('button', { name: '1440 × 900' }));
+    fireEvent.click(screen.getByRole('button', { name: /1440 × 900/ }));
     const width = screen.getByLabelText('Width in pixels');
-    fireEvent.change(width, { target: { value: '820' } });
+    fireEvent.input(width, { target: { value: '820' } });
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
     expect(props.onApply).toHaveBeenCalledWith(820, null);
   });
 
   it('applies width and height together on Enter', () => {
     const props = renderControl();
-    fireEvent.click(screen.getByRole('button', { name: '1440 × 900' }));
-    fireEvent.change(screen.getByLabelText('Width in pixels'), { target: { value: '390' } });
+    fireEvent.click(screen.getByRole('button', { name: /1440 × 900/ }));
+    fireEvent.input(screen.getByLabelText('Width in pixels'), { target: { value: '390' } });
     const height = screen.getByLabelText('Height in pixels (empty for auto)');
-    fireEvent.change(height, { target: { value: '844' } });
+    fireEvent.input(height, { target: { value: '844' } });
     fireEvent.keyDown(height, { key: 'Enter' });
     expect(props.onApply).toHaveBeenCalledWith(390, 844);
   });
 
   it('rejects out-of-range widths without applying', () => {
     const props = renderControl();
-    fireEvent.click(screen.getByRole('button', { name: '1440 × 900' }));
-    fireEvent.change(screen.getByLabelText('Width in pixels'), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: /1440 × 900/ }));
+    fireEvent.input(screen.getByLabelText('Width in pixels'), { target: { value: '50' } });
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
     expect(props.onApply).not.toHaveBeenCalled();
   });
 
   it('Fit pane resets and closes', () => {
     const props = renderControl();
-    fireEvent.click(screen.getByRole('button', { name: '1440 × 900' }));
+    fireEvent.click(screen.getByRole('button', { name: /1440 × 900/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Fit pane' }));
     expect(props.onFit).toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -68,7 +69,7 @@ describe('PreviewSizeControl', () => {
 
   it('mentions scaling when the frame is scaled to fit', () => {
     renderControl({ scalePercent: 57 });
-    fireEvent.click(screen.getByRole('button', { name: '1440 × 900' }));
+    fireEvent.click(screen.getByRole('button', { name: /1440 × 900/ }));
     expect(screen.getByText(/scaled to 57%/)).toBeInTheDocument();
   });
 });

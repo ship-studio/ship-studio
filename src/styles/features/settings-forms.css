@@ -1,0 +1,107 @@
+/* Shared settings form recipe.
+   Feature components add semantic ownership classes such as
+   `.project-settings-*` and `.dev-command-*`; notification settings keep their
+   own notification-specific recipe. */
+
+.settings-form-content {
+  width: var(--settings-form-width);
+  max-width: 100%;
+  background: var(--surface-panel);
+  border: var(--settings-form-border-width) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--settings-form-section-gap);
+  padding: var(--settings-form-body-padding-block) var(--settings-form-body-padding-inline);
+}
+
+.settings-form-section,
+.settings-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--settings-form-field-gap);
+}
+
+.settings-form-label {
+  color: var(--text-primary);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-body);
+}
+
+.settings-form-field > .ss-text-field,
+.settings-form-field > .ss-text-field-shell {
+  width: 100%;
+}
+
+.settings-form-help,
+.settings-form-error {
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+}
+
+.settings-form-help {
+  color: var(--text-muted);
+}
+
+.settings-form-error {
+  color: var(--accent-error);
+}
+
+.settings-form-intro {
+  margin: 0;
+  padding: var(--settings-form-intro-padding-block-start) var(--settings-form-intro-padding-inline)
+    var(--settings-form-intro-padding-block-end);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-body);
+}
+
+.settings-form-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.settings-form-checkbox > input {
+  margin-block-start: var(--spacing-2xs);
+}
+
+.settings-form-checkbox-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.settings-form-checkbox-title {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-label);
+}
+
+.settings-form-checkbox-description {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+}
+
+.settings-form-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--settings-form-footer-gap);
+  padding: var(--settings-form-footer-padding-block) var(--settings-form-body-padding-inline);
+  border-top: var(--settings-form-border-width) solid var(--border-default);
+}
+
+.dev-command-clear {
+  margin-inline-end: auto;
+}

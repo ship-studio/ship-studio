@@ -10,8 +10,8 @@
  */
 
 import type { Extension } from '@codemirror/state';
-import { Prec } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { Prec, Range } from '@codemirror/state';
+import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 import { css } from '@codemirror/lang-css';
@@ -20,24 +20,27 @@ import { javascript } from '@codemirror/lang-javascript';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
 
-/* github-dark token colors (the same palette the Code tab's Shiki theme uses). */
+/* Shared syntax palette, with semantic colors matching the visual editor. */
 export const ghDarkHighlight = HighlightStyle.define([
   { tag: [t.keyword, t.modifier, t.operatorKeyword], color: '#ff7b72' },
-  { tag: [t.propertyName], color: '#79c0ff' },
-  { tag: [t.variableName], color: '#ffa657' },
+  { tag: [t.propertyName], color: 'var(--property-text)' },
+  { tag: [t.variableName], color: 'var(--variable-text)' },
   { tag: [t.function(t.variableName), t.labelName], color: '#d2a8ff' },
   {
     tag: [t.number, t.bool, t.atom, t.color, t.constant(t.name), t.standard(t.name)],
-    color: '#79c0ff',
+    color: 'var(--property-text)',
   },
   {
-    tag: [t.typeName, t.className, t.namespace, t.changed, t.annotation, t.self],
-    color: '#79c0ff',
+    tag: [t.typeName, t.namespace, t.changed, t.annotation, t.self],
+    color: 'var(--property-text)',
   },
-  { tag: [t.string, t.special(t.string)], color: '#a5d6ff' },
+  { tag: [t.className], color: 'var(--class-text)' },
+  // Quoted attribute values (Tailwind class lists) render as Class-orange;
+  // unquoted element text inherits the editor's base --text-inverse.
+  { tag: [t.string, t.special(t.string)], color: 'var(--class-text)' },
   { tag: [t.comment, t.meta], color: '#8b949e', fontStyle: 'italic' },
-  { tag: [t.tagName], color: '#7ee787' },
-  { tag: [t.attributeName], color: '#79c0ff' },
+  { tag: [t.tagName], color: 'var(--tag-text)' },
+  { tag: [t.attributeName], color: 'var(--property-text)' },
   { tag: [t.invalid], color: '#f85149' },
 ]);
 
@@ -47,17 +50,19 @@ export const ssEditorTheme = EditorView.theme(
     '&': {
       height: '100%',
       color: 'var(--text-primary)',
-      backgroundColor: 'var(--bg-tertiary)',
-      fontSize: 'var(--font-size-xs)',
+      backgroundColor: 'var(--surface-control)',
+      fontSize: 'var(--font-size-badge)',
     },
     '&.cm-focused': { outline: 'none' },
+    // CSS `--custom-property` names (see cssVarHighlight) in Variable-purple.
+    '.cm-css-var': { color: 'var(--variable-text)' },
     '.cm-scroller': {
-      fontFamily: 'var(--font-mono, monospace)',
+      fontFamily: 'var(--font-code)',
       lineHeight: '1.6',
       overflow: 'auto',
       // Custom, theme-matched scrollbars (never the device's white default).
       scrollbarWidth: 'thin',
-      scrollbarColor: 'var(--border) transparent',
+      scrollbarColor: 'var(--border-default) transparent',
       // Promote to its own compositing layer so the native caret has a clean
       // backing store and paints inside the panel's fixed, rounded, clipped box
       // (without this, WebKit drops the caret entirely — see .cm-content).
@@ -66,9 +71,9 @@ export const ssEditorTheme = EditorView.theme(
     '.cm-scroller::-webkit-scrollbar': { width: '10px', height: '10px' },
     '.cm-scroller::-webkit-scrollbar-track': { background: 'transparent' },
     '.cm-scroller::-webkit-scrollbar-thumb': {
-      background: 'var(--border)',
+      background: 'var(--border-default)',
       borderRadius: '999px',
-      border: '2px solid var(--bg-tertiary)',
+      border: '2px solid var(--surface-control)',
     },
     '.cm-scroller::-webkit-scrollbar-thumb:hover': { background: 'var(--text-muted)' },
     '.cm-scroller::-webkit-scrollbar-corner': { background: 'transparent' },
@@ -77,18 +82,18 @@ export const ssEditorTheme = EditorView.theme(
     // editor is promoted to its own backing layer — see `.cm-scroller` above.
     '.cm-content': {
       padding: 'var(--spacing-sm) 0',
-      caretColor: 'var(--text-bright, #fff)',
+      caretColor: 'var(--text-inverse, #fff)',
     },
     '.cm-line': { padding: '0 var(--spacing-sm)' },
     '.cm-cursor, .cm-cursor-primary': {
-      borderLeftColor: 'var(--text-bright, #fff)',
+      borderLeftColor: 'var(--text-inverse, #fff)',
       borderLeftWidth: '2px',
     },
     '.cm-selectionBackground, ::selection': { backgroundColor: 'var(--tint)' },
     '&.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--tint-strong)' },
     '.cm-activeLine': { backgroundColor: 'transparent' },
     '.cm-gutters': {
-      backgroundColor: 'var(--bg-tertiary)',
+      backgroundColor: 'var(--surface-control)',
       color: 'var(--text-muted)',
       border: 'none',
     },
@@ -97,7 +102,45 @@ export const ssEditorTheme = EditorView.theme(
   { dark: true }
 );
 
-export const ghDarkExtension: Extension = syntaxHighlighting(ghDarkHighlight);
+/**
+ * Purple-mark `--custom-property` names wherever they appear (e.g. the
+ * `var(--foreground)` fragments inside Tailwind arbitrary-value class strings,
+ * which CodeMirror only sees as one orange string token). Scans visible ranges
+ * for `--name` and wraps matches in a mark styled by ssEditorTheme.
+ */
+const cssVarMark = Decoration.mark({ class: 'cm-css-var' });
+
+function buildCssVarDecorations(view: EditorView): DecorationSet {
+  const marks: Range<Decoration>[] = [];
+  const re = /--[a-zA-Z][a-zA-Z0-9-]*/g;
+  for (const { from, to } of view.visibleRanges) {
+    const text = view.state.sliceDoc(from, to);
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(text)) !== null) {
+      marks.push(cssVarMark.range(from + match.index, from + match.index + match[0].length));
+    }
+  }
+  return Decoration.set(marks, true);
+}
+
+export const cssVarHighlight = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildCssVarDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = buildCssVarDecorations(update.view);
+      }
+    }
+  },
+  { decorations: (plugin) => plugin.decorations }
+);
+
+export const ghDarkExtension: Extension = [syntaxHighlighting(ghDarkHighlight), cssVarHighlight];
 
 /**
  * Render syntax-error tokens as ordinary text instead of red. The Code tab is a
@@ -112,20 +155,22 @@ export const neutralizeInvalidHighlight: Extension = Prec.high(
 /**
  * Metrics for the Code tab's full-file editor (used in both read and edit mode):
  * a comfortable 16px, a transparent surface, and the JetBrains Mono stack.
- * Without this the editor would render in the denser `--font-size-xs` / 1.6
+ * Without this the editor would render in the denser `--font-size-badge` / 1.6
  * line-height of `ssEditorTheme`. Layered AFTER `ssEditorTheme`; deliberately
  * NOT applied to the visual editor's overlay editor, which keeps the compact
  * metrics.
  */
 export const codeTabEditorTheme = EditorView.theme({
   // Larger, readable code text on a transparent surface so the code area shows
-  // the panel background.
+  // the panel background. Element text content (headings, paragraphs) has no
+  // syntax token, so this base color IS its color — white, per --text-inverse.
   '&': {
-    fontSize: 'var(--font-size-xl)',
+    fontSize: 'var(--font-size-h4)',
     backgroundColor: 'transparent',
+    color: 'var(--text-inverse)',
   },
   '.cm-scroller': {
-    fontFamily: 'var(--font-mono, monospace)',
+    fontFamily: 'var(--font-code)',
     lineHeight: '24px',
   },
   '.cm-content': { paddingTop: '12px' },
@@ -141,9 +186,9 @@ export const codeTabEditorTheme = EditorView.theme({
   // divider, numbers right-aligned 12px from the divider in text-muted — so the
   // code doesn't shift horizontally when toggling Edit on/off.
   '.cm-gutters': {
-    backgroundColor: 'var(--bg-secondary)',
+    backgroundColor: 'var(--surface-panel)',
     color: 'var(--text-muted)',
-    borderRight: '1px solid var(--border)',
+    borderRight: '1px solid var(--border-default)',
   },
   '.cm-lineNumbers .cm-gutterElement': {
     minWidth: '52px',
@@ -152,6 +197,28 @@ export const codeTabEditorTheme = EditorView.theme({
   },
   '.cm-activeLineGutter': { backgroundColor: 'transparent' },
 });
+
+/**
+ * Surface-only override for the Code tab editor: repaint the editor body and
+ * gutter with `--surface-app` so they match the Agent panel instead of
+ * `ssEditorTheme`'s `--surface-control`. High precedence so it wins the
+ * cascade over `ssEditorTheme` regardless of style-mount order — and nothing
+ * else (fonts, sizes, spacing) is touched.
+ */
+export const codeTabSurfaceTheme = Prec.high(
+  EditorView.theme({
+    '&': { backgroundColor: 'var(--surface-app)' },
+    '.cm-gutters': {
+      backgroundColor: 'var(--surface-app)',
+    },
+    // Once the code is scrolled sideways, separate the sticky gutter column
+    // from the code passing beneath it. The class is toggled by the editor's
+    // scroll handler (CodeFileEditor); at scrollLeft 0 there is no border.
+    '&.ss-code-hscrolled .cm-gutters': {
+      borderRight: '1px solid var(--border-default)',
+    },
+  })
+);
 
 /**
  * Map a Shiki language id (as returned by `read_project_file`) to a CodeMirror

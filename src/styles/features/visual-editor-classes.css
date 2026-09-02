@@ -19,7 +19,7 @@
   --classedit-check-w: 16px;
   --classedit-row-pad-y: 7px;
   /* Faint tint marking the active edit target (paired with a green check). */
-  --classedit-active-tint: color-mix(in srgb, var(--action) 14%, transparent);
+  --classedit-active-tint: color-mix(in srgb, var(--accent-active) 14%, transparent);
   /* Neutral highlight for hover / keyboard cursor. */
   --classedit-hi-tint: color-mix(in srgb, var(--text-primary) 8%, transparent);
 }
@@ -30,9 +30,9 @@
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
-  padding: var(--spacing-md);
-  border-bottom: 1px solid var(--border);
+  gap: var(--spacing-sm);
+  padding: var(--editor-panel-inline-pad);
+  border-bottom: 1px solid var(--border-default);
 }
 
 /* ===== Trigger (closed control) ===== */
@@ -49,7 +49,7 @@
   min-width: 0;
 }
 .ss-classedit__trigger.is-class .ss-classedit__name {
-  color: var(--action);
+  color: var(--accent-active);
 }
 
 /* ===== Menu shell ===== */
@@ -67,7 +67,7 @@
   overflow: hidden;
 }
 
-/* Reset only the size/inheritance-breaking bits of the global `button` rule.
+/* Keep the menu buttons aligned with their portaled context.
    IMPORTANT: do NOT use `font: inherit` here — that shorthand also resets
    font-size, and `.ss-classedit__menu button` (specificity 0-1-1) would then
    beat the per-item font-size rules, pulling the portaled <body> default size
@@ -78,9 +78,7 @@
   line-height: 1.2;
   margin: 0;
   cursor: pointer;
-  /* Kill the global button background (base + :hover) — the highlight lives on
-     the row, never the inner pick/× buttons (those boxes leaked from `button`).
-     Equal specificity to `button:hover`, but this file loads later, so it wins.
+  /* The highlight lives on the row, never the inner pick/× buttons.
      Items still highlight via their higher-specificity .is-hi/.is-active rules. */
   background: none;
 }
@@ -96,12 +94,12 @@
   gap: var(--spacing-xs);
   height: var(--classedit-search-h);
   padding: 0 var(--spacing-sm);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
 }
 .ss-classedit__searchwrap:focus-within {
-  border-color: var(--action);
+  border-color: var(--accent-active);
 }
 .ss-classedit__searchwrap svg {
   flex: 0 0 auto;
@@ -114,7 +112,7 @@
   border: none;
   outline: none;
   background: none;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-primary);
 }
 .ss-classedit__search::placeholder {
@@ -139,7 +137,7 @@
 /* Zone label (Edit target / Apply existing). */
 .ss-classedit__group {
   padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-xs);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -168,7 +166,7 @@
 .ss-classedit__item,
 .ss-classedit__createrow {
   padding: var(--classedit-row-pad-y) var(--spacing-md);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   text-align: left;
   color: var(--text-secondary);
   background: none;
@@ -207,7 +205,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--action);
+  color: var(--accent-active);
 }
 
 /* Applied-class row: the name picks (edit) on the left, × removes on the right. */
@@ -218,7 +216,7 @@
   align-items: center;
   gap: var(--spacing-xs);
   padding: var(--classedit-row-pad-y) 0 var(--classedit-row-pad-y) var(--spacing-md);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   text-align: left;
   color: var(--text-secondary);
   background: none;
@@ -240,13 +238,13 @@
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   line-height: 1;
   transition: color var(--transition);
 }
 /* Full white on hover (--accent is #fff in this theme), from the muted base. */
 .ss-classedit__x:hover:not(:disabled) {
-  color: var(--accent);
+  color: var(--accent-active);
 }
 .ss-classedit__x:disabled {
   opacity: 0.3;
@@ -267,13 +265,13 @@
 .ss-classedit__createrow {
   flex: 0 0 auto;
   color: var(--text-secondary);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
   border-radius: 0;
   padding: var(--spacing-sm);
 }
 .ss-classedit__createrow svg {
   flex: 0 0 auto;
-  color: var(--action);
+  color: var(--accent-active);
 }
 .ss-classedit__createrow:disabled {
   opacity: 0.5;
@@ -298,6 +296,6 @@
 
 .ss-classedit__empty {
   padding: var(--spacing-sm);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }

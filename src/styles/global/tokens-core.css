@@ -1,0 +1,134 @@
+/* Ship Studio design tokens */
+/* Core primitives: literal palette, scales, type ingredients, and effect ingredients. */
+
+:root {
+  --color-white: #ffffff;
+  --color-white-o15: rgba(255, 255, 255, 0.15);
+
+  --color-black: #000000;
+  --color-black-o15: rgba(0, 0, 0, 0.15);
+  --color-black-o38: rgba(0, 0, 0, 0.38);
+  --color-black-o75: rgba(0, 0, 0, 0.75);
+
+  --color-gray-950: #141414;
+  --color-gray-900: #1a1a1a;
+  --color-gray-850: #282828;
+  --color-gray-800: #303030;
+  --color-gray-750: #393939;
+  --color-gray-700: #4e4e4e;
+  --color-gray-600: #767676;
+  --color-gray-500: #868686;
+  --color-gray-400: #979797;
+  --color-gray-300: #a9a9a9;
+  --color-gray-200: #bcbcbc;
+  --color-gray-100: #f1f1f1;
+
+  --color-green-700: #26bf4f;
+  --color-green-600: #35d35d;
+  --color-green-500: #46e76f;
+  --color-green-400: #3fce90;
+  --color-green-300: #a1ffca;
+
+  --color-blue-700: #006acc;
+  --color-blue-600: #0978e3;
+  --color-blue-500: #2792ff;
+  --color-blue-400: #6bb5ff;
+  --color-blue-500-o40: color-mix(in srgb, var(--color-blue-500) 40%, transparent);
+  --color-blue-500-o15: color-mix(in srgb, var(--color-blue-500) 15%, transparent);
+
+  --color-purple-700: #734ce0;
+  --color-purple-600: #815beb;
+  --color-purple-500: #875ffd;
+  --color-purple-400: #b89eff;
+  --color-purple-300: #cbb8ff;
+  --color-purple-500-o40: color-mix(in srgb, var(--color-purple-500) 40%, transparent);
+  --color-purple-500-o15: color-mix(in srgb, var(--color-purple-500) 15%, transparent);
+
+  --color-pink-600: #cc26a8;
+  --color-pink-500: #e52abd;
+  --color-pink-400: #ff6bdf;
+
+  --color-orange-400: #ebab6b;
+  --color-orange-500: #f6bf3e;
+  --color-orange-600: #e89a1c;
+
+  --color-red-500: #ff5f56;
+  --color-red-400: #ff6b6b;
+  --color-red-error: #f44747;
+  --color-red-error-light: #ef4444;
+  --color-red-error-deep: #dc2626;
+
+  --color-green-tag: #3fce90;
+
+  --color-swatch-blue: #007aff;
+  --color-swatch-green: #34c759;
+  --color-swatch-yellow: #ffcc00;
+  --color-swatch-red: #ff3b30;
+  --color-swatch-sky: #7ac6f5;
+  --color-swatch-purple: #af52de;
+  --color-swatch-indigo: #5856d6;
+  --color-swatch-pink: #ff2e55;
+
+  --space-01: 1px;
+  --space-02: 2px;
+  --space-04: 4px;
+  --space-06: 6px;
+  --space-08: 8px;
+  --space-09: 9px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+
+  --stroke-1: 1px;
+  --stroke-2: 2px;
+  --stroke-hairline: 0.5px;
+
+  --radius-2: 2px;
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-12: 12px;
+  --radius-999: 999px;
+
+  --font-family-geist: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-family-geist-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-family-nerd-mono: 'JetBrainsMono NF', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  --font-size-07: 7px;
+  --font-size-10: 10px;
+  --font-size-11: 11px;
+  --font-size-12: 12px;
+  --font-size-13: 13px;
+  --font-size-14: 14px;
+  --font-size-15: 15px;
+  --font-size-16: 16px;
+  --font-size-18: 18px;
+  --font-size-24: 24px;
+  --font-size-40: 40px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-default: 1;
+  --line-height-medium: 1.3;
+  --line-height-relaxed: 1.4;
+
+  --tracking-code: -0.44px;
+  --tracking-04: 0.4px;
+  --tracking-display: -2px;
+
+  --duration-fast: 100ms;
+  --duration-standard: 150ms;
+  --duration-slow: 300ms;
+  --duration-loader-fast: 900ms;
+  --duration-loader-tight: 1050ms;
+  --duration-loader-standard: 1200ms;
+  --duration-loader-decay: 1350ms;
+  --duration-loader-isolated: 1800ms;
+  --ease-standard: ease;
+  --ease-icon-swap: cubic-bezier(0.2, 0, 0, 1);
+}

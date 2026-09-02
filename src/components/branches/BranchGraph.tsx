@@ -21,7 +21,8 @@ import {
   setDefaultBaseBranch,
 } from '../../lib/branches';
 import { Spinner } from '../primitives/Spinner';
-import { ResetIcon } from '../icons';
+import { IconButton } from '../primitives/IconButton';
+import { ResetIcon } from '@/components/icons';
 import { logger } from '../../lib/logger';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { humanizeGitError } from '../../lib/errors';
@@ -260,16 +261,16 @@ export function BranchGraph({
         </button>
         <div className="branch-graph-header-actions">
           {expanded && (
-            <button
-              type="button"
-              className={`branch-graph-refresh${isRefreshing ? ' spinning' : ''}`}
+            <IconButton
+              variant="ghost"
+              size="compact"
+              className={isRefreshing ? 'spinning' : undefined}
               onClick={() => void handleRefresh()}
               disabled={isRefreshing}
               title="Refresh branches"
               aria-label="Refresh branches"
-            >
-              <ResetIcon size={14} />
-            </button>
+              icon={<ResetIcon size={14} />}
+            />
           )}
           {expanded && baseOptions.length > 0 && (
             <label className="branch-graph-default-base">
@@ -307,7 +308,12 @@ export function BranchGraph({
       ) : (
         <div className="branch-graph-body" style={{ height }}>
           {/* SVG graphics layer: rails, nodes, elbows, PR markers */}
-          <svg className="branch-graph-svg" width={width} height={height}>
+          <svg
+            data-dynamic-svg="branch-graph"
+            className="branch-graph-svg"
+            width={width}
+            height={height}
+          >
             {/* Fork elbows (under rails) */}
             {laid.map((l) => {
               const base = l.node.base ? laidByName.get(l.node.base) : null;

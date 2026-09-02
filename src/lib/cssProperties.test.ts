@@ -29,6 +29,6 @@ describe('suggestValues', () => {
 
   it('wraps bare variable names in var()', () => {
     expect(suggestValues('color', ['--accent'])).toContain('var(--accent)');
-    expect(suggestValues('color', ['var(--accent)'])).toContain('var(--accent)');
+    expect(suggestValues('color', ['var(--accent-active)'])).toContain('var(--accent-active)');
   });
 });

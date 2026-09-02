@@ -4,7 +4,7 @@
  * Renders the top header of the workspace view including:
  * - Back button to return to projects
  * - Project name and path
- * - Toolbar action buttons (education, plugins, assets, IDE, env, backups)
+ * - Topbar action buttons (education, plugins, assets, IDE, env, backups)
  * - GitHub button and publish dropdown
  * - Plugin toolbar/publish slots
  *
@@ -14,59 +14,81 @@
  * @module components/WorkspaceHeader
  */
 
-import { useState, useCallback, useMemo, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { GitHubButton } from '../branches/GitHubButton';
+import { BranchIndicator } from '../branches/BranchIndicator';
+import { BranchesMenu } from '../branches/BranchesMenu';
 import { openInFinder } from '../../lib/ide';
-import { fileManagerName } from '../../lib/setup';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { PublishBranchDropdown } from '../branches/PublishBranchDropdown';
 import { PluginSlot } from '../plugins/PluginSlot';
-import { ImageIcon, SlackIcon, PanelLeftIcon } from '../icons';
-// SupportPanel is hidden for now (the Support button links straight to Slack) but
-// intentionally kept around so we can bring the panel back later.
-import { SupportPanel } from '../support/SupportPanel';
-
-import { SLACK_INVITE_URL } from '../../lib/links';
+import {
+  AgentsIcon,
+  ElementsIcon,
+  FolderOpenIcon,
+  HomeIcon,
+  ImageIcon,
+  PanelLeftIcon,
+  VariablesIcon,
+} from '@/components/icons';
+import { Button } from '../primitives/Button';
+import { IconButton } from '../primitives/IconButton';
+import { MiddleTruncate } from '../primitives/MiddleTruncate';
+import { ToggleButton } from '../primitives/ToggleButton';
 import type { IntegrationState } from '../../hooks/useIntegrationStatus';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 import type { PluginThemeData } from '../../contexts/PluginContext';
+import type { BranchInfo, PullRequestInfo } from '../../lib/branches';
+import type { ChangedFile } from '../../lib/git';
 
 /** Re-exported from lib/plugins so non-UI code can share the list (issue #386). */
 export { HOSTING_PLUGIN_IDS } from '../../lib/plugins';
 import { HOSTING_PLUGIN_IDS } from '../../lib/plugins';
 
+/** The subset of hosting plugins whose controls render inside the Push workflow. */
+export const PUSH_HOSTING_PLUGIN_IDS = ['vercel', 'cloudflare'];
+
 export interface WorkspaceHeaderProps {
   // Project
   projectPath: string;
   projectName: string;
+  onGoHome: () => void;
+  isSidebarHidden: boolean;
+  onToggleSidebar: () => void;
+  /** Consolidate navigation, tools, modes, and publishing into the titlebar. */
+  compactWorkspaceToolbarEnabled: boolean;
 
-  // Modal openers — kept here only for Assets (still a toolbar button).
+  // Workspace tools that remain directly accessible from the topbar.
   // Env editor, backups, plugin manager, learn mode, and IDE launch moved
   // to the Cmd+K palette.
   onOpenAssetsPanel: () => void;
+  assetsPanelVisible: boolean;
+  elementTreeVisible: boolean;
+  elementTreeAvailable: boolean;
+  onToggleElementTree: () => void;
+  agentPanelVisible: boolean;
+  onToggleAgentPanel: () => void;
+  variablesPanelVisible: boolean;
+  variablesPanelAvailable: boolean;
+  onToggleVariablesPanel: () => void;
 
-  // Extra dropdown node rendered at the end of the left cluster (after the
-  // Support button). Currently used for the Plugins dropdown. Provided as a
+  // Extra dropdown node rendered after Assets in the left cluster. Currently
+  // used for the Plugins dropdown. Provided as a
   // pre-composed node because it needs plugin slot data that lives in
   // WorkspaceView. Omit to hide.
   headerExtras?: ReactNode;
 
-  // Branch chip rendered at the very end of the left cluster (after
-  // headerExtras). Pre-composed in WorkspaceView since it needs git/branch
-  // state. Omit to hide.
-  branchIndicator?: ReactNode;
-
-  // Workspace tabs (Preview/Focus/Code/Branches/PRs) rendered at the start of
-  // the right cluster (before the GitHub button). Pre-composed in WorkspaceView
-  // since they drive the right-pane tab state. Omit to hide.
-  tabs?: ReactNode;
-
-  // Sidebar collapse — lives at the far-left of the header so the health
-  // panel row below stays focused on health/logs. Omit `onToggleSidebar`
-  // to hide the button entirely (e.g. compact mode or pinned layouts).
-  isSidebarHidden?: boolean;
-  onToggleSidebar?: () => void;
+  // Primary workspace modes (Preview/Focus/Code), rendered in the topbar
+  // between the project location and repository/publishing actions.
+  // Pre-composed in WorkspaceView since they drive the right-pane state.
+  modes?: ReactNode;
 
   // GitHub
   integrations: IntegrationState;
@@ -76,7 +98,19 @@ export interface WorkspaceHeaderProps {
 
   // Publish
   currentBranch: string | null;
+  branches: BranchInfo[];
+  openPRs: PullRequestInfo[];
   hasUncommittedChanges: boolean;
+  changedFiles: ChangedFile[];
+  isPulling: boolean;
+  isBranchSwitching: boolean;
+  isRepositoryViewActive: boolean;
+  onPullLatest: () => void;
+  onBranchSwitch: (branch: string) => void;
+  onViewBranches: () => void;
+  onCreateBranch: () => void;
+  onViewPRs: () => void;
+  onDiscardChanges: () => void;
   isPublishing: boolean;
   setIsPublishing: (v: boolean) => void;
   onPublishError: (
@@ -84,9 +118,11 @@ export interface WorkspaceHeaderProps {
     errorType: 'push_rejected' | 'auth_error' | 'merge_conflict' | 'generic'
   ) => void;
   onPublishStatusChange: () => void;
-  onCreatePR: () => void;
+  onCreatePR: (branch?: string) => void;
   forcePublishOpen: boolean;
   onForcePublishOpenHandled: () => void;
+  forceBranchesOpen: boolean;
+  onForceBranchesOpenHandled: () => void;
 
   // Plugin slots
   getSlotPlugins: (slot: string) => LoadedPlugin[];
@@ -112,21 +148,119 @@ export interface WorkspaceHeaderProps {
   pluginTheme: PluginThemeData;
 }
 
+export interface WorkspaceNavigationProps {
+  onGoHome: () => void;
+  isHomeActive?: boolean;
+  isSidebarHidden: boolean;
+  onToggleSidebar: () => void;
+}
+
+/** Shared navigation controls used by the project and home titlebars. */
+export function WorkspaceNavigation({
+  onGoHome,
+  isHomeActive = false,
+  isSidebarHidden,
+  onToggleSidebar,
+}: WorkspaceNavigationProps) {
+  return (
+    <div className="workspace-titlebar-navigation" aria-label="Workspace navigation">
+      <IconButton
+        variant="ghost"
+        className="workspace-titlebar-toggle"
+        icon={<PanelLeftIcon size={12} />}
+        onClick={onToggleSidebar}
+        title={isSidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+        aria-label={isSidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
+        data-education-id="toggle-sidebar"
+      />
+      <IconButton
+        variant="ghost"
+        className="workspace-titlebar-home"
+        icon={<HomeIcon size={12} />}
+        onClick={onGoHome}
+        disabled={isHomeActive}
+        aria-current={isHomeActive ? 'page' : undefined}
+        title="Home"
+        aria-label="Home"
+      />
+    </div>
+  );
+}
+
+interface WorkspaceTitlebarProps {
+  children: ReactNode;
+}
+
+/** Window-drag region shared by the titlebars that sit below macOS traffic lights. */
+export function WorkspaceTitlebar({ children }: WorkspaceTitlebarProps) {
+  const handleDrag = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (
+      (event.target as HTMLElement).closest(
+        'button, a, input, select, [role="button"], [role="menu"]'
+      )
+    )
+      return;
+    event.preventDefault();
+    void getCurrentWindow().startDragging();
+  }, []);
+
+  const handleDoubleClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (
+      (event.target as HTMLElement).closest(
+        'button, a, input, select, [role="button"], [role="menu"]'
+      )
+    )
+      return;
+    const win = getCurrentWindow();
+    void win.isMaximized().then((maximized) => {
+      void (maximized ? win.unmaximize() : win.maximize());
+    });
+  }, []);
+
+  return (
+    <div className="workspace-titlebar" onMouseDown={handleDrag} onDoubleClick={handleDoubleClick}>
+      {children}
+    </div>
+  );
+}
+
 export function WorkspaceHeader({
   projectPath,
   projectName,
-  onOpenAssetsPanel,
-  headerExtras,
-  branchIndicator,
-  tabs,
+  onGoHome,
   isSidebarHidden,
   onToggleSidebar,
+  compactWorkspaceToolbarEnabled,
+  onOpenAssetsPanel,
+  assetsPanelVisible,
+  elementTreeVisible,
+  elementTreeAvailable,
+  onToggleElementTree,
+  agentPanelVisible,
+  onToggleAgentPanel,
+  variablesPanelVisible,
+  variablesPanelAvailable,
+  onToggleVariablesPanel,
+  headerExtras,
+  modes,
   integrations,
   onGitHubStatusChange,
   onGitHubConnect,
   focusActiveTerminal,
   currentBranch,
+  branches,
+  openPRs,
   hasUncommittedChanges,
+  changedFiles,
+  isPulling,
+  isBranchSwitching,
+  isRepositoryViewActive,
+  onPullLatest,
+  onBranchSwitch,
+  onViewBranches,
+  onCreateBranch,
+  onViewPRs,
+  onDiscardChanges,
   isPublishing,
   setIsPublishing,
   onPublishError,
@@ -134,24 +268,39 @@ export function WorkspaceHeader({
   onCreatePR,
   forcePublishOpen,
   onForcePublishOpenHandled,
+  forceBranchesOpen,
+  onForceBranchesOpenHandled,
   getSlotPlugins,
   pluginProject,
   pluginActions,
   pluginTheme,
 }: WorkspaceHeaderProps) {
-  // Window dragging — only from the title bar (not the toolbar with plugins)
-  const handleDrag = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
-    e.preventDefault();
-    void getCurrentWindow().startDragging();
+  const [openSourceMenu, setOpenSourceMenu] = useState<'branches' | 'push' | null>(null);
+  const currentBranchIsLive =
+    currentBranch !== null &&
+    (branches.find((branch) => branch.name === currentBranch)?.isDefault ?? false);
+  const projectPathContainerRef = useRef<HTMLDivElement>(null);
+  const [expandedProjectPathWidth, setExpandedProjectPathWidth] = useState<number | null>(null);
+
+  const expandProjectPath = useCallback(() => {
+    const measure = projectPathContainerRef.current?.querySelector<HTMLElement>(
+      '.project-path-expansion-measure'
+    );
+    if (!measure) return;
+    const rect = measure.getBoundingClientRect();
+    const width = rect.width || measure.scrollWidth;
+    if (width > 0) setExpandedProjectPathWidth(width);
   }, []);
 
-  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
-    const win = getCurrentWindow();
-    void win.isMaximized().then((maximized) => {
-      void (maximized ? win.unmaximize() : win.maximize());
-    });
+  const collapseProjectPath = useCallback(() => {
+    const container = projectPathContainerRef.current;
+    if (container?.contains(document.activeElement)) return;
+    setExpandedProjectPathWidth(null);
+  }, []);
+
+  const handleProjectPathBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    setExpandedProjectPathWidth(null);
   }, []);
 
   // Split toolbar plugins: hosting plugins (vercel, etc.) go on the right side
@@ -162,95 +311,76 @@ export function WorkspaceHeader({
       hosting: all.filter((p) => HOSTING_PLUGIN_IDS.includes(p.info.manifest.id)),
     };
   }, [getSlotPlugins]);
+  const pushHostingPlugins = useMemo(
+    () =>
+      toolbarPlugins.hosting.filter((plugin) =>
+        PUSH_HOSTING_PLUGIN_IDS.includes(plugin.info.manifest.id)
+      ),
+    [toolbarPlugins.hosting]
+  );
+  const headerHostingPlugins = useMemo(
+    () =>
+      toolbarPlugins.hosting.filter(
+        (plugin) => !PUSH_HOSTING_PLUGIN_IDS.includes(plugin.info.manifest.id)
+      ),
+    [toolbarPlugins.hosting]
+  );
 
-  // Support panel state
-  const [isSupportPanelOpen, setIsSupportPanelOpen] = useState(false);
+  useEffect(() => {
+    if (!forceBranchesOpen) return;
+    setOpenSourceMenu('branches');
+    onForceBranchesOpenHandled();
+  }, [forceBranchesOpen, onForceBranchesOpenHandled]);
 
   // IDE launch, env editor, backups, plugin manager, and learn-mode toggle
   // now live in the Cmd+K palette. See src/commands/useAppCommands.tsx.
 
-  const titlebar = (
-    <div className="workspace-titlebar" onMouseDown={handleDrag} onDoubleClick={handleDoubleClick}>
-      <h1>{projectName}</h1>
-      <button
-        className="project-path"
-        onClick={() => projectPath && void openInFinder(projectPath)}
-        title={`Open in ${fileManagerName()}`}
+  const sourceControlActions = (
+    <div className="source-control-actions">
+      <BranchesMenu
+        githubState={integrations.github}
+        projectStatus={integrations.projectGithub}
+        projectPath={projectPath}
+        projectName={projectName}
+        currentBranch={currentBranch}
+        branches={branches}
+        openPRs={openPRs}
+        isPulling={isPulling}
+        isBranchSwitching={isBranchSwitching}
+        isRepositoryViewActive={isRepositoryViewActive}
+        isOpen={openSourceMenu === 'branches'}
+        onOpenChange={(open) => setOpenSourceMenu(open ? 'branches' : null)}
+        onPullLatest={onPullLatest}
+        onBranchSwitch={onBranchSwitch}
+        onViewBranches={onViewBranches}
+        onCreateBranch={onCreateBranch}
+        onViewPRs={onViewPRs}
+        onStartPR={(branch) => onCreatePR(branch)}
+        onGitHubConnect={onGitHubConnect}
+        onGitHubStatusChange={onGitHubStatusChange}
+        onModalClose={focusActiveTerminal}
+      />
+      <div
+        className={`source-control-push${hasUncommittedChanges ? ' has-unsaved-changes' : ''}`}
+        onClick={(event) => {
+          if (!hasUncommittedChanges) return;
+          if ((event.target as HTMLElement).closest('button')) return;
+          setOpenSourceMenu(openSourceMenu === 'push' ? null : 'push');
+        }}
       >
-        {projectPath}
-      </button>
-    </div>
-  );
-
-  const toolbar = (
-    <header className="workspace-header">
-      {/* Left side — sidebar collapse, Assets, Support. Learn mode, env
-          vars, backups, plugin manager, and IDE launch are reachable via
-          ⌘K. The sidebar toggle used to live in the health-panel row but
-          moved up here so that row can stay focused on health/logs. */}
-      <div className="workspace-header-left">
-        {onToggleSidebar && (
-          <button
-            className="toolbar-icon-btn"
-            onClick={onToggleSidebar}
-            title={isSidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
-            aria-label={isSidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
-            data-education-id="toggle-sidebar"
-          >
-            <PanelLeftIcon size={12} />
-            <span className="toolbar-btn-label">{isSidebarHidden ? 'Show' : 'Hide'}</span>
-          </button>
-        )}
-        <button
-          className="toolbar-icon-btn"
-          onClick={onOpenAssetsPanel}
-          title="Assets"
-          data-education-id="assets-button"
-        >
-          <ImageIcon size={12} />
-          <span className="toolbar-btn-label">Assets</span>
-        </button>
-        <button
-          className="toolbar-icon-btn"
-          onClick={() => void openUrl(SLACK_INVITE_URL)}
-          title="Join the Ship Studio community on Slack"
-          data-education-id="support-button"
-        >
-          <SlackIcon size={12} />
-          <span className="toolbar-btn-label">Support</span>
-        </button>
-        {headerExtras}
-        {branchIndicator}
-      </div>
-
-      {/* Right side — workspace tabs, GitHub, Publish slot, hosting plugin, Publish */}
-      <div className="workspace-header-right">
-        {tabs}
-        <span data-education-id="github-button">
-          <GitHubButton
-            githubState={integrations.github}
-            projectStatus={integrations.projectGithub}
+        {hasUncommittedChanges && currentBranch && (
+          <BranchIndicator
+            currentBranch={currentBranch}
+            hasUncommittedChanges={hasUncommittedChanges}
+            changedFiles={changedFiles}
             projectPath={projectPath}
-            projectName={projectName}
-            onStatusChange={onGitHubStatusChange}
-            onGitHubConnect={onGitHubConnect}
-            onModalClose={focusActiveTerminal}
+            onDiscard={onDiscardChanges}
+            isOpen={openSourceMenu === 'push'}
+            onOpenChange={(open) => setOpenSourceMenu(open ? 'push' : null)}
+            opensPushMenu
+            isLive={currentBranchIsLive}
           />
-        </span>
-        <PluginSlot
-          name="publish"
-          plugins={getSlotPlugins('publish')}
-          project={pluginProject}
-          actions={pluginActions}
-          theme={pluginTheme}
-        />
-        <PluginSlot
-          name="toolbar"
-          plugins={toolbarPlugins.hosting}
-          project={pluginProject}
-          actions={pluginActions}
-          theme={pluginTheme}
-        />
+        )}
         <PublishBranchDropdown
           currentBranch={currentBranch || 'main'}
           projectGithubStatus={integrations.projectGithub}
@@ -264,19 +394,170 @@ export function WorkspaceHeader({
           onCreatePR={onCreatePR}
           forceOpen={forcePublishOpen}
           onForceOpenHandled={onForcePublishOpenHandled}
+          open={openSourceMenu === 'push'}
+          onOpenChange={(open) => setOpenSourceMenu(open ? 'push' : null)}
+          grouped={hasUncommittedChanges}
+          changedFiles={changedFiles}
+          onDiscardChanges={onDiscardChanges}
+          excludeClickOutsideSelector=".source-control-push"
+          hostingControls={
+            pushHostingPlugins.length > 0 ? (
+              <PluginSlot
+                name="toolbar"
+                plugins={pushHostingPlugins}
+                project={pluginProject}
+                actions={pluginActions}
+                theme={pluginTheme}
+              />
+            ) : undefined
+          }
         />
       </div>
-    </header>
+    </div>
   );
 
-  const supportPanel = (
-    <SupportPanel
-      isOpen={isSupportPanelOpen}
-      onClose={() => setIsSupportPanelOpen(false)}
-      projectPath={projectPath}
-      projectName={projectName}
-    />
+  const workspaceToolButtons = (
+    <>
+      <ToggleButton
+        variant={agentPanelVisible ? 'secondary' : 'default'}
+        className="workspace-panel-toggle"
+        pressed={agentPanelVisible}
+        onClick={onToggleAgentPanel}
+        title="Agent"
+        leftIcon={<AgentsIcon size={16} />}
+        aria-label="Agent"
+      />
+      <ToggleButton
+        variant={elementTreeVisible ? 'secondary' : 'default'}
+        className="workspace-panel-toggle"
+        pressed={elementTreeVisible}
+        onClick={onToggleElementTree}
+        disabled={!elementTreeAvailable}
+        title={elementTreeAvailable ? 'Elements' : 'Elements are available in Preview'}
+        leftIcon={<ElementsIcon size={16} />}
+        aria-label="Elements"
+      />
+      <ToggleButton
+        variant={variablesPanelVisible ? 'secondary' : 'default'}
+        className="workspace-panel-toggle"
+        pressed={variablesPanelVisible}
+        onClick={onToggleVariablesPanel}
+        disabled={!variablesPanelAvailable}
+        title={variablesPanelAvailable ? 'Variables' : 'Variables are available for web projects'}
+        leftIcon={<VariablesIcon size={16} />}
+        aria-label="Variables"
+      />
+      <Button
+        onClick={onOpenAssetsPanel}
+        title="Assets"
+        aria-label="Assets"
+        aria-pressed={assetsPanelVisible}
+        data-education-id="assets-button"
+        leftIcon={<ImageIcon size={16} />}
+      />
+      {headerExtras}
+    </>
+  );
+  const projectTitle = (
+    <div className="workspace-title-group">
+      <h1>{projectName}</h1>
+      <div
+        ref={projectPathContainerRef}
+        className="project-path-container"
+        style={
+          expandedProjectPathWidth !== null ? { width: `${expandedProjectPathWidth}px` } : undefined
+        }
+        onMouseEnter={expandProjectPath}
+        onMouseLeave={collapseProjectPath}
+        onFocus={expandProjectPath}
+        onBlur={handleProjectPathBlur}
+      >
+        <span className="project-path-expansion-measure" aria-hidden="true">
+          <FolderOpenIcon size={14} />
+          {projectPath}
+        </span>
+        <button
+          className="project-path"
+          onClick={() => projectPath && void openInFinder(projectPath)}
+          title="Open in Finder"
+          aria-label={`Open ${projectPath} in Finder`}
+        >
+          <FolderOpenIcon size={14} />
+          <span className="project-path-full">
+            <MiddleTruncate text={projectPath} />
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+  const publishingActions = (
+    <>
+      <PluginSlot
+        name="publish"
+        plugins={getSlotPlugins('publish')}
+        project={pluginProject}
+        actions={pluginActions}
+        theme={pluginTheme}
+      />
+      <PluginSlot
+        name="toolbar"
+        plugins={headerHostingPlugins}
+        project={pluginProject}
+        actions={pluginActions}
+        theme={pluginTheme}
+      />
+      {sourceControlActions}
+    </>
   );
 
-  return { titlebar, toolbar, supportPanel };
+  if (!compactWorkspaceToolbarEnabled) {
+    return {
+      titlebar: (
+        <WorkspaceTitlebar>
+          <WorkspaceNavigation
+            onGoHome={onGoHome}
+            isSidebarHidden={isSidebarHidden}
+            onToggleSidebar={onToggleSidebar}
+          />
+          {projectTitle}
+        </WorkspaceTitlebar>
+      ),
+      toolbar: (
+        <header className="workspace-header">
+          <div className="workspace-header-left">{workspaceToolButtons}</div>
+          <div className="workspace-header-center">{modes}</div>
+          <div className="workspace-header-right">{publishingActions}</div>
+        </header>
+      ),
+    };
+  }
+
+  return {
+    titlebar: (
+      <WorkspaceTitlebar>
+        <div className="workspace-titlebar-left">
+          <WorkspaceNavigation
+            onGoHome={onGoHome}
+            isSidebarHidden={isSidebarHidden}
+            onToggleSidebar={onToggleSidebar}
+          />
+          <IconButton
+            variant="ghost"
+            className="workspace-titlebar-project-location"
+            icon={<FolderOpenIcon size={12} />}
+            onClick={() => projectPath && void openInFinder(projectPath)}
+            title="Open project location"
+            aria-label={`Open ${projectPath} in Finder`}
+          />
+          <div className="workspace-titlebar-divider" aria-hidden="true" />
+          <div className="workspace-titlebar-tools">{workspaceToolButtons}</div>
+        </div>
+        <div className="workspace-titlebar-center">
+          <div className="workspace-titlebar-modes">{modes}</div>
+        </div>
+        <div className="workspace-titlebar-actions">{publishingActions}</div>
+      </WorkspaceTitlebar>
+    ),
+    toolbar: null,
+  };
 }

@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import svgr from "vite-plugin-svgr";
 import path from "path";
 import { readFileSync } from "fs";
 
@@ -12,7 +13,32 @@ const pkg = JSON.parse(
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [
+    svgr({
+      include: "**/*.svg?react",
+      esbuildOptions: {
+        jsx: "automatic",
+      },
+      svgrOptions: {
+        plugins: ["@svgr/plugin-svgo", "@svgr/plugin-jsx"],
+        jsxRuntime: "automatic",
+        dimensions: false,
+        expandProps: "end",
+        ref: true,
+        titleProp: true,
+        replaceAttrValues: {
+          "#979797": "currentColor",
+        },
+        svgProps: {
+          focusable: "false",
+        },
+        svgoConfig: {
+          plugins: ["prefixIds"],
+        },
+      },
+    }),
+    react(),
+  ],
 
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -45,7 +71,11 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // Bind local development explicitly to IPv4. WebKit can resolve
+    // `localhost` to 127.0.0.1 before trying ::1, while Node/Vite's default
+    // listener may only bind ::1 on macOS. That leaves Tauri showing the
+    // static boot fallback even though the Vite server appears healthy.
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",

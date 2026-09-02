@@ -1,12 +1,57 @@
 /**
  * UI Settings
  *
- * Persisted user preferences for dashboard UI elements.
+ * Persisted user preferences for dashboard and workspace UI elements.
  *
  * @module lib/settings
  */
 
 import { invoke } from '@tauri-apps/api/core';
+
+/** Event fired after a dashboard visibility preference is persisted. */
+export const DASHBOARD_VISIBILITY_CHANGED_EVENT = 'shipstudio:dashboard-visibility-changed';
+/** Event fired after the workspace toolbar layout preference is persisted. */
+export const COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT =
+  'shipstudio:compact-workspace-toolbar-changed';
+
+/** The app icons available for the macOS Dock. */
+export const APP_ICON_OPTIONS = [
+  {
+    id: 'brand',
+    label: 'Brand',
+    src: '/ShipStudio_IconBrand.png',
+  },
+  {
+    id: 'dark',
+    label: 'Dark',
+    src: '/ShipStudio_IconDark.png',
+  },
+  {
+    id: 'light',
+    label: 'Light',
+    src: '/ShipStudio_IconLight.png',
+  },
+] as const;
+
+export type AppIcon = (typeof APP_ICON_OPTIONS)[number]['id'];
+
+function isAppIcon(value: string): value is AppIcon {
+  return APP_ICON_OPTIONS.some((option) => option.id === value);
+}
+
+/** Dashboard visibility preference changed by a settings control or inline action. */
+export interface DashboardVisibilityChangedDetail {
+  key: 'calendar' | 'slackCta' | 'dashboardHeader';
+  hidden: boolean;
+}
+
+function notifyDashboardVisibilityChanged(detail: DashboardVisibilityChangedDetail): void {
+  window.dispatchEvent(
+    new CustomEvent<DashboardVisibilityChangedDetail>(DASHBOARD_VISIBILITY_CHANGED_EVENT, {
+      detail,
+    })
+  );
+}
 
 /**
  * Check if the GitHub contribution calendar is hidden on the dashboard.
@@ -25,6 +70,7 @@ export async function getCalendarHidden(): Promise<boolean> {
 export async function setCalendarHidden(hidden: boolean): Promise<void> {
   try {
     await invoke('set_calendar_hidden', { hidden });
+    notifyDashboardVisibilityChanged({ key: 'calendar', hidden });
   } catch {
     // Silently fail
   }
@@ -47,9 +93,44 @@ export async function getSlackCtaHidden(): Promise<boolean> {
 export async function setSlackCtaHidden(hidden: boolean): Promise<void> {
   try {
     await invoke('set_slack_cta_hidden', { hidden });
+    notifyDashboardVisibilityChanged({ key: 'slackCta', hidden });
   } catch {
     // Silently fail
   }
+}
+
+/** Check if the dashboard home header is hidden. */
+export async function getDashboardHeaderHidden(): Promise<boolean> {
+  try {
+    return await invoke<boolean>('get_dashboard_header_hidden');
+  } catch {
+    return false;
+  }
+}
+
+/** Set whether the dashboard home header is hidden (persisted across sessions). */
+export async function setDashboardHeaderHidden(hidden: boolean): Promise<void> {
+  try {
+    await invoke('set_dashboard_header_hidden', { hidden });
+    notifyDashboardVisibilityChanged({ key: 'dashboardHeader', hidden });
+  } catch {
+    // Silently fail
+  }
+}
+
+/** Get the persisted Dock icon choice. */
+export async function getAppIcon(): Promise<AppIcon> {
+  try {
+    const icon = await invoke<string>('get_app_icon');
+    return isAppIcon(icon) ? icon : 'brand';
+  } catch {
+    return 'brand';
+  }
+}
+
+/** Persist the Dock icon choice and update the native app icon immediately. */
+export async function setAppIcon(icon: AppIcon): Promise<void> {
+  await invoke('set_app_icon', { icon });
 }
 
 /**
@@ -74,6 +155,29 @@ export async function setTerminalGpuEnabled(enabled: boolean): Promise<void> {
     await invoke('set_terminal_gpu_enabled', { enabled });
   } catch {
     // Silently fail
+  }
+}
+
+// ============ Workspace toolbar layout ============
+
+/** Whether workspace controls are consolidated into the window titlebar. */
+export async function getCompactWorkspaceToolbarEnabled(): Promise<boolean> {
+  try {
+    return await invoke<boolean>('get_compact_workspace_toolbar_enabled');
+  } catch {
+    return false;
+  }
+}
+
+/** Persist the workspace toolbar layout and notify the active window immediately. */
+export async function setCompactWorkspaceToolbarEnabled(enabled: boolean): Promise<void> {
+  try {
+    await invoke('set_compact_workspace_toolbar_enabled', { enabled });
+    window.dispatchEvent(
+      new CustomEvent<boolean>(COMPACT_WORKSPACE_TOOLBAR_CHANGED_EVENT, { detail: enabled })
+    );
+  } catch {
+    // Silently fail, matching the other non-critical UI preferences.
   }
 }
 

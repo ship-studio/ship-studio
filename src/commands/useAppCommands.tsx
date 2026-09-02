@@ -12,29 +12,15 @@ import { fileManagerName } from '../lib/setup';
 import {
   CodeIcon,
   CursorIcon,
-  FolderIcon,
+  FolderOpenIcon,
   GlobeIcon,
-  LayersIcon,
+  HomeIcon,
+  PanelLeftIcon,
   PlusIcon,
+  ResetIcon,
+  SharedLibraryIcon,
   SettingsIcon,
-} from '../components/icons';
-
-/** Inline restart/refresh glyph — no equivalent in the icons/ lib yet. */
-const RestartGlyph = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <polyline points="1 4 1 10 7 10" />
-    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-  </svg>
-);
+} from '@/components/icons';
 
 /**
  * End-to-end smoke-test commands — wired to the real AppContents handlers.
@@ -57,9 +43,15 @@ export interface UseAppCommandsParams {
   handleImportLocalFolder: () => void | Promise<void>;
   handleGitHubConnect: () => void | Promise<void>;
   handleRestartDevServer: () => Promise<void> | void;
+  /** Start the dev server on demand (used when it isn't running). */
+  handleStartDevServer: () => Promise<void> | void;
+  /** Predicate: is a dev server currently tracked for the given project? */
+  isDevServerRunning: (projectPath: string) => boolean;
   /** Current education-mode state, so the command can read "Enter" vs "Exit". */
   isEducationMode: boolean;
   setIsEducationMode: (mode: boolean) => void;
+  compactWorkspaceToolbarEnabled: boolean;
+  setCompactWorkspaceToolbarEnabled: (enabled: boolean) => void;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -73,8 +65,12 @@ export function useAppCommands({
   handleImportLocalFolder,
   handleGitHubConnect,
   handleRestartDevServer,
+  handleStartDevServer,
+  isDevServerRunning,
   isEducationMode,
   setIsEducationMode,
+  compactWorkspaceToolbarEnabled,
+  setCompactWorkspaceToolbarEnabled,
   showToast,
 }: UseAppCommandsParams) {
   const openModal = useOpenModal();
@@ -127,7 +123,7 @@ export function useAppCommands({
     try {
       const result = await checkForUpdate();
       if (!result) showToast("You're up to date", 'success');
-      // If there IS an update, the UpdateBanner already surfaces it.
+      // If there IS an update, the project sidebar indicator surfaces it.
     } catch (err) {
       logger.warn('[useAppCommands] checkForUpdate failed', { error: String(err) });
       showToast('Could not check for updates', 'error');
@@ -135,7 +131,16 @@ export function useAppCommands({
   }, [showToast]);
 
   // Wrappers to keep `run` type Promise<void> | void clean for the registry.
-  const restart = useCallback(() => void handleRestartDevServer(), [handleRestartDevServer]);
+  // When nothing is running, "restart" degrades to a plain start — same
+  // behavior as selecting the Preview tab while stopped.
+  const restart = useCallback(() => {
+    if (!currentProject) return;
+    if (!isDevServerRunning(currentProject.path)) {
+      void handleStartDevServer();
+      return;
+    }
+    void handleRestartDevServer();
+  }, [currentProject, isDevServerRunning, handleStartDevServer, handleRestartDevServer]);
 
   // Subscribe to the session registry so the project list updates when live
   // sessions come and go. The returned key is a newline-joined, sorted list
@@ -215,7 +220,7 @@ export function useAppCommands({
         id: `project.goto.${path}`,
         title: name,
         subtitle: path,
-        icon: <FolderIcon size={14} />,
+        icon: <FolderOpenIcon size={14} />,
         category: 'project' as const,
         keywords: [path],
         shortcut,
@@ -247,7 +252,7 @@ export function useAppCommands({
       {
         id: 'project.import.local',
         title: 'Import local folder',
-        icon: <FolderIcon size={14} />,
+        icon: <FolderOpenIcon size={14} />,
         category: 'action',
         when: 'home',
         keywords: ['import', 'folder', 'local', 'existing'],
@@ -261,6 +266,16 @@ export function useAppCommands({
         when: 'home',
         keywords: ['auth', 'login', 'sign in'],
         run: () => void handleGitHubConnect(),
+      },
+      {
+        id: 'settings.compactWorkspaceToolbar',
+        title: compactWorkspaceToolbarEnabled
+          ? 'Use classic workspace toolbar'
+          : 'Use compact workspace toolbar',
+        icon: <PanelLeftIcon size={14} />,
+        category: 'settings',
+        keywords: ['compact', 'toolbar', 'topbar', 'layout', 'single row'],
+        run: () => setCompactWorkspaceToolbarEnabled(!compactWorkspaceToolbarEnabled),
       },
       {
         id: 'settings.changelog',
@@ -281,7 +296,7 @@ export function useAppCommands({
       {
         id: 'modal.attachedLibraries',
         title: 'Shared libraries',
-        icon: <LayersIcon size={14} />,
+        icon: <SharedLibraryIcon size={14} />,
         category: 'settings',
         keywords: [
           'library',
@@ -301,6 +316,8 @@ export function useAppCommands({
       handleImportProject,
       handleImportLocalFolder,
       handleGitHubConnect,
+      compactWorkspaceToolbarEnabled,
+      setCompactWorkspaceToolbarEnabled,
       openModal,
       runCheckUpdates,
     ]
@@ -313,24 +330,27 @@ export function useAppCommands({
       {
         id: 'nav.home',
         title: 'Go to Home',
-        icon: <FolderIcon size={14} />,
+        icon: <HomeIcon size={14} />,
         category: 'navigation' as const,
         when: 'project' as const,
         run: handleBackToProjects,
       },
       {
         id: 'devserver.restart',
-        title: 'Restart dev server',
-        icon: <RestartGlyph />,
+        title:
+          currentProject && isDevServerRunning(currentProject.path)
+            ? 'Restart dev server'
+            : 'Start dev server',
+        icon: <ResetIcon size={14} />,
         category: 'action' as const,
         when: 'project' as const,
-        keywords: ['dev', 'server', 'vite', 'next'],
+        keywords: ['dev', 'server', 'vite', 'next', 'start', 'restart'],
         run: restart,
       },
       {
         id: 'ide.finder',
         title: `Reveal in ${fileManagerName()}`,
-        icon: <FolderIcon size={14} />,
+        icon: <FolderOpenIcon size={14} />,
         category: 'action' as const,
         when: 'project' as const,
         // Keep 'finder'/'explorer'/'files' all searchable regardless of platform.

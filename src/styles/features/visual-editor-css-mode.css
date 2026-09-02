@@ -11,7 +11,7 @@
   padding: var(--spacing-sm) 0;
 }
 .ss-css-empty__lead {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -19,7 +19,7 @@
 .ss-css-empty__hint,
 .ss-css-instances,
 .ss-css-status {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
   margin: 0;
   line-height: 1.5;
@@ -47,8 +47,8 @@
   gap: var(--spacing-sm);
   margin: 0 calc(-1 * var(--spacing-md));
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-bottom: 1px solid var(--border-default);
 }
 .ss-css-target {
   display: inline-flex;
@@ -57,22 +57,22 @@
   min-width: 0;
 }
 .ss-css-selector {
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-active);
 }
 /* The breakpoint the edit targets (Base / SM / MD / LG / XL), muted next to the
    selector so you always know which layer you're editing. */
 .ss-css-bp {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 .ss-css-file {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -96,8 +96,8 @@
   gap: var(--spacing-xs);
 }
 .ss-css-row__prop {
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -106,11 +106,11 @@
 .ss-css-row__value,
 .ss-css-add__prop,
 .ss-css-add__value {
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   padding: 4px var(--spacing-xs);
   min-width: 0;
@@ -120,10 +120,10 @@
 .ss-css-add__prop:focus,
 .ss-css-add__value:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 .ss-css-row__value.is-invalid {
-  border-color: var(--error, #e5484d); /* css-ok: fallback only; token preferred */
+  border-color: var(--accent-error, #e5484d); /* css-ok: fallback only; token preferred */
 }
 .ss-css-row__remove {
   display: inline-flex;
@@ -136,7 +136,7 @@
   color: var(--text-muted);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   line-height: 1;
   transition:
     color var(--transition),
@@ -144,7 +144,7 @@
 }
 .ss-css-row__remove:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .ss-css-add {
@@ -154,7 +154,7 @@
   gap: var(--spacing-xs);
   margin-top: var(--spacing-sm);
   padding-top: var(--spacing-sm);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
 }
 
 .ss-css-create {
@@ -166,34 +166,30 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-secondary);
 }
-.ss-css-create__label select {
-  font-size: var(--font-size-xs);
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 4px var(--spacing-xs);
+.ss-css-create__label .property-field {
+  width: 100%;
+  justify-content: space-between;
 }
 
 .ss-css-readonly {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
   line-height: 1.5;
 }
 .ss-css-readonly code,
 .ss-css-status code,
 .ss-css-create code {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-code);
   color: var(--text-secondary);
 }
 .ss-css-locations {
   margin: var(--spacing-xs) 0 0;
   padding-left: var(--spacing-md);
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
 }
 
@@ -208,8 +204,8 @@
 .ss-css-chip {
   display: inline-flex;
   align-items: center;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   overflow: hidden;
   transition: border-color var(--transition);
@@ -219,14 +215,14 @@
 }
 .ss-css-chip.is-active {
   border-color: var(--text-secondary);
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 .ss-css-chip__name {
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   padding: 4px 4px 4px 8px;
   cursor: pointer;
 }
@@ -240,7 +236,7 @@
   border: none;
   background: none;
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   line-height: 1;
   padding: 0 6px;
   align-self: stretch;
@@ -256,11 +252,11 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  background: var(--surface-control);
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   line-height: 1;
   cursor: pointer;
   transition:
@@ -275,7 +271,7 @@
   width: auto;
   gap: 4px;
   padding: 0 10px;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
 }
 .ss-css-states {
@@ -288,7 +284,7 @@
   border: none;
   background: none;
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   cursor: pointer;
   padding: 0;
@@ -299,11 +295,11 @@
 }
 .ss-css-state-input {
   width: 100%;
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--action);
+  background: var(--surface-control);
+  border: 1px solid var(--accent-active);
   border-radius: var(--radius-sm);
   padding: 4px 6px;
   margin-top: 6px;
@@ -317,19 +313,19 @@
   position: fixed;
   z-index: calc(var(--z-modal-overlay) + 1);
   width: 232px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 .ss-css-combo__input {
   width: 100%;
   border: none;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-control);
   color: var(--text-primary);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   padding: 8px 10px;
 }
 .ss-css-combo__input:focus {
@@ -348,85 +344,37 @@
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .ss-css-combo__item:hover,
 .ss-css-combo__create:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 .ss-css-combo__create {
   color: var(--text-primary);
 }
 .ss-css-combo__create code {
-  color: var(--action);
+  color: var(--accent-active);
 }
 .ss-css-combo__empty {
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   padding: 8px;
 }
 
 /* ── Visual / Code mode toggle ───────────────────────────────────── */
 .ss-css-modes {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
   margin-bottom: var(--spacing-sm);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-}
-.ss-css-mode {
-  flex: 1;
-  padding: 5px 0;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-.ss-css-mode.is-active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  width: 100%;
 }
 
-/* ── Category tabs ───────────────────────────────────────────────── */
-.ss-css-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: var(--spacing-sm);
-  padding-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--border);
-}
-.ss-css-tab {
-  padding: 4px 10px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-.ss-css-tab:hover {
-  color: var(--text-primary);
-}
-.ss-css-tab.is-active {
-  background: var(--action);
-  color: var(--action-text);
+.ss-css-modes .tabs__tab {
+  flex: 1;
 }
 
 /* Per-section "N properties set" badge — title and count group left, chevron
@@ -434,10 +382,10 @@
 .ss-css-section-count {
   margin-right: auto;
   margin-left: 8px;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 700;
   line-height: 1;
-  color: var(--action);
+  color: var(--accent-active);
 }
 
 /* Accordion: space the section cards apart (they're bordered cards, like the
@@ -475,7 +423,7 @@
   gap: 6px;
 }
 .ss-cc-label {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -488,7 +436,7 @@
   border: none;
   background: none;
   padding: 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -500,14 +448,14 @@
   width: 5px;
   height: 5px;
   border-radius: 999px;
-  background: var(--action);
+  background: var(--accent-active);
 }
 .ss-cc-seg {
   display: flex;
   gap: 2px;
   padding: 2px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border-radius: var(--radius-card);
 }
 .ss-cc-seg__btn {
   flex: 1;
@@ -516,7 +464,7 @@
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 500;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -541,24 +489,24 @@
 .ss-cc-select,
 .ss-cc-input {
   width: 100%;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   padding: 6px var(--spacing-xs);
   transition: border-color var(--transition);
 }
 .ss-cc-input {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-code);
 }
 .ss-cc-select:focus,
 .ss-cc-input:focus {
   outline: none;
-  border-color: var(--action);
+  border-color: var(--accent-active);
 }
 .ss-cc-input.is-invalid {
-  border-color: var(--error);
+  border-color: var(--accent-error);
 }
 
 /* Add-any-property row. */
@@ -568,7 +516,7 @@
   gap: 6px;
   margin-top: var(--spacing-xs);
   padding-top: var(--spacing-md);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
 }
 .ss-cc-add__row {
   display: grid;
@@ -591,7 +539,7 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background: none;
   cursor: pointer;
@@ -629,8 +577,8 @@
   padding: 0;
   border: none;
   background: none;
-  color: var(--action);
-  font-size: var(--font-size-xs);
+  color: var(--accent-active);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   cursor: pointer;
 }
@@ -644,7 +592,7 @@
   gap: var(--spacing-sm);
 }
 .ss-css-prep__lead {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-secondary);
   line-height: 1.5;
   margin: 0;
@@ -653,12 +601,12 @@
   max-height: 280px;
   overflow-y: auto;
   white-space: pre-wrap;
-  font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   line-height: 1.5;
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   padding: var(--spacing-sm);
 }

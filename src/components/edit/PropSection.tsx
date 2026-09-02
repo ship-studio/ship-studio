@@ -6,14 +6,17 @@
  */
 
 import type { ReactNode } from 'react';
+import { ChevronIcon } from '@/components/icons';
 
 export function PropSection({
   title,
   defaultOpen,
+  sectionId,
   children,
 }: {
   title: string;
   defaultOpen: boolean;
+  sectionId?: string;
   children: ReactNode;
 }) {
   // NOTE: the <summary> itself MUST keep its default display. WebKit (Tauri) stops
@@ -21,24 +24,14 @@ export function PropSection({
   // (e.g. to flex), which hides it entirely while collapsed. So the flex layout
   // lives on an inner wrapper, not the summary.
   return (
-    <details className="ss-edit-panel__section" open={defaultOpen}>
+    <details
+      className={`ss-edit-panel__section${sectionId ? ` ss-edit-panel__section--${sectionId}` : ''}`}
+      open={defaultOpen}
+    >
       <summary className="ss-edit-panel__section-head">
         <span className="ss-edit-panel__section-row">
           <span className="ss-edit-panel__section-title">{title}</span>
-          <svg
-            className="ss-edit-panel__section-chevron"
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
+          <ChevronIcon className="ss-edit-panel__section-chevron" />
         </span>
       </summary>
       <div className="ss-edit-panel__section-body">{children}</div>

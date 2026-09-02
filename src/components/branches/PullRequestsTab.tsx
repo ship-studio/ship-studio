@@ -18,10 +18,11 @@ import {
   switchBranch,
 } from '../../lib/branches';
 import { useAsyncState } from '../../hooks/useAsyncState';
-import { GitHubIcon, WarningIcon, BranchIcon } from '../icons';
+import { GitHubIcon, WarningIcon, BranchIcon } from '@/components/icons';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
+import { IconButton } from '../primitives/IconButton';
 import { Spinner } from '../primitives/Spinner';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import {
@@ -273,7 +274,9 @@ export function PullRequestsTab({
       <div className="prs-tab">
         <div className="prs-tab-error">
           <p>Failed to load pull requests</p>
-          <button onClick={() => void fetchPullRequests()}>Try Again</button>
+          <Button variant="secondary" onClick={() => void fetchPullRequests()}>
+            Try Again
+          </Button>
         </div>
       </div>
     );
@@ -295,9 +298,9 @@ export function PullRequestsTab({
               branch. Create a branch, make your changes, then submit it for review.
             </p>
             {onNavigateToBranches && (
-              <button className="prs-tab-empty-action" onClick={onNavigateToBranches}>
+              <Button variant="primary" onClick={onNavigateToBranches}>
                 Go to Branches
-              </button>
+              </Button>
             )}
           </div>
         ) : (
@@ -579,22 +582,28 @@ function PrCard({
 
       {pr.state === 'OPEN' && (
         <div className="pr-card-actions">
-          <button
-            className="branch-card-action pr-card-icon-btn"
+          <IconButton
+            variant="secondary"
+            size="compact"
             onClick={() => void openUrl(pr.url)}
             title="View on GitHub"
-          >
-            <GitHubIcon size={16} />
-          </button>
+            aria-label="View on GitHub"
+            icon={<GitHubIcon size={16} />}
+          />
           {onCheckout && !isCheckedOut && (
-            <Button variant="secondary" size="sm" onClick={onCheckout} disabled={isCheckingOut}>
+            <Button
+              variant="secondary"
+              size="compact"
+              onClick={onCheckout}
+              disabled={isCheckingOut}
+            >
               {isCheckingOut ? 'Pulling...' : 'Pull'}
             </Button>
           )}
           {hasConflicts && onResolveConflicts ? (
             <Button
               variant="primary"
-              size="sm"
+              size="compact"
               onClick={() => onResolveConflicts(pr.headRef, pr.baseRef)}
             >
               Resolve
@@ -603,7 +612,7 @@ function PrCard({
             onMerge && (
               <Button
                 variant={canMerge ? 'primary' : 'secondary'}
-                size="sm"
+                size="compact"
                 onClick={onMerge}
                 disabled={isMerging || !canMerge}
               >
@@ -612,7 +621,7 @@ function PrCard({
             )
           )}
           {onClose && (
-            <Button variant="danger" size="sm" onClick={onClose} disabled={isClosing}>
+            <Button variant="danger" size="compact" onClick={onClose} disabled={isClosing}>
               {isClosing ? 'Closing...' : 'Close'}
             </Button>
           )}

@@ -15,21 +15,21 @@
   flex: 1;
   min-width: 0;
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   transition: border-color var(--transition);
 }
 
 .shopify-setup-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .shopify-setup-error {
-  color: var(--error);
+  color: var(--accent-error);
   margin: 0;
 }
 
@@ -37,7 +37,7 @@
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--accent-active);
   cursor: pointer;
   text-decoration: underline;
   font-size: inherit;

@@ -16,6 +16,8 @@ import { NewTicketForm } from './NewTicketForm';
 import { TicketList } from './TicketList';
 import { ConversationView } from './ConversationView';
 import { disconnectChat } from '../../lib/support';
+import { CloseIcon } from '@/components/icons';
+import { IconButton } from '../primitives/IconButton';
 
 export type SupportView =
   | { type: 'home' }
@@ -86,24 +88,24 @@ export function SupportPanel({ isOpen, onClose, projectPath, projectName }: Supp
       <div className={`support-panel ${isOpen ? 'open' : ''}`}>
         <div className="support-panel-header">
           {showBack && (
-            <button
-              className="support-back-btn"
+            <IconButton
+              variant="ghost"
+              size="compact"
               onClick={goBack}
               title="Go back"
               aria-label="Go back"
-            >
-              ←
-            </button>
+              icon={<span aria-hidden="true">←</span>}
+            />
           )}
           <h2>{headerTitle}</h2>
-          <button
-            className="support-close-btn"
+          <IconButton
+            variant="ghost"
+            size="compact"
             onClick={handleClose}
             title="Close"
             aria-label="Close"
-          >
-            ×
-          </button>
+            icon={<CloseIcon size={14} />}
+          />
         </div>
 
         <div

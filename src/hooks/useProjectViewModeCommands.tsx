@@ -5,7 +5,7 @@
  */
 
 import { useCommands } from '../commands/useCommands';
-import { GridIcon, ListIcon } from '../components/icons';
+import { GridIcon, ListIcon } from '@/components/icons';
 import type { ProjectViewMode } from '../components/dashboard/ProjectGridView';
 
 /**

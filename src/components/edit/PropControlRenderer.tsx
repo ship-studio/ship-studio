@@ -12,8 +12,18 @@ import { EnumControlRow } from './EnumControls';
 import { ColorField } from './ColorControls';
 import { LengthControl } from './LengthControl';
 import { CustomCssBox } from './CustomCssBox';
+import { ValuePropertyControl } from './ValuePropertyControl';
+import type {
+  BoxType,
+  Side,
+  SpacingValue,
+  LayerContext,
+  ResetSpec,
+  InheritedProp,
+  EnumControl,
+} from '../../lib/edit';
 import type { RegistryControl } from '../../lib/editControls';
-import type { BoxType, Side, SpacingValue, LayerContext, ResetSpec } from '../../lib/edit';
+import type { ValueFieldVariable } from '../primitives/ValueField';
 
 /** Everything a control row needs to read its value and apply/reset edits. Built
  *  once by the panel and passed to every row. */
@@ -26,6 +36,54 @@ export interface ControlRenderCtx {
   onStepGap: (dir: 1 | -1, step?: number) => void;
   /** Rendered colors (getComputedStyle) keyed by CSS prop, to seed color pickers. */
   computed?: Record<string, string | undefined>;
+  variables?: ValueFieldVariable[];
+  /** Values this element INHERITS from ancestor elements' styles, keyed by CSS
+   *  prop (typography + text color only). Controls surface them when nothing is
+   *  set locally across the cascade. */
+  inherited?: Record<string, InheritedProp>;
+  /** Project root — the inheritance popover resolves the defining ancestor's source. */
+  projectPath?: string;
+  /** Jump to a source file:line in the Code tab (inheritance popover's link). */
+  onOpenInCode?: (file: string, line: number) => void;
+}
+
+/** Resolved provenance props the ancestry-aware controls forward to their label. */
+function inheritLabelProps(
+  ctx: ControlRenderCtx,
+  key: string | null
+): {
+  inherited: InheritedProp | null;
+  projectPath?: string;
+  onOpenInCode?: (file: string, line: number) => void;
+} {
+  return {
+    inherited: (key ? ctx.inherited?.[key] : undefined) ?? null,
+    projectPath: ctx.projectPath,
+    onOpenInCode: ctx.onOpenInCode,
+  };
+}
+
+/** Free-form value kinds → the CSS property whose ancestor-inheritance they
+ *  surface. Only genuinely CSS-inherited properties map (border/radius/z-index/
+ *  blur never inherit). */
+const VALUE_INHERIT_KEYS: Partial<Record<string, string>> = {
+  'font-size': 'font-size',
+  'line-height': 'line-height',
+  'letter-spacing': 'letter-spacing',
+};
+
+/** An enum control's single CSS property, derived from its options' shared style
+ *  key (Weight's options all set 'font-weight', Style's 'font-style', …). Null
+ *  when the options don't share exactly one key — such a control has no single
+ *  inheritance story to surface. */
+function enumInheritKey(control: EnumControl): string | null {
+  if (!control.options.length) return null;
+  const first = Object.keys(control.options[0].style);
+  if (first.length !== 1) return null;
+  const key = first[0];
+  return control.options.every((o) => Object.keys(o.style)[0] === key && o.style[key] != null)
+    ? key
+    : null;
 }
 
 export function PropControlRenderer({
@@ -59,6 +117,18 @@ export function PropControlRenderer({
           onReset={ctx.onReset}
         />
       );
+    case 'value':
+      return (
+        <ValuePropertyControl
+          kind={control.valueType}
+          currentClass={ctx.currentClass}
+          layer={ctx.layer}
+          onApplyEnum={ctx.onApplyEnum}
+          onReset={ctx.onReset}
+          variables={ctx.variables}
+          {...inheritLabelProps(ctx, VALUE_INHERIT_KEYS[control.valueType] ?? null)}
+        />
+      );
     case 'enum':
       return (
         <EnumControlRow
@@ -67,6 +137,7 @@ export function PropControlRenderer({
           layer={ctx.layer}
           onApplyEnum={ctx.onApplyEnum}
           onReset={ctx.onReset}
+          {...inheritLabelProps(ctx, enumInheritKey(control.control))}
         />
       );
     case 'color':
@@ -80,6 +151,8 @@ export function PropControlRenderer({
           onApplyEnum={ctx.onApplyEnum}
           onReset={ctx.onReset}
           computed={ctx.computed}
+          variables={ctx.variables}
+          {...inheritLabelProps(ctx, control.prefix === 'text' ? 'color' : null)}
         />
       );
     case 'length':
@@ -88,17 +161,21 @@ export function PropControlRenderer({
           label={control.label}
           prefix={control.prefix}
           css={control.css}
+          valueType={control.valueType}
           currentClass={ctx.currentClass}
           layer={ctx.layer}
           onApplyEnum={ctx.onApplyEnum}
           onReset={ctx.onReset}
+          variables={ctx.variables}
         />
       );
     case 'custom':
       return (
         <CustomCssBox
+          key={`${ctx.currentClass}:${ctx.layer.bp.name}`}
           currentClass={ctx.currentClass}
           layer={ctx.layer}
+          variables={ctx.variables}
           onApplyEnum={ctx.onApplyEnum}
           onReset={ctx.onReset}
         />

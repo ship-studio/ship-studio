@@ -1,5 +1,13 @@
 import { useState, useRef, useCallback } from 'react';
 import { Button } from '../primitives/Button';
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CheckIcon,
+  SearchIcon,
+  CloseIcon,
+} from '@/components/icons';
+import TemplatePlaceholderGraphic from '@/assets/graphics/template-placeholder.svg?react';
 
 /** Shape of a community template from the API */
 export interface CommunityTemplate {
@@ -65,18 +73,7 @@ function TemplateCard({
           <img src={template.thumbnail_url} alt={template.name} draggable={false} />
         ) : (
           <div className="tg-card-thumb-placeholder">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M3 9h18" />
-              <path d="M9 21V9" />
-            </svg>
+            <TemplatePlaceholderGraphic width={24} height={24} aria-hidden="true" />
           </div>
         )}
       </div>
@@ -87,16 +84,7 @@ function TemplateCard({
       </div>
       {selected && (
         <div className="tg-card-check">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <CheckIcon size={14} />
         </div>
       )}
     </button>
@@ -155,18 +143,7 @@ export function TemplateGallery({
   return (
     <div className="tg-container">
       <div className="tg-search-wrapper">
-        <svg
-          className="tg-search-icon"
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
-        </svg>
+        <SearchIcon className="tg-search-icon" size={16} />
         <input
           type="text"
           className="tg-search-input"
@@ -185,17 +162,7 @@ export function TemplateGallery({
             aria-label="Clear search"
             onClick={() => onSearchChange('')}
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <CloseIcon size={14} />
           </button>
         )}
       </div>
@@ -209,16 +176,7 @@ export function TemplateGallery({
             aria-label="Scroll left"
             onClick={() => scroll('left')}
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
+            <ArrowLeftIcon size={16} />
           </button>
         )}
 
@@ -251,7 +209,7 @@ export function TemplateGallery({
             <div className="tg-empty tg-error">
               <span>Couldn't load templates. {loadError}</span>
               {onRetry && (
-                <Button variant="secondary" size="sm" onClick={onRetry}>
+                <Button variant="secondary" size="compact" onClick={onRetry}>
                   Try again
                 </Button>
               )}
@@ -267,16 +225,7 @@ export function TemplateGallery({
             aria-label="Scroll right"
             onClick={() => scroll('right')}
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
+            <ArrowRightIcon size={16} />
           </button>
         )}
       </div>

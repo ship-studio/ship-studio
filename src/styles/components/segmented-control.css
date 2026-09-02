@@ -1,0 +1,25 @@
+.segmented-control {
+  display: inline-flex;
+  gap: var(--space-02);
+  padding: var(--stroke-1);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-6);
+  background: var(--surface-control);
+  box-shadow: var(--button-shadow);
+}
+
+.segmented-control > .button {
+  border-color: transparent;
+  border-radius: var(--radius-4);
+  background: transparent;
+  box-shadow: none;
+}
+
+.segmented-control > .button:hover:not(:disabled):not([aria-pressed='true']) {
+  background: var(--surface-control-hover);
+}
+
+.segmented-control > .button[aria-pressed='true'] {
+  background: var(--button-surface-pressed);
+  box-shadow: var(--shadow-input-inset);
+}

@@ -20,17 +20,17 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  font-size: var(--font-size-md);
-  border-radius: var(--radius);
+  font-size: var(--font-size-body-lg);
+  border-radius: var(--radius-control);
 }
 
 .github-status-btn.not-installed {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-secondary);
 }
 
 .github-status-btn.not-connected {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-secondary);
 }
 
@@ -43,35 +43,24 @@
   align-items: center;
   gap: 8px;
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 .github-status-connected svg {
-  color: var(--success);
-}
-
-/* GitHub Integration - Workspace Header */
-.workspace-header-left,
-.workspace-header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.workspace-header-right {
-  margin-left: auto;
+  color: var(--accent-success);
 }
 
 .github-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 0 8px;
-  height: 28px;
-  font-size: var(--font-size-base);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
+  gap: var(--button-gap);
+  padding: 0 var(--button-padding);
+  height: var(--button-height);
+  font-size: var(--button-font-size);
+  border-radius: var(--button-radius);
+  border: var(--stroke-1) solid var(--button-border-solid);
+  box-shadow: var(--button-shadow);
   transition:
     background-color var(--transition),
     color var(--transition),
@@ -80,28 +69,29 @@
 
 .github-button.github-install,
 .github-button.github-connect {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-secondary);
 }
 
 .github-button.github-install:hover,
 .github-button.github-connect:hover {
-  background: var(--border);
+  background: var(--border-default);
   color: var(--text-primary);
 }
 
 .github-button.github-create {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background: var(--button-surface-default);
+  color: var(--button-text-default);
 }
 
 .github-button.github-create:hover {
-  background: var(--border);
+  background: var(--button-surface-hover);
+  color: var(--button-text-hover);
 }
 
 .github-button.github-publish {
-  background: var(--success);
-  color: var(--bg-primary);
+  background: var(--accent-success);
+  color: var(--surface-app);
   font-weight: 600;
   margin-left: auto;
 }
@@ -112,7 +102,7 @@
 
 .github-button.github-publish:disabled,
 .github-button.github-publish.disabled {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-muted);
   cursor: not-allowed;
   opacity: 0.7;
@@ -120,11 +110,11 @@
 
 .github-button.github-link {
   padding: 0 8px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .github-button.github-link:hover {
-  background: var(--border);
+  background: var(--border-default);
 }
 
 .github-button.github-link svg {
@@ -137,14 +127,14 @@
 
 .github-button.github-creating,
 .github-button.github-checking {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-muted);
   cursor: not-allowed;
 }
 
 .github-error {
-  color: var(--error);
-  font-size: var(--font-size-base);
+  color: var(--accent-error);
+  font-size: var(--font-size-body-md);
   margin-left: 8px;
 }
 
@@ -159,7 +149,7 @@
 
 .github-modal > p {
   padding: 6px 20px 0;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-muted);
   margin: 0;
 }
@@ -174,7 +164,7 @@
 .github-form > label:first-child,
 .github-form > label:nth-child(2) {
   padding: 0 20px 16px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
   color: var(--text-secondary);
   display: flex;
@@ -185,18 +175,18 @@
 .owner-select {
   padding: 12px 14px;
   padding-right: 36px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   color: var(--text-primary);
-  font-size: var(--font-size-lg);
-  font-family: monospace;
+  font-size: var(--font-size-subhead);
+  font-family: var(--font-code);
   outline: none;
   cursor: pointer;
   transition: border-color var(--transition);
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='1px'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
 }
@@ -206,16 +196,16 @@
 }
 
 .owner-select option {
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   color: var(--text-primary);
 }
 
 .repo-name-input {
   display: flex;
   align-items: center;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   overflow: hidden;
   transition: border-color var(--transition);
 }
@@ -227,8 +217,8 @@
 .repo-prefix {
   padding: 12px 0 12px 14px;
   color: var(--text-muted);
-  font-family: monospace;
-  font-size: var(--font-size-lg);
+  font-family: var(--font-code);
+  font-size: var(--font-size-subhead);
   white-space: nowrap;
 }
 
@@ -238,8 +228,8 @@
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-family: monospace;
-  font-size: var(--font-size-lg);
+  font-family: var(--font-code);
+  font-size: var(--font-size-subhead);
   font-weight: 600;
   outline: none;
 }
@@ -253,14 +243,14 @@
   padding: 14px 20px;
   background: transparent;
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
   border-radius: 0;
   cursor: pointer;
   transition: background var(--transition);
 }
 
 .visibility-option:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .visibility-option:has(input[type='radio']:checked) {
@@ -285,8 +275,8 @@
 }
 
 .visibility-option input[type='radio']:checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-active);
+  border-color: var(--accent-active);
 }
 
 .visibility-option input[type='radio']:checked::after {
@@ -296,7 +286,7 @@
   top: 50%;
   width: 6px;
   height: 6px;
-  background: var(--bg-primary);
+  background: var(--surface-app);
   border-radius: var(--radius-full);
   transform: translate(-50%, -50%);
 }
@@ -310,35 +300,35 @@
 
 .visibility-option strong {
   color: var(--text-primary);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   font-weight: 500;
 }
 
 .visibility-option span {
   color: var(--text-muted);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
 }
 
 .github-form .github-error {
   margin: 0;
   padding: 12px 20px;
-  background: rgba(var(--error-rgb), 0.1);
-  font-size: var(--font-size-md);
+  background: rgba(var(--accent-error-rgb), 0.1);
+  font-size: var(--font-size-body-lg);
 }
 
 /* GitHub Modal Actions */
 .github-modal .modal-actions {
   padding: 16px 20px;
-  background: var(--bg-tertiary);
-  border-top: 1px solid var(--border);
+  background: var(--surface-control);
+  border-top: 1px solid var(--border-default);
   margin-top: 0;
 }
 
 .github-modal .modal-actions button:first-child {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
 }
 
 .github-modal .modal-actions button:first-child:hover {
-  background: var(--border);
+  background: var(--border-default);
 }

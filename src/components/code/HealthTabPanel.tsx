@@ -30,7 +30,8 @@ import { stripAnsi } from '../../lib/ansi';
 import { Button } from '../primitives/Button';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Spinner } from '../primitives/Spinner';
-import { FileIcon, CopyIcon, ResetIcon } from '../icons';
+import { Tooltip } from '../primitives/Tooltip';
+import { CopyIcon, FileTextIcon, HelpIcon, ResetIcon } from '@/components/icons';
 
 const CATEGORY_HINTS: Record<ScriptCategory, string> = {
   test: "Runs your project's test suite (vitest, jest, etc.) and reports pass/fail.",
@@ -136,10 +137,10 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
               {health.detectedScripts?.hasPackageJson && (
                 <Button
                   variant="secondary"
-                  size="sm"
+                  size="compact"
                   onClick={() => void health.handleShowPackageJson()}
                   disabled={health.isLoadingPackageJson}
-                  leftIcon={<FileIcon size={12} />}
+                  leftIcon={<FileTextIcon size={12} />}
                 >
                   View package.json
                 </Button>
@@ -163,7 +164,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
           <div className="health-tab-actions">
             <Button
               variant="primary"
-              size="sm"
+              size="compact"
               onClick={() => void health.runAllChecks()}
               disabled={health.isAnyRunning || health.isRunningAll}
             >
@@ -177,7 +178,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
             </Button>
             <Button
               variant={health.isAutoRunEnabled ? 'secondary' : 'ghost'}
-              size="sm"
+              size="compact"
               onClick={health.handleAutoRunToggle}
               title={
                 health.isAutoRunEnabled
@@ -207,7 +208,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
               title="View package.json"
               aria-label="View package.json"
             >
-              {health.isLoadingPackageJson ? <Spinner size="sm" /> : <FileIcon size={12} />}
+              {health.isLoadingPackageJson ? <Spinner size="sm" /> : <FileTextIcon size={12} />}
             </button>
           </div>
         </div>
@@ -266,7 +267,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
                   {state.status === 'fail' && onAskClaude && (
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="compact"
                       onClick={() => health.handleAskClaude(cat)}
                       title="Ask Claude to fix"
                     >
@@ -275,7 +276,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
                   )}
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="compact"
                     onClick={() => void health.runCheck(cat)}
                     disabled={state.status === 'running' || health.isRunningAll}
                     title={state.result ? 'Re-run check' : 'Run check'}
@@ -313,7 +314,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
                   {selectedState.status === 'fail' && onAskClaude && (
                     <Button
                       variant="primary"
-                      size="sm"
+                      size="compact"
                       onClick={() => health.handleAskClaude(selected)}
                     >
                       Ask Claude to fix
@@ -343,7 +344,7 @@ export const HealthTabPanel = forwardRef<HealthTabPanelRef, HealthTabPanelProps>
                 {onAskClaude && (
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="compact"
                     onClick={() => {
                       const lines = suggestions
                         .map((s) => `"${s.scriptName}": "${s.scriptCommand}"`)
@@ -393,34 +394,20 @@ function statusText(state: CheckState): string {
   }
 }
 
-/** Small "?" badge after a label. Custom CSS-only tooltip (instead of the
- *  native `title` attribute) so the popover appears instantly on hover —
- *  the OS-level title delay made these feel laggy. The tooltip itself is
- *  a non-interactive sibling span shown via `:hover` on the wrapper. */
+/** Small "?" badge after a label using the shared app tooltip surface. */
 function HelpHint({ label }: { label: string }) {
   return (
-    <span
-      className="health-tab-help"
-      role="img"
-      aria-label={label}
-      // Stop the click from bubbling into the row's "select" handler.
-      onClick={(e) => e.stopPropagation()}
-    >
-      <svg width={11} height={11} viewBox="0 0 16 16" aria-hidden="true">
-        <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.2" />
-        <path
-          d="M5.8 6.2c0-1.2 1-2 2.2-2s2.2.8 2.2 2c0 .8-.5 1.3-1.1 1.6-.6.4-1.1.7-1.1 1.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-        />
-        <circle cx="8" cy="11.5" r="0.7" fill="currentColor" />
-      </svg>
-      <span className="health-tab-help-tooltip" role="tooltip">
-        {label}
+    <Tooltip content={label}>
+      <span
+        className="health-tab-help"
+        role="img"
+        aria-label={label}
+        // Stop the click from bubbling into the row's "select" handler.
+        onClick={(e) => e.stopPropagation()}
+      >
+        <HelpIcon size={11} />
       </span>
-    </span>
+    </Tooltip>
   );
 }
 
@@ -471,10 +458,10 @@ function PackageJsonModal({
     <ModalFrame isOpen={isOpen} onClose={onClose} title="package.json">
       <pre className="health-tab-pkg-json">{formatted}</pre>
       <div className="health-tab-pkg-json-actions">
-        <Button variant="secondary" size="sm" onClick={onCopy} leftIcon={<CopyIcon size={12} />}>
+        <Button variant="secondary" onClick={onCopy} leftIcon={<CopyIcon size={12} />}>
           Copy
         </Button>
-        <Button variant="primary" size="sm" onClick={onClose}>
+        <Button variant="primary" onClick={onClose}>
           Close
         </Button>
       </div>

@@ -6,8 +6,10 @@
  * = full available height).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MoreHorizontalIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
+import { ValueField } from '../primitives/ValueField';
 import { trackEvent } from '../../lib/analytics';
 
 const MIN_WIDTH = 200;
@@ -44,22 +46,29 @@ export function PreviewSizeControl({
   const [open, setOpen] = useState(false);
   const [widthText, setWidthText] = useState('');
   const [heightText, setHeightText] = useState('');
+  const widthDraftRef = useRef('');
+  const heightDraftRef = useRef('');
   const wrapRef = useRef<HTMLSpanElement>(null);
 
   // Seed the inputs from the live size each time the popover opens.
-  const openPopover = () => {
+  const openPopover = useCallback(() => {
     setWidthText(String(width));
     setHeightText(hasCustomHeight ? String(height) : '');
+    widthDraftRef.current = String(width);
+    heightDraftRef.current = hasCustomHeight ? String(height) : '';
     setOpen(true);
-  };
+  }, [hasCustomHeight, height, width]);
 
-  // External open requests (the Cmd+K "Set exact preview size…" command) —
-  // guarded render-time state adjustment, per the React derived-state pattern.
-  const [seenSignal, setSeenSignal] = useState(openSignal);
-  if (openSignal !== seenSignal) {
-    setSeenSignal(openSignal);
-    if (openSignal > 0 && !open) openPopover();
-  }
+  // External open requests (the Cmd+K "Set exact preview size…" command).
+  const seenSignalRef = useRef(openSignal);
+  useEffect(() => {
+    if (openSignal === seenSignalRef.current) return;
+    seenSignalRef.current = openSignal;
+    if (openSignal > 0 && !open) {
+      const timeoutId = window.setTimeout(openPopover, 0);
+      return () => window.clearTimeout(timeoutId);
+    }
+  }, [open, openPopover, openSignal]);
 
   useEffect(() => {
     if (open) void trackEvent('preview_size_popover_opened');
@@ -82,17 +91,48 @@ export function PreviewSizeControl({
   }, [open]);
 
   const apply = () => {
-    const w = Math.round(Number(widthText));
+    const w = Math.round(Number(widthDraftRef.current));
     if (!Number.isFinite(w) || w < MIN_WIDTH || w > MAX_WIDTH) return;
     let h: number | null = null;
-    if (heightText.trim() !== '') {
-      const parsed = Math.round(Number(heightText));
+    const heightDraft = heightDraftRef.current.trim().toLowerCase();
+    if (heightDraft !== '' && heightDraft !== 'auto') {
+      const parsed = Math.round(Number(heightDraftRef.current));
       if (!Number.isFinite(parsed) || parsed < MIN_HEIGHT || parsed > MAX_HEIGHT) return;
       h = parsed;
     }
     onApply(w, h);
     void trackEvent('preview_size_applied', { width: w, has_height: h !== null });
     setOpen(false);
+  };
+
+  const commitWidth = (next: string) => {
+    const parsed = Math.round(Number(next));
+    if (!Number.isFinite(parsed) || parsed < MIN_WIDTH || parsed > MAX_WIDTH) {
+      widthDraftRef.current = widthText;
+      return false;
+    }
+    const normalized = String(parsed);
+    setWidthText(normalized);
+    widthDraftRef.current = normalized;
+    return true;
+  };
+
+  const commitHeight = (next: string) => {
+    const trimmed = next.trim().toLowerCase();
+    if (trimmed === '' || trimmed === 'auto') {
+      setHeightText('');
+      heightDraftRef.current = '';
+      return true;
+    }
+    const parsed = Math.round(Number(next));
+    if (!Number.isFinite(parsed) || parsed < MIN_HEIGHT || parsed > MAX_HEIGHT) {
+      heightDraftRef.current = heightText;
+      return false;
+    }
+    const normalized = String(parsed);
+    setHeightText(normalized);
+    heightDraftRef.current = normalized;
+    return true;
   };
 
   const onInputKeyDown = (e: React.KeyboardEvent) => {
@@ -105,37 +145,53 @@ export function PreviewSizeControl({
         type="button"
         className="preview-dimensions"
         title="Set an exact preview size"
+        aria-label={`Set preview size: ${width} × ${height}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : openPopover())}
       >
-        {width} × {height}
+        <MoreHorizontalIcon size={14} aria-hidden="true" />
+        <span className="preview-dimensions-label">
+          {width} × {height}
+        </span>
       </button>
       {open && (
-        <div className="preview-size-popover" role="dialog" aria-label="Set preview size">
+        <div className="preview-size-popover" role="dialog" aria-labelledby="preview-size-title">
+          <h2 id="preview-size-title" className="preview-size-title">
+            Preview size
+          </h2>
           <div className="preview-size-inputs">
-            <input
-              type="number"
-              className="preview-size-input"
+            <ValueField
+              className="preview-size-field"
               value={widthText}
+              variant="number"
               min={MIN_WIDTH}
               max={MAX_WIDTH}
-              onChange={(e) => setWidthText(e.target.value)}
+              inputMode="numeric"
+              onInput={(e) => {
+                widthDraftRef.current = e.currentTarget.value;
+              }}
               onKeyDown={onInputKeyDown}
               aria-label="Width in pixels"
               autoFocus
+              onCommit={commitWidth}
             />
             <span className="preview-size-x">×</span>
-            <input
-              type="number"
-              className="preview-size-input"
+            <ValueField
+              className="preview-size-field"
               value={heightText}
+              variant="number"
+              keywords={[{ value: 'auto', label: 'AUTO', kind: 'keyword' }]}
               placeholder="auto"
               min={MIN_HEIGHT}
               max={MAX_HEIGHT}
-              onChange={(e) => setHeightText(e.target.value)}
+              inputMode="numeric"
+              onInput={(e) => {
+                heightDraftRef.current = e.currentTarget.value;
+              }}
               onKeyDown={onInputKeyDown}
               aria-label="Height in pixels (empty for auto)"
+              onCommit={commitHeight}
             />
           </div>
           {scalePercent !== null && (
@@ -144,12 +200,12 @@ export function PreviewSizeControl({
             </p>
           )}
           <div className="preview-size-actions">
-            <Button variant="primary" size="sm" onClick={apply}>
+            <Button variant="primary" size="default" onClick={apply}>
               Apply
             </Button>
             <Button
               variant="secondary"
-              size="sm"
+              size="default"
               onClick={() => {
                 onFit();
                 setOpen(false);

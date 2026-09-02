@@ -9,12 +9,37 @@
 
 import { invoke } from '@tauri-apps/api/core';
 
+/** A CSS property whose effective value on the selected element is INHERITED from
+ *  an ancestor element's own styles (detected by the selection script's computed
+ *  walk-up; global defaults like preflight on html/body are not reported). */
+export interface InheritedProp {
+  /** The effective computed value at selection time (e.g. "18px", "600"). */
+  cssValue: string;
+  /** The ancestor that defines the value. */
+  tagName: string;
+  className: string;
+  /** Classed ancestors ABOVE the definer, nearest-first — anchors source
+   *  resolution of the definer's own class literal. */
+  ancestorClasses: string[];
+  /** The attributed Tailwind utility from the definer's classes ("text-lg"),
+   *  when confidently matched against the computed value. Absent when the value
+   *  comes from custom CSS or an unverifiable utility. */
+  token?: string;
+}
+
 /** Signature of a clicked element, produced by the in-iframe selection script. */
 export interface ElementSignature {
   className: string;
   tagName: string;
   text?: string;
   ancestorClasses: string[];
+  /** Best-effort JSX source location recovered from React's development fiber.
+   *  Used only as a narrowing hint; the backend still verifies the tag at this line. */
+  sourceFile?: string;
+  sourceLine?: number;
+  sourceColumn?: number;
+  /** Exact rendered-tree identity used for safe re-selection after HMR. */
+  domPath?: string;
   rect?: { top: number; left: number; width: number; height: number };
   /** Rendered color/background from getComputedStyle — lets the color picker seed
    *  from the actual color even when it comes from a named class, var, or
@@ -24,6 +49,10 @@ export interface ElementSignature {
   /** CSS properties this element gets from UNLAYERED rules (custom CSS that beats
    *  Tailwind utilities). Edits touching these need the important modifier to win. */
   unlayeredProps?: string[];
+  /** Properties the element inherits from ANCESTOR elements' styles (typography +
+   *  text color), keyed by CSS property. Only present when an ancestor actually
+   *  defines them — never for unset/browser-default values. */
+  inheritedProps?: Record<string, InheritedProp>;
   /** The element's raw `src` attribute (images) — the image resolver's search key. */
   attrSrc?: string | null;
   /** The absolute URL the browser actually loaded for an `<img>` (resolves
@@ -578,6 +607,30 @@ export interface EnumControl {
  *  applied option (same Tailwind group); `style` drives JIT-independent preview. */
 export const ENUM_CONTROLS: EnumControl[] = [
   {
+    label: 'Font',
+    variant: 'dropdown',
+    options: [
+      {
+        label: 'Sans',
+        token: 'font-sans',
+        style: { 'font-family': 'ui-sans-serif, system-ui, sans-serif' },
+      },
+      {
+        label: 'Serif',
+        token: 'font-serif',
+        style: { 'font-family': 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif' },
+      },
+      {
+        label: 'Mono',
+        token: 'font-mono',
+        style: {
+          'font-family':
+            'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+        },
+      },
+    ],
+  },
+  {
     label: 'Align',
     variant: 'icons',
     options: [
@@ -626,14 +679,15 @@ export const ENUM_CONTROLS: EnumControl[] = [
   },
   {
     label: 'Display',
-    variant: 'dropdown',
+    variant: 'icons',
     options: [
       { label: 'Block', token: 'block', style: { display: 'block' } },
       { label: 'Flex', token: 'flex', style: { display: 'flex' } },
       { label: 'Grid', token: 'grid', style: { display: 'grid' } },
+      { label: 'None', token: 'hidden', style: { display: 'none' } },
       { label: 'Inline block', token: 'inline-block', style: { display: 'inline-block' } },
+      { label: 'Inline flex', token: 'inline-flex', style: { display: 'inline-flex' } },
       { label: 'Inline', token: 'inline', style: { display: 'inline' } },
-      { label: 'Hidden', token: 'hidden', style: { display: 'none' } },
     ],
   },
   {
@@ -692,15 +746,15 @@ export const ENUM_CONTROLS: EnumControl[] = [
   },
   {
     label: 'Direction',
-    variant: 'dropdown',
+    variant: 'icons',
     options: [
       { label: 'Row', token: 'flex-row', style: { 'flex-direction': 'row' } },
+      { label: 'Column', token: 'flex-col', style: { 'flex-direction': 'column' } },
       {
         label: 'Row reverse',
         token: 'flex-row-reverse',
         style: { 'flex-direction': 'row-reverse' },
       },
-      { label: 'Column', token: 'flex-col', style: { 'flex-direction': 'column' } },
       {
         label: 'Column reverse',
         token: 'flex-col-reverse',
@@ -710,7 +764,7 @@ export const ENUM_CONTROLS: EnumControl[] = [
   },
   {
     label: 'Wrap',
-    variant: 'dropdown',
+    variant: 'icons',
     options: [
       { label: 'No wrap', token: 'flex-nowrap', style: { 'flex-wrap': 'nowrap' } },
       { label: 'Wrap', token: 'flex-wrap', style: { 'flex-wrap': 'wrap' } },
@@ -719,12 +773,12 @@ export const ENUM_CONTROLS: EnumControl[] = [
   },
   {
     label: 'Overflow',
-    variant: 'dropdown',
+    variant: 'icons',
     options: [
       { label: 'Visible', token: 'overflow-visible', style: { overflow: 'visible' } },
-      { label: 'Auto', token: 'overflow-auto', style: { overflow: 'auto' } },
       { label: 'Hidden', token: 'overflow-hidden', style: { overflow: 'hidden' } },
       { label: 'Scroll', token: 'overflow-scroll', style: { overflow: 'scroll' } },
+      { label: 'Auto', token: 'overflow-auto', style: { overflow: 'auto' } },
     ],
   },
   {
@@ -766,7 +820,7 @@ export const ENUM_CONTROLS: EnumControl[] = [
   },
   {
     label: 'Transform',
-    variant: 'dropdown',
+    variant: 'icons',
     options: [
       { label: 'None', token: 'normal-case', style: { 'text-transform': 'none' } },
       { label: 'Uppercase', token: 'uppercase', style: { 'text-transform': 'uppercase' } },
@@ -776,7 +830,7 @@ export const ENUM_CONTROLS: EnumControl[] = [
   },
   {
     label: 'Style',
-    variant: 'dropdown',
+    variant: 'icons',
     options: [
       { label: 'Normal', token: 'not-italic', style: { 'font-style': 'normal' } },
       { label: 'Italic', token: 'italic', style: { 'font-style': 'italic' } },
@@ -784,10 +838,11 @@ export const ENUM_CONTROLS: EnumControl[] = [
   },
   {
     label: 'Decoration',
-    variant: 'dropdown',
+    variant: 'icons',
     options: [
       { label: 'None', token: 'no-underline', style: { 'text-decoration-line': 'none' } },
       { label: 'Underline', token: 'underline', style: { 'text-decoration-line': 'underline' } },
+      { label: 'Overline', token: 'overline', style: { 'text-decoration-line': 'overline' } },
       {
         label: 'Line through',
         token: 'line-through',
@@ -998,7 +1053,7 @@ export function lengthResetSpec(prefix: string, css: string): ResetSpec {
 export interface ArbitraryProp {
   prop: string;
   value: string;
-  /** The bare (unprefixed) Tailwind token, e.g. `[clip-path:circle(50%)]`. */
+  /** The unprefixed Tailwind token, optionally retaining its important suffix. */
   token: string;
 }
 
@@ -1024,7 +1079,7 @@ export function parseArbitraryProp(input: string): ArbitraryProp | null {
  *  to `{prop, value}` for display in the custom-CSS list. */
 export function listArbitraryProps(className: string): ArbitraryProp[] {
   const out: ArbitraryProp[] = [];
-  const re = /(?:^|\s)(\[([a-z-]+):([^\]]+)\])/g;
+  const re = /(?:^|\s)(\[([a-z-]+):([^\]]+)\]!?)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(className)) !== null) {
     out.push({ token: m[1], prop: m[2], value: m[3].replace(/_/g, ' ') });
@@ -1057,6 +1112,7 @@ const SHORTHAND_ROOTS: Record<string, string[]> = {
   'border-color': ['border'],
   'border-width': ['border'],
   'font-size': ['font'],
+  'font-family': ['font'],
   'font-weight': ['font'],
   'font-style': ['font'],
   'line-height': ['font'],

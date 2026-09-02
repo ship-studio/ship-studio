@@ -1,0 +1,355 @@
+/* ── Declaration rows ── */
+/* Prop + value are plain WRAPPING text (clicking edits in place), so a long
+   prop or value just wraps and is never cut off; a short one reads `prop: value`. */
+.ss-decl {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--spacing-xs);
+  padding: 0px 2px; /* css-ok: dense row */
+  /* Keep field hover surfaces inside the card body's horizontal padding. */
+  margin: 0;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+}
+.ss-decl.is-overridden {
+  color: var(--text-muted);
+}
+.ss-decl.is-overridden .ss-decl__prop,
+.ss-decl.is-overridden .ss-decl__value {
+  text-decoration: line-through;
+}
+
+.ss-decl.is-readonly {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: var(--space-02) var(--space-08);
+}
+
+/* Clickable display text (button reset to read as plain text). */
+.ss-decl__edit {
+  all: unset;
+  box-sizing: border-box;
+  cursor: text;
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+.ss-decl__edit:hover {
+  background: var(--tint-subtle);
+}
+
+/* Property */
+.ss-decl__prop {
+  min-width: 0;
+  color: var(--property-text);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ss-decl__prop:hover {
+  background: var(--property-field-hover);
+}
+.ss-decl__prop.is-selected {
+  background: var(--property-field-selected);
+}
+
+.ss-decl__colon {
+  justify-self: center;
+  color: var(--text-muted);
+}
+
+/* Value */
+.ss-decl__value {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  width: 100%;
+  color: var(--text-primary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ss-decl__ph {
+  color: var(--text-muted);
+}
+.ss-decl__swatch {
+  align-self: center;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px; /* css-ok: tiny swatch */
+  border: 1px solid var(--border-default);
+  flex: 0 0 auto;
+}
+.ss-decl__imp {
+  color: var(--accent-warning);
+  white-space: nowrap;
+}
+/* Actions are pulled OUT of the inline flow (absolute, revealed on hover) so they
+   never reserve width and squeeze the value column into per-character wrapping.
+   A solid chip backdrop keeps them legible when they overlay a long value. */
+.ss-decl__actions {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px; /* css-ok: tight action cluster */
+  padding: 1px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+.ss-decl:hover .ss-decl__actions,
+.ss-decl__actions:has(.is-open) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Shared value editor: floating by default, or fitted to the existing grid column. */
+.ss-value-pop {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  padding: var(--spacing-xs);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md);
+}
+.ss-value-pop--inline {
+  /* Let the declaration row own the autocomplete's positioning context. This
+     allows the menu to span the complete `property: value` row while keeping
+     its right edge aligned with the value field. */
+  position: static;
+  z-index: auto;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+/* Input row: optional drag-to-scrub handle + the text field. */
+.ss-value-pop__field {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+.ss-value-pop__field .ss-value-pop__input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ss-value-pop--inline .ss-value-pop__field {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-height-compact);
+  min-width: 0;
+  gap: 0;
+  align-items: stretch;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  box-shadow: inset 0 0 0 var(--stroke-1) var(--accent-active);
+}
+.ss-value-pop__scrub {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: ew-resize;
+  touch-action: none; /* let the pointer drag scrub instead of scrolling */
+}
+.ss-value-pop__scrub:hover {
+  color: var(--text-primary);
+  background: var(--tint-subtle);
+}
+.ss-value-pop--inline .ss-value-pop__scrub {
+  width: var(--size-control-compact);
+  height: var(--size-control-compact);
+  border-radius: calc(var(--radius-sm) - var(--stroke-1));
+}
+.ss-value-pop__input {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--accent-active);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+}
+.ss-value-pop--inline .ss-value-pop__input {
+  height: 100%;
+  padding: var(--space-02) var(--space-06);
+  border: 0;
+  background: transparent;
+  line-height: 1.5;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Autocomplete list under the value input (var(--…), keywords). */
+.ss-value-pop__menu {
+  margin-top: var(--spacing-xs);
+  border: 1px solid var(--border-default);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md);
+  max-height: 220px;
+}
+.ss-value-pop--inline .ss-value-pop__menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  z-index: var(--z-dropdown);
+}
+.ss-value-pop__menu .ss-add-menu__item {
+  /* The shared add menu also serves shrink-to-fit chip popovers, where an
+     explicit width can collapse the grid. The value menu is row-width-bound,
+     so make its hover target fill that width explicitly. */
+  align-self: stretch;
+  width: 100%;
+}
+
+/* Inline `!important` ghost completion, painted over the input (typed text is
+ * transparent so the real input shows through; the suffix is greyed). */
+.ss-value-pop__inputwrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ss-value-pop--inline .ss-value-pop__inputwrap {
+  display: grid;
+  align-self: stretch;
+  min-height: var(--control-height-compact);
+}
+.ss-value-pop--inline .ss-value-pop__sizer,
+.ss-value-pop--inline .ss-value-pop__input {
+  grid-area: 1 / 1;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-height-compact);
+  padding: var(--space-02) var(--space-06);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ss-value-pop--inline .ss-value-pop__sizer {
+  visibility: hidden;
+  pointer-events: none;
+}
+.ss-value-pop__ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  box-sizing: border-box;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid transparent;
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  white-space: pre;
+  overflow: hidden;
+}
+.ss-value-pop--inline .ss-value-pop__ghost {
+  padding: 0 var(--space-06);
+  border: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ss-value-pop__ghost-typed {
+  color: transparent;
+}
+.ss-value-pop__ghost-hint {
+  color: var(--text-muted);
+}
+
+/* row action buttons (nest / ✕) — reveal on row hover */
+.ss-decl__remove,
+.ss-decl__nest-btn {
+  all: unset;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  opacity: 0;
+  transition:
+    opacity var(--transition-fast),
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+.ss-decl:hover .ss-decl__remove,
+.ss-decl:hover .ss-decl__nest-btn,
+.ss-decl__nest-btn.is-open {
+  opacity: 1;
+}
+.ss-decl__nest-btn:hover {
+  color: var(--text-primary);
+  background: var(--tint);
+}
+.ss-decl__remove:hover {
+  color: var(--accent-error);
+  background: color-mix(in srgb, var(--accent-error) 14%, transparent);
+}
+
+/* nest-this-declaration menu (enum-style) */
+.ss-decl__nest {
+  position: relative;
+  flex: 0 0 auto;
+}
+.ss-decl__nest-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  gap: 1px; /* css-ok: menu item gap */
+  min-width: 130px;
+  padding: var(--spacing-xs);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-md);
+}
+.ss-decl__nest-item {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px var(--spacing-sm);
+  border-radius: calc(var(--radius-sm) - 1px);
+  color: var(--text-secondary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  white-space: nowrap;
+}
+.ss-decl__nest-item:hover {
+  background: var(--surface-control);
+  color: var(--text-primary);
+}
+.ss-decl__nest-item--new {
+  color: var(--text-muted);
+}

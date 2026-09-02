@@ -6,7 +6,8 @@
  *
  * Built on the Dropdown primitive in `portal` mode: the trigger lives in
  * .terminal-pane (overflow: hidden), so the menu renders fixed in a body
- * portal and re-anchors on scroll/resize. `align="right"` anchors by the
+ * portal and re-anchors on scroll/resize. The trigger sits in the pane's
+ * bottom footer, so the menu opens upward. `align="right"` anchors by the
  * trigger's right edge — the Agent Settings button sits at the right end
  * of the terminal toolbar, so a left anchor would push the menu off-screen
  * in focus mode / narrow windows.
@@ -22,8 +23,9 @@ import {
   HelpIcon,
   ChevronIcon,
   SettingsIcon,
-} from '../icons';
+} from '@/components/icons';
 import { Dropdown, DropdownItem, DropdownDivider } from '../primitives/Dropdown';
+import { MenuButton } from '../primitives/MenuButton';
 import { PluginSlot } from '../plugins/PluginSlot';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 import type {
@@ -64,10 +66,12 @@ export function ToolbarDropdown({
     <Dropdown
       portal
       align="right"
+      side="top"
       menuClassName="toolbar-dropdown-menu"
       trigger={(p) => (
-        <button
-          className={`toolbar-icon-btn ${p['aria-expanded'] ? 'is-open' : ''}`}
+        <MenuButton
+          variant="ghost"
+          expanded={Boolean(p['aria-expanded'])}
           title="Agent settings"
           data-education-id="toolbar-more"
           {...p}
@@ -75,7 +79,7 @@ export function ToolbarDropdown({
           <SettingsIcon size={12} />
           <span className="toolbar-btn-label">Agent Settings</span>
           <ChevronIcon size={10} className={p['aria-expanded'] ? 'chevron-flipped' : undefined} />
-        </button>
+        </MenuButton>
       )}
     >
       <DropdownItem icon={<BellIcon size={14} />} onSelect={onNotificationSettings}>

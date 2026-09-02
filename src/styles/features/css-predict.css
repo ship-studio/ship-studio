@@ -6,47 +6,70 @@
  */
 
 .ss-decl--ghost {
-  align-items: center;
-  opacity: 0.62;
+  display: block;
+  /* Separate the Tab affordance from the "+ Add" control and last declaration. */
+  margin-top: var(--spacing-sm);
+  padding-top: var(--control-height-compact);
+  padding-left: var(--spacing-sm);
+  opacity: 0.5;
   font-style: italic;
 }
 .ss-decl--ghost:hover {
-  opacity: 0.95;
+  opacity: 0.75;
 }
+
 .ss-decl__ghost-accept {
   all: unset;
   cursor: pointer;
-  display: inline-flex;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: baseline;
-  gap: var(--spacing-xs);
-  flex: 1 1 auto;
+  column-gap: var(--spacing-xs);
   min-width: 0;
+  width: 100%;
 }
+
+.ss-decl--ghost .ss-decl__value {
+  width: 100%;
+}
+
+/* The "ghost" hint is a single-line suggestion under the value. */
 .ss-decl__ghost-hint {
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-style: normal;
 }
+
+/* The Tab button */
 .ss-decl__ghost-kbd {
-  flex: 0 0 auto;
-  padding: 0 4px; /* css-ok: kbd chip */
-  border: 1px solid var(--border);
+  position: absolute;
+  top: var(--space-02);
+  left: var(--space-04);
+  display: inline-flex;
+  padding: 0 8px; /* css-ok: kbd chip */
+  margin-bottom: var(--space-02);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   font-style: normal;
 }
+
 .ss-decl__ghost-dismiss {
   all: unset;
   cursor: pointer;
-  flex: 0 0 auto;
+  position: absolute;
+  top: var(--space-02);
+  right: var(--space-02);
   display: inline-flex;
   color: var(--text-muted);
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
+
 .ss-decl--ghost:hover .ss-decl__ghost-dismiss {
   opacity: 1;
 }

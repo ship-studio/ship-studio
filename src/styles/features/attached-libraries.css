@@ -1,7 +1,7 @@
 /* Attached Libraries modal */
 
 .attached-libraries-intro {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   line-height: 1.5;
   margin: 0 0 var(--spacing-lg);
@@ -15,7 +15,7 @@
 
 .attached-libraries-empty,
 .attached-libraries-error {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   margin: 0 0 var(--spacing-lg);
 }
@@ -34,11 +34,11 @@
 }
 
 .attached-libraries-note {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
 }
 
 .attached-libraries-error {
-  color: var(--error);
+  color: var(--accent-error);
 }
 
 .attached-libraries-list {
@@ -56,15 +56,15 @@
   justify-content: space-between;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
 }
 
 .attached-libraries-path {
   min-width: 0;
   flex: 1;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -92,6 +92,6 @@
 }
 
 .attached-libraries-remove:hover {
-  color: var(--error);
-  background: var(--bg-secondary);
+  color: var(--accent-error);
+  background: var(--surface-panel);
 }

@@ -20,7 +20,8 @@
 import { Terminal } from '../terminal/Terminal';
 import { StaleEnvBanner } from '../terminal/StaleEnvBanner';
 import type { TerminalHandle, AgentStatus } from '../terminal/Terminal';
-import { PlusIcon } from '../icons';
+import { CloseIcon, PlusIcon } from '@/components/icons';
+import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
 import { CompactTopbar } from './CompactTopbar';
 import { getAgentById } from '../../lib/agent';
 import { kbd } from '../../lib/shortcuts';
@@ -94,6 +95,10 @@ function buildTabLabel(
   return `${agent.displayName} ${ordinal}`;
 }
 
+function terminalTabValue(projectPath: string, tabId: number): string {
+  return JSON.stringify([projectPath, tabId]);
+}
+
 export function CompactWorkspace({
   currentProject,
   allSessions,
@@ -138,112 +143,121 @@ export function CompactWorkspace({
         onGoHome={onGoHome}
       />
 
-      <div className="compact-tabs" role="tablist" aria-label="Agent and terminal tabs">
-        {terminalTabs.map((tab) => {
-          const isActive = tab.id === activeTerminalTab;
-          const hasAttention = attentionTabs.has(tab.id) && !isActive;
-          const label = buildTabLabel(tab, terminalTabs, tabTitles);
-          const canClose = terminalTabs.length > 1;
-          return (
-            <div
-              key={tab.id}
-              className={`compact-tab ${isActive ? 'is-active' : ''} ${
-                hasAttention ? 'has-attention' : ''
-              }`}
-              role="tab"
-              aria-selected={isActive}
-            >
-              <button
-                type="button"
-                className="compact-tab-select"
-                onClick={() => onSelectTab(tab.id)}
-                title={label}
-              >
-                <span className="compact-tab-dot" aria-hidden="true" />
-                <span className="compact-tab-label">{label}</span>
-              </button>
-              {canClose && (
-                <button
-                  type="button"
-                  className="compact-tab-close"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCloseTab(tab.id);
-                  }}
-                  aria-label={`Close ${label}`}
-                  title="Close tab"
-                >
-                  ×
-                </button>
-              )}
-            </div>
+      <Tabs
+        value={terminalTabValue(currentProject.path, activeTerminalTab)}
+        onValueChange={(next) => {
+          const selected = terminalTabs.find(
+            (tab) => terminalTabValue(currentProject.path, tab.id) === next
           );
-        })}
-        {!atMaxTabs && (
-          <button
-            type="button"
-            className="compact-tab-add"
-            onClick={onAddTab}
-            aria-label="New terminal tab"
-            title={`New terminal tab (${kbd('mod', 'T')})`}
-          >
-            <PlusIcon size={12} />
-          </button>
-        )}
-      </div>
-
-      <StaleEnvBanner projectPath={currentProject.path} />
-
-      <div className="compact-terminal-stack">
-        {allSessions.flatMap((session) =>
-          session.tabs.map((tab) => {
-            const isCurrentProject = session.projectPath === currentProject.path;
-            const isVisible = isCurrentProject && activeTerminalTab === tab.id;
-            const refKey = `${session.projectPath}::${tab.id}`;
+          if (selected) onSelectTab(selected.id);
+        }}
+      >
+        <TabsList className="compact-tabs" aria-label="Agent and terminal tabs">
+          {terminalTabs.map((tab) => {
+            const isActive = tab.id === activeTerminalTab;
+            const hasAttention = attentionTabs.has(tab.id) && !isActive;
+            const label = buildTabLabel(tab, terminalTabs, tabTitles);
+            const canClose = terminalTabs.length > 1;
             return (
               <div
-                key={`session-${session.sessionEpoch}-${refKey}`}
-                className={`terminal-tab-content ${isVisible ? 'active' : ''}`}
-                data-agent-id={tab.agentId}
+                key={tab.id}
+                className={`compact-tab ${isActive ? 'is-active' : ''} ${
+                  hasAttention ? 'has-attention' : ''
+                }`}
               >
-                <Terminal
-                  ref={(ref) => {
-                    if (ref) {
-                      terminalRefsMap.current.set(refKey, ref);
-                    } else {
-                      terminalRefsMap.current.delete(refKey);
-                    }
-                  }}
-                  agent={getAgentById(tab.agentId)}
-                  projectPath={session.projectPath}
-                  onSpawn={(pid) => {
-                    sessionRegistry.patchTerminalTab(session.projectPath, tab.id, {
-                      status: 'running',
-                      pid,
-                      exitCode: null,
-                    });
-                  }}
-                  onExit={(code) => {
-                    handleTerminalExit(code);
-                    sessionRegistry.patchTerminalTab(session.projectPath, tab.id, {
-                      status: code === 0 || code === null ? 'exited' : 'crashed',
-                      pid: null,
-                      exitCode: code,
-                    });
-                  }}
-                  autoAcceptMode={autoAcceptMode}
-                  onStatusChange={createTabStatusHandler(session.projectPath, tab.id)}
-                  onTitleChange={handleTabTitleChange(session.projectPath, tab.id)}
-                  sessionName={tab.sessionId}
-                  isActive={isVisible}
-                  shouldResume={tab.shouldResume}
-                  onRequestRestart={() => restartTerminalTab(tab.id, session.projectPath)}
-                />
+                <TabsTab
+                  value={terminalTabValue(currentProject.path, tab.id)}
+                  className="compact-tab-select"
+                  title={label}
+                >
+                  <span className="compact-tab-dot" aria-hidden="true" />
+                  <span className="compact-tab-label">{label}</span>
+                </TabsTab>
+                {canClose && (
+                  <button
+                    type="button"
+                    className="compact-tab-close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCloseTab(tab.id);
+                    }}
+                    aria-label={`Close ${label}`}
+                    title="Close tab"
+                  >
+                    <CloseIcon size={12} />
+                  </button>
+                )}
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+          {!atMaxTabs && (
+            <button
+              type="button"
+              className="compact-tab-add"
+              onClick={onAddTab}
+              aria-label="New terminal tab"
+              title={`New terminal tab (${kbd('mod', 'T')})`}
+            >
+              <PlusIcon size={12} />
+            </button>
+          )}
+        </TabsList>
+
+        <StaleEnvBanner projectPath={currentProject.path} />
+
+        <div className="compact-terminal-stack">
+          {allSessions.flatMap((session) =>
+            session.tabs.map((tab) => {
+              const isCurrentProject = session.projectPath === currentProject.path;
+              const isVisible = isCurrentProject && activeTerminalTab === tab.id;
+              const refKey = `${session.projectPath}::${tab.id}`;
+              return (
+                <TabsPanel
+                  key={`session-${session.sessionEpoch}-${refKey}`}
+                  value={terminalTabValue(session.projectPath, tab.id)}
+                  keepMounted
+                  className={`terminal-tab-content ${isVisible ? 'active' : ''}`}
+                  data-agent-id={tab.agentId}
+                >
+                  <Terminal
+                    ref={(ref) => {
+                      if (ref) {
+                        terminalRefsMap.current.set(refKey, ref);
+                      } else {
+                        terminalRefsMap.current.delete(refKey);
+                      }
+                    }}
+                    agent={getAgentById(tab.agentId)}
+                    projectPath={session.projectPath}
+                    onSpawn={(pid) => {
+                      sessionRegistry.patchTerminalTab(session.projectPath, tab.id, {
+                        status: 'running',
+                        pid,
+                        exitCode: null,
+                      });
+                    }}
+                    onExit={(code) => {
+                      handleTerminalExit(code);
+                      sessionRegistry.patchTerminalTab(session.projectPath, tab.id, {
+                        status: code === 0 || code === null ? 'exited' : 'crashed',
+                        pid: null,
+                        exitCode: code,
+                      });
+                    }}
+                    autoAcceptMode={autoAcceptMode}
+                    onStatusChange={createTabStatusHandler(session.projectPath, tab.id)}
+                    onTitleChange={handleTabTitleChange(session.projectPath, tab.id)}
+                    sessionName={tab.sessionId}
+                    isActive={isVisible}
+                    shouldResume={tab.shouldResume}
+                    onRequestRestart={() => restartTerminalTab(tab.id, session.projectPath)}
+                  />
+                </TabsPanel>
+              );
+            })
+          )}
+        </div>
+      </Tabs>
     </div>
   );
 }

@@ -56,7 +56,7 @@ export function ImageSection({ signature, resolution, projectPath, onReplace }: 
             </code>
           )}
           {resolved ? (
-            <Button size="sm" variant="secondary" block onClick={() => setPickerOpen(true)}>
+            <Button variant="secondary" block onClick={() => setPickerOpen(true)}>
               Replace image…
             </Button>
           ) : (

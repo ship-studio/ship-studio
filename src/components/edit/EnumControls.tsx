@@ -12,132 +12,99 @@ import {
   readLayer,
   enumResetSpec,
   type EnumControl,
+  type InheritedProp,
   type LayerContext,
   type ResetSpec,
 } from '../../lib/edit';
 import { EnumDropdown } from './EnumDropdown';
 import { ResettableLabel } from './ResettableLabel';
+import { SegmentedControl } from '../primitives/SegmentedControl';
+import {
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  CloseIcon,
+} from '@/components/icons';
+import { EyeIcon, EyeOffIcon } from '@/components/icons';
+import {
+  AlignItemsCenterIcon,
+  AlignItemsEndIcon,
+  AlignItemsStartIcon,
+  AlignItemsStretchIcon,
+  AlignCenterIcon,
+  AlignLeftIcon,
+  AlignRightIcon,
+  DecorationNoneIcon,
+  DecorationOverlineIcon,
+  DecorationStrikeIcon,
+  DecorationUnderlineIcon,
+  DisplayBlockIcon,
+  DisplayFlexIcon,
+  DisplayGridIcon,
+  DisplayInlineBlockIcon,
+  DisplayInlineFlexIcon,
+  ItalicsOffIcon,
+  ItalicsOnIcon,
+  JustifyBetweenIcon,
+  JustifyCenterIcon,
+  JustifyEndIcon,
+  JustifyStartIcon,
+  OverflowAutoIcon,
+  OverflowScrollIcon,
+  WrapUpIcon,
+  WrapDownIcon,
+} from '@/components/icons';
 
-const lineProps = { strokeWidth: 2, strokeLinecap: 'round' as const };
-function Icon({ children }: { children: ReactNode }) {
+function EnumGlyph({ children }: { children: ReactNode }) {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+    <span className="ss-enum-glyph" aria-hidden="true">
       {children}
-    </svg>
-  );
-}
-
-/** Three thin vertical strokes representing flex children — same stroke language
- *  as the text-align icons. justify-* keeps them full-height and shifts the
- *  cluster horizontally; items-* spreads them at fixed x and shifts their
- *  (shorter) vertical extent, so the two rows read as one consistent set. */
-function VLines({ lines }: { lines: [number, number, number][] }) {
-  return (
-    <Icon>
-      {lines.map(([x, y1, y2], i) => (
-        <line key={i} x1={x} y1={y1} x2={x} y2={y2} {...lineProps} />
-      ))}
-    </Icon>
+    </span>
   );
 }
 
 /** Icon per option token (only icon-variant controls need these). */
 const ICONS: Record<string, ReactNode> = {
-  'text-left': (
-    <Icon>
-      <line x1="3" y1="6" x2="21" y2="6" {...lineProps} />
-      <line x1="3" y1="12" x2="15" y2="12" {...lineProps} />
-      <line x1="3" y1="18" x2="17" y2="18" {...lineProps} />
-    </Icon>
-  ),
-  'text-center': (
-    <Icon>
-      <line x1="3" y1="6" x2="21" y2="6" {...lineProps} />
-      <line x1="7" y1="12" x2="17" y2="12" {...lineProps} />
-      <line x1="5" y1="18" x2="19" y2="18" {...lineProps} />
-    </Icon>
-  ),
-  'text-right': (
-    <Icon>
-      <line x1="3" y1="6" x2="21" y2="6" {...lineProps} />
-      <line x1="9" y1="12" x2="21" y2="12" {...lineProps} />
-      <line x1="7" y1="18" x2="21" y2="18" {...lineProps} />
-    </Icon>
-  ),
-  // justify-content (main/horizontal axis): 3 full-height strokes, cluster shifts left → right.
-  'justify-start': (
-    <VLines
-      lines={[
-        [4, 6, 18],
-        [8, 6, 18],
-        [12, 6, 18],
-      ]}
-    />
-  ),
-  'justify-center': (
-    <VLines
-      lines={[
-        [8, 6, 18],
-        [12, 6, 18],
-        [16, 6, 18],
-      ]}
-    />
-  ),
-  'justify-end': (
-    <VLines
-      lines={[
-        [12, 6, 18],
-        [16, 6, 18],
-        [20, 6, 18],
-      ]}
-    />
-  ),
-  'justify-between': (
-    <VLines
-      lines={[
-        [4, 6, 18],
-        [12, 6, 18],
-        [20, 6, 18],
-      ]}
-    />
-  ),
-  // align-items (cross/vertical axis): 3 evenly-spread strokes, extent shifts top → bottom.
-  'items-start': (
-    <VLines
-      lines={[
-        [6, 4, 11],
-        [12, 4, 11],
-        [18, 4, 11],
-      ]}
-    />
-  ),
-  'items-center': (
-    <VLines
-      lines={[
-        [6, 8.5, 15.5],
-        [12, 8.5, 15.5],
-        [18, 8.5, 15.5],
-      ]}
-    />
-  ),
-  'items-end': (
-    <VLines
-      lines={[
-        [6, 13, 20],
-        [12, 13, 20],
-        [18, 13, 20],
-      ]}
-    />
-  ),
-  'items-stretch': (
-    <VLines
-      lines={[
-        [6, 4, 20],
-        [12, 4, 20],
-        [18, 4, 20],
-      ]}
-    />
-  ),
+  'text-left': <AlignLeftIcon />,
+  'text-center': <AlignCenterIcon />,
+  'text-right': <AlignRightIcon />,
+  'justify-start': <JustifyStartIcon />,
+  'justify-center': <JustifyCenterIcon />,
+  'justify-end': <JustifyEndIcon />,
+  'justify-between': <JustifyBetweenIcon />,
+  'items-start': <AlignItemsStartIcon />,
+  'items-center': <AlignItemsCenterIcon />,
+  'items-end': <AlignItemsEndIcon />,
+  'items-stretch': <AlignItemsStretchIcon />,
+  block: <DisplayBlockIcon />,
+  flex: <DisplayFlexIcon />,
+  grid: <DisplayGridIcon />,
+  'inline-block': <DisplayInlineBlockIcon />,
+  'inline-flex': <DisplayInlineFlexIcon />,
+  inline: <DisplayInlineBlockIcon />,
+  hidden: <EyeOffIcon />,
+  'flex-row': <ArrowRightIcon />,
+  'flex-row-reverse': <ArrowLeftIcon />,
+  'flex-col': <ArrowDownIcon />,
+  'flex-col-reverse': <ArrowUpIcon />,
+  'flex-nowrap': <CloseIcon />,
+  'flex-wrap': <WrapDownIcon />,
+  'flex-wrap-reverse': <WrapUpIcon />,
+  'overflow-visible': <EyeIcon />,
+  'overflow-auto': <OverflowAutoIcon />,
+  'overflow-hidden': <EyeOffIcon />,
+  'overflow-scroll': <OverflowScrollIcon />,
+  'normal-case': <EnumGlyph>Ab</EnumGlyph>,
+  uppercase: <EnumGlyph>AB</EnumGlyph>,
+  lowercase: <EnumGlyph>ab</EnumGlyph>,
+  capitalize: <EnumGlyph>Aa</EnumGlyph>,
+  'not-italic': <ItalicsOffIcon />,
+  italic: <ItalicsOnIcon />,
+  'no-underline': <DecorationNoneIcon />,
+  underline: <DecorationUnderlineIcon />,
+  overline: <DecorationOverlineIcon />,
+  'line-through': <DecorationStrikeIcon />,
 };
 
 interface Props {
@@ -148,6 +115,10 @@ interface Props {
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   /** Clear a control's value at the active breakpoint. */
   onReset: (spec: ResetSpec) => void;
+  /** Ancestor-defined value for this control's CSS property. */
+  inherited?: InheritedProp | null;
+  projectPath?: string;
+  onOpenInCode?: (file: string, line: number) => void;
 }
 
 /** One enum control row (icons / dropdown / segmented) with its resettable label.
@@ -158,17 +129,80 @@ export function EnumControlRow({
   layer,
   onApplyEnum,
   onReset,
+  inherited = null,
+  projectPath,
+  onOpenInCode,
 }: { control: EnumControl } & Props) {
   const { value: active, definedAt } = readLayer(currentClass, layer, (s) =>
     activeEnumToken(s, control)
   );
 
+  // With nothing set locally, an attributed ancestor token preselects its option
+  // (the orange label signals it isn't actually set on this element). Adopting
+  // writes that same option locally.
+  const inheritedOption =
+    inherited?.token != null
+      ? (control.options.find((option) => option.token === inherited.token) ?? null)
+      : null;
+  const shown = active ?? inheritedOption?.token ?? null;
+  const adopt = inheritedOption
+    ? () => onApplyEnum(inheritedOption.token, inheritedOption.style)
+    : undefined;
+
   let body: ReactNode;
-  if (control.variant === 'dropdown') {
+  if (control.label === 'Display') {
+    const primaryDefaults = control.options.filter((option) =>
+      ['block', 'flex', 'grid', 'hidden'].includes(option.token)
+    );
+    const activeIsPrimary = primaryDefaults.some((option) => option.token === shown);
+    const selectedOverflow =
+      !activeIsPrimary && shown
+        ? (control.options.find((option) => option.token === shown) ?? null)
+        : null;
+    const displacedPrimary = selectedOverflow
+      ? (primaryDefaults[primaryDefaults.length - 1] ?? null)
+      : null;
+    const primary = selectedOverflow
+      ? [...primaryDefaults.slice(0, -1), selectedOverflow]
+      : primaryDefaults;
+    const more = control.options.filter(
+      (option) => !primaryDefaults.includes(option) && option.token !== selectedOverflow?.token
+    );
+    const overflowOptions = displacedPrimary ? [...more, displacedPrimary] : more;
+    const apply = (token: string) => {
+      const option = control.options.find((candidate) => candidate.token === token);
+      if (option) onApplyEnum(option.token, option.style);
+    };
+    body = (
+      <div className="ss-edit-panel__display-controls">
+        <SegmentedControl
+          className="ss-edit-panel__segmented ss-edit-panel__segmented--icons"
+          value={shown ?? ''}
+          size="medium"
+          options={primary.map((option) => ({
+            value: option.token,
+            label: ICONS[option.token],
+            ariaLabel: option.label,
+            title: option.label,
+          }))}
+          aria-label={control.label}
+          onValueChange={apply}
+        />
+        <EnumDropdown
+          label="More display options"
+          value={shown}
+          options={overflowOptions}
+          optionIcons={ICONS}
+          compactTrigger
+          onChange={apply}
+        />
+      </div>
+    );
+  } else if (control.variant === 'dropdown') {
     body = (
       <EnumDropdown
         label={control.label}
-        value={active}
+        value={shown}
         options={control.options}
         onChange={(token) => {
           const opt = control.options.find((o) => o.token === token);
@@ -176,26 +210,44 @@ export function EnumControlRow({
         }}
       />
     );
+  } else if (control.label === 'Align') {
+    body = (
+      <SegmentedControl
+        className="ss-edit-panel__align-tabs"
+        value={shown ?? ''}
+        size="medium"
+        options={control.options.map((option) => ({
+          value: option.token,
+          label: ICONS[option.token],
+          ariaLabel: option.label,
+          title: option.label,
+        }))}
+        aria-label={control.label}
+        onValueChange={(token) => {
+          const option = control.options.find((candidate) => candidate.token === token);
+          if (option) onApplyEnum(option.token, option.style);
+        }}
+      />
+    );
   } else {
     const isIcons = control.variant === 'icons';
     body = (
-      <div className="ss-edit-panel__segmented" role="group" aria-label={control.label}>
-        {control.options.map((o) => (
-          <button
-            key={o.token}
-            type="button"
-            className={`ss-edit-panel__seg${isIcons ? ' ss-edit-panel__seg--icon' : ''}${
-              active === o.token ? ' active' : ''
-            }`}
-            aria-label={o.label}
-            aria-pressed={active === o.token}
-            title={o.label}
-            onClick={() => onApplyEnum(o.token, o.style)}
-          >
-            {isIcons ? ICONS[o.token] : o.label}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        className={`ss-edit-panel__segmented${isIcons ? ' ss-edit-panel__segmented--icons' : ''}`}
+        value={shown ?? ''}
+        size="medium"
+        options={control.options.map((option) => ({
+          value: option.token,
+          label: isIcons ? ICONS[option.token] : option.label,
+          ariaLabel: option.label,
+          title: option.label,
+        }))}
+        aria-label={control.label}
+        onValueChange={(token) => {
+          const option = control.options.find((candidate) => candidate.token === token);
+          if (option) onApplyEnum(option.token, option.style);
+        }}
+      />
     );
   }
 
@@ -206,6 +258,10 @@ export function EnumControlRow({
         definedAt={definedAt}
         active={layer.bp}
         onReset={() => onReset(enumResetSpec(control))}
+        inherited={inherited}
+        onAdopt={adopt}
+        projectPath={projectPath}
+        onOpenInCode={onOpenInCode}
       />
       {body}
     </div>

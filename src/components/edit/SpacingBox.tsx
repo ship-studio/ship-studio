@@ -8,6 +8,7 @@
  */
 
 import {
+  useId,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -37,6 +38,7 @@ const SIDE_DRAG: Record<Side, { axis: 'x' | 'y'; sign: 1 | -1 }> = {
 const DRAG_SENSITIVITY = 5;
 
 interface FieldProps {
+  id: string;
   value: SpacingValue | null;
   onSet: (v: SpacingValue) => void;
   /** CSS property the typed value is validated against (`padding` / `margin`). */
@@ -44,9 +46,8 @@ interface FieldProps {
   label: string;
   className: string;
   dir: { axis: 'x' | 'y'; sign: 1 | -1 };
-  /** True when the shown value is inherited from a smaller breakpoint (not set
-   *  at the active one) — the field is rendered muted to signal that. */
-  inherited?: boolean;
+  /** Cascade state for the value tag. */
+  state: 'default' | 'inherited' | 'modified';
 }
 
 /** The numeric magnitude a drag/scroll scrubs, plus how to rebuild a value from a
@@ -67,15 +68,55 @@ function dragBaseOf(
   };
 }
 
+function useSpacingDrag<T extends HTMLElement>(
+  value: SpacingValue | null,
+  onSet: (v: SpacingValue) => void,
+  dir: FieldProps['dir'],
+  onClick: (target: T) => void
+) {
+  const drag = useRef<{ x: number; y: number; base: ReturnType<typeof dragBaseOf> } | null>(null);
+  const dragged = useRef(false);
+
+  const onPointerDown = (e: ReactPointerEvent<T>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    drag.current = { x: e.clientX, y: e.clientY, base: dragBaseOf(value) };
+    dragged.current = false;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e: ReactPointerEvent<T>) => {
+    const d = drag.current;
+    if (!d || !d.base) return;
+    const along = dir.axis === 'x' ? e.clientX - d.x : e.clientY - d.y;
+    if (!dragged.current && Math.abs(along) < 3) return;
+    dragged.current = true;
+    const next = d.base.magnitude + dir.sign * Math.round(along / DRAG_SENSITIVITY);
+    onSet(d.base.build(next));
+  };
+
+  const onPointerUp = (e: ReactPointerEvent<T>) => {
+    const wasClick = drag.current && !dragged.current;
+    drag.current = null;
+    if (wasClick) onClick(e.currentTarget);
+  };
+
+  const onPointerCancel = () => {
+    drag.current = null;
+  };
+
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+}
+
 /**
  * One side value. Four ways to change it:
  *  - drag along the bar's own axis (pulls outward to grow) — like a design tool,
  *  - scroll to scrub,
  *  - ArrowUp/Down to step (Shift ×10, Alt fine),
- *  - click (selects all) then type a value or unit (10rem, 50%); Enter/blur applies.
+ *  - click then type a value or unit (10rem, 50%); Enter/blur applies.
  * Bad input (`40xyz`) marks the field invalid and isn't applied.
  */
-function SideField({ value, onSet, cssProp, label, className, dir, inherited }: FieldProps) {
+function SideField({ id, value, onSet, cssProp, label, className, dir, state }: FieldProps) {
   const display = spacingDisplay(value);
   const [text, setText] = useState(display);
   const [lastDisplay, setLastDisplay] = useState(display);
@@ -87,8 +128,9 @@ function SideField({ value, onSet, cssProp, label, className, dir, inherited }: 
     setText(display);
   }
 
-  const drag = useRef<{ x: number; y: number; base: ReturnType<typeof dragBaseOf> } | null>(null);
-  const dragged = useRef(false);
+  const dragHandlers = useSpacingDrag<HTMLInputElement>(value, onSet, dir, (target) =>
+    target.focus()
+  );
 
   /** Parse + apply the typed text; on bad input, mark invalid (keep the text). */
   const commit = () => {
@@ -117,35 +159,13 @@ function SideField({ value, onSet, cssProp, label, className, dir, inherited }: 
     onSet(base.build(Math.round((base.magnitude + dir * step) * 100) / 100));
   };
 
-  const onPointerDown = (e: ReactPointerEvent<HTMLInputElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    drag.current = { x: e.clientX, y: e.clientY, base: dragBaseOf(value) };
-    dragged.current = false;
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-
-  const onPointerMove = (e: ReactPointerEvent<HTMLInputElement>) => {
-    const d = drag.current;
-    if (!d || !d.base) return;
-    const along = dir.axis === 'x' ? e.clientX - d.x : e.clientY - d.y;
-    if (!dragged.current && Math.abs(along) < 3) return;
-    dragged.current = true;
-    const next = d.base.magnitude + dir.sign * Math.round(along / DRAG_SENSITIVITY);
-    onSet(d.base.build(next));
-  };
-
-  const onPointerUp = (e: ReactPointerEvent<HTMLInputElement>) => {
-    const wasClick = drag.current && !dragged.current;
-    drag.current = null;
-    if (wasClick) e.currentTarget.focus();
-  };
-
   return (
     <input
-      className={`ss-box__field ${className}${inherited ? ' ss-box__field--inherited' : ''}${
+      id={id}
+      className={`ss-box__field ${className} ss-box__field--${state}${
         invalid ? ' ss-box__field--invalid' : ''
       }`}
+      size={Math.max(text.length, 1)}
       aria-label={label}
       aria-invalid={invalid}
       title={
@@ -163,7 +183,6 @@ function SideField({ value, onSet, cssProp, label, className, dir, inherited }: 
         setText(e.target.value);
         if (invalid) setInvalid(false);
       }}
-      onFocus={(e) => e.target.select()}
       onKeyDown={(e) => {
         if (e.key === 'Enter') commit();
         else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') onArrowStep(e);
@@ -175,9 +194,33 @@ function SideField({ value, onSet, cssProp, label, className, dir, inherited }: 
           setInvalid(false);
         }
       }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      {...dragHandlers}
+    />
+  );
+}
+
+interface BandProps {
+  id: string;
+  type: BoxType;
+  side: Side;
+  value: SpacingValue | null;
+  onSet: (v: SpacingValue) => void;
+}
+
+function PanelBand({ id, type, side, value, onSet }: BandProps) {
+  const dragHandlers = useSpacingDrag<HTMLLabelElement>(value, onSet, SIDE_DRAG[side], () =>
+    document.getElementById(id)?.focus()
+  );
+
+  return (
+    <label
+      className={`ss-box__band ss-box__band--${side}`}
+      htmlFor={id}
+      aria-hidden="true"
+      data-box-type={type}
+      data-box-side={side}
+      onClick={() => document.getElementById(id)?.focus()}
+      {...dragHandlers}
     />
   );
 }
@@ -190,17 +233,38 @@ interface Props {
 }
 
 export function SpacingBox({ currentClass, layer, onSetSide }: Props) {
+  const idPrefix = useId();
+  const fieldId = (type: BoxType, side: Side) => `${idPrefix}-${type}-${side}`;
+  const sideData = (type: BoxType, side: Side) =>
+    readLayer(currentClass, layer, (s) => boxSide(s, type, side));
+
   const field = (type: BoxType, side: Side, edge: string) => {
-    const { value, definedAt } = readLayer(currentClass, layer, (s) => boxSide(s, type, side));
+    const { value, definedAt } = sideData(type, side);
+    const state =
+      definedAt === null ? 'default' : definedAt.name === layer.bp.name ? 'modified' : 'inherited';
     return (
       <SideField
+        id={fieldId(type, side)}
         value={value}
         onSet={(v) => onSetSide(type, side, v)}
         cssProp={type}
         label={`${type === 'padding' ? 'Padding' : 'Margin'} ${side}`}
         className={`ss-box__edge--${edge}`}
         dir={SIDE_DRAG[side]}
-        inherited={definedAt !== null && definedAt.name !== layer.bp.name}
+        state={state}
+      />
+    );
+  };
+
+  const band = (type: BoxType, side: Side) => {
+    const { value } = sideData(type, side);
+    return (
+      <PanelBand
+        id={fieldId(type, side)}
+        type={type}
+        side={side}
+        value={value}
+        onSet={(next) => onSetSide(type, side, next)}
       />
     );
   };
@@ -208,6 +272,12 @@ export function SpacingBox({ currentClass, layer, onSetSide }: Props) {
   return (
     <div className="ss-box" data-testid="spacing-box">
       <span className="ss-box__tag">MARGIN</span>
+      <div className="ss-box__margin" aria-hidden="true">
+        {band('margin', 'top')}
+        {band('margin', 'right')}
+        {band('margin', 'bottom')}
+        {band('margin', 'left')}
+      </div>
       {field('margin', 'top', 't')}
       {field('margin', 'bottom', 'b')}
       {field('margin', 'left', 'l')}
@@ -215,6 +285,12 @@ export function SpacingBox({ currentClass, layer, onSetSide }: Props) {
 
       <div className="ss-box__inner">
         <span className="ss-box__tag">PADDING</span>
+        <div className="ss-box__padding" aria-hidden="true">
+          {band('padding', 'top')}
+          {band('padding', 'right')}
+          {band('padding', 'bottom')}
+          {band('padding', 'left')}
+        </div>
         {field('padding', 'top', 't')}
         {field('padding', 'bottom', 'b')}
         {field('padding', 'left', 'l')}

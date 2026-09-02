@@ -160,7 +160,7 @@ See [src-tauri/src/errors.rs](src-tauri/src/errors.rs) for the enum and
 
 ### CSS
 
-- Use CSS variables defined in `src/styles/global/base.css`
+- Use CSS variables from the ordered token files in `src/styles/global/token-manifest.json`
 - Follow BEM-like naming: `.component-name`, `.component-name-element`
 - Keep styles scoped to components
 

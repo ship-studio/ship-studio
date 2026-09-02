@@ -1,13 +1,11 @@
 /* Agents panel — dashboard surface for managing coding agents */
 
 .agents-panel {
-  /* First card after the project grid — double the default gap so the
-     stack reads as a separate section rather than crowding the projects. */
-  margin: var(--spacing-2xl) 0 var(--spacing-lg);
+  margin: 0 0 var(--dashboard-section-gap);
   padding: var(--spacing-lg);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
 }
 
 .agents-panel-header {
@@ -15,39 +13,29 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-md);
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
 }
 
 .agents-panel-title {
-  font-size: var(--font-size-md);
-  font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 
 .agents-panel-subtitle {
-  font-size: var(--font-size-base);
   color: var(--text-secondary);
-  margin: 2px 0 0 0;
+  margin: var(--spacing-xs) 0 0;
 }
 
 .agents-panel-spinner {
   color: var(--text-muted);
 }
 
-/* Workspace badge in the header — names the workspace these logins belong to,
-   the single clearest "which account am I looking at?" cue. A compact tag, not
-   a stretched pill. */
-.agents-panel-badge {
+/* Inline workspace name in the subtitle — no bordered chip treatment. */
+.agents-panel-workspace-name {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: 1px var(--spacing-sm);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-weight: 500;
+  color: inherit;
   vertical-align: baseline;
 }
 
@@ -60,10 +48,7 @@
 
 /* Subheader splitting the card into "Coding agents" and "Services" tiers. */
 .agents-section-title {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--text-muted);
   margin: var(--spacing-md) 0 var(--spacing-sm);
 }
@@ -84,15 +69,12 @@
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-md) var(--spacing-md) var(--spacing-md) var(--spacing-lg);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* Figma-specific one-off: account rows use a 62px minimum rhythm. */
+  min-height: 62px;
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
   transition: border-color var(--transition);
-}
-
-.agents-panel-row.is-default {
-  border-color: var(--action);
-  box-shadow: inset 0 0 0 1px var(--action);
 }
 
 .agents-panel-row-icon {
@@ -102,8 +84,8 @@
   width: 32px;
   height: 32px;
   flex-shrink: 0;
-  border-radius: var(--radius);
-  background: var(--bg-tertiary);
+  border-radius: var(--radius-control);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 
@@ -116,8 +98,6 @@
 }
 
 .agents-panel-row-name {
-  font-size: var(--font-size-md);
-  font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -125,7 +105,6 @@
 }
 
 .agents-panel-row-status {
-  font-size: var(--font-size-base);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -135,75 +114,8 @@
 .agents-panel-row-actions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  flex-shrink: 0;
-}
-
-/* Default pill — radio-style indicator. Matches .button--sm geometry so it
-   visually balances with the Install / Sign in buttons next to it. */
-.agents-default-pill {
-  display: inline-flex;
-  align-items: center;
   gap: var(--spacing-xs);
-  padding: var(--spacing-xs) var(--spacing-md);
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  line-height: 1.4;
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.agents-default-pill:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
-}
-
-.agents-default-pill:disabled {
-  cursor: default;
-}
-
-.agents-default-pill.on {
-  background: var(--action);
-  color: var(--action-text);
-  border-color: var(--action);
-}
-
-.agents-default-pill.switching {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
-  cursor: wait;
-}
-
-.agents-default-pill.switching .ss-spinner {
-  width: 10px;
-  height: 10px;
-  border-width: 1.5px;
-}
-
-.agents-default-pill-radio {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid currentColor;
-  border-radius: var(--radius-full);
-  color: inherit;
   flex-shrink: 0;
-}
-
-.agents-default-pill.on .agents-default-pill-radio {
-  background: var(--action-text);
-  color: var(--action);
-  border-color: var(--action-text);
 }
 
 /* Kebab menu */
@@ -212,67 +124,12 @@
 }
 
 .agents-panel-kebab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    border-color var(--transition),
-    color var(--transition);
-}
-
-.agents-panel-kebab:hover:not(:disabled) {
-  background: var(--border);
-  border-color: var(--text-muted);
-  color: var(--text-primary);
-}
-
-.agents-panel-kebab:disabled {
-  opacity: 0.5;
-  cursor: default;
+  flex-shrink: 0;
 }
 
 .agents-panel-menu {
-  position: absolute;
-  top: calc(100% + 4px);
+  left: auto;
   right: 0;
-  min-width: 140px;
-  padding: var(--spacing-xs);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  z-index: var(--z-dropdown);
-  display: flex;
-  flex-direction: column;
-}
-
-.agents-panel-menu button {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: transparent;
-  border: none;
-  color: var(--text-primary);
-  font-size: var(--font-size-base);
-  text-align: left;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: background var(--transition);
-}
-
-.agents-panel-menu button:hover {
-  background: var(--bg-secondary);
-}
-
-.agents-panel-menu .agents-panel-menu-danger {
-  color: var(--error);
 }
 
 /* Terminal modal embedded in panel */
@@ -286,8 +143,8 @@
 .agents-panel-terminal-body {
   flex: 1;
   min-height: 0;
-  background: #1e1e1e; /* css-ok: must match xterm theme bg */
-  border-radius: var(--radius);
+  background: var(--surface-app);
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 
@@ -298,7 +155,7 @@
 
 .agents-panel-confirm-body {
   padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -306,7 +163,7 @@
 .agents-panel-confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   margin-top: var(--spacing-lg);
 }
 
@@ -317,11 +174,11 @@
    ============================================================ */
 
 .dashboard-card {
-  margin: 0 0 var(--spacing-lg);
+  margin: 0 0 var(--dashboard-section-gap);
   padding: var(--spacing-lg);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
 }
 
 .dashboard-card-header {
@@ -329,20 +186,17 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-md);
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
 }
 
 .dashboard-card-title {
-  font-size: var(--font-size-md);
-  font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }
 
 .dashboard-card-subtitle {
-  font-size: var(--font-size-base);
   color: var(--text-secondary);
-  margin: 2px 0 0 0;
+  margin: var(--spacing-xs) 0 0;
 }
 
 .dashboard-card-rows {
@@ -358,9 +212,11 @@
   gap: var(--spacing-md);
   width: 100%;
   padding: var(--spacing-md) var(--spacing-md) var(--spacing-md) var(--spacing-lg);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* Figma-specific one-off: preference/tool rows share the 62px account rhythm. */
+  min-height: 62px;
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
   color: inherit;
   text-align: left;
   font: inherit;
@@ -370,14 +226,27 @@
     border-color var(--transition);
 }
 
+/* Button variants intentionally style their own surface. Re-assert the
+   dashboard row surface after the primitive so interactive Preferences rows
+   match the non-button agent/service rows exactly. */
+.button.dashboard-card-row {
+  height: auto;
+  min-height: 62px;
+  justify-content: flex-start;
+  background: var(--surface-control);
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+
 button.dashboard-card-row {
   /* Reset default button styling when used as an interactive row */
   appearance: none;
 }
 
-.dashboard-card-row:hover {
+.dashboard-card-row:hover,
+.button.dashboard-card-row:hover:not(:disabled) {
   border-color: var(--text-muted);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 /* Static (non-interactive) rows — e.g. status lines in Integrations */
@@ -386,8 +255,8 @@ button.dashboard-card-row {
 }
 
 .dashboard-card-row.is-static:hover {
-  border-color: var(--border);
-  background: var(--bg-primary);
+  border-color: var(--border-subtle);
+  background: var(--surface-control);
 }
 
 .dashboard-card-row-icon {
@@ -397,13 +266,13 @@ button.dashboard-card-row {
   width: 32px;
   height: 32px;
   flex-shrink: 0;
-  border-radius: var(--radius);
-  background: var(--bg-tertiary);
+  border-radius: var(--radius-control);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 
 .dashboard-card-row-icon.success {
-  color: var(--success);
+  color: var(--accent-success);
 }
 
 .dashboard-card-row-main {
@@ -415,8 +284,6 @@ button.dashboard-card-row {
 }
 
 .dashboard-card-row-name {
-  font-size: var(--font-size-md);
-  font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -424,7 +291,6 @@ button.dashboard-card-row {
 }
 
 .dashboard-card-row-status {
-  font-size: var(--font-size-base);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -432,7 +298,7 @@ button.dashboard-card-row {
 }
 
 .dashboard-card-row-status.success {
-  color: var(--success);
+  color: var(--accent-success);
 }
 
 .dashboard-card-row-chevron {
@@ -440,29 +306,39 @@ button.dashboard-card-row {
   flex-shrink: 0;
 }
 
-/* ── Auth connection-state strokes ─────────────────────────────────────────
-   Green = connected & valid, red = needs attention (expired/needs reconnect).
-   A never-connected card keeps the plain neutral border (no class). These come
-   after .is-default so connection state wins the border color when both apply;
-   red (needs-reconnect) always trumps green. */
-.agents-panel-row.is-connected {
-  border-color: var(--success);
+.dashboard-card-row-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
 }
 
+/* A reconnect is the only account state that changes the row itself. Valid
+   connections use the same neutral surface as Figma, with an outlined label. */
 .agents-panel-row.needs-reconnect {
-  border-color: var(--danger);
-  box-shadow: inset 0 0 0 1px var(--danger);
+  border-color: var(--accent-error);
+  box-shadow: inset 0 0 0 1px var(--accent-error);
+}
+
+/* Figma's status control is the standard 30px secondary button with the card
+   border token, secondary text, and the shared button shadow. */
+.agents-panel-status-button.button:disabled {
+  opacity: 1;
+  cursor: default;
+  border-color: var(--border-subtle);
+  box-shadow: 0 calc(var(--stroke-1) / 2) var(--stroke-1) var(--color-black-o75);
 }
 
 /* Inline Reconnect button — red-tinted to read as "needs attention" without the
    full weight of a destructive (delete) action. */
 .agents-reconnect-btn {
-  color: var(--danger);
-  border-color: var(--danger);
+  color: var(--accent-error);
+  border-color: var(--accent-error);
 }
 
 .agents-reconnect-btn:hover:not(:disabled) {
-  background: var(--error-light);
+  background: var(--accent-error-light);
 }
 
 /* ── Connect modals (shared: Claude token, GitHub/Codex/Opencode PTY, Vercel
@@ -477,7 +353,7 @@ button.dashboard-card-row {
 .connect-modal-body p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   line-height: 1.5;
 }
 
@@ -489,22 +365,22 @@ button.dashboard-card-row {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-primary);
 }
 
 .connect-modal-field input {
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 .connect-modal-field input:focus {
   outline: none;
-  border-color: var(--action);
+  border-color: var(--accent-active);
 }
 
 .connect-modal-muted {
@@ -516,7 +392,7 @@ button.dashboard-card-row {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
 }
 
 /* Terminal phase — fills the (terminal-sized) modal: instructions on top, the
@@ -533,7 +409,7 @@ button.dashboard-card-row {
 .connect-modal-instructions {
   margin: 0;
   color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   line-height: 1.5;
 }
 

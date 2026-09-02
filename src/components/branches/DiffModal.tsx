@@ -12,7 +12,7 @@
 import { useEffect, useCallback } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getFileDiff, FileDiff, ChangeStatus } from '../../lib/git';
-import { FileIcon } from '../icons';
+import { FileIcon } from '@/components/icons';
 import { trackError } from '../../lib/analytics';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
@@ -190,7 +190,7 @@ export function DiffModal({ projectPath, filePath, fileStatus, onClose }: DiffMo
           {error && (
             <div className="diff-error">
               <p>{error}</p>
-              <Button variant="secondary" size="sm" onClick={() => void loadDiff()}>
+              <Button variant="secondary" onClick={() => void loadDiff()}>
                 Retry
               </Button>
             </div>

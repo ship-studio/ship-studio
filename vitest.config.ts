@@ -1,9 +1,35 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import svgr from "vite-plugin-svgr";
 import path from "path";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    svgr({
+      include: "**/*.svg?react",
+      esbuildOptions: {
+        jsx: "automatic",
+      },
+      svgrOptions: {
+        plugins: ["@svgr/plugin-svgo", "@svgr/plugin-jsx"],
+        jsxRuntime: "automatic",
+        dimensions: false,
+        expandProps: "end",
+        ref: true,
+        titleProp: true,
+        replaceAttrValues: {
+          "#979797": "currentColor",
+        },
+        svgProps: {
+          focusable: "false",
+        },
+        svgoConfig: {
+          plugins: ["prefixIds"],
+        },
+      },
+    }),
+    react(),
+  ],
   test: {
     environment: "jsdom",
     globals: true,

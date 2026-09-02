@@ -1059,6 +1059,56 @@ export function useProjectLifecycle({
     await restartDevServer(currentProject.path);
   };
 
+  // Re-entry guard: rapid double-activation (double click on the Preview tab)
+  // must not spawn two servers for the same project.
+  const startingDevServerRef = useRef(false);
+
+  /** Start the dev server on demand — used when the user selects the Preview
+   *  tab while nothing is running (e.g. after a manual stop or a crash).
+   *  Mirrors handleSelectProject's port steps but skips all navigation and
+   *  cleanup work that only applies to switching projects. No-op when a
+   *  server for this project is already tracked. */
+  const handleStartDevServer = async () => {
+    if (!currentProject || startingDevServerRef.current) return;
+    const path = currentProject.path;
+    if (isServerRunning(path)) return;
+    startingDevServerRef.current = true;
+    try {
+      let preferredPort = preferredPortForProject(path);
+      try {
+        const savedPort = await invoke<number | null>('get_dev_server_port', { projectPath: path });
+        if (savedPort && savedPort >= 1 && savedPort <= 65535) {
+          preferredPort = savedPort;
+        }
+      } catch {
+        // Fall back to derived default — metadata might not exist yet
+      }
+      let port = preferredPort;
+      try {
+        port = await findAndReservePort(path, preferredPort);
+      } catch (error) {
+        logger.error('[StartDevServer] Failed to reserve port, using default', { error });
+      }
+      // Kill any orphaned process on the reserved port so the fresh spawn
+      // can actually bind it.
+      try {
+        await Promise.race([
+          invoke('kill_port', { port }),
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      } catch {
+        // Ignore - port may already be free
+      }
+      setDevServerPort(port, path);
+      logger.info(`[StartDevServer] Starting dev server on port ${port} for ${path}`);
+      await startServerForProject(path, currentProject.name, port, getWindowLabel());
+    } catch (error) {
+      logger.error('[StartDevServer] Failed to start dev server', { error });
+    } finally {
+      startingDevServerRef.current = false;
+    }
+  };
+
   const handleGitHubStatusChange = () => {
     // Refresh project GitHub status after push/publish
     if (currentProject) {
@@ -1101,6 +1151,7 @@ export function useProjectLifecycle({
     handleImportLocalFolder,
     handleCreateProject,
     handleRestartDevServer,
+    handleStartDevServer,
     handleGitHubStatusChange,
     handlePreviewReady,
     sendToClaude,

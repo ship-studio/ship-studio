@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { educationContent } from '../lib/educationContent';
-import { GraduationCapIcon } from './icons';
+import { GraduationCapIcon } from '@/components/icons';
 import { COMPACT_BREAKPOINT } from '../hooks/useIsCompact';
 
 interface EducationOverlayProps {

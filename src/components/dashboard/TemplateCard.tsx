@@ -11,6 +11,7 @@
  */
 
 import { Button } from '../primitives/Button';
+import { CheckIcon } from '@/components/icons';
 
 interface TemplateCardProps {
   name: string;
@@ -32,16 +33,7 @@ export function TemplateCard({ name, description, selected, onSelect }: Template
       <span className="stack-card-desc">{description}</span>
       {selected && (
         <div className="stack-card-check">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <CheckIcon size={14} />
         </div>
       )}
     </Button>

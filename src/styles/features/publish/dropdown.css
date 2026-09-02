@@ -3,77 +3,139 @@
   position: relative;
 }
 
-.publish-button {
+.publish-dropdown--grouped {
   display: flex;
+  align-self: stretch;
+  position: relative;
+  z-index: var(--z-modal-overlay);
+  margin-left: calc(-1 * var(--space-08));
+}
+
+.publish-dropdown--grouped .source-control-push-button.button {
+  height: 100%;
+  min-height: 0;
+  border-radius: var(--button-radius);
+}
+
+.source-control-push-content {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  height: 28px;
-  background: var(--action);
-  border: 1px solid var(--action-hover);
-  border-radius: var(--radius);
-  color: var(--action-text);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+  gap: var(--space-04);
 }
 
-.publish-button:hover {
-  background: var(--action-hover);
+.publish-dropdown .source-control-push-button.button--primary {
+  border-color: var(--accent-active);
 }
 
-.publish-button.no-changes {
-  background: var(--bg-tertiary);
-  border-color: var(--border);
-  color: var(--text-secondary);
-}
-
-.publish-button.no-changes:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.publish-button.publishing {
+.publish-dropdown .button.publishing {
   cursor: wait;
   opacity: 0.7;
-}
-
-.publish-button.publish-disabled {
-  background: var(--bg-tertiary);
-  border-color: var(--border);
-  color: var(--text-muted);
-  cursor: not-allowed;
-}
-
-.publish-button.publish-checking {
-  background: var(--bg-tertiary);
-  border-color: var(--border);
-  color: var(--text-muted);
-  cursor: not-allowed;
-}
-
-.publish-button.synced {
-  background: var(--bg-tertiary);
-  border-color: var(--border);
-  color: var(--text-muted);
-  cursor: pointer;
 }
 
 .publish-dropdown-menu {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 320px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  width: var(--popover-source-control-width);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   box-shadow: var(--shadow-md);
   z-index: var(--z-modal-overlay);
-  overflow: hidden;
+}
+
+.publish-changes-actions {
+  justify-content: space-between;
+}
+
+.publish-hosting-section {
+  padding: var(--spacing-md);
+  border-top: var(--stroke-1) solid var(--border-default);
+}
+
+.publish-hosting-heading {
+  margin-bottom: var(--spacing-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-code);
+  text-transform: uppercase;
+}
+
+.publish-hosting-plugins,
+.publish-hosting-plugins .cf-dropdown-wrapper,
+.publish-hosting-plugins .vercel-button-container {
+  width: 100%;
+}
+
+.publish-hosting-plugins .cf-dropdown-wrapper,
+.publish-hosting-plugins .cf-dropdown,
+.publish-hosting-plugins .vercel-button-container,
+.publish-hosting-plugins .vercel-site-dropdown {
+  position: static;
+}
+
+.publish-hosting-plugins .cf-dropdown-wrapper > .toolbar-icon-btn,
+.publish-hosting-plugins .vercel-button-container > .toolbar-icon-btn {
+  display: none;
+}
+
+.publish-hosting-plugins .toolbar-icon-btn {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.publish-hosting-plugins .cf-dropdown,
+.publish-hosting-plugins .vercel-site-dropdown {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  max-height: none;
+  height: auto;
+  overflow: visible;
+  background: var(--surface-panel);
+  box-shadow: none;
+}
+
+.publish-hosting-plugins .cf-dropdown-inner,
+.publish-hosting-plugins .vercel-site-dropdown-inner {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  max-height: none;
+  height: auto;
+  overflow: visible;
+  box-shadow: none;
+}
+
+.publish-hosting-plugins .cf-dropdown-action,
+.publish-hosting-plugins .cf-dropdown-divider,
+.publish-hosting-plugins .vercel-dropdown-action,
+.publish-hosting-plugins .vercel-dropdown-separator:has(+ .vercel-dropdown-action) {
+  display: none;
+}
+
+/* Expand the plugin's secondary action only while its visible card is
+   hovered/focused. The hosting section also contains the heading and inset
+   spacing, which should not activate the card's expanded state. */
+.publish-hosting-plugins .cf-dropdown-inner:hover .cf-dropdown-action,
+.publish-hosting-plugins .cf-dropdown-inner:focus-within .cf-dropdown-action,
+.publish-hosting-plugins .vercel-site-dropdown-inner:hover .vercel-dropdown-action,
+.publish-hosting-plugins .vercel-site-dropdown-inner:focus-within .vercel-dropdown-action {
+  display: flex;
+}
+
+.publish-hosting-plugins .cf-dropdown-inner:hover .cf-dropdown-divider,
+.publish-hosting-plugins .cf-dropdown-inner:focus-within .cf-dropdown-divider,
+.publish-hosting-plugins
+  .vercel-site-dropdown-inner:hover
+  .vercel-dropdown-separator:has(+ .vercel-dropdown-action),
+.publish-hosting-plugins
+  .vercel-site-dropdown-inner:focus-within
+  .vercel-dropdown-separator:has(+ .vercel-dropdown-action) {
+  display: block;
 }
 
 .publish-loading {
@@ -83,5 +145,5 @@
   gap: 10px;
   padding: 32px 16px;
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }

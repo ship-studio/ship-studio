@@ -18,7 +18,7 @@ testing, and known gotchas. This file is just the contract in brief.
    `useModal('id')`. Hand-rolled equivalents are rejected by
    `pnpm check:patterns` and reviewers. See
    [docs/CONTRIBUTING_PATTERNS.md](docs/CONTRIBUTING_PATTERNS.md).
-3. **CSS uses design tokens only** (top of `src/styles/global/base.css`) —
+3. **CSS uses design tokens only** (ordered by `src/styles/global/token-manifest.json`) —
    no raw hex colors, px spacing, z-index numbers, or durations. Need a new
    value? Add the token first.
 4. **New Rust commands**: return `Result<T, CommandError>`, validate paths

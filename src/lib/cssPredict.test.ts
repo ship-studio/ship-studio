@@ -115,8 +115,10 @@ describe('predictNextDeclaration', () => {
     ).toMatchObject({ prop: 'gap', value: 'var(--gap)' });
     // border-radius → a radius token
     expect(
-      predictNextDeclaration([d('overflow', 'hidden')], new Set(), { variables: ['--radius'] })
-    ).toMatchObject({ prop: 'border-radius', value: 'var(--radius)' });
+      predictNextDeclaration([d('overflow', 'hidden')], new Set(), {
+        variables: ['--radius-control'],
+      })
+    ).toMatchObject({ prop: 'border-radius', value: 'var(--radius-control)' });
     // No matching token → keep the literal.
     expect(
       predictNextDeclaration(

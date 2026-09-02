@@ -5,13 +5,20 @@
  *
  * Editing a `:root` token is **live + auto-saved**: the change previews instantly in the
  * iframe (`ss:setVar`, which sets the property on the live `:root` rule) and is written
- * to source via `set_css_declaration` (debounced, surgical). Tokens scoped to other
+ * to source via `set_css_variable` (debounced, surgical). Tokens scoped to other
  * selectors are surfaced read-only (we don't guess which scope you meant to edit).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCssVariables, type CssVariableDef } from '../lib/cssCascade';
-import { setCssDeclaration, createCssClass, listStylesheets } from '../lib/edit-css';
+import {
+  addCssVariable,
+  analyzeCssVariableDeletion,
+  deleteCssVariable,
+  setCssVariable,
+  listStylesheets,
+  type CssVariableDeleteImpact,
+} from '../lib/edit-css';
 import { logger } from '../lib/logger';
 import { trackEvent } from '../lib/analytics';
 import { asCommandError, formatCommandError } from '../lib/errors';
@@ -21,6 +28,10 @@ function toastText(err: unknown): string {
 }
 
 const SAVE_DEBOUNCE_MS = 500;
+
+function saveKey(variable: Pick<VariableRow, 'file' | 'line' | 'name'>): string {
+  return `${variable.file}\0${variable.line}\0${variable.name}`;
+}
 
 export interface VariableRow extends CssVariableDef {
   /** Editable when defined on `:root` (the common, unambiguous case). */
@@ -32,9 +43,17 @@ interface Params {
   projectPath: string;
   enabled: boolean;
   onToast: (message: string, type?: 'success' | 'error') => void;
+  /** Keep the Visual Editor's unsaved/live class state in sync with source rewrites. */
+  onVariableDeleted?: (name: string, value: string) => void;
 }
 
-export function useCssVariables({ iframeRef, projectPath, enabled, onToast }: Params) {
+export function useCssVariables({
+  iframeRef,
+  projectPath,
+  enabled,
+  onToast,
+  onVariableDeleted,
+}: Params) {
   const [variables, setVariables] = useState<VariableRow[]>([]);
   const [loading, setLoading] = useState(false);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -71,17 +90,25 @@ export function useCssVariables({ iframeRef, projectPath, enabled, onToast }: Pa
 
   /** Edit a `:root` token's value: optimistic state + instant preview + debounced save. */
   const setValue = useCallback(
-    (name: string, file: string, value: string) => {
+    (variable: VariableRow, value: string) => {
       setVariables((prev) =>
-        prev.map((v) => (v.name === name && v.selector === ':root' ? { ...v, value } : v))
+        prev.map((v) => (saveKey(v) === saveKey(variable) ? { ...v, value } : v))
       );
-      post({ type: 'ss:setVar', name, value });
-      clearTimeout(saveTimers.current[name]);
-      saveTimers.current[name] = setTimeout(async () => {
+      post({ type: 'ss:setVar', name: variable.name, value });
+      const key = saveKey(variable);
+      clearTimeout(saveTimers.current[key]);
+      saveTimers.current[key] = setTimeout(async () => {
         try {
-          await setCssDeclaration(projectPath, file, ':root', name, value);
+          await setCssVariable(
+            projectPath,
+            variable.file,
+            variable.selector,
+            variable.line,
+            variable.name,
+            value
+          );
           // Drop any inline fallback so the source value takes over once HMR injects it.
-          post({ type: 'ss:clearVar', name });
+          post({ type: 'ss:clearVar', name: variable.name });
           void trackEvent('visual_style_saved', { mode: 'css-code', variable: true });
         } catch (err) {
           logger.error('[CssVariables] save failed', {
@@ -112,14 +139,7 @@ export function useCssVariables({ iframeRef, projectPath, enabled, onToast }: Pa
         return;
       }
       try {
-        try {
-          await setCssDeclaration(projectPath, file, ':root', name, value);
-        } catch {
-          // No `:root` rule yet — create one carrying the token.
-          await createCssClass(projectPath, file, ':root', [
-            { property: name, value, important: false },
-          ]);
-        }
+        await addCssVariable(projectPath, file, name, value);
         post({ type: 'ss:setVar', name, value });
         void trackEvent('visual_style_saved', { mode: 'css-code', variable_added: true });
         await reload();
@@ -133,5 +153,61 @@ export function useCssVariables({ iframeRef, projectPath, enabled, onToast }: Pa
     [projectPath, variables, onToast, post, reload]
   );
 
-  return { variables, loading, setValue, addVariable, reload };
+  const analyzeDeletion = useCallback(
+    async (name: string, value: string) => {
+      try {
+        return await analyzeCssVariableDeletion(projectPath, name, value);
+      } catch (err) {
+        logger.error('[CssVariables] delete analysis failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
+        onToast(toastText(err), 'error');
+        throw err;
+      }
+    },
+    [projectPath, onToast]
+  );
+
+  const deleteVariable = useCallback(
+    async (name: string, value: string, impact: CssVariableDeleteImpact) => {
+      for (const key of Object.keys(saveTimers.current)) {
+        if (!key.endsWith(`\0${name}`)) continue;
+        clearTimeout(saveTimers.current[key]);
+        delete saveTimers.current[key];
+      }
+      try {
+        const result = await deleteCssVariable(projectPath, name, value, impact);
+        onVariableDeleted?.(name, value);
+        post({ type: 'ss:clearVar', name });
+        void trackEvent('visual_style_saved', {
+          mode: 'css-code',
+          variable_deleted: true,
+          replacements: result.usageCount,
+        });
+        await reload();
+        onToast(
+          `Deleted ${name} and updated ${result.usageCount} ${result.usageCount === 1 ? 'usage' : 'usages'}.`,
+          'success'
+        );
+        return result;
+      } catch (err) {
+        logger.error('[CssVariables] delete failed', {
+          error: formatCommandError(asCommandError(err)),
+        });
+        onToast(toastText(err), 'error');
+        throw err;
+      }
+    },
+    [projectPath, onToast, onVariableDeleted, post, reload]
+  );
+
+  return {
+    variables,
+    loading,
+    setValue,
+    addVariable,
+    analyzeDeletion,
+    deleteVariable,
+    reload,
+  };
 }

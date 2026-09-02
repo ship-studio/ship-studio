@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PlusIcon, CopyIcon, TrashIcon } from '../icons';
+import { DuplicateIcon, PlusIcon, TrashIcon } from '@/components/icons';
 
 interface Props {
   /** Cursor position (viewport coords); null = closed. */
@@ -67,7 +67,7 @@ export function ElementTreeContextMenu({ pos, onInsert, onDuplicate, onDelete, o
       style={{ position: 'fixed', left, top, width: MENU_W }}
     >
       {item('Insert element…', <PlusIcon size={12} />, onInsert)}
-      {item('Duplicate', <CopyIcon size={12} />, onDuplicate)}
+      {item('Duplicate', <DuplicateIcon size={12} />, onDuplicate)}
       {item('Delete', <TrashIcon size={12} />, onDelete, true)}
     </div>,
     document.body

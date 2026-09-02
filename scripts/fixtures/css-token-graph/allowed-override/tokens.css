@@ -1,0 +1,5 @@
+:root {
+  --override-token: 1px;
+  /* css-token-override: theme */
+  --override-token: 2px;
+}

@@ -24,11 +24,35 @@ export interface UpdateInfo {
   date: string | undefined;
 }
 
+interface MockUpdateHandle {
+  kind: 'mock-update';
+}
+
+export type UpdateHandle = Update | MockUpdateHandle;
+
+const MOCK_UPDATE: MockUpdateHandle = { kind: 'mock-update' };
+const MOCK_UPDATE_VERSION = '99.0.0-dev';
+const MOCK_UPDATE_PROGRESS = [8, 19, 37, 58, 76, 91, 100];
+const MOCK_UPDATE_STEP_MS = 600;
+
+/** True only in a Vite development build explicitly started with the mock flag. */
+export function isMockUpdateSimulationEnabled(): boolean {
+  return import.meta.env.DEV && import.meta.env.VITE_MOCK_UPDATE === '1';
+}
+
+function isMockUpdate(update: UpdateHandle): update is MockUpdateHandle {
+  return 'kind' in update && update.kind === 'mock-update';
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Current update state */
 export type UpdateState =
   | { status: 'idle' }
   | { status: 'checking' }
-  | { status: 'available'; update: Update; info: UpdateInfo }
+  | { status: 'available'; update: UpdateHandle; info: UpdateInfo }
   | { status: 'downloading'; progress: number }
   | { status: 'ready' }
   | { status: 'error'; message: string };
@@ -49,7 +73,22 @@ export function isPlatformMissingFromManifest(message: string): boolean {
  * Check if an update is available.
  * @returns Update object if available, null otherwise
  */
-export async function checkForUpdate(): Promise<{ update: Update; info: UpdateInfo } | null> {
+export async function checkForUpdate(): Promise<{ update: UpdateHandle; info: UpdateInfo } | null> {
+  if (isMockUpdateSimulationEnabled()) {
+    return {
+      update: MOCK_UPDATE,
+      info: {
+        version: MOCK_UPDATE_VERSION,
+        date: undefined,
+        body: `## What's New in v${MOCK_UPDATE_VERSION}
+
+- **Safer update previews** - Exercise every updater state without downloading or replacing the development app.
+- **Visible progress** - Watch the sidebar banner fill from left to right as the simulated download advances.
+- **Repeatable restart** - The restart action resets this mock flow so it can be tested again immediately.`,
+      },
+    };
+  }
+
   try {
     const update = await check();
     if (update) {
@@ -95,9 +134,23 @@ export async function checkForUpdate(): Promise<{ update: Update; info: UpdateIn
  * @param onProgress - Optional callback for download progress (0-100)
  */
 export async function downloadAndInstall(
-  update: Update,
+  update: UpdateHandle,
   onProgress?: (progress: number) => void
 ): Promise<void> {
+  if (isMockUpdateSimulationEnabled() && isMockUpdate(update)) {
+    logger.info('[Updater] Starting simulated development update');
+    for (const progress of MOCK_UPDATE_PROGRESS) {
+      await wait(MOCK_UPDATE_STEP_MS);
+      onProgress?.(progress);
+    }
+    logger.info('[Updater] Simulated development update finished');
+    return;
+  }
+
+  if (isMockUpdate(update)) {
+    throw new Error('Mock update handles cannot be installed outside development simulation');
+  }
+
   let downloaded = 0;
   let contentLength = 0;
 
@@ -133,6 +186,10 @@ export async function installVersion(version: string): Promise<void> {
 /**
  * Restart the application to apply the update.
  */
-export async function restartApp(): Promise<void> {
+export async function restartApp(): Promise<'simulated' | void> {
+  if (isMockUpdateSimulationEnabled()) {
+    logger.info('[Updater] Simulated restart complete');
+    return 'simulated';
+  }
   await relaunch();
 }

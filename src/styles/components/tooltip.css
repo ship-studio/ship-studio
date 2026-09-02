@@ -1,0 +1,43 @@
+/* Shared tooltip surface for native title affordances and explicit Tooltip triggers. */
+.ss-tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  max-width: var(--size-source-control-popover);
+  padding: var(--spacing-sm) var(--spacing-sm);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-app);
+  box-shadow: var(--shadow);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-default);
+  text-align: left;
+  white-space: pre-wrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(var(--tooltip-enter-offset, calc(var(--spacing-xs) * -1)));
+  transition:
+    opacity var(--duration-standard) var(--ease-standard),
+    transform var(--duration-standard) var(--ease-standard);
+}
+
+/* Hidden state starts offset toward the anchor; it slides away from the anchor
+   as it fades in, and back toward it as it fades out. */
+.ss-tooltip[data-placement='below'] {
+  --tooltip-enter-offset: calc(var(--spacing-xs) * -1);
+}
+
+.ss-tooltip[data-placement='above'] {
+  --tooltip-enter-offset: var(--spacing-xs);
+}
+
+.ss-tooltip[data-shown] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-tooltip {
+    transition: none;
+  }
+}

@@ -21,7 +21,7 @@ import { useEffect } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
-import { FolderPlusIcon, TrashIcon } from '../icons';
+import { FolderPlusIcon, TrashIcon } from '@/components/icons';
 import { useAsyncState } from '../../hooks/useAsyncState';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import {

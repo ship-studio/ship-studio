@@ -1,0 +1,4 @@
+:root {
+  --first: var(--second);
+  --second: var(--first);
+}

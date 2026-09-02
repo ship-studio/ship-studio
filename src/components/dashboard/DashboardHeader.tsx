@@ -1,78 +1,55 @@
 /**
- * DashboardHeader component for the main project list view.
- *
- * The search field is a button-styled trigger that opens the command palette;
- * typing happens inside the palette, not here.
+ * DashboardHeader — the presentation-only hero for the dashboard home screen.
  *
  * @module components/DashboardHeader
  */
 
-import { SearchIcon } from '../icons';
-import { trackEvent } from '../../lib/analytics';
-import { Button } from '../primitives/Button';
-import { useModal } from '../../contexts/ModalContext';
-import { kbd } from '../../lib/shortcuts';
+import { useState } from 'react';
+import { EyeOffIcon } from '@/components/icons';
+import { IconButton } from '../primitives/IconButton';
 
 interface DashboardHeaderProps {
-  onCreateProject: () => void;
-  onImportProject?: () => void;
-  /** Whether GitHub is authenticated (import requires GitHub) */
-  isGitHubAuthenticated?: boolean;
-  /** Callback when user tries to import without GitHub auth */
-  onGitHubConnectForImport?: () => void;
+  /** Called when the user hides the home screen header. */
+  onHide?: () => void;
 }
 
-export function DashboardHeader({
-  onCreateProject,
-  onImportProject,
-  isGitHubAuthenticated = true,
-  onGitHubConnectForImport,
-}: DashboardHeaderProps) {
-  const palette = useModal('commandPalette');
+export function DashboardHeader({ onHide }: DashboardHeaderProps) {
+  const [clickPulseCount, setClickPulseCount] = useState(0);
+  const [isHoverSuppressed, setIsHoverSuppressed] = useState(false);
 
   return (
-    <div className="dashboard-header">
+    <header className="dashboard-hero">
+      {onHide && (
+        <IconButton
+          variant="ghost"
+          className="dashboard-hero-hide"
+          icon={<EyeOffIcon size={14} />}
+          onClick={onHide}
+          title="Hide home screen header"
+          aria-label="Hide home screen header"
+        />
+      )}
       <button
         type="button"
-        className="dashboard-search"
-        data-education-id="search-projects"
-        onClick={() => palette.open()}
-        title="Open command palette"
-        aria-label="Open command palette"
+        className={`dashboard-hero-icon-button${isHoverSuppressed ? ' dashboard-hero-icon-button--hover-suppressed' : ''}`}
+        aria-label="Pulse Ship Studio logo"
+        onClick={() => {
+          setIsHoverSuppressed(true);
+          setClickPulseCount((count) => count + 1);
+        }}
+        onMouseLeave={() => setIsHoverSuppressed(false)}
       >
-        <SearchIcon />
-        <span className="dashboard-search-placeholder">Search projects, actions, settings…</span>
-        <span className="dashboard-search-shortcut">{kbd('mod', 'K')}</span>
-      </button>
-      <div className="dashboard-header-actions">
-        {onImportProject && (
-          <Button
-            variant="secondary"
-            data-education-id="import-button"
-            onClick={() => {
-              void trackEvent('import_button_clicked', { $screen_name: 'Dashboard' });
-              if (isGitHubAuthenticated) {
-                onImportProject();
-              } else if (onGitHubConnectForImport) {
-                onGitHubConnectForImport();
-              }
-            }}
-            title={!isGitHubAuthenticated ? 'Connect GitHub to import repositories' : undefined}
-          >
-            Import
-          </Button>
-        )}
-        <Button
-          variant="primary"
-          data-education-id="new-project-button"
-          onClick={() => {
-            void trackEvent('new_project_clicked', { $screen_name: 'Dashboard' });
-            onCreateProject();
+        <img
+          key={clickPulseCount}
+          src="/ShipStudio_IconBrand.png"
+          alt="Ship Studio"
+          className={`dashboard-hero-icon${clickPulseCount > 0 ? ' dashboard-hero-icon--click-pulsing' : ''}`}
+          onAnimationEnd={() => {
+            if (clickPulseCount > 0) setClickPulseCount(0);
           }}
-        >
-          + New Project
-        </Button>
-      </div>
-    </div>
+        />
+      </button>
+      <h1 className="dashboard-hero-title text-style-h1">What will you Ship today?</h1>
+    </header>
   );
 }

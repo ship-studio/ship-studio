@@ -27,9 +27,9 @@
 }
 
 .browser-dropdown-inner {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-md);
   overflow: hidden;
 }
@@ -44,7 +44,7 @@
   border: none;
   border-radius: 0;
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   text-align: left;
   cursor: pointer;
   transition:
@@ -54,7 +54,7 @@
 }
 
 .browser-dropdown-inner button:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 

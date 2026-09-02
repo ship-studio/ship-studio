@@ -22,50 +22,30 @@ import {
 import { listen } from '@tauri-apps/api/event';
 import { logger } from '../../lib/logger';
 import { setTerminalState } from '../../lib/project';
-import { Terminal } from '../terminal/Terminal';
-import { StaleEnvBanner } from '../terminal/StaleEnvBanner';
-import { DevServerLogs } from '../terminal/DevServerLogs';
-import { Preview } from '../preview/Preview';
 import type { PreviewHandle, InspectTab } from '../preview/Preview';
-import { DeviceMirror } from '../preview/DeviceMirror';
+import { TREE_PANEL_MIN_WIDTH_PX } from '../preview/panelSizing';
 import { SplitPane } from './SplitPane';
-import { BranchIndicator } from '../branches/BranchIndicator';
-import { CodeTab } from '../code/CodeTab';
-import { BranchPRTabContainer } from './BranchPRTabContainer';
 import { CompactWorkspace } from './CompactWorkspace';
 import { MainBranchBanner } from '../branches/MainBranchBanner';
 import type { HealthTabPanelRef } from '../code/HealthTabPanel';
 import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { useIsCompact } from '../../hooks/useIsCompact';
-import { WorkspaceModals } from './WorkspaceModals';
+import { WorkspaceModalHost } from './WorkspaceModalHost';
+import { WorkspaceModes } from './WorkspaceModes';
+import { WorkspacePreviewPane } from './WorkspacePreviewPane';
+import { WorkspaceTerminalPane } from './WorkspaceTerminalPane';
 import { WorkspaceHeader, HOSTING_PLUGIN_IDS } from './WorkspaceHeader';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
-import { PluginSlot } from '../plugins/PluginSlot';
-import { UpdateBanner } from '../UpdateBanner';
+import { VariablesIcon } from '@/components/icons';
 import { trackEvent } from '../../lib/analytics';
 import { useWorkspaceCommands } from '../../commands/useWorkspaceCommands';
-import {
-  CameraIcon,
-  CodeIcon,
-  CropIcon,
-  BranchIcon,
-  PullRequestIcon,
-  EyeIcon,
-  EyeOffIcon,
-  UndoIcon,
-  RedoIcon,
-} from '../icons';
+import { useCommands } from '../../commands/useCommands';
 import { useSnapshots } from '../../hooks/useSnapshots';
 import { useWorktreeWorkflow } from '../../hooks/useWorktreeWorkflow';
-import { ToolbarDropdown } from './ToolbarDropdown';
-import { TerminalSplitHeaders } from './TerminalSplitHeaders';
-import { TerminalSplitDividers } from './TerminalSplitDividers';
 import { PluginsDropdown } from '../plugins/PluginsDropdown';
-import { getAgentById } from '../../lib/agent';
 import type { AgentConfig } from '../../lib/agent';
 import type { Project } from '../../lib/project';
-import { hasWebPreview, isMobileProjectType, type ProjectType } from '../../lib/static-server';
-import { ShopifySetup } from '../shopify/ShopifySetup';
+import { type ProjectType } from '../../lib/static-server';
 import { useShopifyTheme } from '../../hooks/useShopifyTheme';
 import { isMac } from '../../lib/setup';
 import { kbd } from '../../lib/shortcuts';
@@ -82,7 +62,7 @@ import type { PluginThemeData } from '../../contexts/PluginContext';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useModal } from '../../contexts/ModalContext';
 import { sessionRegistry } from '../../lib/sessionRegistry';
-import { Spinner } from '../primitives/Spinner';
+import { defaultWorkspaceTab, workspacePreviewCapabilities } from './workspaceViewState';
 import '../../styles/features/notifications.css';
 
 // ---------------------------------------------------------------------------
@@ -292,6 +272,9 @@ interface LifecycleProps {
   setShowAutoAcceptWarning: (show: boolean) => void;
   handleBackToProjects: () => void;
   handleRestartDevServer: () => Promise<void>;
+  /** Start the dev server on demand — fired when the Preview tab is selected
+   *  while nothing is running, so picking Preview always yields a preview. */
+  handleStartDevServer: () => Promise<void>;
   handleGitHubStatusChange: () => void;
   handlePreviewReady: () => void;
   sendToClaude: (text: string) => void;
@@ -367,6 +350,12 @@ export interface WorkspaceViewProps {
   /** Predicate: is a dev server currently tracked for the given project path?
    *  Used by the sidebar to populate background projects' Commands section. */
   isProjectDevServerRunning: (projectPath: string) => boolean;
+  /** Whether the shared project sidebar is in its compact state. */
+  isSidebarHidden: boolean;
+  /** Toggle the shared project sidebar between full and compact states. */
+  onToggleSidebar: () => void;
+  /** Whether workspace controls are consolidated into the window titlebar. */
+  compactWorkspaceToolbarEnabled: boolean;
 }
 
 export const WorkspaceView = memo(function WorkspaceView({
@@ -396,6 +385,9 @@ export const WorkspaceView = memo(function WorkspaceView({
   onUnpinProject,
   onOpenProjectPicker,
   isProjectDevServerRunning,
+  isSidebarHidden,
+  onToggleSidebar,
+  compactWorkspaceToolbarEnabled,
 }: WorkspaceViewProps) {
   // Window-width gate for the compact layout. Purely reactive — no Tauri
   // resize calls, no pinning. See src/hooks/useIsCompact.ts for the threshold.
@@ -604,6 +596,7 @@ export const WorkspaceView = memo(function WorkspaceView({
     showAutoAcceptWarning,
     setShowAutoAcceptWarning,
     handleRestartDevServer,
+    handleStartDevServer,
     handleGitHubStatusChange,
     handlePreviewReady,
     sendToClaude,
@@ -613,10 +606,14 @@ export const WorkspaceView = memo(function WorkspaceView({
     handleSaveDevCommand,
   } = lifecycle;
 
-  // Whether this project gets the web iframe Preview — the #691 rule lives in
-  // hasWebPreview: web frameworks always, `generic` only when a custom dev
-  // command is configured (Nx/monorepo roots), never for unknown/mobile.
-  const isWebProject = hasWebPreview(projectType, customDevCommand);
+  // Web frameworks always receive the iframe preview. Generic projects only
+  // receive it when they have a configured dev command (#691); native mobile
+  // projects use the device mirror when the platform supports it.
+  const { mobilePreviewAvailable, isWebProject, hasPreview } = workspacePreviewCapabilities(
+    projectType,
+    isMac(),
+    customDevCommand
+  );
 
   // Cmd+Shift+S — capture viewport screenshot, Cmd+Shift+C — toggle crop mode
   // Screenshot accelerators only make sense over the web iframe preview, not
@@ -652,23 +649,13 @@ export const WorkspaceView = memo(function WorkspaceView({
     setIsCropMode,
   ]);
 
-  // Projects with no web preview and no mobile mirror have no preview pane at
-  // all. Web projects (see `isWebProject` above — includes generic projects
-  // with a configured dev command, issue #691) get the iframe Preview; native
-  // mobile (RN/Expo, Flutter) gets the device mirror — but only on macOS,
-  // where the simulator/emulator toolchains are validated (mobile preview is
-  // untested on Windows, so we don't offer it there).
-  const isMobileProject = isMobileProjectType(projectType);
-  const mobilePreviewAvailable = isMobileProject && isMac();
-  const hasPreview = isWebProject || mobilePreviewAvailable;
-
   // Reset the preview-side tab to its default whenever the user switches
   // projects. Web projects land on Preview; generic/unknown projects land
   // on Code (no preview available). Without this, switching from a web
   // project while on Branches/PRs would land you on Branches/PRs in the
   // next project too, which reads as "sticky state from the wrong place".
   useEffect(() => {
-    setWorkspaceTab(hasPreview ? 'preview' : 'code');
+    setWorkspaceTab(defaultWorkspaceTab(hasPreview));
     // Only re-fire on project path change. We deliberately *don't* depend
     // on `workspaceTab` here — that would force-revert every user click.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -716,17 +703,139 @@ export const WorkspaceView = memo(function WorkspaceView({
     },
     [currentProject.path, terminalTabs, activeTerminalTab]
   );
-  // Sidebar visibility is workspace-local (not persisted). The home / projects
-  // view renders its own sidebar instance unconditionally, so this state does
-  // not affect it. Compact mode never renders the full sidebar — the narrow
-  // layout owns its own chrome (see `CompactWorkspace`).
-  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
-  const effectiveSidebarHidden = isSidebarHidden;
   // Naming note: `showPreviewLogs` is the legacy state for the inspect panel
   // (which hosts dev-server logs + browser tools). The event keeps the
   // generic name so future inspect-only telemetry doesn't have to migrate.
   const [showPreviewLogs, setShowPreviewLogs] = useState(false);
   const [inspectTab, setInspectTabRaw] = useState<InspectTab>('logs');
+  const [isAgentPanelHidden, setIsAgentPanelHidden] = useState(false);
+  const [forceBranchesOpen, setForceBranchesOpen] = useState(false);
+  const [createBranchRequest, setCreateBranchRequest] = useState(0);
+  const [agentPanelPinned, setAgentPanelPinned] = useState(
+    () => localStorage.getItem('agentPanelPinned') !== '0'
+  );
+  const [elementTreePreviewAvailable, setElementTreePreviewAvailable] = useState(false);
+  const [elementTreeVisible, setElementTreeVisible] = useState(
+    () => localStorage.getItem('elementTreeVisible') !== '0'
+  );
+  const [elementTreePinned, setElementTreePinned] = useState(
+    () => localStorage.getItem('elementTreePinned') !== '0'
+  );
+  const toggleElementTree = useCallback(() => {
+    setElementTreeVisible((visible) => {
+      localStorage.setItem('elementTreeVisible', visible ? '0' : '1');
+      return !visible;
+    });
+  }, []);
+  const closeElementTree = useCallback(() => {
+    localStorage.setItem('elementTreeVisible', '0');
+    setElementTreeVisible(false);
+  }, []);
+  const elementTreeAvailable =
+    workspaceTab === 'preview' && !isPreviewHidden && elementTreePreviewAvailable;
+  const elementTreePanelVisible = elementTreeAvailable && elementTreeVisible;
+  const [variablesPanelVisible, setVariablesPanelVisible] = useState(false);
+  const [variablesPanelPinned, setVariablesPanelPinned] = useState(
+    () => localStorage.getItem('variablesPanelPinned') === '1'
+  );
+  const variablesPanelOpen =
+    isWebProject && workspaceTab === 'preview' && !isPreviewHidden && variablesPanelVisible;
+  useEffect(() => {
+    setVariablesPanelVisible(false);
+  }, [currentProject.path]);
+  const toggleVariablesPanel = useCallback(() => {
+    const shouldOpen = !variablesPanelOpen;
+    setVariablesPanelVisible(shouldOpen);
+    if (shouldOpen) {
+      setIsPreviewHidden(false);
+      setWorkspaceTab('preview');
+      void handleStartDevServer();
+    }
+  }, [handleStartDevServer, setIsPreviewHidden, setWorkspaceTab, variablesPanelOpen]);
+  const toggleAgentPanelPinned = useCallback(() => {
+    setAgentPanelPinned((pinned) => {
+      localStorage.setItem('agentPanelPinned', pinned ? '0' : '1');
+      return !pinned;
+    });
+  }, []);
+  const toggleElementTreePinned = useCallback(() => {
+    setElementTreePinned((pinned) => {
+      localStorage.setItem('elementTreePinned', pinned ? '0' : '1');
+      return !pinned;
+    });
+  }, []);
+  const toggleVariablesPanelPinned = useCallback(() => {
+    setVariablesPanelPinned((pinned) => {
+      localStorage.setItem('variablesPanelPinned', pinned ? '0' : '1');
+      return !pinned;
+    });
+  }, []);
+  const toggleAgentPanel = useCallback(() => {
+    if (!isAgentPanelHidden) {
+      setIsPreviewHidden(false);
+    }
+    setIsAgentPanelHidden(!isAgentPanelHidden);
+  }, [isAgentPanelHidden, setIsPreviewHidden]);
+
+  useCommands(
+    () => [
+      {
+        id: 'workspace.toggleAgentPanel',
+        title: isAgentPanelHidden ? 'Show Agent panel' : 'Hide Agent panel',
+        category: 'action',
+        when: 'project',
+        keywords: ['terminal', 'pane', 'sidebar'],
+        run: toggleAgentPanel,
+      },
+      {
+        id: 'workspace.toggleAgentPanelPin',
+        title: agentPanelPinned ? 'Float Agent panel' : 'Dock Agent panel',
+        category: 'action',
+        when: 'project',
+        keywords: ['terminal', 'pane', 'pin', 'float', 'dock'],
+        run: toggleAgentPanelPinned,
+      },
+      {
+        id: 'workspace.toggleElementTreePin',
+        title: elementTreePinned ? 'Float Elements panel' : 'Dock Elements panel',
+        category: 'action',
+        when: 'project',
+        keywords: ['elements', 'tree', 'navigator', 'pin', 'float', 'dock'],
+        run: toggleElementTreePinned,
+      },
+      {
+        id: 'workspace.toggleVariablesPanelPin',
+        title: variablesPanelPinned ? 'Float Variables panel' : 'Dock Variables panel',
+        icon: <VariablesIcon size={14} />,
+        category: 'action',
+        when: ({ kind }) => kind === 'project' && isWebProject,
+        keywords: ['variables', 'css', 'token', 'pin', 'float', 'dock'],
+        run: toggleVariablesPanelPinned,
+      },
+      {
+        id: 'css.variables',
+        title: variablesPanelOpen ? 'Hide Variables panel' : 'Show Variables panel',
+        icon: <VariablesIcon size={14} />,
+        category: 'action',
+        when: ({ kind }) => kind === 'project' && isWebProject,
+        keywords: ['css', 'variable', 'custom property', 'token', 'theme', '--'],
+        run: toggleVariablesPanel,
+      },
+    ],
+    [
+      isAgentPanelHidden,
+      toggleAgentPanel,
+      agentPanelPinned,
+      toggleAgentPanelPinned,
+      elementTreePinned,
+      toggleElementTreePinned,
+      variablesPanelPinned,
+      toggleVariablesPanelPinned,
+      isWebProject,
+      variablesPanelOpen,
+      toggleVariablesPanel,
+    ]
+  );
 
   // Wrap setters with click tracking. We read previous state from the closure
   // (not a functional updater) to avoid double-firing under React StrictMode.
@@ -753,6 +862,12 @@ export const WorkspaceView = memo(function WorkspaceView({
     setShowSubmitReview,
     handleResolveConflicts: () => void handleResolveConflicts(),
     openPushDropdown: () => setForcePublishOpen(true),
+    openBranchesMenu: () => setForceBranchesOpen(true),
+    openCreateBranch: () => {
+      setIsPreviewHidden(false);
+      setWorkspaceTab('branches');
+      setCreateBranchRequest((request) => request + 1);
+    },
     handlePullLatest: () => void handlePullLatest(),
     isGitHubConnected: integrations.projectGithub?.status === 'connected',
     openWorktreeCreate: worktree.openCreate,
@@ -913,107 +1028,36 @@ export const WorkspaceView = memo(function WorkspaceView({
     sessionRegistry.setTerminalTabAttention(currentProject.path, activeTerminalTab, false);
   }, [currentProject.path, activeTerminalTab, setAttentionTabs]);
 
-  // Branch chip + workspace tabs live in the single header row (left/right
-  // clusters of WorkspaceHeader). Composed here since they need git/branch +
-  // tab state, then passed in as nodes.
-  const branchIndicatorNode =
-    integrations.projectGithub?.status === 'connected' && currentBranch ? (
-      <BranchIndicator
-        currentBranch={currentBranch}
-        hasUncommittedChanges={hasUncommittedChanges}
-        changedFiles={changedFiles}
-        projectPath={currentProject.path}
-        isOnBranchesTab={workspaceTab === 'branches' || workspaceTab === 'prs'}
-        hasPreview={hasPreview}
-        onClick={() => {
-          if (workspaceTab === 'branches' || workspaceTab === 'prs') {
-            setWorkspaceTab(hasPreview ? 'preview' : 'code');
-          } else {
-            setWorkspaceTab('branches');
-          }
-        }}
-        onDiscard={() => {
-          void checkGitStatus(currentProject.path);
-        }}
-        onSave={() => setForcePublishOpen(true)}
-        onPullLatest={() => void handlePullLatest()}
-        isPulling={isPulling}
-      />
-    ) : null;
-
-  const tabsNode = (
-    <div className="workspace-tabs">
-      {hasPreview && (
-        <button
-          className={`workspace-tab ${workspaceTab === 'preview' && !isPreviewHidden ? 'active' : ''}`}
-          onClick={() => {
-            setIsPreviewHidden(false);
-            setWorkspaceTab('preview');
-          }}
-          title="Preview"
-        >
-          <EyeIcon size={14} />
-          <span>Preview</span>
-        </button>
-      )}
-      {/* Focus mode — collapses the preview pane so the agent terminal takes the
-          full workspace. Active whenever the preview is hidden. */}
-      <button
-        className={`workspace-tab ${isPreviewHidden ? 'active' : ''}`}
-        onClick={() => setIsPreviewHidden(!isPreviewHidden)}
-        title={isPreviewHidden ? 'Exit focus mode' : 'Hide preview — agent only'}
-      >
-        <EyeOffIcon size={14} />
-        <span>Focus</span>
-      </button>
-      <button
-        className={`workspace-tab ${workspaceTab === 'code' && !isPreviewHidden ? 'active' : ''}`}
-        onClick={() => {
-          setIsPreviewHidden(false);
-          setWorkspaceTab('code');
-        }}
-        title="Code"
-      >
-        <CodeIcon size={14} />
-        <span>Code</span>
-      </button>
-      {integrations.projectGithub?.status === 'connected' && (
-        <>
-          <button
-            className={`workspace-tab ${workspaceTab === 'branches' && !isPreviewHidden ? 'active' : ''}`}
-            onClick={() => {
-              setIsPreviewHidden(false);
-              setWorkspaceTab('branches');
-            }}
-            title="Branches"
-            data-education-id="branches-tab"
-          >
-            <BranchIcon size={14} />
-            <span>Branches</span>
-          </button>
-          <button
-            className={`workspace-tab ${workspaceTab === 'prs' && !isPreviewHidden ? 'active' : ''}`}
-            onClick={() => {
-              setIsPreviewHidden(false);
-              setWorkspaceTab('prs');
-            }}
-            title="PRs"
-            data-education-id="prs-tab"
-          >
-            <PullRequestIcon size={14} />
-            <span>PRs</span>
-          </button>
-        </>
-      )}
-    </div>
+  const modesNode = (
+    <WorkspaceModes
+      hasPreview={hasPreview}
+      isPreviewHidden={isPreviewHidden}
+      workspaceTab={workspaceTab}
+      setIsPreviewHidden={setIsPreviewHidden}
+      setIsAgentPanelHidden={setIsAgentPanelHidden}
+      setWorkspaceTab={setWorkspaceTab}
+      onSelectPreview={() => void handleStartDevServer()}
+    />
   );
 
   const header = WorkspaceHeader({
     projectPath: currentProject.path,
     projectName: currentProject.name,
+    onGoHome,
+    isSidebarHidden,
+    onToggleSidebar,
+    compactWorkspaceToolbarEnabled,
     onOpenAssetsPanel: assetsPanelModal.open,
-    branchIndicator: branchIndicatorNode,
-    tabs: tabsNode,
+    assetsPanelVisible: assetsPanelModal.isOpen,
+    elementTreeVisible: elementTreePanelVisible,
+    elementTreeAvailable,
+    onToggleElementTree: toggleElementTree,
+    agentPanelVisible: !isAgentPanelHidden,
+    onToggleAgentPanel: toggleAgentPanel,
+    variablesPanelVisible: variablesPanelOpen,
+    variablesPanelAvailable: isWebProject,
+    onToggleVariablesPanel: toggleVariablesPanel,
+    modes: modesNode,
     headerExtras: (
       <PluginsDropdown
         plugins={loadedPlugins.filter((p) => !HOSTING_PLUGIN_IDS.includes(p.info.manifest.id))}
@@ -1027,17 +1071,34 @@ export const WorkspaceView = memo(function WorkspaceView({
         onOpenPluginManager={pluginManagerModal.open}
       />
     ),
-    isSidebarHidden: effectiveSidebarHidden,
-    onToggleSidebar: () => {
-      void trackEvent('sidebar_toggled', { is_hidden: !isSidebarHidden });
-      setIsSidebarHidden(!isSidebarHidden);
-    },
     integrations,
     onGitHubStatusChange: handleGitHubStatusChange,
     onGitHubConnect: handleGitHubConnect,
     focusActiveTerminal,
     currentBranch,
+    branches,
+    openPRs,
     hasUncommittedChanges,
+    changedFiles,
+    isPulling,
+    isBranchSwitching,
+    isRepositoryViewActive: workspaceTab === 'branches' || workspaceTab === 'prs',
+    onPullLatest: () => void handlePullLatest(),
+    onBranchSwitch: (branch) => void handleBranchSwitch(branch),
+    onViewBranches: () => {
+      setIsPreviewHidden(false);
+      setWorkspaceTab('branches');
+    },
+    onCreateBranch: () => {
+      setIsPreviewHidden(false);
+      setWorkspaceTab('branches');
+      setCreateBranchRequest((request) => request + 1);
+    },
+    onViewPRs: () => {
+      setIsPreviewHidden(false);
+      setWorkspaceTab('prs');
+    },
+    onDiscardChanges: () => void checkGitStatus(currentProject.path),
     isPublishing,
     setIsPublishing,
     onPublishError: handlePublishError,
@@ -1046,9 +1107,11 @@ export const WorkspaceView = memo(function WorkspaceView({
       void fetchBranchInfo(currentProject.path);
       void worktree.refresh();
     },
-    onCreatePR: () => setShowSubmitReview(currentBranch || 'main'),
+    onCreatePR: (branch) => setShowSubmitReview(branch ?? currentBranch ?? 'main'),
     forcePublishOpen,
     onForcePublishOpenHandled: () => setForcePublishOpen(false),
+    forceBranchesOpen,
+    onForceBranchesOpenHandled: () => setForceBranchesOpen(false),
     getSlotPlugins,
     pluginProject,
     pluginActions,
@@ -1057,8 +1120,11 @@ export const WorkspaceView = memo(function WorkspaceView({
 
   return (
     <>
-      <div className="app workspace">
-        <UpdateBanner />
+      <div
+        className={`app workspace${
+          compactWorkspaceToolbarEnabled ? ' workspace--compact-toolbar' : ''
+        }`}
+      >
         {!isCompact && header.titlebar}
 
         {isCompact ? (
@@ -1093,11 +1159,14 @@ export const WorkspaceView = memo(function WorkspaceView({
             handleTabTitleChange={handleTabTitleChange}
           />
         ) : (
-          <div className={`workspace-body${effectiveSidebarHidden ? ' is-sidebar-hidden' : ''}`}>
+          <div className="workspace-body">
             <WorkspaceSidebar
               isHomeActive={false}
               onGoHome={onGoHome}
               onOpenProjectPicker={onOpenProjectPicker}
+              isSidebarHidden={isSidebarHidden}
+              onToggleSidebar={onToggleSidebar}
+              showNavigationControls={false}
               projects={projectRows}
               onCloseProject={onCloseProject}
               onUnpinProject={onUnpinProject}
@@ -1164,391 +1233,140 @@ export const WorkspaceView = memo(function WorkspaceView({
                 <SplitPane
                   defaultSplit={29}
                   minLeft={20}
+                  minLeftWidthPx={TREE_PANEL_MIN_WIDTH_PX}
                   minRight={35}
+                  persistenceKey="agentPanelDockedSplit"
                   rightCollapsed={isPreviewHidden}
+                  leftCollapsed={isAgentPanelHidden || (!agentPanelPinned && !isPreviewHidden)}
                   left={
-                    <div className="terminal-pane">
-                      <div className="workspace-terminal-view">
-                        <div className="terminal-tabs-bar">
-                          {/* Restart-dev-server moved to the sidebar row
-                            (Commands → Dev server). "Edit dev command" and
-                            "Project settings" moved to the ⌘K palette. */}
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button
-                              className="toolbar-icon-btn"
-                              onClick={() => void undoSnapshot()}
-                              disabled={!canUndo}
-                              title={undoTitle}
-                              aria-label="Undo"
-                            >
-                              <UndoIcon size={12} />
-                            </button>
-                            <button
-                              className="toolbar-icon-btn"
-                              onClick={() => void redoSnapshot()}
-                              disabled={!canRedo}
-                              title={redoTitle}
-                              aria-label="Redo"
-                            >
-                              <RedoIcon size={12} />
-                            </button>
-                          </div>
-                          <div style={{ flex: 1 }} />
-                          <div className="terminal-tabs-bar-right">
-                            {canSplit && (
-                              <button
-                                type="button"
-                                className="toggle-pill-btn"
-                                onClick={() =>
-                                  isSplitActive ? disableSplitView() : enableSplitView()
-                                }
-                                title={
-                                  isSplitActive
-                                    ? 'Exit side-by-side view'
-                                    : 'View agents side by side'
-                                }
-                                aria-label="Toggle side-by-side view"
-                                aria-pressed={isSplitActive}
-                              >
-                                <svg
-                                  width="14"
-                                  height="14"
-                                  viewBox="0 0 16 16"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.6"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <rect x="2" y="3" width="12" height="10" rx="1.2" />
-                                  <line x1="8" y1="3" x2="8" y2="13" />
-                                </svg>
-                                <span>Split</span>
-                                <span
-                                  className={`toggle-pill-switch ${isSplitActive ? 'is-on' : ''}`}
-                                  aria-hidden
-                                />
-                              </button>
-                            )}
-                            <ToolbarDropdown
-                              agent={getActiveTabAgent()}
-                              autoAcceptMode={autoAcceptMode}
-                              onNotificationSettings={() => setShowNotificationSettings(true)}
-                              onSkills={skillsModal.open}
-                              onMcp={mcpModal.open}
-                              onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
-                              onHelp={helpModal.open}
-                              terminalPlugins={getSlotPlugins('terminal')}
-                              pluginProject={pluginProject}
-                              pluginActions={pluginActions}
-                              pluginTheme={pluginTheme}
-                            />
-                          </div>
-                        </div>
-                        <StaleEnvBanner projectPath={currentProject.path} />
-                        <div
-                          className={`terminal-content${isSplitActive ? ' split' : ''}`}
-                          data-education-id="claude-terminal"
-                        >
-                          {isSplitActive && currentProject && splitPaneTabIds && splitPaneSizes && (
-                            <>
-                              <TerminalSplitHeaders
-                                panes={splitPaneTabIds}
-                                sizes={splitPaneSizes}
-                                tabs={terminalTabs}
-                                tabTitles={tabTitles}
-                                onSelectTab={setSplitPaneTab}
-                                onRemovePane={removeSplitPane}
-                                onAddPane={() => addSplitPane()}
-                                canAddPane={splitPaneTabIds.length < terminalTabs.length}
-                              />
-                              <TerminalSplitDividers
-                                sizes={splitPaneSizes}
-                                onResize={setSplitPaneSizes}
-                              />
-                            </>
-                          )}
-                          {allSessions.flatMap((session) =>
-                            session.tabs.map((tab) => {
-                              const isCurrentProject = session.projectPath === currentProject.path;
-                              const paneIdx =
-                                isSplitActive && isCurrentProject && splitPaneTabIds
-                                  ? splitPaneTabIds.indexOf(tab.id)
-                                  : -1;
-                              const inSplitPane = paneIdx >= 0;
-                              const isVisible =
-                                isCurrentProject &&
-                                !showHealthLogs &&
-                                (isSplitActive ? inSplitPane : activeTerminalTab === tab.id);
-                              const refKey = `${session.projectPath}::${tab.id}`;
-                              // Anchor both edges to percentages computed from
-                              // splitPaneSizes — guarantees the last pane's
-                              // right edge hits exactly 100% (no rounding
-                              // drift). Reserve 4px next to each drag handle
-                              // so the 8px handle sits in clean space. Then
-                              // add a 12px content gutter on every edge so
-                              // xterm has the same breathing room from the
-                              // pane chrome that single-pane mode gives it
-                              // from the sidebar. Opencode is full-bleed by
-                              // design (its TUI fills the viewport) — skip
-                              // the content gutter for it.
-                              let paneStyle: React.CSSProperties | undefined;
-                              if (inSplitPane && splitPaneSizes) {
-                                const leftPct = splitPaneSizes
-                                  .slice(0, paneIdx)
-                                  .reduce((a, b) => a + b, 0);
-                                const rightPct = splitPaneSizes
-                                  .slice(paneIdx + 1)
-                                  .reduce((a, b) => a + b, 0);
-                                const leftAbutsHandle = paneIdx > 0;
-                                const rightAbutsHandle = paneIdx < splitPaneSizes.length - 1;
-                                const gutter = tab.agentId === 'opencode' ? 0 : 12;
-                                const leftOffset = (leftAbutsHandle ? 4 : 0) + gutter;
-                                const rightOffset = (rightAbutsHandle ? 4 : 0) + gutter;
-                                paneStyle = {
-                                  left: `calc(${leftPct}% + ${leftOffset}px)`,
-                                  right: `calc(${rightPct}% + ${rightOffset}px)`,
-                                  top: 'var(--split-pane-header-height)',
-                                };
-                              }
-                              // Background projects use the same `.terminal-tab-content`
-                              // visibility-based hide (position: absolute + visibility: hidden).
-                              // `display: none` would zero out xterm's container dims and leave
-                              // the renderer desynced when the tab became visible again.
-                              return (
-                                <div
-                                  key={`session-${session.sessionEpoch}-${refKey}`}
-                                  className={`terminal-tab-content ${isVisible ? 'active' : ''}${
-                                    inSplitPane ? ' in-pane' : ''
-                                  }`}
-                                  data-agent-id={tab.agentId}
-                                  data-pane-idx={inSplitPane ? paneIdx : undefined}
-                                  style={paneStyle}
-                                  onMouseDownCapture={
-                                    inSplitPane && tab.id !== activeTerminalTab
-                                      ? () => setActiveTerminalTab(tab.id)
-                                      : undefined
-                                  }
-                                >
-                                  <Terminal
-                                    ref={(ref) => {
-                                      if (ref) {
-                                        terminalRefsMap.current.set(refKey, ref);
-                                      } else {
-                                        terminalRefsMap.current.delete(refKey);
-                                      }
-                                    }}
-                                    agent={getAgentById(tab.agentId)}
-                                    projectPath={session.projectPath}
-                                    onSpawn={(pid) => {
-                                      sessionRegistry.patchTerminalTab(
-                                        session.projectPath,
-                                        tab.id,
-                                        {
-                                          status: 'running',
-                                          pid,
-                                          exitCode: null,
-                                        }
-                                      );
-                                    }}
-                                    onExit={(code) => {
-                                      handleTerminalExit(code);
-                                      sessionRegistry.patchTerminalTab(
-                                        session.projectPath,
-                                        tab.id,
-                                        {
-                                          status:
-                                            code === 0 || code === null ? 'exited' : 'crashed',
-                                          pid: null,
-                                          exitCode: code,
-                                        }
-                                      );
-                                    }}
-                                    autoAcceptMode={autoAcceptMode}
-                                    onStatusChange={createTabStatusHandler(
-                                      session.projectPath,
-                                      tab.id
-                                    )}
-                                    onTitleChange={handleTabTitleChange(
-                                      session.projectPath,
-                                      tab.id
-                                    )}
-                                    sessionName={tab.sessionId}
-                                    isActive={isVisible}
-                                    shouldResume={tab.shouldResume}
-                                    onRequestRestart={() =>
-                                      restartTerminalTab(tab.id, session.projectPath)
-                                    }
-                                  />
-                                </div>
-                              );
-                            })
-                          )}
-                          {showHealthLogs && (
-                            <div className="terminal-tab-content active">
-                              <DevServerLogs
-                                output={healthOutput}
-                                outputVersion={healthOutputVersion}
-                                onSendToAgent={sendToClaude}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Screenshot cluster. Only rendered when the
-                        Preview tab is the active workspace tab and the
-                        project is a web project (same gate as the
-                        Preview iframe itself) — the shortcuts these
-                        buttons trigger only make sense when there's
-                        something to screenshot. */}
-                      {workspaceTab === 'preview' && isWebProject && (
-                        <div className="terminal-pane-footer">
-                          <button
-                            className="toolbar-icon-btn"
-                            onClick={() => void handleCaptureScreenshot()}
-                            disabled={isCapturing || isCropMode}
-                            title={`Screenshot preview for Claude (${kbd('mod', 'shift', 'S')})`}
-                            data-education-id="screenshot-button"
-                          >
-                            {isCapturing ? (
-                              <Spinner size="sm" style={{ color: 'var(--accent)' }} />
-                            ) : (
-                              <CameraIcon size={14} />
-                            )}
-                            <span className="capture-label-full">Full Screenshot</span>
-                            <span className="capture-label-short">Full</span>
-                            <span className="capture-shortcut">{kbd('mod', 'shift', 'S')}</span>
-                          </button>
-                          <button
-                            className={`toolbar-icon-btn ${isCropMode ? 'is-open' : ''}`}
-                            onClick={() => setIsCropMode(!isCropMode)}
-                            disabled={isCapturing || isCropCapturing}
-                            title={`Crop screenshot for Claude (${kbd('mod', 'shift', 'C')})`}
-                            data-education-id="crop-button"
-                          >
-                            {isCropCapturing ? (
-                              <Spinner size="sm" style={{ color: 'var(--accent)' }} />
-                            ) : (
-                              <CropIcon size={14} />
-                            )}
-                            <span className="capture-label-full">Crop Screenshot</span>
-                            <span className="capture-label-short">Crop</span>
-                            <span className="capture-shortcut">{kbd('mod', 'shift', 'C')}</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <WorkspaceTerminalPane
+                      currentProject={currentProject}
+                      allSessions={allSessions}
+                      terminalTabs={terminalTabs}
+                      activeTerminalTab={activeTerminalTab}
+                      setActiveTerminalTab={setActiveTerminalTab}
+                      terminalRefsMap={terminalRefsMap}
+                      tabTitles={tabTitles}
+                      autoAcceptMode={autoAcceptMode}
+                      getActiveTabAgent={getActiveTabAgent}
+                      handleTerminalExit={handleTerminalExit}
+                      createTabStatusHandler={createTabStatusHandler}
+                      handleTabTitleChange={handleTabTitleChange}
+                      restartTerminalTab={restartTerminalTab}
+                      showHealthLogs={showHealthLogs}
+                      healthOutput={healthOutput}
+                      healthOutputVersion={healthOutputVersion}
+                      sendToClaude={sendToClaude}
+                      isPreviewHidden={isPreviewHidden}
+                      isAgentPanelHidden={isAgentPanelHidden}
+                      agentPanelPinned={agentPanelPinned}
+                      toggleAgentPanelPinned={toggleAgentPanelPinned}
+                      toggleAgentPanel={toggleAgentPanel}
+                      splitPaneTabIds={splitPaneTabIds}
+                      splitPaneSizes={splitPaneSizes}
+                      isSplitActive={isSplitActive}
+                      canSplit={canSplit}
+                      enableSplitView={enableSplitView}
+                      disableSplitView={disableSplitView}
+                      setSplitPaneTab={setSplitPaneTab}
+                      addSplitPane={addSplitPane}
+                      removeSplitPane={removeSplitPane}
+                      setSplitPaneSizes={setSplitPaneSizes}
+                      canUndo={canUndo}
+                      canRedo={canRedo}
+                      undoSnapshot={undoSnapshot}
+                      redoSnapshot={redoSnapshot}
+                      undoTitle={undoTitle}
+                      redoTitle={redoTitle}
+                      isWebProject={isWebProject}
+                      isCapturing={isCapturing}
+                      isCropMode={isCropMode}
+                      isCropCapturing={isCropCapturing}
+                      setIsCropMode={setIsCropMode}
+                      handleCaptureScreenshot={handleCaptureScreenshot}
+                      onNotificationSettings={() => setShowNotificationSettings(true)}
+                      onSkills={skillsModal.open}
+                      onMcp={mcpModal.open}
+                      onAutoAcceptToggle={handleToolbarAutoAcceptToggle}
+                      onHelp={helpModal.open}
+                      terminalPlugins={getSlotPlugins('terminal')}
+                      pluginProject={pluginProject}
+                      pluginActions={pluginActions}
+                      pluginTheme={pluginTheme}
+                    />
                   }
                   right={
-                    <div className="preview-pane">
-                      {/* The .preview-tabs-bar that used to live here was
-                        lifted up to the workspace-main level so it spans
-                        the full workspace width. Tab switching behavior
-                        is unchanged — the content below still swaps
-                        based on `workspaceTab`. */}
-
-                      {/* Tab content */}
-                      {workspaceTab === 'preview' && isWebProject && shopify.showGate && (
-                        <ShopifySetup
-                          key={currentProject.path}
-                          projectPath={currentProject.path}
-                          onSendToAgent={sendToClaude}
-                          onReady={shopify.markReady}
-                          onConnected={shopify.connect}
-                        />
-                      )}
-                      {workspaceTab === 'preview' && isWebProject && !shopify.showGate && (
-                        <div style={{ flex: 1, display: 'flex' }}>
-                          <Preview
-                            key={`${currentProject.path}-${devServerPort}`}
-                            ref={previewRef}
-                            port={devServerPort}
-                            projectPath={currentProject.path}
-                            isStaticProject={projectType === 'statichtml'}
-                            projectType={projectType}
-                            onServerReady={handlePreviewReady}
-                            onPageChange={setCurrentPreviewPage}
-                            isCropMode={isCropMode}
-                            onCropStart={handleCropStart}
-                            onCropComplete={handleCropComplete}
-                            onCropCancel={handleCropCancel}
-                            isBranchSwitching={isBranchSwitching}
-                            isDevServerRestarting={isRestartingDevServer}
-                            onSendToClaude={sendToClaude}
-                            showLogs={showPreviewLogs}
-                            onToggleLogs={hasDevServer ? togglePreviewLogs : undefined}
-                            devServerOutput={devServerOutput}
-                            devServerOutputVersion={devServerOutputVersion}
-                            onDevServerInput={onDevServerInput}
-                            onDevServerResize={onDevServerResize}
-                            inspectTab={inspectTab}
-                            onInspectTabChange={setInspectTab}
-                            healthPanelRef={healthPanelRef}
-                            onHealthOutput={handleHealthOutput}
-                            needsInstall={needsInstall}
-                            devServerUnexpectedExit={devServerUnexpectedExit}
-                            onRestartDevServer={() => void handleRestartDevServer()}
-                            onRunInstall={onRunInstall}
-                            onOpenInCode={openInCode}
-                            canUndo={canUndo}
-                            canRedo={canRedo}
-                            undoTitle={undoTitle}
-                            redoTitle={redoTitle}
-                            onUndo={() => void undoSnapshot()}
-                            onRedo={() => void redoSnapshot()}
-                            previewPlugins={
-                              <PluginSlot
-                                name="preview"
-                                plugins={getSlotPlugins('preview')}
-                                project={pluginProject}
-                                actions={pluginActions}
-                                theme={pluginTheme}
-                              />
-                            }
-                          />
-                        </div>
-                      )}
-                      {workspaceTab === 'preview' && mobilePreviewAvailable && (
-                        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-                          <DeviceMirror
-                            key={currentProject.path}
-                            projectName={currentProject.name}
-                            projectPath={currentProject.path}
-                            onSendToAgent={sendToClaude}
-                          />
-                        </div>
-                      )}
-                      {workspaceTab === 'code' && (
-                        <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-                          <CodeTab
-                            projectPath={currentProject.path}
-                            onSendToAgent={sendToClaude}
-                            revealTarget={codeTarget}
-                          />
-                        </div>
-                      )}
-                      <BranchPRTabContainer
-                        workspaceTab={workspaceTab}
-                        setWorkspaceTab={setWorkspaceTab}
-                        hasPreview={hasPreview}
-                        projectTypeResolved={projectType !== 'unknown'}
-                        integrations={integrations}
-                        branches={branches}
-                        openPRs={openPRs}
-                        currentBranch={currentBranch}
-                        projectPath={currentProject.path}
-                        handleBranchSwitch={handleBranchSwitch}
-                        handleRestartDevServer={handleRestartDevServer}
-                        setShowSubmitReview={setShowSubmitReview}
-                        fetchBranchInfo={fetchBranchInfo}
-                        handleResolveConflicts={handleResolveConflicts}
-                        handleGitHubConnect={handleGitHubConnect}
-                        onSendToAgent={sendToClaude}
-                        {...worktree.tabProps}
-                      />
-                    </div>
+                    <WorkspacePreviewPane
+                      currentProject={currentProject}
+                      previewRef={previewRef}
+                      workspaceTab={workspaceTab}
+                      setWorkspaceTab={setWorkspaceTab}
+                      hasPreview={hasPreview}
+                      projectTypeResolved={projectType !== 'unknown'}
+                      projectType={projectType}
+                      isWebProject={isWebProject}
+                      mobilePreviewAvailable={mobilePreviewAvailable}
+                      setCurrentPreviewPage={setCurrentPreviewPage}
+                      devServerPort={devServerPort}
+                      handlePreviewReady={handlePreviewReady}
+                      isCropMode={isCropMode}
+                      handleCropStart={handleCropStart}
+                      handleCropComplete={handleCropComplete}
+                      handleCropCancel={handleCropCancel}
+                      isBranchSwitching={isBranchSwitching}
+                      isRestartingDevServer={isRestartingDevServer}
+                      sendToClaude={sendToClaude}
+                      showPreviewLogs={showPreviewLogs}
+                      togglePreviewLogs={togglePreviewLogs}
+                      devServerOutput={devServerOutput}
+                      devServerOutputVersion={devServerOutputVersion}
+                      onDevServerInput={onDevServerInput}
+                      onDevServerResize={onDevServerResize}
+                      inspectTab={inspectTab}
+                      setInspectTab={setInspectTab}
+                      healthPanelRef={healthPanelRef}
+                      handleHealthOutput={handleHealthOutput}
+                      needsInstall={needsInstall}
+                      devServerUnexpectedExit={devServerUnexpectedExit}
+                      handleRestartDevServer={handleRestartDevServer}
+                      onRunInstall={onRunInstall}
+                      openInCode={openInCode}
+                      codeTarget={codeTarget}
+                      canUndo={canUndo}
+                      canRedo={canRedo}
+                      undoTitle={undoTitle}
+                      redoTitle={redoTitle}
+                      undoSnapshot={undoSnapshot}
+                      redoSnapshot={redoSnapshot}
+                      elementTreeVisible={elementTreeVisible}
+                      elementTreePinned={elementTreePinned}
+                      toggleElementTreePinned={toggleElementTreePinned}
+                      closeElementTree={closeElementTree}
+                      setElementTreePreviewAvailable={setElementTreePreviewAvailable}
+                      variablesPanelVisible={variablesPanelVisible}
+                      variablesPanelPinned={variablesPanelPinned}
+                      toggleVariablesPanelPinned={toggleVariablesPanelPinned}
+                      closeVariablesPanel={() => setVariablesPanelVisible(false)}
+                      pluginProject={pluginProject}
+                      pluginActions={pluginActions}
+                      pluginTheme={pluginTheme}
+                      getSlotPlugins={getSlotPlugins}
+                      shopify={shopify}
+                      branchTabs={{
+                        integrations,
+                        branches,
+                        openPRs,
+                        currentBranch,
+                        handleBranchSwitch,
+                        handleRestartDevServer,
+                        setShowSubmitReview,
+                        fetchBranchInfo,
+                        handleResolveConflicts,
+                        handleGitHubConnect,
+                        createBranchRequest,
+                        ...worktree.tabProps,
+                      }}
+                    />
                   }
                 />
               </div>
@@ -1557,102 +1375,125 @@ export const WorkspaceView = memo(function WorkspaceView({
           </div>
         )}
 
-        {!isCompact && header.supportPanel}
-        <WorkspaceModals
+        <WorkspaceModalHost
           projectPath={currentProject.path}
           currentProjectPath={currentProject.path}
-          onBackupRestore={() => {
-            void fetchBranchInfo(currentProject.path);
-            void handleGitHubStatusChange();
+          backups={{
+            onBackupRestore: () => {
+              void fetchBranchInfo(currentProject.path);
+              void handleGitHubStatusChange();
+            },
+            onBackupCreatePR: (branchName) => setShowSubmitReview(branchName),
           }}
-          onBackupCreatePR={(branchName) => setShowSubmitReview(branchName)}
-          isEducationMode={isEducationMode}
-          onCloseEducation={closeEducation}
-          toasts={toastList}
-          dismissToast={dismissToast}
-          screenshotPreviewPath={screenshotPreviewPath}
-          showScreenshotModal={showScreenshotModal}
-          onDismissScreenshotPreview={() => setScreenshotPreviewPath(null)}
-          onViewScreenshotFull={() => setShowScreenshotModal(true)}
-          onCloseScreenshotModal={() => {
-            setShowScreenshotModal(false);
-            setScreenshotPreviewPath(null);
+          education={{ isEducationMode, onCloseEducation: closeEducation }}
+          toasts={{ toasts: toastList, dismissToast }}
+          screenshots={{
+            screenshotPreviewPath,
+            showScreenshotModal,
+            onDismissScreenshotPreview: () => setScreenshotPreviewPath(null),
+            onViewScreenshotFull: () => setShowScreenshotModal(true),
+            onCloseScreenshotModal: () => {
+              setShowScreenshotModal(false);
+              setScreenshotPreviewPath(null);
+            },
           }}
-          showNotificationSettings={showNotificationSettings}
-          notificationSettings={notificationSettings}
-          onSaveNotificationSettings={handleSaveNotificationSettings}
-          onCloseNotificationSettings={() => setShowNotificationSettings(false)}
-          agentDisplayName={getActiveTabAgent().displayName}
-          agentId={getActiveTabAgent().id}
-          activeAgent={getActiveTabAgent()}
-          onPluginsChanged={() => void reloadPlugins()}
-          loadedPlugins={loadedPlugins}
-          pluginSuggestion={pluginSuggestion}
-          pluginSuggestionInstalling={pluginSuggestionInstalling}
-          onDismissPluginSuggestion={() => setPluginSuggestion(null)}
-          onInstallSuggestedPlugin={() => {
-            void installSuggestedPlugin(
-              (msg) => showToast(msg, 'success'),
-              (msg) => showToast(msg, 'error'),
-              reloadPlugins
-            );
+          notification={{
+            showNotificationSettings,
+            notificationSettings,
+            onSaveNotificationSettings: handleSaveNotificationSettings,
+            onCloseNotificationSettings: () => setShowNotificationSettings(false),
+            agentDisplayName: getActiveTabAgent().displayName,
           }}
-          showAutoAcceptWarning={showAutoAcceptWarning}
-          onCloseAutoAcceptWarning={() => setShowAutoAcceptWarning(false)}
-          onAcceptAutoAcceptWarning={handleAutoAcceptWarningAccept}
-          showSubmitReview={showSubmitReview}
-          branches={branches}
-          integrations={integrations}
-          onSubmitReviewSuccess={() => {
-            showToast('Pull request created', 'success');
-            void fetchBranchInfo(currentProject.path);
+          extensions={{
+            agentId: getActiveTabAgent().id,
+            activeAgent: getActiveTabAgent(),
+            onPluginsChanged: () => void reloadPlugins(),
+            loadedPlugins,
           }}
-          onSubmitReviewBranchSwitch={(branch) => {
-            void handleBranchSwitch(branch);
-            setTimeout(() => void handleRestartDevServer(), 1500);
+          pluginSuggestion={{
+            pluginSuggestion,
+            pluginSuggestionInstalling,
+            onDismissPluginSuggestion: () => setPluginSuggestion(null),
+            onInstallSuggestedPlugin: () => {
+              void installSuggestedPlugin(
+                (msg) => showToast(msg, 'success'),
+                (msg) => showToast(msg, 'error'),
+                reloadPlugins
+              );
+            },
           }}
-          onSubmitReviewSendToAgent={sendToClaude}
-          onSubmitReviewResolveConflicts={(headBranch, baseBranch) =>
-            void handleResolveConflicts(headBranch, baseBranch)
-          }
-          onCloseSubmitReview={() => {
-            setShowSubmitReview(null);
-            focusActiveTerminal();
+          autoAccept={{
+            showAutoAcceptWarning,
+            onCloseAutoAcceptWarning: () => setShowAutoAcceptWarning(false),
+            onAcceptAutoAcceptWarning: handleAutoAcceptWarningAccept,
           }}
-          gitError={gitError}
-          onCloseGitError={() => setGitError(null)}
-          onSendToClaude={sendToClaude}
-          onResolveConflicts={() => void handleResolveConflicts()}
-          showConflictResolution={showConflictResolution}
-          hasCurrentProject={true}
-          onCloseConflictResolution={() => {
-            setShowConflictResolution(false);
-            focusActiveTerminal();
+          review={{
+            showSubmitReview,
+            branches,
+            integrations,
+            onSubmitReviewSuccess: () => {
+              showToast('Pull request created', 'success');
+              void fetchBranchInfo(currentProject.path);
+            },
+            onSubmitReviewBranchSwitch: (branch) => {
+              void handleBranchSwitch(branch);
+              setTimeout(() => void handleRestartDevServer(), 1500);
+            },
+            onSubmitReviewSendToAgent: sendToClaude,
+            onSubmitReviewResolveConflicts: (headBranch, baseBranch) =>
+              void handleResolveConflicts(headBranch, baseBranch),
+            onCloseSubmitReview: () => {
+              setShowSubmitReview(null);
+              focusActiveTerminal();
+            },
           }}
-          onConflictsResolved={handleConflictsResolved}
-          authTerminalConfig={authTerminalConfig}
-          onCloseAuthTerminal={() => closeAuthTerminal()}
-          onAuthTerminalExit={(exitCode) =>
-            void handleAuthTerminalExit(exitCode, currentProject.path)
-          }
-          installTerminalConfig={installTerminalConfig}
-          installTerminalExited={installTerminalExited}
-          onCloseInstallTerminal={onCloseInstallTerminal}
-          onInstallTerminalExit={onInstallTerminalExit}
-          currentBranch={currentBranch || 'main'}
-          worktrees={worktree.worktrees}
-          onWorktreeCreated={worktree.handleCreated}
-          customDevCommand={customDevCommand}
-          onSaveDevCommand={handleSaveDevCommand}
-          devServerPort={devServerPort}
-          onSavePort={lifecycle.handleSavePort}
-          isWebProject={isWebProject}
-          isShopifyTheme={shopify.isShopifyTheme}
-          onShopifyStoreSaved={shopify.connect}
-          pluginTerminal={pluginTerminal}
-          pluginTerminalExited={pluginTerminalExited}
-          onClosePluginTerminal={closePluginTerminal}
-          onPluginTerminalExit={handlePluginTerminalExit}
+          git={{
+            gitError,
+            onCloseGitError: () => setGitError(null),
+            onSendToClaude: sendToClaude,
+            onResolveConflicts: () => void handleResolveConflicts(),
+          }}
+          conflicts={{
+            showConflictResolution,
+            onCloseConflictResolution: () => {
+              setShowConflictResolution(false);
+              focusActiveTerminal();
+            },
+            onConflictsResolved: handleConflictsResolved,
+          }}
+          authTerminal={{
+            authTerminalConfig,
+            onCloseAuthTerminal: () => closeAuthTerminal(),
+            onAuthTerminalExit: (exitCode) =>
+              void handleAuthTerminalExit(exitCode, currentProject.path),
+          }}
+          installTerminal={{
+            installTerminalConfig,
+            installTerminalExited,
+            onCloseInstallTerminal,
+            onInstallTerminalExit,
+          }}
+          devCommand={{ customDevCommand, onSaveDevCommand: handleSaveDevCommand }}
+          projectSettings={{
+            devServerPort,
+            onSavePort: lifecycle.handleSavePort,
+            isWebProject,
+          }}
+          shopify={{
+            isShopifyTheme: shopify.isShopifyTheme,
+            onShopifyStoreSaved: shopify.connect,
+          }}
+          worktree={{
+            currentBranch: currentBranch || 'main',
+            worktrees: worktree.worktrees,
+            onWorktreeCreated: worktree.handleCreated,
+          }}
+          pluginTerminal={{
+            pluginTerminal,
+            pluginTerminalExited,
+            onClosePluginTerminal: closePluginTerminal,
+            onPluginTerminalExit: handlePluginTerminalExit,
+          }}
         />
       </div>
     </>

@@ -10,9 +10,8 @@
 
 import { useState, useEffect, useCallback, memo } from 'react';
 import { GitHubCalendar as GitHubCalendarLib } from 'react-github-calendar';
-import { Tooltip } from 'react-tooltip';
-import 'react-tooltip/dist/react-tooltip.css';
-import { EyeOffIcon } from '../icons';
+import { EyeOffIcon } from '@/components/icons';
+import { Tooltip } from '../primitives/Tooltip';
 
 interface Activity {
   date: string;
@@ -110,9 +109,9 @@ function CalendarSkeleton() {
 // Stable renderBlock callback — avoids creating a new function reference every render,
 // which would cause react-github-calendar to re-render all 365+ SVG blocks.
 const renderBlock = (block: React.ReactElement, activity: Activity) => (
-  <g data-tooltip-id="github-calendar-tooltip" data-tooltip-content={formatTooltip(activity)}>
-    {block}
-  </g>
+  <Tooltip content={formatTooltip(activity)} delayMs={50}>
+    <g>{block}</g>
+  </Tooltip>
 );
 
 export const GitHubCalendar = memo(function GitHubCalendar({
@@ -175,9 +174,9 @@ export const GitHubCalendar = memo(function GitHubCalendar({
             colorScheme="dark"
             theme={theme}
             blockSize={12}
-            blockMargin={4}
-            blockRadius={3}
-            fontSize={12}
+            blockMargin={2}
+            blockRadius={4}
+            fontSize={10}
             showColorLegend={false}
             showTotalCount={false}
             year={currentYear}
@@ -186,7 +185,6 @@ export const GitHubCalendar = memo(function GitHubCalendar({
           />
         </div>
       )}
-      <Tooltip id="github-calendar-tooltip" className="github-calendar-tooltip" />
     </div>
   );
 });

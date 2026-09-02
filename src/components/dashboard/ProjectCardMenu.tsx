@@ -11,15 +11,18 @@
 
 import {
   TrashIcon,
-  FolderIcon,
+  MoveToFolderIcon,
+  PinIcon,
   WarningIcon,
-  DownloadIcon,
+  TemplateIcon,
   CloseIcon,
-  ImageIcon,
-  EditIcon,
-  LayersIcon,
-} from '../icons';
+  ImageUploadIcon,
+  EditFieldIcon,
+  MoveToWorkspaceIcon,
+  MoreHorizontalIcon,
+} from '@/components/icons';
 import { Dropdown, DropdownItem, DropdownDivider } from '../primitives/Dropdown';
+import { IconButton } from '../primitives/IconButton';
 
 interface ProjectCardMenuProps {
   /** Whether main branch warning is hidden */
@@ -70,14 +73,13 @@ export function ProjectCardMenu({
       <Dropdown
         align="right"
         trigger={(p) => (
-          <button
-            className="project-card-menu"
+          <IconButton
+            variant="ghost"
+            icon={<MoreHorizontalIcon />}
             title="Project options"
             aria-label="Project options"
             {...p}
-          >
-            &bull;&bull;&bull;
-          </button>
+          />
         )}
       >
         <DropdownItem
@@ -90,40 +92,33 @@ export function ProjectCardMenu({
           </span>
         </DropdownItem>
         {onRename && !isExternal && (
-          <DropdownItem icon={<EditIcon size={14} />} onSelect={onRename}>
+          <DropdownItem icon={<EditFieldIcon size={14} />} onSelect={onRename}>
             <span>Rename project</span>
           </DropdownItem>
         )}
         {onMoveToFolder && (
-          <DropdownItem icon={<FolderIcon size={14} />} onSelect={onMoveToFolder}>
+          <DropdownItem icon={<MoveToFolderIcon size={14} />} onSelect={onMoveToFolder}>
             <span>Move to folder</span>
           </DropdownItem>
         )}
         {onMoveToWorkspace && (
-          <DropdownItem icon={<LayersIcon size={14} />} onSelect={onMoveToWorkspace}>
+          <DropdownItem icon={<MoveToWorkspaceIcon size={14} />} onSelect={onMoveToWorkspace}>
             <span>Move to workspace</span>
           </DropdownItem>
         )}
         {onExportAsTemplate && (
-          <DropdownItem icon={<DownloadIcon size={14} />} onSelect={onExportAsTemplate}>
+          <DropdownItem icon={<TemplateIcon size={14} />} onSelect={onExportAsTemplate}>
             <span>Export as template</span>
           </DropdownItem>
         )}
         {onUploadThumbnail && (
-          <DropdownItem icon={<ImageIcon size={14} />} onSelect={onUploadThumbnail}>
+          <DropdownItem icon={<ImageUploadIcon size={14} />} onSelect={onUploadThumbnail}>
             <span>Upload new thumbnail</span>
           </DropdownItem>
         )}
         {onTogglePin && (
           <DropdownItem
-            icon={
-              <span
-                aria-hidden="true"
-                style={{ width: 14, display: 'inline-block', textAlign: 'center' }}
-              >
-                {isPinned ? '○' : '●'}
-              </span>
-            }
+            icon={<PinIcon size={14} />}
             onSelect={() => {
               void onTogglePin(!isPinned);
             }}

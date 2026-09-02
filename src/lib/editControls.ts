@@ -22,14 +22,38 @@ export type RegistryControl =
   | { kind: 'spacingBox'; key: string }
   | { kind: 'gap'; key: string }
   | { kind: 'opacity'; key: string }
+  | {
+      kind: 'value';
+      key: string;
+      valueType:
+        | 'border'
+        | 'radius'
+        | 'z-index'
+        | 'blur'
+        | 'font-size'
+        | 'line-height'
+        | 'letter-spacing';
+    }
   | { kind: 'enum'; key: string; control: EnumControl }
   | { kind: 'color'; key: string; label: string; css: string; prefix: ColorPrefix }
-  | { kind: 'length'; key: string; label: string; prefix: string; css: string }
+  | {
+      kind: 'length';
+      key: string;
+      label: string;
+      prefix: string;
+      css: string;
+      valueType: 'size' | 'min-size' | 'max-size';
+    }
   | { kind: 'custom'; key: string };
 
 /** A sizing (length) row: width / height / max-width / min-height. */
-function lengthRow(label: string, prefix: string, css: string): RegistryControl {
-  return { kind: 'length', key: `length:${prefix}`, label, prefix, css };
+function lengthRow(
+  label: string,
+  prefix: string,
+  css: string,
+  valueType: 'size' | 'min-size' | 'max-size' = 'size'
+): RegistryControl {
+  return { kind: 'length', key: `length:${prefix}`, label, prefix, css, valueType };
 }
 
 export interface ControlSection {
@@ -55,10 +79,37 @@ function colorRow(prefix: ColorPrefix): RegistryControl {
   return { kind: 'color', key: `color:${prefix}`, label: c.label, css: c.css, prefix: c.prefix };
 }
 
-/** The panel's sections, in render order. Size & Spacing leads (the most-reached-for
- *  controls), then Layout / Typography; Backgrounds & Borders, Effects and Custom CSS
+function valueRow(
+  valueType:
+    | 'border'
+    | 'radius'
+    | 'z-index'
+    | 'blur'
+    | 'font-size'
+    | 'line-height'
+    | 'letter-spacing'
+): RegistryControl {
+  return { kind: 'value', key: `value:${valueType}`, valueType };
+}
+
+/** The panel's sections, in render order. Layout leads, then Size & Spacing / Typography;
+ *  Backgrounds & Borders, Effects and Custom CSS
  *  collapse to keep the panel calm. */
 export const CONTROL_SECTIONS: ControlSection[] = [
+  {
+    id: 'layout',
+    title: 'Layout',
+    defaultOpen: true,
+    controls: [
+      enumRow('Display'),
+      enumRow('Direction'),
+      enumRow('Wrap'),
+      enumRow('Justify'),
+      enumRow('Align items'),
+      { kind: 'gap', key: 'gap' },
+      enumRow('Overflow'),
+    ],
+  },
   {
     id: 'size',
     title: 'Size & Spacing',
@@ -66,36 +117,29 @@ export const CONTROL_SECTIONS: ControlSection[] = [
     controls: [
       lengthRow('Width', 'w', 'width'),
       lengthRow('Height', 'h', 'height'),
-      lengthRow('Max width', 'max-w', 'max-width'),
-      lengthRow('Min height', 'min-h', 'min-height'),
+      lengthRow('Min W', 'min-w', 'min-width', 'min-size'),
+      lengthRow('Min H', 'min-h', 'min-height', 'min-size'),
+      lengthRow('Max W', 'max-w', 'max-width', 'max-size'),
+      lengthRow('Max H', 'max-h', 'max-height', 'max-size'),
       { kind: 'spacingBox', key: 'spacingBox' },
     ],
   },
   {
-    id: 'layout',
-    title: 'Layout',
-    defaultOpen: false,
-    controls: [
-      enumRow('Display'),
-      enumRow('Position'),
-      enumRow('Direction'),
-      enumRow('Wrap'),
-      enumRow('Justify'),
-      enumRow('Align items'),
-      { kind: 'gap', key: 'gap' },
-      enumRow('Overflow'),
-      enumRow('Z-index'),
-    ],
+    id: 'position',
+    title: 'Position',
+    defaultOpen: true,
+    controls: [enumRow('Position'), valueRow('z-index')],
   },
   {
     id: 'typography',
     title: 'Typography',
     defaultOpen: true,
     controls: [
-      enumRow('Size'),
+      enumRow('Font'),
+      valueRow('font-size'),
       enumRow('Weight'),
-      enumRow('Line height'),
-      enumRow('Letter spacing'),
+      valueRow('line-height'),
+      valueRow('letter-spacing'),
       enumRow('Align'),
       enumRow('Transform'),
       enumRow('Style'),
@@ -109,9 +153,9 @@ export const CONTROL_SECTIONS: ControlSection[] = [
     defaultOpen: false,
     controls: [
       colorRow('bg'),
-      enumRow('Border'),
+      valueRow('border'),
       colorRow('border'),
-      enumRow('Radius'),
+      valueRow('radius'),
       enumRow('Shadow'),
     ],
   },
@@ -119,12 +163,12 @@ export const CONTROL_SECTIONS: ControlSection[] = [
     id: 'effects',
     title: 'Effects',
     defaultOpen: false,
-    controls: [{ kind: 'opacity', key: 'opacity' }, enumRow('Blur'), enumRow('Cursor')],
+    controls: [{ kind: 'opacity', key: 'opacity' }, valueRow('blur'), enumRow('Cursor')],
   },
   {
     id: 'custom',
     title: 'Custom CSS',
-    defaultOpen: false,
+    defaultOpen: true,
     controls: [{ kind: 'custom', key: 'custom' }],
   },
 ];

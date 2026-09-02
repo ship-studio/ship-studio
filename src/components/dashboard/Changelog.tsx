@@ -11,7 +11,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { WarningIcon } from '../icons';
+import { WarningIcon } from '@/components/icons';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { installVersion } from '../../lib/updater';

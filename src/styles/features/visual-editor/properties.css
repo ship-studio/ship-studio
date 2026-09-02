@@ -1,0 +1,683 @@
+/* Collapsible control sections (Layout, Spacing, Typography, …). Native
+   <details>; the chevron rotates when the section is open. */
+.ss-edit-panel__section {
+  /* Never shrink: the body is a flex column, and without this flexbox compresses
+     tall sections to fit — clipping their content (overflow:hidden) instead of
+     letting the body scroll. flex:none keeps each section at its natural height. */
+  flex: 0 0 auto;
+  margin-inline: calc(-1 * var(--editor-panel-inline-pad));
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+/* Keep <summary> at its default display for WebKit/Tauri (see PropSection.tsx) —
+   only hide the marker and set the typographic style here. */
+.ss-edit-panel__section-head {
+  box-sizing: border-box;
+  height: var(--editor-panel-section-h);
+  padding: 0 var(--editor-panel-inline-pad);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: var(--space-16);
+  color: var(--text-inverse);
+  border-top: var(--stroke-1) solid var(--border-subtle);
+  transition: color var(--transition);
+}
+.ss-edit-panel__section-head::-webkit-details-marker {
+  display: none;
+}
+.ss-edit-panel__section-head::marker {
+  content: '';
+}
+.ss-edit-panel__section-head:hover {
+  color: var(--text-primary);
+}
+/* The flex row lives INSIDE the summary, not on it. */
+.ss-edit-panel__section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 100%;
+}
+.ss-edit-panel__section-chevron {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+.ss-edit-panel__section[open] .ss-edit-panel__section-chevron {
+  transform: rotate(180deg);
+}
+.ss-edit-panel__section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--editor-panel-row-gap);
+  padding: var(--editor-panel-inline-pad);
+}
+.ss-edit-panel__section--size .ss-edit-panel__section-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+.ss-edit-panel__section--size .ss-box {
+  grid-column: 1 / -1;
+  justify-self: center;
+  margin-top: var(--spacing-xs);
+}
+
+/* Section rows use the Figma form proportions. Context rows intentionally keep
+   their existing flex layout because they are outside the disclosure bodies. */
+.ss-edit-panel__section .ss-edit-panel__control {
+  display: grid;
+  grid-template-columns: var(--editor-panel-label-w) var(--spacing-xs) minmax(0, 1fr);
+  gap: 0;
+  min-width: 0;
+}
+.ss-edit-panel__section .ss-edit-panel__control > .ss-edit-panel__label {
+  grid-column: 1;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+}
+.ss-edit-panel__section .ss-edit-panel__control > :not(.ss-edit-panel__label) {
+  grid-column: 3;
+  min-width: 0;
+}
+.ss-edit-panel__section .ss-edit-panel__control > .segmented-control,
+.ss-edit-panel__section .ss-edit-panel__control > .ss-enum__trigger,
+.ss-edit-panel__section .ss-edit-panel__control > .ss-edit-panel__stepper {
+  width: 100%;
+}
+.ss-edit-panel__section .ss-edit-panel__control > .ss-edit-panel__stepper {
+  justify-content: flex-end;
+}
+.ss-edit-panel__section .ss-edit-panel__control > .ss-text-field,
+.ss-edit-panel__section .ss-edit-panel__control > .value-field,
+.ss-edit-panel__section .ss-edit-panel__control > .ss-color-swatch,
+.ss-edit-panel__section .ss-edit-panel__control > .ss-edit-panel__slider {
+  justify-self: end;
+}
+.ss-edit-panel__section--size .ss-edit-panel__control {
+  grid-template-columns: minmax(0, 0.8fr) var(--spacing-xs) minmax(0, 1.2fr);
+}
+.ss-edit-panel__section--size .ss-edit-panel__control > .ss-edit-panel__label {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ss-edit-panel__control {
+  position: relative; /* anchors the breakpoint "?" tooltip to the full row */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Box-model spacing editor (margin outer, padding inner). Each trapezoid uses
+   the shared Button Effects shadow. The margin ring stops two units before the
+   padding group, so those shadows create the Figma divider without a stroke. */
+.ss-box {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--editor-panel-spacing-h);
+  overflow: hidden;
+  border: none;
+  border-radius: var(--radius-4);
+  background: var(--surface-panel);
+  box-shadow: var(--button-shadow);
+  user-select: none;
+}
+.ss-box__margin,
+.ss-box__padding {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+.ss-box__margin {
+  z-index: var(--z-editor-spacing-band);
+}
+.ss-box__band {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  box-shadow: var(--button-shadow);
+  transition:
+    background-color var(--transition),
+    box-shadow var(--transition);
+}
+.ss-box__band:active {
+  cursor: grabbing;
+}
+.ss-box__band:hover {
+  background: var(--ss-box-band-hover);
+}
+.ss-box__margin .ss-box__band--top {
+  inset: 0 0 auto;
+  height: var(--editor-panel-spacing-margin-inner-y);
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    calc(100% - var(--editor-panel-spacing-margin-inner-x)) 100%,
+    var(--editor-panel-spacing-margin-inner-x) 100%
+  );
+  --ss-box-band-hover: var(--editor-panel-spacing-margin-top-hover);
+  background: var(--editor-panel-spacing-margin-top);
+}
+.ss-box__margin .ss-box__band--right {
+  inset: 0 0 0 auto;
+  width: var(--editor-panel-spacing-margin-inner-x);
+  clip-path: polygon(
+    100% 0,
+    100% 100%,
+    0 calc(100% - var(--editor-panel-spacing-margin-inner-y)),
+    0 var(--editor-panel-spacing-margin-inner-y)
+  );
+  --ss-box-band-hover: var(--editor-panel-spacing-margin-side-hover);
+  background: var(--editor-panel-spacing-margin-side);
+}
+.ss-box__margin .ss-box__band--bottom {
+  inset: auto 0 0;
+  height: var(--editor-panel-spacing-margin-inner-y);
+  clip-path: polygon(
+    var(--editor-panel-spacing-margin-inner-x) 0,
+    calc(100% - var(--editor-panel-spacing-margin-inner-x)) 0,
+    100% 100%,
+    0 100%
+  );
+  --ss-box-band-hover: var(--editor-panel-spacing-margin-bottom-hover);
+  background: var(--editor-panel-spacing-margin-bottom);
+}
+.ss-box__margin .ss-box__band--left {
+  inset: 0 auto 0 0;
+  width: var(--editor-panel-spacing-margin-inner-x);
+  clip-path: polygon(
+    0 0,
+    100% var(--editor-panel-spacing-margin-inner-y),
+    100% calc(100% - var(--editor-panel-spacing-margin-inner-y)),
+    0 100%
+  );
+  --ss-box-band-hover: var(--editor-panel-spacing-margin-side-hover);
+  background: var(--editor-panel-spacing-margin-side);
+}
+.ss-box__inner {
+  position: absolute;
+  top: var(--editor-panel-spacing-inner-y);
+  right: var(--editor-panel-spacing-inner-x);
+  bottom: var(--editor-panel-spacing-inner-y);
+  left: var(--editor-panel-spacing-inner-x);
+  z-index: var(--z-editor-spacing-surface);
+  border: none;
+  border-radius: var(--radius-2);
+  background: var(--surface-panel);
+}
+.ss-box__padding {
+  z-index: 0;
+}
+.ss-box__padding .ss-box__band {
+  --ss-box-band-hover: var(--editor-panel-spacing-padding-side-hover);
+  background: var(--editor-panel-spacing-padding-side);
+}
+.ss-box__padding .ss-box__band--top {
+  inset: 0 0 auto;
+  height: var(--editor-panel-spacing-core-y);
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    calc(100% - var(--editor-panel-spacing-core-x)) 100%,
+    var(--editor-panel-spacing-core-x) 100%
+  );
+  --ss-box-band-hover: var(--editor-panel-spacing-padding-top-hover);
+  background: var(--editor-panel-spacing-padding-top);
+}
+.ss-box__padding .ss-box__band--right {
+  inset: 0 0 0 auto;
+  width: var(--editor-panel-spacing-core-x);
+  clip-path: polygon(
+    100% 0,
+    100% 100%,
+    0 calc(100% - var(--editor-panel-spacing-core-y)),
+    0 var(--editor-panel-spacing-core-y)
+  );
+}
+.ss-box__padding .ss-box__band--bottom {
+  inset: auto 0 0;
+  height: var(--editor-panel-spacing-core-y);
+  clip-path: polygon(
+    var(--editor-panel-spacing-core-x) 0,
+    calc(100% - var(--editor-panel-spacing-core-x)) 0,
+    100% 100%,
+    0 100%
+  );
+  --ss-box-band-hover: var(--editor-panel-spacing-padding-bottom-hover);
+  background: var(--editor-panel-spacing-padding-bottom);
+}
+.ss-box__padding .ss-box__band--left {
+  inset: 0 auto 0 0;
+  width: var(--editor-panel-spacing-core-x);
+  clip-path: polygon(
+    0 0,
+    100% var(--editor-panel-spacing-core-y),
+    100% calc(100% - var(--editor-panel-spacing-core-y)),
+    0 100%
+  );
+}
+
+/* Keep a segment highlighted while its editable value owns the pointer. */
+.ss-box:has(> .ss-box__edge--t:hover) .ss-box__margin .ss-box__band--top,
+.ss-box:has(> .ss-box__edge--r:hover) .ss-box__margin .ss-box__band--right,
+.ss-box:has(> .ss-box__edge--b:hover) .ss-box__margin .ss-box__band--bottom,
+.ss-box:has(> .ss-box__edge--l:hover) .ss-box__margin .ss-box__band--left,
+.ss-box__inner:has(> .ss-box__edge--t:hover) .ss-box__padding .ss-box__band--top,
+.ss-box__inner:has(> .ss-box__edge--r:hover) .ss-box__padding .ss-box__band--right,
+.ss-box__inner:has(> .ss-box__edge--b:hover) .ss-box__padding .ss-box__band--bottom,
+.ss-box__inner:has(> .ss-box__edge--l:hover) .ss-box__padding .ss-box__band--left {
+  background: var(--ss-box-band-hover);
+}
+.ss-box__core {
+  position: absolute;
+  top: var(--editor-panel-spacing-core-y);
+  right: var(--editor-panel-spacing-core-x);
+  left: var(--editor-panel-spacing-core-x);
+  height: var(--editor-panel-spacing-core-h);
+  border: none;
+  border-radius: var(--radius-2);
+  background: var(--surface-panel);
+}
+.ss-box__tag {
+  position: absolute;
+  top: var(--space-06);
+  left: var(--space-06);
+  z-index: var(--z-editor-spacing-field);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-default);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--editor-panel-spacing-label);
+  pointer-events: none;
+}
+.ss-box__field {
+  position: absolute;
+  z-index: var(--z-editor-spacing-field);
+  box-sizing: border-box;
+  field-sizing: content;
+  width: auto;
+  min-width: calc(1ch + var(--space-08));
+  margin: 0;
+  padding: var(--space-02) var(--space-04);
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-default);
+  font-variant-numeric: tabular-nums;
+  color: var(--editor-panel-spacing-value);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  transition:
+    background-color var(--transition),
+    box-shadow var(--transition),
+    color var(--transition);
+}
+.ss-box__field:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--stroke-1) var(--border-strong);
+}
+.ss-box__field--inherited {
+  color: var(--property-label-inherited-text);
+  background: var(--property-label-inherited-surface);
+}
+.ss-box__field--modified {
+  color: var(--property-label-modified-text);
+  background: var(--property-label-modified-surface);
+}
+/* Invalid typed value (bad unit) — flag the field; it isn't applied. */
+.ss-box__field--invalid,
+.ss-box__field--invalid:focus {
+  outline: none;
+  color: var(--accent-error);
+  box-shadow: inset 0 0 0 var(--stroke-1) var(--accent-error);
+}
+/* Content-sized fields are centered within each side's band. */
+.ss-box__edge--t,
+.ss-box__edge--b {
+  left: 50%;
+  right: auto;
+  width: auto;
+  height: auto;
+}
+.ss-box__edge--t {
+  top: calc((var(--editor-panel-spacing-inner-y) - var(--stroke-2)) / 2);
+  transform: translate(-50%, -50%);
+}
+.ss-box__edge--b {
+  bottom: calc((var(--editor-panel-spacing-inner-y) - var(--stroke-2)) / 2);
+  transform: translate(-50%, 50%);
+}
+.ss-box__edge--l,
+.ss-box__edge--r {
+  top: 50%;
+  bottom: auto;
+  width: auto;
+  height: auto;
+}
+.ss-box__edge--l {
+  left: calc((var(--editor-panel-spacing-inner-x) - var(--stroke-1)) / 2);
+  transform: translate(-50%, -50%);
+}
+.ss-box__edge--r {
+  right: calc((var(--editor-panel-spacing-inner-x) - var(--stroke-1)) / 2);
+  transform: translate(50%, -50%);
+}
+.ss-box__inner .ss-box__edge--t,
+.ss-box__inner .ss-box__edge--b {
+  left: 50%;
+  right: auto;
+  width: auto;
+  height: auto;
+}
+.ss-box__inner .ss-box__edge--t {
+  top: calc((var(--editor-panel-spacing-core-y) - var(--stroke-2)) / 2);
+}
+.ss-box__inner .ss-box__edge--b {
+  bottom: calc((var(--editor-panel-spacing-core-y) - var(--stroke-2)) / 2);
+}
+.ss-box__inner .ss-box__edge--l,
+.ss-box__inner .ss-box__edge--r {
+  top: 50%;
+  bottom: auto;
+  width: auto;
+  height: auto;
+}
+.ss-box__inner .ss-box__edge--l {
+  left: calc(var(--editor-panel-spacing-core-x) / 2);
+}
+.ss-box__inner .ss-box__edge--r {
+  right: calc(var(--editor-panel-spacing-core-x) / 2);
+}
+
+.ss-edit-panel__label {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  padding: var(--space-02) var(--space-04);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
+.ss-edit-panel__label--inherited {
+  color: var(--property-label-inherited-text);
+  background: var(--property-label-inherited-surface);
+}
+
+.ss-edit-panel__label--modified {
+  color: var(--property-label-modified-text);
+  background: var(--property-label-modified-surface);
+}
+
+/* A label that doubles as a Reset trigger: the name is a bare button, and a small
+   "Reset?" pill appears beside it when clicked. */
+.ss-edit-panel__label--resettable {
+  gap: var(--spacing-sm);
+}
+.ss-edit-panel__labelbtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+.ss-edit-panel__labelbtn:hover {
+  /* Only brighten the name; this compact control has no surface state. */
+  background: none;
+  color: inherit;
+}
+/* Floating "Reset" that pops up next to the cursor when a set value's name is
+   clicked — portaled to <body> and positioned fixed, so it never shifts the row. */
+.ss-reset-pop {
+  position: fixed;
+  z-index: calc(var(--z-modal-overlay) + 2);
+  padding: 4px 10px;
+  font-size: var(--font-size-body-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+}
+.ss-reset-pop:hover {
+  border-color: var(--text-muted);
+  background: var(--surface-panel);
+}
+
+/* Provenance popover for an ancestor-inherited value (the orange label state) —
+   same portal + fixed positioning contract as the Reset pill above. */
+.ss-inherit-pop__anchor {
+  position: fixed;
+  z-index: calc(var(--z-modal-overlay) + 2);
+}
+.ss-inherit-pop {
+  width: 216px;
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-primary);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+.ss-inherit-pop__title {
+  margin: 0;
+  color: var(--property-label-inherited-text);
+  font-weight: 600;
+}
+.ss-inherit-pop__from {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+.ss-inherit-pop__from code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.ss-inherit-pop__token {
+  padding: 0 var(--space-02);
+  border-radius: var(--radius-sm);
+  background: var(--property-label-inherited-surface);
+  color: var(--property-label-inherited-text);
+}
+.ss-inherit-pop__value {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.ss-inherit-pop__value code {
+  color: var(--text-primary);
+}
+.ss-inherit-pop__source {
+  display: flex;
+  align-items: center;
+  min-height: var(--space-06);
+}
+.ss-inherit-pop__nosrc {
+  color: var(--text-muted);
+}
+.ss-inherit-pop__hint {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.ss-edit-panel__stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+/* Compact the −/＋ buttons to match the shrunken control height. */
+.ss-edit-panel__stepper button {
+  min-width: var(--size-control-medium);
+  padding-inline: var(--spacing-sm);
+}
+
+/* Non-interactive "Saved" confirmation (replaces a disabled button so there's
+   no misleading hover affordance when there's nothing to save). */
+.ss-edit-panel__saved {
+  cursor: default;
+  user-select: none;
+  pointer-events: none;
+}
+.ss-edit-panel__saved svg {
+  color: var(--accent-active);
+}
+
+/* The numeric editor adds its own invalid treatment to the shared field. */
+.ss-edit-panel__num--invalid,
+.ss-edit-panel__num--invalid:focus {
+  color: var(--accent-error);
+  border-color: var(--accent-error);
+  outline-color: var(--accent-error);
+}
+
+/* Editable numeric field (gap) — click to type a value. */
+.ss-edit-panel__num {
+  width: var(--editor-panel-field-w);
+  text-align: left;
+}
+
+/* Wider free-form field (sizing values, custom CSS) — left-aligned, room for a
+   keyword or length. Shares the invalid flag with __num. */
+.ss-edit-panel__text {
+  width: var(--editor-panel-field-w);
+}
+
+.ss-edit-panel__display-controls,
+.ss-edit-panel__range-value,
+.ss-color-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.ss-edit-panel__display-controls {
+  width: 100%;
+  box-sizing: border-box;
+  gap: 0;
+  padding: var(--border-width-default);
+  overflow: hidden;
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-control);
+  box-shadow: var(--button-shadow);
+}
+
+.ss-edit-panel__display-controls > .segmented-control {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: var(--spacing-2xs);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ss-edit-panel__display-controls > .ss-enum__trigger {
+  flex: 0 0 var(--size-control-medium);
+  width: var(--size-control-medium);
+  min-width: var(--size-control-medium);
+  height: var(--size-control-medium);
+  min-height: var(--size-control-medium);
+  padding-inline: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  box-shadow: none;
+}
+
+.ss-edit-panel__display-controls > .ss-enum__trigger:hover {
+  background: var(--surface-control-hover);
+}
+
+.ss-edit-panel__range-value {
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+  width: 100%;
+}
+
+.ss-edit-panel__range-value .ss-edit-panel__slider {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.ss-edit-panel__opacity-value {
+  flex: 0 0 calc(var(--spacing-2xl) + var(--spacing-lg));
+  width: calc(var(--spacing-2xl) + var(--spacing-lg));
+}
+
+.ss-color-field {
+  width: 100%;
+}
+
+.ss-color-field__value {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: calc(var(--spacing-2xl) * 3);
+}
+
+.ss-color-field__value .value-field__unit {
+  min-width: var(--spacing-xl);
+  padding-inline: var(--spacing-xs);
+}
+
+/* Custom CSS box: declaration rows use the same cascade-editor treatment as the
+   non-Tailwind CSS editor. */
+.ss-custom-css {
+  display: flex;
+  flex-direction: column;
+}
+.ss-custom-css__list {
+  display: flex;
+  flex-direction: column;
+}
+.ss-custom-css__add {
+  display: flex;
+  align-items: center;
+}
+
+.ss-edit-panel__value {
+  min-width: 24px;
+  text-align: center;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-edit-panel__classes {
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+  color: var(--text-muted);
+  background: var(--surface-control);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  word-break: break-word;
+}

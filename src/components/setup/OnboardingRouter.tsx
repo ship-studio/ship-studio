@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useState } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { OnboardingScreen } from './OnboardingScreen';
 import { AgentOnboardingScreen } from './agent-led/AgentOnboardingScreen';
 import { trackEvent } from '../../lib/analytics';
@@ -42,6 +43,20 @@ interface OnboardingRouterProps {
 export function OnboardingRouter({ onComplete }: OnboardingRouterProps) {
   const [mode, setMode] = useState<OnboardingMode>(readStoredMode);
 
+  const handleDrag = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
+    e.preventDefault();
+    void getCurrentWindow().startDragging();
+  }, []);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
+    const win = getCurrentWindow();
+    void win.isMaximized().then((maximized) => {
+      void (maximized ? win.unmaximize() : win.maximize());
+    });
+  }, []);
+
   const switchMode = useCallback((next: OnboardingMode) => {
     try {
       localStorage.setItem(MODE_STORAGE_KEY, next);
@@ -54,6 +69,11 @@ export function OnboardingRouter({ onComplete }: OnboardingRouterProps) {
 
   return (
     <div className="onboarding-router">
+      <div
+        className="onboarding-drag-region"
+        onMouseDown={handleDrag}
+        onDoubleClick={handleDoubleClick}
+      />
       {mode === 'agent' ? (
         <AgentOnboardingScreen key="agent" onComplete={onComplete} />
       ) : (

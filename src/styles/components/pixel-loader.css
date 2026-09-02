@@ -1,0 +1,184 @@
+/* ===== Primitive: PixelLoader ===== */
+.ss-pixel-loader {
+  display: grid;
+  grid-template-columns: repeat(var(--pixel-loader-grid-size, 5), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--pixel-loader-grid-size, 5), minmax(0, 1fr));
+  gap: var(--pixel-loader-gap);
+  width: var(--pixel-loader-size-md);
+  height: var(--pixel-loader-size-md);
+  flex-shrink: 0;
+  color: var(--pixel-loader-color);
+}
+
+.ss-pixel-loader--sm {
+  width: var(--pixel-loader-size-sm);
+  height: var(--pixel-loader-size-sm);
+}
+
+.ss-pixel-loader--lg {
+  width: var(--pixel-loader-size-lg);
+  height: var(--pixel-loader-size-lg);
+}
+
+.ss-pixel-loader__pixel {
+  min-width: 0;
+  min-height: 0;
+  background: currentColor;
+  opacity: var(--pixel-loader-rest-opacity);
+  box-shadow:
+    0 0 var(--pixel-loader-glow-tight)
+      color-mix(in srgb, currentColor var(--pixel-loader-glow-tight-opacity), transparent),
+    0 0 var(--pixel-loader-glow-wide)
+      color-mix(in srgb, currentColor var(--pixel-loader-glow-wide-opacity), transparent);
+}
+
+/* Rings: the supplied rings loader's centre-out pulse. Unlike the other
+ * variants, unlit pixels disappear completely between pulses. */
+.ss-pixel-loader--rings .ss-pixel-loader__pixel {
+  animation: ss-pixel-loader-rings-pulse var(--pixel-loader-duration-ripple)
+    var(--pixel-loader-easing) infinite;
+  animation-delay: calc(var(--pixel-loader-ring) * var(--pixel-loader-delay-step));
+  opacity: 0;
+}
+
+/* Ripple: the centre, inner ring, then outer ring brighten in sequence. */
+.ss-pixel-loader--ripple .ss-pixel-loader__pixel {
+  animation: ss-pixel-loader-pulse var(--pixel-loader-duration-ripple) var(--pixel-loader-easing)
+    infinite;
+  animation-delay: calc(var(--pixel-loader-ring) * var(--pixel-loader-delay-step));
+}
+
+/* Isolated ripple: short, separated light windows keep adjacent rings from blooming together. */
+.ss-pixel-loader--ripple-isolated .ss-pixel-loader__pixel {
+  animation: ss-pixel-loader-isolated-pulse var(--pixel-loader-duration-isolated)
+    var(--pixel-loader-easing) infinite;
+  animation-delay: calc(var(--pixel-loader-ring) * var(--pixel-loader-delay-isolated-inner));
+}
+
+/* Decay ripple: each ring fades through a mid-glow as the next ring reaches full brightness. */
+.ss-pixel-loader--ripple-decay .ss-pixel-loader__pixel {
+  animation: ss-pixel-loader-decay-pulse var(--pixel-loader-duration-decay)
+    var(--pixel-loader-easing) infinite;
+  animation-delay: calc(var(--pixel-loader-ring) * var(--pixel-loader-delay-decay-inner));
+}
+
+/* Quad ripple: the same centre-out rhythm begins from a 2×2 core on a 6×6 grid. */
+.ss-pixel-loader--ripple-quad .ss-pixel-loader__pixel {
+  animation: ss-pixel-loader-pulse var(--pixel-loader-duration-ripple) var(--pixel-loader-easing)
+    infinite;
+  animation-delay: calc(var(--pixel-loader-ring) * var(--pixel-loader-delay-step));
+}
+
+/* Tight quad ripple: a narrower light window reduces overlap between the 2×2 core and its rings. */
+.ss-pixel-loader--ripple-quad-tight .ss-pixel-loader__pixel {
+  animation: ss-pixel-loader-decay-pulse var(--pixel-loader-duration-quad-tight)
+    var(--pixel-loader-easing) infinite;
+  animation-delay: calc(var(--pixel-loader-ring) * var(--pixel-loader-delay-quad-tight-inner));
+}
+
+/* Scan: each complete column lights in turn while the grid stays fixed. */
+.ss-pixel-loader--scan .ss-pixel-loader__pixel {
+  animation: ss-pixel-loader-pulse var(--pixel-loader-duration-scan) var(--pixel-loader-easing)
+    infinite;
+  animation-delay: calc(var(--pixel-loader-column) * var(--pixel-loader-delay-step));
+}
+
+/* Spark: alternating cells shimmer like the changing glyphs in the reference. */
+.ss-pixel-loader--spark .ss-pixel-loader__pixel {
+  animation: ss-pixel-loader-spark var(--pixel-loader-duration-spark) var(--pixel-loader-easing)
+    infinite;
+  animation-delay: calc(var(--pixel-loader-phase) * var(--pixel-loader-delay-ring));
+}
+
+.ss-pixel-loader__pixel {
+  animation-direction: var(--pixel-loader-direction);
+}
+
+@keyframes ss-pixel-loader-pulse {
+  0%,
+  100% {
+    opacity: var(--pixel-loader-rest-opacity);
+    filter: brightness(var(--pixel-loader-rest-brightness));
+  }
+
+  42% {
+    opacity: var(--pixel-loader-bright-opacity);
+    filter: brightness(var(--pixel-loader-brightness));
+  }
+}
+
+@keyframes ss-pixel-loader-rings-pulse {
+  0%,
+  100% {
+    opacity: 0;
+    filter: brightness(var(--pixel-loader-rest-brightness));
+  }
+
+  42% {
+    opacity: var(--pixel-loader-bright-opacity);
+    filter: brightness(var(--pixel-loader-brightness));
+  }
+}
+
+@keyframes ss-pixel-loader-spark {
+  0%,
+  100% {
+    opacity: var(--pixel-loader-dim-opacity);
+    filter: brightness(var(--pixel-loader-spark-rest-brightness));
+  }
+
+  50% {
+    opacity: var(--pixel-loader-bright-opacity);
+    filter: brightness(var(--pixel-loader-spark-brightness));
+  }
+}
+
+@keyframes ss-pixel-loader-isolated-pulse {
+  0%,
+  32%,
+  100% {
+    opacity: var(--pixel-loader-rest-opacity);
+    filter: brightness(var(--pixel-loader-rest-brightness));
+  }
+
+  12%,
+  20% {
+    opacity: var(--pixel-loader-bright-opacity);
+    filter: brightness(var(--pixel-loader-brightness));
+  }
+}
+
+@keyframes ss-pixel-loader-decay-pulse {
+  0%,
+  58%,
+  100% {
+    opacity: var(--pixel-loader-rest-opacity);
+    filter: brightness(var(--pixel-loader-rest-brightness));
+  }
+
+  10%,
+  22% {
+    opacity: var(--pixel-loader-bright-opacity);
+    filter: brightness(var(--pixel-loader-brightness));
+  }
+
+  38% {
+    opacity: var(--pixel-loader-mid-opacity);
+    filter: brightness(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-pixel-loader__pixel {
+    animation: none;
+    opacity: var(--pixel-loader-reduced-motion-opacity);
+  }
+
+  .ss-pixel-loader__pixel[data-ring='0'] {
+    opacity: var(--pixel-loader-bright-opacity);
+  }
+
+  .ss-pixel-loader__pixel[data-ring='1'] {
+    opacity: var(--pixel-loader-mid-opacity);
+  }
+}

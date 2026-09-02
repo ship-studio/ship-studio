@@ -1351,23 +1351,7 @@ fn set_declaration_in_block(
         }
         // Remove a declaration, taking its whole line with it.
         (Some(d), None) => {
-            let bytes = css.as_bytes();
-            // Back up over the indentation to the line start.
-            let mut rs = d.decl_start;
-            while rs > inner_start && (bytes[rs - 1] == b' ' || bytes[rs - 1] == b'\t') {
-                rs -= 1;
-            }
-            // Swallow one trailing newline so we don't leave a blank line.
-            let mut re = d.decl_end;
-            while re < inner_end && (bytes[re] == b' ' || bytes[re] == b'\t') {
-                re += 1;
-            }
-            if re < inner_end && bytes[re] == b'\n' {
-                re += 1;
-            } else if rs > inner_start && bytes[rs - 1] == b'\n' {
-                // No trailing newline (last decl) — drop the leading one instead.
-                rs -= 1;
-            }
+            let (rs, re) = declaration_removal_range(css, d, inner_start, inner_end);
             let mut out = String::with_capacity(css.len());
             out.push_str(&css[..rs]);
             out.push_str(&css[re..]);
@@ -1420,6 +1404,33 @@ fn set_declaration_in_block(
         // Nothing to remove.
         (None, None) => css.to_string(),
     }
+}
+
+/// Byte range covering an entire declaration, including its indentation and one
+/// adjacent newline when available. Shared by single-declaration edits and the
+/// project-wide custom-property removal flow.
+fn declaration_removal_range(
+    css: &str,
+    declaration: &DeclSpan,
+    inner_start: usize,
+    inner_end: usize,
+) -> (usize, usize) {
+    let bytes = css.as_bytes();
+    let mut start = declaration.decl_start;
+    while start > inner_start && matches!(bytes[start - 1], b' ' | b'\t') {
+        start -= 1;
+    }
+
+    let mut end = declaration.decl_end;
+    while end < inner_end && matches!(bytes[end], b' ' | b'\t') {
+        end += 1;
+    }
+    if end < inner_end && bytes[end] == b'\n' {
+        end += 1;
+    } else if start > inner_start && bytes[start - 1] == b'\n' {
+        start -= 1;
+    }
+    (start, end)
 }
 
 /// Render a new rule (optionally wrapped in an `@media` block) ready to append.
@@ -1560,6 +1571,605 @@ fn apply_declaration_to_source(
             reason: "class is defined by multiple rules — not editable".into(),
         }),
     }
+}
+
+/// Add a custom property to the project's base `:root` scope. Unlike an ordinary
+/// declaration edit, adding a new token is safe when a stylesheet has several base
+/// `:root` blocks: append to the last one so the token is available at the stylesheet's
+/// final base cascade position. Media-scoped `:root` blocks are intentionally ignored;
+/// if there is no base block, a new base block is created instead.
+fn add_custom_property_to_source(
+    src: &str,
+    property: &str,
+    value: &str,
+) -> Result<String, CommandError> {
+    let rules = index_rules(src);
+
+    if rules
+        .iter()
+        .filter(|r| selector_has_part(&r.selector, ":root"))
+        .any(|r| {
+            declarations_in(src, r)
+                .iter()
+                .any(|d| d.property == property)
+        })
+    {
+        return Err(CommandError::Validation {
+            field: "property".into(),
+            reason: "a variable with this name already exists".into(),
+        });
+    }
+
+    if let Some(root) = rules
+        .iter()
+        .filter(|r| r.media.is_none() && selector_has_part(&r.selector, ":root"))
+        .next_back()
+    {
+        return Ok(set_declaration_in_block(
+            src,
+            root.block_inner_start,
+            root.block_inner_end,
+            property,
+            Some(value),
+        ));
+    }
+
+    let rule = build_rule_text(
+        ":root",
+        &[Declaration {
+            property: property.to_string(),
+            value: value.to_string(),
+            important: false,
+        }],
+        None,
+        None,
+    );
+    let mut out = src.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(&rule);
+    out.push('\n');
+    Ok(out)
+}
+
+/// Update one existing custom-property definition, pinned to the selector line
+/// returned by `get_css_variables`. This remains unambiguous when a stylesheet
+/// contains several rules with the same selector (commonly multiple `:root`s).
+fn set_custom_property_in_source(
+    src: &str,
+    selector: &str,
+    line: usize,
+    property: &str,
+    value: &str,
+) -> Result<String, CommandError> {
+    let rules: Vec<RuleSpan> = index_rules(src)
+        .into_iter()
+        .filter(|rule| rule.selector_line == line && rule.selector == selector)
+        .collect();
+    let Some(rule) = rules.first() else {
+        return Err(CommandError::Validation {
+            field: "variable".into(),
+            reason: "definition moved or changed — reload the variables panel and try again".into(),
+        });
+    };
+
+    let definitions: Vec<DeclSpan> =
+        locate_declarations(src, rule.block_inner_start, rule.block_inner_end)
+            .into_iter()
+            .filter(|declaration| declaration.property == property)
+            .collect();
+    if definitions.len() != 1 {
+        return Err(CommandError::Validation {
+            field: "variable".into(),
+            reason: "definition is missing or duplicated in its source rule — not editable".into(),
+        });
+    }
+
+    let definition = &definitions[0];
+    let existing = src[definition.value_start..definition.value_end].trim_end();
+    let keep_important = existing.to_ascii_lowercase().ends_with("!important")
+        && !value.to_ascii_lowercase().contains("!important");
+    let mut out = String::with_capacity(src.len() - existing.len() + value.len());
+    out.push_str(&src[..definition.value_start]);
+    out.push_str(value);
+    if keep_important {
+        out.push_str(" !important");
+    }
+    out.push_str(&src[definition.value_end..]);
+    Ok(out)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CssVariableDeleteImpact {
+    pub usage_count: usize,
+    pub rule_count: usize,
+    pub file_count: usize,
+    pub definition_count: usize,
+    pub replacement_value: String,
+}
+
+/// Replace complete `var(--name[, fallback])` functions while ignoring comments
+/// and quoted strings. CSS custom-property names are case-sensitive; the `var`
+/// function itself is ASCII case-insensitive.
+fn replace_custom_property_references(
+    css: &str,
+    property: &str,
+    replacement: &str,
+) -> (String, usize) {
+    let bytes = css.as_bytes();
+    let property_bytes = property.as_bytes();
+    let mut out = String::with_capacity(css.len());
+    let mut last = 0usize;
+    let mut i = 0usize;
+    let mut count = 0usize;
+
+    while i < bytes.len() {
+        if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        if matches!(bytes[i], b'\'' | b'"') {
+            let quote = bytes[i];
+            i += 1;
+            while i < bytes.len() && bytes[i] != quote {
+                if bytes[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            i = (i + 1).min(bytes.len());
+            continue;
+        }
+
+        let is_var = i + 3 <= bytes.len()
+            && bytes[i..i + 3].eq_ignore_ascii_case(b"var")
+            && (i == 0
+                || !matches!(
+                    bytes[i - 1],
+                    b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-'
+                ));
+        if !is_var {
+            i += 1;
+            continue;
+        }
+
+        let mut open = i + 3;
+        while open < bytes.len() && bytes[open].is_ascii_whitespace() {
+            open += 1;
+        }
+        if open >= bytes.len() || bytes[open] != b'(' {
+            i += 3;
+            continue;
+        }
+
+        let mut name_start = open + 1;
+        while name_start < bytes.len() && bytes[name_start].is_ascii_whitespace() {
+            name_start += 1;
+        }
+        let name_end = name_start.saturating_add(property_bytes.len());
+        if name_end > bytes.len()
+            || &bytes[name_start..name_end] != property_bytes
+            || (name_end < bytes.len()
+                && !bytes[name_end].is_ascii_whitespace()
+                && !matches!(bytes[name_end], b',' | b')'))
+        {
+            i = open + 1;
+            continue;
+        }
+
+        let mut cursor = open + 1;
+        let mut depth = 1usize;
+        let mut close = None;
+        while cursor < bytes.len() {
+            if bytes[cursor] == b'/' && cursor + 1 < bytes.len() && bytes[cursor + 1] == b'*' {
+                cursor += 2;
+                while cursor + 1 < bytes.len()
+                    && !(bytes[cursor] == b'*' && bytes[cursor + 1] == b'/')
+                {
+                    cursor += 1;
+                }
+                cursor = (cursor + 2).min(bytes.len());
+                continue;
+            }
+            if matches!(bytes[cursor], b'\'' | b'"') {
+                let quote = bytes[cursor];
+                cursor += 1;
+                while cursor < bytes.len() && bytes[cursor] != quote {
+                    if bytes[cursor] == b'\\' {
+                        cursor += 1;
+                    }
+                    cursor += 1;
+                }
+                cursor = (cursor + 1).min(bytes.len());
+                continue;
+            }
+            match bytes[cursor] {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(cursor + 1);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            cursor += 1;
+        }
+
+        let Some(end) = close else {
+            i = open + 1;
+            continue;
+        };
+        out.push_str(&css[last..i]);
+        out.push_str(replacement);
+        last = end;
+        i = end;
+        count += 1;
+    }
+
+    if count == 0 {
+        return (css.to_string(), 0);
+    }
+    out.push_str(&css[last..]);
+    (out, count)
+}
+
+/// Inline a custom-property reference in static class/className literals.
+/// Tailwind arbitrary values use underscores for spaces, so the replacement is
+/// encoded for a class token before it is inserted. Dynamic class expressions
+/// are intentionally left alone because the source resolver cannot safely
+/// rewrite them either.
+fn replace_custom_property_in_class_literals(
+    source: &str,
+    file: &str,
+    property: &str,
+    replacement: &str,
+) -> (String, usize, Vec<String>) {
+    let class_replacement = replacement.split_whitespace().collect::<Vec<_>>().join("_");
+    let spans =
+        crate::commands::edit::find_attr_spans(source, crate::commands::edit::attrs_for_path(file));
+    let mut updates = Vec::new();
+    let mut usage_count = 0usize;
+    let mut rule_tokens = std::collections::BTreeSet::new();
+
+    for span in spans {
+        let (updated, usages) =
+            replace_custom_property_references(&span.value, property, &class_replacement);
+        if usages == 0 {
+            continue;
+        }
+        usage_count += usages;
+        for token in span.value.split_whitespace() {
+            if replace_custom_property_references(token, property, &class_replacement).1 > 0 {
+                rule_tokens.insert(token.to_string());
+            }
+        }
+        updates.push((span.value_start, span.value_end, updated));
+    }
+
+    if updates.is_empty() {
+        return (source.to_string(), 0, Vec::new());
+    }
+
+    let mut out = source.to_string();
+    for (start, end, updated) in updates.into_iter().rev() {
+        out.replace_range(start..end, &updated);
+    }
+    (out, usage_count, rule_tokens.into_iter().collect())
+}
+
+/// Return the value spans of code-level `@apply` statements. The spans exclude
+/// the directive and its terminating semicolon, and remain valid byte ranges
+/// for reverse-order replacements.
+fn apply_value_ranges(css: &str) -> Vec<(usize, usize)> {
+    let bytes = css.as_bytes();
+    let mut ranges = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        if matches!(bytes[i], b'\'' | b'"') {
+            let quote = bytes[i];
+            i += 1;
+            while i < bytes.len() && bytes[i] != quote {
+                if bytes[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            i = (i + 1).min(bytes.len());
+            continue;
+        }
+        let is_apply = i + 6 <= bytes.len()
+            && &bytes[i..i + 6] == b"@apply"
+            && (i == 0 || !bytes[i - 1].is_ascii_alphanumeric())
+            && (i + 6 == bytes.len() || !bytes[i + 6].is_ascii_alphanumeric());
+        if !is_apply {
+            i += 1;
+            continue;
+        }
+
+        let start = i + 6;
+        let mut j = start;
+        let mut depth = 0i32;
+        let mut end = bytes.len();
+        while j < bytes.len() {
+            if bytes[j] == b'/' && j + 1 < bytes.len() && bytes[j + 1] == b'*' {
+                j += 2;
+                while j + 1 < bytes.len() && !(bytes[j] == b'*' && bytes[j + 1] == b'/') {
+                    j += 1;
+                }
+                j = (j + 2).min(bytes.len());
+                continue;
+            }
+            if matches!(bytes[j], b'\'' | b'"') {
+                let quote = bytes[j];
+                j += 1;
+                while j < bytes.len() && bytes[j] != quote {
+                    if bytes[j] == b'\\' {
+                        j += 1;
+                    }
+                    j += 1;
+                }
+                j = (j + 1).min(bytes.len());
+                continue;
+            }
+            match bytes[j] {
+                b'[' | b'(' => depth += 1,
+                b']' | b')' => depth = (depth - 1).max(0),
+                b';' | b'}' if depth == 0 => {
+                    end = j;
+                    break;
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+        ranges.push((start, end));
+        i = end.max(start + 1);
+    }
+    ranges
+}
+
+/// Replace target references inside `@apply` values using Tailwind's class
+/// encoding, leaving ordinary CSS declarations to use the raw replacement.
+fn replace_custom_property_references_in_apply(
+    css: &str,
+    property: &str,
+    replacement: &str,
+) -> (String, usize) {
+    let class_replacement = replacement.split_whitespace().collect::<Vec<_>>().join("_");
+    let mut out = css.to_string();
+    let mut usage_count = 0usize;
+    for (start, end) in apply_value_ranges(css).into_iter().rev() {
+        let (updated, usages) =
+            replace_custom_property_references(&css[start..end], property, &class_replacement);
+        if usages > 0 {
+            out.replace_range(start..end, &updated);
+            usage_count += usages;
+        }
+    }
+    (out, usage_count)
+}
+
+/// Remove every definition of one custom property, then inline its authored raw
+/// value into every remaining reference in this stylesheet.
+fn inline_and_remove_custom_property(
+    css: &str,
+    property: &str,
+    replacement: &str,
+) -> (String, usize, usize, usize, Vec<String>) {
+    let rules = index_rules(css);
+    let mut removals = Vec::new();
+    let mut definition_values = Vec::new();
+
+    for rule in &rules {
+        for declaration in locate_declarations(css, rule.block_inner_start, rule.block_inner_end) {
+            if declaration.property == property {
+                let raw = css[declaration.value_start..declaration.value_end].trim();
+                let value = raw
+                    .to_ascii_lowercase()
+                    .rfind("!important")
+                    .map(|index| raw[..index].trim())
+                    .unwrap_or(raw);
+                definition_values.push(value.to_string());
+                removals.push(declaration_removal_range(
+                    css,
+                    &declaration,
+                    rule.block_inner_start,
+                    rule.block_inner_end,
+                ));
+            }
+        }
+    }
+
+    removals.sort_unstable_by_key(|(start, _)| *start);
+    let mut without_definitions = css.to_string();
+    for (start, end) in removals.iter().rev() {
+        without_definitions.replace_range(*start..*end, "");
+    }
+
+    let rule_count = index_rules(&without_definitions)
+        .iter()
+        .filter(|rule| {
+            let body = &without_definitions[rule.block_inner_start..rule.block_inner_end];
+            declarations_in(&without_definitions, rule)
+                .iter()
+                .any(|declaration| {
+                    replace_custom_property_references(&declaration.value, property, replacement).1
+                        > 0
+                })
+                || apply_value_ranges(body).into_iter().any(|(start, end)| {
+                    replace_custom_property_references(&body[start..end], property, replacement).1
+                        > 0
+                })
+        })
+        .count();
+    let (without_apply_references, apply_usage_count) =
+        replace_custom_property_references_in_apply(&without_definitions, property, replacement);
+    let (updated, other_usage_count) =
+        replace_custom_property_references(&without_apply_references, property, replacement);
+    (
+        updated,
+        apply_usage_count + other_usage_count,
+        rule_count,
+        removals.len(),
+        definition_values,
+    )
+}
+
+struct CssVariableDeleteChange {
+    path: PathBuf,
+    original: String,
+    updated: String,
+}
+
+fn prepare_css_variable_deletion(
+    root: &Path,
+    property: &str,
+    replacement: &str,
+) -> Result<(CssVariableDeleteImpact, Vec<CssVariableDeleteChange>), CommandError> {
+    let sheets = discover_stylesheets(root);
+    let mut usage_count = 0usize;
+    let mut rule_count = 0usize;
+    let mut definition_count = 0usize;
+    let mut usage_files = std::collections::BTreeSet::new();
+    let mut class_rule_tokens = std::collections::BTreeSet::new();
+    let mut definition_values = Vec::new();
+    let mut sheet_updates: HashMap<String, Vec<(Option<usize>, String)>> = HashMap::new();
+    let mut source_updates: HashMap<String, String> = HashMap::new();
+
+    for (style_ref, css) in sheets {
+        let (updated, usages, rules, definitions, values) =
+            inline_and_remove_custom_property(&css, property, replacement);
+        let (physical, block) = parse_style_ref(&style_ref);
+        usage_count += usages;
+        rule_count += rules;
+        definition_count += definitions;
+        definition_values.extend(values);
+        if usages > 0 {
+            usage_files.insert(physical.to_string());
+        }
+        if updated != css {
+            sheet_updates
+                .entry(physical.to_string())
+                .or_default()
+                .push((block, updated));
+        }
+    }
+
+    // Tailwind usages are authored in component markup as arbitrary-value
+    // utilities, for example text-[var(--brand)]. They do not appear in the
+    // generated CSS files and therefore need their own source pass.
+    for (relative, source) in crate::commands::edit::source_files(root) {
+        let (updated, usages, rules) =
+            replace_custom_property_in_class_literals(&source, &relative, property, replacement);
+        if usages > 0 {
+            usage_count += usages;
+            usage_files.insert(relative.clone());
+            class_rule_tokens.extend(rules);
+        }
+        if updated != source {
+            source_updates.insert(relative, updated);
+        }
+    }
+
+    if definition_count == 0 {
+        return Err(CommandError::Validation {
+            field: "property".into(),
+            reason: "the variable definition no longer exists — refresh the panel".into(),
+        });
+    }
+    if definition_values.iter().any(|value| value != replacement) {
+        return Err(CommandError::Validation {
+            field: "property".into(),
+            reason: "the variable has conflicting definitions — make their values match before deleting it"
+                .into(),
+        });
+    }
+
+    let mut changes = Vec::new();
+    for (relative, mut updates) in sheet_updates {
+        let path = safe_join(root, &relative)?;
+        let original = std::fs::read_to_string(&path).map_err(CommandError::from)?;
+        // An Astro file can contain both a class literal and an embedded style
+        // block. Apply the markup edit first, then recalculate style block
+        // offsets before applying the CSS edit.
+        let mut updated_host = source_updates
+            .remove(&relative)
+            .unwrap_or_else(|| original.clone());
+        if updates.iter().any(|(block, _)| block.is_none()) {
+            let (_, updated) = updates
+                .pop()
+                .expect("a whole-file stylesheet update must contain one entry");
+            updated_host = updated;
+        } else {
+            let blocks = astro_style_blocks(&updated_host);
+            updates.sort_unstable_by_key(|(block, _)| block.unwrap_or(0));
+            for (block, updated_css) in updates.into_iter().rev() {
+                let index = block.expect("Astro updates always carry a style-block index");
+                let (start, end) =
+                    blocks
+                        .get(index)
+                        .copied()
+                        .ok_or_else(|| CommandError::Validation {
+                            field: "file".into(),
+                            reason:
+                                "a <style> block changed while preparing the deletion — try again"
+                                    .into(),
+                        })?;
+                updated_host.replace_range(start..end, &updated_css);
+            }
+        }
+        if updated_host != original {
+            changes.push(CssVariableDeleteChange {
+                path,
+                original,
+                updated: updated_host,
+            });
+        }
+    }
+
+    // Remaining updates are component/template files without an embedded CSS
+    // block, such as TSX, JSX, or plain HTML.
+    for (relative, updated) in source_updates {
+        let path = safe_join(root, &relative)?;
+        let original = std::fs::read_to_string(&path).map_err(CommandError::from)?;
+        if updated != original {
+            changes.push(CssVariableDeleteChange {
+                path,
+                original,
+                updated,
+            });
+        }
+    }
+
+    Ok((
+        CssVariableDeleteImpact {
+            usage_count,
+            rule_count: rule_count + class_rule_tokens.len(),
+            file_count: usage_files.len(),
+            definition_count,
+            replacement_value: replacement.to_string(),
+        },
+        changes,
+    ))
 }
 
 // ───────────────────────── Stylesheet discovery ─────────────────────────
@@ -1866,6 +2476,18 @@ fn validate_declaration(property: &str, value: Option<&str>) -> Result<(), Comma
     Ok(())
 }
 
+/// Validate the stricter name contract for the variables editor's custom-property
+/// creation command. Custom properties must begin with `--` and contain an identifier.
+fn validate_custom_property(property: &str) -> Result<(), CommandError> {
+    if property.len() <= 2 || !property.starts_with("--") || !property_is_safe(property) {
+        return Err(CommandError::Validation {
+            field: "property".into(),
+            reason: format!("\"{property}\" isn't a valid CSS custom property name"),
+        });
+    }
+    Ok(())
+}
+
 /// A selector written into a new rule must not carry block braces.
 fn validate_selector(selector: &str) -> Result<(), CommandError> {
     if selector.trim().is_empty() || selector.contains('{') || selector.contains('}') {
@@ -1918,6 +2540,106 @@ pub fn set_css_declaration(
     )?;
     ec.write_back(&root, &updated)?;
     Ok(())
+}
+
+/// Add a new custom property to the base `:root` scope. Existing base `:root` blocks
+/// are reused, including when there is more than one; a new block is created only
+/// when the stylesheet has no base `:root` rule.
+#[tauri::command]
+#[tracing::instrument(skip(value), fields(project = %project_path, file = %file, property = %property))]
+pub fn add_css_variable(
+    project_path: String,
+    file: String,
+    property: String,
+    value: String,
+) -> Result<(), CommandError> {
+    validate_custom_property(&property)?;
+    validate_declaration(&property, Some(&value))?;
+    let root = validate_project_path(&project_path)?;
+    let ec = load_editable_css(&root, &file)?;
+    let updated = add_custom_property_to_source(&ec.css, &property, &value)?;
+    ec.write_back(&root, &updated)?;
+    Ok(())
+}
+
+/// Update one existing custom property at the exact source rule reported by the
+/// variables index, without requiring its selector to be unique in the file.
+#[tauri::command]
+#[tracing::instrument(skip(value), fields(project = %project_path, file = %file, selector = %selector, line, property = %property))]
+pub fn set_css_variable(
+    project_path: String,
+    file: String,
+    selector: String,
+    line: usize,
+    property: String,
+    value: String,
+) -> Result<(), CommandError> {
+    validate_custom_property(&property)?;
+    validate_declaration(&property, Some(&value))?;
+    let root = validate_project_path(&project_path)?;
+    let ec = load_editable_css(&root, &file)?;
+    let updated = set_custom_property_in_source(&ec.css, &selector, line, &property, &value)?;
+    ec.write_back(&root, &updated)?;
+    Ok(())
+}
+
+/// Count the authored impact of deleting a project CSS variable without changing
+/// any files. The replacement value comes from the selected Variables-panel row
+/// and is checked against every definition so conflicting cascade values fail closed.
+#[tauri::command]
+#[tracing::instrument(skip(replacement_value), fields(project = %project_path, property = %property))]
+pub fn analyze_css_variable_deletion(
+    project_path: String,
+    property: String,
+    replacement_value: String,
+) -> Result<CssVariableDeleteImpact, CommandError> {
+    validate_custom_property(&property)?;
+    validate_declaration(&property, Some(&replacement_value))?;
+    let root = validate_project_path(&project_path)?;
+    let (impact, _) = prepare_css_variable_deletion(&root, &property, &replacement_value)?;
+    Ok(impact)
+}
+
+/// Inline a custom property's raw value at every authored `var()` reference and
+/// remove all of its definitions. Files are prepared before any write; if a write
+/// fails, already-written files are restored from their in-memory originals.
+#[tauri::command]
+#[tracing::instrument(skip(replacement_value), fields(project = %project_path, property = %property))]
+pub fn delete_css_variable(
+    project_path: String,
+    property: String,
+    replacement_value: String,
+    expected_usage_count: usize,
+    expected_definition_count: usize,
+) -> Result<CssVariableDeleteImpact, CommandError> {
+    validate_custom_property(&property)?;
+    validate_declaration(&property, Some(&replacement_value))?;
+    let root = validate_project_path(&project_path)?;
+    let (impact, changes) = prepare_css_variable_deletion(&root, &property, &replacement_value)?;
+    if impact.usage_count != expected_usage_count
+        || impact.definition_count != expected_definition_count
+    {
+        return Err(CommandError::Validation {
+            field: "property".into(),
+            reason: "the variable changed after the confirmation opened — review the updated impact and try again"
+                .into(),
+        });
+    }
+
+    let mut written = Vec::new();
+    for change in &changes {
+        if let Err(error) = std::fs::write(&change.path, &change.updated) {
+            for completed in written.into_iter().rev() {
+                let completed: &CssVariableDeleteChange = completed;
+                let _ = std::fs::write(&completed.path, &completed.original);
+            }
+            return Err(CommandError::from(error));
+        }
+        written.push(change);
+    }
+    invalidate_sheet_cache(&root);
+    crate::commands::edit::invalidate_index_cache(&root);
+    Ok(impact)
 }
 
 /// Append a new rule for `selector` to the authored stylesheet — optionally wrapped
@@ -2124,6 +2846,8 @@ pub struct CssVariableDef {
     pub selector: String,
     /// Project-relative stylesheet path it lives in.
     pub file: String,
+    /// One-based selector line, used to pin edits to this exact source rule.
+    pub line: usize,
 }
 
 /// Every custom-property definition across the project's stylesheets, in document
@@ -2144,6 +2868,7 @@ pub fn get_css_variables(project_path: String) -> Result<Vec<CssVariableDef>, Co
                         value: d.value,
                         selector: rule.selector.clone(),
                         file: sheet.rel.clone(),
+                        line: rule.selector_line,
                     });
                 }
             }
@@ -2284,11 +3009,11 @@ mod tests {
     #[test]
     fn collect_custom_props_finds_definitions_not_usages() {
         let css = ":root {\n  --accent: #fff;\n  --gap: 8px;\n}\n\
-                   .btn { color: var(--accent); padding: var(--gap); --local: 1; }";
+                   .btn { color: var(--accent-active); padding: var(--gap); --local: 1; }";
         let mut set = std::collections::BTreeSet::new();
         collect_custom_props(css, &mut set);
         let got: Vec<_> = set.into_iter().collect();
-        // --accent, --gap, --local are definitions; the var(--accent)/var(--gap)
+        // --accent, --gap, --local are definitions; the var(--accent-active)/var(--gap)
         // usages must NOT add duplicates or stray names.
         assert_eq!(got, vec!["--accent", "--gap", "--local"]);
     }
@@ -2639,6 +3364,147 @@ mod tests {
         assert_eq!(decls.len(), 2);
         assert_eq!(decls[0].property, "background");
         assert_eq!(decls[0].value, "url(\"a;b.png\")");
+    }
+
+    #[test]
+    fn adds_a_variable_to_the_last_base_root_rule_when_roots_are_duplicated() {
+        let css = ":root {\n  --first: red;\n}\n\
+                   @media (prefers-color-scheme: dark) {\n  :root {\n    --dark: black;\n  }\n}\n\
+                   :root {\n  --second: blue;\n}";
+        let out = add_custom_property_to_source(css, "--new", "green").unwrap();
+        assert_eq!(
+            out,
+            ":root {\n  --first: red;\n}\n\
+             @media (prefers-color-scheme: dark) {\n  :root {\n    --dark: black;\n  }\n}\n\
+             :root {\n  --second: blue;\n  --new: green;\n}"
+        );
+    }
+
+    #[test]
+    fn creates_a_base_root_rule_when_only_conditional_root_exists() {
+        let css = "@media (prefers-color-scheme: dark) { :root { --dark: black; } }";
+        let out = add_custom_property_to_source(css, "--new", "green").unwrap();
+        assert_eq!(
+            out,
+            "@media (prefers-color-scheme: dark) { :root { --dark: black; } }\n\n\
+             :root {\n  --new: green;\n}\n"
+        );
+    }
+
+    #[test]
+    fn refuses_to_add_a_duplicate_root_variable() {
+        let css = ":root { --existing: red; }\n:root { --other: blue; }";
+        let err = add_custom_property_to_source(css, "--existing", "green").unwrap_err();
+        assert!(matches!(
+            err,
+            CommandError::Validation { field, reason }
+                if field == "property" && reason == "a variable with this name already exists"
+        ));
+    }
+
+    #[test]
+    fn updates_a_variable_in_its_pinned_root_rule() {
+        let css = ":root {\n  --first: red;\n}\n:root {\n  --second: white;\n}";
+        let second_root_line = index_rules(css)[1].selector_line;
+        let out = set_custom_property_in_source(
+            css,
+            ":root",
+            second_root_line,
+            "--second",
+            "transparent",
+        )
+        .unwrap();
+
+        assert!(out.contains("--first: red;"));
+        assert!(out.contains("--second: transparent;"));
+        assert!(!out.contains("--second: white;"));
+    }
+
+    #[test]
+    fn inlines_complete_var_functions_and_removes_the_definition() {
+        let css = ":root {\n  --space: 8px;\n}\n\
+                   .card { gap: var(--space); content: \"var(--space)\"; }\n\
+                   .stack { margin: calc(var( --space, 2px) * 2); }\n\
+                   /* var(--space) */";
+        let (out, usages, rules, definitions, values) =
+            inline_and_remove_custom_property(css, "--space", "8px");
+
+        assert_eq!(usages, 2);
+        assert_eq!(rules, 2);
+        assert_eq!(definitions, 1);
+        assert_eq!(values, vec!["8px"]);
+        assert_eq!(
+            out,
+            ":root {\n}\n\
+             .card { gap: 8px; content: \"var(--space)\"; }\n\
+             .stack { margin: calc(8px * 2); }\n\
+             /* var(--space) */"
+        );
+    }
+
+    #[test]
+    fn inlines_custom_property_references_in_static_class_literals() {
+        let source = r#"<div className="text-[var(--accent)] md:bg-[var(--accent)]">Hello</div>
+<p className="text-[var(--accent)]">World</p>"#;
+        let (out, usages, rules) = replace_custom_property_in_class_literals(
+            source,
+            "src/Page.tsx",
+            "--accent",
+            "hsla(0, 100%, 50%, 0.8)",
+        );
+
+        assert_eq!(usages, 3);
+        assert_eq!(rules.len(), 2);
+        assert!(out.contains("text-[hsla(0,_100%,_50%,_0.8)]"));
+        assert!(out.contains("md:bg-[hsla(0,_100%,_50%,_0.8)]"));
+        assert!(!out.contains("var(--accent)"));
+    }
+
+    #[test]
+    fn inlines_custom_property_references_in_tailwind_apply_values() {
+        let css = ".button { @apply text-[var(--accent)]; }";
+        let (out, usages, rules, definitions, values) =
+            inline_and_remove_custom_property(css, "--accent", "hsl(0, 100%, 50%)");
+
+        assert_eq!(usages, 1);
+        assert_eq!(rules, 1);
+        assert_eq!(definitions, 0);
+        assert!(values.is_empty());
+        assert!(out.contains("text-[hsl(0,_100%,_50%)]"));
+    }
+
+    #[test]
+    fn deletion_preparation_includes_tailwind_markup_usage() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("styles.css"),
+            ":root { --accent: hsl(0, 100%, 50%); }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/Page.tsx"),
+            r#"export function Page() {
+  return <div className="text-[var(--accent)]">Hello</div>;
+}
+"#,
+        )
+        .unwrap();
+
+        let (impact, changes) =
+            prepare_css_variable_deletion(root, "--accent", "hsl(0, 100%, 50%)").unwrap();
+
+        assert_eq!(impact.usage_count, 1);
+        assert_eq!(impact.rule_count, 1);
+        assert_eq!(impact.file_count, 1);
+        assert_eq!(impact.definition_count, 1);
+        let source = changes
+            .iter()
+            .find(|change| change.path.ends_with("src/Page.tsx"))
+            .expect("component source should be rewritten");
+        assert!(source.updated.contains("text-[hsl(0,_100%,_50%)]"));
+        assert!(!source.updated.contains("var(--accent)"));
     }
 
     // ── Nested rules / at-rules (brace-aware declaration scan) ──

@@ -70,6 +70,7 @@ export interface ElementSettings {
   classes: string[];
   attributes: ElementAttr[];
   addClass: (name: string) => void;
+  renameClass: (oldName: string, newName: string) => void;
   removeClass: (name: string) => void;
   /** Set or add an attribute on the element's opening tag (written to source). */
   setAttribute: (name: string, value: string) => void;
@@ -244,6 +245,10 @@ export function useElementSettings({
       sigRef.current = nextSig;
       post({ type: 'ss:mutate', className: nextClass, rules: [] });
       post({ type: 'ss:commit' });
+      // Refresh every editor/structural hook with the new source anchor. Without
+      // this, a renamed class looks correct but duplicate/delete still hold the
+      // old signature until the user manually reselects the element.
+      post({ type: 'ss:reselect', signature: nextSig });
       return true;
     },
     [projectPath, onToast, post]
@@ -262,6 +267,7 @@ export function useElementSettings({
       sigRef.current = { ...sig, className: name };
       post({ type: 'ss:mutate', className: name, rules: [] });
       post({ type: 'ss:commit' });
+      post({ type: 'ss:reselect', signature: sigRef.current });
       return true;
     },
     [projectPath, post]
@@ -309,11 +315,41 @@ export function useElementSettings({
     [classes, writeClassAttr, onToast]
   );
 
+  const renameClass = useCallback(
+    async (oldName: string, newName: string) => {
+      const n = newName.trim().replace(/^\./, '');
+      if (!n || n === oldName) return;
+      if (/\s/.test(n)) {
+        onToast('A class name cannot contain spaces.', 'error');
+        return;
+      }
+      if (classes.includes(n)) {
+        onToast(`.${n} is already on this element.`, 'error');
+        return;
+      }
+      setBusy(true);
+      try {
+        const next = classes.map((c) => (c === oldName ? n : c));
+        if (await writeClassAttr(next.join(' '))) {
+          setClasses(next);
+          void trackEvent('visual_class_renamed', { mode: 'css-code' });
+        }
+      } catch (err) {
+        logger.error('[ElementSettings] rename class failed', { error: toastText(err) });
+        onToast(toastText(err), 'error');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [classes, writeClassAttr, onToast]
+  );
+
   return {
     tag,
     classes,
     attributes,
     addClass: (n) => void addClass(n),
+    renameClass: (oldName, newName) => void renameClass(oldName, newName),
     removeClass: (n) => void removeClass(n),
     setAttribute: (name, value) => void applyAttr(name, value),
     renameAttribute: (oldName, newName, value) => void renameAttr(oldName, newName, value),

@@ -10,8 +10,8 @@
   justify-content: space-between;
   gap: 12px;
   padding: 8px 16px;
-  background: rgba(var(--warning-rgb), 0.1);
-  border-bottom: 1px solid var(--border);
+  background: rgba(var(--accent-warning-rgb), 0.1);
+  border-bottom: 1px solid var(--border-default);
   flex-wrap: wrap;
 }
 
@@ -25,12 +25,12 @@
 
 .main-branch-banner-content svg {
   flex-shrink: 0;
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .main-branch-banner-text {
-  font-size: var(--font-size-md);
-  color: var(--warning-light);
+  font-size: var(--font-size-body-lg);
+  color: var(--accent-warning);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -59,28 +59,21 @@
 }
 
 .main-branch-banner-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  background: rgba(var(--warning-rgb), 0.2);
-  border: 1px solid rgba(var(--warning-rgb), 0.3);
-  border-radius: var(--radius-sm);
-  color: var(--warning-light);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
   white-space: nowrap;
 }
 
-.main-branch-banner-action:hover:not(:disabled) {
-  background: rgba(var(--warning-rgb), 0.3);
-  border-color: rgba(var(--warning-rgb), 0.5);
-  color: var(--banner-amber-bright);
+.main-branch-banner-action.button--default {
+  background: var(--button-warning-surface);
+  color: var(--accent-warning);
+}
+
+.main-branch-banner-action.button--default:hover:not(:disabled) {
+  background: var(--button-warning-surface-hover);
+  color: var(--button-warning-text-hover);
+}
+
+.main-branch-banner-action.button--default .button__icon > svg {
+  color: inherit;
 }
 
 /* Branches live behind a connected GitHub repo (issue #612) — the button stays
@@ -94,8 +87,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-size-base);
-  color: var(--warning-light);
+  font-size: var(--font-size-body-md);
+  color: var(--accent-warning);
   cursor: pointer;
   white-space: nowrap;
   opacity: 0.8;
@@ -111,7 +104,7 @@
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
-  border: 1px solid rgba(var(--warning-light-rgb), 0.4);
+  border: 1px solid rgba(var(--accent-warning-rgb), 0.4);
   border-radius: 3px;
   background: transparent;
   cursor: pointer;
@@ -122,13 +115,13 @@
 }
 
 .main-branch-banner-checkbox input[type='checkbox']:hover {
-  border-color: rgba(var(--warning-light-rgb), 0.6);
-  background: rgba(var(--warning-rgb), 0.1);
+  border-color: rgba(var(--accent-warning-rgb), 0.6);
+  background: rgba(var(--accent-warning-rgb), 0.1);
 }
 
 .main-branch-banner-checkbox input[type='checkbox']:checked {
-  background: var(--warning);
-  border-color: var(--warning);
+  background: var(--accent-warning);
+  border-color: var(--accent-warning);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -138,29 +131,7 @@
   content: '';
   width: 4px;
   height: 8px;
-  border: solid var(--bg-deep);
+  border: solid var(--surface-recessed);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg) translateY(-1px);
-}
-
-.main-branch-banner-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--warning);
-  cursor: pointer;
-  opacity: 0.6;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.main-branch-banner-close:hover {
-  opacity: 1;
-  background: rgba(var(--warning-rgb), 0.2);
 }

@@ -1,239 +1,364 @@
 /**
- * UpdateBanner component that shows when an app update is available.
+ * Sidebar update indicator and release-specific update modal.
  *
- * Displays an inline banner with:
- * - New version information
- * - Release notes
- * - Update Now / Later buttons
- * - Download progress during update
- *
- * "Later" persists the dismissal for the session. The banner will
- * reappear on the next app launch.
- *
- * @module components/UpdateBanner
+ * The compact indicator lives immediately above the project/sidebar footer
+ * actions. Hovering or focusing reveals the release titles; selecting it opens
+ * the full notes and update controls.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Update } from '@tauri-apps/plugin-updater';
-import { checkForUpdate, downloadAndInstall, restartApp, UpdateInfo } from '../lib/updater';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  checkForUpdate,
+  downloadAndInstall,
+  restartApp,
+  type UpdateHandle,
+  type UpdateInfo,
+} from '../lib/updater';
 import { trackEvent, trackError } from '../lib/analytics';
 import { logger } from '../lib/logger';
 import { asCommandError, formatCommandError } from '../lib/errors';
+import { usePolling } from '../hooks/usePolling';
+import { AlertIcon, CloseIcon, DownloadIcon, ResetIcon } from '@/components/icons';
 import { Button } from './primitives/Button';
+import { IconButton } from './primitives/IconButton';
+import { ModalFrame } from './primitives/ModalFrame';
+import { Spinner } from './primitives/Spinner';
 import '../styles/features/update-banner.css';
 
-/** How often to check for updates (1 hour) */
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
-
-/** Session storage key for deferred updates */
 const DEFERRED_UPDATE_KEY = 'shipstudio_deferred_update';
 
-export function UpdateBanner() {
-  const [updateAvailable, setUpdateAvailable] = useState<{
-    update: Update;
-    info: UpdateInfo;
-  } | null>(null);
-  const [status, setStatus] = useState<'idle' | 'downloading' | 'ready' | 'error'>('idle');
-  const [progress, setProgress] = useState(0);
-  const [deferred, setDeferred] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+type AvailableUpdate = { update: UpdateHandle; info: UpdateInfo };
+type UpdateStatus = 'idle' | 'downloading' | 'ready' | 'error';
 
-  // Check for updates on mount and periodically
-  useEffect(() => {
-    const doCheck = async () => {
-      try {
-        const result = await checkForUpdate();
-        if (result) {
-          // Check if this version was deferred this session
-          const deferredVersion = sessionStorage.getItem(DEFERRED_UPDATE_KEY);
-          if (deferredVersion === result.info.version) {
-            setDeferred(true);
-          } else {
-            setDeferred(false);
-          }
-          setUpdateAvailable(result);
-        }
-      } catch {
-        logger.warn('[UpdateBanner] Check failed');
+export interface ReleaseNote {
+  title: string;
+  detail?: string;
+}
+
+function cleanInlineMarkdown(value: string): string {
+  return value
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
+
+/** Parse only the available version's bullets from the updater's Markdown body. */
+export function parseReleaseNotes(body: string | undefined, version: string): ReleaseNote[] {
+  if (!body?.trim()) return [];
+
+  const lines = body.split(/\r?\n/);
+  const versionHeading = new RegExp(`^#{1,6}\\s+.*v?${version.replace(/\./g, '\\.')}\\b`, 'i');
+  const matchingHeadingIndex = lines.findIndex((line) => versionHeading.test(line.trim()));
+  const start = matchingHeadingIndex >= 0 ? matchingHeadingIndex + 1 : 0;
+  const notes: ReleaseNote[] = [];
+
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (/^#{1,6}\s+/.test(line)) {
+      if (notes.length > 0 || matchingHeadingIndex >= 0) break;
+      continue;
+    }
+
+    const bullet = line.match(/^(?:[-*]|•)\s+(.+)$/);
+    if (bullet) {
+      const content = bullet[1].trim();
+      const emphasized = content.match(/^\*\*(.+?)\*\*\s*(?:[-–—:]\s*)?(.*)$/);
+      if (emphasized) {
+        notes.push({
+          title: cleanInlineMarkdown(emphasized[1]),
+          detail: cleanInlineMarkdown(emphasized[2]) || undefined,
+        });
+      } else {
+        const separated = content.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+        notes.push({
+          title: cleanInlineMarkdown(separated?.[1] ?? content),
+          detail: separated ? cleanInlineMarkdown(separated[2]) : undefined,
+        });
       }
-    };
+      continue;
+    }
 
-    // Check on mount (with delay to not block startup)
-    const initialTimeout = setTimeout(() => void doCheck(), 5000);
+    if (line && notes.length > 0) {
+      const current = notes[notes.length - 1];
+      current.detail = cleanInlineMarkdown([current.detail, line].filter(Boolean).join(' '));
+    }
+  }
 
-    // Check periodically
-    const interval = setInterval(() => void doCheck(), UPDATE_CHECK_INTERVAL_MS);
+  return notes;
+}
 
-    return () => {
-      clearTimeout(initialTimeout);
-      clearInterval(interval);
-    };
+export function UpdateBanner() {
+  const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null);
+  const [status, setStatus] = useState<UpdateStatus>('idle');
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [deferred, setDeferred] = useState(false);
+
+  const check = useCallback(async () => {
+    try {
+      const result = await checkForUpdate();
+      if (!result) {
+        setAvailableUpdate(null);
+        return;
+      }
+
+      setDeferred(sessionStorage.getItem(DEFERRED_UPDATE_KEY) === result.info.version);
+      setAvailableUpdate(result);
+    } catch {
+      logger.warn('[UpdateBanner] Check failed');
+    }
   }, []);
 
+  usePolling(check, {
+    intervalMs: UPDATE_CHECK_INTERVAL_MS,
+    maxIntervalMs: UPDATE_CHECK_INTERVAL_MS,
+    name: 'app-update-check',
+  });
+
+  const releaseNotes = useMemo(
+    () => parseReleaseNotes(availableUpdate?.info.body, availableUpdate?.info.version ?? ''),
+    [availableUpdate]
+  );
+
   const handleUpdate = useCallback(async () => {
-    if (!updateAvailable) return;
+    if (!availableUpdate) return;
 
     setStatus('downloading');
+    setProgress(0);
     setError(null);
+    setModalOpen(false);
     void trackEvent('update_started', {
-      version: updateAvailable.info.version,
-      $screen_name: 'Dashboard',
+      version: availableUpdate.info.version,
+      $screen_name: 'Project Sidebar',
     });
 
     try {
-      await downloadAndInstall(updateAvailable.update, (p) => {
-        setProgress(p);
-      });
+      await downloadAndInstall(availableUpdate.update, setProgress);
       void trackEvent('update_downloaded', {
-        version: updateAvailable.info.version,
-        $screen_name: 'Dashboard',
+        version: availableUpdate.info.version,
+        $screen_name: 'Project Sidebar',
       });
       setStatus('ready');
     } catch (err: unknown) {
       logger.warn('[UpdateBanner] Download failed');
-      trackError('update_download', err, 'Dashboard');
+      trackError('update_download', err, 'Project Sidebar');
       setStatus('error');
-      // Extract as much error info as possible
-      let errorMsg = 'Update failed';
-      if (err instanceof Error) {
-        errorMsg = err.message;
-        // Include cause if available (ES2022+)
-        const cause = (err as Error & { cause?: unknown }).cause;
-        if (cause instanceof Error) {
-          errorMsg += ` (${cause.message})`;
-        } else if (typeof cause === 'string') {
-          errorMsg += ` (${cause})`;
-        }
-      } else if (typeof err === 'string') {
-        errorMsg = err;
-      } else if (err && typeof err === 'object') {
-        // Try to stringify the error object
-        errorMsg = JSON.stringify(err);
-      }
-      setError(errorMsg);
+      setError(formatCommandError(asCommandError(err)));
     }
-  }, [updateAvailable]);
+  }, [availableUpdate]);
 
   const handleRestart = useCallback(async () => {
-    void trackEvent('update_restarted', { $screen_name: 'Dashboard' });
+    void trackEvent('update_restarted', { $screen_name: 'Project Sidebar' });
     try {
-      await restartApp();
+      const result = await restartApp();
+      if (result === 'simulated') {
+        setStatus('idle');
+        setProgress(0);
+      }
     } catch (err) {
-      // Keep the underlying detail (mirrors the download-failure handler
-      // above, which extracts message + cause) and tell the user what to do.
       const detail = formatCommandError(asCommandError(err));
       logger.warn('[UpdateBanner] Restart failed', { error: detail });
-      trackError('app_restart', err, 'Dashboard');
+      trackError('app_restart', err, 'Project Sidebar');
+      setStatus('error');
       setError(`Couldn't restart the app: ${detail}. Please quit and reopen Ship Studio manually.`);
     }
   }, []);
 
-  // The banner occupies the top of the window (the macOS title-bar drag zone),
-  // covering the usual drag region. Make it draggable like the app's other
-  // top-of-window surfaces (dashboard, workspace header) so the window can still
-  // be moved/maximized while an update is available. Buttons are excluded so
-  // their clicks still work.
-  const handleBannerDrag = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
-    e.preventDefault();
-    void getCurrentWindow().startDragging();
-  }, []);
-
-  const handleBannerDoubleClick = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button, a, input, select, [role="button"]')) return;
-    const win = getCurrentWindow();
-    void win.isMaximized().then((maximized) => {
-      void (maximized ? win.unmaximize() : win.maximize());
-    });
-  }, []);
-
   const handleLater = useCallback(() => {
-    if (updateAvailable) {
-      void trackEvent('update_deferred', {
-        version: updateAvailable.info.version,
-        $screen_name: 'Dashboard',
-      });
-      // Store in sessionStorage so it shows again on next app launch
-      sessionStorage.setItem(DEFERRED_UPDATE_KEY, updateAvailable.info.version);
-      setDeferred(true);
-    }
-  }, [updateAvailable]);
+    if (!availableUpdate) return;
+    void trackEvent('update_deferred', {
+      version: availableUpdate.info.version,
+      $screen_name: 'Project Sidebar',
+    });
+    sessionStorage.setItem(DEFERRED_UPDATE_KEY, availableUpdate.info.version);
+    setDeferred(true);
+    setModalOpen(false);
+  }, [availableUpdate]);
 
-  // Don't render if no update or deferred
-  if (!updateAvailable || deferred) {
-    return null;
-  }
+  if (!availableUpdate || deferred) return null;
 
-  // Parse release notes - extract bullet points for the current version only
-  const parseReleaseNotes = (body: string | undefined): string[] => {
-    if (!body) return [];
-    // Split by bullet points and filter out empty lines and old version notes
-    const lines = body
-      .split(/•/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    // Only take notes before the next version header
-    const currentVersionNotes: string[] = [];
-    for (const line of lines) {
-      if (line.startsWith('##') || line.includes("What's New in v")) break;
-      if (line) currentVersionNotes.push(line);
-    }
-    return currentVersionNotes;
-  };
-
-  const releaseNotes = parseReleaseNotes(updateAvailable.info.body);
+  const version = availableUpdate.info.version;
+  const indicatorLabel =
+    status === 'downloading'
+      ? 'Downloading…'
+      : status === 'ready'
+        ? 'Click to restart'
+        : status === 'error'
+          ? 'Update needs attention'
+          : 'Update available';
 
   return (
-    <div
-      className="update-banner"
-      onMouseDown={handleBannerDrag}
-      onDoubleClick={handleBannerDoubleClick}
-    >
-      <div className="update-banner-header">
-        <div className="update-banner-title">
-          <span className="update-banner-badge">Update Available</span>
-          <span className="update-banner-version">v{updateAvailable.info.version}</span>
+    <>
+      <div className={`update-indicator update-indicator--${status}`}>
+        {status === 'downloading' && (
+          <span
+            className="update-indicator-progress-fill"
+            style={{ width: `${progress}%` }}
+            aria-hidden="true"
+          />
+        )}
+        <button
+          type="button"
+          className="update-indicator-details"
+          onClick={() => setModalOpen(true)}
+          disabled={status === 'downloading' || status === 'ready'}
+          aria-label={`View what's new in version ${version}`}
+        >
+          <span className="update-indicator-details-inner">
+            <span className="update-indicator-version">Version {version} — view changes</span>
+            {releaseNotes.length > 0 && (
+              <span className="update-indicator-notes">
+                {releaseNotes.map((note, index) => (
+                  <span className="update-indicator-note" key={`${note.title}-${index}`}>
+                    {note.title}
+                  </span>
+                ))}
+              </span>
+            )}
+          </span>
+        </button>
+        <div className="update-indicator-summary">
+          <button
+            type="button"
+            className="update-indicator-update-action"
+            onClick={() =>
+              void (status === 'ready'
+                ? handleRestart()
+                : status !== 'downloading' && handleUpdate())
+            }
+            disabled={status === 'downloading'}
+            aria-label={
+              status === 'ready'
+                ? `Restart to apply version ${version}`
+                : status === 'downloading'
+                  ? `Downloading version ${version}`
+                  : status === 'error'
+                    ? `Retry update to version ${version}`
+                    : `Update Ship Studio to version ${version}`
+            }
+          >
+            <span className="update-indicator-icon" aria-hidden="true">
+              {status === 'downloading' ? (
+                <Spinner size="sm" />
+              ) : status === 'ready' ? (
+                <ResetIcon size={14} />
+              ) : status === 'idle' ? (
+                <>
+                  <span className="update-indicator-icon-default">
+                    <AlertIcon size={14} />
+                  </span>
+                  <span className="update-indicator-icon-expanded">
+                    <DownloadIcon size={14} />
+                  </span>
+                </>
+              ) : (
+                <DownloadIcon size={14} />
+              )}
+            </span>
+            {status === 'idle' ? (
+              <span className="update-indicator-label update-indicator-label-swap">
+                <span className="update-indicator-label-default">Update available</span>
+                <span className="update-indicator-label-expanded">Install now</span>
+              </span>
+            ) : (
+              <span className="update-indicator-label">{indicatorLabel}</span>
+            )}
+          </button>
+          {(status === 'idle' || status === 'error') && (
+            <IconButton
+              variant="ghost"
+              size="default"
+              className="update-indicator-dismiss"
+              icon={<CloseIcon size={14} />}
+              onClick={handleLater}
+              title="Dismiss update until next launch"
+              aria-label="Dismiss update until next launch"
+            />
+          )}
+          {status === 'downloading' && (
+            <span
+              className="update-indicator-progress-value"
+              aria-label={`${progress}% downloaded`}
+            >
+              {progress}%
+            </span>
+          )}
         </div>
-        {status === 'idle' && (
-          <div className="update-banner-actions">
-            <Button variant="secondary" size="sm" onClick={handleLater}>
+      </div>
+
+      <ModalFrame
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={`What's New in v${version}`}
+        className="update-details-modal"
+        dismissable={status !== 'downloading'}
+        showCloseButton={status !== 'downloading'}
+      >
+        <div className="update-details-body">
+          {releaseNotes.length > 0 ? (
+            <ul className="update-details-list">
+              {releaseNotes.map((note, index) => (
+                <li key={`${note.title}-${index}`}>
+                  <h3>{note.title}</h3>
+                  {note.detail && <p>{note.detail}</p>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="update-details-empty">This version is ready to install.</p>
+          )}
+
+          {status === 'downloading' && (
+            <div
+              className="update-details-progress"
+              aria-label={`Downloading update: ${progress}%`}
+            >
+              <div className="update-details-progress-track">
+                <div className="update-details-progress-bar" style={{ width: `${progress}%` }} />
+              </div>
+              <span>{progress}%</span>
+            </div>
+          )}
+
+          {status === 'error' && error && (
+            <p className="update-details-error" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+
+        <div className="update-details-actions">
+          {(status === 'idle' || status === 'error') && (
+            <Button variant="secondary" onClick={handleLater}>
               Later
             </Button>
-            <Button variant="primary" size="sm" onClick={() => void handleUpdate()}>
+          )}
+          {status === 'idle' && (
+            <Button variant="primary" onClick={() => void handleUpdate()}>
               Update Now
             </Button>
-          </div>
-        )}
-        {status === 'downloading' && (
-          <div className="update-banner-progress-container">
-            <div className="update-banner-progress">
-              <div className="update-banner-progress-bar" style={{ width: `${progress}%` }} />
-            </div>
-            <span className="update-banner-progress-text">{progress}%</span>
-          </div>
-        )}
-        {status === 'ready' && (
-          <Button variant="primary" size="sm" onClick={() => void handleRestart()}>
-            Restart to Apply
-          </Button>
-        )}
-        {status === 'error' && (
-          <div className="update-banner-actions">
-            <span className="update-banner-error">{error}</span>
-            <Button variant="secondary" size="sm" onClick={() => void handleUpdate()}>
-              Retry
+          )}
+          {status === 'downloading' && (
+            <Button variant="primary" disabled leftIcon={<Spinner size="sm" />}>
+              Updating…
             </Button>
-          </div>
-        )}
-      </div>
-      {releaseNotes.length > 0 && status === 'idle' && (
-        <ul className="update-banner-notes">
-          {releaseNotes.map((note, i) => (
-            <li key={i}>{note}</li>
-          ))}
-        </ul>
-      )}
-    </div>
+          )}
+          {status === 'ready' && (
+            <Button variant="primary" onClick={() => void handleRestart()}>
+              Restart to Apply
+            </Button>
+          )}
+          {status === 'error' && (
+            <Button variant="primary" onClick={() => void handleUpdate()}>
+              Retry Update
+            </Button>
+          )}
+        </div>
+      </ModalFrame>
+    </>
   );
 }

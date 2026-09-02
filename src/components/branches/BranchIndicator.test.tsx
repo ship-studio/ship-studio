@@ -1,83 +1,36 @@
-/**
- * Tests for BranchIndicator component
- */
-
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BranchIndicator } from './BranchIndicator';
 
+vi.mock('../../lib/branches', () => ({
+  discardChanges: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('./DiffModal', () => ({
+  DiffModal: ({ filePath }: { filePath: string }) => <div>Diff for {filePath}</div>,
+}));
+
 describe('BranchIndicator', () => {
   const defaultProps = {
     currentBranch: 'feature/test',
-    hasUncommittedChanges: false,
-    changedFiles: [],
+    hasUncommittedChanges: true,
+    changedFiles: [{ path: 'src/test.ts', status: 'modified' as const }],
     projectPath: '/path/to/project',
-    isOnBranchesTab: false,
-    onClick: vi.fn(),
   };
 
-  it('should render the current branch name', () => {
-    render(<BranchIndicator {...defaultProps} />);
+  it('only renders while there are unsaved changes', () => {
+    const { rerender } = render(<BranchIndicator {...defaultProps} />);
 
-    expect(screen.getByText('feature/test')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /review 1 unsaved change/i })).toBeInTheDocument();
+    rerender(<BranchIndicator {...defaultProps} hasUncommittedChanges={false} changedFiles={[]} />);
+    expect(screen.queryByRole('button', { name: /review/i })).not.toBeInTheDocument();
   });
 
-  it('should show "Live" badge when on main branch', () => {
-    render(<BranchIndicator {...defaultProps} currentBranch="main" />);
-
-    expect(screen.getByText('Live')).toBeInTheDocument();
-  });
-
-  it('should show "Live" badge when on master branch', () => {
-    render(<BranchIndicator {...defaultProps} currentBranch="master" />);
-
-    expect(screen.getByText('Live')).toBeInTheDocument();
-  });
-
-  it('should not show "Live" badge on feature branch', () => {
-    render(<BranchIndicator {...defaultProps} currentBranch="feature/test" />);
-
-    expect(screen.queryByText('Live')).not.toBeInTheDocument();
-  });
-
-  it('should show "Unsaved" badge when there are uncommitted changes', () => {
+  it('shows branch and count without inferring a live state', () => {
     render(
       <BranchIndicator
         {...defaultProps}
-        hasUncommittedChanges={true}
-        changedFiles={[{ path: 'test.txt', status: 'modified' }]}
-      />
-    );
-
-    expect(screen.getByText('Unsaved')).toBeInTheDocument();
-  });
-
-  it('should not show "Unsaved" badge when there are no uncommitted changes', () => {
-    render(<BranchIndicator {...defaultProps} hasUncommittedChanges={false} />);
-
-    expect(screen.queryByText('Unsaved')).not.toBeInTheDocument();
-  });
-
-  it('should call onClick when the button is clicked', () => {
-    const onClick = vi.fn();
-    render(<BranchIndicator {...defaultProps} onClick={onClick} />);
-
-    fireEvent.click(screen.getByRole('button'));
-    expect(onClick).toHaveBeenCalledTimes(1);
-  });
-
-  it('should show "Back to Preview" when on branches tab', () => {
-    render(<BranchIndicator {...defaultProps} isOnBranchesTab={true} />);
-
-    expect(screen.getByText('Back to Preview')).toBeInTheDocument();
-    expect(screen.queryByText('feature/test')).not.toBeInTheDocument();
-  });
-
-  it('should show changes dropdown on hover when there are changes', () => {
-    render(
-      <BranchIndicator
-        {...defaultProps}
-        hasUncommittedChanges={true}
+        currentBranch="main"
         changedFiles={[
           { path: 'src/test.ts', status: 'modified' },
           { path: 'README.md', status: 'added' },
@@ -85,113 +38,57 @@ describe('BranchIndicator', () => {
       />
     );
 
-    // Hover over the branch indicator
-    const indicator = screen.getByText('feature/test').closest('.branch-indicator');
-    if (indicator) {
-      fireEvent.mouseEnter(indicator);
-    }
-
-    // Should show the changes dropdown
-    expect(screen.getByText('2 Unsaved Changes')).toBeInTheDocument();
-    expect(screen.getByText('test.ts')).toBeInTheDocument();
-    expect(screen.getByText('README.md')).toBeInTheDocument();
+    expect(screen.getByText('main')).toBeInTheDocument();
+    expect(screen.getByText('2 unsaved')).toBeInTheDocument();
+    expect(screen.queryByText('Live')).not.toBeInTheDocument();
   });
 
-  it("should show singular 'Change' for single file", () => {
-    render(
-      <BranchIndicator
-        {...defaultProps}
-        hasUncommittedChanges={true}
-        changedFiles={[{ path: 'test.ts', status: 'modified' }]}
-      />
-    );
+  it('opens changed files on click rather than hover', () => {
+    render(<BranchIndicator {...defaultProps} />);
 
-    const indicator = screen.getByText('feature/test').closest('.branch-indicator');
-    if (indicator) {
-      fireEvent.mouseEnter(indicator);
-    }
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /review/i }));
+    expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).not.toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('button', { name: /review/i }));
+    expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeInTheDocument();
     expect(screen.getByText('1 Unsaved Change')).toBeInTheDocument();
+    expect(screen.getByText('test.ts')).toBeInTheDocument();
+    expect(screen.queryByText('Push')).not.toBeInTheDocument();
   });
 
-  it('should show correct status indicators for different change types', () => {
-    render(
-      <BranchIndicator
-        {...defaultProps}
-        hasUncommittedChanges={true}
-        changedFiles={[
-          { path: 'modified.ts', status: 'modified' },
-          { path: 'added.ts', status: 'added' },
-          { path: 'deleted.ts', status: 'deleted' },
-          { path: 'renamed.ts', status: 'renamed' },
-        ]}
-      />
+  it('opens the existing diff view for a changed file', () => {
+    render(<BranchIndicator {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /review/i }));
+    fireEvent.click(screen.getByRole('button', { name: /test.ts/i }));
+
+    expect(screen.getByText('Diff for src/test.ts')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).not.toBeInTheDocument();
+  });
+
+  it('closes on Escape and reports controlled state changes', () => {
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <BranchIndicator {...defaultProps} isOpen={false} onOpenChange={onOpenChange} />
     );
 
-    const indicator = screen.getByText('feature/test').closest('.branch-indicator');
-    if (indicator) {
-      fireEvent.mouseEnter(indicator);
-    }
+    fireEvent.click(screen.getByRole('button', { name: /review/i }));
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
 
-    // Check status indicators
-    expect(screen.getByText('M')).toBeInTheDocument(); // modified
-    expect(screen.getByText('+')).toBeInTheDocument(); // added
-    expect(screen.getByText('-')).toBeInTheDocument(); // deleted
-    expect(screen.getByText('R')).toBeInTheDocument(); // renamed
+    rerender(<BranchIndicator {...defaultProps} isOpen={true} onOpenChange={onOpenChange} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
   });
 
-  describe('pull button', () => {
-    it('is hidden when onPullLatest is not provided', () => {
-      render(<BranchIndicator {...defaultProps} />);
-
-      expect(
-        screen.queryByRole('button', { name: 'Pull the latest changes from GitHub' })
-      ).not.toBeInTheDocument();
-    });
-
-    it('shows a visible "Pull" label', () => {
-      render(<BranchIndicator {...defaultProps} onPullLatest={vi.fn()} />);
-
-      expect(screen.getByText('Pull')).toBeInTheDocument();
-    });
-
-    it('calls onPullLatest when clicked, without triggering the branch onClick', () => {
-      const onClick = vi.fn();
-      const onPullLatest = vi.fn();
-      render(<BranchIndicator {...defaultProps} onClick={onClick} onPullLatest={onPullLatest} />);
-
-      fireEvent.click(screen.getByRole('button', { name: 'Pull the latest changes from GitHub' }));
-
-      expect(onPullLatest).toHaveBeenCalledTimes(1);
-      expect(onClick).not.toHaveBeenCalled();
-    });
-
-    it('is disabled while a pull is in flight', () => {
-      const onPullLatest = vi.fn();
-      render(<BranchIndicator {...defaultProps} onPullLatest={onPullLatest} isPulling={true} />);
-
-      const button = screen.getByRole('button', { name: 'Pull the latest changes from GitHub' });
-      expect(button).toBeDisabled();
-      fireEvent.click(button);
-      expect(onPullLatest).not.toHaveBeenCalled();
-    });
-  });
-
-  it('labels the changes-dropdown action "Push"', () => {
+  it('opens the shared Push menu from the grouped status segment', () => {
+    const onOpenChange = vi.fn();
     render(
-      <BranchIndicator
-        {...defaultProps}
-        hasUncommittedChanges={true}
-        changedFiles={[{ path: 'test.ts', status: 'modified' }]}
-      />
+      <BranchIndicator {...defaultProps} isOpen={false} onOpenChange={onOpenChange} opensPushMenu />
     );
 
-    const indicator = screen.getByText('feature/test').closest('.branch-indicator');
-    if (indicator) {
-      fireEvent.mouseEnter(indicator);
-    }
+    fireEvent.click(screen.getByRole('button', { name: /open push options/i }));
 
-    expect(screen.getByText('Push')).toBeInTheDocument();
-    expect(screen.queryByText('Save')).not.toBeInTheDocument();
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).not.toBeInTheDocument();
   });
 });

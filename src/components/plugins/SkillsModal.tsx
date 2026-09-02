@@ -10,9 +10,11 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { SearchIcon } from '../icons';
+import { VercelIcon } from '@/components/icons';
+import { Button } from '../primitives/Button';
 import { ModalFrame } from '../primitives/ModalFrame';
-import { Spinner } from '../primitives/Spinner';
+import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
+import { TextButton } from '../primitives/TextButton';
 import {
   type AgentSkill,
   checkSkillsCli,
@@ -26,6 +28,13 @@ import { trackEvent, trackSearch } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { useModal } from '../../contexts/ModalContext';
+import {
+  ExtensionListRow,
+  ExtensionManagerLayout,
+  ExtensionSearchField,
+  ExtensionState,
+  ScopeBadge,
+} from './extension';
 
 /** Format install count as compact string (e.g., 98500 → "98.5K") */
 function formatInstalls(n: number): string {
@@ -233,239 +242,220 @@ export function SkillsModal({
       className="skills-modal"
     >
       <>
-        <div className="skills-tabs">
-          <button
-            className={`skills-tab ${activeTab === 'installed' ? 'active' : ''}`}
-            onClick={() => setActiveTab('installed')}
+        <Tabs value={activeTab} onValueChange={(next) => setActiveTab(next as Tab)}>
+          <ExtensionManagerLayout
+            tabs={
+              <TabsList className="skills-tabs" aria-label="Skills view">
+                <TabsTab value="installed" className="skills-tab">
+                  Installed
+                </TabsTab>
+                <TabsTab value="add" className="skills-tab">
+                  Add
+                </TabsTab>
+              </TabsList>
+            }
+            footer={
+              <>
+                <span className="extension-manager-layout__footer-hint">
+                  Press <span className="help-shortcut">Esc</span> to close
+                </span>
+                <TextButton
+                  className="skills-footer-link"
+                  onClick={() => void openUrl('https://skills.sh')}
+                  leftIcon={<VercelIcon size={10} />}
+                >
+                  Powered by skills.sh
+                </TextButton>
+              </>
+            }
           >
-            Installed
-          </button>
-          <button
-            className={`skills-tab ${activeTab === 'add' ? 'active' : ''}`}
-            onClick={() => setActiveTab('add')}
-          >
-            Add
-          </button>
-        </div>
-
-        <div className="skills-modal-body">
-          {activeTab === 'installed' && (
-            <>
-              <div className="skills-installed-controls">
-                <div className="skills-installed-search">
-                  <SearchIcon size={12} />
-                  <input
-                    ref={installedSearchRef}
-                    type="text"
-                    className="skills-installed-search-input"
-                    placeholder="Filter skills..."
-                    value={installedSearchQuery}
-                    onChange={(e) => {
-                      setInstalledSearchQuery(e.target.value);
-                      trackSearch('skills_filter', e.target.value, 'Skills Modal');
-                    }}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                  />
-                </div>
-                <div className="skills-filter-bar">
-                  <button
-                    className={`skills-filter-btn ${scopeFilter === 'all' ? 'active' : ''}`}
-                    onClick={() => setScopeFilter('all')}
-                  >
-                    All
-                  </button>
-                  <button
-                    className={`skills-filter-btn ${scopeFilter === 'user' ? 'active' : ''}`}
-                    onClick={() => setScopeFilter('user')}
-                  >
-                    User
-                  </button>
-                  <button
-                    className={`skills-filter-btn ${scopeFilter === 'project' ? 'active' : ''}`}
-                    onClick={() => setScopeFilter('project')}
-                  >
-                    Project
-                  </button>
-                </div>
-              </div>
-
-              {isLoadingSkills && skills.length === 0 && (
-                <div className="skills-loading">
-                  <Spinner className="skills-loading-spinner" />
-                  Loading skills...
-                </div>
-              )}
-
-              {removeError && <div className="skills-error">{removeError}</div>}
-
-              {!isLoadingSkills && filteredSkills.length === 0 && (
-                <div className="skills-empty">
-                  {debouncedInstalledQuery
-                    ? 'No matching skills found'
-                    : scopeFilter === 'all'
-                      ? 'No skills installed yet'
-                      : `No ${scopeFilter}-scoped skills installed`}
-                </div>
-              )}
-
-              <div className="skills-list">
-                {filteredSkills.map((skill) => {
-                  const skillKey = `${skill.plugin}-${skill.name}`;
-                  return (
-                    <div key={skillKey} className="skill-row">
-                      <div className="skill-info">
-                        <div className="skill-name">/{skill.name}</div>
-                        <div className="skill-meta">
-                          <span className="skill-plugin">{skill.plugin}</span>
-                          <span
-                            className={`skill-scope-badge ${skill.scope === 'project' ? 'project' : ''}`}
-                          >
-                            {skill.scope}
-                          </span>
-                        </div>
-                        <div className="skill-desc">{skill.description}</div>
-                      </div>
-                      <button
-                        className="skill-remove-btn"
-                        onClick={() => void handleRemove(skill)}
-                        disabled={removingSkill === skillKey}
-                      >
-                        {removingSkill === skillKey ? 'Removing...' : 'Remove'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {activeTab === 'add' && (
-            <>
-              {cliAvailable === false && (
-                <div className="skills-cli-unavailable">
-                  <p>Skills CLI is not available. Install it to search and add skills:</p>
-                  <code>npm install -g skills</code>
-                </div>
-              )}
-
-              {cliAvailable !== false && (
+            <TabsPanel value="installed" className="skills-modal-body">
+              {activeTab === 'installed' && (
                 <>
-                  <div className="skills-search-section">
-                    <div className="skills-search-input-wrapper">
-                      <input
-                        type="text"
-                        className="skills-search-input"
-                        placeholder={`What do you want ${agentDisplayName} to do?`}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyPress={handleSearchKeyPress}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                      />
-                      <button
-                        className="skills-search-btn"
-                        onClick={() => void handleSearch()}
-                        disabled={isSearching || !searchQuery.trim()}
-                      >
-                        {isSearching ? 'Searching...' : 'Search'}
-                      </button>
-                    </div>
-                    <div className="skills-scope-toggle">
-                      <span className="skills-scope-toggle-label">Install to:</span>
-                      <button
-                        type="button"
-                        className={`skills-scope-btn ${installScope === 'user' ? 'active' : ''}`}
-                        onClick={() => setInstallScope('user')}
-                      >
-                        User
-                      </button>
-                      <button
-                        type="button"
-                        className={`skills-scope-btn ${installScope === 'project' ? 'active' : ''}`}
-                        onClick={() => setInstallScope('project')}
-                        disabled={!projectPath}
-                      >
-                        Project
-                      </button>
-                    </div>
+                  <div className="skills-installed-controls">
+                    <ExtensionSearchField
+                      ref={installedSearchRef}
+                      placeholder="Filter skills..."
+                      aria-label="Filter installed skills"
+                      value={installedSearchQuery}
+                      onChange={(e) => {
+                        setInstalledSearchQuery(e.target.value);
+                        trackSearch('skills_filter', e.target.value, 'Skills Modal');
+                      }}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                    />
+                    <Tabs
+                      value={scopeFilter}
+                      mode="navigation"
+                      onValueChange={(next) => setScopeFilter(next as ScopeFilter)}
+                    >
+                      <TabsList aria-label="Filter skills by scope">
+                        <TabsTab value="all">All</TabsTab>
+                        <TabsTab value="user">User</TabsTab>
+                        <TabsTab value="project">Project</TabsTab>
+                      </TabsList>
+                    </Tabs>
                   </div>
 
-                  {searchError && <div className="skills-error">{searchError}</div>}
-
-                  {isSearching && (
-                    <div className="skills-loading">
-                      <Spinner className="skills-loading-spinner" />
-                      Searching skills...
-                    </div>
+                  {isLoadingSkills && skills.length === 0 && (
+                    <ExtensionState kind="loading" loadingLabel="Loading skills">
+                      Loading skills...
+                    </ExtensionState>
                   )}
 
-                  {!isSearching && searchResults.length === 0 && searchQuery && !searchError && (
-                    <div className="skills-empty">
-                      No skills found. Try a different search term.
-                    </div>
+                  {removeError && <ExtensionState kind="error">{removeError}</ExtensionState>}
+
+                  {!isLoadingSkills && filteredSkills.length === 0 && (
+                    <ExtensionState kind="empty">
+                      {debouncedInstalledQuery
+                        ? 'No matching skills found'
+                        : scopeFilter === 'all'
+                          ? 'No skills installed yet'
+                          : `No ${scopeFilter}-scoped skills installed`}
+                    </ExtensionState>
                   )}
 
-                  <div className="skills-search-results">
-                    {searchResults.map((result) => (
-                      <div key={result.package} className="skills-result-card">
-                        <div className="skills-result-header">
-                          <div className="skills-result-info">
-                            <div className="skills-result-name">{result.name}</div>
-                            <div className="skills-result-package">
-                              {result.package}
-                              {result.installs != null && (
-                                <span className="skills-result-installs">
-                                  {formatInstalls(result.installs)}
-                                </span>
-                              )}
+                  <div className="skills-list">
+                    {filteredSkills.map((skill) => {
+                      const skillKey = `${skill.plugin}-${skill.name}`;
+                      return (
+                        <ExtensionListRow
+                          key={skillKey}
+                          action={
+                            <Button
+                              variant="danger"
+                              size="compact"
+                              onClick={() => void handleRemove(skill)}
+                              disabled={removingSkill === skillKey}
+                            >
+                              {removingSkill === skillKey ? 'Removing...' : 'Remove'}
+                            </Button>
+                          }
+                        >
+                          <div className="skill-info">
+                            <div className="skill-name">/{skill.name}</div>
+                            <div className="skill-meta">
+                              <span className="skill-plugin">{skill.plugin}</span>
+                              <ScopeBadge scope={skill.scope} />
                             </div>
+                            <div className="skill-desc">{skill.description}</div>
                           </div>
-                          <button
-                            className={`skills-install-btn ${installingPackage === result.package ? 'installing' : ''}`}
-                            onClick={() => void handleInstall(result.package)}
-                            disabled={installingPackage !== null}
-                          >
-                            {installingPackage === result.package ? 'Installing...' : 'Install'}
-                          </button>
-                        </div>
-                        {result.description && (
-                          <div className="skills-result-desc">{result.description}</div>
-                        )}
-                      </div>
-                    ))}
+                        </ExtensionListRow>
+                      );
+                    })}
                   </div>
                 </>
               )}
-            </>
-          )}
-        </div>
+            </TabsPanel>
 
-        <div className="skills-footer">
-          <span className="skills-footer-hint">
-            Press <span className="help-shortcut">Esc</span> to close
-          </span>
-          <button
-            type="button"
-            className="skills-footer-link"
-            onClick={() => void openUrl('https://skills.sh')}
-          >
-            <svg
-              width={10}
-              height={10}
-              viewBox="0 0 76 65"
-              fill="currentColor"
-              style={{ marginRight: 6 }}
-            >
-              <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
-            </svg>
-            Powered by skills.sh
-          </button>
-        </div>
+            <TabsPanel value="add" className="skills-modal-body">
+              {activeTab === 'add' && (
+                <>
+                  {cliAvailable === false && (
+                    <div className="skills-cli-unavailable">
+                      <p>Skills CLI is not available. Install it to search and add skills:</p>
+                      <code>npm install -g skills</code>
+                    </div>
+                  )}
+
+                  {cliAvailable !== false && (
+                    <>
+                      <div className="skills-search-section">
+                        <div className="skills-search-input-wrapper">
+                          <input
+                            type="text"
+                            className="skills-search-input"
+                            placeholder={`What do you want ${agentDisplayName} to do?`}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyPress={handleSearchKeyPress}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                          />
+                          <Button
+                            variant="primary"
+                            onClick={() => void handleSearch()}
+                            disabled={isSearching || !searchQuery.trim()}
+                          >
+                            {isSearching ? 'Searching...' : 'Search'}
+                          </Button>
+                        </div>
+                        <div className="skills-scope-toggle">
+                          <span className="skills-scope-toggle-label">Install to:</span>
+                          <Tabs
+                            value={installScope}
+                            mode="navigation"
+                            onValueChange={(next) => setInstallScope(next as InstallScope)}
+                          >
+                            <TabsList aria-label="Skill install scope">
+                              <TabsTab value="user">User</TabsTab>
+                              <TabsTab value="project" disabled={!projectPath}>
+                                Project
+                              </TabsTab>
+                            </TabsList>
+                          </Tabs>
+                        </div>
+                      </div>
+
+                      {searchError && <ExtensionState kind="error">{searchError}</ExtensionState>}
+
+                      {isSearching && (
+                        <ExtensionState kind="loading" loadingLabel="Searching skills">
+                          Searching skills...
+                        </ExtensionState>
+                      )}
+
+                      {!isSearching &&
+                        searchResults.length === 0 &&
+                        searchQuery &&
+                        !searchError && (
+                          <ExtensionState kind="empty">
+                            No skills found. Try a different search term.
+                          </ExtensionState>
+                        )}
+
+                      <div className="skills-search-results">
+                        {searchResults.map((result) => (
+                          <div key={result.package} className="skills-result-card">
+                            <div className="skills-result-header">
+                              <div className="skills-result-info">
+                                <div className="skills-result-name">{result.name}</div>
+                                <div className="skills-result-package">
+                                  {result.package}
+                                  {result.installs != null && (
+                                    <span className="skills-result-installs">
+                                      {formatInstalls(result.installs)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <Button
+                                variant="primary"
+                                size="compact"
+                                onClick={() => void handleInstall(result.package)}
+                                disabled={installingPackage !== null}
+                              >
+                                {installingPackage === result.package ? 'Installing...' : 'Install'}
+                              </Button>
+                            </div>
+                            {result.description && (
+                              <div className="skills-result-desc">{result.description}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </TabsPanel>
+          </ExtensionManagerLayout>
+        </Tabs>
       </>
     </ModalFrame>
   );

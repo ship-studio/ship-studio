@@ -1,54 +1,35 @@
 /**
- * Branch indicator component for workspace header.
+ * Conditional unsaved-changes segment shown beside the Push button.
  *
- * Shows the current branch name with:
- * - Branch icon
- * - Branch name
- * - "Live" badge if on main branch
- * - "Unsaved" badge if there are uncommitted changes
- * - A small pull button (git pull) when `onPullLatest` is provided
+ * The segment only appears while the working tree is dirty. Clicking it opens
+ * a compact changed-files review; Push remains a separate adjacent control.
  *
- * When hovering over "Unsaved" badge, shows a dropdown with the list
- * of changed files.
- *
- * When on the Branches/PRs tab, shows "Back to Preview" instead.
- *
- * @module components/BranchIndicator
+ * @module components/branches/BranchIndicator
  */
 
-import { useState, useRef, useCallback } from 'react';
-import { BranchIcon, ChevronIcon, FileIcon, PullIcon, TrashIcon } from '../icons';
-import { Spinner } from '../primitives/Spinner';
-import { ChangedFile, ChangeStatus } from '../../lib/git';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BranchIcon, FileIcon, TrashIcon } from '@/components/icons';
+import type { ChangedFile, ChangeStatus } from '../../lib/git';
 import { discardChanges } from '../../lib/branches';
 import { DiffModal } from './DiffModal';
+import { Button } from '../primitives/Button';
+import { useClickOutside } from '../../hooks/useClickOutside';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 
 interface BranchIndicatorProps {
-  /** Current branch name */
   currentBranch: string;
-  /** Whether there are uncommitted changes */
   hasUncommittedChanges: boolean;
-  /** List of files with uncommitted changes */
   changedFiles: ChangedFile[];
-  /** Absolute path to the project */
   projectPath: string;
-  /** Whether currently showing branches/prs tab */
-  isOnBranchesTab: boolean;
-  /** Callback when clicked - navigates to Branches tab or back to preview */
-  onClick: () => void;
-  /** Callback when changes are discarded */
   onDiscard?: () => void;
-  /** Callback when Push button is clicked - should open the push dropdown */
-  onSave?: () => void;
-  /** Callback for the small pull button (git pull). Omit to hide the button. */
-  onPullLatest?: () => void;
-  /** Whether a pull is currently in flight (shows a spinner on the pull button) */
-  isPulling?: boolean;
-  /** Whether the project has a preview to return to — web iframe or device
-   *  mirror (defaults to true). Gates the "back to preview" affordance. */
-  hasPreview?: boolean;
+  /** Controlled open state used by the header to keep its menus exclusive. */
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Opens the shared Push menu instead of rendering a second popover. */
+  opensPushMenu?: boolean;
+  /** Whether the current branch is explicitly known to be the live/default branch. */
+  isLive?: boolean;
 }
 
 export function BranchIndicator({
@@ -56,87 +37,85 @@ export function BranchIndicator({
   hasUncommittedChanges,
   changedFiles,
   projectPath,
-  isOnBranchesTab,
-  onClick,
   onDiscard,
-  onSave,
-  onPullLatest,
-  isPulling = false,
-  hasPreview = true,
+  isOpen: controlledOpen,
+  onOpenChange,
+  opensPushMenu = false,
+  isLive = false,
 }: BranchIndicatorProps) {
   const { showToast } = useOptionalToast();
-  const onToast = (message: string, type?: 'success' | 'error') => showToast(message, type);
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ path: string; status: ChangeStatus } | null>(
     null
   );
-  const dropdownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMainBranch = currentBranch === 'main' || currentBranch === 'master';
+  const isOpen = controlledOpen ?? internalOpen;
 
-  const handleMouseEnter = useCallback(() => {
-    if (dropdownTimeoutRef.current) {
-      clearTimeout(dropdownTimeoutRef.current);
-      dropdownTimeoutRef.current = null;
-    }
-    if (hasUncommittedChanges && changedFiles.length > 0) {
-      setShowDropdown(true);
-    }
-  }, [hasUncommittedChanges, changedFiles.length]);
+  const setOpen = useCallback(
+    (open: boolean) => {
+      if (controlledOpen === undefined) setInternalOpen(open);
+      onOpenChange?.(open);
+      if (!open) setConfirmDiscard(false);
+    },
+    [controlledOpen, onOpenChange]
+  );
 
-  const handleMouseLeave = useCallback(() => {
-    dropdownTimeoutRef.current = setTimeout(() => {
-      setShowDropdown(false);
-      setConfirmDiscard(false); // Reset confirmation when dropdown closes
-    }, 150);
-  }, []);
+  const closeFromOutside = useCallback(() => setOpen(false), [setOpen]);
+  useClickOutside(wrapperRef, closeFromOutside, isOpen && !opensPushMenu);
 
-  const handleDiscardAll = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  useEffect(() => {
+    if (!isOpen || opensPushMenu) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, opensPushMenu, setOpen]);
+
+  useEffect(() => {
+    if (hasUncommittedChanges) return;
+    setOpen(false);
+  }, [hasUncommittedChanges, setOpen]);
+
+  useEffect(
+    () => () => {
+      if (confirmTimeoutRef.current) clearTimeout(confirmTimeoutRef.current);
+    },
+    []
+  );
+
+  const handleDiscardAll = async () => {
     if (isDiscarding) return;
-
-    // First click: show confirmation state
     if (!confirmDiscard) {
       setConfirmDiscard(true);
-      // Reset confirmation after 3 seconds if not clicked
-      if (confirmTimeoutRef.current) {
-        clearTimeout(confirmTimeoutRef.current);
-      }
-      confirmTimeoutRef.current = setTimeout(() => {
-        setConfirmDiscard(false);
-      }, 3000);
+      if (confirmTimeoutRef.current) clearTimeout(confirmTimeoutRef.current);
+      confirmTimeoutRef.current = setTimeout(() => setConfirmDiscard(false), 3000);
       return;
     }
 
-    // Second click: perform the discard
-    if (confirmTimeoutRef.current) {
-      clearTimeout(confirmTimeoutRef.current);
-    }
+    if (confirmTimeoutRef.current) clearTimeout(confirmTimeoutRef.current);
     setConfirmDiscard(false);
     setIsDiscarding(true);
     try {
       await discardChanges(projectPath);
-      onToast?.('All changes discarded', 'success');
+      showToast('All changes discarded', 'success');
       onDiscard?.();
-      setShowDropdown(false);
-    } catch (e) {
-      const message = formatCommandError(asCommandError(e));
-      onToast?.(`Failed to discard changes: ${message}`, 'error');
+      setOpen(false);
+    } catch (error) {
+      showToast(`Failed to discard changes: ${formatCommandError(asCommandError(error))}`, 'error');
     } finally {
       setIsDiscarding(false);
     }
   };
 
-  const handleSave = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowDropdown(false);
-    onSave?.();
-  };
-
-  // Get status icon based on change type
-  const getStatusIndicator = (status: string) => {
+  const getStatusIndicator = (status: ChangeStatus) => {
     switch (status) {
       case 'added':
       case 'untracked':
@@ -150,118 +129,118 @@ export function BranchIndicator({
     }
   };
 
-  // Get just the filename from the path
   const getFileName = (path: string) => {
     const parts = path.split('/');
-    return parts[parts.length - 1];
+    return parts[parts.length - 1] ?? path;
   };
-
-  // Get directory path (without filename)
   const getDirectory = (path: string) => {
     const parts = path.split('/');
-    if (parts.length <= 1) return '';
-    return parts.slice(0, -1).join('/') + '/';
+    return parts.length > 1 ? `${parts.slice(0, -1).join('/')}/` : '';
   };
 
-  if (isOnBranchesTab) {
-    // Projects with no preview (generic/unknown) have nothing to go back to —
-    // hide the back button entirely.
-    if (!hasPreview) return null;
-    return (
-      <div className="branch-indicator">
-        <button className="branch-indicator-button branch-indicator-back" onClick={onClick}>
-          <ChevronIcon size={14} className="back-chevron" />
-          <span>Back to Preview</span>
-        </button>
-      </div>
-    );
-  }
+  if (!hasUncommittedChanges) return null;
+
+  const changeCount = changedFiles.length;
+  const visibleStatus = changeCount > 0 ? `${changeCount} unsaved` : 'Unsaved';
+  const accessibleStatus =
+    changeCount > 0
+      ? `${changeCount} unsaved ${changeCount === 1 ? 'change' : 'changes'}`
+      : 'unsaved changes';
 
   return (
-    <div
-      className="branch-indicator"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      data-education-id="branch-indicator"
-    >
-      <button
-        className={`branch-indicator-button ${isMainBranch ? 'main-branch' : ''}`}
-        onClick={onClick}
-      >
-        <BranchIcon size={14} />
-        <span className="branch-name">{currentBranch}</span>
-        {isMainBranch && <span className="branch-live-badge">Live</span>}
-        {hasUncommittedChanges && <span className="branch-unsaved-badge">Unsaved</span>}
-      </button>
+    <>
+      <div className="branch-indicator" ref={wrapperRef} data-education-id="branch-indicator">
+        {opensPushMenu ? (
+          <Button
+            ref={triggerRef}
+            className="branch-indicator-button branch-indicator-push-trigger"
+            aria-haspopup="menu"
+            aria-expanded={isOpen}
+            aria-label={`Open Push options for ${accessibleStatus} on ${currentBranch}`}
+            onClick={() => setOpen(!isOpen)}
+            leftIcon={<BranchIcon size={14} />}
+          >
+            <span className="branch-name">{currentBranch}</span>
+            {isLive && <span className="branch-live-badge">Live</span>}
+            <span className="branch-unsaved-label">{visibleStatus}</span>
+          </Button>
+        ) : (
+          <Button
+            ref={triggerRef}
+            className="branch-indicator-button"
+            aria-haspopup="menu"
+            aria-expanded={isOpen}
+            aria-label={`Review ${accessibleStatus} on ${currentBranch}`}
+            onClick={() => setOpen(!isOpen)}
+            leftIcon={<BranchIcon size={14} />}
+          >
+            <span className="branch-name">{currentBranch}</span>
+            {isLive && <span className="branch-live-badge">Live</span>}
+            <span className="branch-unsaved-label">{visibleStatus}</span>
+          </Button>
+        )}
 
-      {onPullLatest && (
-        <button
-          className="branch-pull-button"
-          title="Pull the latest changes from GitHub"
-          aria-label="Pull the latest changes from GitHub"
-          disabled={isPulling}
-          onClick={(e) => {
-            e.stopPropagation();
-            onPullLatest();
-          }}
-        >
-          {isPulling ? <Spinner size="sm" /> : <PullIcon size={13} />}
-          <span>Pull</span>
-        </button>
-      )}
-
-      {showDropdown && changedFiles.length > 0 && (
-        <div className="branch-changes-dropdown">
-          <div className="branch-changes-header">
-            <span>
-              {changedFiles.length} Unsaved {changedFiles.length === 1 ? 'Change' : 'Changes'}
-            </span>
-          </div>
-          <div className="branch-changes-list">
-            {changedFiles.map((file, index) => (
-              <div
-                key={index}
-                className="branch-changes-item branch-changes-item-clickable"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedFile({ path: file.path, status: file.status });
-                }}
-              >
-                {getStatusIndicator(file.status)}
-                <FileIcon size={12} />
-                <span className="branch-changes-path">
-                  <span className="branch-changes-dir">{getDirectory(file.path)}</span>
-                  <span className="branch-changes-filename">{getFileName(file.path)}</span>
-                </span>
+        {isOpen && !opensPushMenu && (
+          <div className="branch-changes-dropdown" role="dialog" aria-label="Unsaved changes">
+            <div className="branch-changes-header">
+              {changeCount} Unsaved {changeCount === 1 ? 'Change' : 'Changes'}
+            </div>
+            {changeCount > 0 ? (
+              <div className="branch-changes-list">
+                {changedFiles.map((file) => (
+                  <button
+                    type="button"
+                    key={`${file.status}:${file.path}`}
+                    className="branch-changes-item branch-changes-item-clickable"
+                    onClick={() => {
+                      setOpen(false);
+                      setSelectedFile({ path: file.path, status: file.status });
+                    }}
+                  >
+                    {getStatusIndicator(file.status)}
+                    <FileIcon size={12} />
+                    <span className="branch-changes-path">
+                      <span className="branch-changes-dir">{getDirectory(file.path)}</span>
+                      <span className="branch-changes-filename">{getFileName(file.path)}</span>
+                    </span>
+                  </button>
+                ))}
               </div>
-            ))}
+            ) : (
+              <div className="branch-changes-empty">
+                Git reports unsaved changes, but no changed-file details are available.
+              </div>
+            )}
+            <div className="branch-changes-footer">
+              <Button
+                variant="danger"
+                className={`branch-changes-discard-btn ${confirmDiscard ? 'confirming' : ''}`}
+                leftIcon={<TrashIcon size={12} />}
+                onClick={() => void handleDiscardAll()}
+                disabled={isDiscarding}
+              >
+                {isDiscarding
+                  ? 'Discarding...'
+                  : confirmDiscard
+                    ? 'Click to Confirm'
+                    : 'Discard All'}
+              </Button>
+            </div>
           </div>
-          <div className="branch-changes-footer">
-            <button className="branch-changes-save-btn" onClick={handleSave}>
-              Push
-            </button>
-            <button
-              className={`branch-changes-discard-btn ${confirmDiscard ? 'confirming' : ''}`}
-              onClick={(e) => {
-                void handleDiscardAll(e);
-              }}
-              disabled={isDiscarding}
-            >
-              <TrashIcon size={12} />
-              {isDiscarding ? 'Discarding...' : confirmDiscard ? 'Click to Confirm' : 'Discard All'}
-            </button>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {selectedFile && (
         <DiffModal
           projectPath={projectPath}
           filePath={selectedFile.path}
           fileStatus={selectedFile.status}
-          onClose={() => setSelectedFile(null)}
+          onClose={() => {
+            setSelectedFile(null);
+            triggerRef.current?.focus();
+          }}
         />
       )}
-    </div>
+    </>
   );
 }

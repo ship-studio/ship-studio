@@ -30,11 +30,11 @@
   gap: 8px;
   padding-bottom: 24px;
   margin-bottom: 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .account-select-title {
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-h3);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -43,7 +43,7 @@
 .account-select-subtitle {
   max-width: 720px;
   margin: -8px 0 28px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -95,8 +95,8 @@
   gap: 12px;
   padding: 28px 16px;
   min-height: 188px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition: border-color var(--transition);
@@ -108,7 +108,7 @@
 }
 
 .account-card.active {
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .account-card-avatar {
@@ -118,9 +118,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-h3);
   font-weight: 600;
-  color: var(--text-bright);
+  color: var(--text-inverse);
   flex-shrink: 0;
 }
 
@@ -143,7 +143,7 @@
 
 .account-card-name {
   font-weight: 600;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -152,37 +152,18 @@
 }
 
 .account-card-badge {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 500;
   padding: 2px 7px;
   border-radius: var(--radius-sm);
-  background: rgba(var(--success-light-rgb), 0.15);
-  color: var(--success-light);
+  background: rgba(var(--accent-success-rgb), 0.15);
+  color: var(--accent-success);
 }
 
 .account-card-settings {
   position: absolute;
   top: 8px;
   right: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-
-.account-card-settings:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
 }
 
 /* ── Account modal (New Workspace) shared body ───────────────────────────── */
@@ -195,15 +176,15 @@
 
 .account-settings-hint {
   margin-top: var(--spacing-sm);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
 }
 
 .account-settings-hint code {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-radius: var(--radius-sm);
   padding: 1px 4px;
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 /* ── Account Settings Modal ──────────────────────────────────────────────── */
@@ -235,11 +216,16 @@
 }
 
 .account-detail-footer {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
   padding: var(--spacing-sm) var(--spacing-lg);
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.account-detail-footer-note {
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
 }
 
 /* Inline delete confirmation (replaces a non-blocking window.confirm). */
@@ -252,7 +238,7 @@
 }
 
 .account-delete-confirm-text {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-secondary);
   min-width: 0;
 }
@@ -264,7 +250,7 @@
 }
 
 .account-section-title {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -280,18 +266,18 @@
 
 .account-name-input {
   flex: 1;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 600;
   padding: var(--spacing-xs) var(--spacing-sm);
 }
 
 .account-name-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .account-name-input:disabled {
@@ -334,9 +320,9 @@
   flex-direction: column;
   /* One grouped card with hairline dividers between rows, instead of a stack
      of individually-bordered boxes (which read as visual noise). */
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 
@@ -345,7 +331,7 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   min-height: 44px;
 }
 
@@ -355,7 +341,7 @@
 
 .account-cred-label {
   flex: 0 0 200px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -378,7 +364,7 @@
 }
 
 .account-cred-description {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -394,15 +380,15 @@
 }
 
 .account-cred-badge {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   padding: 2px 7px;
   border-radius: var(--radius-sm);
   font-weight: 500;
 }
 
 .account-cred-badge.set {
-  background: rgba(var(--success-light-rgb), 0.15);
-  color: var(--success-light);
+  background: rgba(var(--accent-success-rgb), 0.15);
+  color: var(--accent-success);
 }
 
 .account-cred-badge.unset {
@@ -428,39 +414,18 @@
 .account-cred-input {
   flex: 1;
   min-width: 0;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   padding: 5px var(--spacing-sm);
-  font-family: var(--font-mono);
-}
-
-/* Show/Hide toggle for sensitive credential values in the edit row. */
-.account-cred-reveal {
-  flex-shrink: 0;
-  padding: 4px var(--spacing-sm);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition:
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.account-cred-reveal:hover {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+  font-family: var(--font-code);
 }
 
 .account-cred-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .account-cred-actions {
@@ -480,10 +445,10 @@
   margin: 0 var(--spacing-sm) var(--spacing-sm);
   padding: 4px var(--spacing-sm);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  background: var(--surface-panel);
   cursor: pointer;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-secondary);
   transition:
     background var(--transition),
@@ -493,8 +458,8 @@
 }
 
 .workspace-switch-account:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--accent);
+  background: var(--surface-control);
+  border-color: var(--accent-active);
   color: var(--text-primary);
 }
 

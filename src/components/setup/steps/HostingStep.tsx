@@ -6,6 +6,7 @@
  */
 
 import { SetupItem } from '../SetupItem';
+import { Button } from '../../primitives/Button';
 import {
   SetupItem as SetupItemType,
   getStepItems,
@@ -48,9 +49,14 @@ export function HostingStep({
           />
         );
       })}
-      <button className="wizard-hosting-skip-btn" onClick={onSkip} disabled={isAnyActionInProgress}>
+      <Button
+        variant="secondary"
+        className="wizard-hosting-skip"
+        onClick={onSkip}
+        disabled={isAnyActionInProgress}
+      >
         Skip for Now
-      </button>
+      </Button>
     </div>
   );
 }

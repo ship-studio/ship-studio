@@ -7,7 +7,7 @@
 .move-folder-modal .modal-subtitle {
   margin-bottom: 16px;
   color: var(--text-secondary);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
 }
 
 .move-folder-loading {
@@ -32,11 +32,11 @@
   gap: 10px;
   width: 100%;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   text-align: left;
   cursor: pointer;
   transition:
@@ -46,14 +46,14 @@
 }
 
 .move-folder-item:hover:not(:disabled) {
-  background: var(--bg-secondary);
-  border-color: var(--border);
+  background: var(--surface-panel);
+  border-color: var(--border-default);
   color: var(--text-primary);
 }
 
 .move-folder-item.active {
-  background: rgba(var(--success-rgb), 0.1);
-  border-color: var(--success);
+  background: rgba(var(--accent-success-rgb), 0.1);
+  border-color: var(--accent-success);
   color: var(--text-primary);
 }
 
@@ -69,7 +69,7 @@
 }
 
 .move-folder-item-count {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
 }
 
@@ -78,13 +78,13 @@
 }
 
 .move-folder-item svg:last-child {
-  color: var(--success);
+  color: var(--accent-success);
 }
 
 /* "Current" pill on the workspace the project already belongs to. */
 .move-folder-item-tag {
   flex-shrink: 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -92,7 +92,7 @@
 /* Explanation of what moving a project actually does (above the confirm button). */
 .move-workspace-explainer {
   margin: var(--spacing-md) 0 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -101,12 +101,12 @@
   text-align: center;
   padding: 24px;
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 .move-folder-item.move-folder-new-btn {
   border-style: dashed;
-  border-color: var(--border);
+  border-color: var(--border-default);
   color: var(--text-muted);
 }
 
@@ -120,9 +120,9 @@
   align-items: center;
   gap: 10px;
   padding: 6px 8px 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--accent-active);
+  border-radius: var(--radius-control);
 }
 
 .move-folder-create-input svg {
@@ -136,7 +136,7 @@
   border: none;
   outline: none;
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-family: inherit;
   padding: 4px 0;
 }
@@ -147,11 +147,11 @@
 
 .move-folder-create-confirm {
   padding: 4px 12px;
-  background: var(--accent);
-  color: var(--bg-primary);
+  background: var(--accent-active);
+  color: var(--surface-app);
   border: none;
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -175,7 +175,7 @@
 .form-group label {
   display: block;
   margin-bottom: 6px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -183,11 +183,11 @@
 .form-group input[type='text'] {
   width: 100%;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   transition: border-color var(--transition);
 }
 
@@ -203,6 +203,9 @@
 .form-error {
   margin-top: 8px;
   margin-bottom: 0;
-  color: var(--error);
-  font-size: var(--font-size-md);
+  color: var(--accent-error);
+  font-size: var(--font-size-body-lg);
+}
+.move-folder-modal-body {
+  padding: var(--button-gap);
 }

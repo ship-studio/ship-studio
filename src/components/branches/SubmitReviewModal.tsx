@@ -29,8 +29,9 @@ import {
 import { logger } from '../../lib/logger';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
+import { TextButton } from '../primitives/TextButton';
 import { Spinner } from '../primitives/Spinner';
-import { GitHubIcon, WarningIcon } from '../icons';
+import { GitHubIcon, WarningIcon } from '@/components/icons';
 import { useOptionalToast } from '../../contexts/ToastContext';
 
 interface SubmitReviewModalProps {
@@ -321,14 +322,13 @@ export function SubmitReviewModal({
             Your pull request was created. Want to merge <strong>{branchName}</strong> into{' '}
             <strong>{baseBranch}</strong> now?
           </p>
-          <button
-            type="button"
+          <TextButton
             className="post-merge-link"
             onClick={() => void openUrl(createdPr.url)}
+            leftIcon={<GitHubIcon size={14} />}
           >
-            <GitHubIcon size={14} />
             View on GitHub
-          </button>
+          </TextButton>
           {error && <div className="submit-review-error">{error}</div>}
         </div>
         <div className="post-merge-footer">

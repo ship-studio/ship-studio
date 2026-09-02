@@ -16,6 +16,7 @@ import {
   SETUP_FRIENDLY_NAMES,
 } from '../../../lib/setup';
 import { ALL_AGENTS } from '../../../lib/agent';
+import AgentSelectedGraphic from '@/assets/graphics/agent-selected.svg?react';
 
 /** One-line plain descriptions so "Codex"/"Opencode" aren't opaque brand names. */
 const AGENT_DESCRIPTIONS: Record<string, string> = {
@@ -93,16 +94,7 @@ export function AgentStep({
               </div>
               {showSelection && isPairReady && localSelectedId === agentId && (
                 <div className="wizard-agent-card-check">
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                    <circle cx="10" cy="10" r="10" fill="var(--success)" />
-                    <path
-                      d="M6 10l3 3 5-6"
-                      stroke="white"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                  <AgentSelectedGraphic width={20} height={20} aria-hidden="true" />
                 </div>
               )}
             </div>

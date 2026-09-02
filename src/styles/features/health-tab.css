@@ -5,9 +5,9 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg-primary);
+  background: var(--surface-app);
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
 }
 
 .health-tab--empty {
@@ -26,7 +26,7 @@
 }
 
 .health-tab-empty-title {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -45,7 +45,7 @@
   justify-content: space-between;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -62,8 +62,8 @@
   gap: 4px;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: var(--font-size-sm);
-  background: var(--bg-tertiary);
+  font-size: var(--font-size-body-sm);
+  background: var(--surface-control);
 }
 
 .health-tab-pill-count {
@@ -75,11 +75,11 @@
 }
 
 .health-tab-pill.pass .health-tab-pill-count {
-  color: var(--success);
+  color: var(--accent-success);
 }
 
 .health-tab-pill.fail .health-tab-pill-count {
-  color: var(--error);
+  color: var(--accent-error);
 }
 
 .health-tab-pill.idle .health-tab-pill-count {
@@ -89,7 +89,7 @@
 .health-tab-actions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--button-gap);
   flex-shrink: 0;
 }
 
@@ -117,7 +117,7 @@
 }
 
 .health-tab-icon-btn:hover:not(:disabled) {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 
@@ -132,7 +132,7 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -140,7 +140,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   transition: background var(--transition);
 }
 
@@ -149,11 +149,11 @@
 }
 
 .health-tab-row:hover {
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
 .health-tab-row.is-selected {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 /* The clickable region — fills the row, contains glyph + label + status text.
@@ -181,7 +181,7 @@
 }
 
 .health-tab-row-main:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-active);
   outline-offset: -2px;
   border-radius: 0;
 }
@@ -210,60 +210,27 @@
   color: var(--text-secondary);
 }
 
-/* Instant custom tooltip — no opacity transition, no enter delay. Sits above
-   the badge; if it would clip the top of the panel, the row layout still has
-   enough headroom for ~3 lines of text. */
-.health-tab-help-tooltip {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: max-content;
-  max-width: 280px;
-  padding: 6px 10px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
-  font-size: var(--font-size-sm);
-  font-weight: 400;
-  line-height: 1.4;
-  white-space: normal;
-  text-align: left;
-  pointer-events: none;
-  z-index: var(--z-tooltip);
-  opacity: 0;
-  visibility: hidden;
-}
-
-.health-tab-help:hover .health-tab-help-tooltip,
-.health-tab-help:focus-visible .health-tab-help-tooltip {
-  opacity: 1;
-  visibility: visible;
-}
-
 .health-tab-row-status {
   color: var(--text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
 }
 
 .health-tab-row--pass .health-tab-row-status {
-  color: var(--success);
+  color: var(--accent-success);
 }
 
 .health-tab-row--fail .health-tab-row-status {
-  color: var(--error);
+  color: var(--accent-error);
 }
 
 .health-tab-row--running .health-tab-row-status {
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .health-tab-row-meta,
 .health-tab-row-time {
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -276,7 +243,7 @@
 .health-tab-row-actions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--button-gap);
   padding-right: var(--spacing-md);
   flex-shrink: 0;
 }
@@ -296,11 +263,11 @@
 }
 
 .health-tab-glyph.dot.pass {
-  background: var(--success);
+  background: var(--accent-success);
 }
 
 .health-tab-glyph.dot.fail {
-  background: var(--error);
+  background: var(--accent-error);
 }
 
 .health-tab-glyph.dot.idle {
@@ -321,7 +288,7 @@
   width: 10px;
   height: 10px;
   border-width: 1.5px;
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 /* ─── Output pane ─── */
@@ -338,7 +305,7 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -352,14 +319,14 @@
 .health-tab-output-meta {
   color: var(--text-muted);
   font-weight: 400;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-variant-numeric: tabular-nums;
 }
 
 .health-tab-output-actions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--button-gap);
 }
 
 .health-tab-output-body {
@@ -367,11 +334,11 @@
   margin: 0;
   padding: var(--spacing-md);
   overflow: auto;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   line-height: 1.5;
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background: var(--surface-app);
   white-space: pre;
 }
 
@@ -387,8 +354,8 @@
 /* ─── Suggestions card ─── */
 
 .health-tab-suggestions {
-  border-top: 1px solid var(--border);
-  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-panel);
   padding: var(--spacing-sm) var(--spacing-md);
   flex-shrink: 0;
 }
@@ -401,7 +368,7 @@
 }
 
 .health-tab-suggestions-title {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -421,12 +388,12 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
 }
 
 .health-tab-suggestion-code {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  background: var(--bg-tertiary);
+  font-family: var(--font-code);
+  background: var(--surface-control);
   padding: 2px var(--spacing-xs);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
@@ -441,12 +408,12 @@
 .health-tab-pkg-json {
   margin: 0;
   padding: var(--spacing-md);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   line-height: 1.5;
   color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   max-height: 60vh;
   overflow: auto;
@@ -456,6 +423,6 @@
 .health-tab-pkg-json-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   margin-top: var(--spacing-md);
 }

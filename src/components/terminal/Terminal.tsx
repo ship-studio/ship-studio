@@ -54,11 +54,13 @@ import { isResourcePressureError } from '../../lib/errorReporting';
 import { isPointInRect, dropPointToLogical } from '../../lib/dropTarget';
 import { getTerminalGpuEnabled } from '../../lib/settings';
 import { attachedLibraryDirs } from '../../lib/attached-libraries';
+import { sanitizeTerminalTitle } from '../../lib/terminalTitle';
 import {
   decideStartupTimeoutAction,
   RESPAWN_GRACE_MS,
   STARTUP_TIMEOUT_MS,
 } from './startupWatchdog';
+import { createTerminalOptions } from './terminalTheme';
 import type { AgentConfig } from '../../lib/agent';
 import '@xterm/xterm/css/xterm.css';
 
@@ -404,39 +406,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
 
     // Create terminal with JetBrains Mono Nerd Font (fallback to system monospace)
     const term = new XTerm({
-      fontFamily: '"JetBrainsMono NF", Menlo, Monaco, "Courier New", monospace',
-      fontSize: 13,
-      lineHeight: 1.2,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      scrollback: 5000,
+      ...createTerminalOptions('normal'),
       allowProposedApi: true,
-      // Lift low-contrast text (e.g. ANSI black / dim greys on our dark
-      // background) to WCAG AA against the actual cell background, so black
-      // text on colored chips stays dark. Same default as VS Code (#232).
-      minimumContrastRatio: 4.5,
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#cccccc',
-        cursor: '#ffffff',
-        selectionBackground: '#3a3d41',
-        black: '#000000',
-        red: '#cd3131',
-        green: '#0dbc79',
-        yellow: '#e5e510',
-        blue: '#2472c8',
-        magenta: '#bc3fbc',
-        cyan: '#11a8cd',
-        white: '#e5e5e5',
-        brightBlack: '#666666',
-        brightRed: '#f14c4c',
-        brightGreen: '#23d18b',
-        brightYellow: '#f5f543',
-        brightBlue: '#3b8eea',
-        brightMagenta: '#d670d6',
-        brightCyan: '#29b8db',
-        brightWhite: '#ffffff',
-      },
     });
 
     const fitAddon = new FitAddon();
@@ -498,7 +469,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // - Star (* char ~10035) when done/waiting for input
     term.onTitleChange((title) => {
       // Forward the display title (strip leading status icon if present)
-      const displayTitle = title.replace(/^[·•✳✱✲*\u2802\u2810\u00B7]\s*/, '').trim();
+      const displayTitle = sanitizeTerminalTitle(title);
       // Skip UUIDs and empty titles — these come from session naming, not user-facing content
       if (
         displayTitle &&
@@ -1348,8 +1319,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   );
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div
+      className={`terminal-instance ${isFocused ? 'is-focused' : 'is-unfocused'}`}
+      style={{ position: 'relative', width: '100%', height: '100%' }}
+    >
       <div
+        className="terminal-instance-container"
         ref={containerRef}
         onClick={handleClick}
         onDragOver={handleDragOver}
@@ -1357,7 +1332,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         style={{
           width: '100%',
           height: '100%',
-          backgroundColor: '#1e1e1e',
+          backgroundColor: '#141414',
           filter: isFocused ? 'none' : 'grayscale(100%)',
           transition: 'filter 150ms ease-in-out',
         }}
@@ -1371,9 +1346,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: '#1e1e1e',
+            backgroundColor: '#141414',
             color: '#666666',
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            fontFamily: 'var(--font-code)',
             fontSize: 13,
           }}
         >

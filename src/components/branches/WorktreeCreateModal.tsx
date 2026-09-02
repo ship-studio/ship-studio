@@ -11,6 +11,7 @@
 
 import { useMemo, useState, type FormEvent } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
+import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { useModal } from '../../contexts/ModalContext';
@@ -119,26 +120,12 @@ function WorktreeCreateForm({
           by side — its own terminal, dev server, and preview.
         </p>
 
-        <div className="worktree-mode-toggle" role="tablist" aria-label="Branch source">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'new'}
-            className={`worktree-mode-btn ${mode === 'new' ? 'is-active' : ''}`}
-            onClick={() => setMode('new')}
-          >
-            New branch
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'existing'}
-            className={`worktree-mode-btn ${mode === 'existing' ? 'is-active' : ''}`}
-            onClick={() => setMode('existing')}
-          >
-            Existing branch
-          </button>
-        </div>
+        <Tabs value={mode} mode="navigation" onValueChange={(next) => setMode(next as Mode)}>
+          <TabsList className="worktree-mode-toggle" aria-label="Branch source">
+            <TabsTab value="new">New branch</TabsTab>
+            <TabsTab value="existing">Existing branch</TabsTab>
+          </TabsList>
+        </Tabs>
 
         {mode === 'new' ? (
           <>

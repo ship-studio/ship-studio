@@ -8,6 +8,9 @@
 
 import type { PluginInfo } from '../../lib/plugins';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
+import { PuzzleIcon } from '@/components/icons';
+import { TextButton } from '../primitives/TextButton';
+import { ExtensionListRow } from './extension';
 
 export interface PluginStatusGridProps {
   plugins: PluginInfo[];
@@ -27,7 +30,6 @@ export interface PluginStatusGridProps {
 
 export function PluginStatusGrid({
   plugins,
-  loadedPlugins,
   togglingId,
   removingId,
   reloadingId,
@@ -43,12 +45,11 @@ export function PluginStatusGrid({
   return (
     <div className="plugins-list">
       {plugins.map((plugin) => {
-        const loaded = loadedPlugins.find((lp) => lp.info.manifest.id === plugin.manifest.id);
-        const ToolbarIcon = loaded?.module.slots['toolbar'];
-
         return (
-          <div key={plugin.manifest.id} className="plugin-row">
-            <div className="plugin-icon-container">{ToolbarIcon ? <ToolbarIcon /> : null}</div>
+          <ExtensionListRow key={plugin.manifest.id} className="plugin-row">
+            <div className="plugin-icon-container">
+              <PuzzleIcon size={14} />
+            </div>
             <div className="plugin-info">
               <div className="plugin-header">
                 <div>
@@ -81,22 +82,21 @@ export function PluginStatusGrid({
               <div className="plugin-actions">
                 {plugin.is_dev ? (
                   <>
-                    <button
-                      className="plugin-action-link"
+                    <TextButton
                       onClick={() => onReloadDev(plugin.manifest.id)}
                       disabled={reloadingId === plugin.manifest.id}
                     >
                       {reloadingId === plugin.manifest.id ? 'Reloading...' : 'Reload'}
-                    </button>
-                    <button
-                      className="plugin-action-link plugin-action-danger"
+                    </TextButton>
+                    <TextButton
+                      variant="danger"
                       onClick={() => {
                         onUnlinkDev(plugin.manifest.id);
                       }}
                       disabled={unlinkingId === plugin.manifest.id}
                     >
                       {unlinkingId === plugin.manifest.id ? 'Unlinking...' : 'Unlink'}
-                    </button>
+                    </TextButton>
                   </>
                 ) : (
                   <>
@@ -107,14 +107,14 @@ export function PluginStatusGrid({
                       }
                       if (state === 'available') {
                         return (
-                          <button
-                            className="plugin-action-link plugin-action-update"
+                          <TextButton
+                            variant="accent"
                             onClick={() => {
                               onUpdate(plugin.manifest.id);
                             }}
                           >
                             Update available
-                          </button>
+                          </TextButton>
                         );
                       }
                       if (state === 'updating') {
@@ -124,30 +124,29 @@ export function PluginStatusGrid({
                         return <span className="plugin-action-status">Up to date</span>;
                       }
                       return (
-                        <button
-                          className="plugin-action-link"
+                        <TextButton
                           onClick={() => {
                             onCheckUpdate(plugin.manifest.id);
                           }}
                         >
                           Check for updates
-                        </button>
+                        </TextButton>
                       );
                     })()}
-                    <button
-                      className="plugin-action-link plugin-action-danger"
+                    <TextButton
+                      variant="danger"
                       onClick={() => {
                         onUninstall(plugin.manifest.id);
                       }}
                       disabled={removingId === plugin.manifest.id}
                     >
                       {removingId === plugin.manifest.id ? 'Removing...' : 'Remove'}
-                    </button>
+                    </TextButton>
                   </>
                 )}
               </div>
             </div>
-          </div>
+          </ExtensionListRow>
         );
       })}
     </div>

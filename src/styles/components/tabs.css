@@ -1,0 +1,121 @@
+/* Shared animated tabs primitive. The trigger is the canonical Button with a
+   restrained tab surface layered on top; the indicator provides the motion. */
+.tabs__list {
+  --tabs-list-padding: var(--space-02);
+  --tabs-tab-radius: var(--radius-4);
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: fit-content;
+  min-height: 0;
+  gap: var(--tabs-list-padding);
+  padding: var(--tabs-list-padding);
+  background: var(--surface-control);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: calc(var(--tabs-tab-radius) + var(--tabs-list-padding));
+}
+
+.tabs__list--stretch {
+  align-items: stretch;
+  height: 100%;
+}
+
+.tabs__list--stretch .tabs__tab {
+  height: auto;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.tabs__tab.button {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  height: var(--control-height-compact);
+  min-height: var(--control-height-compact);
+  box-sizing: border-box;
+  padding-inline: var(--space-12);
+  border-radius: var(--tabs-tab-radius);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.tabs__tab.button:hover:not(:disabled):not(.is-active) {
+  background: var(--surface-control-hover);
+  color: var(--text-primary);
+}
+
+.tabs__tab.button.is-active,
+.tabs__tab.button.is-active:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.tabs__list--appearance-underline {
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.tabs__list--appearance-underline .tabs__tab.button,
+.tabs__list--appearance-underline .tabs__tab.button:hover:not(:disabled) {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.tabs__list--appearance-underline .tabs__indicator {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tabs__list--appearance-underline .tabs__indicator::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: calc(var(--stroke-1) * -1);
+  left: 0;
+  height: var(--stroke-2);
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
+  background: var(--text-primary);
+}
+
+.tabs__tab.button--icon-only {
+  width: var(--button-height);
+  min-width: var(--button-height);
+  padding: 0;
+}
+
+.tabs__tab.button--icon-only.button--size-compact {
+  width: var(--button-height-compact);
+  min-width: var(--button-height-compact);
+}
+
+.tabs__indicator {
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  top: 0;
+  border-radius: var(--tabs-tab-radius);
+  background: var(--surface-selected);
+  box-shadow: var(--shadow-button);
+  pointer-events: none;
+  box-sizing: border-box;
+  transition:
+    transform var(--transition),
+    width var(--transition);
+}
+
+.tabs__panel[aria-hidden='true']:not([data-tabs-keep-mounted='true']) {
+  display: none;
+}
+
+.tabs__panel[data-tabs-keep-mounted='true'][aria-hidden='true'] {
+  visibility: hidden;
+  pointer-events: none;
+}

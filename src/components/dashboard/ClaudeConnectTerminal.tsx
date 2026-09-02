@@ -20,6 +20,7 @@ import { createWebLinksAddon } from '../../lib/terminalLinks';
 import { loadNerdFonts } from '../../lib/fonts';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { createTerminalOptions } from '../terminal/terminalTheme';
 import {
   claudeConnectStart,
   claudeConnectWrite,
@@ -76,37 +77,8 @@ export function ClaudeConnectTerminal({
       if (!mounted) return;
 
       term = new XTerm({
-        fontFamily: '"JetBrainsMono NF", Menlo, Monaco, "Courier New", monospace',
-        fontSize: 13,
-        lineHeight: 1.2,
-        cursorBlink: true,
-        cursorStyle: 'block',
-        scrollback: 1000,
+        ...createTerminalOptions('connection'),
         allowProposedApi: true,
-        // Keep agent TUI text readable on the dark background (#232).
-        minimumContrastRatio: 4.5,
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#cccccc',
-          cursor: '#ffffff',
-          selectionBackground: '#3a3d41',
-          black: '#000000',
-          red: '#cd3131',
-          green: '#0dbc79',
-          yellow: '#e5e510',
-          blue: '#2472c8',
-          magenta: '#bc3fbc',
-          cyan: '#11a8cd',
-          white: '#e5e5e5',
-          brightBlack: '#666666',
-          brightRed: '#f14c4c',
-          brightGreen: '#23d18b',
-          brightYellow: '#f5f543',
-          brightBlue: '#3b8eea',
-          brightMagenta: '#d670d6',
-          brightCyan: '#29b8db',
-          brightWhite: '#ffffff',
-        },
       });
 
       fitAddon = new FitAddon();

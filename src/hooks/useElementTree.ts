@@ -54,6 +54,7 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
   const [tree, setTree] = useState<ElementTreeNode | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [affectedIds, setAffectedIds] = useState<number[]>([]);
 
   const post = useCallback(
     (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*'),
@@ -63,23 +64,46 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
   useEffect(() => {
     if (!enabled) return;
 
-    post({ type: 'ss:requestTree' });
+    let retryTimer: number | null = null;
+    const stopRetrying = () => {
+      if (retryTimer !== null) {
+        window.clearInterval(retryTimer);
+        retryTimer = null;
+      }
+    };
+    const requestUntilReady = () => {
+      stopRetrying();
+      post({ type: 'ss:requestTree' });
+      retryTimer = window.setInterval(() => post({ type: 'ss:requestTree' }), 500);
+    };
 
     const onMessage = (e: MessageEvent) => {
       // SECURITY: only trust messages from the actual preview iframe (untrusted
       // project content runs inside it).
       if (e.source !== iframeRef.current?.contentWindow) return;
       const d = e.data as
-        | { type?: string; tree?: WireNode; truncated?: boolean; nodeId?: number }
+        | {
+            type?: string;
+            tree?: WireNode;
+            truncated?: boolean;
+            nodeId?: number;
+            affectedNodeIds?: number[];
+          }
         | undefined;
       if (!d || typeof d.type !== 'string') return;
       if (d.type === 'ss:tree' && d.tree) {
+        stopRetrying();
         setTree(mapNode(d.tree));
         setTruncated(!!d.truncated);
       } else if (d.type === 'ss:treeDirty') {
-        post({ type: 'ss:requestTree' });
+        requestUntilReady();
       } else if (d.type === 'ss:select') {
         setSelectedId(typeof d.nodeId === 'number' ? d.nodeId : null);
+        setAffectedIds(
+          Array.isArray(d.affectedNodeIds)
+            ? d.affectedNodeIds.filter((id): id is number => typeof id === 'number')
+            : []
+        );
       }
     };
     window.addEventListener('message', onMessage);
@@ -88,10 +112,12 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
     // so re-request on iframe load to keep the navigator alive across HMR
     // full-reloads and manual refreshes.
     const iframe = iframeRef.current;
-    const onLoad = () => post({ type: 'ss:requestTree' });
+    const onLoad = () => requestUntilReady();
     iframe?.addEventListener('load', onLoad);
+    requestUntilReady();
 
     return () => {
+      stopRetrying();
       post({ type: 'ss:treeOff' });
       window.removeEventListener('message', onMessage);
       iframe?.removeEventListener('load', onLoad);
@@ -106,6 +132,7 @@ export function useElementTree({ iframeRef, enabled }: UseElementTreeParams) {
     tree: enabled ? tree : null,
     truncated,
     selectedId: enabled ? selectedId : null,
+    affectedIds: enabled ? affectedIds : [],
     selectNode,
     hoverNode,
   };

@@ -9,16 +9,21 @@
  * @module components/PublishBranchDropdown
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import { ProjectGitHubStatus } from '../../lib/github';
 import { publishBranch } from '../../lib/branches';
-import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon } from '../icons';
+import { ChevronIcon, BranchIcon, SuccessIcon, ErrorIcon, PushIcon } from '@/components/icons';
 import { Spinner } from '../primitives/Spinner';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { logger } from '../../lib/logger';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { asCommandError, formatCommandError, isRecognizedGitFailure } from '../../lib/errors';
+import { Button } from '../primitives/Button';
+import { MenuButton } from '../primitives/MenuButton';
+import { TextButton } from '../primitives/TextButton';
+import type { ChangedFile } from '../../lib/git';
+import { ChangedFilesActions, ChangedFilesSection } from './ChangedFilesSection';
 
 // Module-scoped so the metric spans dropdown re-mounts. Per-project would be
 // better but cross-project publish cadence is also useful and far simpler.
@@ -52,6 +57,16 @@ interface PublishBranchDropdownProps {
   forceOpen?: boolean;
   /** Callback when forceOpen has been handled */
   onForceOpenHandled?: () => void;
+  /** Controlled open state used by the workspace header's exclusive menus. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Visually joins the trigger to the adjacent unsaved-changes segment. */
+  grouped?: boolean;
+  /** Changed-file review is part of this single source-control menu. */
+  changedFiles?: ChangedFile[];
+  onDiscardChanges?: () => void;
+  /** Hosting integration controls rendered inside the Push workflow. */
+  hostingControls?: ReactNode;
   /**
    * CSS selector for elements that should NOT trigger click-outside closing.
    * Used by compact mode to exclude its publish button from closing the dropdown.
@@ -82,18 +97,35 @@ export function PublishBranchDropdown({
   onCreatePR,
   forceOpen,
   onForceOpenHandled,
+  open: controlledOpen,
+  onOpenChange,
+  grouped = false,
+  changedFiles = [],
+  onDiscardChanges,
+  hostingControls,
   excludeClickOutsideSelector,
 }: PublishBranchDropdownProps) {
   const { showToast } = useOptionalToast();
   const onToast = (message: string, type?: 'success' | 'error' | 'info') =>
     showToast(message, type);
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [publishState, setPublishState] = useState<PublishState>({ status: 'idle' });
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const hostingRef = useRef<HTMLDivElement>(null);
 
   const hasGitHubRepo =
     projectGithubStatus?.status === 'connected' && projectGithubStatus?.github_repo;
   const isMainBranch = currentBranch === 'main' || currentBranch === 'master';
+  const isOpen = controlledOpen ?? internalOpen;
+
+  const setOpen = useCallback(
+    (open: boolean) => {
+      if (controlledOpen === undefined) setInternalOpen(open);
+      onOpenChange?.(open);
+    },
+    [controlledOpen, onOpenChange]
+  );
 
   // Track previous forceOpen value to detect true→false transitions
   const prevForceOpenRef = useRef<boolean | undefined>(undefined);
@@ -107,23 +139,40 @@ export function PublishBranchDropdown({
     prevForceOpenRef.current = forceOpen;
 
     if (forceOpen && hasGitHubRepo) {
-      setIsOpen(true);
+      setOpen(true);
       onForceOpenHandled?.();
       // In trigger mode, the parent immediately sets forceOpen back to false.
       // Pre-set the ref so the true→false transition doesn't close the dropdown.
       prevForceOpenRef.current = false;
     } else if (prevForceOpen === true && forceOpen === false) {
       // Controlled mode: parent explicitly closed the dropdown
-      setIsOpen(false);
+      setOpen(false);
     }
-  }, [forceOpen, hasGitHubRepo, onForceOpenHandled]);
+  }, [forceOpen, hasGitHubRepo, onForceOpenHandled, setOpen]);
 
   // Close dropdown when clicking outside
   const closeDropdown = useCallback(() => {
-    setIsOpen(false);
+    setOpen(false);
     onModalClose?.();
-  }, [onModalClose]);
-  useClickOutside(dropdownRef, closeDropdown, isOpen, excludeClickOutsideSelector);
+  }, [onModalClose, setOpen]);
+  const clickOutsideExclusions = excludeClickOutsideSelector
+    ? `${excludeClickOutsideSelector}, .modal-frame-overlay, .cf-modal-overlay`
+    : '.modal-frame-overlay, .cf-modal-overlay';
+  useClickOutside(dropdownRef, closeDropdown, isOpen, clickOutsideExclusions);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, setOpen]);
 
   // Drop a stale `success` state when the dropdown closes by any path —
   // click-outside, toggle, controlled-mode close, etc. Without this, the
@@ -138,6 +187,33 @@ export function PublishBranchDropdown({
       setPublishState({ status: 'idle' });
     }
   }, [isOpen, publishState.status]);
+
+  useEffect(() => {
+    if (!isOpen || !hostingControls) return;
+    const host = hostingRef.current;
+    if (!host) return;
+
+    const revealHostingLinks = () => {
+      const wrappers = host.querySelectorAll<HTMLElement>(
+        '.cf-dropdown-wrapper, .vercel-button-container'
+      );
+
+      wrappers.forEach((wrapper) => {
+        const menu = wrapper.querySelector('.cf-dropdown, .vercel-site-dropdown');
+        if (!menu) {
+          wrapper.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        }
+      });
+    };
+
+    const frame = requestAnimationFrame(revealHostingLinks);
+    const observer = new MutationObserver(revealHostingLinks);
+    observer.observe(host, { childList: true, subtree: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [hostingControls, isOpen]);
 
   const handlePublish = async () => {
     logger.info('Starting publish', { branch: currentBranch, isMainBranch, projectPath });
@@ -221,7 +297,7 @@ export function PublishBranchDropdown({
   };
 
   const handleDone = () => {
-    setIsOpen(false);
+    setOpen(false);
     setPublishState({ status: 'idle' });
     onModalClose?.();
   };
@@ -229,16 +305,24 @@ export function PublishBranchDropdown({
   // Still checking GitHub status - show loading state
   if (projectGithubStatus === null) {
     return (
-      <div className="publish-dropdown" ref={dropdownRef}>
-        <button
-          className="publish-button publish-checking"
+      <div
+        className={`publish-dropdown${grouped ? ' publish-dropdown--grouped' : ''}`}
+        ref={dropdownRef}
+      >
+        <MenuButton
+          ref={triggerRef}
+          expanded={false}
+          className="source-control-push-button"
           data-education-id="publish-button"
           disabled
           title="Checking GitHub status..."
         >
-          Push
+          <span className="source-control-push-content">
+            <PushIcon size={16} />
+            <span>Push</span>
+          </span>
           <ChevronIcon />
-        </button>
+        </MenuButton>
       </div>
     );
   }
@@ -246,16 +330,24 @@ export function PublishBranchDropdown({
   // If no GitHub repo, show disabled state
   if (!hasGitHubRepo) {
     return (
-      <div className="publish-dropdown" ref={dropdownRef}>
-        <button
-          className="publish-button publish-disabled"
+      <div
+        className={`publish-dropdown${grouped ? ' publish-dropdown--grouped' : ''}`}
+        ref={dropdownRef}
+      >
+        <MenuButton
+          ref={triggerRef}
+          expanded={false}
+          className="source-control-push-button"
           data-education-id="publish-button"
           disabled
           title="Create a GitHub repository first"
         >
-          Push
+          <span className="source-control-push-content">
+            <PushIcon size={16} />
+            <span>Push</span>
+          </span>
           <ChevronIcon />
-        </button>
+        </MenuButton>
       </div>
     );
   }
@@ -264,15 +356,24 @@ export function PublishBranchDropdown({
   const canSync = hasChangesToSync || isPublishing || publishState.status !== 'idle';
 
   return (
-    <div className="publish-dropdown" ref={dropdownRef}>
-      <button
-        className={`publish-button ${isPublishing ? 'publishing' : ''} ${!canSync ? 'synced' : ''}`}
+    <div
+      className={`publish-dropdown${grouped ? ' publish-dropdown--grouped' : ''}`}
+      ref={dropdownRef}
+    >
+      <MenuButton
+        ref={triggerRef}
+        expanded={isOpen}
+        variant={canSync ? 'primary' : 'default'}
+        className={`${isPublishing ? 'publishing ' : ''}source-control-push-button`}
         data-education-id="publish-button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setOpen(!isOpen)}
       >
-        {isPublishing ? 'Pushing...' : 'Push'}
-        <ChevronIcon />
-      </button>
+        <span className="source-control-push-content">
+          <PushIcon size={16} />
+          <span>{isPublishing ? 'Pushing...' : 'Push'}</span>
+        </span>
+        <ChevronIcon size={16} />
+      </MenuButton>
 
       {isOpen && (
         <div className="publish-dropdown-menu">
@@ -289,26 +390,21 @@ export function PublishBranchDropdown({
                   {onCreatePR && (
                     <>
                       {' '}
-                      To make the changes live,{' '}
-                      <button
-                        className="publish-create-pr-link"
+                      When they are ready for review,{' '}
+                      <TextButton
+                        variant="primary"
                         onClick={() => {
                           handleDone();
                           onCreatePR();
                         }}
                       >
                         create a PR
-                      </button>
+                      </TextButton>
                       .
                     </>
                   )}
                 </div>
               )}
-              <div className="publish-actions publish-actions-center">
-                <button className="publish-done" onClick={handleDone}>
-                  Done
-                </button>
-              </div>
             </>
           )}
 
@@ -326,17 +422,6 @@ export function PublishBranchDropdown({
                     ? 'Authentication failed. Please check your GitHub connection.'
                     : publishState.message}
               </div>
-              <div className="publish-actions">
-                <button className="publish-close" onClick={handleDone}>
-                  Close
-                </button>
-                <button
-                  className="publish-submit"
-                  onClick={() => setPublishState({ status: 'idle' })}
-                >
-                  Try Again
-                </button>
-              </div>
             </>
           )}
 
@@ -346,11 +431,6 @@ export function PublishBranchDropdown({
               <div className="publish-in-progress-header">
                 <Spinner />
                 <span>Pushing to GitHub...</span>
-              </div>
-              <div className="publish-actions">
-                <button className="publish-close" onClick={() => setIsOpen(false)}>
-                  Close
-                </button>
               </div>
             </>
           )}
@@ -366,35 +446,15 @@ export function PublishBranchDropdown({
                 <div className="publish-branch-info">
                   <BranchIcon size={12} />
                   <span className="publish-branch-name">{currentBranch}</span>
-                  {isMainBranch && <span className="branch-live-badge">Live</span>}
                 </div>
 
-                {isMainBranch && (
-                  <div className="publish-branch-warning">
-                    This will update your live site. Changes will be visible to everyone.
-                  </div>
-                )}
-
-                {!isMainBranch && (
-                  <div className="publish-branch-description">
-                    Commits your changes and pushes the <strong>{currentBranch}</strong> branch to
-                    GitHub.
-                  </div>
-                )}
+                <div className="publish-branch-description">
+                  Commits your changes and pushes the <strong>{currentBranch}</strong> branch to
+                  GitHub.
+                </div>
               </div>
 
-              <div className="publish-actions">
-                <button className="publish-close" onClick={handleDone}>
-                  Cancel
-                </button>
-                <button
-                  className="publish-submit"
-                  onClick={() => void handlePublish()}
-                  disabled={isPublishing}
-                >
-                  Push
-                </button>
-              </div>
+              <ChangedFilesSection changedFiles={changedFiles} projectPath={projectPath} />
             </>
           )}
 
@@ -405,12 +465,69 @@ export function PublishBranchDropdown({
                 <SuccessIcon />
                 <span>Nothing to push — GitHub is up to date</span>
               </div>
-              <div className="publish-actions publish-actions-center">
-                <button className="publish-done" onClick={handleDone}>
-                  Done
-                </button>
-              </div>
             </>
+          )}
+
+          {hostingControls && (
+            <section className="publish-hosting-section" aria-labelledby="publish-hosting-heading">
+              <div className="publish-hosting-heading" id="publish-hosting-heading">
+                Hosting
+              </div>
+              <div className="publish-hosting-plugins" ref={hostingRef}>
+                {hostingControls}
+              </div>
+            </section>
+          )}
+
+          {publishState.status === 'success' && (
+            <div className="publish-actions publish-actions-center">
+              <Button width="fill" onClick={handleDone}>
+                Done
+              </Button>
+            </div>
+          )}
+
+          {publishState.status === 'error' && (
+            <div className="publish-actions">
+              <Button variant="secondary" onClick={handleDone}>
+                Close
+              </Button>
+              <Button variant="primary" onClick={() => setPublishState({ status: 'idle' })}>
+                Try Again
+              </Button>
+            </div>
+          )}
+
+          {publishState.status === 'publishing' && (
+            <div className="publish-actions">
+              <Button variant="secondary" onClick={() => setOpen(false)}>
+                Close
+              </Button>
+            </div>
+          )}
+
+          {publishState.status === 'idle' && canSync && (
+            <ChangedFilesActions
+              projectPath={projectPath}
+              onDiscard={onDiscardChanges}
+              primaryAction={
+                <Button
+                  variant="primary"
+                  onClick={() => void handlePublish()}
+                  disabled={isPublishing}
+                >
+                  Push
+                </Button>
+              }
+            />
+          )}
+
+          {publishState.status === 'idle' && !canSync && (
+            <div className="publish-actions publish-actions-center">
+              <Button width="fill" onClick={handleDone}>
+                Done
+              </Button>
+            </div>
           )}
         </div>
       )}

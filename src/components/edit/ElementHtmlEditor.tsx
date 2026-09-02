@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../primitives/Button';
+import { SaveIcon } from '@/components/icons';
 import { CodeOverlayEditor } from './CodeOverlayEditor';
 import { MultiSourceControl } from './MultiSourceControl';
 import { useOptionalToast } from '../../contexts/ToastContext';
@@ -128,8 +129,8 @@ export function ElementHtmlEditor({ projectPath, signature }: Props) {
       {status === 'ready' && (
         <div className="ss-htmltab__foot">
           <Button
-            variant="ghost"
-            size="sm"
+            variant="danger"
+            size="default"
             disabled={!dirty}
             onClick={() => setText(baselineRef.current)}
           >
@@ -137,9 +138,10 @@ export function ElementHtmlEditor({ projectPath, signature }: Props) {
           </Button>
           <Button
             variant="primary"
-            size="sm"
+            size="default"
             disabled={!dirty || saving}
             onClick={() => void save()}
+            leftIcon={!saving ? <SaveIcon size={14} /> : undefined}
           >
             {saving ? 'Saving…' : 'Save'}
           </Button>

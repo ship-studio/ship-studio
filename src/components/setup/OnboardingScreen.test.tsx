@@ -123,6 +123,8 @@ vi.mock('./OnboardingTerminal', () => ({
 }));
 
 vi.mock('../icons', () => ({
+  CheckIcon: ({ size }: { size: number }) => <span data-testid="check-icon" data-size={size} />,
+  SuccessIcon: ({ size }: { size: number }) => <span data-testid="success-icon" data-size={size} />,
   SlackIcon: ({ size }: { size: number }) => <span data-testid="slack-icon" data-size={size} />,
 }));
 

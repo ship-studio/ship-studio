@@ -3,8 +3,8 @@
 .folder-card {
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   transition: border-color var(--transition);
   min-width: 0;
@@ -20,9 +20,9 @@
   aspect-ratio: 16 / 8.85;
   padding: 0;
   border: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   border-radius: 11px 11px 0 0;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   cursor: pointer;
   overflow: hidden;
   /* Ensure thumbnail clips content since parent no longer has overflow:hidden */
@@ -40,7 +40,7 @@
 }
 
 .folder-card-grid-item {
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -90,7 +90,7 @@
 
 .folder-card-open-label {
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
 }
 
@@ -120,7 +120,7 @@
 }
 
 .folder-card-count {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
 }
 
@@ -132,7 +132,7 @@
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   letter-spacing: 1px;
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -143,7 +143,7 @@
 }
 
 .folder-card-menu-btn:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
 }
 
@@ -153,7 +153,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .folder-breadcrumb-back {
@@ -161,11 +161,10 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
   cursor: pointer;
   transition:
     background-color var(--transition),
@@ -174,7 +173,7 @@
 }
 
 .folder-breadcrumb-back:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-color: var(--text-muted);
   color: var(--text-primary);
 }
@@ -184,7 +183,5 @@
 }
 
 .folder-breadcrumb-current {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
   color: var(--text-primary);
 }

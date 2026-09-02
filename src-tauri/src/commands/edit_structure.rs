@@ -366,6 +366,56 @@ fn span_tag(src: &str, start: usize) -> String {
     src[start + 1..j].to_ascii_lowercase()
 }
 
+/// Whether an element has an authored JSX element/fragment around it. Sibling
+/// insertion is only syntactically valid inside one of these parents; inserting
+/// beside a component's sole returned JSX root creates adjacent expressions.
+fn has_jsx_parent(src: &str, start: usize, end: usize) -> bool {
+    let mut before = start;
+    while let Some(open) = src[..before].rfind('<') {
+        before = open;
+        let Some(first) = src.as_bytes().get(open + 1).copied() else {
+            continue;
+        };
+        if !first.is_ascii_alphabetic() {
+            continue;
+        }
+        if let Some((parent_start, parent_end)) = crate::commands::edit::element_span(src, open + 1)
+        {
+            if parent_start == open && parent_start < start && parent_end >= end {
+                return true;
+            }
+        }
+    }
+
+    // JSX fragments (`<>…</>`) are valid sibling containers too. Track the
+    // fragment nesting depth at the anchor and require a closing fragment after it.
+    let bytes = src.as_bytes();
+    let (mut i, mut fragment_depth) = (0, 0usize);
+    while i < start {
+        if bytes.get(i..i + 3) == Some(b"</>") {
+            fragment_depth = fragment_depth.saturating_sub(1);
+            i += 3;
+        } else if bytes.get(i..i + 2) == Some(b"<>") {
+            fragment_depth += 1;
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    fragment_depth > 0 && src[end..].contains("</>")
+}
+
+fn is_jsx_path(file: &str) -> bool {
+    matches!(
+        file.rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .as_str(),
+        "jsx" | "tsx"
+    )
+}
+
 // ───────────────────────────── commands ─────────────────────────────────────
 
 /// Insert a new element of `element_kind` before/after/inside the selected
@@ -392,6 +442,13 @@ pub fn insert_element(
         return Err(validation(
             "position",
             format!("Can't insert next to <{anchor_tag}> — insert inside it instead."),
+        ));
+    }
+    if position != InsertPosition::Inside && is_jsx_path(&file) && !has_jsx_parent(&src, start, end)
+    {
+        return Err(validation(
+            "position",
+            "This is the component's outer JSX element, so it can't have a sibling here. Choose Inside to add a child.",
         ));
     }
     let root = validate_project_path(&project_path)?;
@@ -595,6 +652,21 @@ mod tests {
             let err = splice_snippet(src, s, e, InsertPosition::Inside, "<p>T</p>");
             assert!(err.is_err(), "expected refusal for {src}");
         }
+    }
+
+    #[test]
+    fn jsx_siblings_require_an_authored_parent() {
+        let root = "function Page() { return (\n  <div className=\"root\">x</div>\n); }";
+        let (root_start, root_end) = span_of(root, "root");
+        assert!(!has_jsx_parent(root, root_start, root_end));
+
+        let nested = "function Page() { return (\n  <div><main className=\"child\" /></div>\n); }";
+        let (child_start, child_end) = span_of(nested, "child");
+        assert!(has_jsx_parent(nested, child_start, child_end));
+
+        let fragment = "function Page() { return (<>\n  <main className=\"child\" />\n</>); }";
+        let (fragment_start, fragment_end) = span_of(fragment, "child");
+        assert!(has_jsx_parent(fragment, fragment_start, fragment_end));
     }
 
     #[test]

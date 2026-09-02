@@ -57,7 +57,7 @@ import {
   isNodeMissingError,
 } from '../../lib/terminalDiagnostics';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { SlackIcon } from '../icons';
+import { SlackIcon } from '@/components/icons';
 import {
   alreadySignedInMessage,
   authFailureMessage,
@@ -654,7 +654,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
     <div className="onboarding-screen">
       <div className="onboarding-content">
         <div className="onboarding-header">
-          <img src="/ship_studio_full_noshadow.svg" alt="Ship Studio" className="onboarding-logo" />
+          <img src="/ship_studio_full.png" alt="Ship Studio" className="onboarding-logo" />
           <h1>Quick Setup</h1>
           <p className="onboarding-reassurance">
             Most users finish in under 3 minutes. Let's get you ready to ship.
@@ -745,19 +745,20 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         {/* Navigation buttons */}
         <div className="wizard-nav">
           {!isFirstStep && (
-            <button className="wizard-nav-back" onClick={handleBack}>
+            <Button variant="secondary" size="large" onClick={handleBack}>
               Back
-            </button>
+            </Button>
           )}
           <div className="wizard-nav-spacer" />
           {nextBlockedReason && <span className="wizard-nav-hint">{nextBlockedReason}</span>}
-          <button
-            className="wizard-nav-next"
+          <Button
+            variant="primary"
+            size="large"
             onClick={() => void handleNext()}
             disabled={!isNextEnabled}
           >
             {isLastStep ? 'Finish' : 'Next'}
-          </button>
+          </Button>
         </div>
 
         {/* Terminal modal for interactive commands */}
@@ -768,9 +769,9 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
                 <span className="onboarding-terminal-title">
                   {SETUP_FRIENDLY_NAMES[terminalConfig.itemId] || terminalConfig.itemId}
                 </span>
-                <button className="onboarding-terminal-cancel" onClick={handleTerminalCancel}>
+                <Button variant="ghost" size="compact" onClick={handleTerminalCancel}>
                   {terminalExitCode ? 'Close' : 'Cancel'}
-                </button>
+                </Button>
               </div>
               <OnboardingTerminal
                 command={terminalConfig.command}
@@ -791,7 +792,9 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             <strong>Having problems getting set up?</strong> Join the Slack channel and we'll help
             you out!
           </span>
-          <button onClick={() => void openUrl(SLACK_INVITE_URL)}>Join Slack</button>
+          <Button variant="variable" onClick={() => void openUrl(SLACK_INVITE_URL)}>
+            Join Slack
+          </Button>
         </div>
       </div>
     </div>

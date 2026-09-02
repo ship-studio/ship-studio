@@ -1,0 +1,359 @@
+/* Empty-state intro (before any element is selected). */
+.ss-edit-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xs) 0 var(--spacing-sm);
+}
+.ss-edit-intro__lead {
+  margin: 0;
+  font-size: var(--font-size-body-md);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ss-edit-intro__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+.ss-edit-intro__list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.ss-edit-intro__list svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--accent-success);
+}
+.ss-edit-intro__list strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ss-edit-panel__muted {
+  color: var(--text-muted);
+}
+
+.ss-edit-panel__multi {
+  margin: 0;
+  padding: var(--space-06) var(--spacing-sm);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.4;
+  color: var(--accent-warning);
+  background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.ss-edit-panel__multi code {
+  color: var(--text-primary);
+  font-size: 10.5px;
+}
+
+/* Inline text link (e.g. "Just one?" / "Edit all N") inside the multi note. */
+.ss-edit-panel__linkbtn {
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.ss-edit-panel__linkbtn:hover {
+  background: none;
+  color: var(--text-primary);
+}
+
+/* Location picker — choose a single source spot to edit. */
+.ss-edit-panel__loclist {
+  list-style: none;
+  margin: var(--spacing-xs) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ss-edit-panel__locitem {
+  width: 100%;
+  padding: 4px var(--spacing-sm);
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  color: var(--text-secondary);
+  background: var(--surface-control);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+.ss-edit-panel__locitem:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+/* Scope hint — where the element's component is used across the project. */
+.ss-edit-panel__scope {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.ss-edit-panel__scope--btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px var(--spacing-sm);
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+.ss-edit-panel__scope--btn:hover {
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  color: var(--text-secondary);
+}
+/* Tone the warning variant (in a layout / every page) with the warning color. */
+.ss-edit-panel__scope--wide {
+  color: var(--accent-warning);
+}
+.ss-edit-panel__scope--btn.ss-edit-panel__scope--wide {
+  background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
+}
+.ss-edit-panel__scope strong {
+  color: inherit;
+  font-weight: 600;
+}
+.ss-edit-panel__scope-more {
+  color: var(--accent-active);
+}
+
+/* "Where X is used" modal. */
+.ss-usage-modal {
+  width: min(460px, calc(100vw - 32px));
+}
+.ss-usage-modal__name {
+  font-family: var(--font-code);
+  font-size: var(--font-size-subhead);
+  color: var(--accent-active, var(--accent-active));
+}
+.ss-usage-modal__body {
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-md);
+}
+/* Heads-up callout — editing here has wide reach. */
+.ss-usage-modal__note {
+  margin: 0 0 var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-body-md);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent-warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-warning) 26%, transparent);
+  border-radius: var(--radius-card);
+}
+.ss-usage-modal__note strong {
+  color: var(--text-primary);
+}
+/* Capped, scrollable so a component used in dozens of spots can't overflow. */
+.ss-usage-modal__scroll {
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  margin: 0 calc(-1 * var(--spacing-sm));
+  padding: 0 var(--spacing-sm) var(--spacing-xs);
+}
+
+/* A kind section (Layouts / Pages / Components). */
+.ss-usage-sec {
+  margin-bottom: var(--spacing-lg);
+}
+.ss-usage-sec:last-child {
+  margin-bottom: 0;
+}
+.ss-usage-sec__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: 6px;
+  padding: 0 var(--spacing-sm);
+}
+.ss-usage-sec__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.ss-usage-sec__dot--page {
+  background: var(--accent-active);
+}
+.ss-usage-sec__dot--layout {
+  background: var(--accent-warning);
+}
+.ss-usage-sec__dot--component {
+  background: var(--text-muted);
+}
+.ss-usage-sec__label {
+  font-size: var(--font-size-body-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+.ss-usage-sec__count {
+  margin-left: auto;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+}
+.ss-usage-sec__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* One row per file: filename emphasized, directory muted + truncated, line pills. */
+.ss-usage-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 6px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+.ss-usage-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+.ss-usage-row__path {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-md);
+}
+.ss-usage-row__dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.ss-usage-row__name {
+  flex: 0 0 auto;
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ss-usage-row__lines {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+  max-width: 42%;
+}
+.ss-usage-row__line {
+  min-width: 22px;
+  padding: 1px 6px;
+  text-align: center;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  background: var(--surface-control);
+  border-radius: 999px;
+}
+/* Clickable line chip — jumps to that file:line in the Code tab. */
+.ss-usage-row__line--btn {
+  border: none;
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+.ss-usage-row__line--btn:hover {
+  color: var(--text-on-accent);
+  background: var(--accent-active);
+}
+
+.ss-edit-panel__source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+.ss-edit-panel__source-context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  /* The panel body already supplies the top inset; keeping another one here
+     makes the space above the source row larger than the space below it. */
+  padding: 0 0 var(--editor-panel-inline-pad);
+}
+.ss-edit-panel__multisrc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--editor-panel-inline-pad) 0;
+}
+.ss-edit-panel__source code {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Source path as a subtle link that jumps into the Code tab. */
+.ss-edit-panel__srclink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+.ss-edit-panel__srclink:hover {
+  background: none;
+  color: var(--accent-active);
+}
+.ss-edit-panel__srclink code {
+  color: inherit;
+}
+.ss-edit-panel__srclink svg {
+  flex: 0 0 auto;
+  margin-top: -1px; /* optical-center the </> with the path text */
+  opacity: 0.7;
+}
+
+.ss-edit-panel__badge {
+  flex-shrink: 0;
+  font-size: var(--font-size-body-sm);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-muted);
+  cursor: default;
+}
+.ss-edit-panel__badge--approx {
+  color: var(--accent-warning);
+  background: color-mix(in srgb, var(--accent-warning) 14%, transparent);
+}

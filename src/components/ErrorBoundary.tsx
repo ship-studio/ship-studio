@@ -4,6 +4,8 @@ import { logger } from '../lib/logger';
 import { getAnalyticsEnabled } from '../lib/analytics';
 import { lookupBlobOwner, markPluginCrashed } from '../lib/plugin-loader';
 import { uninstallPlugin } from '../lib/plugins';
+import { Button } from './primitives/Button';
+import { InfoIcon } from '@/components/icons';
 
 interface Props {
   children: ReactNode;
@@ -90,120 +92,38 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100vh',
-            backgroundColor: '#1e1e1e',
-            color: '#cccccc',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            padding: '20px',
-            textAlign: 'center',
-          }}
-        >
-          <div style={{ marginBottom: '24px' }}>
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#f14c4c"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
+        <div className="error-boundary">
+          <div className="error-boundary__icon">
+            <InfoIcon size={48} />
           </div>
-          <h1 style={{ fontSize: '20px', fontWeight: 600, margin: '0 0 8px 0' }}>
-            Something went wrong
-          </h1>
-          <p style={{ fontSize: '14px', color: '#888', margin: '0 0 24px 0', maxWidth: '400px' }}>
+          <h1 className="error-boundary__title">Something went wrong</h1>
+          <p className="error-boundary__message">
             {this.isPluginError()
               ? 'A plugin crashed. You can continue without it or restart the app.'
               : this.state.error?.message || 'An unexpected error occurred'}
           </p>
           {this.state.reportedAutomatically && (
-            <p style={{ fontSize: '12px', color: '#666', margin: '-12px 0 24px 0' }}>
+            <p className="error-boundary__report-status">
               This crash was reported automatically so it can be fixed.
             </p>
           )}
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div className="error-boundary__actions">
             {this.isPluginError() && (
-              <button
-                onClick={this.handleContinue}
-                style={{
-                  backgroundColor: '#2472c8',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '10px 20px',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  transition: 'background-color 150ms',
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#1e5fa8')}
-                onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#2472c8')}
-              >
+              <Button variant="primary" onClick={this.handleContinue}>
                 Continue
-              </button>
+              </Button>
             )}
-            <button
+            <Button
+              variant={this.isPluginError() ? 'secondary' : 'primary'}
               onClick={() => void this.handleRestart()}
-              style={{
-                backgroundColor: this.isPluginError() ? '#3a3a3a' : '#2472c8',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '10px 20px',
-                fontSize: '14px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'background-color 150ms',
-              }}
-              onMouseOver={(e) =>
-                (e.currentTarget.style.backgroundColor = this.isPluginError()
-                  ? '#4a4a4a'
-                  : '#1e5fa8')
-              }
-              onMouseOut={(e) =>
-                (e.currentTarget.style.backgroundColor = this.isPluginError()
-                  ? '#3a3a3a'
-                  : '#2472c8')
-              }
             >
               Restart App
-            </button>
+            </Button>
           </div>
           {this.state.error && (
-            <details
-              style={{
-                marginTop: '24px',
-                fontSize: '12px',
-                color: '#666',
-                maxWidth: '500px',
-                textAlign: 'left',
-              }}
-            >
-              <summary style={{ cursor: 'pointer', marginBottom: '8px' }}>
-                Technical details
-              </summary>
-              <pre
-                style={{
-                  backgroundColor: '#2a2a2a',
-                  padding: '12px',
-                  borderRadius: '4px',
-                  overflow: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}
-              >
+            <details className="error-boundary__details">
+              <summary className="error-boundary__summary">Technical details</summary>
+              <pre className="error-boundary__stack">
                 {this.state.error.stack || this.state.error.message}
               </pre>
             </details>

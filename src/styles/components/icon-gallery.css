@@ -1,0 +1,82 @@
+.icon-gallery {
+  position: fixed;
+  inset-block: var(--space-12);
+  inset-inline-end: var(--space-12);
+  z-index: var(--z-app-modal-top);
+  display: flex;
+  width: min(var(--size-icon-gallery-width), calc(100vw - var(--space-24)));
+  max-height: calc(100vh - var(--space-24));
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-primary);
+  background: var(--surface-panel);
+  border: var(--stroke-1) solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+}
+
+.icon-gallery__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-bottom: var(--stroke-1) solid var(--border-default);
+}
+
+.icon-gallery__header div {
+  display: grid;
+  gap: var(--spacing-2xs);
+}
+
+.icon-gallery__header span,
+.icon-gallery__kind,
+.icon-gallery__source {
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}
+
+.icon-gallery__header button {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  color: var(--text-secondary);
+  background: var(--surface-control);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.icon-gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--size-icon-gallery-column), 1fr));
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  overflow: auto;
+}
+
+.icon-gallery__item {
+  display: grid;
+  min-width: 0;
+  gap: var(--spacing-2xs);
+  padding: var(--spacing-sm);
+  background: var(--surface-control);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-control);
+}
+
+.icon-gallery__glyph {
+  display: grid;
+  min-height: var(--icon-size-full);
+  place-items: center;
+  color: var(--text-primary);
+}
+
+.icon-gallery__name,
+.icon-gallery__source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-gallery__name {
+  font-size: var(--font-size-body-sm);
+}

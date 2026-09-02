@@ -7,21 +7,7 @@
 
 import { SetupItem, SETUP_FRIENDLY_NAMES } from '../../../lib/setup';
 import { AGENT_LED_REQUIRED_ITEM_IDS, HostChoice } from '../../../lib/agentOnboarding';
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <circle cx="10" cy="10" r="10" fill="var(--action)" />
-      <path
-        d="M6 10l3 3 5-6"
-        stroke="var(--action-text)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+import { SuccessIcon } from '@/components/icons';
 
 interface ChecklistRow {
   id: string;
@@ -96,7 +82,15 @@ export function SetupChecklist({
             className={`agent-setup-checklist-item ${row.ready ? 'ready' : ''}`}
             aria-label={`${row.label}: ${row.ready ? 'ready' : 'pending'}`}
           >
-            {row.ready ? <CheckIcon /> : <span className="agent-setup-checklist-dot" />}
+            {row.ready ? (
+              <SuccessIcon
+                size={16}
+                className="agent-setup-checklist-success-icon"
+                aria-hidden="true"
+              />
+            ) : (
+              <span className="agent-setup-checklist-dot" />
+            )}
             <span>{row.label}</span>
           </li>
         ))}

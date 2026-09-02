@@ -5,10 +5,30 @@
 # conversation before a file balloons. Limits can be bumped deliberately
 # by editing this script, but it won't happen silently.
 #
+# Existing over-limit files are recorded in loc-baseline.json while they are
+# decomposed under DS-10. The baseline is a growth ceiling, not a replacement
+# for the documented limit: a known file may stay at or below its recorded
+# count, but any growth or new over-limit file still fails.
+#
 # Seeds based on current state after Blocks 7 + 13.
 set -uo pipefail
 
 FAIL=0
+LOC_BASELINE_FILE="scripts/loc-baseline.json"
+
+baseline_record() {
+  local path="$1"
+  if [ ! -f "$LOC_BASELINE_FILE" ]; then
+    return 0
+  fi
+  node --input-type=module -e '
+    import fs from "node:fs";
+    const [file, target] = process.argv.slice(1);
+    const baseline = JSON.parse(fs.readFileSync(file, "utf8"));
+    const entry = baseline.files.find((candidate) => candidate.path === target);
+    if (entry) console.log(entry.baselineLines + "\t" + entry.limit);
+  ' "$LOC_BASELINE_FILE" "$path"
+}
 
 check_file() {
   local path="$1"
@@ -19,8 +39,25 @@ check_file() {
   local lines
   lines=$(wc -l <"$path" | tr -d ' ')
   if [ "$lines" -gt "$limit" ]; then
-    echo "  ✗ $path: $lines LOC (limit $limit)"
-    FAIL=1
+    local record
+    record=$(baseline_record "$path")
+    if [ -n "$record" ]; then
+      local baseline_lines
+      local baseline_limit
+      IFS=$'\t' read -r baseline_lines baseline_limit <<<"$record"
+      if [ "$baseline_limit" != "$limit" ]; then
+        echo "  ✗ $path: baseline limit $baseline_limit does not match configured limit $limit"
+        FAIL=1
+      elif [ "$lines" -le "$baseline_lines" ]; then
+        echo "  ⚠ $path: $lines LOC (limit $limit; known baseline $baseline_lines)"
+      else
+        echo "  ✗ $path: $lines LOC (limit $limit; known baseline $baseline_lines)"
+        FAIL=1
+      fi
+    else
+      echo "  ✗ $path: $lines LOC (limit $limit)"
+      FAIL=1
+    fi
   else
     echo "  $path — $lines / $limit"
   fi
@@ -29,49 +66,19 @@ check_file() {
 echo "==> Ship Studio LOC regression guard"
 echo
 echo "Components (.tsx limit 1200):"
-# WorkspaceView + App.tsx got denser with the multi-project multitasking
-# work (per-project tab state, per-project dev servers, attach-based PTY
-# sessions) and again with the side-by-side agents feature (per-pane
-# state, split rendering, drag handles), then again with the native mobile
-# preview (web/mobile preview branch + DeviceMirror render). Raised
-# deliberately — extracting a TerminalPanes sub-component from WorkspaceView
-# is on the roadmap but doesn't belong in the same PR as the feature itself.
-# Bumped again for the visual editor's jump-to-code wiring (codeTarget state +
-# openInCode callback threaded to the Code tab). Bumped again for the Shopify
-# theme preview gate (the logic lives in useShopifyTheme/ShopifySetup; this is
-# just the render branch + hook call the orchestrator must own). Bumped again
-# for Workspaces (per-workspace credential isolation): the orchestrators own the
-# active-workspace gating, account-select screen routing, and move-workspace
-# wiring. Extracting a TerminalPanes sub-component from WorkspaceView and an
-# account router from App.tsx remain on the roadmap as follow-ups. Bumped again
-# for the agent-restart wiring (restartTerminalTab threaded to each Terminal +
-# the Agent Settings menu item) — small, on top of the Workspaces baseline.
-# Bumped by a hair for the Windows-compat pass: platform-aware shortcut labels
-# (kbd() import + two undo/redo hint lines). Bumped by a hair again for the
-# dead-pin unpin wiring (issue #366): onUnpinProject threaded through to the
-# sidebar. TerminalPanes extraction still owed.
-# Bumped again (small) for plugin failure surfacing (#165): pluginFailures and
-# the hosting-plugin count threaded into PluginsDropdown, usePlugins onError
-# wired to showToast. Pure wiring; the logic lives in usePlugins/PluginsDropdown.
-# Bumped again (small) for the pull-latest button: isPulling/handlePullLatest
-# threaded from useBranchManagement to BranchIndicator + the git.push/git.pull
-# palette params. Pure wiring; the pull logic lives in useBranchManagement.
-# Bumped again (small) for worktrees: the hook call + worktree props threaded
-# to the sidebar, Branches tab, and create modal. Pure wiring; the logic lives
-# in useWorktreeWorkflow/useWorktrees.
-check_file src/components/workspace/WorkspaceView.tsx 1660
+# WorkspaceView retains state orchestration and cross-domain wiring while the
+# terminal/agent dock, preview surface, modes, and modal host now have domain
+# owners under src/components/workspace. Keep the lower ceiling below the
+# pre-DS-10 baseline so future state growth requires another extraction.
+check_file src/components/workspace/WorkspaceView.tsx 1500
 check_file src/components/dashboard/ProjectList.tsx 900
 check_file src/components/plugins/PluginManager.tsx 700
 check_file src/components/dashboard/ImportProject.tsx 500
 check_file src/App.tsx 1295
 echo
 echo "CSS (limit 1200 per file):"
-# The visual editor stylesheet carries every control's styling (box model,
-# dropdowns, color picker, collapsible sections, custom-CSS box) and grew with
-# the expanded property coverage, plus the neutral active-state primitives now
-# shared with the CSS-mode editor. Raised deliberately; splitting it by control
-# family is on the roadmap.
-check_file src/styles/features/visual-editor.css 1500
+# Visual-editor rules are split by existing control families. Each family file
+# is checked by the general 1200-line stylesheet ceiling below.
 # preview.css carries the whole live-preview surface (toolbar, page switcher,
 # locale switcher, device mirror, breakpoints, zoom) and crossed 1200 with the
 # custom page-selector scrollbar. Raised deliberately; splitting it by control
@@ -79,7 +86,7 @@ check_file src/styles/features/visual-editor.css 1500
 check_file src/styles/features/preview.css 1300
 while IFS= read -r f; do
   check_file "$f" 1200
-done < <(find src/styles -maxdepth 3 -name '*.css' ! -name 'visual-editor.css' ! -name 'preview.css' 2>/dev/null)
+done < <(find src/styles -maxdepth 3 -name '*.css' ! -name 'preview.css' 2>/dev/null)
 echo
 
 if [ $FAIL -ne 0 ]; then

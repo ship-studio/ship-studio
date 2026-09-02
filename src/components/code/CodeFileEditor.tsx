@@ -32,6 +32,7 @@ import {
   neutralizeInvalidHighlight,
   ssEditorTheme,
   codeTabEditorTheme,
+  codeTabSurfaceTheme,
   codeLanguageExtension,
 } from '../../lib/codemirror';
 
@@ -39,7 +40,7 @@ export interface EditorSelectionInfo {
   text: string;
   startLine: number;
   endLine: number;
-  /** Viewport coords of the selection end — anchors the parent's popover. */
+  /** Viewport coords of the selection START — anchors the parent's popover. */
   mouseX: number;
   mouseY: number;
 }
@@ -136,16 +137,19 @@ export function CodeFileEditor({
         neutralizeInvalidHighlight,
         ssEditorTheme,
         codeTabEditorTheme,
+        codeTabSurfaceTheme,
         editableComp.current.of([
           EditorView.editable.of(editable),
           EditorState.readOnly.of(!editable),
         ]),
         // Read-mode select-to-agent popover is positioned at fixed coords captured
         // at selection time; dismiss it on scroll so it can't float over unrelated
-        // code once the selection scrolls away.
+        // code once the selection scrolls away. Also tracks horizontal scroll to
+        // toggle the gutter divider (see codeTabSurfaceTheme).
         EditorView.domEventHandlers({
-          scroll() {
+          scroll(_event, view) {
             if (!editableRef.current) onSelRef.current?.(null);
+            view.dom.classList.toggle('ss-code-hscrolled', view.scrollDOM.scrollLeft > 0);
             return false;
           },
         }),
@@ -172,15 +176,18 @@ export function CodeFileEditor({
           const doc = u.state.doc;
           // coordsAtPos is null when the position is scrolled out of view; fall
           // back to the other end, then to the editor's own rect, so the popover
-          // never anchors to (0,0).
-          const coords = u.view.coordsAtPos(sel.to) ?? u.view.coordsAtPos(sel.from);
+          // never anchors to (0,0). X comes from sel.from (left edge of the
+          // highlight) so the popover stays put horizontally; Y tracks sel.to so
+          // it follows the selection as more lines are added.
+          const startCoords = u.view.coordsAtPos(sel.from) ?? u.view.coordsAtPos(sel.to);
+          const endCoords = u.view.coordsAtPos(sel.to) ?? startCoords;
           const rect = u.view.scrollDOM.getBoundingClientRect();
           cb({
             text: u.state.sliceDoc(sel.from, sel.to),
             startLine: doc.lineAt(sel.from).number,
             endLine: doc.lineAt(sel.to).number,
-            mouseX: coords ? coords.left : rect.left + rect.width / 2,
-            mouseY: coords ? coords.bottom : rect.top + rect.height / 2,
+            mouseX: startCoords ? startCoords.left : rect.left + rect.width / 2,
+            mouseY: endCoords ? endCoords.bottom : rect.top + rect.height / 2,
           });
         }),
       ],

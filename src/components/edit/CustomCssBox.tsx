@@ -1,103 +1,132 @@
 /**
- * Custom CSS — Tailwind's native escape hatch for any property. Typing `prop: value`
- * emits a real arbitrary-property class `[prop:value]` (spaces escaped to `_`),
- * validated with CSS.supports so a bad property/value is rejected. Any arbitrary
- * properties already on the element (at the active breakpoint) are listed as chips
- * you can remove. Lives in its own collapsed section at the bottom of the panel.
+ * Custom CSS — Tailwind's native escape hatch for any property. Arbitrary-property
+ * classes are rendered with the same declaration rows used by the non-Tailwind CSS
+ * editor: click a property or value to edit it inline, and use Add to create another
+ * row. Changes are still written back as real `[prop:value]` classes.
  */
 
 import { useState } from 'react';
+import { AddMenu } from './AddMenu';
+import { DeclarationRow } from './DeclarationRow';
 import {
   tokensForVariant,
   listArbitraryProps,
   parseArbitraryProp,
+  type ArbitraryProp,
   type LayerContext,
   type ResetSpec,
 } from '../../lib/edit';
+import type { Decl } from '../../lib/cssBody';
+import type { ValueFieldVariable } from '../primitives/ValueField';
 
 interface Props {
   currentClass: string;
   layer: LayerContext;
+  variables?: ValueFieldVariable[];
   onApplyEnum: (token: string, style: Record<string, string>) => void;
   onReset: (spec: ResetSpec) => void;
 }
 
-export function CustomCssBox({ currentClass, layer, onApplyEnum, onReset }: Props) {
+interface CustomCssRow extends ArbitraryProp {
+  draft?: boolean;
+}
+
+function customRowKey(row: CustomCssRow, editingToken: string | null): string {
+  return `${row.token}${editingToken === row.token || row.draft ? ':editing' : ''}`;
+}
+
+export function CustomCssBox({ currentClass, layer, variables, onApplyEnum, onReset }: Props) {
   // Arbitrary properties set at the active breakpoint layer (so md edits show under md).
   const scoped = tokensForVariant(currentClass, layer.bp.prefix, layer.known);
   const props = listArbitraryProps(scoped);
+  const [pendingProp, setPendingProp] = useState<string | null>(null);
+  const [editingToken, setEditingToken] = useState<string | null>(null);
 
-  const [text, setText] = useState('');
-  const [invalid, setInvalid] = useState(false);
+  const pendingRow: CustomCssRow | null = pendingProp
+    ? {
+        prop: pendingProp,
+        value: '',
+        token: `__pending__${pendingProp}`,
+        draft: true,
+      }
+    : null;
+  const rows: CustomCssRow[] = pendingRow
+    ? [...props, ...(props.some((p) => p.prop === pendingRow.prop) ? [] : [pendingRow])]
+    : props;
+  const variableNames = variables?.map((variable) => variable.name);
 
-  const add = () => {
-    const parsed = parseArbitraryProp(text);
-    if (!parsed) {
-      setInvalid(true);
+  const startAdd = (property: string) => {
+    const prop = property.trim().toLowerCase();
+    if (!prop) return;
+    const existing = props.find((p) => p.prop === prop);
+    if (existing) {
+      setPendingProp(null);
+      setEditingToken(existing.token);
+    } else {
+      setEditingToken(null);
+      setPendingProp(prop);
+    }
+  };
+
+  const remove = (row: CustomCssRow) => {
+    if (row.draft) {
+      setPendingProp(null);
       return;
     }
+    onReset({ match: (token) => token === row.token, cssProps: [row.prop] });
+  };
+
+  const commit = (row: CustomCssRow, next: Decl) => {
+    const prop = next.prop.trim().toLowerCase();
+    const value = next.value.trim();
+
+    if (value === '') {
+      remove(row);
+      setEditingToken(null);
+      return;
+    }
+
+    const parsed = parseArbitraryProp(`${prop}: ${value}`);
+    // Keep the old declaration when an inline edit is not valid CSS. The shared
+    // editor closes in the same way as the CSS editor; the next click can retry it.
+    if (!parsed) return;
+
+    if (!row.draft) remove(row);
     onApplyEnum(parsed.token, { [parsed.prop]: parsed.value });
-    setText('');
-    setInvalid(false);
+    setPendingProp(null);
+    setEditingToken(null);
+  };
+
+  const closeEditor = (row: CustomCssRow) => {
+    setEditingToken((token) => (token === row.token ? null : token));
+    if (row.draft) setPendingProp(null);
   };
 
   return (
     <div className="ss-custom-css">
-      {props.length > 0 && (
-        <ul className="ss-custom-css__list">
-          {props.map((p) => (
-            <li key={p.token} className="ss-custom-css__chip" title={`${p.prop}: ${p.value}`}>
-              <span className="ss-custom-css__chip-text">
-                <span className="ss-custom-css__chip-prop">{p.prop}</span>: {p.value}
-              </span>
-              <button
-                type="button"
-                className="ss-custom-css__chip-x"
-                title={`Remove ${p.prop}`}
-                aria-label={`Remove ${p.prop}`}
-                onClick={() => onReset({ match: (t) => t === p.token, cssProps: [p.prop] })}
-              >
-                ×
-              </button>
-            </li>
+      {rows.length > 0 && (
+        <div className="ss-custom-css__list">
+          {rows.map((row) => (
+            <DeclarationRow
+              key={customRowKey(row, editingToken)}
+              editable
+              decl={{ prop: row.prop, value: row.value, important: false }}
+              overridden={false}
+              showNest={false}
+              nestTargets={[]}
+              onNest={() => {}}
+              variables={variableNames}
+              autoEditValue={row.draft || editingToken === row.token}
+              onChange={(next) => commit(row, next)}
+              onEditClose={() => closeEditor(row)}
+              onRemove={() => remove(row)}
+            />
           ))}
-        </ul>
+        </div>
       )}
-      <div className="ss-custom-css__add">
-        <input
-          className={`ss-edit-panel__text${invalid ? ' ss-edit-panel__num--invalid' : ''}`}
-          inputMode="text"
-          autoCorrect="off"
-          autoCapitalize="off"
-          autoComplete="off"
-          spellCheck={false}
-          aria-label="Custom CSS property"
-          aria-invalid={invalid}
-          placeholder="clip-path: circle(50%)"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            if (invalid) setInvalid(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              add();
-            }
-          }}
-        />
-        <button
-          type="button"
-          className="ss-custom-css__addbtn"
-          aria-label="Add custom CSS"
-          onClick={add}
-        >
-          +
-        </button>
+      <div className="ss-custom-css__add ss-cascade-card__add-row">
+        <AddMenu mode="props" triggerLabel="Add" onAddProperty={startAdd} onNest={() => {}} />
       </div>
-      <p className="ss-custom-css__hint">
-        Any CSS property — written as a Tailwind <code>[prop:value]</code> class.
-      </p>
     </div>
   );
 }

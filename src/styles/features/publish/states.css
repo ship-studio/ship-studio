@@ -4,7 +4,7 @@
   align-items: center;
   gap: 12px;
   padding: 20px 16px;
-  color: var(--action);
+  color: var(--accent-active);
   font-size: 15px;
   font-weight: 500;
 }
@@ -15,36 +15,21 @@
 
 .publish-success-message {
   padding: 0 16px 16px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .publish-branch-hint {
   padding: 0 16px 12px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
-.publish-create-pr-link {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: var(--action);
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.publish-create-pr-link:hover {
-  color: var(--accent);
-}
-
 .publish-elapsed {
   margin-left: auto;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 400;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -67,7 +52,7 @@
 
 .publish-deploying-message {
   padding: 0 16px 16px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -75,7 +60,7 @@
 /* Deployed URL */
 .publish-deployed-message {
   padding: 0 16px 12px;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -90,7 +75,7 @@
 
 .publish-url-text {
   flex: 1;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -105,11 +90,11 @@
 
 .publish-url-btn {
   padding: 4px 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -119,7 +104,7 @@
 }
 
 .publish-url-btn:hover {
-  background: var(--border);
+  background: var(--border-default);
   color: var(--text-primary);
 }
 
@@ -130,21 +115,21 @@
   gap: 8px;
   width: 100%;
   padding: 10px 16px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   cursor: pointer;
   transition:
     background-color var(--transition),
     color var(--transition),
     border-color var(--transition);
-  font-family: monospace;
+  font-family: var(--font-code);
 }
 
 .publish-url-button:hover {
-  background: var(--border);
+  background: var(--border-default);
   color: var(--info);
 }
 
@@ -165,33 +150,13 @@
   padding: 16px;
 }
 
-.publish-done {
-  width: 100%;
-  padding: 10px 24px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-primary);
-  font-size: var(--font-size-md);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-}
-
-.publish-done:hover {
-  background: var(--border);
-}
-
 /* Publish Error State */
 .publish-error-header {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 20px 16px;
-  color: var(--error-deep);
+  color: var(--accent-error-deep);
   font-size: 15px;
   font-weight: 500;
 }
@@ -202,13 +167,13 @@
 
 .publish-error-message {
   padding: 0 16px 16px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
-  background: rgba(var(--error-deep-rgb), 0.05);
+  background: rgba(var(--accent-error-deep-rgb), 0.05);
   margin: 0 16px 16px;
   padding: 12px;
-  border-radius: var(--radius);
-  font-family: monospace;
+  border-radius: var(--radius-control);
+  font-family: var(--font-code);
   word-break: break-word;
 }
 

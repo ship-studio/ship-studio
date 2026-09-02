@@ -18,7 +18,19 @@ import { useOptionalToast } from '../../contexts/ToastContext';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { Spinner } from '../primitives/Spinner';
 import { Button } from '../primitives/Button';
-import { ChevronIcon, CodeIcon, FileIcon, VSCodeIcon, CursorIcon, CopyIcon } from '../icons';
+import { MenuButton } from '../primitives/MenuButton';
+import { ToggleButton } from '../primitives/ToggleButton';
+import {
+  ChevronIcon,
+  CodeIcon,
+  CopyIcon,
+  CursorIcon,
+  EditIcon,
+  FileIcon,
+  FileTextIcon,
+  SaveIcon,
+  VSCodeIcon,
+} from '@/components/icons';
 import { trackEvent } from '../../lib/analytics';
 import { fileExtensionForAnalytics } from '../../lib/code';
 import { CodeFileEditor } from './CodeFileEditor';
@@ -100,6 +112,10 @@ export function CodeViewer({
   const [question, setQuestion] = useState('');
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  // Horizontal anchor captured when the popover first appears — the popover is
+  // pinned to the left edge of the highlight and must not slide as the
+  // selection grows. Cleared whenever the popover closes.
+  const popoverAnchorXRef = useRef<number | null>(null);
   // ⌘S bypasses the disabled Save button, so guard against overlapping saves
   // whose disk writes could finish out of order and leave a stale draft.
   const saveInFlightRef = useRef(false);
@@ -232,7 +248,7 @@ export function CodeViewer({
           <span className="code-viewer-path">{filePath}</span>
         </div>
         <div className="code-viewer-placeholder">
-          <Spinner size="sm" style={{ color: 'var(--accent)' }} />
+          <Spinner size="sm" style={{ color: 'var(--accent-active)' }} />
         </div>
       </div>
     );
@@ -287,20 +303,26 @@ export function CodeViewer({
 
   const hasIde = ideAvailability.vscode || ideAvailability.cursor;
 
-  // Popover position: anchored to the selection end, clamped to viewport
+  // Popover position: pinned horizontally to the left edge of the highlight
+  // (captured once per selection), while only `top` tracks the selection —
+  // smoothed by the CSS transition on .code-selection-popover.
   const popoverWidth = 320;
   const popoverHeight = 160;
   let popoverStyle: React.CSSProperties | undefined;
   if (selectionInfo) {
+    if (popoverAnchorXRef.current == null) {
+      popoverAnchorXRef.current = Math.max(
+        8,
+        Math.min(selectionInfo.mouseX, window.innerWidth - popoverWidth - 8)
+      );
+    }
     const top = Math.max(
       8,
       Math.min(selectionInfo.mouseY + 12, window.innerHeight - popoverHeight - 8)
     );
-    const left = Math.max(
-      8,
-      Math.min(selectionInfo.mouseX - popoverWidth / 2, window.innerWidth - popoverWidth - 8)
-    );
-    popoverStyle = { top, left };
+    popoverStyle = { top, left: popoverAnchorXRef.current };
+  } else {
+    popoverAnchorXRef.current = null;
   }
 
   const lineRefLabel = selectionInfo
@@ -312,7 +334,7 @@ export function CodeViewer({
   return (
     <div className="code-viewer">
       <div className="code-viewer-header">
-        <FileIcon size={14} />
+        <FileTextIcon size={14} />
         <span className="code-viewer-path">{filePath}</span>
         {isDirty && <span className="code-viewer-dirty" title="Unsaved changes" aria-hidden />}
         {fileContent && <span className="code-viewer-size">{formatSize(fileContent.size)}</span>}
@@ -321,19 +343,14 @@ export function CodeViewer({
             // Contextual edit actions, grouped + divided from the persistent
             // controls so Save/Revert read as their own thing.
             <div className="code-viewer-edit-actions">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={onCancelEdit}
-                disabled={!isDirty || isSaving}
-              >
+              <Button variant="secondary" onClick={onCancelEdit} disabled={!isDirty || isSaving}>
                 Revert
               </Button>
               <Button
-                size="sm"
                 variant="primary"
                 onClick={() => void handleSave()}
                 disabled={!isDirty || isSaving}
+                leftIcon={!isSaving ? <SaveIcon size={14} /> : undefined}
               >
                 {isSaving ? <Spinner size="sm" /> : 'Save'}
               </Button>
@@ -342,36 +359,23 @@ export function CodeViewer({
           {onToggleEditMode && (
             // Same control as the visual editor's Edit toggle (shared
             // `preview-edit-toggle` classes) so the two read as one feature.
-            <button
+            <ToggleButton
               type="button"
-              className={`preview-edit-toggle${editModeEnabled ? ' active' : ''}`}
               onClick={() => onToggleEditMode(!editModeEnabled)}
               title={
                 editModeEnabled
                   ? 'Edit mode on — files open editable. Click to turn off.'
                   : 'Turn on edit mode to edit files in Ship Studio'
               }
-              aria-pressed={editModeEnabled}
+              pressed={editModeEnabled}
             >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
-              </svg>
+              <EditIcon size={13} />
               <span>Edit</span>
               <span
                 className={`preview-edit-toggle-switch ${editModeEnabled ? 'is-on' : ''}`}
                 aria-hidden
               />
-            </button>
+            </ToggleButton>
           )}
           {hasIde && (
             // Portal mode: .code-tab clips overflow, so the menu renders fixed
@@ -381,10 +385,15 @@ export function CodeViewer({
               portal
               align="right"
               trigger={(p) => (
-                <button className="code-viewer-open-btn" title="Open in IDE" {...p}>
-                  <span>Open with</span>
-                  <ChevronIcon size={10} />
-                </button>
+                <MenuButton
+                  variant="secondary"
+                  title="Open in IDE"
+                  rightIcon={<ChevronIcon size={10} />}
+                  expanded={p['aria-expanded']}
+                  {...p}
+                >
+                  Open with
+                </MenuButton>
               )}
             >
               {ideAvailability.vscode && (
@@ -433,6 +442,7 @@ export function CodeViewer({
         createPortal(
           <div className="code-selection-popover" ref={popoverRef} style={popoverStyle}>
             <button
+              type="button"
               className="code-selection-reference"
               onClick={() => setPreviewExpanded((p) => !p)}
             >
@@ -455,13 +465,17 @@ export function CodeViewer({
               autoFocus
             />
             <div className="code-selection-actions">
-              <button className="code-selection-cancel" onClick={dismissPopover}>
+              <Button variant="ghost" size="compact" onClick={dismissPopover}>
                 Cancel
-              </button>
-              <button className="code-selection-copy" onClick={handleCopy}>
-                <CopyIcon size={12} />
+              </Button>
+              <Button
+                variant="primary"
+                size="compact"
+                onClick={handleCopy}
+                leftIcon={<CopyIcon size={12} />}
+              >
                 Copy to agent
-              </button>
+              </Button>
             </div>
           </div>,
           document.body

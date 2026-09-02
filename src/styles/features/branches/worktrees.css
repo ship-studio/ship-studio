@@ -11,7 +11,7 @@
 .worktrees-section-actions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   /* The uppercase header styling shouldn't leak into the action buttons. */
   text-transform: none;
   letter-spacing: normal;
@@ -24,9 +24,9 @@
   gap: var(--spacing-md);
   padding: var(--spacing-md);
   margin-bottom: var(--spacing-sm);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
 }
 
 .worktree-row.is-current {
@@ -43,7 +43,7 @@
   align-items: center;
   gap: var(--spacing-sm);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
 }
 
@@ -58,9 +58,9 @@
   padding: 1px var(--spacing-sm);
   border-radius: var(--radius-pill);
   background: var(--tint-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 500;
 }
 
@@ -70,15 +70,15 @@
 }
 
 .worktree-chip.is-prunable-chip {
-  color: var(--warning);
-  border-color: rgba(var(--warning-rgb), 0.4);
-  background: rgba(var(--warning-rgb), 0.1);
+  color: var(--accent-warning);
+  border-color: rgba(var(--accent-warning-rgb), 0.4);
+  background: rgba(var(--accent-warning-rgb), 0.1);
 }
 
 .worktree-row-path {
   margin-top: var(--spacing-xs);
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -89,7 +89,7 @@
 .worktree-row-actions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: var(--button-gap);
   flex-shrink: 0;
 }
 
@@ -116,18 +116,18 @@
 }
 
 .worktree-row-icon-btn.is-danger:hover {
-  background: rgba(var(--error-rgb), 0.1);
-  color: var(--error);
+  background: rgba(var(--accent-error-rgb), 0.1);
+  color: var(--accent-error);
 }
 
 .worktree-remove-error {
   margin-top: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-md);
-  background: rgba(var(--error-rgb), 0.1);
-  border: 1px solid rgba(var(--error-rgb), 0.3);
+  border-radius: var(--radius-card);
+  background: rgba(var(--accent-error-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-error-rgb), 0.3);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   word-break: break-word;
 }
 
@@ -148,36 +148,19 @@
 .worktree-create-intro {
   margin: 0;
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   line-height: 1.5;
 }
 
 .worktree-mode-toggle {
-  display: flex;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  width: 100%;
 }
 
-.worktree-mode-btn {
+.worktree-mode-toggle .tabs__tab {
   flex: 1;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition);
-}
-
-.worktree-mode-btn.is-active {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  width: auto;
+  min-width: 0;
+  font-size: var(--font-size-body-md);
 }
 
 .worktree-field {
@@ -188,18 +171,18 @@
 
 .worktree-field-label {
   color: var(--text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 500;
 }
 
 .worktree-field input[type='text'],
 .worktree-field select {
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 .worktree-field select {
@@ -208,25 +191,25 @@
   -webkit-appearance: none;
   cursor: pointer;
   padding-right: var(--spacing-2xl);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='1px'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right var(--spacing-md) center;
 }
 
 .worktree-field select option {
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
   color: var(--text-primary);
 }
 
 .worktree-field input[type='text']:focus,
 .worktree-field select:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .worktree-field-hint {
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
 }
 
 .worktree-checkbox {
@@ -234,7 +217,7 @@
   align-items: flex-start;
   gap: var(--spacing-sm);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   cursor: pointer;
 }
 
@@ -246,9 +229,9 @@
   width: 15px;
   height: 15px;
   margin: 2px 0 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   cursor: pointer;
   transition:
     background-color var(--transition),
@@ -260,8 +243,8 @@
 }
 
 .worktree-checkbox input[type='checkbox']:checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-active);
+  border-color: var(--accent-active);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -271,7 +254,7 @@
   content: '';
   width: 4px;
   height: 8px;
-  border: solid var(--bg-deep);
+  border: solid var(--surface-recessed);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
   margin-top: -2px;
@@ -280,15 +263,15 @@
 .worktree-checkbox-hint {
   display: block;
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
 }
 
 .worktree-destination {
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border-radius: var(--radius-card);
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   word-break: break-all;
 }
 
@@ -298,17 +281,17 @@
 
 .worktree-create-error {
   padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--radius-md);
-  background: rgba(var(--error-rgb), 0.1);
-  border: 1px solid rgba(var(--error-rgb), 0.3);
+  border-radius: var(--radius-card);
+  background: rgba(var(--accent-error-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-error-rgb), 0.3);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   word-break: break-word;
 }
 
 .worktree-create-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--spacing-sm);
+  gap: var(--button-gap);
   margin-top: var(--spacing-xs);
 }

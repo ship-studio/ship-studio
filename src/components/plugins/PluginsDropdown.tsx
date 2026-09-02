@@ -1,8 +1,8 @@
 /**
  * PluginsDropdown — left-cluster header dropdown that lists the plugin
  * manager plus every currently-loaded non-hosting plugin. Matches the
- * visual shape of `ToolbarDropdown` (toolbar-icon-btn trigger, menu body
- * styled like the Dropdown primitive) so both live-together consistently.
+ * visual shape of `ToolbarDropdown` (canonical MenuButton trigger, menu body
+ * styled like the Dropdown primitive) so both live together consistently.
  *
  * NOT built on the Dropdown primitive (`primitives/Dropdown.tsx`) — the
  * primitive unmounts its menu children while closed, and this menu must
@@ -34,8 +34,9 @@
 
 import { useState, useRef, useCallback, type MouseEvent } from 'react';
 import { useClickOutside } from '../../hooks/useClickOutside';
-import { ChevronIcon, PuzzleIcon } from '../icons';
+import { ChevronIcon, PuzzleIcon } from '@/components/icons';
 import { PluginSlot, PluginErrorChip } from './PluginSlot';
+import { MenuButton } from '../primitives/MenuButton';
 import type { LoadedPlugin, PluginFailure } from '../../hooks/usePlugins';
 import type {
   PluginProjectData,
@@ -72,18 +73,16 @@ export function PluginsDropdown({
 
   return (
     <div className="toolbar-dropdown-container" ref={menuRef}>
-      <button
-        className={`toolbar-icon-btn ${isOpen ? 'is-open' : ''}`}
+      <MenuButton
+        expanded={isOpen}
         onClick={() => setIsOpen(!isOpen)}
         title="Plugins"
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
         data-education-id="plugins-dropdown"
+        leftIcon={<PuzzleIcon size={16} />}
+        aria-label="Plugins"
       >
-        <PuzzleIcon size={12} />
-        <span className="toolbar-btn-label">Plugins</span>
         <ChevronIcon size={10} className={isOpen ? 'chevron-flipped' : undefined} />
-      </button>
+      </MenuButton>
 
       <div className={`plugins-dropdown-menu ${isOpen ? '' : 'is-hidden'}`} role="menu">
         <button

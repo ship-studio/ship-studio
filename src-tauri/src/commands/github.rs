@@ -556,15 +556,17 @@ pub async fn push_to_github(options: PushToGitHubOptions) -> Result<String, Comm
     // Ensure git identity is configured (required for commits)
     ensure_git_identity(&validated_path)?;
 
-    // Stage and commit any files
-    let _ = git_stage_and_commit(
+    // Stage and commit any files. Do not continue to repo creation when a
+    // commit hook rejects the commit: doing so creates the remote and then
+    // reports the hook output as a misleading push failure.
+    git_stage_and_commit(
         &validated_path,
         if git_dir.exists() {
             "Update from Ship Studio"
         } else {
             "Initial commit from Ship Studio"
         },
-    );
+    )?;
 
     // Ensure at least one commit exists (gh repo create --push requires it)
     let has_commits = crate::utils::git_command_in(&validated_path)?

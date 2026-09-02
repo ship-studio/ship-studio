@@ -1,0 +1,94 @@
+/* ===== Primitive: PropertyField ===== */
+.property-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  padding: 0 var(--spacing-sm);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: text;
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+
+.property-field--size-default {
+  min-height: var(--control-height-standard);
+}
+
+.property-field--size-compact {
+  min-height: var(--control-height-compact);
+}
+
+.property-field--select {
+  height: var(--button-height);
+  min-height: var(--button-height);
+  padding: 0 var(--button-padding);
+  border-color: var(--button-border-solid);
+  border-radius: var(--button-radius);
+  background: var(--button-surface-default);
+  color: var(--button-text-default);
+  font-family: var(--font-ui);
+  font-size: var(--button-font-size);
+  line-height: var(--line-height-default);
+  font-weight: var(--button-font-weight);
+  box-shadow: var(--button-shadow);
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition),
+    transform var(--transition);
+}
+
+.property-field:hover {
+  background: var(--surface-control-hover);
+  border-color: var(--border-strong);
+}
+
+.property-field:focus-visible {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.property-field[aria-expanded='true'] {
+  background: var(--surface-selected);
+  border-color: var(--border-strong);
+}
+
+.property-field--select:hover {
+  background: var(--button-surface-hover);
+  color: var(--button-text-hover);
+  border-color: var(--button-border-solid);
+}
+
+.property-field--select:active {
+  transform: scale(var(--button-active-scale));
+}
+
+.property-field--select:focus-visible {
+  outline: var(--stroke-2) solid var(--accent-focus);
+  outline-offset: -1px;
+  border-color: var(--button-border-solid);
+}
+
+.property-field--select[aria-expanded='true'] {
+  background: var(--button-surface-selected);
+  color: var(--button-text-hover);
+  border-color: var(--button-border-solid);
+}
+
+.property-field--variable {
+  color: var(--variable-text);
+  background: var(--variable-field-hover);
+  border-color: var(--variable-border);
+}
+
+.property-field--variable:hover {
+  background: var(--variable-field-selected);
+  border-color: var(--variable-surface-hover);
+}

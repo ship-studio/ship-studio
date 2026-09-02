@@ -40,13 +40,11 @@ async function openLibraryTab() {
     await Promise.resolve();
   });
   // "Library" also names the shortcut inside the installed-tab empty state —
-  // click the tab itself.
-  const tab = screen
-    .getAllByRole('button', { name: 'Library' })
-    .find((b) => b.className.includes('plugins-tab'));
+  // click the tab itself (the Tabs primitive gives it role="tab").
+  const tab = screen.getByRole('tab', { name: 'Library' });
   expect(tab).toBeDefined();
   await act(async () => {
-    fireEvent.click(tab!);
+    fireEvent.click(tab);
     await Promise.resolve();
   });
 }

@@ -1,0 +1,527 @@
+/**
+ * Code-first CSS editor — cascade panel and rule-card layout. Styled to match the Tailwind Visual
+ * Editor panel (visual-editor.css): same tokens and control patterns — bg-tertiary
+ * controls with 1px borders and radius-sm, `--accent-active` (green) focus/active accents,
+ * `--tint` active fills, segmented tabs, enum-style menus, uppercase section labels.
+ * Renders inside the shared `ss-edit-panel` chrome. Tokens only.
+ */
+
+/* Chevron rail width — collapse toggle + nested indent align to it. */
+.ss-cascade-panel {
+  --cascade-rail: 14px;
+}
+
+/* The shared `.ss-edit-panel__body` pads + gaps with --spacing-md; the cascade
+   sections provide their own (single) insets, so reset that here. */
+.ss-cascade-panel .ss-edit-panel__body {
+  padding: 0;
+  gap: 0;
+  /* Keep the shared panel body as the single scroll owner. A nested scroller
+     here is wrapped by the app scrollbar observer and can lose its bounded
+     height in the docked WebKit layout. */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.ss-cascade-panel .ss-edit-panel__body > .tabs {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.ss-cascade-panel .ss-cascade-content {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  overflow: visible;
+}
+
+/* ── Selected-element header ── */
+.ss-cascade-target {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
+  border-bottom: 1px solid var(--border-default);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+}
+
+.ss-cascade-target__selector {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-block: var(--space-04);
+  gap: var(--spacing-xs);
+}
+
+.ss-cascade-target__classes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: var(--spacing-xs);
+  color: var(--class-text);
+}
+
+.ss-cascade-target__class {
+  overflow-wrap: anywhere;
+}
+
+.ss-cascade-target__count {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}
+
+.ss-cascade-target__copy {
+  white-space: nowrap;
+}
+
+/* ========================================================================
+  * 'Add Selector' action
+  * =======================================================================
+*/
+
+/* The Button primitive owns the action styling; this only places it in the panel. */
+.ss-cascade-action {
+  width: calc(100% - (2 * var(--editor-panel-inline-pad)));
+  margin: var(--spacing-sm) var(--editor-panel-inline-pad) 0;
+}
+
+/* The expanded selector input + its autocomplete dropdown. */
+.ss-cascade-add-selector__wrap {
+  position: relative;
+  margin: 8px 13px 3px 13px;
+}
+.ss-cascade-add-selector__input {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  height: 26px;
+  padding: var(--space-04) var(--space-08);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+}
+.ss-cascade-add-selector__input:focus {
+  outline: 1px solid var(--accent-active);
+  outline-offset: 2px;
+}
+.ss-cascade-add-selector__input::placeholder {
+  color: var(--text-muted);
+}
+
+.ss-cascade-empty {
+  margin: 0;
+  padding: var(--spacing-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+  text-align: center;
+}
+.ss-cascade-loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacing-lg);
+}
+
+/* ── Card list ── */
+.ss-cascade-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
+}
+
+/* ── Card ── */
+.ss-cascade-card {
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+  /* No `overflow: hidden` — autocomplete/at-rule menus must expand BEYOND the card. */
+  transition: border-color var(--transition);
+}
+.ss-cascade-card:hover {
+  border-color: var(--border-strong);
+}
+.ss-cascade-card:focus-within {
+  border-color: var(--border-strong);
+}
+.ss-cascade-card.is-readonly {
+  background: var(--surface-app);
+}
+.ss-cascade-card.is-nested {
+  margin-top: var(--spacing-xs);
+  background: var(--surface-control);
+}
+.ss-cascade-card.is-keyframe-step {
+  background: transparent;
+}
+
+/* A rule whose @media/@container doesn't match the current preview size: dimmed,
+   because its declarations aren't applying right now (they're not "overridden"). */
+.ss-cascade-card.is-inactive {
+  opacity: 0.55;
+}
+.ss-cascade-card.is-inactive:hover {
+  opacity: 1;
+}
+/* ── Card: header (the selector chip + any media/layer chips) ── */
+.ss-cascade-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px; /* css-ok: tight stack of affordance / selector / affordance */
+  padding: var(--spacing-sm);
+}
+.ss-cascade-card:not(.is-collapsed) .ss-cascade-card__head {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.ss-cascade-card__selector-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+/* A compound class selector is still one rule, but its individual class
+   selectors are easier to scan when they use the same chips as standalone
+   selectors. The connector's narrow bridge and elliptical shoulders make the
+   chips appear to flow into one another while keeping their labels distinct. */
+.ss-cascade-selector-display {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  cursor: default;
+}
+.ss-cascade-selector-display[role='button'] {
+  cursor: text;
+  outline: none;
+}
+.ss-cascade-selector-display[role='button']:focus-visible {
+  border-radius: var(--radius-4);
+  outline: var(--stroke-1) solid var(--accent-active);
+  outline-offset: var(--space-02);
+}
+.ss-cascade-selector-display__part {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.ss-cascade-selector-display__connector {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+  width: var(--space-16);
+  height: calc(var(--space-24) - var(--space-04));
+  flex: 0 0 var(--space-16);
+  margin-inline: calc(var(--space-02) * -1);
+  color: var(--property-surface);
+}
+.ss-cascade-selector-display__connector svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+.ss-cascade-selector-display .ss-cascade-chip {
+  position: relative;
+  z-index: 1;
+  max-width: none;
+}
+.ss-cascade-selector-display .ss-cascade-chip__content {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* ── Card: Collapse button ── */
+.ss-cascade-card__collapse {
+  all: unset;
+  cursor: pointer;
+  flex: 0 0 auto;
+  width: var(--cascade-rail);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition:
+    transform var(--transition-fast),
+    color var(--transition-fast);
+}
+.ss-cascade-card__collapse.is-collapsed {
+  transform: rotate(-90deg);
+}
+.ss-cascade-card__collapse:hover {
+  color: var(--text-secondary);
+}
+
+/* Main class tag */
+.ss-cascade-card__selector-chip {
+  display: inline-flex;
+  /* The selector is the rule's identity — show it in full, literally, never truncated.
+     The media/layer condition is its own context line above, so nothing competes. */
+  flex: 0 1 auto;
+  min-width: 21px;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+.is-readonly .ss-cascade-card__selector-chip {
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.ss-cascade-card__head-spacer {
+  flex: 1 1 auto;
+}
+
+/* Devtools-style condition context line above the selector: the rule's enclosing
+   `@media (…)` / `@layer` shown literally and in full. Indented to sit under the
+   selector (past the collapse rail). A normal text block so the condition wraps like
+   prose — at spaces only, never mid-word. */
+.ss-cascade-card__context {
+  padding: var(--spacing-sm) var(--spacing-xs) var(--spacing-xs)
+    calc(var(--cascade-rail) + var(--spacing-xs));
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
+  line-height: 1.5;
+}
+.ss-cascade-card__context.is-inactive {
+  opacity: 0.55;
+}
+.ss-cascade-card__media-at {
+  color: var(--media-text);
+}
+.ss-cascade-card__context-note {
+  display: block;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* The condition flows as normal inline text — full, wrapping at spaces, never
+   truncated and never broken inside a word like `@media`. (Overrides the inline-row
+   chip's inline-flex + ellipsis defaults.) */
+.ss-cascade-card__context .ss-cascade-card__chip {
+  display: inline;
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.ss-cascade-card__context .ss-cascade-chip[data-tone='media'] {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+  vertical-align: top;
+  white-space: normal;
+}
+.ss-cascade-card__context .ss-cascade-chip[data-tone='media'] .ss-cascade-chip__content {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.ss-cascade-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px; /* css-ok: icon + label */
+  /* Shrinks + ellipsizes when long (e.g. a prefers-color-scheme query) so it never
+     squeezes the selector chip. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  padding: 1px var(--spacing-xs); /* css-ok: chip padding below scale */
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.is-nested .ss-cascade-card__chip {
+  background: var(--surface-panel);
+}
+.ss-cascade-card__selector-chip.ss-cascade-card__selector-chip--tag {
+  padding: 0;
+  background: transparent;
+  color: var(--tag-text);
+  font-family: var(--font-code);
+  box-shadow: none;
+}
+
+/* The selector field takes the lead role in the header while editing. */
+.ss-cascade-card__selector-edit {
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: calc(100% - var(--cascade-rail) - var(--spacing-xs));
+  min-width: 0;
+}
+.ss-cascade-card__selector-edit .ss-cascade-chip__input {
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 100%;
+  field-sizing: content;
+}
+.ss-cascade-card__chip svg {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+.ss-cascade-card__src--ro {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  font-style: italic;
+}
+/* trash — quiet until the card is hovered, red on hover (editor icon-button pattern) */
+.ss-cascade-card__trash {
+  all: unset;
+  cursor: pointer;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  opacity: 0;
+  transition:
+    opacity var(--transition-fast),
+    color var(--transition-fast),
+    background var(--transition-fast);
+}
+.ss-cascade-card:hover .ss-cascade-card__trash {
+  opacity: 1;
+}
+.ss-cascade-card__trash:hover {
+  color: var(--accent-error);
+  background: color-mix(in srgb, var(--accent-error) 14%, transparent);
+}
+
+/* ── Card body ── */
+.ss-cascade-card__body {
+  padding: 6px var(--spacing-sm) var(--spacing-sm); /* css-ok: tight body top */
+}
+.ss-cascade-card__draft-row {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--spacing-2xs);
+  font-family: var(--font-code);
+  line-height: 1.5;
+}
+.ss-cascade-card__draft-row .ss-cascade-card__chip {
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--spacing-2xs) calc(var(--spacing-xs) + var(--spacing-2xs));
+  overflow: visible;
+  text-overflow: clip;
+}
+.ss-cascade-card__note {
+  margin: var(--spacing-xs) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}
+.ss-cascade-card__add-row {
+  display: flex;
+  align-items: center;
+  min-height: var(--spacing-md);
+  margin-top: var(--spacing-xs);
+  /* Align the add control with the declaration text inside each row. */
+  padding-inline-start: calc(var(--space-02) + var(--space-06));
+}
+.ss-cascade-card__add {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  transition: color var(--transition-fast);
+}
+.ss-cascade-card__add:hover,
+.ss-cascade-card__add.is-open {
+  color: var(--text-primary);
+}
+.ss-cascade-card__src-chip {
+  position: absolute;
+  inset-inline-end: 0;
+  z-index: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  max-width: 100%;
+  min-width: 0;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+/* Read-only cards show both the status and the candidate source files. Keep the
+   provenance chip in the flex row so it sits beside, rather than underneath,
+   the status label. */
+.ss-cascade-card.is-readonly .ss-cascade-card__src-chip {
+  position: static;
+  flex: 0 1 auto;
+}
+.ss-cascade-card__src-chip svg {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+.ss-cascade-card__trash {
+  position: relative;
+  z-index: 1;
+}
+.ss-cascade-card:has(.ss-cascade-card__trash):hover .ss-cascade-card__src-chip {
+  opacity: 0;
+}
+
+/* ── Draft cards (the element's own selectors with no rule yet) ──
+   Dashed + slightly dimmed so it reads as "not written yet"; it solidifies into a
+   normal card once you add the first property (which creates the rule in source). */
+.ss-cascade-card.is-draft {
+  border-style: dashed;
+  background: transparent;
+}
+/* A created rule that doesn't match the selected element — dimmed + a warm note, so it
+   reads as "not applying here" rather than a normal cascade rule. */
+.ss-cascade-card.is-unmatched {
+  opacity: 0.7;
+  border-style: dashed;
+}
+.ss-cascade-card.is-unmatched:hover {
+  opacity: 1;
+}
+.ss-cascade-card__note--unmatched {
+  color: var(--accent-warning);
+}
+.ss-cascade-card.is-draft .ss-cascade-card__selector-chip {
+  opacity: 0.85;
+}
+.ss-cascade-card__chip--new {
+  color: var(--text-primary);
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  text-transform: none;
+  font-size: var(--font-size-badge);
+}

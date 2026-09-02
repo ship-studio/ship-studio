@@ -6,15 +6,15 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-md);
-  background: rgba(var(--warning-rgb), 0.1);
-  border-bottom: 1px solid var(--border);
+  background: rgba(var(--accent-warning-rgb), 0.1);
+  border-bottom: 1px solid var(--border-default);
   color: var(--text-secondary);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
 }
 
 .stale-env-banner-icon {
   flex-shrink: 0;
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .stale-env-banner-text {

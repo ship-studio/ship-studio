@@ -10,6 +10,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { agentActivityStore } from '../../lib/agentActivityStore';
+import AgentActivityCursorGraphic from '@/assets/graphics/agent-activity-cursor.svg?react';
 
 export function AgentActivityOverlay() {
   const state = useSyncExternalStore(agentActivityStore.subscribe, agentActivityStore.getState);
@@ -37,15 +38,7 @@ export function AgentActivityOverlay() {
           style={{ left: `${state.effect.x * 100}%`, top: `${state.effect.y * 100}%` }}
         >
           <span className="agent-activity-ripple" />
-          <svg viewBox="0 0 24 24" width="30" height="30">
-            <path
-              d="m4 4 7.07 17 2.51-7.39L21 11.07z"
-              fill="var(--action)"
-              stroke="var(--action-text)"
-              strokeWidth="1.5"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <AgentActivityCursorGraphic width={30} height={30} aria-hidden="true" />
         </div>
       )}
       {state.effect?.kind === 'flash' && (

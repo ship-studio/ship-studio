@@ -72,12 +72,11 @@ export function NewAccountModal({ isOpen, onClose, onCreated }: NewAccountModalP
         </div>
       </div>
       <div className="account-detail-footer">
-        <Button variant="ghost" size="sm" onClick={handleClose}>
+        <Button variant="ghost" onClick={handleClose}>
           Cancel
         </Button>
         <Button
           variant="primary"
-          size="sm"
           onClick={() => void handleCreate()}
           disabled={!name.trim() || isSaving}
         >

@@ -14,27 +14,162 @@
   width: 100vw;
   min-width: 100vw;
   height: 100vh;
-  background: var(--bg-primary);
+  background: var(--surface-app);
   color: var(--text-primary);
   overflow: hidden;
 }
 
 /* ---------- Top bar ---------- */
 
-/* Topbar layout is now inline-styled in CompactTopbar.tsx to avoid any
- * cascade / cache / specificity conflicts. Only leftover rules: the
- * dropdown menu item styling (plain button styling, low-risk). */
+.compact-topbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100vw;
+  height: var(--compact-topbar-height);
+  box-sizing: border-box;
+  padding-inline-end: var(--compact-topbar-padding-inline);
+  background: var(--surface-panel);
+  border-bottom: var(--compact-topbar-border-width) solid var(--border-default);
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.compact-topbar--native {
+  padding-inline-start: var(--compact-topbar-padding-inline);
+}
+
+/* macOS overlay title bars reserve room for the traffic lights. */
+.compact-topbar--mac {
+  padding-inline-start: var(--compact-topbar-macos-padding-start);
+}
+
+.compact-topbar__spacer {
+  flex: 1 1 auto;
+  align-self: stretch;
+}
+
+.compact-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--compact-topbar-cluster-gap);
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+
+.compact-topbar__dev-server {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--compact-topbar-status-slot-size);
+  height: var(--compact-topbar-status-slot-size);
+}
+
+.compact-topbar__dev-server-dot {
+  width: var(--compact-topbar-status-dot-size);
+  height: var(--compact-topbar-status-dot-size);
+  border-radius: var(--compact-topbar-status-dot-radius);
+  background: var(--accent-success);
+}
+
+.compact-topbar__icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--compact-topbar-control-size);
+  padding: 0 var(--compact-topbar-control-padding-inline);
+  border: var(--compact-topbar-border-width) solid var(--border-default);
+  border-radius: var(--compact-topbar-control-radius);
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    border-color var(--transition),
+    color var(--transition);
+}
+
+.compact-topbar__icon-button {
+  width: var(--compact-topbar-control-size);
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+
+.compact-topbar__icon-button:hover,
+.compact-topbar__icon-button:focus-visible {
+  background: var(--surface-control);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.compact-topbar__icon-button.is-pinned {
+  background: var(--compact-topbar-pin-active-surface);
+  border-color: var(--compact-topbar-pin-active-border);
+  color: var(--accent-active);
+}
+
+.compact-topbar__project-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.compact-topbar__project-button {
+  max-width: var(--compact-topbar-project-max-width);
+}
+
+.compact-topbar__project-label {
+  max-width: var(--compact-topbar-project-label-max-width);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-topbar-project-menu {
+  position: absolute;
+  top: calc(var(--compact-topbar-padding-inline) + var(--compact-topbar-control-size));
+  right: var(--compact-topbar-padding-inline);
+  min-width: var(--compact-topbar-menu-min-width);
+  padding-top: var(--compact-topbar-menu-offset);
+  z-index: var(--compact-topbar-menu-z-index);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.compact-topbar-project-menu__surface {
+  max-height: var(--compact-topbar-menu-max-height);
+  overflow-y: auto;
+  padding: var(--compact-topbar-menu-padding);
+  background: var(--surface-panel);
+  border: var(--compact-topbar-border-width) solid var(--border-default);
+  border-radius: var(--compact-topbar-menu-radius);
+  box-shadow: var(--shadow-md);
+}
+
+.compact-topbar:has(.compact-topbar__project-picker:hover) > .compact-topbar-project-menu,
+.compact-topbar:has(.compact-topbar__project-picker:focus-within) > .compact-topbar-project-menu,
+.compact-topbar-project-menu:hover {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.compact-topbar-project-menu-divider {
+  height: var(--compact-topbar-menu-divider-height);
+  margin: var(--compact-topbar-menu-divider-margin);
+  background: var(--border-default);
+}
 
 .compact-topbar-project-menu-item {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 6px 10px;
+  padding: var(--compact-topbar-menu-item-padding-block)
+    var(--compact-topbar-menu-item-padding-inline);
   background: transparent;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--compact-topbar-control-radius);
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-menu-item);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -43,12 +178,12 @@
 }
 
 .compact-topbar-project-menu-item:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .compact-topbar-project-menu-item.is-subtle {
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
 }
 
 /* ---------- Tab strip ---------- */
@@ -59,8 +194,8 @@
   gap: 2px;
   height: 30px;
   padding: 0 4px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-app);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
   overflow-x: auto;
   overflow-y: hidden;
@@ -71,34 +206,45 @@
   display: none;
 }
 
+/* Compact tabs include a sibling close action, so the wrapper—not the shared
+ * trigger-only indicator—owns the complete hover/selected surface. */
+.compact-tabs .tabs__indicator {
+  display: none;
+}
+
 .compact-tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
   height: 22px;
   border-radius: var(--radius-sm);
   background: transparent;
-  transition: background var(--transition);
+  transition:
+    background var(--transition),
+    box-shadow var(--transition);
   flex-shrink: 0;
 }
 
 .compact-tab:hover {
-  background: var(--bg-secondary);
+  background: var(--surface-control-hover);
 }
 
 .compact-tab.is-active {
-  background: var(--bg-tertiary);
+  background: var(--surface-selected);
+  box-shadow: var(--shadow-button);
 }
 
-.compact-tab-select {
+.compact-tab .compact-tab-select {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 100%;
-  padding: 0 8px;
+  padding-block: 0;
+  padding-inline: var(--space-08);
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   cursor: pointer;
   max-width: 160px;
 }
@@ -110,8 +256,28 @@
 .compact-tab-label {
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   min-width: 0;
+}
+
+/* Fade the label where the close control overlays its final characters. */
+.compact-tab:hover .compact-tab-label {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    var(--text-primary) 0%,
+    var(--text-primary) calc(100% - var(--size-icon-button)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    var(--text-primary) 0%,
+    var(--text-primary) calc(100% - var(--size-icon-button)),
+    transparent 100%
+  );
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
 }
 
 /* Colored status dot — green when running, amber when attention-flagged.
@@ -121,12 +287,12 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--success);
+  background: var(--accent-success);
   flex-shrink: 0;
 }
 
 .compact-tab.has-attention .compact-tab-dot {
-  background: var(--warning);
+  background: var(--accent-warning);
   animation: compact-tab-pulse 1.6s ease-in-out infinite;
 }
 
@@ -141,33 +307,45 @@
 }
 
 .compact-tab-close {
-  display: none;
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: var(--space-04);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  margin-right: 4px;
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
   padding: 0;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
-  line-height: 1;
   cursor: pointer;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: var(--z-dropdown);
   transition:
     background var(--transition),
-    color var(--transition);
+    color var(--transition),
+    visibility var(--transition);
+  transform: translateY(-50%);
 }
 
-.compact-tab:hover .compact-tab-close,
+.compact-tab:not(.is-active):hover .compact-tab-close {
+  background: var(--surface-control-hover);
+}
+
 .compact-tab.is-active .compact-tab-close {
-  display: inline-flex;
+  background: var(--surface-selected);
+}
+
+.compact-tab:hover .compact-tab-close {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .compact-tab-close:hover {
   color: var(--text-primary);
-  background: var(--bg-primary);
 }
 
 .compact-tab-add {
@@ -191,7 +369,7 @@
 
 .compact-tab-add:hover {
   color: var(--text-primary);
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
 /* ---------- Terminal stack ---------- */
@@ -205,5 +383,9 @@
   position: relative;
   flex: 1;
   min-height: 0;
-  background: var(--bg-primary);
+  background: var(--surface-app);
+}
+
+.compact-workspace > .tabs {
+  display: contents;
 }

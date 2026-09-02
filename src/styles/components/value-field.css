@@ -1,0 +1,278 @@
+.value-field {
+  display: inline-flex;
+  align-items: stretch;
+  box-sizing: border-box;
+  width: var(--editor-panel-field-w);
+  height: var(--size-control-medium);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+  border: var(--stroke-1) solid var(--border-strong);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-button);
+  transition:
+    background-color var(--transition),
+    border-color var(--transition),
+    color var(--transition);
+}
+
+.value-field:focus-within,
+.value-field--open {
+  color: var(--text-primary);
+  border-color: var(--accent-active);
+}
+
+.value-field--invalid,
+.value-field--invalid:focus-within {
+  color: var(--accent-error);
+  border-color: var(--accent-error);
+}
+
+.value-field--variable:not(.value-field--invalid) {
+  color: var(--variable-text);
+  background: var(--variable-field-hover);
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-button);
+  padding: var(--space-02) var(--space-04);
+}
+
+.value-field--variable:not(.value-field--invalid):hover {
+  background: var(--variable-field-selected);
+}
+
+.value-field--variable:not(.value-field--invalid):focus-within,
+.value-field--variable:not(.value-field--invalid).value-field--open {
+  color: var(--variable-text-hover);
+  background: var(--variable-field-selected);
+  border-color: var(--variable-surface);
+}
+
+.value-field__leading {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  height: 100%;
+}
+
+.value-field__input {
+  flex: 1 1 auto;
+  width: 0;
+  min-width: 0;
+  padding: 0 var(--space-04) 0 var(--space-06);
+  color: inherit;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.value-field--variable .value-field__input {
+  padding-inline: 0;
+}
+
+.value-field__input::placeholder {
+  color: var(--text-muted);
+}
+
+.value-field__unit {
+  flex: 0 0 auto;
+  min-width: var(--space-16);
+  padding-inline: var(--spacing-2xs);
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0 calc(var(--radius-control) - var(--stroke-1))
+    calc(var(--radius-control) - var(--stroke-1)) 0;
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    transform var(--transition);
+}
+
+.value-field__unit:hover,
+.value-field__unit[aria-expanded='true'] {
+  background: var(--surface-control-hover);
+}
+
+.value-field--variable .value-field__unit {
+  min-width: auto;
+  padding-inline: var(--space-02) 0;
+  border-radius: 0;
+}
+
+.value-field--variable .value-field__unit:hover,
+.value-field--variable .value-field__unit[aria-expanded='true'] {
+  background: var(--variable-field-selected);
+}
+
+.value-field__unit:active {
+  transform: scale(var(--button-active-scale));
+}
+
+.value-field__unit:focus-visible {
+  outline: var(--stroke-1) solid var(--accent-active);
+  outline-offset: calc(-1 * var(--stroke-1));
+}
+
+.value-field__menu {
+  position: fixed;
+  /* Value fields live inside the floating Visual Editor panel, while this
+     menu is portaled to body. Keep it above that panel instead of painting
+     underneath it and making an open menu look like it immediately closed. */
+  z-index: calc(var(--z-modal-overlay) + 1);
+  width: max-content;
+  max-height: calc(100vh - var(--space-32));
+  overflow-y: auto;
+  padding: var(--space-02);
+  background: var(--surface-panel);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+
+.value-field__option {
+  display: grid;
+  grid-template-columns: var(--space-12) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-02);
+  width: 100%;
+  min-height: var(--size-control-medium);
+  padding: 0 var(--space-04) 0 var(--space-02);
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+
+.value-field__option:hover,
+.value-field__option:focus-visible,
+.value-field__option--active {
+  background: var(--surface-control-hover);
+  outline: 0;
+}
+
+.value-field__option--selected {
+  background: var(--surface-selected);
+}
+
+.value-field__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+}
+
+.value-field__variable-menu {
+  box-sizing: border-box;
+  max-width: calc(100vw - var(--space-16));
+  max-height: min(var(--value-field-variable-menu-max-height), calc(100vh - var(--space-32)));
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.value-field__variable-menu::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.value-field__variable-option {
+  /* The name track is sized before the flexible value track so a very long
+     value can never squeeze the variable name out of view; the value takes
+     only what remains and truncates instead. The column gap keeps the name
+     and value from ever sitting flush against each other. */
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  column-gap: var(--space-08);
+  padding-inline: var(--space-04);
+}
+
+.value-field__variable-option .value-field__check {
+  display: none;
+}
+
+.value-field__variable-name {
+  overflow: hidden;
+  color: var(--variable-text);
+  font-family: var(--font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.value-field__variable-value {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
+}
+
+/* Once the value no longer fits, read from its start and truncate the end. */
+.value-field__variable-value[data-overflow='true'] {
+  justify-content: flex-start;
+}
+
+.value-field__variable-track {
+  display: flex;
+  min-width: 0;
+}
+
+.value-field__variable-copy {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* While scrolling, each copy keeps its natural width so the loop shift of one
+   copy plus the gap wraps seamlessly. */
+.value-field__variable-value[data-scrolling='true'] .value-field__variable-track {
+  flex: 0 0 auto;
+  animation: value-field-variable-marquee var(--marquee-loop-duration) linear infinite;
+}
+
+.value-field__variable-value[data-scrolling='true'] .value-field__variable-copy {
+  flex: 0 0 max-content;
+  min-width: max-content;
+}
+
+.value-field__variable-copy + .value-field__variable-copy {
+  margin-inline-start: var(--value-field-variable-scroll-gap);
+}
+
+@keyframes value-field-variable-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-1 * var(--marquee-loop-distance)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .value-field__variable-value[data-scrolling='true'] .value-field__variable-track {
+    animation: none;
+  }
+}
+
+.value-field__variable-empty {
+  display: block;
+  padding: var(--space-06) var(--space-08);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+}

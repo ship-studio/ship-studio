@@ -15,7 +15,7 @@
  */
 
 import { useState } from 'react';
-import { WarningIcon } from '../icons';
+import { WarningIcon } from '@/components/icons';
 import { createBranch, switchBranch } from '../../lib/branches';
 import { commitChanges, stashChanges } from '../../lib/git';
 import { generateCommitMessage } from '../../lib/ai';

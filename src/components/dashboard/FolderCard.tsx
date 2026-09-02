@@ -9,7 +9,7 @@
 
 import { memo } from 'react';
 import { FolderInfo } from '../../lib/folders';
-import { FolderIcon, EditIcon, TrashIcon } from '../icons';
+import { FolderIcon, EditIcon, TrashIcon } from '@/components/icons';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 
 /** Props for the FolderCard component */

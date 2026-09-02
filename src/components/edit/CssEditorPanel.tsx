@@ -17,7 +17,13 @@
 
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Button } from '../primitives/Button';
-import { PinIcon } from '../icons/layout';
+import { IconButton } from '../primitives/IconButton';
+import { ToggleButton } from '../primitives/ToggleButton';
+import { Tabs, TabsList, TabsTab } from '../primitives/Tabs';
+import { EnumDropdown } from './EnumDropdown';
+import { PinIcon } from '@/components/icons';
+import { SaveIcon } from '@/components/icons';
+import { ChevronIcon, CloseIcon } from '@/components/icons';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
 import { trackEvent } from '../../lib/analytics';
 import { buildCssPrepPrompt } from '../../lib/edit-css';
@@ -134,13 +140,19 @@ function CodeView({
           />
         </div>
         <div className="ss-htmltab__foot">
-          <Button variant="ghost" size="sm" disabled={!dirty} onClick={() => setText(serialized)}>
+          <Button
+            variant="ghost"
+            size="compact"
+            disabled={!dirty}
+            onClick={() => setText(serialized)}
+          >
             Revert
           </Button>
           <Button
             variant="primary"
-            size="sm"
+            size="compact"
             disabled={!dirty}
+            leftIcon={<SaveIcon size={12} />}
             onClick={() => {
               const changes = diffDeclarations(declarations, parseCssText(text));
               if (changes.length) onSaveMany(changes);
@@ -173,7 +185,7 @@ export function CssEditorPanel({
   onSetPseudo,
   onSetBreakpoint,
   onClose,
-  pinned,
+  pinned = false,
   onTogglePin,
 }: Props) {
   const [pos, setPos] = useState(() => ({
@@ -306,18 +318,25 @@ export function CssEditorPanel({
         <span className="ss-edit-panel__title">Edit CSS</span>
         <span className="ss-edit-panel__header-actions">
           {onTogglePin && (
-            <button
-              className={`ss-edit-panel__pin${pinned ? ' is-pinned' : ''}`}
+            <ToggleButton
+              variant="ghost"
+              size="compact"
+              className="button--icon-only panel-pin-toggle"
               onClick={onTogglePin}
-              title={pinned ? 'Unpin — float over the preview' : 'Pin as sidebar'}
-              aria-pressed={pinned}
-            >
-              <PinIcon size={13} />
-            </button>
+              title={pinned ? 'Unpin — float over the preview' : 'Pin to the window'}
+              aria-label={pinned ? 'Unpin CSS panel' : 'Pin CSS panel to the window'}
+              pressed={pinned}
+              leftIcon={<PinIcon size={13} />}
+            />
           )}
-          <button className="ss-edit-panel__close" onClick={onClose} aria-label="Exit edit mode">
-            ×
-          </button>
+          <IconButton
+            variant="ghost"
+            size="compact"
+            onClick={onClose}
+            title="Close CSS panel"
+            aria-label="Close CSS panel"
+            icon={<CloseIcon size={14} />}
+          />
         </span>
       </div>
 
@@ -330,15 +349,15 @@ export function CssEditorPanel({
             </p>
             <div className="ss-css-prep__box">{prepPrompt}</div>
             <div className="ss-css-prep__actions">
-              <Button variant="ghost" size="sm" onClick={() => setPrep(false)}>
+              <Button variant="ghost" onClick={() => setPrep(false)}>
                 Back
               </Button>
               <div className="ss-css-prep__right">
-                <Button variant="secondary" size="sm" onClick={() => void copy(prepPrompt)}>
+                <Button variant="secondary" onClick={() => void copy(prepPrompt)}>
                   {isCopied ? 'Copied!' : 'Copy'}
                 </Button>
                 {onSendToClaude && (
-                  <Button variant="primary" size="sm" onClick={() => onSendToClaude(prepPrompt)}>
+                  <Button variant="primary" onClick={() => onSendToClaude(prepPrompt)}>
                     Paste
                   </Button>
                 )}
@@ -394,24 +413,16 @@ export function CssEditorPanel({
               </p>
             )}
 
-            <div className="ss-css-modes" role="group" aria-label="Editor view">
-              <button
-                type="button"
-                className={`ss-css-mode${view === 'visual' ? ' is-active' : ''}`}
-                aria-pressed={view === 'visual'}
-                onClick={() => setViewMode('visual')}
-              >
-                Visual
-              </button>
-              <button
-                type="button"
-                className={`ss-css-mode${view === 'code' ? ' is-active' : ''}`}
-                aria-pressed={view === 'code'}
-                onClick={() => setViewMode('code')}
-              >
-                Code
-              </button>
-            </div>
+            <Tabs
+              value={view}
+              mode="navigation"
+              onValueChange={(next) => setViewMode(next as 'visual' | 'code')}
+            >
+              <TabsList className="ss-css-modes" aria-label="Editor view">
+                <TabsTab value="visual">Visual</TabsTab>
+                <TabsTab value="code">Code</TabsTab>
+              </TabsList>
+            </Tabs>
 
             {view === 'visual' ? (
               <>
@@ -435,20 +446,7 @@ export function CssEditorPanel({
                           {categoryCounts[cat.id] ? (
                             <span className="ss-css-section-count">{categoryCounts[cat.id]}</span>
                           ) : null}
-                          <svg
-                            className="ss-edit-panel__section-chevron"
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <polyline points="6 9 12 15 18 9" />
-                          </svg>
+                          <ChevronIcon className="ss-edit-panel__section-chevron" />
                         </span>
                       </summary>
                       <div className="ss-edit-panel__section-body">
@@ -484,17 +482,15 @@ export function CssEditorPanel({
               <>
                 <label className="ss-css-create__label">
                   Stylesheet
-                  <select value={effectiveSheet} onChange={(e) => setSheet(e.target.value)}>
-                    {authoredSheets.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
+                  <EnumDropdown
+                    label="Stylesheet"
+                    value={effectiveSheet}
+                    options={authoredSheets.map((sheet) => ({ label: sheet, token: sheet }))}
+                    onChange={setSheet}
+                  />
                 </label>
                 <Button
                   variant="primary"
-                  size="sm"
                   block
                   disabled={!effectiveSheet}
                   onClick={() => onCreateRule(effectiveSheet, res.selector, [])}

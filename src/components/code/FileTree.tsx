@@ -6,7 +6,15 @@
  */
 
 import type { FileTreeNode } from '../../lib/code';
-import { ChevronRightIcon, FileIcon, FolderIcon } from '../icons';
+import {
+  ChevronRightIcon,
+  FileIcon,
+  FileTextIcon,
+  FolderIcon,
+  FolderOpenIcon,
+} from '@/components/icons';
+
+const TEXT_FILE_EXTENSIONS = new Set(['.md', '.mdx', '.txt']);
 
 interface FileTreeProps {
   nodes: FileTreeNode[];
@@ -15,6 +23,12 @@ interface FileTreeProps {
   onToggleDirectory: (path: string) => void;
   onSelectFile: (path: string) => void;
   level?: number;
+}
+
+function isTextFile(name: string): boolean {
+  const dotIndex = name.lastIndexOf('.');
+  if (dotIndex === -1) return false;
+  return TEXT_FILE_EXTENSIONS.has(name.slice(dotIndex).toLowerCase());
 }
 
 export function FileTree({
@@ -73,8 +87,9 @@ function FileTreeItem({
   return (
     <>
       <button
+        type="button"
         className={`file-tree-item ${isSelected ? 'selected' : ''}`}
-        style={{ paddingLeft: `${12 + level * 16}px` }}
+        style={{ paddingLeft: `${12 + level * 24}px` }}
         onClick={handleClick}
         title={node.path}
         role="treeitem"
@@ -87,7 +102,17 @@ function FileTreeItem({
           </span>
         )}
         <span className="file-tree-icon">
-          {node.isDirectory ? <FolderIcon size={14} /> : <FileIcon size={14} />}
+          {node.isDirectory ? (
+            isExpanded ? (
+              <FolderOpenIcon size={14} />
+            ) : (
+              <FolderIcon size={14} />
+            )
+          ) : isTextFile(node.name) ? (
+            <FileTextIcon size={14} />
+          ) : (
+            <FileIcon size={14} />
+          )}
         </span>
         <span className="file-tree-name">{node.name}</span>
       </button>

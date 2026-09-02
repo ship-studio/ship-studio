@@ -55,7 +55,7 @@ export function VercelTokenModal({
           publish with, then paste it below. It's stored in your Keychain and used only by this
           workspace.
         </p>
-        <Button variant="secondary" size="sm" onClick={() => void openUrl(VERCEL_TOKENS_URL)}>
+        <Button variant="secondary" onClick={() => void openUrl(VERCEL_TOKENS_URL)}>
           Open vercel.com/account/tokens →
         </Button>
         <label className="connect-modal-field">

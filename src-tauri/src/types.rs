@@ -851,17 +851,27 @@ pub struct AppState {
     /// Whether the Slack community CTA banner is hidden on the dashboard
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_cta_hidden: Option<bool>,
+    /// Whether the dashboard home header is hidden
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dashboard_header_hidden: Option<bool>,
     /// Whether the terminal uses WebGL (GPU-accelerated) rendering. Defaults to true.
     /// Disable if the terminal renders corrupted/fragmented characters (known issue on some
     /// macOS beta / GPU-driver combinations).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_gpu_enabled: Option<bool>,
+    /// Whether workspace actions are consolidated into the window titlebar.
+    /// Defaults to false so existing users retain the classic two-row layout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compact_workspace_toolbar_enabled: Option<bool>,
     /// Consent for automatic project-thumbnail capture. `None` = the user has
     /// never been asked (the in-app explainer is shown before the first
     /// auto-capture), `Some(true)` = allowed, `Some(false)` = opted out or a
     /// capture failed because macOS Screen Recording permission was denied.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnails_enabled: Option<bool>,
+    /// Selected app icon (`brand`, `dark`, or `light`). Defaults to `brand`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_icon: Option<String>,
     /// Workspaces (org/client accounts) with isolated Claude/GitHub config and credentials
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accounts: Vec<Account>,

@@ -9,6 +9,7 @@
 
 import { ReactNode, useEffect, useRef } from 'react';
 import { SetupItem } from '../SetupItem';
+import { TextButton } from '../../primitives/TextButton';
 import { SetupItem as SetupItemType, getBlockingDependencies } from '../../../lib/setup';
 
 interface AgentSetupDetailProps {
@@ -59,9 +60,9 @@ export function AgentSetupDetail({
 
   return (
     <div className="agent-setup-detail">
-      <button type="button" className="agent-setup-detail-back" onClick={onBack} disabled={busy}>
+      <TextButton className="agent-setup-detail-back" onClick={onBack} disabled={busy}>
         ← Choose a different agent
-      </button>
+      </TextButton>
       <div className="agent-setup-detail-header">
         <span className="agent-pick-card-icon">{icon}</span>
         <div>

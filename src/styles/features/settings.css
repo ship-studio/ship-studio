@@ -1,7 +1,7 @@
 /* Settings Modal */
 .settings-modal {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   width: 420px;
   max-width: 90vw;
@@ -17,7 +17,7 @@
 }
 
 .settings-modal-header h2 {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-h4);
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -25,6 +25,14 @@
 
 .settings-modal-body {
   padding: 20px;
+}
+
+.settings-modal > .tabs {
+  display: contents;
+}
+
+.settings-tab-panel {
+  border-top: var(--border-width-default) solid var(--border-default);
 }
 
 .settings-section {
@@ -49,15 +57,89 @@
 }
 
 .settings-row-label {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .settings-row-description {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   line-height: 1.4;
+}
+
+.settings-icon-options {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: var(--spacing-lg);
+  width: 100%;
+  margin-top: var(--spacing-sm);
+}
+
+.settings-icon-option {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  border: none;
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--text-secondary);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    color var(--transition-interaction),
+    transform var(--transition-interaction);
+}
+
+.settings-icon-option:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.settings-icon-option:active:not(:disabled) {
+  transform: scale(var(--button-active-scale));
+}
+
+.settings-icon-option:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--spacing-2xs);
+}
+
+.settings-icon-option:disabled {
+  cursor: wait;
+  opacity: var(--button-disabled-opacity);
+}
+
+.settings-icon-option.is-selected {
+  color: var(--accent-active);
+}
+
+.settings-icon-option.is-selected::after {
+  width: var(--spacing-lg);
+  height: var(--border-width-default);
+  border-radius: var(--radius-pill);
+  background: var(--accent-active);
+  content: '';
+}
+
+.settings-icon-option-image {
+  display: block;
+  width: calc(var(--spacing-2xl) + var(--spacing-lg));
+  height: calc(var(--spacing-2xl) + var(--spacing-lg));
+  border-radius: var(--radius-card);
+  background: transparent;
+  object-fit: contain;
+}
+
+.settings-icon-option-label {
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--button-font-weight);
+  line-height: var(--line-height-compact);
 }
 
 /* Projects folder row (stacked: label/description/path above the actions) */
@@ -66,13 +148,24 @@
   align-items: stretch;
 }
 
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  border-top: var(--border-width-default) solid var(--border-subtle);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+}
+
+.settings-group .settings-row {
+  padding: var(--spacing-md) 0;
+}
+
 /* Small workspace chip next to the "Projects folder" label (multi-workspace). */
 .settings-folder-workspace {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-xs);
   margin-left: var(--spacing-sm);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 500;
   color: var(--text-muted);
   vertical-align: middle;
@@ -93,9 +186,9 @@
   width: 100%;
   margin-top: var(--spacing-xs);
   padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
@@ -106,7 +199,7 @@
 }
 
 .settings-folder-field:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: var(--accent-active);
   color: var(--text-primary);
 }
 
@@ -118,7 +211,7 @@
 .settings-folder-field-path {
   flex: 1;
   min-width: 0;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -130,7 +223,7 @@
 }
 
 .settings-folder-field:hover:not(:disabled) :last-child {
-  color: var(--accent);
+  color: var(--accent-active);
 }
 
 .settings-folder-reset {
@@ -139,7 +232,7 @@
   padding: 0;
   background: none;
   border: none;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   cursor: pointer;
   transition: color var(--transition);
@@ -151,21 +244,21 @@
 
 /* Move-projects prompt */
 .settings-move-intro {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-primary);
   line-height: 1.5;
   margin: 0 0 var(--spacing-md);
 }
 
 .settings-move-paths {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   word-break: break-all;
   margin: 0 0 var(--spacing-md);
 }
 
 .settings-move-note {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   line-height: 1.4;
   margin: 0 0 var(--spacing-sm);
@@ -197,8 +290,8 @@
   width: 36px;
   height: 20px;
   border-radius: 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   position: relative;
   transition:
     background 0.2s,
@@ -206,8 +299,8 @@
 }
 
 .settings-toggle.on .settings-toggle-track {
-  background: var(--action);
-  border-color: var(--action);
+  background: var(--accent-active);
+  border-color: var(--accent-active);
 }
 
 .settings-toggle-thumb {
@@ -226,6 +319,6 @@
 
 .settings-toggle.on .settings-toggle-thumb {
   transform: translateX(16px);
-  background: var(--text-bright);
+  background: var(--text-inverse);
   box-shadow: 0 1px 3px var(--overlay-30);
 }

@@ -6,7 +6,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { DashboardProject } from '../../lib/project';
-import { BranchIcon } from '../icons';
+import { BranchIcon } from '@/components/icons';
 import { ProjectCardMenu } from './ProjectCardMenu';
 
 interface ProjectTableViewProps<TProject extends DashboardProject> {
@@ -79,7 +79,11 @@ export function ProjectTableView<TProject extends DashboardProject>({
   }, [allVisibleSelected, someVisibleSelected]);
 
   return (
-    <div className="project-table" role="table" aria-label="Projects">
+    <div
+      className={`project-table ${selectedProjectPaths.size > 0 ? 'has-selection' : ''}`}
+      role="table"
+      aria-label="Projects"
+    >
       <div className="project-table-row project-table-header" role="row">
         <div className="project-table-select-cell" role="columnheader">
           <label aria-label="Select all visible projects">

@@ -8,7 +8,8 @@ import { searchArticles, getPopularArticles, listTickets } from '../../lib/suppo
 import type { LibraryArticle } from '@cstar.help/js/library';
 import type { SupportView } from './SupportPanel';
 import { trackEvent } from '../../lib/analytics';
-import { SlackIcon } from '../icons';
+import { FileTextIcon, SearchIcon, SlackIcon } from '@/components/icons';
+import { Button } from '../primitives/Button';
 import { SLACK_INVITE_URL } from '../../lib/links';
 
 interface SupportHomeProps {
@@ -107,19 +108,7 @@ export function SupportHome({ onNavigate }: SupportHomeProps) {
       {/* Search */}
       <div className="support-search">
         <span className="support-search-icon">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
+          <SearchIcon size={14} />
         </span>
         <input
           type="text"
@@ -154,19 +143,7 @@ export function SupportHome({ onNavigate }: SupportHomeProps) {
                 });
               }}
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
+              <FileTextIcon size={14} />
               {article.title}
             </button>
           ))
@@ -176,35 +153,46 @@ export function SupportHome({ onNavigate }: SupportHomeProps) {
       {/* Get Help */}
       <div className="support-section-label">Get Help</div>
       <div className="support-actions">
-        <button
+        <Button
+          variant="secondary"
+          width="fill"
           className="support-action-btn"
           onClick={() => onNavigate({ type: 'new-ticket', ticketType: 'bug' })}
         >
           <span className="action-icon">🐛</span>
           Report a Bug
           <span className="action-arrow">→</span>
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
+          width="fill"
           className="support-action-btn"
           onClick={() => onNavigate({ type: 'new-ticket', ticketType: 'feature' })}
         >
           <span className="action-icon">💡</span>
           Request a Feature
           <span className="action-arrow">→</span>
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
+          width="fill"
           className="support-action-btn"
           onClick={() => onNavigate({ type: 'new-ticket', ticketType: 'support' })}
         >
           <span className="action-icon">💬</span>
           General Support
           <span className="action-arrow">→</span>
-        </button>
+        </Button>
       </div>
 
       {/* Your Tickets */}
       <div className="support-section-label">Your Tickets</div>
-      <button className="support-tickets-link" onClick={() => onNavigate({ type: 'tickets' })}>
+      <Button
+        variant="secondary"
+        width="fill"
+        className="support-action-btn"
+        onClick={() => onNavigate({ type: 'tickets' })}
+      >
         📋 View your tickets
         {ticketCount !== null && ticketCount > 0 && (
           <span className="support-ticket-badge">{ticketCount}</span>
@@ -212,7 +200,7 @@ export function SupportHome({ onNavigate }: SupportHomeProps) {
         <span className="action-arrow" style={{ marginLeft: 'auto' }}>
           →
         </span>
-      </button>
+      </Button>
     </div>
   );
 }

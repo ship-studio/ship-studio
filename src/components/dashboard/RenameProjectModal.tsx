@@ -82,7 +82,7 @@ export function RenameProjectModal({
             spellCheck={false}
           />
         </div>
-        <p className="hint">
+        <p className="text-style-hint">
           This renames the folder on disk. Git history, deployments, and project settings are
           preserved. If the project is running in the background, it will be stopped first.
         </p>

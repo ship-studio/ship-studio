@@ -10,46 +10,67 @@
   padding: 0;
 }
 
-.help-modal-header {
+.help-modal > .tabs {
+  display: contents;
+}
+
+.help-tabs {
   display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: calc(var(--spacing-lg) * 2 + var(--font-size-body-lg));
+  flex-shrink: 0;
+}
+
+.help-tab {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
   align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px 16px;
-}
-
-.help-modal-header h3 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary);
-}
-
-.help-close-btn {
-  background: none;
+  background: transparent;
   border: none;
-  color: var(--text-secondary);
+  border-radius: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: var(--spacing-lg) 0;
+  font-size: var(--font-size-body-lg);
+  color: var(--text-muted);
   cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  transition:
-    background-color 0.15s,
-    color 0.15s;
+  font-family: inherit;
+  font-weight: 500;
+  transition: color var(--transition);
+  outline: none;
 }
 
-.help-close-btn:hover {
-  background: var(--bg-tertiary);
+/* The shared tab primitive defaults to a compact fixed height. Let these
+   help tabs grow with their larger vertical padding, matching the command
+   palette tabs. */
+.help-tabs .tabs__tab.button.help-tab {
+  height: auto;
+  min-height: 0;
+}
+
+.help-tab:hover,
+.help-tab:focus,
+.help-tab:focus-visible {
+  color: var(--text-secondary);
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+}
+
+.help-tab.is-active {
   color: var(--text-primary);
 }
 
 .help-modal-body {
-  padding: 16px 24px 24px;
+  min-height: 0;
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
   overflow-y: auto;
   flex: 1;
+  border-top: var(--stroke-1) solid var(--border-default);
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: var(--border-default) transparent;
 }
 
 .help-section {
@@ -61,7 +82,7 @@
 }
 
 .help-section-title {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -81,9 +102,9 @@
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   transition: border-color var(--transition);
 }
 
@@ -98,14 +119,14 @@
 }
 
 .help-command-name {
-  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-  font-size: var(--font-size-base);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .help-command-desc {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -120,13 +141,13 @@
 }
 
 .help-tip {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   padding: 10px 12px;
   line-height: 1.4;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   transition: border-color var(--transition);
 }
 
@@ -138,13 +159,68 @@
   display: inline-flex;
   align-items: center;
   padding: 2px 6px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   color: var(--text-secondary);
   margin: 0 2px;
+}
+
+.help-shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.help-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+}
+
+.help-shortcut-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--spacing-xs);
+}
+
+.help-shortcut-label {
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.help-shortcut-description {
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.help-shortcut-keys {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--spacing-xs);
+}
+
+.help-shortcut-key-group {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.help-shortcut-or {
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
 }
 
 .help-example-list {
@@ -154,7 +230,7 @@
 }
 
 .help-example-category {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 500;
   color: var(--text-muted);
   padding: 0 4px;
@@ -166,13 +242,13 @@
 }
 
 .help-example {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   padding: 10px 12px;
-  border-radius: var(--radius-md);
-  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  font-family: var(--font-code);
+  border: 1px solid var(--border-default);
   transition: border-color var(--transition);
   line-height: 1.4;
 }
@@ -183,14 +259,14 @@
 
 .help-divider {
   height: 1px;
-  background: var(--border);
+  background: var(--border-default);
   margin: 14px 4px;
   opacity: 0.5;
 }
 
 .help-footer {
   padding: 12px 24px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -198,16 +274,16 @@
 }
 
 .help-footer-hint {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
 }
 
 /* Expandable Skills */
 .help-skill {
   padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   cursor: pointer;
   transition: border-color var(--transition);
   user-select: none;
@@ -229,8 +305,8 @@
 }
 
 .help-skill-name {
-  font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-  font-size: var(--font-size-base);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   color: var(--text-primary);
   display: flex;
@@ -239,7 +315,7 @@
 }
 
 .help-skill-toggle {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   font-weight: 400;
   color: var(--text-muted);
   width: 16px;
@@ -248,12 +324,12 @@
 }
 
 .help-skill-desc {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   line-height: 1.5;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
 }
 
 .help-skill-badge {
@@ -261,9 +337,9 @@
   align-items: center;
   padding: 2px 6px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 400;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -271,7 +347,7 @@
 }
 
 .help-loading {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-muted);
   font-style: italic;
   padding: 0 10px;

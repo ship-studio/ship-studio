@@ -10,19 +10,19 @@
 
 .branch-selector-header {
   padding: 20px 24px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .branch-selector-header h2 {
   margin: 0 0 4px 0;
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-h3);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .branch-selector-header p {
   margin: 0;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
 }
 
@@ -38,7 +38,7 @@
 
 .branch-selector-section-label {
   padding: 8px 24px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -59,7 +59,7 @@
 }
 
 .branch-selector-item:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .branch-selector-item.selected {
@@ -101,27 +101,27 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .branch-selector-meta {
   margin-top: 4px;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
 }
 
 .branch-selector-warning {
   margin-top: 6px;
-  font-size: var(--font-size-base);
-  color: var(--warning);
+  font-size: var(--font-size-body-md);
+  color: var(--accent-warning);
 }
 
 /* Create Branch Section */
 .branch-selector-create {
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
 }
 
 .branch-create-toggle {
@@ -133,7 +133,7 @@
   background: none;
   border: none;
   color: var(--info);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   cursor: pointer;
   transition: color var(--transition);
 }
@@ -149,11 +149,11 @@
 .branch-create-input {
   width: 100%;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   outline: none;
   transition: border-color var(--transition);
 }
@@ -171,17 +171,17 @@
   align-items: center;
   gap: 8px;
   margin-top: 8px;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
 }
 
 .branch-create-from select {
   padding: 4px 8px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
 }
 
 /* Branch Selector Footer */
@@ -190,8 +190,8 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-control);
 }
 
 /* Publish Branch Dropdown */
@@ -207,8 +207,8 @@
 
 .publish-branch-content {
   width: 400px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -220,7 +220,7 @@
 
 .publish-branch-header h2 {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-h4);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -242,8 +242,8 @@
   gap: 8px;
   margin-bottom: 12px;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border-radius: var(--radius-card);
 }
 
 .publish-branch-info .branch-icon {
@@ -251,14 +251,14 @@
 }
 
 .publish-branch-name {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .publish-branch-description {
   margin-bottom: 12px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -269,20 +269,20 @@
   gap: 8px;
   margin-bottom: 12px;
   padding: 10px 12px;
-  background: rgba(var(--error-light-rgb), 0.1);
-  border: 1px solid rgba(var(--error-light-rgb), 0.3);
-  border-radius: var(--radius);
-  font-size: var(--font-size-base);
-  color: var(--error-light);
+  background: rgba(var(--accent-error-light-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-error-light-rgb), 0.3);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-body-md);
+  color: var(--accent-error-light);
   line-height: 1.4;
 }
 
 .publish-branch-url {
   padding: 12px 14px;
   margin-bottom: 8px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-base);
+  background: var(--surface-control);
+  border-radius: var(--radius-card);
+  font-size: var(--font-size-body-md);
 }
 
 .publish-branch-url-label {
@@ -300,8 +300,8 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-control);
 }
 
 /* Post-merge cleanup modal */
@@ -317,8 +317,8 @@
 
 .post-merge-content {
   width: 400px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -326,12 +326,12 @@
 
 .post-merge-header {
   padding: 20px 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .post-merge-header h3 {
   margin: 0;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-h4);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -342,7 +342,7 @@
 
 .post-merge-body p {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -353,24 +353,8 @@
 }
 
 .post-merge-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  font-size: var(--font-size-md);
-  color: var(--text-secondary);
-  text-decoration: none;
+  font-size: var(--font-size-body-lg);
   margin-top: var(--spacing-md);
-  transition: color var(--transition);
-  cursor: pointer;
-  /* Rendered as a <button> so external links can't navigate the app window. */
-  background: none;
-  border: none;
-  padding: 0;
-  font-family: inherit;
-}
-
-.post-merge-link:hover {
-  color: var(--text-primary);
 }
 
 .post-merge-footer {
@@ -378,8 +362,8 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-control);
 }
 
 .pr-card {
@@ -388,9 +372,9 @@
   justify-content: space-between;
   gap: 16px;
   padding: 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   margin-bottom: 8px;
 }
 
@@ -418,7 +402,7 @@
 }
 
 .pr-card-status.open {
-  background: var(--success-light);
+  background: var(--accent-success);
 }
 
 .pr-card-status.merged {
@@ -426,11 +410,11 @@
 }
 
 .pr-card-status.closed {
-  background: var(--error-light);
+  background: var(--accent-error-light);
 }
 
 .pr-card-title {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -439,14 +423,14 @@
 }
 
 .pr-card-number {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 400;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .pr-card-meta {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
 }
 
@@ -458,10 +442,10 @@
 
 .pr-card-branch {
   padding: 2px 6px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  font-family: monospace;
+  font-size: var(--font-size-body-sm);
+  font-family: var(--font-code);
 }
 
 .pr-card-warning {
@@ -470,10 +454,10 @@
   gap: 6px;
   margin-top: 8px;
   padding: 6px 10px;
-  background: rgba(var(--warning-rgb), 0.1);
-  border-radius: var(--radius);
-  font-size: var(--font-size-base);
-  color: var(--warning);
+  background: rgba(var(--accent-warning-rgb), 0.1);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-body-md);
+  color: var(--accent-warning);
 }
 
 .pr-card-actions {
@@ -496,7 +480,7 @@
 }
 
 .pr-card-current-label {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--info);
   font-weight: 500;
   flex-shrink: 0;
@@ -518,16 +502,16 @@
   align-items: center;
   gap: 12px;
   padding: 20px 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .git-error-icon {
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .git-error-header h2 {
   margin: 0;
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-h3);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -537,7 +521,7 @@
 }
 
 .git-error-description {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   color: var(--text-secondary);
   line-height: 1.5;
   margin-bottom: 16px;
@@ -548,17 +532,17 @@
 }
 
 .git-error-prompt-label {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   margin-bottom: 8px;
 }
 
 .git-error-prompt {
   padding: 12px 14px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.5;
   font-family: inherit;
@@ -569,8 +553,8 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-control);
 }
 
 /* Submit for Review Modal */
@@ -602,8 +586,8 @@
 
 .submit-review-content {
   width: 440px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -611,7 +595,7 @@
 
 .submit-review-header {
   padding: 20px 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -619,7 +603,7 @@
 
 .submit-review-header h2 {
   margin: 0;
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-h3);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -630,10 +614,10 @@
   gap: 6px;
   padding: 6px 12px;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -644,7 +628,7 @@
 }
 
 .submit-review-generate-btn:hover:not(:disabled) {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
   border-color: var(--info);
 }
@@ -652,7 +636,7 @@
 .submit-review-generate-btn:disabled {
   opacity: 0.7;
   cursor: not-allowed;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
 .submit-review-body {
@@ -660,9 +644,9 @@
 }
 
 .submit-review-commit-prompt {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   padding: 14px 16px;
   margin-bottom: 16px;
   text-align: center;
@@ -670,7 +654,7 @@
 
 .submit-review-commit-prompt p {
   margin: 0 0 10px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -682,9 +666,9 @@
   padding: 8px 16px;
   background: var(--info);
   border: none;
-  border-radius: var(--radius);
-  color: var(--text-bright);
-  font-size: var(--font-size-md);
+  border-radius: var(--radius-control);
+  color: var(--text-inverse);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition);
@@ -709,7 +693,7 @@
 
 .submit-review-label {
   display: block;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   margin-bottom: 6px;
 }
@@ -717,11 +701,11 @@
 .submit-review-input {
   width: 100%;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   outline: none;
   transition: border-color var(--transition);
   box-sizing: border-box;
@@ -729,7 +713,7 @@
 
 select.submit-review-input {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='1px'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 36px;
@@ -744,11 +728,11 @@ select.submit-review-input {
   width: 100%;
   min-height: 80px;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-family: inherit;
   resize: vertical;
   outline: none;
@@ -763,9 +747,9 @@ select.submit-review-input {
 .submit-review-explainer {
   margin: 4px 0 0;
   padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius);
-  font-size: var(--font-size-base);
+  background: var(--surface-control);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-body-md);
   line-height: 1.5;
   color: var(--text-secondary);
 }
@@ -774,12 +758,12 @@ select.submit-review-input {
 .submit-review-error {
   margin: 4px 0 0;
   padding: 10px 12px;
-  background: rgba(var(--error-rgb), 0.1);
-  border: 1px solid rgba(var(--error-rgb), 0.3);
-  border-radius: var(--radius);
-  font-size: var(--font-size-base);
+  background: rgba(var(--accent-error-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-error-rgb), 0.3);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-body-md);
   line-height: 1.5;
-  color: var(--error-light);
+  color: var(--accent-error-light);
 }
 
 .submit-review-footer {
@@ -787,8 +771,8 @@ select.submit-review-input {
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-control);
 }
 
 /* Unsaved Changes Modal (body + actions only — overlay/header/buttons handled by ModalFrame + Button primitives) */
@@ -802,7 +786,7 @@ select.submit-review-input {
 
 .unsaved-changes-body p {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -817,6 +801,6 @@ select.submit-review-input {
   justify-content: flex-end;
   gap: var(--spacing-sm);
   padding: var(--spacing-md) var(--spacing-xl);
-  border-top: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-control);
 }

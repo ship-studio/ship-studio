@@ -1,7 +1,9 @@
 import { getAgentById } from '../../lib/agent';
-import { ChevronIcon, CloseIcon } from '../icons/common';
-import { PlusIcon } from '../icons/utility';
+import { ChevronIcon, CloseIcon } from '@/components/icons';
+import { PlusIcon } from '@/components/icons';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
+import { IconButton } from '../primitives/IconButton';
+import { MenuButton } from '../primitives/MenuButton';
 import type { TerminalTab } from '../../hooks/useTerminalManagement';
 
 interface TerminalSplitHeadersProps {
@@ -119,16 +121,19 @@ function PaneHeader({
       <Dropdown
         portal
         menuClassName="toolbar-dropdown-menu"
-        trigger={(p) => (
-          <button
-            type="button"
-            className={`toolbar-icon-btn terminal-split-pane-trigger ${p['aria-expanded'] ? 'is-open' : ''}`}
-            {...p}
-          >
-            <span className="terminal-split-pane-name">{label}</span>
-            <ChevronIcon size={10} className={p['aria-expanded'] ? 'chevron-flipped' : undefined} />
-          </button>
-        )}
+        trigger={(p) => {
+          const { 'aria-expanded': expanded, ...triggerProps } = p;
+          return (
+            <MenuButton
+              {...triggerProps}
+              expanded={expanded}
+              className="terminal-split-pane-trigger"
+            >
+              <span className="terminal-split-pane-name">{label}</span>
+              <ChevronIcon size={10} className={expanded ? 'chevron-flipped' : undefined} />
+            </MenuButton>
+          );
+        }}
       >
         {tabs.map((t) => {
           const isCurrent = t.id === tabId;
@@ -149,25 +154,21 @@ function PaneHeader({
       </Dropdown>
       <div className="terminal-split-pane-actions">
         {showAddButton && (
-          <button
-            type="button"
-            className="toolbar-icon-btn terminal-split-pane-iconbtn"
+          <IconButton
+            className="terminal-split-pane-iconbtn"
             onClick={onAddPane}
             title="Add another agent pane"
             aria-label="Add agent pane"
-          >
-            <PlusIcon size={12} />
-          </button>
+            icon={<PlusIcon size={12} />}
+          />
         )}
-        <button
-          type="button"
-          className="toolbar-icon-btn terminal-split-pane-iconbtn"
+        <IconButton
+          className="terminal-split-pane-iconbtn"
           onClick={() => onRemovePane(paneIndex)}
           title="Remove this pane"
           aria-label="Remove pane"
-        >
-          <CloseIcon size={12} />
-        </button>
+          icon={<CloseIcon size={12} />}
+        />
       </div>
     </div>
   );

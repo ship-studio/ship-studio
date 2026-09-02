@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { GlobeIcon } from '../icons';
+import { GlobeIcon } from '@/components/icons';
 import { useModal } from '../../contexts/ModalContext';
 import { getI18nStatus, localeDisplayName, pathLocale, switchPathLocale } from '../../lib/i18n';
 import { logger } from '../../lib/logger';

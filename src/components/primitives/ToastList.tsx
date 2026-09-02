@@ -8,8 +8,10 @@
  */
 
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
-import { SuccessIcon, InfoIcon, CloseIcon, CopyIcon } from '../icons';
+import { SuccessIcon, InfoIcon, CloseIcon, CopyIcon } from '@/components/icons';
 import type { Toast } from '../../hooks/useToasts';
+import { Button } from './Button';
+import { IconButton } from './IconButton';
 
 interface ToastListProps {
   toasts: Toast[];
@@ -27,18 +29,23 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: number)
       </span>
       <span className="toast-message">{toast.message}</span>
       {toast.type === 'error' && (
-        <button
-          className="toast-copy"
+        <Button
+          variant="ghost"
+          size="compact"
           onClick={() => void copy(toast.message)}
           title="Copy the full error text"
+          leftIcon={<CopyIcon size={12} />}
         >
-          <CopyIcon size={12} />
           {isCopied ? 'Copied' : 'Copy'}
-        </button>
+        </Button>
       )}
-      <button className="toast-close" onClick={() => onDismiss(toast.id)} aria-label="Dismiss">
-        <CloseIcon size={14} />
-      </button>
+      <IconButton
+        variant="ghost"
+        size="compact"
+        onClick={() => onDismiss(toast.id)}
+        aria-label="Dismiss"
+        icon={<CloseIcon size={14} />}
+      />
     </div>
   );
 }

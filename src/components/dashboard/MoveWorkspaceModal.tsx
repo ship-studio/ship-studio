@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
-import { CheckIcon } from '../icons';
+import { CheckIcon } from '@/components/icons';
 import { listAccounts, type Account } from '../../lib/accounts';
 import { logger } from '../../lib/logger';
 

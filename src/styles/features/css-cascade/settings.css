@@ -1,0 +1,238 @@
+/* ── Settings tab ── */
+
+.ss-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-md);
+}
+
+.ss-settings__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.ss-settings__label {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ss-settings__tag {
+  align-self: flex-start;
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+}
+
+.ss-settings__classes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.ss-settings__class-chip {
+  gap: var(--spacing-xs);
+}
+
+.ss-settings__class-name {
+  all: unset;
+  cursor: text;
+  color: inherit;
+}
+
+.ss-settings__class-name:disabled {
+  cursor: default;
+}
+
+.ss-settings__class-remove {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  color: currentColor;
+  transition: color var(--transition-fast);
+}
+
+.ss-settings__class-remove:hover {
+  color: var(--accent-error);
+}
+
+.ss-settings__class-add {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px; /* css-ok: icon + label */
+  padding: 2px var(--spacing-sm);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}
+
+.ss-settings__class-add:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+
+.ss-settings__class-input {
+  all: unset;
+  width: 10ch;
+  padding: 2px var(--spacing-sm);
+  border: 1px solid var(--accent-active);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
+}
+
+.ss-settings__attrs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px; /* css-ok: dense rows */
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+}
+
+.ss-settings__attr {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Click-to-edit attribute key (button styled as the property-colored name). */
+.ss-settings__attr-key {
+  all: unset;
+  flex: 0 0 auto;
+  cursor: text;
+  color: var(--property-text);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+.ss-settings__attr-key:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.ss-settings__attr-key:disabled {
+  cursor: default;
+}
+
+.ss-settings__attr-eq {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.ss-settings__attr-value {
+  color: var(--text-secondary);
+}
+
+/* Click-to-edit attribute value (button styled as plain text). */
+.ss-settings__attr-value--editable {
+  all: unset;
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: text;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  border-radius: var(--radius-sm);
+}
+.ss-settings__attr-value--editable:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+.ss-settings__attr-value--editable:disabled {
+  cursor: default;
+}
+
+.ss-settings__attr-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.ss-settings__attr-input {
+  all: unset;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 40px;
+  padding: 0 var(--spacing-xs);
+  border: 1px solid var(--accent-active);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+}
+
+/* The key input stays narrow (it's an ident, not a long value). */
+.ss-settings__attr-input--name {
+  flex: 0 0 auto;
+  width: 12ch;
+  color: var(--property-text);
+}
+
+/* Clean "+ Add attribute" affordance — content-width (doesn't stretch the column),
+   matching the panel's quiet control style. */
+.ss-settings__attr-add-btn {
+  all: unset;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+  padding: 3px var(--spacing-sm); /* css-ok: compact control height */
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  cursor: pointer;
+  transition:
+    color var(--transition),
+    background var(--transition);
+}
+
+.ss-settings__attr-add-btn:hover {
+  color: var(--text-secondary);
+  background: var(--tint-subtle);
+}
+
+.ss-settings__attr-remove {
+  all: unset;
+  flex: 0 0 auto;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.ss-settings__attr:hover .ss-settings__attr-remove {
+  opacity: 1;
+}
+.ss-settings__attr-remove:hover {
+  color: var(--accent-error);
+}
+
+.ss-settings__attr-add {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-xs);
+}
+
+.ss-settings__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+}

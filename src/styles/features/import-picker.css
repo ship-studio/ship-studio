@@ -2,11 +2,11 @@
 
 .import-picker-modal {
   max-width: 460px;
-  /* Override ModalFrame's --bg-secondary panel back to --bg-primary so the
+  /* Override ModalFrame's --surface-panel panel back to --surface-app so the
      nested surface hierarchy reads correctly: panel (primary) < cards
      (secondary) < icon tiles (tertiary). Without this the cards share the
      panel fill and lose their raised cue. */
-  background: var(--bg-primary);
+  background: var(--surface-app);
 }
 
 .import-picker-options {
@@ -21,8 +21,8 @@
   align-items: center;
   gap: 16px;
   padding: 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   cursor: pointer;
   transition:
@@ -35,7 +35,7 @@
 
 .import-picker-card:hover {
   border-color: var(--text-secondary);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .import-picker-icon {
@@ -45,7 +45,7 @@
   width: 48px;
   height: 48px;
   border-radius: 10px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
   flex-shrink: 0;
 }
@@ -57,12 +57,12 @@
 }
 
 .import-picker-title {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .import-picker-subtitle {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
 }

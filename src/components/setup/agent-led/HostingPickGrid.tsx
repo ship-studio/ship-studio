@@ -8,7 +8,7 @@
 
 import { SetupItem } from '../../../lib/setup';
 import { HostChoice } from '../../../lib/agentOnboarding';
-import { CloudflareIcon, HistoryIcon, VercelIcon } from '../../icons';
+import { CloudflareIcon, HistoryIcon, VercelIcon } from '@/components/icons';
 
 interface HostingPickGridProps {
   items: SetupItem[];

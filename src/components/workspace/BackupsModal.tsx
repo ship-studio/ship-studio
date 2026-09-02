@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { CheckIcon, PullRequestIcon } from '../icons';
+import { CheckIcon, PullRequestIcon } from '@/components/icons';
 import { getBackups, restoreBackup, Backup, RestoreResult } from '../../lib/backups';
 import { trackEvent } from '../../lib/analytics';
 import { ModalFrame } from '../primitives/ModalFrame';
@@ -109,6 +109,7 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
       <ModalFrame
         isOpen
         onClose={handleCancelConfirm}
+        ariaLabel="Restore to this backup?"
         dismissable={!isRestoring}
         showCloseButton={false}
         className="backups-modal backups-confirm-modal"
@@ -154,6 +155,7 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
       <ModalFrame
         isOpen
         onClose={handleCloseSuccess}
+        ariaLabel="Backup restored"
         showCloseButton={false}
         className="backups-modal backups-success-modal"
       >
@@ -232,7 +234,11 @@ export function BackupsModal({ projectPath, onRestore, onCreatePR }: BackupsModa
                   </div>
                 </div>
                 {index > 0 && (
-                  <Button variant="secondary" size="sm" onClick={() => handleRestoreClick(backup)}>
+                  <Button
+                    variant="secondary"
+                    size="compact"
+                    onClick={() => handleRestoreClick(backup)}
+                  >
                     Restore
                   </Button>
                 )}

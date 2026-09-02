@@ -35,6 +35,8 @@ import { OnboardingTerminal } from '../setup/OnboardingTerminal';
 import { ClaudeConnectTerminal } from './ClaudeConnectTerminal';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
+import { DropdownItem } from '../primitives/Dropdown';
+import { MenuButton } from '../primitives/MenuButton';
 import { Spinner } from '../primitives/Spinner';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useWorkspaceConnect } from '../../hooks/useWorkspaceConnect';
@@ -42,24 +44,18 @@ import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { extractTerminalError } from '../../lib/terminalDiagnostics';
 import {
-  CheckIcon,
   ClaudeIcon,
   CodexIcon,
   CursorIcon,
+  DownloadIcon,
   GitHubIcon,
+  LoginIcon,
   OpencodeIcon,
+  PlugIcon,
   VercelIcon,
-} from '../icons';
-
-function KebabGlyph() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-      <circle cx="2.5" cy="7" r="1.3" fill="currentColor" />
-      <circle cx="7" cy="7" r="1.3" fill="currentColor" />
-      <circle cx="11.5" cy="7" r="1.3" fill="currentColor" />
-    </svg>
-  );
-}
+  GenericAgentIcon,
+  MoreHorizontalIcon,
+} from '@/components/icons';
 
 interface TerminalTask {
   agentId: string;
@@ -90,20 +86,6 @@ function formatVersion(v: string | null): string | null {
   // Strip common prefixes (e.g. "Claude Code v1.2.3" → "1.2.3")
   const cleaned = v.replace(/^[^\d]*/, '').split(/\s+/)[0];
   return cleaned || v;
-}
-
-function GenericAgentIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        d="M8 10h2M14 10h2M8 14h8"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 }
 
 function iconFor(agentId: string) {
@@ -512,11 +494,11 @@ export function AgentsPanel() {
     <section className="agents-panel" ref={panelRef}>
       <header className="agents-panel-header">
         <div>
-          <h3 className="agents-panel-title">Workspace accounts</h3>
-          <p className="agents-panel-subtitle">
+          <h3 className="agents-panel-title text-style-h4">Workspace accounts</h3>
+          <p className="agents-panel-subtitle text-style-body-medium">
             Logins for{' '}
             {activeAccount && (
-              <span className="agents-panel-badge">
+              <span className="agents-panel-workspace-name">
                 <span
                   className="agents-panel-badge-dot"
                   style={{ background: activeAccount.color }}
@@ -530,7 +512,7 @@ export function AgentsPanel() {
         {loading && <Spinner size="sm" className="agents-panel-spinner" />}
       </header>
 
-      <p className="agents-section-title">Coding agents</p>
+      <p className="agents-section-title text-style-label">AGENTS</p>
       <div className="agents-panel-list">
         {agents.map((agent) => {
           // "Ready" (eligible to be the default agent) means connected AND valid.
@@ -538,8 +520,8 @@ export function AgentsPanel() {
           const ready = agent.installed && agent.authed && !agent.needsReconnect;
           const isBusy = busy === agent.id;
           const menuOpen = openMenuId === agent.id;
-          // Stroke: red when attention needed, green when connected & valid,
-          // neutral otherwise (never-connected keeps today's plain border).
+          // A valid connection is shown by the outlined Installed status;
+          // attention still gets the red row state so a broken session is clear.
           const stateClass = agent.needsReconnect
             ? 'needs-reconnect'
             : agent.authed
@@ -554,15 +536,20 @@ export function AgentsPanel() {
               <div className="agents-panel-row-icon">{iconFor(agent.id)}</div>
 
               <div className="agents-panel-row-main">
-                <div className="agents-panel-row-name">{agent.displayName}</div>
-                <div className="agents-panel-row-status">{statusLine(agent)}</div>
+                <div className="agents-panel-row-name text-style-body-medium">
+                  {agent.displayName}
+                </div>
+                <div className="agents-panel-row-status text-style-control">
+                  {statusLine(agent)}
+                </div>
               </div>
 
               <div className="agents-panel-row-actions">
                 {!agent.installed && agent.installSupported && (
                   <Button
                     variant="primary"
-                    size="sm"
+                    width="hug"
+                    leftIcon={<DownloadIcon size={14} />}
                     onClick={() => openTerminal(agent, 'install')}
                     disabled={isBusy}
                   >
@@ -573,7 +560,8 @@ export function AgentsPanel() {
                 {agent.installed && !agent.authed && (
                   <Button
                     variant="primary"
-                    size="sm"
+                    width="hug"
+                    leftIcon={<LoginIcon size={14} />}
                     onClick={() => startAuth(agent, false)}
                     disabled={isBusy}
                   >
@@ -583,8 +571,9 @@ export function AgentsPanel() {
 
                 {agent.installed && agent.needsReconnect && (
                   <Button
-                    variant="secondary"
-                    size="sm"
+                    variant="default"
+                    width="hug"
+                    leftIcon={<PlugIcon size={14} />}
                     className="agents-reconnect-btn"
                     onClick={() => startAuth(agent, true)}
                     disabled={isBusy}
@@ -593,86 +582,57 @@ export function AgentsPanel() {
                   </Button>
                 )}
 
-                {ready &&
-                  (() => {
-                    const isSwitchingToThis = busy === agent.id && !agent.isDefault;
-                    const anySwitching = busy !== null;
-                    return (
-                      <button
-                        type="button"
-                        className={`agents-default-pill ${agent.isDefault ? 'on' : ''} ${isSwitchingToThis ? 'switching' : ''}`}
-                        onClick={() => {
-                          if (!agent.isDefault) void handleSetDefault(agent.id);
-                        }}
-                        disabled={anySwitching || agent.isDefault}
-                        aria-pressed={agent.isDefault}
-                        aria-busy={isSwitchingToThis || undefined}
-                      >
-                        <span className="agents-default-pill-radio">
-                          {isSwitchingToThis ? (
-                            <Spinner size="sm" />
-                          ) : agent.isDefault ? (
-                            <CheckIcon size={10} />
-                          ) : null}
-                        </span>
-                        {isSwitchingToThis
-                          ? 'Switching…'
-                          : agent.isDefault
-                            ? 'Default'
-                            : 'Set default'}
-                      </button>
-                    );
-                  })()}
+                {ready && (
+                  <Button
+                    variant="secondary"
+                    width="hug"
+                    className="agents-panel-status-button"
+                    disabled
+                  >
+                    Installed
+                  </Button>
+                )}
 
                 {agent.installed && (
                   <div className="agents-panel-menu-wrap">
-                    <button
-                      type="button"
+                    <MenuButton
+                      variant="ghost"
+                      size="default"
+                      width="hug"
+                      leftIcon={<MoreHorizontalIcon />}
                       className="agents-panel-kebab"
+                      expanded={menuOpen}
                       onClick={() => setOpenMenuId(menuOpen ? null : agent.id)}
                       title={`More actions for ${agent.displayName}`}
                       aria-label={`More actions for ${agent.displayName}`}
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpen}
                       disabled={isBusy}
-                    >
-                      <KebabGlyph />
-                    </button>
+                    ></MenuButton>
                     {menuOpen && (
-                      <div className="agents-panel-menu" role="menu">
+                      <div className="ss-dropdown__menu agents-panel-menu" role="menu">
+                        {ready && !agent.isDefault && (
+                          <DropdownItem onSelect={() => void handleSetDefault(agent.id)}>
+                            Set as default
+                          </DropdownItem>
+                        )}
                         {agent.installSupported && (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => openTerminal(agent, 'install')}
-                          >
+                          <DropdownItem onSelect={() => openTerminal(agent, 'install')}>
                             Update
-                          </button>
+                          </DropdownItem>
                         )}
                         {agent.authed && (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => void handleSignOut(agent)}
-                          >
+                          <DropdownItem onSelect={() => void handleSignOut(agent)}>
                             Sign out
-                          </button>
+                          </DropdownItem>
                         )}
                         {!agent.authed && (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => startAuth(agent, false)}
-                          >
+                          <DropdownItem onSelect={() => startAuth(agent, false)}>
                             Sign in
-                          </button>
+                          </DropdownItem>
                         )}
                         {agent.uninstallSupported && (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className="agents-panel-menu-danger"
-                            onClick={() => {
+                          <DropdownItem
+                            variant="danger"
+                            onSelect={() => {
                               setOpenMenuId(null);
                               setConfirmUninstall({
                                 agentId: agent.id,
@@ -681,7 +641,7 @@ export function AgentsPanel() {
                             }}
                           >
                             Uninstall
-                          </button>
+                          </DropdownItem>
                         )}
                       </div>
                     )}
@@ -695,7 +655,7 @@ export function AgentsPanel() {
 
       {activeAccount && (
         <>
-          <p className="agents-section-title">Services</p>
+          <p className="agents-section-title text-style-label">SERVICES</p>
           <div className="agents-panel-list">
             {(
               [
@@ -735,54 +695,67 @@ export function AgentsPanel() {
                   <div className="agents-panel-row-icon">{svc.icon}</div>
 
                   <div className="agents-panel-row-main">
-                    <div className="agents-panel-row-name">{svc.name}</div>
-                    <div className="agents-panel-row-status">{statusText}</div>
+                    <div className="agents-panel-row-name text-style-body-medium">{svc.name}</div>
+                    <div className="agents-panel-row-status text-style-control">{statusText}</div>
                   </div>
 
                   <div className="agents-panel-row-actions">
                     {!connected && (
-                      <Button variant="primary" size="sm" onClick={() => connectService(svc.id)}>
+                      <Button
+                        variant="primary"
+                        size="default"
+                        width="hug"
+                        leftIcon={<PlugIcon size={14} />}
+                        onClick={() => connectService(svc.id)}
+                      >
                         Connect
                       </Button>
                     )}
 
                     {connected && (
+                      <Button
+                        variant="secondary"
+                        width="hug"
+                        className="agents-panel-status-button"
+                        disabled
+                      >
+                        Connected
+                      </Button>
+                    )}
+
+                    {connected && (
                       <div className="agents-panel-menu-wrap">
-                        <button
-                          type="button"
+                        <MenuButton
+                          variant="ghost"
+                          size="default"
+                          width="hug"
+                          leftIcon={<MoreHorizontalIcon />}
                           className="agents-panel-kebab"
+                          expanded={menuOpen}
                           onClick={() => setOpenMenuId(menuOpen ? null : menuKey)}
                           title={`More actions for ${svc.name}`}
                           aria-label={`More actions for ${svc.name}`}
-                          aria-haspopup="menu"
-                          aria-expanded={menuOpen}
-                        >
-                          <KebabGlyph />
-                        </button>
+                        ></MenuButton>
                         {menuOpen && (
-                          <div className="agents-panel-menu" role="menu">
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
+                          <div className="ss-dropdown__menu agents-panel-menu" role="menu">
+                            <DropdownItem
+                              onSelect={() => {
                                 setOpenMenuId(null);
                                 connectService(svc.id);
                               }}
                             >
                               {activeAccount.isDefault ? 'Sign in again' : 'Switch account'}
-                            </button>
+                            </DropdownItem>
                             {canDisconnect && (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="agents-panel-menu-danger"
-                                onClick={() => {
+                              <DropdownItem
+                                variant="danger"
+                                onSelect={() => {
                                   setOpenMenuId(null);
                                   void disconnectService(svc.id);
                                 }}
                               >
                                 Disconnect
-                              </button>
+                              </DropdownItem>
                             )}
                           </div>
                         )}

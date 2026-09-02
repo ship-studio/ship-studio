@@ -9,7 +9,7 @@
 
 import { ReactNode } from 'react';
 import { SetupItem } from '../../../lib/setup';
-import { ClaudeIcon, CodexIcon, CursorIcon, OpencodeIcon, TerminalIcon } from '../../icons';
+import { ClaudeIcon, CodexIcon, CursorIcon, OpencodeIcon, TerminalIcon } from '@/components/icons';
 
 /** Card key: an agent binary id, or 'other' for the bring-your-own terminal. */
 export type AgentCardKey = 'claude' | 'codex' | 'cursor' | 'opencode' | 'other';

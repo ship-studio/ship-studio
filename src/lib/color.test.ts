@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { toHex, visibleHex, toRgba, rgbaToCss, toCss, toFormat } from './color';
+import {
+  hsvaToCss,
+  hsvaToRgba,
+  rgbaToHsva,
+  toHex,
+  visibleHex,
+  toRgba,
+  rgbaToCss,
+  toCss,
+  toFormat,
+  toHsva,
+  updateHsvaChannel,
+} from './color';
 
 describe('toHex', () => {
   it('normalizes named / rgb colors to 6-digit hex', () => {
@@ -36,6 +48,30 @@ describe('toRgba', () => {
 
   it('falls back to opaque black for unparseable input', () => {
     expect(toRgba('not-a-color')).toEqual({ r: 0, g: 0, b: 0, a: 1 });
+  });
+});
+
+describe('HSVA conversion', () => {
+  it('round-trips RGBA through Culori HSV while preserving alpha', () => {
+    const hsva = rgbaToHsva({ r: 255, g: 128, b: 0, a: 0.5 });
+    expect(hsva.h).toBeCloseTo(30.12, 2);
+    expect(hsva.s).toBeCloseTo(100, 4);
+    expect(hsva.v).toBeCloseTo(100, 4);
+    expect(hsva.a).toBe(0.5);
+    expect(hsvaToRgba(hsva)).toEqual({ r: 255, g: 128, b: 0, a: 0.5 });
+  });
+
+  it('normalizes hue and clamps HSB channels', () => {
+    const hsva = toHsva('#ff0000');
+    expect(updateHsvaChannel(hsva, 'h', -30).h).toBe(330);
+    expect(updateHsvaChannel(hsva, 's', 120).s).toBe(100);
+    expect(updateHsvaChannel(hsva, 'v', -10).v).toBe(0);
+  });
+
+  it('emits canonical CSS from HSB edits without HSB syntax', () => {
+    const next = updateHsvaChannel(toHsva('rgba(255, 0, 0, 0.25)'), 'h', 120);
+    expect(hsvaToCss(next)).toBe('rgba(0, 255, 0, 0.25)');
+    expect(toFormat('#ff0000', 'hsb')).toBe('rgb(255, 0, 0)');
   });
 });
 

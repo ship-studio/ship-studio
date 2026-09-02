@@ -131,7 +131,7 @@ export function GuidedSetupPhase({
       {isOther && !complete && !demoMode && (
         <div className="agent-guided-prompt-bar">
           <span>Setup instructions for your agent:</span>
-          <Button variant="secondary" size="sm" onClick={() => void copy(prompt)}>
+          <Button variant="secondary" onClick={() => void copy(prompt)}>
             {isCopied ? 'Copied!' : 'Copy instructions'}
           </Button>
         </div>
@@ -157,7 +157,7 @@ export function GuidedSetupPhase({
                   ? 'The terminal session ended before setup finished.'
                   : 'The agent session ended before setup finished.'}
               </span>
-              <Button variant="secondary" size="sm" onClick={handleRestart}>
+              <Button variant="secondary" onClick={handleRestart}>
                 {isOther ? 'Reopen terminal' : 'Restart the agent'}
               </Button>
             </div>

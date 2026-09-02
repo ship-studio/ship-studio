@@ -15,8 +15,8 @@
  * @module components/dashboard/MachineToolsPanel
  */
 
-import { useState, useEffect } from 'react';
-import { CheckIcon, WarningIcon, ChevronIcon, ClaudeIcon, GitHubIcon } from '../icons';
+import { useState, useEffect, type KeyboardEvent } from 'react';
+import { CheckIcon, WarningIcon, ChevronIcon, ClaudeIcon, GitHubIcon } from '@/components/icons';
 import { Spinner } from '../primitives/Spinner';
 import { getFullSetupStatus, SetupItem, SETUP_ITEM_ORDER, MACHINE_ITEM_IDS } from '../../lib/setup';
 import { logger } from '../../lib/logger';
@@ -84,32 +84,42 @@ export function MachineToolsPanel() {
     <WarningIcon size={14} className="integration-bar-status-icon warning" />
   );
 
+  const toggleExpanded = () => setIsExpanded((value) => !value);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleExpanded();
+    }
+  };
+
   return (
     <section
       className={`dashboard-card integration-bar ${isExpanded ? 'is-expanded' : ''}`}
       data-education-id="machine-tools"
+      role="button"
+      tabIndex={0}
+      aria-label="Tools on this Mac"
+      aria-expanded={isExpanded}
+      onClick={toggleExpanded}
+      onKeyDown={handleKeyDown}
     >
-      <button
-        type="button"
-        className="dashboard-card-header integration-bar-header-btn"
-        onClick={() => setIsExpanded((v) => !v)}
-        aria-expanded={isExpanded}
-      >
+      <div className="dashboard-card-header integration-bar-header">
         <div>
-          <h3 className="dashboard-card-title">Tools on this Mac</h3>
-          <p className="dashboard-card-subtitle integration-bar-subtitle">
+          <h3 className="dashboard-card-title text-style-h4">Tools on this Mac</h3>
+          <div className="dashboard-card-subtitle integration-bar-subtitle text-style-control">
             {statusIcon}
             <span>{subtitle}</span>
             <span className="machine-tools-shared-hint">
               · installed once, shared by every workspace
             </span>
-          </p>
+          </div>
         </div>
         <ChevronIcon
           size={14}
           className={`integration-bar-chevron ${isExpanded ? 'up' : 'down'}`}
         />
-      </button>
+      </div>
 
       {isExpanded && (
         <div className="dashboard-card-rows">
@@ -121,8 +131,12 @@ export function MachineToolsPanel() {
                   {getItemIcon(item.id)}
                 </div>
                 <div className="dashboard-card-row-main">
-                  <span className="dashboard-card-row-name">{item.friendlyName}</span>
-                  <span className={`dashboard-card-row-status ${isReady ? 'success' : ''}`}>
+                  <span className="dashboard-card-row-name text-style-body-medium">
+                    {item.friendlyName}
+                  </span>
+                  <span
+                    className={`dashboard-card-row-status text-style-control ${isReady ? 'success' : ''}`}
+                  >
                     {getStatusText(item)}
                   </span>
                 </div>

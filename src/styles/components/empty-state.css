@@ -1,0 +1,28 @@
+/* ===== Primitive: EmptyState ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state-icon {
+  color: var(--text-muted);
+}
+
+.empty-state-title {
+  font-size: var(--font-size-h4);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.empty-state-description {
+  font-size: var(--font-size-body-lg);
+  color: var(--text-secondary);
+  max-width: 360px;
+  line-height: 1.5;
+}

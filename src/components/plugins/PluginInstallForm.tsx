@@ -5,6 +5,9 @@
  * @module components/PluginInstallForm
  */
 
+import { Button } from '../primitives/Button';
+import { TextButton } from '../primitives/TextButton';
+
 export interface PluginInstallFormProps {
   showUrlInput: boolean;
   onShowUrlInput: () => void;
@@ -25,9 +28,7 @@ export function PluginInstallForm({
   return (
     <div className="plugins-url-section">
       {!showUrlInput ? (
-        <button className="plugins-url-toggle" onClick={onShowUrlInput}>
-          Install from URL
-        </button>
+        <TextButton onClick={onShowUrlInput}>Install from URL</TextButton>
       ) : (
         <div className="plugins-install-input-wrapper">
           <input
@@ -45,13 +46,13 @@ export function PluginInstallForm({
             spellCheck={false}
             autoFocus
           />
-          <button
-            className="plugins-install-btn"
+          <Button
+            variant="primary"
             onClick={onInstall}
             disabled={isInstallingUrl || !repoUrl.trim()}
           >
             {isInstallingUrl ? 'Installing...' : 'Install'}
-          </button>
+          </Button>
         </div>
       )}
     </div>

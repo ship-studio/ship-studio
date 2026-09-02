@@ -7,6 +7,7 @@
 
 import { Button } from '../../primitives/Button';
 import { Spinner } from '../../primitives/Spinner';
+import { CheckIcon, PendingCircleIcon } from '@/components/icons';
 
 /** Import progress steps */
 export type Step = 'clone' | 'install' | 'setup' | 'done';
@@ -68,29 +69,11 @@ export function Step3ImportProgress({
           return (
             <div key={step.id} className={`checklist-item ${status}`}>
               {status === 'done' ? (
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+                <CheckIcon size={18} />
               ) : status === 'active' ? (
                 <Spinner />
               ) : (
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                </svg>
+                <PendingCircleIcon size={18} />
               )}
               <span>{step.label}</span>
             </div>

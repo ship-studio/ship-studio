@@ -9,6 +9,106 @@ use std::path::Path;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
+const DEFAULT_APP_ICON: &str = "brand";
+const APP_ICON_IDS: &[&str] = &["brand", "dark", "light"];
+
+fn normalized_app_icon(value: Option<&str>) -> &'static str {
+    match value {
+        Some(icon) if APP_ICON_IDS.contains(&icon) => match icon {
+            "dark" => "dark",
+            "light" => "light",
+            _ => DEFAULT_APP_ICON,
+        },
+        _ => DEFAULT_APP_ICON,
+    }
+}
+
+fn validate_app_icon(icon: &str) -> Result<(), CommandError> {
+    if APP_ICON_IDS.contains(&icon) {
+        Ok(())
+    } else {
+        Err(CommandError::Validation {
+            field: "icon".to_string(),
+            reason: "Choose one of brand, dark, or light".to_string(),
+        })
+    }
+}
+
+/// Get the persisted app icon choice.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_app_icon() -> Result<String, CommandError> {
+    Ok(normalized_app_icon(read_app_state().app_icon.as_deref()).to_string())
+}
+
+/// Persist the app icon choice and update the native Dock icon immediately.
+#[tauri::command]
+#[tracing::instrument(skip(app))]
+pub fn set_app_icon(app: AppHandle, icon: String) -> Result<(), CommandError> {
+    validate_app_icon(&icon)?;
+    apply_app_icon(&app, &icon)?;
+
+    let mut state = read_app_state();
+    state.app_icon = Some(icon);
+    write_app_state(&state).map_err(CommandError::from)
+}
+
+/// Apply a saved icon during startup or after a settings change.
+pub fn apply_app_icon(app: &AppHandle, icon: &str) -> Result<(), CommandError> {
+    validate_app_icon(icon)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let bytes = app_icon_bytes(icon);
+        app.run_on_main_thread(move || {
+            if let Err(error) = set_macos_dock_icon(bytes) {
+                tracing::error!(%error, "Failed to update the macOS Dock icon");
+            }
+        })
+        .map_err(|error| format!("Failed to schedule the Dock icon update: {error}"))?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, icon);
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn app_icon_bytes(icon: &str) -> &'static [u8] {
+    match icon {
+        "dark" => include_bytes!("../../../public/ShipStudio_IconDark.png"),
+        "light" => include_bytes!("../../../public/ShipStudio_IconLight.png"),
+        _ => include_bytes!("../../../public/ShipStudio_IconBrand.png"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_macos_dock_icon(bytes: &[u8]) -> Result<(), &'static str> {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSData;
+
+    let data = NSData::with_bytes(bytes);
+    let allocated_image: *mut AnyObject = unsafe { msg_send![class!(NSImage), alloc] };
+    let image: *mut AnyObject = unsafe { msg_send![allocated_image, initWithData: &*data] };
+    if image.is_null() {
+        return Err("AppKit could not decode the selected PNG");
+    }
+
+    let application: *mut AnyObject =
+        unsafe { msg_send![class!(NSApplication), sharedApplication] };
+    if application.is_null() {
+        return Err("AppKit did not return the shared application");
+    }
+
+    unsafe {
+        let _: () = msg_send![application, setApplicationIconImage: image];
+        let _: () = msg_send![image, release];
+    }
+    Ok(())
+}
+
 /// Get whether the GitHub contribution calendar is hidden on the dashboard.
 #[tauri::command]
 #[tracing::instrument]
@@ -43,6 +143,23 @@ pub fn set_slack_cta_hidden(hidden: bool) -> Result<(), CommandError> {
     write_app_state(&state).map_err(CommandError::from)
 }
 
+/// Get whether the dashboard home header is hidden.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_dashboard_header_hidden() -> Result<bool, CommandError> {
+    let state = read_app_state();
+    Ok(state.dashboard_header_hidden.unwrap_or(false))
+}
+
+/// Set whether the dashboard home header is hidden (persisted to app state).
+#[tauri::command]
+#[tracing::instrument]
+pub fn set_dashboard_header_hidden(hidden: bool) -> Result<(), CommandError> {
+    let mut state = read_app_state();
+    state.dashboard_header_hidden = Some(hidden);
+    write_app_state(&state).map_err(CommandError::from)
+}
+
 /// Get whether the terminal uses WebGL (GPU-accelerated) rendering. Defaults to true.
 #[tauri::command]
 #[tracing::instrument]
@@ -57,6 +174,23 @@ pub fn get_terminal_gpu_enabled() -> Result<bool, CommandError> {
 pub fn set_terminal_gpu_enabled(enabled: bool) -> Result<(), CommandError> {
     let mut state = read_app_state();
     state.terminal_gpu_enabled = Some(enabled);
+    write_app_state(&state).map_err(CommandError::from)
+}
+
+/// Get whether workspace actions are consolidated into the window titlebar.
+#[tauri::command]
+#[tracing::instrument]
+pub fn get_compact_workspace_toolbar_enabled() -> Result<bool, CommandError> {
+    let state = read_app_state();
+    Ok(state.compact_workspace_toolbar_enabled.unwrap_or(false))
+}
+
+/// Set whether workspace actions are consolidated into the window titlebar.
+#[tauri::command]
+#[tracing::instrument]
+pub fn set_compact_workspace_toolbar_enabled(enabled: bool) -> Result<(), CommandError> {
+    let mut state = read_app_state();
+    state.compact_workspace_toolbar_enabled = Some(enabled);
     write_app_state(&state).map_err(CommandError::from)
 }
 
@@ -210,5 +344,28 @@ pub async fn pick_projects_root(app: AppHandle) -> Result<Option<String>, Comman
             Ok(Some(pb.to_string_lossy().to_string()))
         }
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalized_app_icon, validate_app_icon};
+
+    #[test]
+    fn accepts_the_three_supported_icons() {
+        for icon in ["brand", "dark", "light"] {
+            assert!(validate_app_icon(icon).is_ok());
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_icons() {
+        assert!(validate_app_icon("system").is_err());
+    }
+
+    #[test]
+    fn invalid_saved_values_use_the_brand_icon() {
+        assert_eq!(normalized_app_icon(Some("system")), "brand");
+        assert_eq!(normalized_app_icon(None), "brand");
     }
 }

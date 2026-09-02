@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { getScreenshotBase64 } from '../../lib/ide';
-import { CameraIcon, CloseIcon } from '../icons';
+import { CameraIcon, CloseIcon } from '@/components/icons';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { logger } from '../../lib/logger';
 

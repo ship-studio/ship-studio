@@ -1,0 +1,269 @@
+/* Ship Studio design tokens */
+/* Component contracts: stable owner-specific dimensions and component recipes. */
+
+:root {
+  --size-control-standard: 30px;
+  --size-control-large: 36px;
+  --size-control-medium: 24px;
+  --size-control-compact: 20px;
+
+  --size-titlebar-project-path: 30ch;
+  --size-element-toolbar-selector: 140px;
+  --size-preview-dimensions: 84px;
+
+  --size-sidebar-project-shortcut: 24px;
+  --size-sidebar-project: 214px;
+  --size-sidebar-project-row: 46px;
+  --size-sidebar-section-row: 22px;
+  --size-sidebar-shortcut: 21px;
+
+  --size-icon-sm: 14px;
+  --size-icon-button: 16px;
+  --size-icon-md: 18px;
+  --icon-size-full: 24px;
+
+  --pixel-loader-size-sm: var(--size-icon-sm);
+  --pixel-loader-size-md: var(--size-control-compact);
+  --pixel-loader-size-lg: var(--size-control-standard);
+  --pixel-loader-gap: var(--stroke-hairline);
+  --pixel-loader-color: var(--accent-active);
+  --pixel-loader-glow-tight: var(--space-04);
+  --pixel-loader-glow-wide: var(--space-08);
+  --pixel-loader-glow-tight-opacity: 72%;
+  --pixel-loader-glow-wide-opacity: 32%;
+  --pixel-loader-rest-opacity: 0.16;
+  --pixel-loader-dim-opacity: 0.28;
+  --pixel-loader-mid-opacity: 0.58;
+  --pixel-loader-reduced-motion-opacity: 0.32;
+  --pixel-loader-bright-opacity: 1;
+  --pixel-loader-rest-brightness: 0.76;
+  --pixel-loader-brightness: 1.25;
+  --pixel-loader-spark-rest-brightness: 0.82;
+  --pixel-loader-spark-brightness: 1.18;
+  --pixel-loader-easing: ease-in-out;
+  --pixel-loader-direction: normal;
+  --pixel-loader-duration-ripple: var(--duration-loader-standard);
+  --pixel-loader-duration-decay: var(--duration-loader-decay);
+  --pixel-loader-duration-quad-tight: var(--duration-loader-tight);
+  --pixel-loader-duration-isolated: var(--duration-loader-isolated);
+  --pixel-loader-duration-scan: var(--duration-loader-standard);
+  --pixel-loader-duration-spark: var(--duration-loader-fast);
+  --pixel-loader-delay-step: var(--duration-standard);
+  --pixel-loader-delay-ring: var(--duration-slow);
+  --pixel-loader-delay-three: calc(var(--duration-slow) + var(--duration-standard));
+  --pixel-loader-delay-four: calc(var(--duration-slow) + var(--duration-slow));
+  --pixel-loader-delay-isolated-inner: calc(var(--duration-slow) + var(--duration-slow));
+  --pixel-loader-delay-isolated-outer: var(--duration-loader-standard);
+  --pixel-loader-delay-decay-inner: calc(var(--duration-slow) + var(--duration-standard));
+  --pixel-loader-delay-decay-outer: var(--duration-loader-fast);
+  --pixel-loader-delay-quad-tight-inner: 350ms;
+  --pixel-loader-delay-quad-tight-outer: 700ms;
+
+  --size-icon-gallery-width: 480px;
+  --size-icon-gallery-column: 120px;
+
+  --size-color-picker-width: 320px;
+  --size-color-picker-height: 510px;
+  --size-color-picker-header: var(--panel-header-h);
+
+  --size-source-control-popover: 320px;
+  --size-source-control-branch: 140px;
+
+  --property-surface: var(--color-blue-700);
+  --property-surface-hover: var(--color-blue-600);
+  --property-border: var(--color-blue-700);
+  --property-text: var(--color-blue-400);
+  --property-field-hover: var(--color-blue-500-o15);
+  --property-field-selected: var(--color-blue-500-o40);
+  --property-label-modified-surface: var(--color-blue-500-o15);
+  --property-label-modified-text: var(--color-blue-400);
+  --property-label-inherited-surface: color-mix(in srgb, var(--color-orange-500) 15%, transparent);
+  --property-label-inherited-text: var(--color-orange-400);
+
+  --tag-surface: color-mix(in oklch, var(--color-green-700) 15%);
+  --tag-text: var(--color-green-400);
+  --tag-chip-surface: var(--tag-text);
+  --tag-chip-surface-hover: var(--color-green-600);
+  --tag-chip-text: var(--text-inverse);
+
+  --variable-surface: var(--color-purple-700);
+  --variable-surface-hover: var(--color-purple-600);
+  --variable-border: var(--color-purple-700);
+  --variable-text: var(--color-purple-400);
+  --variable-text-hover: var(--color-purple-300);
+  --variable-field-hover: var(--color-purple-500-o15);
+  --variable-field-selected: var(--color-purple-500-o40);
+  --class-text: var(--color-orange-400);
+  --property-text-hover: var(--color-white);
+  --function-text: var(--color-red-400);
+  --media-surface: var(--color-pink-600);
+  --media-surface-hover: var(--color-pink-500);
+  --media-text: var(--color-pink-400);
+
+  --button-surface-default: var(--surface-control);
+  --button-surface-hover: var(--surface-control-hover);
+  --button-surface-selected: var(--surface-selected);
+  --button-surface-pressed: var(--button-surface-selected);
+  --button-border-solid: transparent;
+  --button-border: var(--border-default);
+  --button-border-outline: var(--border-strong);
+  --button-text-default: var(--text-secondary);
+  --button-text-hover: var(--text-primary);
+  --button-font-size: var(--font-size-button);
+  --button-font-weight: var(--font-weight-medium);
+  --button-height: var(--control-height-standard);
+  --button-height-compact: var(--control-height-compact);
+  --button-padding: var(--space-08);
+  --button-gap: var(--space-06);
+  --button-radius: var(--radius-control);
+  --button-shadow: var(--shadow-button);
+  --button-disabled-opacity: 0.45;
+  --button-active-scale: 0.96;
+  --button-primary-start: var(--color-green-700);
+  --button-primary-mid: var(--color-green-600);
+  --button-primary-end: var(--color-green-500);
+  --button-variable-surface: var(--color-purple-700);
+  --button-variable-hover: var(--color-purple-600);
+  --button-warning-surface: var(--surface-warning);
+  --button-warning-surface-hover: color-mix(
+    in srgb,
+    var(--color-orange-600) 10%,
+    var(--surface-control-hover)
+  );
+  --button-warning-text: var(--accent-warning);
+  --button-warning-text-hover: var(--color-orange-500);
+  --button-group-spacing: var(--space-04);
+
+  --control-height-standard: var(--size-control-standard);
+  --control-height-large: var(--size-control-large);
+  --control-height-compact: var(--size-control-compact);
+
+  --text-field-height: var(--size-control-medium);
+  --text-field-height-compact: var(--size-control-compact);
+  --text-field-padding-inline: var(--spacing-sm);
+  --text-field-suffix-width: var(--spacing-lg);
+  --text-field-suffix-padding: var(--spacing-sm);
+  --text-field-border-width: var(--stroke-1);
+  --text-field-disabled-text: var(--text-muted);
+  --text-field-disabled-surface: var(--surface-recessed);
+  --text-field-disabled-border: var(--border-default);
+  --text-field-disabled-opacity: 0.55;
+  --value-field-variable-menu-max-height: 244px;
+  --value-field-variable-scroll-gap: var(--space-16);
+
+  --compact-topbar-height: var(--size-control-large);
+  --compact-topbar-padding-inline: var(--spacing-sm);
+  --compact-topbar-macos-padding-start: calc(
+    var(--space-32) + var(--space-24) + var(--space-16) + var(--space-06)
+  );
+  --compact-topbar-cluster-gap: var(--spacing-xs);
+  --compact-topbar-border-width: var(--stroke-1);
+  --compact-topbar-control-size: var(--size-control-medium);
+  --compact-topbar-control-radius: var(--radius-control);
+  --compact-topbar-control-padding-inline: var(--spacing-sm);
+  --compact-topbar-project-max-width: 220px;
+  --compact-topbar-project-label-max-width: 180px;
+  --compact-topbar-status-slot-size: var(--size-control-compact);
+  --compact-topbar-status-dot-size: var(--spacing-sm);
+  --compact-topbar-status-dot-radius: 50%;
+  --compact-topbar-menu-min-width: 180px;
+  --compact-topbar-menu-max-height: 240px;
+  --compact-topbar-menu-offset: var(--spacing-xs);
+  --compact-topbar-menu-padding: var(--spacing-xs);
+  --compact-topbar-menu-item-padding-block: var(--space-06);
+  --compact-topbar-menu-item-padding-inline: var(--space-10);
+  --compact-topbar-menu-divider-margin: var(--space-04) var(--space-02);
+  --compact-topbar-menu-divider-height: var(--stroke-1);
+  --compact-topbar-menu-radius: var(--radius-card);
+  --compact-topbar-menu-z-index: var(--z-dropdown);
+  --compact-topbar-pin-active-surface: color-mix(in srgb, var(--accent-active) 15%, transparent);
+  --compact-topbar-pin-active-border: color-mix(in srgb, var(--accent-active) 30%, transparent);
+
+  --settings-form-width: 420px;
+  --settings-form-border-width: var(--stroke-1);
+  --settings-form-body-padding-block: var(--spacing-lg);
+  --settings-form-body-padding-inline: var(--spacing-xl);
+  --settings-form-section-gap: var(--spacing-md);
+  --settings-form-field-gap: var(--spacing-sm);
+  --settings-form-footer-padding-block: var(--spacing-lg);
+  --settings-form-footer-gap: var(--spacing-sm);
+  --settings-form-intro-padding-block-start: var(--spacing-lg);
+  --settings-form-intro-padding-block-end: var(--spacing-md);
+  --settings-form-intro-padding-inline: var(--spacing-xl);
+
+  --extension-manager-footer-padding-block: var(--spacing-md);
+  --extension-manager-footer-padding-inline: var(--spacing-xl);
+  --extension-manager-row-gap: var(--spacing-md);
+  --extension-manager-row-padding: var(--spacing-md);
+  --extension-manager-search-height: var(--control-height-standard);
+  --extension-manager-search-padding-inline: var(--spacing-sm);
+  --extension-manager-scope-padding-block: var(--space-02);
+  --extension-manager-scope-padding-inline: var(--space-06);
+  --extension-manager-state-padding-block: var(--spacing-2xl);
+  --extension-scope-project-border: color-mix(
+    in srgb,
+    var(--accent-scope-project) 40%,
+    transparent
+  );
+  --extension-state-error-surface: color-mix(in srgb, var(--accent-error-deep) 10%, transparent);
+  --extension-state-error-border: color-mix(in srgb, var(--accent-error-deep) 30%, transparent);
+  --popover-color-picker-width: var(--size-color-picker-width);
+  --popover-source-control-width: var(--size-source-control-popover);
+  --source-control-branch-max-width: var(--size-source-control-branch);
+  --z-dropdown: 100;
+  /* Header popovers must paint above preview error/status overlays. */
+  --z-workspace-header: 200;
+  --z-preview-fullscreen: 900;
+  --z-floating-panel: 950;
+
+  --editor-panel-w: 300px;
+  --editor-panel-visual-w: 240px;
+  --editor-panel-inline-pad: var(--spacing-md);
+  --editor-panel-row-gap: var(--space-06);
+  --editor-panel-section-h: 40px;
+  --editor-panel-label-w: 72px;
+  --editor-panel-field-w: 100%;
+  --editor-panel-spacing-w: 224px;
+  --editor-panel-spacing-h: 112px;
+  --editor-panel-spacing-margin-inner-x: 36px;
+  --editor-panel-spacing-margin-inner-y: 22px;
+  --editor-panel-spacing-inner-x: 38px;
+  --editor-panel-spacing-inner-y: 24px;
+  --editor-panel-spacing-core-x: 36px;
+  --editor-panel-spacing-core-y: 22px;
+  --editor-panel-spacing-core-h: 20px;
+  --editor-panel-spacing-label: var(--color-gray-500);
+  --editor-panel-spacing-value: var(--color-gray-400);
+  --editor-panel-spacing-margin-top: var(--surface-selected);
+  --editor-panel-spacing-margin-top-hover: var(--color-gray-700);
+  --editor-panel-spacing-margin-side: var(--surface-control-hover);
+  --editor-panel-spacing-margin-side-hover: var(--surface-selected);
+  --editor-panel-spacing-margin-bottom: var(--surface-control);
+  --editor-panel-spacing-margin-bottom-hover: var(--surface-control-hover);
+  --editor-panel-spacing-padding-top: var(--surface-control);
+  --editor-panel-spacing-padding-top-hover: var(--surface-control-hover);
+  --editor-panel-spacing-padding-side: var(--surface-control-hover);
+  --editor-panel-spacing-padding-side-hover: var(--surface-selected);
+  --editor-panel-spacing-padding-bottom: var(--surface-selected);
+  --editor-panel-spacing-padding-bottom-hover: var(--color-gray-700);
+  --z-editor-spacing-band: 1;
+  --z-editor-spacing-surface: 2;
+  --z-editor-spacing-field: 3;
+  --panel-header-h: 47px;
+  --preview-toolbar-h: var(--panel-header-h);
+  --tree-panel-w: 240px;
+  --tree-code-w: 420px;
+  --hint-card-max-w: 720px;
+  --z-modal-overlay: 1000;
+  --z-modal: 1001;
+  --z-tooltip: 1100;
+  --z-notification: 1200;
+  --z-app-overlay: 9999;
+  --z-app-modal: 10000;
+  --z-app-modal-content: 10001;
+  --z-app-modal-top: 10002;
+  --z-app-modal-max: 10010;
+  --z-toast: 10000;
+  --z-toast-top: 10001;
+  --z-changelog-sentinel: 100000;
+}

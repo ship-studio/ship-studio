@@ -59,6 +59,19 @@ describe('MachineToolsPanel', () => {
     await waitFor(() => expect(screen.getByText('Tools on this Mac')).toBeInTheDocument());
   });
 
+  it('uses the whole card as the expand/collapse surface', async () => {
+    mockSetupStatus([item({ id: 'homebrew', friendlyName: 'Homebrew' })]);
+    render(<MachineToolsPanel />);
+
+    const card = await screen.findByRole('button', { name: 'Tools on this Mac' });
+    expect(card).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(card);
+
+    await waitFor(() => expect(card).toHaveAttribute('aria-expanded', 'true'));
+    expect(card).toHaveClass('is-expanded');
+  });
+
   it('lists only machine-tier tools and never the per-workspace logins', async () => {
     mockSetupStatus([
       item({ id: 'homebrew', friendlyName: 'Homebrew' }),

@@ -12,14 +12,14 @@
   flex: 1;
   min-height: 160px;
   margin: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   overflow: hidden;
   box-sizing: border-box;
 }
 .ss-codeedit:focus-within {
-  border-color: var(--action);
+  border-color: var(--accent-active);
 }
 .ss-codeedit .cm-editor {
   height: 100%;

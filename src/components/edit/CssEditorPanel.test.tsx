@@ -70,8 +70,8 @@ describe('CssEditorPanel', () => {
     expect(
       screen.getByText('.hero-title', { selector: 'code.ss-css-selector' })
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Visual' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Code' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Visual' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Code' })).toBeInTheDocument();
     // Default Visual view shows the Layout category controls.
     expect(screen.getByText('Display')).toBeInTheDocument();
   });
@@ -133,7 +133,7 @@ describe('CssEditorPanel', () => {
   it('Code view shows raw CSS and saves the diff', () => {
     const onSaveMany = vi.fn();
     renderPanel(resolved([{ property: 'color', value: 'red', important: false }]), { onSaveMany });
-    fireEvent.click(screen.getByRole('button', { name: 'Code' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Code' }));
     // The Code view is a CodeMirror editor (contenteditable), not a textarea —
     // assert it shows the serialized rule, then drive an edit through the view.
     const editor = document.querySelector('.cm-editor') as HTMLElement;

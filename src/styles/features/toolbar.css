@@ -3,10 +3,10 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
 }
 
@@ -16,8 +16,8 @@
 }
 
 .capture-shortcut {
-  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  font-size: var(--font-size-sm);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -41,7 +41,7 @@
 }
 
 .terminal-capture:hover:not(:disabled) {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-secondary);
 }
 
@@ -51,7 +51,7 @@
 }
 
 .terminal-capture.capturing {
-  color: var(--accent);
+  color: var(--accent-active);
   animation: pulse 1s infinite;
 }
 
@@ -69,6 +69,10 @@
   flex: 1;
   overflow: hidden;
   position: relative;
+  /* Keep the content gutter on the same surface as the agent terminal. This
+     must be explicit because the xterm canvas paints its own background and
+     otherwise the gutter can expose the pane's darker fallback surface. */
+  background: var(--surface-app);
 }
 
 .preview-pane {

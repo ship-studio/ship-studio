@@ -1,0 +1,4 @@
+:root {
+  --primitive: 4px;
+  --semantic: var(--primitive);
+}

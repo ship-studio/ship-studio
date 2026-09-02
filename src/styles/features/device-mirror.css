@@ -10,7 +10,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
 .device-mirror-toolbar {
@@ -19,48 +19,13 @@
   justify-content: space-between;
   gap: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-sm);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .device-mirror-label {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   margin-right: auto;
-}
-
-/* [iOS | Android] segmented control — shown only when the project targets both. */
-.device-mirror-platform {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
-}
-
-.device-mirror-platform-btn {
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  padding: 2px var(--spacing-sm);
-  /* Concentric with the container (radius − the 2px padding) so the active pill's
-     corners follow the outer edge — the app's segmented-control convention. */
-  border-radius: calc(var(--radius-md) - 2px);
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-
-.device-mirror-platform-btn:hover {
-  color: var(--text-primary);
-}
-
-.device-mirror-platform-btn.active {
-  background: var(--accent);
-  color: var(--action-text); /* --accent is white in this theme → needs dark text */
 }
 
 .device-mirror-stage {
@@ -96,8 +61,8 @@
    answerable. Kept mounted while collapsed so the build keeps running. */
 .device-mirror-build {
   flex-shrink: 0;
-  border-top: 1px solid var(--border);
-  background: var(--bg-primary);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-app);
   display: flex;
   flex-direction: column;
 }
@@ -109,15 +74,15 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-md);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-bottom: 1px solid var(--border-default);
   transition: background var(--transition);
 }
 
 /* Hovering anywhere on the bar highlights the whole bar — the toggle/chevron
    suppress their own button-hover background below so it reads as one surface. */
 .device-mirror-build-header:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .device-mirror-build-toggle {
@@ -130,13 +95,13 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
   cursor: pointer;
   text-align: left;
 }
 
-/* Suppress the global button:hover background — the bar's own hover handles it. */
+/* The bar owns its hover state rather than inheriting a shared button treatment. */
 .device-mirror-build-toggle:hover {
   background: none;
 }
@@ -146,7 +111,7 @@
 }
 
 .device-mirror-build-toggle[data-state='launched'] {
-  color: var(--success);
+  color: var(--accent-success);
 }
 
 .device-mirror-build-title {
@@ -160,10 +125,10 @@
   flex-shrink: 0;
   padding: 4px 10px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -173,7 +138,7 @@
 
 .device-mirror-build-send:hover {
   color: var(--text-primary);
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .device-mirror-build-chevron {
@@ -194,23 +159,23 @@
   background: none;
 }
 
-.device-mirror-build-chevron svg {
+.device-mirror-build-header > .button--icon-only svg {
   transition: transform var(--transition);
 }
 
-.device-mirror-build-chevron.open svg {
+.device-mirror-build-chevron-open svg {
   transform: rotate(180deg);
 }
 
 .device-mirror-build-hint {
   margin: 0;
   padding: var(--spacing-xs) var(--spacing-md);
-  font-size: var(--font-size-sm);
-  color: var(--warning);
+  font-size: var(--font-size-body-sm);
+  color: var(--accent-warning);
 }
 
 .device-mirror-build-hint code {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-code);
 }
 
 /* Fixed height so xterm has a sized container to fit into. */

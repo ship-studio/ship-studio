@@ -28,6 +28,9 @@ import { useAgentBridge } from '../../hooks/useAgentBridge';
 import { AgentActivityOverlay } from './AgentActivityOverlay';
 import { PreviewSizeControl } from './PreviewSizeControl';
 import { usePreviewCapture } from '../../hooks/usePreviewCapture';
+import { Button } from '../primitives/Button';
+import { MenuButton } from '../primitives/MenuButton';
+import { ToggleButton } from '../primitives/ToggleButton';
 import {
   usePreviewResize,
   BREAKPOINTS,
@@ -61,11 +64,32 @@ import {
 } from '../../lib/edit';
 import { VisualEditorPanel } from '../edit/VisualEditorPanel';
 import { ElementTreePanel } from '../edit/ElementTreePanel';
+import { VariablesPanel } from '../edit/VariablesPanel';
 import { useElementTree } from '../../hooks/useElementTree';
 import { PreviewLocaleSwitcher, type PreviewLocaleConfig } from './PreviewLocaleSwitcher';
-import { CompactIcon, ExpandIcon, PanelLeftIcon, ResetIcon, UndoIcon, RedoIcon } from '../icons';
-import { Button } from '../primitives/Button';
+import {
+  CompactIcon,
+  ChevronIcon,
+  CloseIcon,
+  DesktopIcon,
+  EditIcon,
+  ExpandIcon,
+  FullBreakpointIcon,
+  LaptopIcon,
+  MobileIcon,
+  PackageIcon,
+  RedoIcon,
+  ResetIcon,
+  TabletIcon,
+  TerminalIcon,
+  UndoIcon,
+} from '@/components/icons';
+import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { Spinner } from '../primitives/Spinner';
+import { PanelResizeHandle } from '../primitives/PanelResizeHandle';
+import { DockablePanel } from '../primitives/DockablePanel';
+import { TREE_PANEL_MIN_WIDTH_PX } from './panelSizing';
+import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
 import { pathLocale, switchPathLocale } from '../../lib/i18n';
 import { kbd } from '../../lib/shortcuts';
 import { useCommands } from '../../commands/useCommands';
@@ -73,94 +97,17 @@ import { logger } from '../../lib/logger';
 import type { ProjectType } from '../../lib/static-server';
 import type { DevServerUnexpectedExit } from '../../hooks/useDevServer';
 import { isEditorFramework, resolveEditorMode } from '../../lib/editorGate';
+import { Tooltip } from '../primitives/Tooltip';
 
-// SVG icons for breakpoints
 const BreakpointIcon = ({ type }: { type: Breakpoint }) => {
-  if (type === 'full') {
-    // Horizontal stretch-to-edges for full width — deliberately distinct from
-    // the diagonal expand arrows on the fullscreen toolbar button.
-    return (
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <line x1="3" y1="4" x2="3" y2="20" />
-        <line x1="21" y1="4" x2="21" y2="20" />
-        <line x1="7" y1="12" x2="17" y2="12" />
-        <polyline points="10 9 7 12 10 15" />
-        <polyline points="14 9 17 12 14 15" />
-      </svg>
-    );
-  }
-  if (type === 'desktop') {
-    // Monitor with stand for desktop
-    return (
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <line x1="8" y1="21" x2="16" y2="21" />
-        <line x1="12" y1="17" x2="12" y2="21" />
-      </svg>
-    );
-  }
-  if (type === 'laptop') {
-    // Laptop icon
-    return (
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <rect x="3" y="4" width="18" height="12" rx="2" />
-        <line x1="2" y1="20" x2="22" y2="20" />
-      </svg>
-    );
-  }
-  if (type === 'tablet') {
-    return (
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      >
-        <rect x="4" y="2" width="16" height="20" rx="2" />
-        <line x1="12" y1="18" x2="12" y2="18" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  // Mobile
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <rect x="7" y="2" width="10" height="20" rx="2" />
-      <line x1="12" y1="18" x2="12" y2="18" strokeLinecap="round" />
-    </svg>
-  );
+  if (type === 'full') return <FullBreakpointIcon />;
+  if (type === 'desktop') return <DesktopIcon />;
+  if (type === 'laptop') return <LaptopIcon />;
+  if (type === 'tablet') return <TabletIcon />;
+  return <MobileIcon />;
 };
+
+const PREVIEW_BREAKPOINTS = Object.keys(BREAKPOINTS) as Breakpoint[];
 
 /** Props for the Preview component */
 interface PreviewProps {
@@ -236,6 +183,24 @@ interface PreviewProps {
   redoTitle?: string;
   onUndo?: () => void;
   onRedo?: () => void;
+  /** Whether the preview's element tree is visible. */
+  elementTreeVisible: boolean;
+  /** Whether Elements occupies its preview-side dock or floats over the workspace. */
+  elementTreePinned: boolean;
+  /** Switch Elements between docked and floating modes. */
+  onToggleElementTreePin: () => void;
+  /** Hide Elements without changing its docked/floating preference. */
+  onCloseElementTree: () => void;
+  /** Reports whether the current preview is mounted and able to show the element tree. */
+  onElementTreeAvailabilityChange?: (available: boolean) => void;
+  /** Whether the standalone project Variables panel is open. */
+  variablesPanelVisible?: boolean;
+  /** Whether Variables occupies the preview's left-side dock. */
+  variablesPanelPinned?: boolean;
+  /** Switch Variables between its docked and floating modes. */
+  onToggleVariablesPanelPin?: () => void;
+  /** Closes the standalone project Variables panel. */
+  onCloseVariablesPanel?: () => void;
 }
 
 /**
@@ -269,9 +234,17 @@ const INSPECT_VIEWPORT_RESERVE_PX = 200;
  *  negative or absurdly small. */
 const INSPECT_PANEL_MAX_FALLBACK_PX = 160;
 
-/** Keyboard arrow-key step. Shift+arrow uses the larger step. */
-const INSPECT_PANEL_KEY_STEP_PX = 12;
-const INSPECT_PANEL_KEY_STEP_LARGE_PX = 60;
+/** Width bounds for the Element Tree's resizable left column. */
+const TREE_PANEL_MAX_WIDTH_PX = 480;
+const TREE_VIEWPORT_RESERVE_PX = 160;
+const TREE_PANEL_DEFAULT_WIDTH_PX = 240;
+const TREE_CODE_DEFAULT_WIDTH_PX = 420;
+const ELEMENT_TREE_FLOATING_SIZE = { width: 360, height: 620 };
+const EDITOR_PANEL_MIN_WIDTH_PX = 220;
+const EDITOR_PANEL_MAX_WIDTH_PX = 560;
+const EDITOR_PANEL_DEFAULT_WIDTH_PX = 300;
+const EDITOR_PANEL_PREVIOUS_DEFAULT_WIDTHS_PX = [264, 360];
+const EDITOR_PANEL_DEFAULT_VERSION_KEY = 'cssPanelDockedWidthDefault';
 
 export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   {
@@ -310,6 +283,15 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     redoTitle,
     onUndo,
     onRedo,
+    elementTreeVisible,
+    elementTreePinned,
+    onToggleElementTreePin,
+    onCloseElementTree,
+    onElementTreeAvailabilityChange,
+    variablesPanelVisible = false,
+    variablesPanelPinned = false,
+    onToggleVariablesPanelPin,
+    onCloseVariablesPanel = () => undefined,
   },
   ref
 ) {
@@ -384,16 +366,18 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
   });
 
   // Fullscreen: the container goes position:fixed over the window below the
-  // workspace header (kept visible — it carries the project name and makes
+  // active workspace chrome (kept visible for navigation and publishing) and makes
   // room for the macOS traffic lights). The iframe never remounts, so the
   // page state survives entering/leaving. ESC exits.
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // Bottom edge of the workspace header — the top of the fullscreen overlay
-  // and of the pinned editor sidebar. Measured (the header has no fixed height).
+  // Bottom edge of the active toolbar — the top of the fullscreen overlay
+  // and of the pinned editor sidebar. The classic layout has a second row.
   const [chromeTop, setChromeTop] = useState(0);
   useEffect(() => {
     const measure = () => {
-      const header = document.querySelector('.workspace-header');
+      const header =
+        document.querySelector('.workspace-header') ??
+        document.querySelector('.workspace-titlebar');
       setChromeTop(header ? Math.round(header.getBoundingClientRect().bottom) : 0);
     };
     measure();
@@ -433,72 +417,28 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     return Math.max(INSPECT_PANEL_MAX_FALLBACK_PX, containerHeight - INSPECT_VIEWPORT_RESERVE_PX);
   }, []);
 
-  const handleInspectResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
+  const resizeInspectPanel = useCallback(
+    (clientY: number) => {
       const panel = inspectPanelRef.current;
       const container = panel?.parentElement;
       if (!panel || !container) return;
 
-      setIsInspectResizing(true);
-      document.body.style.cursor = 'ns-resize';
-      document.body.style.userSelect = 'none';
-
-      const startY = e.clientY;
-      const startHeight = panel.offsetHeight;
       const maxPanelHeight = computeMaxPanelHeight(container.clientHeight);
-
-      let rafId: number | null = null;
-      const onMove = (ev: MouseEvent) => {
-        if (rafId !== null) return;
-        rafId = requestAnimationFrame(() => {
-          rafId = null;
-          const deltaY = startY - ev.clientY; // up = grow panel
-          const next = startHeight + deltaY;
-          setInspectPanelHeight(
-            Math.max(INSPECT_PANEL_MIN_HEIGHT_PX, Math.min(next, maxPanelHeight))
-          );
-        });
-      };
-      const onUp = () => {
-        if (rafId !== null) cancelAnimationFrame(rafId);
-        setIsInspectResizing(false);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      const next = container.getBoundingClientRect().bottom - clientY;
+      setInspectPanelHeight(Math.max(INSPECT_PANEL_MIN_HEIGHT_PX, Math.min(next, maxPanelHeight)));
     },
     [computeMaxPanelHeight]
   );
 
-  // Keyboard support for the resize separator: arrow keys nudge, Home/End
-  // jump to the bounds. Required for users who can't drag with a pointer.
-  const handleInspectResizeKey = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Home' && e.key !== 'End') {
-        return;
-      }
+  const resizeInspectPanelBy = useCallback(
+    (delta: number) => {
       const panel = inspectPanelRef.current;
       const container = panel?.parentElement;
       if (!panel || !container) return;
-      e.preventDefault();
 
       const max = computeMaxPanelHeight(container.clientHeight);
       const current = inspectPanelHeight ?? panel.offsetHeight;
-      const step = e.shiftKey ? INSPECT_PANEL_KEY_STEP_LARGE_PX : INSPECT_PANEL_KEY_STEP_PX;
-
-      if (e.key === 'ArrowUp') {
-        setInspectPanelHeight(Math.min(current + step, max));
-      } else if (e.key === 'ArrowDown') {
-        setInspectPanelHeight(Math.max(current - step, INSPECT_PANEL_MIN_HEIGHT_PX));
-      } else if (e.key === 'Home') {
-        setInspectPanelHeight(INSPECT_PANEL_MIN_HEIGHT_PX);
-      } else if (e.key === 'End') {
-        setInspectPanelHeight(max);
-      }
+      setInspectPanelHeight(Math.max(INSPECT_PANEL_MIN_HEIGHT_PX, Math.min(current - delta, max)));
     },
     [inspectPanelHeight, computeMaxPanelHeight]
   );
@@ -644,15 +584,16 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     signature: cssEditor.selection?.signature ?? null,
     onToast,
   });
-  // The CSS panel's active scope (Element / Variables / Animations), lifted so the
-  // Cmd+K palette can open the editor straight to a given scope.
-  const [cssScope, setCssScope] = useState<'element' | 'variables' | 'animations'>('element');
-  // Project-global scopes of the CSS panel: design tokens + animations.
+  // The CSS panel's active view (Style / Settings / Animate), lifted so the Cmd+K
+  // palette can open the editor straight to a given view.
+  const [cssScope, setCssScope] = useState<'style' | 'settings' | 'animations'>('style');
+  // Project-global CSS variables are available from their own workspace panel.
   const cssVariables = useCssVariables({
     iframeRef,
     projectPath,
-    enabled: cssEditor.editMode,
+    enabled: editor.editMode || cssEditor.editMode || variablesPanelVisible,
     onToast,
+    onVariableDeleted: editor.reconcileDeletedVariable,
   });
   const cssAnimations = useCssAnimations({
     projectPath,
@@ -666,6 +607,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
       ? 'css'
       : null;
   const activeEditMode = editor.editMode || cssEditor.editMode;
+  useEffect(() => {
+    onElementTreeAvailabilityChange?.(true);
+    return () => onElementTreeAvailabilityChange?.(false);
+  }, [onElementTreeAvailabilityChange]);
   // Inline text editing (double-click copy) is shared by both styling editors —
   // mounted once here, active whenever either editor's edit mode is on, so it
   // works for vanilla-CSS/Astro projects (cssEditor) as well as Tailwind.
@@ -690,12 +635,12 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     editorMode === 'css' ? cssEditor.toggleEditMode : editor.toggleEditMode;
 
   // ── Cmd+K commands for the native CSS editor (vanilla-CSS projects only). The panel
-  // is opened by toggling edit mode; the scope state lets a command land straight on
+  // is opened by toggling edit mode; the view state lets a command land straight on
   // Variables or Animations. Registered only when this editor applies to the project.
   const cssEditorOn = cssEditor.editMode;
   const cssToggleEditMode = cssEditor.toggleEditMode;
   const openCssEditor = useCallback(
-    (scope: 'element' | 'variables' | 'animations') => {
+    (scope: 'style' | 'settings' | 'animations') => {
       try {
         setCssScope(scope);
         if (!cssEditorOn) cssToggleEditMode();
@@ -720,21 +665,13 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               run: () => {
                 try {
                   if (cssEditorOn) cssToggleEditMode();
-                  else openCssEditor('element');
+                  else openCssEditor('style');
                 } catch (err) {
                   const detail = formatCommandError(asCommandError(err));
                   onToast(`Could not toggle the CSS editor: ${detail}`, 'error');
                   logger.error('[Preview] toggle CSS editor failed', { error: detail });
                 }
               },
-            },
-            {
-              id: 'css.variables',
-              title: 'CSS variables (design tokens)',
-              category: 'action' as const,
-              when: 'project' as const,
-              keywords: ['css', 'variable', 'custom property', 'token', 'theme', '--'],
-              run: () => openCssEditor('variables'),
             },
             {
               id: 'css.animations',
@@ -837,23 +774,174 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     []
   );
 
-  // Element tree (navigator) — left column in fullscreen edit mode, like
-  // Webflow's navigator: read-only, select-only. Toggleable from the toolbar;
-  // the choice persists cross-project like the editor pin.
-  const [treeVisible, setTreeVisible] = useState(
-    () => localStorage.getItem('elementTreeVisible') !== '0'
-  );
-  const toggleTreeVisible = useCallback(() => {
-    setTreeVisible((v) => {
-      localStorage.setItem('elementTreeVisible', v ? '0' : '1');
-      return !v;
-    });
-  }, []);
-  const showTree = isFullscreen && activeEditMode && treeVisible;
+  // Element tree (navigator) — available throughout Preview mode. Structural
+  // actions remain exclusive to edit mode; outside it the panel is a read-only
+  // view of the rendered page.
+  const showTree = elementTreeVisible;
+  const variablesPanelDocked = variablesPanelVisible && variablesPanelPinned;
   // The Elements panel's Code (markup-edit) view needs a wider column than the
   // navigator; the tree panel reports its view so we can widen the grid track.
   const [treeCodeView, setTreeCodeView] = useState(false);
-  const elementTree = useElementTree({ iframeRef, enabled: showTree });
+  const effectiveTreeCodeView = activeEditMode && treeCodeView;
+  const [variablesPanelWidth, setVariablesPanelWidth] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem('variablesPanelDockedWidth'));
+    return Number.isFinite(saved) &&
+      saved >= TREE_PANEL_MIN_WIDTH_PX &&
+      saved <= TREE_PANEL_MAX_WIDTH_PX
+      ? saved
+      : null;
+  });
+  const [isVariablesResizing, setIsVariablesResizing] = useState(false);
+  const variablesPanelRef = useRef<HTMLDivElement | null>(null);
+  const [treePanelWidth, setTreePanelWidth] = useState<number | null>(() => {
+    const saved = Number(localStorage.getItem('elementTreeDockedWidth'));
+    return Number.isFinite(saved) &&
+      saved >= TREE_PANEL_MIN_WIDTH_PX &&
+      saved <= TREE_PANEL_MAX_WIDTH_PX
+      ? saved
+      : null;
+  });
+  const [isTreeResizing, setIsTreeResizing] = useState(false);
+  const treePanelRef = useRef<HTMLDivElement | null>(null);
+  const editorPanelDockRef = useRef<HTMLDivElement | null>(null);
+  const [editorPanelWidth, setEditorPanelWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('cssPanelDockedWidth'));
+    const defaultWasMigrated =
+      localStorage.getItem(EDITOR_PANEL_DEFAULT_VERSION_KEY) ===
+      String(EDITOR_PANEL_DEFAULT_WIDTH_PX);
+    if (!defaultWasMigrated && EDITOR_PANEL_PREVIOUS_DEFAULT_WIDTHS_PX.includes(saved)) {
+      return EDITOR_PANEL_DEFAULT_WIDTH_PX;
+    }
+    return Number.isFinite(saved) &&
+      saved >= EDITOR_PANEL_MIN_WIDTH_PX &&
+      saved <= EDITOR_PANEL_MAX_WIDTH_PX
+      ? saved
+      : EDITOR_PANEL_DEFAULT_WIDTH_PX;
+  });
+  // The loading/error branches render before the iframe exists. Start the tree
+  // subscription when the preview is ready so its initial request reaches the
+  // injected script even when the Elements panel is already open.
+  const elementTree = useElementTree({
+    iframeRef,
+    enabled: showTree && conn.serverReady,
+  });
+
+  useEffect(() => {
+    if (treePanelWidth !== null) {
+      localStorage.setItem('elementTreeDockedWidth', String(treePanelWidth));
+    }
+  }, [treePanelWidth]);
+
+  useEffect(() => {
+    if (variablesPanelWidth !== null) {
+      localStorage.setItem('variablesPanelDockedWidth', String(variablesPanelWidth));
+    }
+  }, [variablesPanelWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('cssPanelDockedWidth', String(editorPanelWidth));
+    localStorage.setItem(EDITOR_PANEL_DEFAULT_VERSION_KEY, String(EDITOR_PANEL_DEFAULT_WIDTH_PX));
+  }, [editorPanelWidth]);
+
+  const computeMaxDockedPanelWidth = useCallback((containerWidth: number) => {
+    return Math.max(
+      TREE_PANEL_MIN_WIDTH_PX,
+      Math.min(TREE_PANEL_MAX_WIDTH_PX, containerWidth - TREE_VIEWPORT_RESERVE_PX)
+    );
+  }, []);
+
+  const resizeVariablesPanel = useCallback(
+    (clientX: number) => {
+      const panel = variablesPanelRef.current;
+      const container = panel?.parentElement;
+      if (!panel || !container) return;
+
+      const maxPanelWidth = computeMaxDockedPanelWidth(container.clientWidth);
+      const next = clientX - panel.getBoundingClientRect().left;
+      setVariablesPanelWidth(Math.max(TREE_PANEL_MIN_WIDTH_PX, Math.min(next, maxPanelWidth)));
+    },
+    [computeMaxDockedPanelWidth]
+  );
+
+  const resizeVariablesPanelBy = useCallback(
+    (delta: number) => {
+      const panel = variablesPanelRef.current;
+      const container = panel?.parentElement;
+      if (!panel || !container) return;
+
+      const max = computeMaxDockedPanelWidth(container.clientWidth);
+      const current = variablesPanelWidth ?? panel.offsetWidth;
+      setVariablesPanelWidth(Math.max(TREE_PANEL_MIN_WIDTH_PX, Math.min(current + delta, max)));
+    },
+    [variablesPanelWidth, computeMaxDockedPanelWidth]
+  );
+
+  const resizeTreePanel = useCallback(
+    (clientX: number) => {
+      const panel = treePanelRef.current;
+      const container = panel?.parentElement;
+      if (!panel || !container) return;
+
+      const maxTreeWidth = computeMaxDockedPanelWidth(container.clientWidth);
+      // Elements may follow Variables in the left dock. Measure from the
+      // Elements slot itself so preceding panels do not affect its width.
+      const next = clientX - panel.getBoundingClientRect().left;
+      setTreePanelWidth(Math.max(TREE_PANEL_MIN_WIDTH_PX, Math.min(next, maxTreeWidth)));
+    },
+    [computeMaxDockedPanelWidth]
+  );
+
+  const resizeTreePanelBy = useCallback(
+    (delta: number) => {
+      const panel = treePanelRef.current;
+      const container = panel?.parentElement;
+      if (!panel || !container) return;
+
+      const max = computeMaxDockedPanelWidth(container.clientWidth);
+      const current = treePanelWidth ?? panel.offsetWidth;
+      setTreePanelWidth(Math.max(TREE_PANEL_MIN_WIDTH_PX, Math.min(current + delta, max)));
+    },
+    [treePanelWidth, computeMaxDockedPanelWidth]
+  );
+
+  const resizeEditorPanel = useCallback((clientX: number) => {
+    const container = editorPanelDockRef.current?.parentElement;
+    if (!container) return;
+    const next = container.getBoundingClientRect().right - clientX;
+    setEditorPanelWidth(
+      Math.max(EDITOR_PANEL_MIN_WIDTH_PX, Math.min(next, EDITOR_PANEL_MAX_WIDTH_PX))
+    );
+  }, []);
+
+  const resizeEditorPanelBy = useCallback((delta: number) => {
+    setEditorPanelWidth((current) =>
+      Math.max(EDITOR_PANEL_MIN_WIDTH_PX, Math.min(current + delta, EDITOR_PANEL_MAX_WIDTH_PX))
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!showTree) return;
+    const container = treePanelRef.current?.parentElement;
+    if (!container) return;
+    const ro = new ResizeObserver(() => {
+      const max = computeMaxDockedPanelWidth(container.clientWidth);
+      setTreePanelWidth((prev) => (prev === null || prev <= max ? prev : max));
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [showTree, computeMaxDockedPanelWidth]);
+
+  useEffect(() => {
+    if (!variablesPanelDocked) return;
+    const container = variablesPanelRef.current?.parentElement;
+    if (!container) return;
+    const ro = new ResizeObserver(() => {
+      const max = computeMaxDockedPanelWidth(container.clientWidth);
+      setVariablesPanelWidth((prev) => (prev === null || prev <= max ? prev : max));
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [variablesPanelDocked, computeMaxDockedPanelWidth]);
 
   const [iframeSize, setIframeSize] = useState<{ w: number; h: number } | null>(null);
   const iframeSizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -1029,23 +1117,10 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     return (
       <div className="preview-install-prompt">
         <div className="preview-install-icon" aria-hidden>
-          <svg
-            width="32"
-            height="32"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-            <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-            <line x1="12" y1="22.08" x2="12" y2="12" />
-          </svg>
+          <PackageIcon size={32} />
         </div>
         <h3>Dependencies not installed</h3>
-        <p className="hint">
+        <p className="text-style-hint">
           This project hasn't run <code>{needsInstall.packageManager} install</code> yet.
         </p>
         <Button variant="primary" onClick={onRunInstall} disabled={!onRunInstall}>
@@ -1080,111 +1155,124 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
     );
   }
 
+  const hasCustomDockedWidth =
+    (variablesPanelDocked && variablesPanelWidth !== null) ||
+    (showTree && elementTreePinned && treePanelWidth !== null);
+  const dockedGridTemplateColumns = hasCustomDockedWidth
+    ? [
+        variablesPanelDocked
+          ? variablesPanelWidth !== null
+            ? `${variablesPanelWidth}px`
+            : 'var(--tree-panel-w)'
+          : null,
+        showTree && elementTreePinned
+          ? treePanelWidth !== null
+            ? `${treePanelWidth}px`
+            : effectiveTreeCodeView
+              ? 'var(--tree-code-w)'
+              : 'var(--tree-panel-w)'
+          : null,
+        'minmax(0, 1fr)',
+        activeEditMode && editorPinned ? 'var(--editor-panel-visual-w)' : null,
+      ]
+        .filter((column): column is string => column !== null)
+        .join(' ')
+    : undefined;
+
   return (
     <div
       className={`preview-container${isFullscreen ? ' preview-container--fullscreen' : ''}${
         activeEditMode && editorPinned ? ' preview-container--editor-pinned' : ''
-      }${showTree ? ' preview-container--tree' : ''}${
-        showTree && treeCodeView ? ' preview-container--tree-code' : ''
-      }`}
+      }${showTree && elementTreePinned ? ' preview-container--tree' : ''}${
+        showTree && elementTreePinned && effectiveTreeCodeView
+          ? ' preview-container--tree-code'
+          : ''
+      }${variablesPanelDocked ? ' preview-container--variables-pinned' : ''}`}
       data-logs={showLogs ? 'open' : 'closed'}
       style={{
+        ...(dockedGridTemplateColumns
+          ? { gridTemplateColumns: dockedGridTemplateColumns }
+          : undefined),
         ...(showLogs && inspectPanelHeight !== null
           ? {
               gridTemplateRows: `auto minmax(0, 1fr) var(--handle-size) ${inspectPanelHeight}px`,
             }
           : undefined),
+        ...(activeEditMode && editorPinned
+          ? ({
+              '--editor-panel-visual-w': `${editorPanelWidth}px`,
+            } as React.CSSProperties)
+          : undefined),
         ...(isFullscreen ? { top: chromeTop } : undefined),
       }}
     >
       <div className="preview-toolbar">
-        {editorMode ? (
-          <button
-            type="button"
-            className={`preview-edit-toggle${activeEditMode ? ' active' : ''}`}
-            onClick={toggleActiveEditor}
-            title="Toggle visual editor"
-            aria-pressed={activeEditMode}
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
-            </svg>
-            <span className="preview-toolbar-btn-label">Edit</span>
-            <span
-              className={`preview-edit-toggle-switch ${activeEditMode ? 'is-on' : ''}`}
-              aria-hidden
-            />
-          </button>
-        ) : (
-          // Preview-capable but not editable: show the toggle grayed out with a
-          // tooltip explaining what visual editing is and where it works.
-          <span className="preview-edit-toggle-wrap">
-            <button
-              type="button"
-              className="preview-edit-toggle preview-edit-toggle--disabled"
-              aria-disabled="true"
-              tabIndex={-1}
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+        <div className="preview-toolbar-actions">
+          <div className="preview-toolbar-control-group">
+            {editorMode ? (
+              <ToggleButton
+                type="button"
+                className="preview-edit-control"
+                variant={activeEditMode ? 'secondary' : 'default'}
+                onClick={toggleActiveEditor}
+                title="Toggle visual editor"
+                pressed={activeEditMode}
+                aria-label="Edit"
               >
-                <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
-              </svg>
-              <span className="preview-toolbar-btn-label">Edit</span>
-            </button>
-            <span className="preview-edit-tooltip" role="tooltip">
-              <strong>Visual editing</strong>
-              <span>
-                Click elements in the preview to edit their styles — no code. Works with Next.js,
-                Astro, Vite (React), and Shopify projects styled with Tailwind, and with Astro or
-                plain HTML/CSS projects styled with regular CSS.
-              </span>
-            </span>
-          </span>
-        )}
+                <EditIcon size={13} />
+                <span
+                  className={`preview-edit-toggle-switch ${activeEditMode ? 'is-on' : ''}`}
+                  aria-hidden
+                />
+              </ToggleButton>
+            ) : (
+              // Preview-capable but not editable: show the toggle grayed out with a
+              // shared tooltip explaining why visual editing is unavailable.
+              <Tooltip content="Visual editing is unavailable for this project. Supported projects can be edited by clicking elements in the preview.">
+                <span className="preview-edit-toggle-wrap preview-edit-control">
+                  <Button
+                    type="button"
+                    className="preview-edit-toggle--disabled"
+                    aria-disabled="true"
+                    tabIndex={-1}
+                    aria-label="Edit"
+                  >
+                    <EditIcon size={13} />
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
 
-        {onToggleLogs && (
-          <button
-            type="button"
-            className={`preview-logs-toggle ${showLogs ? 'active' : ''}`}
-            onClick={onToggleLogs}
-            title={showLogs ? 'Hide inspector' : 'Show inspector'}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
-            <span className="preview-toolbar-btn-label">Inspect</span>
-            <span className={`preview-logs-toggle-switch ${showLogs ? 'is-on' : ''}`} aria-hidden />
-          </button>
-        )}
+            {onToggleLogs && (
+              <ToggleButton
+                type="button"
+                className="preview-inspect-control"
+                variant={showLogs ? 'secondary' : 'default'}
+                pressed={showLogs}
+                onClick={onToggleLogs}
+                title={showLogs ? 'Hide inspector' : 'Show inspector'}
+                aria-label={showLogs ? 'Hide inspector' : 'Show inspector'}
+                leftIcon={<TerminalIcon size={14} />}
+              >
+                <span
+                  className={`preview-logs-toggle-switch ${showLogs ? 'is-on' : ''}`}
+                  aria-hidden
+                />
+              </ToggleButton>
+            )}
+
+            {previewPlugins && <div className="preview-toolbar-plugins">{previewPlugins}</div>}
+
+            {conn.serverReady && conn.externalUrl && (
+              <BrowserDropdown
+                url={conn.externalUrl}
+                className="preview-browser-control"
+                buttonClassName="preview-browser-control"
+                iconOnly
+              />
+            )}
+          </div>
+        </div>
 
         {/* Locale Switcher — only for projects with 2+ configured languages */}
         <PreviewLocaleSwitcher
@@ -1195,65 +1283,90 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         />
 
         {/* Page Switcher */}
-        <div className="page-switcher" ref={conn.dropdownRef} data-education-id="page-switcher">
-          <button
-            className="page-switcher-btn"
-            onClick={() => conn.setShowPageDropdown(!conn.showPageDropdown)}
+        <div className="page-switcher" data-education-id="page-switcher">
+          <Dropdown
+            menuClassName="page-dropdown"
+            onOpenChange={(open) => {
+              conn.setShowPageDropdown(open);
+              if (!open) conn.setPageSearch('');
+            }}
+            trigger={(triggerProps) => (
+              <MenuButton
+                {...triggerProps}
+                expanded={triggerProps['aria-expanded']}
+                variant="default"
+                className="page-switcher-trigger"
+                rightIcon={<ChevronIcon size={12} />}
+              >
+                <span className="page-route">{conn.currentPage}</span>
+                {conn.currentPage === '/' && <span className="page-route-context">Home</span>}
+              </MenuButton>
+            )}
           >
-            <span className="page-route">{conn.currentPage}</span>
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-          {conn.showPageDropdown && (
-            <div className="page-dropdown">
-              <input
-                ref={conn.searchInputRef}
-                type="text"
-                className="page-search"
-                placeholder="Search pages..."
-                value={conn.pageSearch}
-                onChange={(e) => conn.setPageSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && conn.filteredPages.length > 0) {
-                    selectPageKeepingLocale(conn.filteredPages[0].route);
-                  }
-                  if (e.key === 'Escape') {
-                    conn.setShowPageDropdown(false);
-                    conn.setPageSearch('');
-                  }
-                }}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck={false}
-              />
-              <div className="page-list">
-                {conn.filteredPages.length === 0 ? (
-                  <div className="page-list-empty">No pages found</div>
-                ) : (
-                  conn.filteredPages.map((page) => (
-                    <button
-                      key={page.route}
-                      className={`page-item ${page.route === conn.currentPage ? 'active' : ''}`}
-                      onClick={() => selectPageKeepingLocale(page.route)}
-                    >
-                      <span className="page-item-route">{page.route}</span>
-                      {page.route === '/' && <span className="page-item-hint">Home</span>}
-                    </button>
-                  ))
-                )}
-              </div>
+            <input
+              ref={conn.searchInputRef}
+              type="text"
+              className="page-search"
+              placeholder="Search pages..."
+              value={conn.pageSearch}
+              onChange={(e) => conn.setPageSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && conn.filteredPages.length > 0) {
+                  selectPageKeepingLocale(conn.filteredPages[0].route);
+                }
+                if (e.key === 'Escape') {
+                  conn.setShowPageDropdown(false);
+                  conn.setPageSearch('');
+                }
+              }}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+            />
+            <div className="page-list">
+              {conn.filteredPages.length === 0 ? (
+                <div className="page-list-empty">No pages found</div>
+              ) : (
+                conn.filteredPages.map((page) => (
+                  <DropdownItem
+                    key={page.route}
+                    active={page.route === conn.currentPage}
+                    onSelect={() => selectPageKeepingLocale(page.route)}
+                  >
+                    <span className="page-item-route">{page.route}</span>
+                    {page.route === '/' && <span className="page-item-hint">Home</span>}
+                  </DropdownItem>
+                ))
+              )}
             </div>
-          )}
+          </Dropdown>
         </div>
+
+        {onUndo && (
+          <button
+            type="button"
+            className="preview-fullscreen-btn preview-history-btn"
+            onClick={onUndo}
+            disabled={!canUndo}
+            title={undoTitle ?? `Undo last change (${kbd('mod', 'Z')})`}
+            aria-label="Undo"
+          >
+            <UndoIcon size={14} />
+          </button>
+        )}
+        {onRedo && (
+          <button
+            type="button"
+            className="preview-fullscreen-btn preview-history-btn"
+            onClick={onRedo}
+            disabled={!canRedo}
+            title={redoTitle ?? `Redo (${kbd('mod', 'shift', 'Z')})`}
+            aria-label="Redo"
+          >
+            <RedoIcon size={14} />
+          </button>
+        )}
 
         <button
           className="preview-refresh"
@@ -1263,33 +1376,6 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         >
           <ResetIcon size={14} />
         </button>
-
-        {/* Undo/redo live in the workspace header, which is hidden in fullscreen
-            — surface them here so visual edits can be undone while editing. */}
-        {isFullscreen && onUndo && (
-          <button
-            type="button"
-            className="preview-fullscreen-btn"
-            onClick={onUndo}
-            disabled={!canUndo}
-            title={undoTitle ?? `Undo last change (${kbd('mod', 'Z')})`}
-            aria-label="Undo"
-          >
-            <UndoIcon size={14} />
-          </button>
-        )}
-        {isFullscreen && onRedo && (
-          <button
-            type="button"
-            className="preview-fullscreen-btn"
-            onClick={onRedo}
-            disabled={!canRedo}
-            title={redoTitle ?? `Redo (${kbd('mod', 'shift', 'Z')})`}
-            aria-label="Redo"
-          >
-            <RedoIcon size={14} />
-          </button>
-        )}
 
         <button
           type="button"
@@ -1301,62 +1387,53 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           {isFullscreen ? <CompactIcon size={14} /> : <ExpandIcon size={14} />}
         </button>
 
-        {isFullscreen && activeEditMode && (
-          <button
-            type="button"
-            className={`preview-tree-btn${treeVisible ? ' active' : ''}`}
-            onClick={toggleTreeVisible}
-            title={treeVisible ? 'Hide element tree' : 'Show element tree'}
-            aria-pressed={treeVisible}
-          >
-            <PanelLeftIcon size={14} />
-          </button>
-        )}
-
-        {previewPlugins}
-
-        {iframeSize &&
-          iframeSize.w > 0 &&
-          iframeSize.h > 0 &&
-          (() => {
-            // The wrapper reports its VISUAL box; when the frame is scaled to
-            // fit, the page actually lays out at the true (unscaled) size —
-            // that's the honest number to show (and to let the user set).
-            const w = Math.round(iframeSize.w / resize.previewScale);
-            const h = Math.round(iframeSize.h / resize.previewScale);
-            return (
-              <PreviewSizeControl
-                width={w}
-                height={h}
-                hasCustomHeight={resize.customHeight !== null}
-                scalePercent={
-                  resize.previewScale < 1 ? Math.round(resize.previewScale * 100) : null
-                }
-                onApply={resize.previewAtSize}
-                onFit={() => resize.handleBreakpointClick('full')}
-                openSignal={sizePopoverSignal}
-              />
-            );
-          })()}
-
         <div className="preview-breakpoints" data-education-id="breakpoints">
-          {(Object.keys(BREAKPOINTS) as Breakpoint[]).map((bp) => {
-            // Every preset is always available — one wider than the pane
-            // renders at true size and scales down to fit (previewScale).
-            return (
-              <button
-                key={bp}
-                className={`breakpoint-btn ${resize.getActiveBreakpoint() === bp ? 'active' : ''}`}
-                onClick={() => resize.handleBreakpointClick(bp)}
-                title={`${BREAKPOINTS[bp].label} (${BREAKPOINTS[bp].width})`}
-              >
-                <BreakpointIcon type={bp} />
-              </button>
-            );
-          })}
-        </div>
+          <Tabs
+            value={resize.getActiveBreakpoint()}
+            mode="navigation"
+            onValueChange={(value) => resize.handleBreakpointClick(value as Breakpoint)}
+            className="preview-breakpoint-tabs"
+          >
+            <TabsList aria-label="Preview viewport sizes">
+              {PREVIEW_BREAKPOINTS.map((bp) => (
+                <TabsTab
+                  key={bp}
+                  value={bp}
+                  className="preview-breakpoint-tab button--icon-only"
+                  size="default"
+                  aria-label={BREAKPOINTS[bp].label}
+                  title={`${BREAKPOINTS[bp].label} (${BREAKPOINTS[bp].width})`}
+                >
+                  <BreakpointIcon type={bp} />
+                </TabsTab>
+              ))}
+            </TabsList>
+          </Tabs>
 
-        {conn.serverReady && conn.externalUrl && <BrowserDropdown url={conn.externalUrl} />}
+          {iframeSize &&
+            iframeSize.w > 0 &&
+            iframeSize.h > 0 &&
+            (() => {
+              // The wrapper reports its VISUAL box; when the frame is scaled to
+              // fit, the page actually lays out at the true (unscaled) size —
+              // that's the honest number to show (and to let the user set).
+              const w = Math.round(iframeSize.w / resize.previewScale);
+              const h = Math.round(iframeSize.h / resize.previewScale);
+              return (
+                <PreviewSizeControl
+                  width={w}
+                  height={h}
+                  hasCustomHeight={resize.customHeight !== null}
+                  scalePercent={
+                    resize.previewScale < 1 ? Math.round(resize.previewScale * 100) : null
+                  }
+                  onApply={resize.previewAtSize}
+                  onFit={() => resize.handleBreakpointClick('full')}
+                  openSignal={sizePopoverSignal}
+                />
+              );
+            })()}
+        </div>
       </div>
       <div
         className="preview-viewport"
@@ -1405,7 +1482,8 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               ref={iframeRef}
               src={conn.serverReady ? conn.currentUrl : 'about:blank'}
               className="preview-iframe"
-              title="Preview"
+              title=""
+              data-tooltip-disabled
               onLoad={conn.handleIframeLoad}
               // Scale-to-fit (Chrome-DevTools style): lay the page out at the
               // true breakpoint width and shrink the rendering to the wrapper.
@@ -1455,15 +1533,11 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
                   browser.
                 </p>
                 <div className="preview-iframe-error-actions">
-                  <Button variant="secondary" size="sm" onClick={conn.handleRefresh}>
+                  <Button variant="secondary" onClick={conn.handleRefresh}>
                     Retry
                   </Button>
                   {handleFixWithAgent && (
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleFixWithAgent('blank-iframe')}
-                    >
+                    <Button variant="primary" onClick={() => handleFixWithAgent('blank-iframe')}>
                       Fix with agent
                     </Button>
                   )}
@@ -1473,14 +1547,14 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
             {/* Branch switching overlay */}
             {isBranchSwitching && (
               <div className="preview-branch-switching-overlay">
-                <Spinner size="lg" style={{ color: 'var(--accent)' }} />
+                <Spinner size="lg" style={{ color: 'var(--accent-active)' }} />
                 <span>Switching branch...</span>
               </div>
             )}
             {/* Dev server restarting overlay */}
             {isDevServerRestarting && (
               <div className="preview-branch-switching-overlay">
-                <Spinner size="lg" style={{ color: 'var(--accent)' }} />
+                <Spinner size="lg" style={{ color: 'var(--accent-active)' }} />
                 <span>Restarting dev server...</span>
               </div>
             )}
@@ -1535,19 +1609,24 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         </div>
       </div>
       {showLogs && (
-        <div
-          className="inspect-resize-handle"
-          onMouseDown={handleInspectResizeStart}
-          onKeyDown={handleInspectResizeKey}
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize inspect panel"
-          tabIndex={0}
-        >
-          <div className="inspect-resize-handle-bar" />
-        </div>
+        <PanelResizeHandle
+          value={
+            inspectPanelHeight ??
+            inspectPanelRef.current?.offsetHeight ??
+            INSPECT_PANEL_MIN_HEIGHT_PX
+          }
+          min={INSPECT_PANEL_MIN_HEIGHT_PX}
+          max={computeMaxPanelHeight(
+            inspectPanelRef.current?.parentElement?.clientHeight ?? INSPECT_PANEL_MAX_FALLBACK_PX
+          )}
+          label="Resize Inspect panel"
+          orientation="horizontal"
+          onResize={resizeInspectPanel}
+          onResizeBy={resizeInspectPanelBy}
+          onDragChange={setIsInspectResizing}
+        />
       )}
-      {isInspectResizing && <div className="inspect-resize-overlay" />}
+      {isInspectResizing && <div className="panel-resize-overlay" />}
       <InspectPanel
         ref={inspectPanelRef}
         hidden={!showLogs}
@@ -1564,25 +1643,72 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
         onDevServerResize={onDevServerResize}
       />
       {showTree && (
-        <ElementTreePanel
-          tree={elementTree.tree}
-          truncated={elementTree.truncated}
-          selectedId={elementTree.selectedId}
-          onSelect={elementTree.selectNode}
-          onHover={elementTree.hoverNode}
-          projectPath={projectPath}
-          selectedSignature={
-            (editorMode === 'css' ? cssEditor.selection?.signature : editor.selection?.signature) ??
-            null
-          }
-          onViewChange={(v) => setTreeCodeView(v === 'code')}
-          structure={{
-            selectAndRun: structure.selectAndRun,
-            insert: (position, kind) => void structure.insert(position, kind),
-            duplicate: () => void structure.duplicate(),
-            remove: () => void structure.remove(),
-          }}
-        />
+        <>
+          <DockablePanel
+            docked={elementTreePinned}
+            ariaLabel="Elements panel"
+            positionKey="elementTreeFloatingPosition"
+            sizeKey="elementTreeFloatingSize"
+            floatingSize={ELEMENT_TREE_FLOATING_SIZE}
+            initialPosition={() => ({ left: 72, top: 96 })}
+            placeholderClassName={`ss-tree-panel-dock${
+              variablesPanelDocked ? ' ss-tree-panel-dock--after-variables' : ''
+            }`}
+            dockLayoutKey={variablesPanelDocked ? (variablesPanelWidth ?? 'default') : 'floating'}
+            surfaceClassName="dockable-panel__surface--preview"
+            placeholderRef={treePanelRef}
+            dockedZIndex={isFullscreen ? 'var(--z-floating-panel)' : undefined}
+          >
+            <ElementTreePanel
+              tree={elementTree.tree}
+              truncated={elementTree.truncated}
+              selectedId={elementTree.selectedId}
+              affectedIds={elementTree.affectedIds}
+              onSelect={elementTree.selectNode}
+              onHover={elementTree.hoverNode}
+              projectPath={projectPath}
+              selectedSignature={
+                (editorMode === 'css'
+                  ? cssEditor.selection?.signature
+                  : editor.selection?.signature) ?? null
+              }
+              onViewChange={(v) => setTreeCodeView(v === 'code')}
+              pinned={elementTreePinned}
+              onTogglePin={onToggleElementTreePin}
+              onClose={onCloseElementTree}
+              structure={
+                activeEditMode
+                  ? {
+                      selectAndRun: structure.selectAndRun,
+                      insert: (position, kind) => void structure.insert(position, kind),
+                      duplicate: () => void structure.duplicate(),
+                      remove: () => void structure.remove(),
+                    }
+                  : undefined
+              }
+            />
+          </DockablePanel>
+          {elementTreePinned && (
+            <PanelResizeHandle
+              value={
+                treePanelWidth ??
+                (effectiveTreeCodeView ? TREE_CODE_DEFAULT_WIDTH_PX : TREE_PANEL_DEFAULT_WIDTH_PX)
+              }
+              min={TREE_PANEL_MIN_WIDTH_PX}
+              max={TREE_PANEL_MAX_WIDTH_PX}
+              label="Resize Elements panel"
+              className={`panel-resize-handle--tree${
+                variablesPanelDocked ? ' panel-resize-handle--tree-after-variables' : ''
+              }`}
+              onResize={resizeTreePanel}
+              onResizeBy={resizeTreePanelBy}
+              onDragChange={setIsTreeResizing}
+            />
+          )}
+        </>
+      )}
+      {(isTreeResizing || isVariablesResizing) && (
+        <div className="panel-resize-overlay panel-resize-overlay--vertical" />
       )}
       {editor.editMode &&
         (() => {
@@ -1595,6 +1721,7 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
               selection={editor.selection}
               projectPath={projectPath}
               currentClass={editor.currentClass}
+              variables={cssVariables.variables}
               textResolution={textEditing.textResolution}
               imageResolution={editor.imageResolution}
               onReplaceImage={editor.replaceImage}
@@ -1639,48 +1766,123 @@ export const Preview = forwardRef<PreviewHandle, PreviewProps>(function Preview(
           // — grid track-sizing was letting the in-flow panel grow past the
           // viewport in WebKit instead.
           return editorPinned ? (
-            <div className="ss-edit-panel-dock">{panel}</div>
+            <div ref={editorPanelDockRef} className="ss-edit-panel-dock">
+              {panel}
+              <PanelResizeHandle
+                value={editorPanelWidth}
+                min={EDITOR_PANEL_MIN_WIDTH_PX}
+                max={EDITOR_PANEL_MAX_WIDTH_PX}
+                label="Resize Visual Editor panel"
+                className="ss-edit-panel-dock__resize"
+                onResize={resizeEditorPanel}
+                onResizeBy={resizeEditorPanelBy}
+              />
+            </div>
           ) : (
             createPortal(panel, document.body)
           );
         })()}
       {cssEditor.editMode &&
         (() => {
-          // Same floating-vs-pinned strategy as the Tailwind panel above.
-          const panel = (
-            <CssCascadePanel
-              selection={cssEditor.selection}
-              rows={cssEditor.rows}
-              loading={cssEditor.loading}
-              bodies={cssEditor.bodies}
-              overridden={cssEditor.overridden}
-              onChangeBody={cssEditor.setBody}
-              onDeleteRule={(key) => void cssEditor.deleteRule(key)}
-              onWrapRule={(key, at) => void cssEditor.wrapRule(key, at)}
-              onRenameRule={(key, sel) => void cssEditor.renameSelector(key, sel)}
-              onRenameAtRule={(key, m) => void cssEditor.renameAtRule(key, m)}
-              onAddSelector={(sel) => void cssEditor.addSelector(sel)}
-              selectorSuggestions={cssEditor.classSuggestions.map((c) => `.${c}`)}
-              existingSelectors={cssEditor.existingSelectors}
-              variables={cssEditor.variableSuggestions}
-              animations={cssEditor.animationSuggestions}
-              justCreatedKey={cssEditor.justCreatedKey}
-              settings={elementSettings}
-              variablesState={cssVariables}
-              animationsState={cssAnimations}
-              onClose={cssEditor.toggleEditMode}
-              pinned={editorPinned}
-              onTogglePin={toggleEditorPinned}
-              scope={cssScope}
-              onScopeChange={setCssScope}
-            />
-          );
-          return editorPinned ? (
-            <div className="ss-edit-panel-dock">{panel}</div>
-          ) : (
-            createPortal(panel, document.body)
+          return (
+            <div
+              ref={editorPanelDockRef}
+              className={editorPinned ? 'ss-edit-panel-dock' : 'ss-edit-panel-dock-host--floating'}
+            >
+              <DockablePanel
+                docked={editorPinned}
+                ariaLabel="CSS panel"
+                positionKey="cssPanelFloatingPosition"
+                sizeKey="cssPanelFloatingSize"
+                floatingSize={{ width: 360, height: 680 }}
+                initialPosition={() => ({
+                  left: Math.max(24, window.innerWidth - 384),
+                  top: 76,
+                })}
+                placeholderClassName="ss-edit-panel-dock__slot"
+                surfaceClassName="dockable-panel__surface--preview"
+                dockedZIndex={isFullscreen ? 'var(--z-floating-panel)' : undefined}
+              >
+                <CssCascadePanel
+                  selection={cssEditor.selection}
+                  rows={cssEditor.rows}
+                  loading={cssEditor.loading}
+                  bodies={cssEditor.bodies}
+                  overridden={cssEditor.overridden}
+                  onChangeBody={cssEditor.setBody}
+                  onDeleteRule={(key) => void cssEditor.deleteRule(key)}
+                  onWrapRule={(key, at) => void cssEditor.wrapRule(key, at)}
+                  onRenameRule={(key, sel) => void cssEditor.renameSelector(key, sel)}
+                  onRenameAtRule={(key, m) => void cssEditor.renameAtRule(key, m)}
+                  onAddSelector={(sel) => void cssEditor.addSelector(sel)}
+                  selectorSuggestions={cssEditor.classSuggestions.map((c) => `.${c}`)}
+                  existingSelectors={cssEditor.existingSelectors}
+                  variables={cssEditor.variableSuggestions}
+                  animations={cssEditor.animationSuggestions}
+                  justCreatedKey={cssEditor.justCreatedKey}
+                  settings={elementSettings}
+                  animationsState={cssAnimations}
+                  onClose={cssEditor.toggleEditMode}
+                  pinned={editorPinned}
+                  onTogglePin={toggleEditorPinned}
+                  scope={cssScope}
+                  onScopeChange={setCssScope}
+                />
+              </DockablePanel>
+              {editorPinned && (
+                <PanelResizeHandle
+                  value={editorPanelWidth}
+                  min={EDITOR_PANEL_MIN_WIDTH_PX}
+                  max={EDITOR_PANEL_MAX_WIDTH_PX}
+                  label="Resize CSS panel"
+                  className="ss-edit-panel-dock__resize"
+                  onResize={resizeEditorPanel}
+                  onResizeBy={resizeEditorPanelBy}
+                />
+              )}
+            </div>
           );
         })()}
+      {variablesPanelVisible && (
+        <>
+          <DockablePanel
+            docked={variablesPanelDocked}
+            ariaLabel="Variables panel"
+            positionKey="variablesPanelFloatingPosition"
+            sizeKey="variablesPanelFloatingSize"
+            floatingSize={{ width: 360, height: 680 }}
+            minFloatingSize={{ width: 280, height: 320 }}
+            initialPosition={() => ({
+              left: Math.max(24, window.innerWidth - 384),
+              top: 96,
+            })}
+            placeholderClassName="ss-variables-panel-dock"
+            dockLayoutKey={variablesPanelDocked ? (variablesPanelWidth ?? 'default') : 'floating'}
+            placeholderRef={variablesPanelRef}
+            surfaceClassName="dockable-panel__surface--preview"
+            dockedZIndex={isFullscreen ? 'var(--z-floating-panel)' : undefined}
+          >
+            <VariablesPanel
+              variablesState={cssVariables}
+              pinned={variablesPanelDocked}
+              onTogglePin={onToggleVariablesPanelPin}
+              onClose={onCloseVariablesPanel}
+            />
+          </DockablePanel>
+          {variablesPanelDocked && (
+            <PanelResizeHandle
+              value={variablesPanelWidth ?? TREE_PANEL_DEFAULT_WIDTH_PX}
+              min={TREE_PANEL_MIN_WIDTH_PX}
+              max={TREE_PANEL_MAX_WIDTH_PX}
+              label="Resize Variables panel"
+              className="panel-resize-handle--variables"
+              onResize={resizeVariablesPanel}
+              onResizeBy={resizeVariablesPanelBy}
+              onDragChange={setIsVariablesResizing}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 });
@@ -1728,89 +1930,73 @@ const InspectPanel = forwardRef<HTMLDivElement, InspectPanelProps>(function Insp
 
   return (
     <div ref={ref} className="preview-logs-panel" aria-hidden={hidden}>
-      <div className="preview-logs-header">
-        <div className="preview-logs-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'logs'}
-            className={`preview-logs-tab ${activeTab === 'logs' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('logs')}
-          >
-            Server Logs
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'browser'}
-            className={`preview-logs-tab ${activeTab === 'browser' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('browser')}
-          >
-            Browser Tools
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'health'}
-            className={`preview-logs-tab ${activeTab === 'health' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('health')}
-          >
-            Health
-          </button>
-        </div>
-        {onClose && (
-          <button
-            type="button"
-            className="preview-logs-close"
-            onClick={onClose}
-            title="Hide panel"
-            aria-label="Hide panel"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+      <Tabs value={activeTab} onValueChange={(next) => setActiveTab(next as InspectTab)}>
+        <div className="preview-logs-header">
+          <TabsList className="preview-logs-tabs" aria-label="Preview diagnostics">
+            <TabsTab value="logs" className="preview-logs-tab">
+              Server Logs
+            </TabsTab>
+            <TabsTab value="browser" className="preview-logs-tab">
+              Browser Tools
+            </TabsTab>
+            <TabsTab value="health" className="preview-logs-tab">
+              Health
+            </TabsTab>
+          </TabsList>
+          {onClose && (
+            <button
+              type="button"
+              className="preview-logs-close"
+              onClick={onClose}
+              title="Hide panel"
+              aria-label="Hide panel"
             >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        )}
-      </div>
-      {/* Both tab contents stay mounted and stack in the same grid cell.
-          Toggling `is-active` swaps visibility via CSS (opacity) so
-          DevServerLogs doesn't re-init xterm (and BrowserTools doesn't
-          re-subscribe to the store) every time the user switches tabs.
-          `inert` on inactive slots blocks keyboard focus and pointer
-          events without needing pointer-events: none (which doesn't
-          compose cleanly with nested slot hierarchies). */}
-      <div className="preview-logs-body">
-        <div className={`preview-logs-slot ${activeTab === 'logs' ? 'is-active' : ''}`}>
-          <DevServerLogs
-            output={devServerOutput}
-            outputVersion={devServerOutputVersion}
-            onSendToAgent={onSendToAgent}
-            onInput={onDevServerInput}
-            onResize={onDevServerResize}
-          />
+              <CloseIcon size={14} />
+            </button>
+          )}
         </div>
-        <div className={`preview-logs-slot ${activeTab === 'browser' ? 'is-active' : ''}`}>
-          <BrowserTools onSendToAgent={onSendToAgent} active={!hidden && activeTab === 'browser'} />
+        {/* Both tab contents stay mounted and stack in the same grid cell.
+            Toggling `is-active` swaps visibility via CSS (opacity) so
+            DevServerLogs doesn't re-init xterm and BrowserTools keeps its
+            scroll/state; TabsPanel makes inactive slots inert. */}
+        <div className="preview-logs-body">
+          <TabsPanel
+            value="logs"
+            keepMounted
+            className={`preview-logs-slot ${activeTab === 'logs' ? 'is-active' : ''}`}
+          >
+            <DevServerLogs
+              output={devServerOutput}
+              outputVersion={devServerOutputVersion}
+              onSendToAgent={onSendToAgent}
+              onInput={onDevServerInput}
+              onResize={onDevServerResize}
+            />
+          </TabsPanel>
+          <TabsPanel
+            value="browser"
+            keepMounted
+            className={`preview-logs-slot ${activeTab === 'browser' ? 'is-active' : ''}`}
+          >
+            <BrowserTools
+              onSendToAgent={onSendToAgent}
+              active={!hidden && activeTab === 'browser'}
+            />
+          </TabsPanel>
+          <TabsPanel
+            value="health"
+            keepMounted
+            className={`preview-logs-slot ${activeTab === 'health' ? 'is-active' : ''}`}
+          >
+            <HealthTabPanel
+              ref={healthPanelRef}
+              projectPath={projectPath}
+              onAskClaude={onSendToAgent}
+              onHealthOutput={onHealthOutput}
+            />
+          </TabsPanel>
         </div>
-        <div className={`preview-logs-slot ${activeTab === 'health' ? 'is-active' : ''}`}>
-          <HealthTabPanel
-            ref={healthPanelRef}
-            projectPath={projectPath}
-            onAskClaude={onSendToAgent}
-            onHealthOutput={onHealthOutput}
-          />
-        </div>
-      </div>
+      </Tabs>
     </div>
   );
 });

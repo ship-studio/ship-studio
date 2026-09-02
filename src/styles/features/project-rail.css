@@ -9,8 +9,8 @@
 .project-rail {
   width: 67px;
   flex-shrink: 0;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -67,7 +67,7 @@
   right: -4px;
   height: 2px;
   border-radius: var(--radius-sm);
-  background: var(--accent);
+  background: var(--accent-active);
   pointer-events: none;
 }
 
@@ -118,7 +118,7 @@ body.rail-drag-active iframe {
   padding: 0;
   background: transparent;
   border: 2px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-card);
   cursor: pointer;
   overflow: hidden;
   display: block;
@@ -126,23 +126,23 @@ body.rail-drag-active iframe {
 }
 
 .project-rail-item:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .project-rail-item:focus-visible {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .project-rail-item.is-current {
-  border-color: var(--action);
+  border-color: var(--accent-active);
 }
 
 .project-rail-thumb {
   display: block;
   width: 100%;
   height: 100%;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -155,8 +155,8 @@ body.rail-drag-active iframe {
 }
 
 .project-rail-placeholder {
-  font-family: var(--font-mono, Menlo, monospace);
-  font-size: var(--font-size-xl);
+  font-family: var(--font-code, Menlo, monospace);
+  font-size: var(--font-size-h4);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -168,7 +168,7 @@ body.rail-drag-active iframe {
   width: 10px;
   height: 10px;
   border-radius: var(--radius-full);
-  border: 2px solid var(--bg-secondary);
+  border: 2px solid var(--surface-panel);
   pointer-events: none;
 }
 
@@ -177,21 +177,21 @@ body.rail-drag-active iframe {
 }
 
 .project-rail-dot.dot-idle {
-  background: var(--success);
+  background: var(--accent-success);
 }
 
 .project-rail-dot.dot-thinking {
-  background: var(--warning);
+  background: var(--accent-warning);
   animation: rail-dot-pulse 1.5s ease-in-out infinite;
 }
 
 .project-rail-dot.dot-waiting {
-  background: var(--accent);
+  background: var(--accent-active);
   animation: rail-dot-pulse 2s ease-in-out infinite;
 }
 
 .project-rail-dot.dot-error {
-  background: var(--error);
+  background: var(--accent-error);
 }
 
 @keyframes rail-dot-pulse {
@@ -212,9 +212,9 @@ body.rail-drag-active iframe {
   height: 16px;
   padding: 0 4px;
   border-radius: var(--radius-full);
-  background: var(--error);
-  color: var(--text-bright);
-  font-size: var(--font-size-xs);
+  background: var(--accent-error);
+  color: var(--text-inverse);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   line-height: 16px;
   text-align: center;
@@ -224,9 +224,9 @@ body.rail-drag-active iframe {
 /* Right-click context menu — anchored to viewport coords from the click. */
 .project-rail-menu {
   position: fixed;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   box-shadow: var(--shadow-md);
   padding: var(--spacing-xs);
   z-index: var(--z-tooltip);
@@ -241,30 +241,30 @@ body.rail-drag-active iframe {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   cursor: pointer;
   border-radius: var(--radius-sm);
 }
 
 .project-rail-menu-item:hover {
-  background: var(--bg-primary);
+  background: var(--surface-app);
 }
 
 .project-rail-menu-item.danger {
-  color: var(--error);
+  color: var(--accent-error);
 }
 
 .project-rail-menu-item.danger:hover {
-  background: var(--error);
-  color: var(--text-bright);
+  background: var(--accent-error);
+  color: var(--text-inverse);
 }
 
 /* "+" button — last item in the rail list. */
 .project-rail-add {
   width: 48px;
   height: 48px;
-  border-radius: var(--radius-md);
-  border: 2px dashed var(--border);
+  border-radius: var(--radius-card);
+  border: 2px dashed var(--border-default);
   background: transparent;
   color: var(--text-muted);
   font-size: 22px;
@@ -279,17 +279,17 @@ body.rail-drag-active iframe {
 }
 
 .project-rail-add:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-active);
+  color: var(--accent-active);
 }
 
 /* Project picker popover — positioned by JS via style prop. */
 .project-rail-picker {
   position: fixed;
   width: 220px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   box-shadow: var(--shadow-md);
   z-index: var(--z-tooltip);
   overflow: hidden;
@@ -299,10 +299,10 @@ body.rail-drag-active iframe {
   width: 100%;
   padding: var(--spacing-sm) var(--spacing-md);
   border: none;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-panel);
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   outline: none;
 }
 
@@ -326,7 +326,7 @@ body.rail-drag-active iframe {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   cursor: pointer;
   border-radius: var(--radius-sm);
   white-space: nowrap;
@@ -335,13 +335,13 @@ body.rail-drag-active iframe {
 }
 
 .project-rail-picker-item:hover {
-  background: var(--bg-primary);
+  background: var(--surface-app);
 }
 
 .project-rail-picker-empty {
   padding: var(--spacing-sm) var(--spacing-md);
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 /* Projects view wrapper: rail + dashboard in a row. */
@@ -368,5 +368,5 @@ body.rail-drag-active iframe {
 
 .project-loading-body p {
   margin: 0;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }

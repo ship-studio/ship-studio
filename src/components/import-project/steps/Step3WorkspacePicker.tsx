@@ -12,7 +12,7 @@
  */
 
 import { Button } from '../../primitives/Button';
-import { BranchIcon } from '../../icons';
+import { BranchIcon, FolderStackIcon } from '@/components/icons';
 import type { WorkspaceInfo } from '../../../lib/project';
 
 /** What the picker can return. Avoids the old `__root__` magic-string sentinel. */
@@ -118,23 +118,5 @@ export function Step3WorkspacePicker({
         </Button>
       </div>
     </div>
-  );
-}
-
-function FolderStackIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 16V6a2 2 0 0 0-2-2h-7l-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z" />
-      <path d="M21 11H8a2 2 0 0 0-2 2v9" />
-    </svg>
   );
 }

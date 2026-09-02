@@ -8,8 +8,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
+import { TextButton } from '../primitives/TextButton';
 import { Spinner } from '../primitives/Spinner';
-import { GitHubIcon, VercelIcon } from '../icons';
+import { GitHubIcon, VercelIcon } from '@/components/icons';
 import { useWorkspaceConnect, type ConnectServiceId } from '../../hooks/useWorkspaceConnect';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import {
@@ -275,7 +276,7 @@ export function AccountSettingsModal({
                               <>
                                 <Button
                                   variant="ghost"
-                                  size="sm"
+                                  size="compact"
                                   onClick={() => connectService(svc.id)}
                                 >
                                   {account.isDefault ? 'Sign in again' : 'Switch'}
@@ -283,7 +284,7 @@ export function AccountSettingsModal({
                                 {!account.isDefault && (
                                   <Button
                                     variant="danger"
-                                    size="sm"
+                                    size="compact"
                                     onClick={() => void disconnectService(svc.id)}
                                   >
                                     Disconnect
@@ -293,7 +294,7 @@ export function AccountSettingsModal({
                             ) : (
                               <Button
                                 variant="primary"
-                                size="sm"
+                                size="compact"
                                 onClick={() => connectService(svc.id)}
                               >
                                 Connect
@@ -341,19 +342,17 @@ export function AccountSettingsModal({
                               placeholder={isSensitive ? '••••••••' : CREDENTIAL_LABELS[key]}
                             />
                             {isSensitive && (
-                              <button
-                                type="button"
-                                className="account-cred-reveal"
+                              <TextButton
                                 onClick={() => toggleShowValue(key)}
                                 title={revealed ? 'Hide' : 'Show'}
                               >
                                 {revealed ? 'Hide' : 'Show'}
-                              </button>
+                              </TextButton>
                             )}
                             <div className="account-cred-actions">
                               <Button
                                 variant="primary"
-                                size="sm"
+                                size="compact"
                                 onClick={() => void handleSaveCred()}
                                 disabled={!editingCred.value.trim() || isSavingCred}
                               >
@@ -361,7 +360,7 @@ export function AccountSettingsModal({
                               </Button>
                               <Button
                                 variant="ghost"
-                                size="sm"
+                                size="compact"
                                 onClick={() => setEditingCred(null)}
                               >
                                 Cancel
@@ -383,7 +382,7 @@ export function AccountSettingsModal({
                               <div className="account-cred-actions">
                                 <Button
                                   variant="ghost"
-                                  size="sm"
+                                  size="compact"
                                   onClick={() => setEditingCred({ key, value: '' })}
                                 >
                                   {isSet ? 'Update' : 'Set'}
@@ -391,7 +390,7 @@ export function AccountSettingsModal({
                                 {isSet && (
                                   <Button
                                     variant="danger"
-                                    size="sm"
+                                    size="compact"
                                     onClick={() => void handleClearCred(key)}
                                   >
                                     Clear
@@ -411,7 +410,7 @@ export function AccountSettingsModal({
 
           <div className="account-detail-footer">
             {account.isDefault ? (
-              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>
+              <span className="account-detail-footer-note">
                 The Default workspace cannot be renamed or deleted.
               </span>
             ) : confirmingDelete ? (
@@ -423,7 +422,6 @@ export function AccountSettingsModal({
                 <div className="account-delete-confirm-actions">
                   <Button
                     variant="ghost"
-                    size="sm"
                     onClick={() => setConfirmingDelete(false)}
                     disabled={isDeleting}
                   >
@@ -431,7 +429,6 @@ export function AccountSettingsModal({
                   </Button>
                   <Button
                     variant="danger"
-                    size="sm"
                     onClick={() => void handleDelete()}
                     disabled={isDeleting}
                   >
@@ -441,12 +438,11 @@ export function AccountSettingsModal({
               </div>
             ) : (
               <>
-                <Button variant="danger" size="sm" onClick={() => setConfirmingDelete(true)}>
+                <Button variant="danger" onClick={() => setConfirmingDelete(true)}>
                   Delete Workspace
                 </Button>
                 <Button
                   variant="primary"
-                  size="sm"
                   onClick={() => void handleSave()}
                   disabled={!editName.trim() || isSaving}
                 >

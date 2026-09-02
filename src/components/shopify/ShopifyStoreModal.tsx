@@ -69,7 +69,7 @@ export function ShopifyStoreModal({ projectPath, onStoreSaved }: ShopifyStoreMod
   return (
     <ModalFrame isOpen={isOpen} onClose={close} title="Shopify store">
       <div className="shopify-store-modal-body">
-        <p className="hint">
+        <p className="text-style-hint">
           The preview renders this theme against a real store via <code>shopify theme dev</code>.
         </p>
         <input
@@ -86,10 +86,10 @@ export function ShopifyStoreModal({ projectPath, onStoreSaved }: ShopifyStoreMod
         />
         {error && <p className="shopify-setup-error">{error}</p>}
         <div className="shopify-store-modal-actions">
-          <Button variant="secondary" size="sm" onClick={close} disabled={isSaving}>
+          <Button variant="secondary" onClick={close} disabled={isSaving}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" onClick={() => void handleSave()} disabled={isSaving}>
+          <Button variant="primary" onClick={() => void handleSave()} disabled={isSaving}>
             {isSaving ? 'Saving…' : 'Save & restart preview'}
           </Button>
         </div>

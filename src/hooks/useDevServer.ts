@@ -245,6 +245,13 @@ export function filterProbeChunk(
 
 export function useDevServer(currentProjectPath: string | null) {
   const statesRef = useRef<Map<string, ProjectServerState>>(new Map());
+  // Last-known capability info per project path. `stopServer` drops a
+  // project's live state entirely (by design), but the Preview tab must stay
+  // visible while nothing is running — so we keep the detected type and any
+  // custom dev command here and fall back to them in the scalar views below.
+  const lastKnownRef = useRef<Map<string, { type: ProjectType; customCommand: string | null }>>(
+    new Map()
+  );
   // Sync the ref synchronously during render so handlers that fire between
   // a `setCurrentProject(...)` state update and the next committed render
   // still see the incoming path via the optional `projectPath` argument.
@@ -289,8 +296,9 @@ export function useDevServer(currentProjectPath: string | null) {
   // per-project artifacts (thumbnail capture) must use this and skip on null
   // rather than fall back to the 3000 placeholder.
   const knownDevServerPort = activeState?.portKnown ? activeState.port : null;
-  const projectType = activeState?.type ?? 'unknown';
-  const customDevCommand = activeState?.customCommand ?? null;
+  const lastKnown = currentProjectPath ? lastKnownRef.current.get(currentProjectPath) : undefined;
+  const projectType = activeState?.type ?? lastKnown?.type ?? 'unknown';
+  const customDevCommand = activeState?.customCommand ?? lastKnown?.customCommand ?? null;
   const needsInstall = activeState?.needsInstall ?? null;
   const devServerOutputVersion = activeState?.outputVersion ?? 0;
   const healthOutputVersion = activeState?.healthVersion ?? 0;
@@ -885,12 +893,11 @@ export function useDevServer(currentProjectPath: string | null) {
         /* not started / already stopped */
       }
 
-      s.type = 'unknown';
-      bump();
-
-      // Drop the entry entirely so the map doesn't leak for closed projects.
-      // (Pinned-project guards in useProjectLifecycle make sure we don't call
-      // stopServer for hot projects we intend to keep.)
+      // Keep the last-known type/custom command for the Preview tab (see
+      // lastKnownRef), then drop the live entry so the map doesn't leak for
+      // closed projects. (Pinned-project guards in useProjectLifecycle make
+      // sure we don't call stopServer for hot projects we intend to keep.)
+      lastKnownRef.current.set(targetPath, { type: s.type, customCommand: s.customCommand });
       statesRef.current.delete(targetPath);
       bump();
     },

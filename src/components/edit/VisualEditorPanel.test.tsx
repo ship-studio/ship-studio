@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import { VisualEditorPanel } from './VisualEditorPanel';
 import {
   BASE_BREAKPOINT,
@@ -90,20 +90,49 @@ describe('VisualEditorPanel', () => {
     expect(screen.getByText('components/Hero.tsx:11')).toBeInTheDocument();
     // Box-model spacing editor with per-side fields
     expect(screen.getByTestId('spacing-box')).toBeInTheDocument();
+    expect(document.querySelectorAll('.ss-box__band')).toHaveLength(8);
     expect(screen.getByLabelText('Padding top')).toBeInTheDocument();
     expect(screen.getByLabelText('Margin left')).toBeInTheDocument();
     // Gap stepper + enum controls
     expect(screen.getByText('Gap')).toBeInTheDocument();
     expect(screen.getByText('Align')).toBeInTheDocument();
+    expect(screen.getByText('Font')).toBeInTheDocument();
     expect(screen.getByText('Weight')).toBeInTheDocument();
     // Align renders icon buttons ("Left" is unique to Align)
     expect(screen.getByRole('button', { name: 'Left' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Uppercase' })).toHaveAttribute('title', 'Uppercase');
     // New properties
     expect(screen.getByText('Opacity')).toBeInTheDocument();
     // Color controls render as swatch buttons that open the picker popover
     expect(screen.getByRole('button', { name: 'Text color' })).toBeInTheDocument();
     // Save button
     expect(screen.getByText('Saved')).toBeInTheDocument();
+    const classesSection = document.querySelector<HTMLElement>('.ss-edit-panel__section--classes');
+    expect(classesSection).not.toBeNull();
+    expect(classesSection).toHaveTextContent('Applied classes');
+    expect(classesSection).toHaveAttribute('open');
+    expect(classesSection).toHaveTextContent('p-3');
+
+    const customSection = document.querySelector<HTMLElement>('.ss-edit-panel__section--custom');
+    expect(customSection).toHaveAttribute('open');
+  });
+
+  it('groups Position and Z-index under their own section', () => {
+    renderPanel(resolvedSelection);
+
+    const positionSection = document.querySelector<HTMLElement>(
+      '.ss-edit-panel__section--position'
+    );
+    const layoutSection = document.querySelector<HTMLElement>('.ss-edit-panel__section--layout');
+
+    expect(positionSection).not.toBeNull();
+    expect(layoutSection).not.toBeNull();
+    expect(positionSection).toHaveAttribute('open');
+    expect(layoutSection).toHaveAttribute('open');
+    expect(positionSection).toHaveTextContent('Position');
+    expect(positionSection).toHaveTextContent('Z-index');
+    expect(layoutSection).not.toHaveTextContent('Position');
+    expect(layoutSection).not.toHaveTextContent('Z-index');
   });
 
   it('shows read-only reason and no controls for a read-only element', () => {
@@ -194,11 +223,68 @@ describe('VisualEditorPanel', () => {
     expect(trigger).toHaveTextContent('md · ≥768px');
   });
 
+  it('lists breakpoints from largest to smallest with their device icons', () => {
+    renderPanel(resolvedSelection, 'p-3', BASE_BREAKPOINT);
+    fireEvent.click(screen.getByRole('button', { name: 'Breakpoint' }));
+    const options = screen.getAllByRole('option');
+    expect(options.map((option) => option.textContent)).toEqual([
+      '2xl · ≥1536px',
+      'xl · ≥1280px',
+      'lg · ≥1024px',
+      'md · ≥768px',
+      'sm · ≥640px',
+      'Base · all widths',
+    ]);
+    expect(options.every((option) => option.querySelector('svg'))).toBe(true);
+  });
+
+  it('renders typography dimensions as editable value fields', () => {
+    renderPanel(resolvedSelection, 'text-xl leading-tight tracking-wide');
+    expect(screen.getByRole('textbox', { name: 'Size' })).toHaveValue('1.25');
+    expect(screen.getByRole('button', { name: 'Size format' })).toHaveTextContent('REM');
+    expect(screen.getByRole('textbox', { name: 'Line height' })).toHaveValue('1.25');
+    expect(screen.getByRole('textbox', { name: 'Letter spacing' })).toHaveValue('0.025');
+    expect(screen.getByRole('button', { name: 'Letter spacing format' })).toHaveTextContent('EM');
+  });
+
+  it('splits unit-bearing typography defaults between the placeholder and format trigger', () => {
+    renderPanel(resolvedSelection);
+
+    expect(screen.getByRole('textbox', { name: 'Size' })).toHaveAttribute('placeholder', '1');
+    expect(screen.getByRole('button', { name: 'Size format' })).toHaveTextContent('REM');
+    expect(screen.getByRole('textbox', { name: 'Letter spacing' })).toHaveAttribute(
+      'placeholder',
+      '0'
+    );
+    expect(screen.getByRole('button', { name: 'Letter spacing format' })).toHaveTextContent('EM');
+  });
+
+  it('surfaces an active overflowed Display value and moves None into the menu', () => {
+    renderPanel(resolvedSelection, 'inline-flex');
+
+    expect(screen.getByRole('button', { name: 'Inline flex' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: 'Display' })).queryByRole('button', {
+        name: 'None',
+      })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'More display options' }));
+    expect(screen.getByRole('option', { name: 'None' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Inline block' })).toBeInTheDocument();
+  });
+
   it('explains the mobile-first cascade contextually for the active breakpoint', () => {
     renderPanel(resolvedSelection, 'p-3', BASE_BREAKPOINT);
-    expect(screen.getByText(/apply to every screen size/i)).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /apply to every screen size/i })).toHaveAttribute(
+      'data-tooltip-content',
+      expect.stringMatching(/apply to every screen size/i)
+    );
     renderPanel(resolvedSelection, 'p-3', MD);
-    expect(screen.getByText(/from 768px wide and up/i)).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /from 768px wide and up/i })).toHaveAttribute(
+      'data-tooltip-content',
+      expect.stringMatching(/from 768px wide and up/i)
+    );
   });
 
   it('selecting a breakpoint from the dropdown asks to resize the canvas to that layer', () => {
@@ -242,6 +328,29 @@ describe('VisualEditorPanel', () => {
     expect(screen.getByLabelText<HTMLInputElement>('Padding top').value).toBe('10rem');
   });
 
+  it('styles box-model values by cascade state and sizes them to their text', () => {
+    renderPanel(resolvedSelection, 'p-3 md:pt-6', MD);
+    const modified = screen.getByLabelText<HTMLInputElement>('Padding top');
+    const inherited = screen.getByLabelText<HTMLInputElement>('Padding right');
+
+    expect(modified).toHaveClass('ss-box__field--modified');
+    expect(inherited).toHaveClass('ss-box__field--inherited');
+    expect(modified).toHaveAttribute('size', modified.value.length.toString());
+    expect(inherited).toHaveAttribute('size', inherited.value.length.toString());
+  });
+
+  it('focuses a box-model value from its full grabbable panel', () => {
+    renderPanel(resolvedSelection, 'p-3');
+    const box = screen.getByTestId('spacing-box');
+    const marginTopPanel = box.querySelector<HTMLLabelElement>(
+      '.ss-box__margin .ss-box__band--top'
+    );
+
+    expect(marginTopPanel).not.toBeNull();
+    fireEvent.click(marginTopPanel!);
+    expect(screen.getByLabelText('Margin top')).toHaveFocus();
+  });
+
   it('flags an invalid typed value and does not apply it', () => {
     const onApplyEnum = vi.fn();
     renderPanel(
@@ -277,7 +386,7 @@ describe('VisualEditorPanel', () => {
       onReset
     );
     expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Gap/ })); // click the name
+    fireEvent.click(document.querySelector('.ss-edit-panel__labelbtn')!); // click the name
     fireEvent.click(screen.getByRole('button', { name: 'Reset' })); // confirm
     expect(onReset).toHaveBeenCalledTimes(1);
   });
@@ -452,7 +561,7 @@ describe('VisualEditorPanel', () => {
   it('does not offer Reset for an inherited value (only set-here)', () => {
     // gap-4 at Base, viewing md → inherited; the Gap label is plain text, no button.
     renderPanel(resolvedSelection, 'gap-4', MD);
-    expect(screen.queryByRole('button', { name: /Gap/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Gap' })).not.toBeInTheDocument();
     expect(screen.getByText('Gap')).toBeInTheDocument();
   });
 
@@ -611,9 +720,27 @@ describe('VisualEditorPanel', () => {
     expect(width.value).toBe('full');
   });
 
-  // ── Length preset menu (styled SuggestionPopover, not the OS datalist) ──
+  // ── Length value and format controls ──
 
-  it('opens a styled preset menu on focus and picks with Enter', () => {
+  it('offers property-specific keywords in the format menu', () => {
+    const onApplyEnum = vi.fn();
+    render(
+      <VisualEditorPanel
+        {...mk()}
+        selection={resolvedSelection}
+        currentClass=""
+        onApplyEnum={onApplyEnum}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Width format' }));
+
+    expect(screen.getByRole('listbox', { name: 'Width formats' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: 'AUTO' }));
+
+    expect(onApplyEnum).toHaveBeenCalledWith('w-auto', { width: 'auto' });
+  });
+
+  it('accepts a Tailwind sizing keyword typed directly', () => {
     const onApplyEnum = vi.fn();
     render(
       <VisualEditorPanel
@@ -624,29 +751,10 @@ describe('VisualEditorPanel', () => {
       />
     );
     const width = screen.getByLabelText<HTMLInputElement>('Width');
-    fireEvent.focus(width);
-
-    // The app's own listbox renders (portaled), showing the presets.
-    const menu = screen.getByRole('listbox');
-    expect(menu).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'full' })).toBeInTheDocument();
-
-    // Arrows navigate the menu while it's open; Enter picks the active preset.
-    fireEvent.keyDown(width, { key: 'ArrowDown' });
+    fireEvent.change(width, { target: { value: 'full' } });
     fireEvent.keyDown(width, { key: 'Enter' });
-    expect(onApplyEnum).toHaveBeenCalledTimes(1);
-    const [token] = onApplyEnum.mock.calls[0] as [string];
-    expect(token.startsWith('w-')).toBe(true);
-  });
 
-  it('filters presets while typing a keyword', () => {
-    render(<VisualEditorPanel {...mk()} selection={resolvedSelection} currentClass="" />);
-    const width = screen.getByLabelText<HTMLInputElement>('Width');
-    fireEvent.focus(width);
-    fireEvent.change(width, { target: { value: 'fu' } });
-
-    expect(screen.getByRole('option', { name: 'full' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'screen' })).not.toBeInTheDocument();
+    expect(onApplyEnum).toHaveBeenCalledWith('w-full', { width: '100%' });
   });
 
   it('suppresses the preset menu on numeric text so arrows keep stepping', () => {

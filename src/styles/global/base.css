@@ -1,239 +1,32 @@
-/* JetBrains Mono Nerd Font for terminal - using WOFF2 format for better web support */
-@font-face {
-  font-family: 'JetBrainsMono NF';
-  src: url('../assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
-  font-weight: normal;
-  font-style: normal;
-  font-display: block;
-}
+/* Global base rules. Token declarations live in the ordered token files imported by index.css. */
 
-@font-face {
-  font-family: 'JetBrainsMono NF';
-  src: url('../assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
-  font-weight: bold;
-  font-style: normal;
-  font-display: block;
-}
-
-/*
- * ============================================================================
- * Ship Studio design tokens (single source of truth)
- * ============================================================================
- * When editing CSS, ALWAYS prefer these tokens over raw values.
- * Adding a new color/spacing/radius? Add it here first, then reference it.
- *
- * Stable plugin API: --bg-*, --text-*, --accent, --action, --border, --warning,
- * --success, --error, --font-mono. Renaming any of these is a breaking change.
- * See CLAUDE.md "Shared CSS Classes" for the related component-level API.
- * ============================================================================
- */
-:root {
-  /* Surfaces */
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d2d;
-  /* Recessed wells: terminal panes, log output, code editors */
-  --bg-deep: #1a1a1a;
-
-  /* Text */
-  --text-primary: #cccccc;
-  --text-secondary: #9d9d9d;
-  --text-muted: #6d6d6d;
-  /* Pure white — high-emphasis text/icons on dark surfaces */
-  --text-bright: #ffffff;
-
-  /* Brand / interactive */
-  --accent: #ffffff;
-  --accent-hover: #e0e0e0;
-  --action: #54e36e;
-  --action-hover: #45c55d;
-  --action-text: #1e1e1e;
-
-  /* Status colors (light variants for tinted backgrounds / pill states) */
-  --success: #4ecdc4;
-  --success-light: #22c55e;
-  --warning: #f59e0b;
-  --warning-light: #fbbf24;
-  --error: #f44747;
-  --error-light: #ef4444;
-
-  /* Deep red — destructive/armed states (delete confirmation, publish errors) */
-  --error-deep: #dc2626;
-
-  /* Modified-state yellow (git modified badges, needs-attention markers) */
-  --modified-yellow: #eab308;
-
-  /* Informational blue (links, info banners, "open" PR state, focus accents) */
-  --info: #3b82f6;
-  --info-hover: #2563eb;
-  --info-light: #60a5fa;
-  --info-dark: #1d4ed8;
-
-  /* AI / agent accent (skills, MCP, plugin marketplace) */
-  --purple: #a855f7;
-  --purple-light: #a78bfa;
-  /* Deeper purple used only for tinted purple backgrounds (#9333ea) */
-  --purple-deep-rgb: 147, 51, 234;
-
-  /* Slack community CTA brand hues (dashboard, setup, support panel) */
-  --slack-pink: #e9a7fb;
-  --slack-lavender: #c4b5fd;
-  --slack-lavender-bright: #ddd6fe;
-
-  /* RGB triplets — for alpha tints only: rgba(var(--error-rgb), 0.1).
-   * Keep each in sync with its solid token above. */
-  --action-rgb: 84, 227, 110;
-  --success-rgb: 78, 205, 196;
-  --success-light-rgb: 34, 197, 94;
-  --action-rgb: 84, 227, 110;
-  --warning-rgb: 245, 158, 11;
-  --warning-light-rgb: 251, 191, 36;
-  --error-rgb: 244, 71, 71;
-  --error-light-rgb: 239, 68, 68;
-  --error-deep-rgb: 220, 38, 38;
-  --modified-yellow-rgb: 234, 179, 8;
-  --info-rgb: 59, 130, 246;
-  --info-light-rgb: 96, 165, 250;
-  --purple-rgb: 168, 85, 247;
-  --purple-light-rgb: 167, 139, 250;
-  --border-rgb: 60, 60, 60;
-  --white-rgb: 255, 255, 255;
-  --black-rgb: 0, 0, 0;
-
-  /* White hover/selection tints on dark surfaces */
-  --tint-subtle: rgba(255, 255, 255, 0.05);
-  --tint: rgba(255, 255, 255, 0.08);
-  --tint-strong: rgba(255, 255, 255, 0.1);
-
-  /* Black scrims (overlays behind modals, image dimming) — suffix = alpha % */
-  --overlay-30: rgba(0, 0, 0, 0.3);
-  --overlay-40: rgba(0, 0, 0, 0.4);
-  --overlay-50: rgba(0, 0, 0, 0.5);
-  --overlay-60: rgba(0, 0, 0, 0.6);
-  --overlay-70: rgba(0, 0, 0, 0.7);
-  --overlay-80: rgba(0, 0, 0, 0.8);
-
-  /* ANSI terminal palette (health diagnostics, browser tools, log rendering) */
-  --ansi-green: #0dbc79;
-  --ansi-bright-green: #23d18b;
-  --ansi-red: #f14c4c;
-  --ansi-yellow: #e5e510;
-  --ansi-blue: #3b8eea;
-  --ansi-blue-dark: #2472c8;
-  --ansi-green-rgb: 13, 188, 121;
-  --ansi-red-rgb: 241, 76, 76;
-  --ansi-yellow-rgb: 229, 229, 16;
-  --ansi-blue-rgb: 59, 142, 234;
-  --ansi-blue-dark-rgb: 36, 114, 200;
-
-  /* Code syntax colors (VS Code dark palette — code mode, diff rendering) */
-  --code-keyword: #569cd6;
-  --code-string: #ce9178;
-  --code-property: #9cdcfe;
-  --code-comment: #6a9955;
-
-  /* Structure */
-  --border: #3c3c3c;
-  /* Hover states for list rows / tabs / bordered cards. These names were
-   * referenced (undefined) for months — hovers silently rendered transparent.
-   * Defined conservatively as aliases; tune freely. */
-  --bg-hover: var(--bg-tertiary);
-  --border-hover: var(--text-muted);
-
-  /* Spacing scale (use for padding, margin, gap) */
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 12px;
-  --spacing-lg: 16px;
-  --spacing-xl: 24px;
-  --spacing-2xl: 32px;
-
-  /* Border radius scale */
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  /* Pill shape for wide elements (chips, badges). --radius-full is 50% and
-     only correct for square elements (circles) — on a wide chip it draws an
-     ellipse. */
-  --radius-pill: 999px;
-  --radius-full: 50%;
-
-  /* Z-index scale (use these — never raw numbers)
-   * Tiers:
-   *   content   — local stacking (content-on-content): 1, 2, 5, 10 raw ok
-   *   dropdown  — menus / tooltips / floating UI over page content
-   *   modal-*   — full-screen overlays + modal content on top of overlay
-   *   app-*     — global overlays owning the full viewport (connect overlay,
-   *               education mode, high-priority toasts). Pre-existing code
-   *               used 10000+ here; the tokens preserve that layering.
-   */
-  --z-dropdown: 100;
-  /* Workspace header — above the preview pane's overlays (which use
-     --z-dropdown) so anything floated from the header (core dropdowns,
-     toolbar plugin popovers) wins without needing its own z-index. */
-  --z-workspace-header: 200;
-  /* Fullscreen preview overlay — above workspace chrome, below modals. */
-  --z-preview-fullscreen: 900;
-  /* Visual editor panel width — shared by the panel itself (visual-editor.css)
-     and the preview grid column that hosts it when pinned (preview.css).
-     MUST match PANEL_WIDTH in VisualEditorPanel.tsx. */
-  --editor-panel-w: 264px;
-  /* Preview toolbar height — also sizes the pinned editor panel's header so
-     the two bars line up. */
-  --preview-toolbar-h: 47px;
-  /* Element tree (navigator) panel width — the preview's left grid column in
-     fullscreen edit mode. The Code (markup-edit) view widens to --tree-code-w
-     so hand-editing HTML isn't cramped. */
-  --tree-panel-w: 240px;
-  --tree-code-w: 420px;
-  /* Max width for the terminal first-run hint card. */
-  --hint-card-max-w: 720px;
-  --z-modal-overlay: 1000;
-  --z-modal: 1001;
-  --z-tooltip: 1100;
-  --z-notification: 1200;
-  --z-app-overlay: 9999;
-  --z-app-modal: 10000;
-  --z-app-modal-content: 10001;
-  --z-app-modal-top: 10002;
-  --z-app-modal-max: 10010;
-  --z-toast: 10000;
-  --z-toast-top: 10001;
-  --z-changelog-sentinel: 100000;
-
-  /* Shadow scale */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
-  --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
-
-  /* Transition tokens (durations + easing bundled — use as `transition: var(--transition)`) */
-  --transition-fast: 0.1s ease;
-  --transition: 0.15s ease;
-  --transition-slow: 0.3s ease;
-
-  /* Typography */
-  --font-mono: 'JetBrainsMono NF', 'JetBrains Mono', Menlo, Consolas, monospace;
-
-  /* Type scale — dense desktop UI, hence 1px steps at the small end.
-   * Off-scale sizes (9px, 15px, 17px…) are migration debt: round to the
-   * nearest token when touching that code, don't add new tokens. */
-  --font-size-xs: 10px; /* fine print, badges, kbd hints */
-  --font-size-sm: 11px; /* secondary labels, metadata */
-  --font-size-base: 12px; /* default UI chrome text */
-  --font-size-md: 13px; /* body / readable paragraphs */
-  --font-size-lg: 14px; /* emphasized body, inputs, buttons */
-  --font-size-xl: 16px; /* section headings */
-  --font-size-2xl: 18px; /* modal titles */
-  --font-size-3xl: 24px; /* hero / celebration screens */
-}
-
-/* Common flex centering utility */
-.flex-center {
+/* Reusable panel heading with lighter inline context, e.g. "Agent  Codex".
+   Containers own their surface, border, and padding; this utility owns only
+   the paired text layout and typography. */
+.panel-heading-pair {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.panel-heading-pair-title,
+.panel-heading-pair-meta {
+  font-size: var(--font-size-h4);
+  line-height: 1.25;
+}
+
+.panel-heading-pair-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.panel-heading-pair-meta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 * {
@@ -256,7 +49,7 @@
 }
 
 .os-theme-shipstudio.os-scrollbar .os-scrollbar-handle {
-  background: var(--border);
+  background: var(--border-default);
   transition: background-color 0.2s ease;
 }
 
@@ -277,15 +70,16 @@ body,
 }
 
 html {
-  background: var(--bg-primary);
+  background: var(--surface-app);
 }
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans',
-    'Helvetica Neue', sans-serif;
-  background: var(--bg-primary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-default);
+  background: var(--surface-app);
   color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Themed scrollbars everywhere. Without a global default, WebKit paints the
@@ -303,7 +97,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--border-default);
   border-radius: 999px; /* css-ok: pill thumb */
   border: 2px solid transparent; /* css-ok: inset gutter */
   background-clip: padding-box;
@@ -338,7 +132,8 @@ body.compact-mode-active html {
 .app.loading {
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  /* Generous space between the logo and the boot loader. */
+  gap: var(--space-32);
 }
 
 .app-logo {
@@ -361,13 +156,13 @@ body.compact-mode-active html {
 .boot-watchdog p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   line-height: 1.5;
 }
 
 .boot-watchdog .boot-watchdog-hint {
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
 }
 
 /* Spinner */
@@ -389,86 +184,50 @@ body.compact-mode-active html {
   }
 }
 
-/* Buttons */
-button {
-  cursor: pointer;
-  border: none;
-  border-radius: var(--radius);
-  font-size: var(--font-size-lg);
-  padding: 10px 16px;
-  transition:
-    background-color 0.2s,
-    color 0.2s,
-    border-color 0.2s,
-    opacity 0.2s;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-button:hover {
-  background: var(--border);
-}
-
-.btn-primary {
-  background: var(--action);
-  color: var(--action-text);
-  font-weight: 500;
-}
-
-.btn-primary:hover {
-  background: var(--action-hover);
-  color: var(--action-text);
-}
-
-.btn-secondary {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  font-weight: 500;
-}
-
-.btn-secondary:hover {
-  background: var(--border);
-  color: var(--text-primary);
-}
-
-.btn-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
-}
-
 /* Toolbar icon buttons (header actions row) */
 .toolbar-icon-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 0 8px;
-  height: 28px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  gap: var(--button-gap);
+  padding: 0 var(--button-padding);
+  height: var(--button-height);
+  min-height: var(--button-height);
+  background: var(--button-surface-default);
+  border: var(--stroke-1) solid var(--button-border-solid);
+  border-radius: var(--button-radius);
+  color: var(--button-text-default);
+  font-family: var(--font-ui);
+  font-size: var(--button-font-size);
+  line-height: var(--line-height-default);
+  font-weight: var(--button-font-weight);
   cursor: pointer;
+  box-shadow: var(--button-shadow);
   white-space: nowrap;
   transition:
-    background-color 0.15s,
-    color 0.15s,
-    border-color 0.15s;
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition),
+    opacity var(--transition),
+    transform var(--transition);
 }
 
 .toolbar-icon-btn:hover:not(:disabled) {
-  background: var(--border);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+  background: var(--button-surface-hover);
+  color: var(--button-text-hover);
+  border-color: var(--button-border-solid);
 }
 
 .toolbar-icon-btn:disabled {
-  opacity: 0.4;
+  opacity: var(--button-disabled-opacity);
   cursor: not-allowed;
+}
+
+.toolbar-icon-btn:active:not(:disabled) {
+  transform: scale(var(--button-active-scale));
 }
 
 .toolbar-icon-btn svg {
@@ -484,9 +243,9 @@ button:hover {
    introducing a separate color accent. */
 .toolbar-icon-btn.is-open,
 .toolbar-icon-btn.is-open:hover {
-  background: var(--border);
+  background: var(--surface-selected);
   color: var(--text-primary);
-  border-color: var(--text-muted);
+  border-color: var(--border-strong);
 }
 
 .toolbar-icon-btn.is-open svg {
@@ -498,25 +257,46 @@ button:hover {
    button with a child `.toggle-pill-switch` span that gets `.is-on`
    when the feature is active. */
 .toggle-pill-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: 6px 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  height: var(--button-height);
+  min-height: var(--button-height);
+  padding: 0 var(--button-padding);
+  background: var(--button-surface-default);
+  border: var(--stroke-1) solid var(--button-border-solid);
+  border-radius: var(--button-radius);
+  color: var(--button-text-default);
+  font-family: var(--font-ui);
+  font-size: var(--button-font-size);
+  line-height: var(--line-height-default);
+  font-weight: var(--button-font-weight);
   cursor: pointer;
+  box-shadow: var(--button-shadow);
   white-space: nowrap;
   transition:
-    background var(--transition),
+    background-color var(--transition),
     color var(--transition),
-    border-color var(--transition);
+    border-color var(--transition),
+    opacity var(--transition),
+    transform var(--transition);
 }
 
 .toggle-pill-btn:hover {
+  background: var(--button-surface-hover);
   color: var(--text-primary);
+}
+
+.toggle-pill-btn:disabled {
+  opacity: var(--button-disabled-opacity);
+  cursor: not-allowed;
+}
+
+.toggle-pill-btn:active:not(:disabled) {
+  transform: scale(var(--button-active-scale));
 }
 
 .toggle-pill-switch {
@@ -525,8 +305,8 @@ button:hover {
   width: 22px;
   height: 12px;
   margin-left: 2px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
   border-radius: 999px;
   transition:
     background var(--transition),
@@ -548,305 +328,263 @@ button:hover {
 }
 
 .toggle-pill-switch.is-on {
-  background: var(--success-light);
-  border-color: var(--success-light);
+  background: var(--accent-success);
+  border-color: var(--accent-success);
 }
 
 .toggle-pill-switch.is-on::after {
   transform: translateX(10px);
-  background: var(--text-bright);
+  background: var(--text-inverse);
 }
 
 /* Rotate the chevron 180° when its parent dropdown is open. */
-.toolbar-icon-btn .chevron-flipped {
+.toolbar-icon-btn .chevron-flipped,
+.button .chevron-flipped {
   transform: rotate(180deg);
-  transition: transform 0.15s;
-}
-
-/* ===== Primitive: ModalFrame ===== */
-.modal-frame-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--overlay-70);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: var(--z-modal-overlay);
-  padding: var(--spacing-lg);
-}
-
-.modal-frame-content {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  z-index: var(--z-modal);
-  max-width: 90vw;
-  max-height: 90vh;
-  overflow: auto;
-  width: 480px;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-frame-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  padding: var(--spacing-lg) var(--spacing-xl);
-  border-bottom: 1px solid var(--border);
-}
-
-.modal-frame-title {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-}
-
-.modal-frame-close {
-  background: transparent;
-  border: none;
-  padding: var(--spacing-xs);
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background-color var(--transition),
-    color var(--transition);
-}
-
-.modal-frame-close:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  transition: transform var(--transition);
 }
 
 /* ===== Primitive: Button ===== */
 .button {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius);
-  border: 1px solid transparent;
-  font-size: var(--font-size-md);
-  font-weight: 500;
+  gap: var(--button-gap);
+  height: var(--button-height);
+  min-height: var(--button-height);
+  padding: 0 var(--button-padding);
+  border-radius: var(--button-radius);
+  border: var(--stroke-1) solid transparent;
+  font-family: var(--font-ui);
+  font-size: var(--button-font-size);
+  line-height: var(--line-height-default);
+  font-weight: var(--button-font-weight);
   cursor: pointer;
   transition:
     background-color var(--transition),
     color var(--transition),
     border-color var(--transition),
-    opacity var(--transition);
+    opacity var(--transition),
+    transform var(--transition);
+  box-shadow: var(--button-shadow);
   white-space: nowrap;
 }
 
+.button__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--size-icon-button);
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+}
+.button__icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Icon-only buttons own their hit area, but the icon should keep the size it
+ * was authored with. The generic icon wrapper is intentionally 16px for
+ * labelled buttons; applying that size to IconButton SVGs makes small controls
+ * such as the workspace-sidebar close action appear oversized. */
+.button--icon-only .button__icon {
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+}
+
+.button--icon-only .button__icon > svg {
+  width: auto;
+  height: auto;
+}
+
 .button:disabled {
-  opacity: 0.6;
+  opacity: var(--button-disabled-opacity);
   cursor: not-allowed;
 }
 
-/* Keep each variant's background when hovering a disabled button — the
-   global `button:hover` element rule above otherwise outranks the variant
-   class (its own hover rules are gated on :not(:disabled)). */
-.button--primary:hover {
-  background: var(--action);
-  border-color: var(--action);
+.button:active:not(:disabled) {
+  transform: scale(var(--button-active-scale));
 }
 
-.button--secondary:hover,
-.button--danger:hover,
-.button--ghost:hover {
-  background: transparent;
+.button:focus-visible,
+.toolbar-icon-btn:focus-visible {
+  outline: var(--stroke-2) solid var(--accent-focus);
+  outline-offset: -1px;
+}
+
+.button--default {
+  background: var(--button-surface-default);
+  color: var(--button-text-default);
+  border-color: var(--button-border-solid);
+}
+
+.button--default:hover:not(:disabled) {
+  background: var(--button-surface-hover);
+  color: var(--button-text-hover);
+  border-color: var(--button-border-solid);
 }
 
 .button--primary {
-  background: var(--action);
-  color: var(--action-text);
-  border-color: var(--action);
+  background: linear-gradient(0deg, var(--button-primary-start), var(--button-primary-mid));
+  color: var(--text-on-accent);
+  border-color: transparent;
 }
-
 .button--primary:hover:not(:disabled) {
-  background: var(--action-hover);
-  border-color: var(--action-hover);
+  background: linear-gradient(0deg, var(--button-primary-mid), var(--button-primary-end));
+  border-color: transparent;
 }
 
 .button--secondary {
   background: transparent;
-  color: var(--text-secondary);
-  border-color: var(--border);
+  color: var(--button-text-default);
+  border-color: var(--button-border);
 }
-
 .button--secondary:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background: transparent;
+  color: var(--button-text-hover);
+  border-color: var(--button-border-outline);
 }
 
 .button--danger {
   background: transparent;
-  color: var(--error-light);
-  border-color: rgba(var(--error-light-rgb), 0.3);
+  color: var(--accent-error-light);
+  border-color: rgba(var(--accent-error-light-rgb), 0.3);
 }
 
 .button--danger:hover:not(:disabled) {
-  background: rgba(var(--error-light-rgb), 0.1);
+  background: rgba(var(--accent-error-light-rgb), 0.1);
 }
 
 .button--ghost {
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--button-text-default);
   border-color: transparent;
+  box-shadow: none;
 }
 
 .button--ghost:hover:not(:disabled) {
-  background: var(--bg-tertiary);
+  background: var(--button-surface-hover);
+  color: var(--button-text-hover);
+}
+
+.button--warning {
+  background: var(--button-warning-surface);
+  color: var(--button-warning-text);
+  border-color: transparent;
+}
+
+.button--warning:hover:not(:disabled) {
+  background: var(--button-warning-surface);
+  color: var(--button-warning-text);
+  border-color: var(--accent-warning);
+}
+
+.button--variable {
+  background: var(--button-variable-surface);
   color: var(--text-primary);
+  border-color: transparent;
 }
 
-.button--sm {
-  padding: var(--spacing-xs) var(--spacing-md);
-  font-size: var(--font-size-base);
+.button--variable:hover:not(:disabled) {
+  background: var(--button-variable-hover);
+  color: var(--text-inverse);
 }
 
+.button--default:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']),
+.button--secondary:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']),
+.button--ghost:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']) {
+  background: var(--button-surface-pressed);
+  color: var(--button-text-hover);
+}
+
+.button--default:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']) {
+  border-color: var(--button-border-solid);
+}
+
+.button--secondary:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']) {
+  border-color: var(--button-border-outline);
+}
+
+.button--ghost:is([aria-pressed='true'], [aria-expanded='true'], [data-selected='true']) {
+  border-color: transparent;
+}
+
+.button--size-compact {
+  height: var(--control-height-compact);
+  min-height: var(--control-height-compact);
+  gap: var(--space-04);
+  padding: 0 var(--space-06);
+  font-size: var(--font-size-button);
+}
+
+.button--size-compact.button--has-icon:not(.button--icon-only) {
+  height: auto;
+  padding: var(--space-06);
+}
+
+.button--size-medium {
+  height: var(--size-control-medium);
+  min-height: var(--size-control-medium);
+  font-size: var(--font-size-button);
+}
+
+.button--size-large {
+  height: var(--control-height-large);
+  min-height: var(--control-height-large);
+  gap: var(--space-08);
+  padding: 0 var(--space-12);
+  font-size: var(--font-size-button-large);
+}
+
+.button--fill,
 .button--block {
   width: 100%;
 }
 
-/* ===== Primitive: EmptyState ===== */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-2xl) var(--spacing-lg);
-  text-align: center;
-  color: var(--text-secondary);
+.button--hug {
+  width: fit-content;
 }
 
-.empty-state-icon {
-  color: var(--text-muted);
+.button--icon-only {
+  width: var(--button-height);
+  min-width: var(--button-height);
+  padding: 0;
 }
 
-.empty-state-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
+.button--icon-only.button--size-compact {
+  width: var(--button-height-compact);
+  min-width: var(--button-height-compact);
+  height: var(--button-height-compact);
 }
 
-.empty-state-description {
-  font-size: var(--font-size-md);
-  color: var(--text-secondary);
-  max-width: 360px;
-  line-height: 1.5;
+.button--icon-only.button--size-large {
+  width: var(--control-height-large);
+  min-width: var(--control-height-large);
 }
 
-/* ===== Primitive: Dropdown ===== */
-.ss-dropdown {
-  position: relative;
+.button-group--split {
   display: inline-flex;
 }
 
-.ss-dropdown__menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: var(--spacing-xs);
-  z-index: var(--z-dropdown);
-  /* Size to content: the positioning parent is usually a tiny trigger
-     wrapper, so plain shrink-to-fit would clamp to min-width and wrap
-     item labels. */
-  width: max-content;
-  min-width: 200px;
-  max-width: 320px;
-  padding: var(--spacing-xs);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
+.button-group--split > .button {
+  border-radius: 0;
 }
 
-.ss-dropdown__menu--right {
-  left: auto;
-  right: 0;
+.button-group--split > .button:first-child {
+  border-radius: var(--button-radius) 0 0 var(--button-radius);
 }
 
-.ss-dropdown__item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-size-md);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--transition);
+.button-group--split > .button:last-child {
+  border-radius: 0 var(--button-radius) var(--button-radius) 0;
+  border-left-color: var(--border-default);
 }
 
-.ss-dropdown__item:hover:not(:disabled) {
-  background: var(--tint-subtle);
-}
-
-.ss-dropdown__item:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.ss-dropdown__item--active {
-  color: var(--accent);
-}
-
-.ss-dropdown__item--danger {
-  color: var(--error-light);
-}
-
-.ss-dropdown__item--danger:hover:not(:disabled) {
-  background: rgba(var(--error-light-rgb), 0.1);
-}
-
-.ss-dropdown__divider {
-  height: 1px;
-  margin: var(--spacing-xs) 0;
-  background: var(--border);
-}
-
-/* ===== Primitive: Spinner ===== */
-/* Arc color comes from currentColor — set `color` on the spinner or parent. */
-.ss-spinner {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  border: 2px solid var(--border);
-  border-top-color: currentColor;
-  border-radius: var(--radius-full);
-  animation: spin 0.8s linear infinite;
-}
-
-.ss-spinner--sm {
-  width: 14px;
-  height: 14px;
-}
-
-.ss-spinner--lg {
-  width: 32px;
-  height: 32px;
-  border-width: 3px;
-}
-
-/* ===== Primitive: Skeleton ===== */
-/* 0.4/0.7 (not the 0.5/0.85 once written here) — project-list.css carried a
-   same-named duplicate that loaded later and won everywhere; these are the
-   values the app has always actually rendered. */
+/* Shared loading placeholder animation. Feature-specific skeletons reuse
+   this global keyframe; keep the name unique because keyframes are global. */
 @keyframes skeleton-pulse {
   0%,
   100% {
@@ -855,27 +593,4 @@ button:hover {
   50% {
     opacity: 0.7;
   }
-}
-
-.skeleton {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius);
-  animation: skeleton-pulse 1.4s ease-in-out infinite;
-}
-
-.skeleton--text {
-  height: 12px;
-  width: 100%;
-}
-
-.skeleton--card {
-  height: 96px;
-  width: 100%;
-  border-radius: var(--radius-md);
-}
-
-.skeleton--grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--spacing-md);
 }

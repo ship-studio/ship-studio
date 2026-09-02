@@ -26,6 +26,7 @@ import {
 } from '../terminal/startupWatchdog';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { createTerminalOptions } from '../terminal/terminalTheme';
 import '@xterm/xterm/css/xterm.css';
 
 /**
@@ -109,39 +110,10 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
 
     // Create terminal with JetBrains Mono Nerd Font (fallback to system monospace)
     const term = new XTerm({
-      fontFamily: '"JetBrainsMono NF", Menlo, Monaco, "Courier New", monospace',
-      fontSize: 13,
-      lineHeight: 1.2,
-      cursorBlink: true,
-      cursorStyle: 'block',
+      ...createTerminalOptions('onboarding'),
       // Match the workspace terminal. A smaller buffer trims constantly under
       // a TUI agent's redraws, which makes the scrollbar jump around.
-      scrollback: 5000,
       allowProposedApi: true,
-      // Keep agent TUI text readable on the dark background (#232).
-      minimumContrastRatio: 4.5,
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#cccccc',
-        cursor: '#ffffff',
-        selectionBackground: '#3a3d41',
-        black: '#000000',
-        red: '#cd3131',
-        green: '#0dbc79',
-        yellow: '#e5e510',
-        blue: '#2472c8',
-        magenta: '#bc3fbc',
-        cyan: '#11a8cd',
-        white: '#e5e5e5',
-        brightBlack: '#666666',
-        brightRed: '#f14c4c',
-        brightGreen: '#23d18b',
-        brightYellow: '#f5f543',
-        brightBlue: '#3b8eea',
-        brightMagenta: '#d670d6',
-        brightCyan: '#29b8db',
-        brightWhite: '#ffffff',
-      },
     });
 
     const fitAddon = new FitAddon();
@@ -619,9 +591,9 @@ export function OnboardingTerminal({ command, args, cwd, onExit }: OnboardingTer
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: '#1e1e1e',
+            backgroundColor: '#141414',
             color: '#666666',
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            fontFamily: 'var(--font-code)',
             fontSize: 13,
           }}
         >

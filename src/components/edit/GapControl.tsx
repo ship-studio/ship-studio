@@ -5,8 +5,8 @@
  * value across the breakpoint cascade and writes at the active layer via the hook.
  */
 
-import { useState } from 'react';
 import { Button } from '../primitives/Button';
+import { ValueField } from '../primitives/ValueField';
 import { ResettableLabel } from './ResettableLabel';
 import {
   spacingValue,
@@ -33,55 +33,22 @@ function GapField({
   onSet: (v: SpacingValue) => void;
   onStep: (dir: 1 | -1, step?: number) => void;
 }) {
-  const display = spacingDisplay(value);
-  const [text, setText] = useState(display);
-  const [lastDisplay, setLastDisplay] = useState(display);
-  const [invalid, setInvalid] = useState(false);
-  if (display !== lastDisplay && !invalid) {
-    setLastDisplay(display);
-    setText(display);
-  }
-
-  const commit = () => {
-    const parsed = parseSpacingInput(text, 'gap');
-    if (parsed.kind === 'invalid') {
-      setInvalid(true);
-      return false;
-    }
-    setInvalid(false);
-    onSet(parsed);
-    return true;
-  };
-
   return (
-    <input
-      className={`ss-edit-panel__num${invalid ? ' ss-edit-panel__num--invalid' : ''}`}
-      inputMode="text"
-      autoCorrect="off"
-      autoCapitalize="off"
-      autoComplete="off"
-      spellCheck={false}
+    <ValueField
+      className="ss-edit-panel__num"
       aria-label="Gap"
-      aria-invalid={invalid}
-      title={invalid ? 'Use a valid value or unit (e.g. 8, 10rem, 50%)' : undefined}
-      value={text}
-      onChange={(e) => {
-        setText(e.target.value);
-        if (invalid) setInvalid(false);
-      }}
-      onFocus={(e) => e.target.select()}
-      onBlur={() => {
-        if (!commit()) {
-          setText(display);
-          setInvalid(false);
-        }
+      variant="length"
+      defaultUnit="px"
+      value={spacingDisplay(value)}
+      onCommit={(next) => {
+        const parsed = parseSpacingInput(next, 'gap');
+        if (parsed.kind === 'invalid') return false;
+        onSet(parsed);
+        return true;
       }}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' && commit()) e.currentTarget.blur();
-        else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           e.preventDefault();
-          // Same path as the −/＋ buttons; Shift ×10, Alt fine (÷10 on unit
-          // values — the Tailwind scale stays on whole steps).
           const fine = value?.kind === 'arbitrary' ? 0.1 : 1;
           onStep(e.key === 'ArrowUp' ? 1 : -1, e.shiftKey ? 10 : e.altKey ? fine : 1);
         }
@@ -110,8 +77,8 @@ export function GapControl({ currentClass, layer, onApplyEnum, onReset, onStepGa
       />
       <div className="ss-edit-panel__stepper">
         <Button
-          size="sm"
-          variant="secondary"
+          size="medium"
+          variant="default"
           aria-label="Decrease gap"
           onClick={() => onStepGap(-1)}
         >
@@ -123,8 +90,8 @@ export function GapControl({ currentClass, layer, onApplyEnum, onReset, onStepGa
           onStep={onStepGap}
         />
         <Button
-          size="sm"
-          variant="secondary"
+          size="medium"
+          variant="default"
           aria-label="Increase gap"
           onClick={() => onStepGap(1)}
         >

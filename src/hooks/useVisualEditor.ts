@@ -111,6 +111,63 @@ const AUTOSAVE_KEY = 'ss:visualEditor:autoSave';
  *  drag (many rapid mutations) saves once when it settles, not on every frame. */
 const AUTOSAVE_DEBOUNCE_MS = 700;
 
+/** Replace a deleted custom property inside Tailwind arbitrary-value classes.
+ * Tailwind uses underscores to encode spaces inside an arbitrary value, so
+ * `hsl(0, 0%, 0%)` must become `hsl(0,_0%,_0%)` in the class string. */
+function replaceCssVariableInClass(className: string, variableName: string, value: string) {
+  const replacement = value.trim().replace(/\s+/g, '_');
+  const lowerClassName = className.toLowerCase();
+  let cursor = 0;
+  let output = '';
+  let changed = false;
+
+  while (cursor < className.length) {
+    const start = lowerClassName.indexOf('var(', cursor);
+    if (start === -1) {
+      output += className.slice(cursor);
+      break;
+    }
+
+    let depth = 1;
+    let quote = '';
+    let end = start + 4;
+    for (; end < className.length && depth > 0; end += 1) {
+      const char = className[end];
+      if (quote) {
+        if (char === quote && className[end - 1] !== '\\') quote = '';
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === '(') {
+        depth += 1;
+      } else if (char === ')') {
+        depth -= 1;
+      }
+    }
+
+    // Leave malformed/incomplete class text untouched.
+    if (depth !== 0) {
+      output += className.slice(cursor);
+      break;
+    }
+
+    const body = className.slice(start + 4, end - 1);
+    const comma = body.indexOf(',');
+    const referencedName = (comma === -1 ? body : body.slice(0, comma)).trim();
+    output += className.slice(cursor, start);
+    if (referencedName === variableName) {
+      output += replacement;
+      changed = true;
+    } else {
+      output += className.slice(start, end);
+    }
+    cursor = end;
+  }
+
+  return changed ? output : className;
+}
+
 interface Params {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   projectPath: string;
@@ -276,6 +333,45 @@ export function useVisualEditor({
       }
     },
     [post]
+  );
+
+  /** Reconcile a variable deletion that already rewrote source. The backend
+   * updates saved classes, but the selected element/custom class can still be
+   * held in the live editor state until the preview reloads. */
+  const reconcileDeletedVariable = useCallback(
+    (name: string, value: string) => {
+      const next = replaceCssVariableInClass(currentClassRef.current, name, value);
+      if (next === currentClassRef.current) return;
+
+      setLiveClass(next);
+      const target = editTargetRef.current;
+      if (target.kind === 'class') {
+        // The backend has already persisted the rewritten @apply list. Advance
+        // this baseline too, otherwise a later Save would write the old var().
+        setEditTarget({ ...target, baseline: next.trim() });
+      } else {
+        const currentSignature = selectedSigRef.current;
+        if (currentSignature) {
+          const nextSignature = { ...currentSignature, className: next };
+          selectedSigRef.current = nextSignature;
+          setSelection((prev) => {
+            if (!prev) return prev;
+            const resolution =
+              prev.resolution?.status === 'resolved' || prev.resolution?.status === 'multi'
+                ? { ...prev.resolution, class_name: next }
+                : prev.resolution;
+            return { ...prev, signature: nextSignature, resolution };
+          });
+        }
+      }
+
+      // Apply the rewritten class immediately while the dev server/HMR catches
+      // up with the source change. No preview declaration is needed: the new
+      // arbitrary-value class is now the canonical live class.
+      postMutate(next, []);
+      post({ type: 'ss:commit' });
+    },
+    [post, postMutate, setEditTarget, setLiveClass]
   );
 
   // Point the controls at the selected element's own className (the default).
@@ -961,6 +1057,8 @@ export function useVisualEditor({
     editElement,
     /** Switch the controls to a custom class's `@apply` list. */
     editClass,
+    /** Keep the live editor in sync after CSS variable deletion rewrites source. */
+    reconcileDeletedVariable,
     /** The project's custom classes (for the class bar + apply menu). */
     customClasses,
     /** Whether a writable Tailwind entry stylesheet exists (gates create). */

@@ -1,244 +1,184 @@
-/**
- * View and display icons.
- *
- * Eye, panel, expand/compact, pin, camera, crop, chat, full page, new window, and external link icons.
- */
+import EyeSvg from '../../assets/icons/eye.svg?react';
+import ClosedEyeSvg from '../../assets/icons/closed-eye.svg?react';
+import SidebarSvg from '../../assets/icons/sidebar.svg?react';
+import ElementsSvg from '../../assets/icons/elements.svg?react';
+import ExpandSvg from '../../assets/icons/expand.svg?react';
+import ContractSvg from '../../assets/icons/contract.svg?react';
+import PinSvg from '../../assets/icons/pin.svg?react';
+import ScreenshotSvg from '../../assets/icons/screenshot.svg?react';
+import ScreenshotCropSvg from '../../assets/icons/screenshot-crop.svg?react';
+import ExternalSvg from '../../assets/icons/external.svg?react';
+import HomeSvg from '../../assets/icons/home.svg?react';
+import NewWorkspaceSvg from '../../assets/icons/new-workspace.svg?react';
+import SwitchWorkspaceSvg from '../../assets/icons/switch-workspace.svg?react';
+import MoveToWorkspaceSvg from '../../assets/icons/move-to-workspace.svg?react';
+import SharedLibrarySvg from '../../assets/icons/shared-library.svg?react';
+import BreakpointFullSvg from '../../assets/icons/breakpoint-full.svg?react';
+import DesktopSvg from '../../assets/icons/desktop.svg?react';
+import TabletSvg from '../../assets/icons/tablet.svg?react';
+import MobileHorizontalSvg from '../../assets/icons/mobile-horizontal.svg?react';
+import MobileSvg from '../../assets/icons/mobile.svg?react';
+import FolderStackSvg from '../../assets/icons/old-icons/folder-stack.svg?react';
+import SplitViewSvg from '../../assets/icons/old-icons/split-view.svg?react';
+import { createIcon } from './icon-base';
 
-interface IconProps {
-  size?: number;
-  className?: string;
-}
-
-export function EyeIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-export function EyeOffIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-      <line x1="1" y1="1" x2="23" y2="23" />
-    </svg>
-  );
-}
-
-export function PanelRightIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <line x1="15" y1="3" x2="15" y2="21" />
-    </svg>
-  );
-}
-
-export function PanelLeftIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <line x1="9" y1="3" x2="9" y2="21" />
-    </svg>
-  );
-}
-
-export function ExpandIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {/* Maximize/expand arrows pointing outward */}
-      <polyline points="15 3 21 3 21 9" />
-      <polyline points="9 21 3 21 3 15" />
-      <line x1="21" y1="3" x2="14" y2="10" />
-      <line x1="3" y1="21" x2="10" y2="14" />
-    </svg>
-  );
-}
-
-export function CompactIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {/* Minimize/compress arrows pointing inward */}
-      <polyline points="4 14 10 14 10 20" />
-      <polyline points="20 10 14 10 14 4" />
-      <line x1="14" y1="10" x2="21" y2="3" />
-      <line x1="3" y1="21" x2="10" y2="14" />
-    </svg>
-  );
-}
-
-export function PinIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <line x1="12" y1="17" x2="12" y2="22" />
-      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
-    </svg>
-  );
-}
-
-export function CameraIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-      <circle cx="12" cy="13" r="4" />
-    </svg>
-  );
-}
-
-export function CropIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M6 2v4M6 18v4M2 6h4M18 6h4M18 2v4M18 18v4M2 18h4M18 18h4" />
-      <rect x="6" y="6" width="12" height="12" />
-    </svg>
-  );
-}
-
-export function FullPageIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {/* Document outline */}
-      <rect x="4" y="2" width="16" height="20" rx="2" />
-      {/* Up arrow */}
-      <polyline points="12 6 12 10" />
-      <polyline points="9 8 12 5 15 8" />
-      {/* Down arrow */}
-      <polyline points="12 14 12 18" />
-      <polyline points="9 16 12 19 15 16" />
-    </svg>
-  );
-}
-
-/** Icon for opening in a new window (square with arrow pointing up-right) */
-export function NewWindowIcon({ size = 14, className }: IconProps) {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-      <path d="M9 3v18" />
-      <path d="M14 9l3 3-3 3" />
-      <path d="M17 12H9" />
-    </svg>
-  );
-}
-
-export function ExternalLinkIcon({ size = 12, className }: IconProps) {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-      <polyline points="15 3 21 3 21 9" />
-      <line x1="10" y1="14" x2="21" y2="3" />
-    </svg>
-  );
-}
+export const EyeIcon = createIcon(EyeSvg, {
+  name: 'EyeIcon',
+  source: 'icons/eye.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const EyeOffIcon = createIcon(ClosedEyeSvg, {
+  name: 'EyeOffIcon',
+  source: 'icons/closed-eye.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const PanelLeftIcon = createIcon(SidebarSvg, {
+  name: 'PanelLeftIcon',
+  source: 'icons/sidebar.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementsIcon = createIcon(ElementsSvg, {
+  name: 'ElementsIcon',
+  source: 'icons/elements.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ExpandIcon = createIcon(ExpandSvg, {
+  name: 'ExpandIcon',
+  source: 'icons/expand.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CompactIcon = createIcon(ContractSvg, {
+  name: 'CompactIcon',
+  source: 'icons/contract.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const PinIcon = createIcon(PinSvg, {
+  name: 'PinIcon',
+  source: 'icons/pin.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CameraIcon = createIcon(ScreenshotSvg, {
+  name: 'CameraIcon',
+  source: 'icons/screenshot.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CropIcon = createIcon(ScreenshotCropSvg, {
+  name: 'CropIcon',
+  source: 'icons/screenshot-crop.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ExternalLinkIcon = createIcon(ExternalSvg, {
+  name: 'ExternalLinkIcon',
+  source: 'icons/external.svg',
+  kind: 'ui',
+  defaultSize: 14,
+  compact: true,
+  strokeWidth: '1px',
+});
+export const HomeIcon = createIcon(HomeSvg, {
+  name: 'HomeIcon',
+  source: 'icons/home.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const NewWorkspaceIcon = createIcon(NewWorkspaceSvg, {
+  name: 'NewWorkspaceIcon',
+  source: 'icons/new-workspace.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const SwitchWorkspaceIcon = createIcon(SwitchWorkspaceSvg, {
+  name: 'SwitchWorkspaceIcon',
+  source: 'icons/switch-workspace.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const MoveToWorkspaceIcon = createIcon(MoveToWorkspaceSvg, {
+  name: 'MoveToWorkspaceIcon',
+  source: 'icons/move-to-workspace.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const SharedLibraryIcon = createIcon(SharedLibrarySvg, {
+  name: 'SharedLibraryIcon',
+  source: 'icons/shared-library.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const SidebarIcon = createIcon(SidebarSvg, {
+  name: 'SidebarIcon',
+  source: 'icons/sidebar.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const FullBreakpointIcon = createIcon(BreakpointFullSvg, {
+  name: 'FullBreakpointIcon',
+  source: 'icons/breakpoint-full.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const DesktopIcon = createIcon(DesktopSvg, {
+  name: 'DesktopIcon',
+  source: 'icons/desktop.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const LaptopIcon = createIcon(TabletSvg, {
+  name: 'LaptopIcon',
+  source: 'icons/tablet.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const TabletIcon = createIcon(MobileHorizontalSvg, {
+  name: 'TabletIcon',
+  source: 'icons/mobile-horizontal.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const MobileIcon = createIcon(MobileSvg, {
+  name: 'MobileIcon',
+  source: 'icons/mobile.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const FolderStackIcon = createIcon(FolderStackSvg, {
+  name: 'FolderStackIcon',
+  source: 'icons/old-icons/folder-stack.svg',
+  kind: 'ui',
+  defaultSize: 14,
+});
+export const SplitViewIcon = createIcon(SplitViewSvg, {
+  name: 'SplitViewIcon',
+  source: 'icons/old-icons/split-view.svg',
+  kind: 'ui',
+  defaultSize: 14,
+});

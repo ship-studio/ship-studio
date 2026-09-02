@@ -1,124 +1,287 @@
 /**
- * Project-global scopes of the CSS panel — the scope switch (Element / Variables /
- * Animations) and the Variables (design tokens) + Animations (@keyframes) editors.
- * Element-scoped cascade-card styles live in css-cascade.css. Tokens only.
+ * Project-global views of the CSS panel — the shared Style / Settings / Variables /
+ * Animate switch and the Variables (design tokens) + Animations (@keyframes) editors.
+ * Element-scoped cascade-card styles live in the css-cascade/ feature folder. Tokens only.
  */
 
-/* ── Scope switch (Element / Variables / Animations) ──
-   Top-level scope of the CSS panel: the selected element vs the project-global
-   design tokens and @keyframes. Distinct from the element's Style/Settings tabs. */
+/* ── Top-level view switch (Style / Settings / Variables / Animate) ── */
+
 .ss-cascade-scope {
+  --tabs-list-padding: var(--spacing-2xs);
   /* Pinned to the top of the scrolling panel body (which has 0 padding here) so the
-     Element/Variables/Animations switch stays reachable while the cards scroll under
+     Style/Settings/Variables/Animate switch stays reachable while the cards scroll under
      it. Opaque bg + z-index keep scrolled content from showing through. */
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--bg-secondary);
-  display: flex;
-  gap: var(--spacing-xs);
-  /* Horizontal inset via padding (not margin) so the bottom border runs the full
-     width of the panel while the tabs stay inset. */
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--border);
-}
-.ss-cascade-scope__tab {
-  all: unset;
-  flex: 1 1 0;
-  text-align: center;
-  padding: 5px 0; /* css-ok: scope tab height */
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-.ss-cascade-scope__tab:hover {
-  color: var(--text-primary);
-  background: var(--tint-subtle);
-}
-.ss-cascade-scope__tab.is-active {
-  color: var(--text-primary);
-  background: var(--tint-strong);
-  box-shadow: inset 0 0 0 1px var(--tint);
+  background: var(--surface-panel);
+  width: calc(100% - (2 * var(--editor-panel-inline-pad)));
+  justify-content: center;
+  margin: var(--editor-panel-inline-pad) var(--editor-panel-inline-pad) 0;
+  border-bottom: 1px solid var(--border-default);
 }
 
-/* ── Variables editor (design tokens) ── */
+.ss-cascade-scope .tabs__tab {
+  flex: 1 1 0;
+  width: auto;
+}
+
+/* ========================================================================
+   * Variables Editor
+   * ========================================================================
+*/
+
+/* Standalone workspace panel shell. The dockable surface owns the outer size;
+   the shared edit-panel chrome fills it and leaves the token list as the only
+   scrollable body. */
+.ss-variables-panel.ss-variables-panel--dockable {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}
+
+.ss-variables-panel .ss-edit-panel__body {
+  padding: 0;
+  gap: 0;
+  overflow-y: auto;
+}
+
+.ss-variables-panel.ss-edit-panel--pinned {
+  border-left: none;
+  border-right: var(--border-width-default) solid var(--border-subtle);
+}
+
+/* Container */
 .ss-vars {
   display: flex;
   flex-direction: column;
-  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-md);
+  padding: var(--spacing-sm) var(--editor-panel-inline-pad) var(--spacing-md);
+  gap: var(--spacing-sm);
 }
+
+/* The generic action is already inset by the panel body. Inside Variables it is
+   nested in this padded content wrapper, so let it fill that wrapper instead of
+   applying the panel inset a second time. */
+.ss-vars > .ss-cascade-action {
+  width: 100%;
+  margin-inline: 0;
+}
+
+.ss-vars__list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scope - the list header (:root) */
 .ss-vars__scope {
   display: flex;
   align-items: baseline;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);
   margin-top: var(--spacing-sm);
   margin-bottom: var(--spacing-xs);
 }
 .ss-vars__scope-sel {
   color: var(--code-property);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
 }
 .ss-vars__scope-note {
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-body-sm);
 }
-.ss-vars__list {
-  display: flex;
-  flex-direction: column;
+
+/* Variable as a value */
+.ss-css-variable {
+  color: var(--variable-text);
 }
+
+/* Keep highlighted value fragments in one shrinkable flow. Without this wrapper,
+   flex-based value controls treat the text around each highlighted `var()` as
+   separate anonymous flex items and long values can form parallel columns. */
+.ss-css-value-text {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Variable item row */
 .ss-var-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-xs);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--spacing-xs);
   padding: 3px 4px; /* css-ok: dense token row */
   margin: 0 -4px; /* css-ok: edge-to-edge row */
   border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   line-height: 1.5;
 }
-.ss-var-row__swatch {
-  flex: 0 0 auto;
-  align-self: center;
-  width: 11px;
-  height: 11px;
-  border-radius: 3px; /* css-ok: tiny swatch */
-  box-shadow: inset 0 0 0 1px var(--overlay-30);
+.ss-var-row:hover {
+  background: none;
 }
-.ss-var-row__name {
+
+.ss-var-row__swatch {
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
   flex: 0 0 auto;
-  max-width: 55%;
-  color: var(--code-property);
+  align-self: flex-start;
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.ss-var-row__swatch-color {
+  position: absolute;
+  inset: 0;
+}
+
+.ss-var-row__swatch--button {
+  padding: 0;
+  cursor: pointer;
+}
+.ss-var-row__swatch--button:focus-visible {
+  outline: var(--stroke-1) solid var(--accent-active);
+  outline-offset: var(--space-02);
+}
+
+.ss-var-row__type-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  width: 16px;
+  height: 16px;
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-badge);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ss-var-row__name {
+  display: inline-flex;
+  align-items: flex-start;
+  min-width: 0;
+  gap: var(--spacing-xs);
+  color: var(--text-primary);
   overflow-wrap: anywhere;
 }
-.ss-var-row__colon {
-  flex: 0 0 auto;
-  color: var(--text-muted);
-}
-.ss-var-row__value {
-  all: unset;
+
+.ss-var-row__name code {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--text-primary);
-  cursor: text;
-  border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
 }
-.ss-var-row__value:hover {
-  background: var(--tint-subtle);
+
+.ss-var-row__name > .ss-dropdown {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
+
+/* This menu is portaled to <body>, so it must clear the floating editor panel. */
+.ss-var-row__menu {
+  z-index: var(--z-tooltip);
+}
+
+.ss-var-row__menu-trigger {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-interaction);
+}
+
+.ss-var-row:hover .ss-var-row__menu-trigger,
+.ss-var-row:focus-within .ss-var-row__menu-trigger,
+.ss-var-row__menu-trigger[aria-expanded='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* A closed trigger should return to its quiet ghost state immediately, even
+   when the pointer is still over the button after dismissing the menu. */
+.ss-var-row__menu-trigger[aria-expanded='false']:hover:not(:disabled) {
+  background: transparent;
+  color: var(--button-text-default);
+}
+
+.ss-var-row__colon {
+  justify-self: center;
+  color: var(--text-muted);
+}
+.ss-var-row__value-group {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  gap: var(--spacing-xs);
+}
+
+.ss-var-row__value {
+  display: block;
+  align-self: start;
+  min-width: 0;
+  width: 100%;
+  min-height: var(--control-height-compact);
+  height: auto;
+  padding: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: inherit;
+}
+
+.ss-var-row__value .ss-css-value-text {
+  line-height: inherit;
+}
+
+.ss-var-row__value.property-field {
+  display: block;
+  height: auto;
+  border: 0;
+  background: transparent;
+  color: var(--variable-text);
+  border-radius: 0;
+  justify-content: flex-start;
+  text-align: left;
+  transition: color var(--transition);
+}
+.ss-var-row__value.property-field:hover,
+.ss-var-row__value.property-field[aria-expanded='true'] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--variable-text-hover);
+}
+.ss-var-row__value.property-field:focus-visible {
+  border-color: transparent;
+}
+
+/* The inline editor mirrors this cell's borderless, zero-padding display text;
+   keeping the same content box prevents both wrapping and the text's x-position
+   from changing while a variable is being edited. */
+.ss-var-row .ss-value-pop--inline .ss-value-pop__sizer,
+.ss-var-row .ss-value-pop--inline .ss-value-pop__input,
+.ss-var-row .ss-value-pop--inline .ss-value-pop__ghost {
+  padding: 0;
+}
+
 .ss-var-row__value--ro {
   cursor: default;
-  color: var(--text-secondary);
+  color: var(--variable-text);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transition: color var(--transition);
 }
 .ss-var-row__value--ro:hover {
   background: none;
+  color: var(--variable-text-hover);
 }
 .ss-var-row__empty {
   color: var(--text-muted);
@@ -127,8 +290,10 @@
 .ss-var-row.is-readonly {
   opacity: 0.85;
 }
+
 .ss-vars__add {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--spacing-xs);
   margin-top: var(--spacing-sm);
@@ -139,19 +304,20 @@
   min-width: 0;
   height: 26px;
   padding: 0 var(--spacing-sm);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
 }
 .ss-var-input:focus {
-  outline: 1px solid var(--action);
+  outline: 1px solid var(--accent-active);
 }
 .ss-var-input--name {
-  flex: 0 0 42%;
-  color: var(--code-property);
+  min-width: 0;
+  width: 100%;
+  color: var(--variable-text);
 }
 .ss-var-input::placeholder {
   color: var(--text-muted);
@@ -159,8 +325,34 @@
 .ss-vars__scoped {
   margin-top: var(--spacing-md);
   padding-top: var(--spacing-sm);
-  border-top: 1px dashed var(--border);
+  border-top: 1px dashed var(--border-default);
 }
+
+.ss-variable-delete-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xl);
+  text-wrap: pretty;
+}
+
+.ss-variable-delete-modal__body p {
+  margin: 0;
+}
+
+.ss-variable-delete-modal__body strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-variable-delete-modal__body code {
+  color: var(--variable-text);
+  overflow-wrap: anywhere;
+}
+
+/* ========================================================================
+   * Animations Editor
+   * ========================================================================
+*/
 
 /* ── Animations editor (@keyframes) ── */
 .ss-anims {
@@ -176,16 +368,6 @@
 .ss-anims__add-at {
   flex: 0 0 auto;
   color: var(--code-property);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-}
-
-/* The fixed `@keyframes` keyword beside the editable animation name. */
-.ss-card__kf-at {
-  color: var(--text-muted);
-}
-.ss-card__kf-edit {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
 }

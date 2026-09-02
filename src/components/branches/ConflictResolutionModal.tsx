@@ -15,7 +15,7 @@ import {
   abortMerge,
   completeMerge,
 } from '../../lib/conflicts';
-import { WarningIcon, CopyIcon, ChevronIcon, InfoIcon } from '../icons';
+import { WarningIcon, CopyIcon, ChevronIcon, InfoIcon } from '@/components/icons';
 import { trackEvent, trackError } from '../../lib/analytics';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { ModalFrame } from '../primitives/ModalFrame';
@@ -251,7 +251,13 @@ If a resolution is genuinely ambiguous, show me the options and ask before choos
 
   if (isLoading) {
     return (
-      <ModalFrame isOpen onClose={handleClose} showCloseButton={false} className="conflict-content">
+      <ModalFrame
+        isOpen
+        onClose={handleClose}
+        ariaLabel="Conflict resolution"
+        showCloseButton={false}
+        className="conflict-content"
+      >
         <div className="conflict-loading">
           <Spinner size="lg" />
           <p>Analyzing conflicts...</p>
@@ -262,7 +268,13 @@ If a resolution is genuinely ambiguous, show me the options and ask before choos
 
   if (error) {
     return (
-      <ModalFrame isOpen onClose={handleClose} showCloseButton={false} className="conflict-content">
+      <ModalFrame
+        isOpen
+        onClose={handleClose}
+        ariaLabel="Conflict resolution"
+        showCloseButton={false}
+        className="conflict-content"
+      >
         <div className="conflict-error">
           <WarningIcon size={32} />
           <p>{error}</p>
@@ -295,6 +307,7 @@ If a resolution is genuinely ambiguous, show me the options and ask before choos
         dismissable={!isApplying}
         showCloseButton={false}
         className="conflict-content"
+        ariaLabel="Resolve file conflict"
       >
         <>
           <div className="conflict-header">
@@ -343,6 +356,7 @@ If a resolution is genuinely ambiguous, show me the options and ask before choos
     <ModalFrame
       isOpen
       onClose={handleClose}
+      ariaLabel={`Resolve conflicts in ${currentFile.filePath}`}
       dismissable={!isApplying}
       showCloseButton={false}
       className="conflict-content conflict-content-wide"

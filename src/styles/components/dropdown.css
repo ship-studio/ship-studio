@@ -1,0 +1,77 @@
+/* ===== Primitive: Dropdown ===== */
+.ss-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.ss-dropdown__menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: var(--spacing-xs);
+  z-index: var(--z-dropdown);
+  /* Size to content: the positioning parent is usually a tiny trigger
+     wrapper, so plain shrink-to-fit would clamp to min-width and wrap
+     item labels. */
+  width: max-content;
+  min-width: 200px;
+  max-width: 320px;
+  padding: var(--spacing-xs);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+
+.ss-dropdown__menu--right {
+  left: auto;
+  right: 0;
+}
+
+.ss-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-size-menu-item);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.ss-dropdown__item:hover:not(:disabled) {
+  background: var(--tint-subtle);
+}
+
+.ss-dropdown__item:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.ss-dropdown__item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ss-dropdown__item--active {
+  color: var(--accent-active);
+}
+
+.ss-dropdown__item--danger {
+  color: var(--accent-error-light);
+}
+
+.ss-dropdown__item--danger:hover:not(:disabled) {
+  background: rgba(var(--accent-error-light-rgb), 0.1);
+}
+
+.ss-dropdown__divider {
+  height: 1px;
+  margin: var(--spacing-xs) 0;
+  background: var(--border-default);
+}

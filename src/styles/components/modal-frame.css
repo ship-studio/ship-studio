@@ -1,0 +1,48 @@
+/* ===== Primitive: ModalFrame ===== */
+.modal-frame-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-70);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal-overlay);
+  padding: var(--spacing-lg);
+}
+
+.modal-frame-overlay[data-modal-inactive='true'] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.modal-frame-content {
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-modal);
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  width: 480px;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-frame-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.modal-frame-title {
+  font-size: var(--font-size-h4);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}

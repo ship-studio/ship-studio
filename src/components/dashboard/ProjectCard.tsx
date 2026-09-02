@@ -10,7 +10,7 @@
 
 import { memo } from 'react';
 import { DashboardProject } from '../../lib/project';
-import { BranchIcon } from '../icons';
+import { BranchIcon } from '@/components/icons';
 import { ProjectCardMenu } from './ProjectCardMenu';
 
 /** Props for the ProjectCard component */
@@ -90,14 +90,17 @@ export const ProjectCard = memo(function ProjectCard({
       <div className="project-card-info">
         <div className="project-card-details" onClick={onSelect}>
           <div className="project-card-name-row">
-            <span className="project-card-name">{project.name}</span>
+            <span className="project-card-name text-style-body-medium">{project.name}</span>
             {project.workspace_subpath && (
-              <span className="project-card-workspace" title={project.workspace_subpath}>
+              <span
+                className="project-card-workspace text-style-body-medium"
+                title={project.workspace_subpath}
+              >
                 · {project.workspace_subpath}
               </span>
             )}
           </div>
-          <div className="project-card-meta">
+          <div className="project-card-meta text-style-body-medium">
             {project.git_branch && (
               <span className="project-card-branch">
                 <BranchIcon />

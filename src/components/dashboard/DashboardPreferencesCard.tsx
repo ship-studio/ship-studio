@@ -5,7 +5,7 @@
  */
 
 import { trackEvent } from '../../lib/analytics';
-import { ChevronRightIcon, HistoryIcon, SettingsIcon } from '../icons';
+import { HistoryIcon, SettingsIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 
 interface DashboardPreferencesCardProps {
@@ -25,13 +25,17 @@ export function DashboardPreferencesCard({
     <section className="dashboard-card">
       <header className="dashboard-card-header">
         <div>
-          <h3 className="dashboard-card-title">Preferences</h3>
-          <p className="dashboard-card-subtitle">Adjust app settings or review recent updates.</p>
+          <h3 className="dashboard-card-title text-style-h4">Preferences</h3>
+          <p className="dashboard-card-subtitle text-style-body-medium">
+            Adjust app settings or review recent updates.
+          </p>
         </div>
       </header>
       <div className="dashboard-card-rows">
         <Button
-          variant="ghost"
+          variant="default"
+          size="default"
+          width="hug"
           className="dashboard-card-row"
           data-education-id="settings-button"
           onClick={() => {
@@ -43,15 +47,16 @@ export function DashboardPreferencesCard({
             <SettingsIcon size={18} />
           </div>
           <div className="dashboard-card-row-main">
-            <div className="dashboard-card-row-name">Settings</div>
-            <div className="dashboard-card-row-status">
+            <div className="dashboard-card-row-name text-style-body-medium">Settings</div>
+            <div className="dashboard-card-row-status text-style-control">
               Dashboard widgets, compact mode, learn mode
             </div>
           </div>
-          <ChevronRightIcon size={14} />
         </Button>
         <Button
-          variant="ghost"
+          variant="default"
+          size="default"
+          width="hug"
           className="dashboard-card-row"
           onClick={() => {
             void trackEvent('changelog_opened', { $screen_name: 'Dashboard' });
@@ -62,12 +67,11 @@ export function DashboardPreferencesCard({
             <HistoryIcon size={14} />
           </div>
           <div className="dashboard-card-row-main">
-            <div className="dashboard-card-row-name">What's New</div>
-            <div className="dashboard-card-row-status">
+            <div className="dashboard-card-row-name text-style-body-medium">What's New</div>
+            <div className="dashboard-card-row-status text-style-control">
               Recent updates and downgrade to older versions
             </div>
           </div>
-          <ChevronRightIcon size={14} />
         </Button>
       </div>
     </section>

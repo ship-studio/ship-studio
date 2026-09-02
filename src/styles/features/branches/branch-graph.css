@@ -1,9 +1,9 @@
 /* Branch graph visual — label gutter + SVG rails, elbows, and PR arrows. */
 
 .branch-graph {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 
@@ -18,11 +18,11 @@
 /* Header divider only when the body below it is visible — collapsed, it
    doubled up with the card's own bottom border. */
 .branch-graph.is-open .branch-graph-header {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .branch-graph-title {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -42,7 +42,7 @@
   padding: 0;
   background: none;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -52,14 +52,14 @@
 
 .branch-graph-refresh:hover:not(:disabled) {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .branch-graph-refresh:disabled {
   cursor: default;
 }
 
-.branch-graph-refresh.spinning svg {
+.branch-graph-header-actions .spinning svg {
   animation: spin 0.8s linear infinite;
 }
 
@@ -67,7 +67,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 
@@ -83,11 +83,11 @@
   appearance: none;
   -webkit-appearance: none;
   padding: 4px 22px 4px 8px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   cursor: pointer;
   outline: none;
 }
@@ -97,7 +97,7 @@
 }
 
 .branch-graph-default-base-select:focus {
-  border-color: var(--action);
+  border-color: var(--accent-active);
 }
 
 .branch-graph-select-caret {
@@ -105,7 +105,7 @@
   right: 8px;
   pointer-events: none;
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   line-height: 1;
 }
 
@@ -116,7 +116,7 @@
   justify-content: center;
   padding: 28px 14px;
   color: var(--text-muted);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
 }
 
 /* Body: SVG graphics layer with the HTML label gutter overlaid on top */
@@ -144,7 +144,7 @@
 }
 
 .branch-graph-row-name {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -162,11 +162,11 @@
 }
 
 .branch-graph-row-here {
-  color: var(--action);
+  color: var(--accent-active);
 }
 
 .branch-graph-row-meta {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -182,7 +182,7 @@
    the branch you're on, and an open PR. A wall of green rails made green
    meaningless (and the graph unreadable) on branch-heavy repos. */
 .branch-graph-rail {
-  stroke: var(--border);
+  stroke: var(--border-default);
   stroke-width: 1.5;
   fill: none;
   stroke-linecap: round;
@@ -195,14 +195,14 @@
 }
 
 .branch-graph-rail.is-current {
-  stroke: var(--action);
+  stroke: var(--accent-active);
   stroke-width: 2.5;
   opacity: 1;
 }
 
 /* Fork elbows */
 .branch-graph-elbow {
-  stroke: var(--border);
+  stroke: var(--border-default);
   stroke-width: 1.5;
   fill: none;
 }
@@ -210,12 +210,12 @@
 /* Nodes */
 .branch-graph-node {
   fill: var(--text-muted);
-  stroke: var(--bg-secondary);
+  stroke: var(--surface-panel);
   stroke-width: 2;
 }
 
 .branch-graph-node.is-current {
-  fill: var(--action);
+  fill: var(--accent-active);
 }
 
 /* PR marker — the one deliberately loud element besides the current branch */
@@ -224,24 +224,23 @@
 }
 
 .branch-graph-pr-chip {
-  fill: var(--action);
+  fill: var(--accent-active);
   stroke: none;
 }
 
 .branch-graph-pr:hover .branch-graph-pr-chip {
-  fill: var(--action-hover);
+  fill: var(--accent-active-hover);
 }
 
 .branch-graph-pr-text {
-  fill: var(--action-text);
-  font-size: var(--font-size-xs);
+  fill: var(--text-on-accent);
+  font-size: var(--font-size-badge);
   font-weight: 700;
   text-anchor: middle;
 }
 
-/* Collapsible header. The toggle must not pick up the global button hover
-   pill — the whole row already reads as one control; feedback is the title
-   brightening and the chevron. */
+/* Collapsible header. The whole row reads as one control, so feedback is the
+   title brightening and the chevron rather than a hover pill. */
 .branch-graph-toggle {
   display: inline-flex;
   align-items: center;
@@ -269,7 +268,7 @@
 
 .branch-graph-chevron {
   display: inline-block;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   line-height: 1;
   color: var(--text-muted);
   transition: transform var(--transition);
@@ -281,15 +280,15 @@
 
 .branch-graph-count {
   padding: 1px 7px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius);
-  font-size: var(--font-size-xs);
+  background: var(--surface-control);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
 }
 
 .branch-graph-trimmed {
   padding: var(--spacing-sm) 14px;
-  border-top: 1px solid var(--border);
-  font-size: var(--font-size-sm);
+  border-top: 1px solid var(--border-default);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }

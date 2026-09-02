@@ -1,0 +1,33 @@
+/* Ship Studio font faces */
+
+@font-face {
+  font-family: 'Geist';
+  src: url('../../assets/fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../../assets/fonts/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrainsMono NF';
+  src: url('../../assets/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'JetBrainsMono NF';
+  src: url('../../assets/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
+  font-weight: bold;
+  font-style: normal;
+  font-display: block;
+}

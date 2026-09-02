@@ -48,6 +48,7 @@ export interface BranchPRTabContainerProps {
   onWorktreesChanged: () => void;
   /** Open the "New worktree" modal. */
   onCreateWorktree: () => void;
+  createBranchRequest: number;
 }
 
 export function BranchPRTabContainer({
@@ -72,6 +73,7 @@ export function BranchPRTabContainer({
   onCloseWorktreeSession,
   onWorktreesChanged,
   onCreateWorktree,
+  createBranchRequest,
 }: BranchPRTabContainerProps) {
   const showBranchesPane =
     workspaceTab === 'branches' ||
@@ -101,6 +103,7 @@ export function BranchPRTabContainer({
             onCloseWorktreeSession={onCloseWorktreeSession}
             onWorktreesChanged={onWorktreesChanged}
             onCreateWorktree={onCreateWorktree}
+            createBranchRequest={createBranchRequest}
           />
         ) : (
           <div style={{ position: 'relative', flex: 1 }}>

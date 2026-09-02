@@ -13,7 +13,7 @@ import { CreateProject } from './CreateProject';
 import { ImportProject } from './ImportProject';
 import { ImportTypePicker } from './ImportTypePicker';
 import { PluginSlot } from '../plugins/PluginSlot';
-import { UpdateBanner } from '../UpdateBanner';
+import { Button } from '../primitives/Button';
 import { OnboardingTerminal } from '../setup';
 import type { Project } from '../../lib/project';
 import type { AuthTerminalConfig } from '../../hooks/useIntegrationStatus';
@@ -95,7 +95,6 @@ export const ProjectsView = memo(function ProjectsView({
   return (
     <>
       <div className="app">
-        <UpdateBanner />
         <div className="dashboard-with-changelog">
           <ProjectList
             onSelectProject={(project) => void onSelectProject(project)}
@@ -141,9 +140,9 @@ export const ProjectsView = memo(function ProjectsView({
             <div className="onboarding-terminal-modal">
               <div className="onboarding-terminal-header">
                 <span className="onboarding-terminal-title">GitHub Account</span>
-                <button className="onboarding-terminal-cancel" onClick={() => closeAuthTerminal()}>
+                <Button variant="ghost" size="compact" onClick={closeAuthTerminal}>
                   Cancel
-                </button>
+                </Button>
               </div>
               <OnboardingTerminal
                 command={authTerminalConfig.command}

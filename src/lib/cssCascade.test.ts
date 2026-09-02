@@ -90,6 +90,7 @@ describe('mergeCascade', () => {
     expect(rows[1].readonlyReason).toMatch(/stylesheet/);
     expect(rows[2].editable).toBe(false);
     expect(rows[2].readonlyReason).toMatch(/multiple/);
+    expect(rows[2].sourceFiles).toEqual(['a.css', 'b.css']);
   });
 
   it('carries the @container / @supports context onto the row for the chips', () => {

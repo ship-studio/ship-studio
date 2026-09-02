@@ -1,16 +1,19 @@
 <script>(function(){
 if(window.__ssSelectInit)return;window.__ssSelectInit=true;
 var active=false,hoverBox=null,selBoxes=[],selectedSet=[],selPrimary=null;
+
 /* Box colors: the element the user actually clicked (selPrimary) gets the blue
    "you're editing this" outline; its same-source siblings — which a source edit will
-   ALSO change — get the orange "also affected" outline, so the two are distinguishable. */
-var SEL_PRIMARY_COLOR='rgba(96,165,250,.95)',SEL_SIBLING_COLOR='rgba(217,119,87,.95)';
+   ALSO change — get an orange dashed outline, so the two are distinguishable. */
+var SEL_PRIMARY_COLOR='rgba(0,125,240,.95)',SEL_SIBLING_COLOR='rgba(235,171,107,.95)';
+
 /* The class each currently-selected element had BEFORE any live mutation, so we can
    revert an unsaved preview when the user deselects. Without this, re-selecting reads
    the mutated class (not a source literal) and the element wrongly reports as "not
    editable". Live style is previewed via an injected stylesheet (see below), not inline
    styles, so a breakpoint edit (md:p-8) only shows at its width — inline styles can't. */
 var origClasses=[];
+
 /* Preview declarations, accumulated per selection marker (data-ss-sel="N") then by
    breakpoint min-width then by CSS property: pvDecls[mark][minPx][prop] = value.
    Accumulating per-property (rather than replacing) lets several properties preview
@@ -20,6 +23,7 @@ var origClasses=[];
    will recompile the real CSS, mirroring the old behavior that kept saved edits
    visible after the panel closed). */
 var pvDecls={},curMark=null,pendingMark=null,pvId=0,styleEl=null;
+
 /* Code-first CSS editor (vanilla-CSS projects): when the host activates with
    {cascade:true} we ALSO emit ss:cascade on select — the full list of author rules
    that match the clicked element, with specificity, source order, media/layer context
@@ -29,11 +33,13 @@ var pvDecls={},curMark=null,pendingMark=null,pvId=0,styleEl=null;
    an override layer. pvRuleLoc maps a preview key → {owner group, index, original text}
    so an edit can be reverted (restore) or committed (kept, HMR recompiles from source). */
 var pvRuleLoc={},cascadeMode=false;
+
 /* Inline text editing (double-click a single-text-node leaf to type, like Webflow).
    txtEl is the element being edited; txtOrig its text before editing (for revert).
    txtEditable is the parent's verdict for the current selection (optimistic true
    until ss:textInfo arrives — commit re-validates anyway). last* keep a one-deep
    handle so the parent can revert if the source write is rejected. */
+
 /* Inline editing. For React (Next) we edit a CLONE and leave React's element
    untouched (mutating it crashes React's reconciler on Fast Refresh); txtRealEl is
    that hidden element. For non-React (Astro) we edit in place (txtEl===txtRealEl) and
@@ -41,41 +47,57 @@ var pvRuleLoc={},cascadeMode=false;
    visible (showing the NEW text) until HMR updates the real element, then swapped —
    so there's no original→new flash. */
 var txtEditing=false,txtEl=null,txtRealEl=null,txtOrig='',txtOrigHtml='',txtPrevCss='',txtCloned=false,txtEditable=true,txtPending=null,txtRevertEl=null,txtRevertHtml='';
+
 /* Cap on the text we report for content-search resolution — generous enough for real
    headings/paragraphs; longer text falls back to class-anchored resolution. */
 var SS_TEXT_CAP=2000;
-function mk(c){var d=document.createElement('div');d.style.cssText='position:fixed;pointer-events:none;z-index:2147483646;border:2px solid '+c+';box-sizing:border-box;border-radius:2px';d.setAttribute('data-ss-overlay','1');document.body.appendChild(d);return d;}
-function ensureHover(){if(!hoverBox)hoverBox=mk('rgba(96,165,250,.8)');}
-function ensureSel(n){while(selBoxes.length<n)selBoxes.push(mk(SEL_SIBLING_COLOR));}
+
+function mk(c){var d=document.createElement('div');d.style.cssText='position:fixed;pointer-events:none;z-index:2147483646;border:1.5px solid '+c+';box-sizing:border-box;border-radius:0px';d.setAttribute('data-ss-overlay','1');document.body.appendChild(d);return d;}
+
+function ensureHover(){if(!hoverBox||!hoverBox.isConnected)hoverBox=mk('#007DF0');}
+
+function ensureSel(n){for(var i=0;i<n;i++){if(!selBoxes[i]||!selBoxes[i].isConnected)selBoxes[i]=mk(SEL_SIBLING_COLOR);}}
+
 function editable(el){while(el&&el!==document.body){if(el.nodeType===1){var c=el.getAttribute&&el.getAttribute('class');if(c&&c.trim())return el;}el=el.parentElement;}return null;}
+
 function place(box,el){if(!box)return;if(!el){box.style.display='none';return;}var r=el.getBoundingClientRect();box.style.display='block';box.style.top=r.top+'px';box.style.left=r.left+'px';box.style.width=r.width+'px';box.style.height=r.height+'px';}
-function placeSet(){ensureSel(selectedSet.length);for(var i=0;i<selBoxes.length;i++){var el=selectedSet[i]||null;place(selBoxes[i],el);if(el)selBoxes[i].style.borderColor=(el===selPrimary?SEL_PRIMARY_COLOR:SEL_SIBLING_COLOR);}}
+
+function placeSet(){ensureSel(selectedSet.length);for(var i=0;i<selBoxes.length;i++){var el=selectedSet[i]||null;place(selBoxes[i],el);if(el){var primary=el===selPrimary;selBoxes[i].style.borderColor=(primary?SEL_PRIMARY_COLOR:SEL_SIBLING_COLOR);selBoxes[i].style.borderStyle=(primary?'solid':'dashed');}}}
+
 /* All elements whose class attribute is identical to the clicked element's — these
    render from the same source literal (e.g. a .map), so a source edit changes all. */
 function matching(el){var c=el.getAttribute('class');if(!c||!c.trim())return [el];var out=[],all=document.querySelectorAll('[class]');for(var i=0;i<all.length;i++){if(all[i].getAttribute('class')===c)out.push(all[i]);}return out;}
+
 /* CSS properties `el` gets from UNLAYERED rules — those beat Tailwind's layered
    utilities, so edits to these need the important modifier to take effect. Walks
    top-level rules only (descends media/supports and non-layered @imports, but skips
    @layer blocks — i.e. all the Tailwind utilities). Cross-origin sheets throw → skipped. */
 function uLayered(el){var props={};function scan(rules){for(var i=0;i<rules.length;i++){var r=rules[i];if(r.type===1){try{if(el.matches(r.selectorText)){var st=r.style;for(var j=0;j<st.length;j++)props[st[j]]=1;}}catch(e){}}else if(r.cssRules&&!(r.constructor&&r.constructor.name==='CSSLayerBlockRule')){try{scan(r.cssRules);}catch(e){}}else if(r.type===3&&r.styleSheet&&r.layerName==null){try{scan(r.styleSheet.cssRules);}catch(e){}}}}var s=document.styleSheets;for(var i=0;i<s.length;i++){try{var rr=s[i].cssRules;if(rr)scan(rr);}catch(e){}}var out=[];for(var k in props)out.push(k);return out;}
+
 /* Split a grouped selector ("a, .b:is(c,d)") on TOP-LEVEL commas only (parens/brackets
    are depth-tracked so :is()/[attr] internals stay intact). */
 function ssSplitSel(sel){var out=[],depth=0,cur='';for(var i=0;i<sel.length;i++){var ch=sel[i];if(ch==='('||ch==='[')depth++;else if(ch===')'||ch===']')depth=Math.max(0,depth-1);if(ch===','&&depth===0){if(cur.trim())out.push(cur.trim());cur='';}else cur+=ch;}if(cur.trim())out.push(cur.trim());return out;}
+
 /* Strip Astro's scoped-style artifacts so a compiled selector still maps to source
    (source `.foo` compiles to `.foo[data-astro-cid-x]` or `.foo:where([data-astro-cid-x])`). */
 function ssNormSel(sel){return sel.replace(/:where\(\[data-astro-cid-[\w-]+\]\)/g,'').replace(/\[data-astro-cid-[\w-]+\]/g,'').replace(/\s+/g,' ').trim();}
+
 /* A rule's source hint for mapping back to disk. Prefer the served stylesheet href;
    for Vite-injected <style> tags (Astro dev — href is null) fall back to the
    `data-vite-dev-id` on the owning <style>, which names the source file (and, for an
    Astro component, the embedded block: `…/Foo.astro?astro&type=style&index=0&lang.css`). */
 function ssHref(r){var sh=r.parentStyleSheet;if(!sh)return null;if(sh.href)return sh.href;var n=sh.ownerNode;if(n&&n.getAttribute){var id=n.getAttribute('data-vite-dev-id');if(id)return id;}return null;}
+
 /* Approximate CSS specificity → [ids, classes, types]. :where()=0; :is()/:matches()/
    :not()/:has() take the specificity of their MOST-specific argument (recursively);
    ::pseudo-elements and tags count as type, everything else by token. */
 function ssGtSpec(x,y){return x[0]>y[0]||(x[0]===y[0]&&(x[1]>y[1]||(x[1]===y[1]&&x[2]>y[2])));}
+
 function ssMaxSpec(parts){var best=[0,0,0];for(var i=0;i<parts.length;i++){var sp=ssSpec(parts[i]);if(ssGtSpec(sp,best))best=sp;}return best;}
+
 function ssSpec(sel){
   var a=0,b=0,c=0,s=''+sel,out='',i=0;
+
   /* Lift out the functional pseudo-classes whose specificity is the max of their args
      (`:is()/:matches()/:not()/:has()`) or zero (`:where()`); account for them via
      recursion, then drop the whole `:name(...)` so its inner tokens aren't double-counted
@@ -100,24 +122,31 @@ function ssSpec(sel){
   m=s.match(/[a-zA-Z][\w-]*/g);if(m)c+=m.length;
   return[a,b,c];
 }
+
 /* Safe CSS.supports() — true (assume supported) if the API or condition can't be evaluated. */
 function ssSupports(cond){try{return (typeof CSS!=='undefined'&&CSS.supports)?CSS.supports(cond):true;}catch(e){return true;}}
+
 /* Parse a `(min-width: Npx)` out of a media condition, else null. */
 function ssMinPx(cond){var m=/min-width\s*:\s*([\d.]+)px/i.exec(cond||'');return m?Math.round(parseFloat(m[1])):null;}
+
 /* Read a CSSStyleDeclaration into [{prop,value,important}] (longhands only — `length`
    enumerates the expanded properties, which is what we want for per-property cascade). */
 function ssDecls(st){var d=[];for(var j=0;j<st.length;j++){var pn=st[j];d.push({prop:pn,value:st.getPropertyValue(pn),important:st.getPropertyPriority(pn)==='important'});}return d;}
+
 /* Walk every author stylesheet and return the rules matching `el`, in cascade order with
    provenance, with each declaration flagged active (wins) or overridden. */
 function cascade(el){
+
   /* `order.n` is the cascade position reported as each rule's sourceOrder. findRuleOwner()
      re-derives the SAME numbering to pin a rule for preview/delete — if you change this
      traversal, change that one too. The "previews the EXACT rule by source order" test
      exercises both and fails on drift. */
   var matched=[],order={n:0},layerCount={n:0};
+
   function walk(rules,ctx){
     for(var i=0;i<rules.length;i++){var r=rules[i];order.n++;
       if(r.type===1){ /* style rule */
+
         /* Pseudo-element rules (`.card::before`) intentionally don't match here: their
            declarations target a separate generated box, so listing them in the element's
            cascade would make the active/overridden logic falsely flag conflicts against
@@ -133,10 +162,12 @@ function cascade(el){
       }else if(r.cssRules){ /* @layer / @container / @supports / nesting — descend, tracking the condition so same-selector rules in different contexts stay distinguishable */
         var cn=r.constructor&&r.constructor.name;
         var lname=cn==='CSSLayerBlockRule'?(r.name||ctx.layer):ctx.layer;
+
         /* Whether we're inside ANY cascade layer (named or anonymous). Drives cascade
            precedence below; tracked by constructor (works even where the layer NAME
            isn't exposed, e.g. jsdom) rather than the name. */
         var layered=ctx.layered||cn==='CSSLayerBlockRule';
+
         /* Each cascade-layer BLOCK gets the next index in document order; rules carry their
            layer's index so `prio` can order layer-vs-layer (later layer wins for normal
            declarations, earlier wins for `!important`). Encounter order works even where the
@@ -144,6 +175,7 @@ function cascade(el){
         var layerIndex=cn==='CSSLayerBlockRule'?layerCount.n++:ctx.layerIndex;
         var cont=cn==='CSSContainerRule'?(r.conditionText||r.containerQuery||ctx.container):ctx.container;
         var sup=cn==='CSSSupportsRule'?(r.conditionText||ctx.supports):ctx.supports;
+
         /* A rule inside an unsupported `@supports` doesn't apply — mark it inactive so it
            can't win a property (mirrors non-matching @media). */
         var unsupported=cn==='CSSSupportsRule'&&!ssSupports(r.conditionText||'');
@@ -152,8 +184,10 @@ function cascade(el){
     }
   }
   var sheets=document.styleSheets;for(var si=0;si<sheets.length;si++){try{var rr=sheets[si].cssRules;if(rr)walk(rr,{media:null,minPx:null,inactive:false,layer:null,layered:false,layerIndex:null,container:null,supports:null});}catch(e){}}
+
   /* Inline style="" — highest priority, read-only in v1. */
   if(el.getAttribute&&el.getAttribute('style')){var idecls=ssDecls(el.style);if(idecls.length)matched.push({selector:null,declarations:idecls,specificity:[1,0,0],sourceOrder:1e9,mediaText:null,mediaMinPx:null,inactiveMedia:false,layer:null,layered:false,layerIndex:null,href:null,origin:'inline'});}
+
   /* Per-property winner among currently-active rules: priority = [important, inline,
      layerRank, id, class, type, sourceOrder], compared lexicographically (higher wins).
      layerRank encodes cascade-layer precedence: for NORMAL declarations unlayered beats all
@@ -161,28 +195,35 @@ function cascade(el){
      (layered beats unlayered, EARLIER layer beats later). LMAX is the layer-block count, an
      upper bound on layer indices, so unlayered-normal (LMAX+1) outranks every layer. */
   var LMAX=layerCount.n;
+
   function prio(m,d){var li=(m.layerIndex==null?null:m.layerIndex);var layerRank=d.important?(li==null?-1:(LMAX-li)):(li==null?(LMAX+1):li);return[d.important?1:0,m.origin==='inline'?1:0,layerRank,m.specificity[0],m.specificity[1],m.specificity[2],m.sourceOrder];}
+
   function gt(x,y){for(var i=0;i<x.length;i++){if(x[i]!==y[i])return x[i]>y[i];}return false;}
   var best={};
   for(var mi=0;mi<matched.length;mi++){var m=matched[mi];if(m.inactiveMedia)continue;for(var di=0;di<m.declarations.length;di++){var d=m.declarations[di],p=prio(m,d);if(!best[d.prop]||gt(p,best[d.prop].p))best[d.prop]={mi:mi,di:di,p:p};}}
   for(var a=0;a<matched.length;a++){var mm=matched[a];for(var b=0;b<mm.declarations.length;b++){var dd=mm.declarations[b],bw=best[dd.prop];dd.active=!mm.inactiveMedia&&!!bw&&bw.mi===a&&bw.di===b;if(!dd.active&&bw){var win=matched[bw.mi];dd.overriddenBy=win.selector||'element.style';}}}
+
   /* Sort for display like devtools: highest winning priority first (a rule's priority is
      its strongest declaration), inactive-media rules sink to the bottom. */
   function ruleImp(m){for(var i=0;i<m.declarations.length;i++)if(m.declarations[i].important)return true;return false;}
   matched.sort(function(x,y){if(x.inactiveMedia!==y.inactiveMedia)return x.inactiveMedia?1:-1;var px=prio(x,{important:ruleImp(x)}),py=prio(y,{important:ruleImp(y)});return gt(px,py)?-1:gt(py,px)?1:0;});
   return matched;
 }
+
 /* Normalize a media condition for matching ("(max-width: 768px)" ⇄ "(max-width:768px)"). */
 function ssNormMedia(m){return (m||'').replace(/\s+/g,'').toLowerCase();}
+
 /* Find the live CSSStyleRule matching selector+media and return its owning group
    (the stylesheet or @media/@layer/@supports rule that owns insert/deleteRule) and
    index, so a preview can replace it in place. Same traversal as cascade(). */
 function findRuleOwner(selector,mediaText,order){
+
   /* When `order` (the cascade `sourceOrder`) is given, match the rule at that exact
      traversal position — this walk increments `seq` identically to cascade()'s `order.n`,
      so it pins THE rule the panel is showing even when a selector occurs in several rules
      (e.g. a base `.btn` and a `@layer x { .btn }`). Falls back to selector+media match. */
   var want=ssNormSel(selector),wantM=ssNormMedia(mediaText),seq={n:0};
+
   function walk(owner,rules,media){
     for(var i=0;i<rules.length;i++){var r=rules[i];seq.n++;
       if(r.type===1){
@@ -198,6 +239,7 @@ function findRuleOwner(selector,mediaText,order){
   var s=document.styleSheets;for(var si=0;si<s.length;si++){try{var rr=s[si].cssRules;if(rr){var hit=walk(s[si],rr,null);if(hit)return hit;}}catch(e){}}
   return null;
 }
+
 /* Replace a rule's live text in place: insert the new rule at its index, then drop the
    old one (insert-before-delete so a parse error mid-typing leaves the sheet untouched).
    Remembers the original text once, for revert. */
@@ -206,37 +248,181 @@ function setRulePreview(key,selector,mediaText,cssText,order){
   if(!loc){loc=findRuleOwner(selector,mediaText,order);if(!loc)return;loc.orig=loc.owner.cssRules[loc.index].cssText;pvRuleLoc[key]=loc;}
   try{loc.owner.insertRule(cssText,loc.index);loc.owner.deleteRule(loc.index+1);}catch(e){}
 }
+
 /* Restore one (or, with no key, all) previewed rules to their original source text. */
 function clearRulePreview(key){
+
   function restore(k){var loc=pvRuleLoc[k];if(!loc)return;try{loc.owner.insertRule(loc.orig,loc.index);loc.owner.deleteRule(loc.index+1);}catch(e){}delete pvRuleLoc[k];}
   if(key!=null)restore(key);else{for(var k in pvRuleLoc)restore(k);}
 }
+
 /* A stable structural identity for the element: its element-index path up to <html>.
    Two siblings with the SAME tag+class still differ here, so the editor never aliases
    one onto the other; it's also stable across an HMR reload of the same tree. */
 function ssDomPath(el){var parts=[],e=el;while(e&&e!==document.documentElement){var p=e.parentElement;if(!p)break;var idx=0,sib=p.firstElementChild;while(sib&&sib!==e){idx++;sib=sib.nextElementSibling;}parts.unshift((e.tagName||'').toLowerCase()+':'+idx);e=p;}return parts.join('>');}
-function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),ancestorClasses:anc,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
+
+/* Next streams hidden comment-only divs around RSC/Suspense boundaries. They are
+   renderer infrastructure, not authored elements, and have no source location. */
+function ssInternalNode(el){return!!(el&&el.hidden&&el.children.length===0&&!(el.textContent||'').trim());}
+
+/* React's development fiber retains the JSX creation stack for each host node.
+   Recover its first user-source frame so a classless/empty element selected in the
+   Elements tree can still be mapped back to source. This is a HINT, never authority:
+   Rust only accepts it when the hinted file+line contains the matching tag. */
+function ssSource(el){
+  if(!el)return null;var ks=Object.getOwnPropertyNames(el),fiber=null;
+  for(var i=0;i<ks.length;i++){if(ks[i].indexOf('__reactFiber$')===0){fiber=el[ks[i]];break;}}
+  if(!fiber)return null;var stack=fiber._debugStack&&fiber._debugStack.stack;
+  if(!stack)return null;var lines=String(stack).split('\n'),clientChunk=null;
+  for(var j=0;j<lines.length;j++){
+    var s=lines[j];if(/node_modules|react-dom|react_stack_bottom_frame|fakeJSXCallSite/.test(s))continue;
+    /* Next/Turbopack server components report a generated server chunk. Rust maps
+       this verified .next file through its source map to the authored TSX. */
+    var tm=/about:\/\/React\/Server\/(file:\/\/\/[^\s()?]+?\.js)\?[^\s():]*:(\d+):(\d+)/i.exec(s);
+    if(tm)return{file:tm[1],line:Number(tm[2]),column:Number(tm[3])};
+    var cm=/(https?:\/\/[^/\s()]+\/_next\/static\/chunks\/[^\s()?]+?\.js)(?:\?[^\s():]*)?:(\d+):(\d+)/i.exec(s);
+    if(cm&&!clientChunk)clientChunk={file:cm[1],line:Number(cm[2]),column:Number(cm[3])};
+    if(cm)continue;
+    var m=/((?:https?:\/\/|file:\/\/\/|webpack-internal:\/\/\/|\/)[^\s()]+?\.(?:tsx|jsx|astro|vue|svelte|html))(?:\?[^\s():]*)?:(\d+):(\d+)/i.exec(s);
+    if(m)return{file:m[1],line:Number(m[2]),column:Number(m[3])};
+  }
+  return clientChunk;
+}
+
+/* ── Ancestor-style inheritance (typography + text color) ──
+   For each CSS-inherited property the panel edits, report when the element's
+   effective value comes from an ANCESTOR's own styles. Method: walk up while
+   consecutive computed values stay EQUAL — the first ancestor whose value
+   differs from its own parent's is the definer. A classless/global definer
+   (html, preflight defaults) is NOT reported: that's the page baseline, not an
+   authored style worth surfacing. When found, try to attribute a Tailwind
+   utility from the definer's class list — verified against the computed value
+   where a static scale exists, so `text-lg` is never blamed for a custom-CSS
+   18px (then the popover shows the raw value instead of a token). */
+var SS_INHERIT={
+ 'font-size':{pats:[/^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/],rem:{'text-xs':0.75,'text-sm':0.875,'text-base':1,'text-lg':1.125,'text-xl':1.25,'text-2xl':1.5,'text-3xl':1.875,'text-4xl':2.25,'text-5xl':3,'text-6xl':3.75,'text-7xl':4.5,'text-8xl':6,'text-9xl':8}},
+ 'line-height':{pats:[/^leading-(none|tight|snug|normal|relaxed|loose)$/],ratio:{'leading-none':1,'leading-tight':1.25,'leading-snug':1.375,'leading-normal':1.5,'leading-relaxed':1.625,'leading-loose':2}},
+ 'letter-spacing':{pats:[/^tracking-(tighter|tight|normal|wide|wider|widest)$/],em:{'tracking-tighter':-0.05,'tracking-tight':-0.025,'tracking-normal':0,'tracking-wide':0.025,'tracking-wider':0.05,'tracking-widest':0.1}},
+ 'font-weight':{pats:[/^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/],exact:{'font-thin':'100','font-extralight':'200','font-light':'300','font-normal':'400','font-medium':'500','font-semibold':'600','font-bold':'700','font-extrabold':'800','font-black':'900'}},
+ 'font-family':{pats:[/^font-(sans|serif|mono)$/]},
+ 'font-style':{pats:[/^(italic|not-italic)$/],exact:{'italic':'italic','not-italic':'normal'}},
+ 'text-transform':{pats:[/^(uppercase|lowercase|capitalize|normal-case)$/],exact:{'uppercase':'uppercase','lowercase':'lowercase','capitalize':'capitalize','normal-case':'none'}},
+ /* Color has no cheap numeric check (the palette is huge), so the last matching
+    utility wins unverified — competing text-color utilities on one class string
+    are rare, and the shown VALUE is always the true computed one regardless. */
+ 'color':{pats:[/^text-(?:\[.+\]|(?:(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(?:-\d{2,3})?|white|black|transparent|current|inherit))$/]}};
+
+/* text-decoration is handled OUTSIDE SS_INHERIT: it is never inherited (the
+   line propagates through descendant inline boxes while children compute
+   'none'), so the equal-value walk can't see it — and worse, a plain middle
+   ancestor computing 'none' under an underlined grandparent would break the
+   walk's monotonic assumption and get misattributed as the definer. */
+var SS_DECORATION={pats:[/^(no-underline|underline|overline|line-through)$/],exact:{'no-underline':'none','underline':'underline','overline':'overline','line-through':'line-through'}};
+
+/* Attribute one property to a utility on `def`'s class list, or null. Variant-
+   prefixed tokens (`hover:text-lg`) are skipped — they apply conditionally, so
+   they can't be the source of an always-on computed value. */
+function ssInheritToken(def,cfg,val,fsPx){
+  if(!cfg)return null;
+  var cls=(def.getAttribute('class')||'').split(/\s+/),hit=null;
+  for(var i=cls.length-1;i>=0;i--){ /* later utilities usually override earlier */
+    var t=cls[i];if(!t||t.indexOf(':')!==-1)continue;
+    for(var pi=0;pi<cfg.pats.length;pi++){if(cfg.pats[pi].test(t)){hit=t;break;}}
+    if(hit)break;
+  }
+  if(!hit)return null;
+  if(cfg.exact)return val===cfg.exact[hit]?hit:null;
+  var px=parseFloat(val);
+  if(cfg.rem){var root=parseFloat(getComputedStyle(document.documentElement).fontSize)||16;return Math.abs(px-cfg.rem[hit]*root)<=0.51?hit:null;}
+  var base=fsPx||px;
+  if(cfg.ratio)return Math.abs(px-cfg.ratio[hit]*base)<=0.51?hit:null;
+  if(cfg.em)return Math.abs(px-cfg.em[hit]*base)<=0.51?hit:null;
+  return hit;
+}
+
+/* Classes above `def`, nearest-first — mirrors sig()'s ancestor walk so the host
+   can resolve the DEFINDER's class literal with proper anchoring context. */
+function ssAncestorsAbove(def){
+  var out=[],p=def.parentElement,n=0;
+  while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){out.push(c);n++;}p=p.parentElement;}
+  return out;
+}
+
+function ssInherited(el){
+  var cs=getComputedStyle(el),out={};
+  for(var prop in SS_INHERIT){
+    var v=cs.getPropertyValue(prop);
+    if(!v)continue;
+    var par=el.parentElement;
+    if(!par)continue;
+    /* Differs right at the parent ⇒ el defines it locally (an inherited value
+       would MATCH the parent's) — the panel already shows that from the class. */
+    if(getComputedStyle(par).getPropertyValue(prop)!==v)continue;
+    var node=par,nodeV=v,def=null,depth=0;
+    while(node&&node!==document.body&&depth<8){
+      var pn=node.parentElement,pnv=pn?getComputedStyle(pn).getPropertyValue(prop):null;
+      if(pn&&pnv!==nodeV){def=node;break;}
+      node=pn;nodeV=pnv;depth++;
+    }
+    if(!def)continue; /* equal all the way up — global default, not authored here */
+    var dcls=def.getAttribute('class');
+    if(!dcls||!dcls.trim())continue; /* classless definer = baseline/preflight */
+    var dfs=getComputedStyle(def).getPropertyValue('font-size');
+    out[prop]={cssValue:v,tagName:(def.tagName||'').toLowerCase(),className:dcls,ancestorClasses:ssAncestorsAbove(def),token:ssInheritToken(def,SS_INHERIT[prop],v,parseFloat(dfs))};
+  }
+
+  /* Decoration propagation: report the nearest classed ancestor that draws a
+     line, only when the element itself doesn't (its own value would already
+     show from its class). */
+  if((cs.getPropertyValue('text-decoration-line')||'none')==='none'){
+    var dp=el.parentElement,ddepth=0;
+    while(dp&&dp!==document.body&&ddepth<8){
+      var dline=getComputedStyle(dp).getPropertyValue('text-decoration-line');
+      if(dline&&dline!=='none'){
+        var ddcls=dp.getAttribute('class');
+        if(ddcls&&ddcls.trim()){
+          out['text-decoration-line']={cssValue:dline,tagName:(dp.tagName||'').toLowerCase(),className:ddcls,ancestorClasses:ssAncestorsAbove(dp),token:ssInheritToken(dp,SS_DECORATION,dline,null)};
+        }
+        break; /* nearest propagating ancestor wins */
+      }
+      dp=dp.parentElement;ddepth++;
+    }
+  }
+  return out;
+}
+
+function sig(el){var anc=[],p=el.parentElement,n=0;while(p&&p!==document.body&&n<8){var c=p.getAttribute('class');if(c&&c.trim()){anc.push(c);n++;}p=p.parentElement;}var r=el.getBoundingClientRect();var cs=getComputedStyle(el),src=ssSource(el);return{className:el.getAttribute('class')||'',tagName:(el.tagName||'').toLowerCase(),text:(el.innerText||el.textContent||'').trim().slice(0,SS_TEXT_CAP),domPath:ssDomPath(el),ancestorClasses:anc,sourceFile:src&&src.file,sourceLine:src&&src.line,sourceColumn:src&&src.column,rect:{top:r.top,left:r.left,width:r.width,height:r.height},computedColor:cs.color,computedBackgroundColor:cs.backgroundColor,unlayeredProps:uLayered(el),inheritedProps:ssInherited(el),attrSrc:el.getAttribute('src'),currentSrc:(el.tagName==='IMG'&&el.currentSrc)||null};}
+
 function ensureStyle(){if(!styleEl){styleEl=document.createElement('style');styleEl.id='ss-preview';document.head.appendChild(styleEl);}return styleEl;}
+
 /* Build the preview CSS for one selection from its accumulated decls: base (minPx 0)
    as a bare rule, variants wrapped in @media, emitted ascending by minPx so a larger
    breakpoint wins by source order. !important is safe — the sheet is preview-only and
    discarded on reload — and removes specificity fights with the page. */
+
 /* A "cls:<selector>" key previews a custom class across ALL its instances (the
    selector is applied verbatim); any other key is a per-selection marker. */
 function previewSel(mark){var s=String(mark);return s.indexOf('cls:')===0?s.slice(4):'[data-ss-sel="'+s+'"]';}
+
 function buildCss(mark){var byMin=pvDecls[mark];if(!byMin)return '';var mins=[];for(var k in byMin)mins.push(Number(k));mins.sort(function(a,b){return a-b;});var sel=previewSel(mark),out='';for(var i=0;i<mins.length;i++){var m=mins[i],decls=byMin[m],body='';for(var p in decls)body+=p+':'+decls[p]+' !important;';if(!body)continue;var block=sel+'{'+body+'}';out+=m>0?'@media (min-width:'+m+'px){'+block+'}':block;}return out;}
+
 function rebuildSheet(){var css='';for(var k in pvDecls)css+=buildCss(k);ensureStyle().textContent=css;}
+
 /* Discard the current selection's UNCOMMITTED preview (revert class, drop its decls +
    marker). A committed selection is kept as-is — only the live pointer is released. */
 function restoreSel(){if(curMark!==null&&pendingMark===curMark){delete pvDecls[curMark];rebuildSheet();for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(origClasses[i]!=null)el.setAttribute('class',origClasses[i]);el.removeAttribute('data-ss-sel');}}curMark=null;pendingMark=null;selectedSet=[];selPrimary=null;origClasses=[];}
+
 function snapshotOrig(){origClasses=[];for(var i=0;i<selectedSet.length;i++)origClasses.push(selectedSet[i]?selectedSet[i].getAttribute('class'):null);}
+
 /* The inline elements allowed inside editable text: <br> plus the formatting tags
    the rich-text bubble can apply. Must mirror INLINE_TAGS in edit.rs. */
 var SS_INLINE=/^(A|B|I|EM|STRONG|SPAN|CODE|SUB|SUP|MARK|SMALL|U|BR)$/;
+
 /* An element editable in place: real text plus only inline children (recursively).
    Any block/other element or a dynamic {expr} child makes it style-only. */
 function isEditableText(el){
   if(!el||el.nodeType!==1||!el.childNodes.length)return false;
+
   /* A layout container of multiple element children with no direct text (e.g. a flex
      row of two buttons) is not a text block — don't scoop it up as one editable run. */
   var topEls=0,topText=false;
@@ -250,13 +436,16 @@ function isEditableText(el){
     else if(n.nodeType===1){if(!SS_INLINE.test(n.nodeName)){ok=false;return;}if(n.nodeName!=='BR')walk(n);}}})(el);
   return ok&&hasText;
 }
+
 /* Serialize an editable element to source form: text verbatim, <br> as "<br />", and
    inline formatting normalized to <strong>/<em>/<a>/… (so execCommand's <b>/<i>
    become semantic tags). Recurses to preserve nested formatting. */
+
 /* Serialize an element's attributes back to source, verbatim (so a nested element's
    class/href/etc. survive a save). Our own editing attributes are skipped. The DOM
    uses `class`; the Rust write-back maps it to `className` for JSX files. */
 function serializeAttrs(el){var s='';for(var i=0;i<el.attributes.length;i++){var a=el.attributes[i];if(a.name==='contenteditable'||a.name==='data-ss-editing'||a.name==='data-ss-sel')continue;s+=' '+a.name+'="'+String(a.value).replace(/"/g,'&quot;')+'"';}return s;}
+
 function serializeInner(el){
   var out='';
   for(var i=0;i<el.childNodes.length;i++){var n=el.childNodes[i];
@@ -270,22 +459,27 @@ function serializeInner(el){
   }
   return out;
 }
+
 /* The element to text-edit: the OUTERMOST element in the contiguous editable-text
    chain above the cursor. The resolver indexes the outermost text run (it skips
    nested inline elements), so selecting an inner <strong>/<span> wouldn't match its
    source — we select the editable container (e.g. the <h1>) that the run belongs to.
    A class is NOT required — classless tags resolve by content. */
 function textTarget(node){var el=(node&&node.nodeType===3)?node.parentElement:node,best=null;while(el&&el!==document.body){if(isEditableText(el))best=el;else if(best)break;el=el.parentElement;}return best;}
+
 /* What a single click selects: an image gets picked directly (even classless — the
    panel offers asset replacement, resolved by src value), else the editable-text
    element (outermost) under the cursor, else the nearest classed ancestor. */
 function pickTarget(node){var el=(node&&node.nodeType===3)?node.parentElement:node;if(el&&el.nodeType===1&&el.tagName==='IMG')return el;return textTarget(node)||editable(el);}
+
 /* Is `el` rendered/owned by React? React tags its host DOM nodes with __reactFiber$…
    / __reactProps$… keys. Astro/plain HTML have none. */
 function isReactNode(el){if(!el)return false;var ks=Object.getOwnPropertyNames(el);for(var i=0;i<ks.length;i++){if(ks[i].indexOf('__react')===0)return true;}return false;}
+
 /* Disable entrance animations/transitions on the editing clone and its descendants so
    they don't replay the fade/slide-in while editing. */
 function ensureNoAnimStyle(){if(document.getElementById('ss-edit-noanim'))return;var s=document.createElement('style');s.id='ss-edit-noanim';s.textContent='[data-ss-editing],[data-ss-editing] *{animation:none!important;transition:none!important}';document.head.appendChild(s);}
+
 /* Finish a pending React swap: remove the kept clone and unhide the (now HMR-updated)
    real element. Safe to call anytime. */
 function finalizePending(){
@@ -296,12 +490,14 @@ function finalizePending(){
   if(p.real)p.real.style.cssText=p.prevCss;
   placeSet(); // re-snap the selection box to the now-restored real element
 }
+
 function startText(el,x,y){
   if(txtEditing||!el)return;
   finalizePending();
   txtEditing=true;txtRealEl=el;txtCloned=isReactNode(el);
   var target;
   if(txtCloned){
+
     /* React: edit a body-level clone overlaid on the real element. The clone lives on
        <body>, NOT inside React's managed parent, so React's reconciler never sees a
        foreign child. The real element stays in flow but visibility:hidden — it holds
@@ -320,6 +516,7 @@ function startText(el,x,y){
     txtPrevCss=el.style.cssText;el.style.visibility='hidden';
     txtOrigHtml='';target=clone;
   }else{
+
     /* Astro/plain: edit in place (no reconciler to break); restore on cancel. */
     txtOrigHtml=el.innerHTML;target=el;
   }
@@ -328,16 +525,19 @@ function startText(el,x,y){
   target.setAttribute('contenteditable','true');
   try{document.execCommand('styleWithCSS',false,false);}catch(e){}
   target.setAttribute('data-ss-editing','1');target.focus();
+
   /* Drop the caret where the user double-clicked rather than selecting all the text. */
   var s=window.getSelection();s.removeAllRanges();
   var r=(document.caretRangeFromPoint&&x!=null)?document.caretRangeFromPoint(x,y):null;
   if(!r||!target.contains(r.startContainer)){r=document.createRange();r.selectNodeContents(target);r.collapse(false);}
   s.addRange(r);
+
   /* Webflow-style: hide the orange selection box, show only the blue editing box. */
   for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);
   ensureHover();place(hoverBox,target);
   window.parent.postMessage({type:'ss:textBegin'},'*');
 }
+
 /* Leave inline editing. txtEditing is cleared first so the blur the teardown triggers
    doesn't re-enter. */
 function endText(commit){
@@ -356,12 +556,14 @@ function endText(commit){
       if(real)real.style.cssText=prevCss;
       window.parent.postMessage({type:'ss:textCancel'},'*');
     }else{
+
       /* Keep the clone (showing the NEW text) over the hidden original until HMR updates
          the original, then swap on the next frame (so React's update has painted) —
          no original→new flash. Fall back on a timer. */
       target.style.pointerEvents='none';
       var p={clone:target,real:real,prevCss:prevCss,nv:nv,observer:null,timer:null};
       txtPending=p;
+
       /* Swap only once the real element ACTUALLY shows the new text (HMR applied our
          change) — ignores unrelated descendant mutations and never swaps to stale text.
          The timer is a pure leak-guard for the rare case HMR never lands. */
@@ -379,11 +581,14 @@ function endText(commit){
   // hidden too (its rect would be bogus) until finalizePending re-snaps it.
   if(txtPending){for(var bi=0;bi<selBoxes.length;bi++)place(selBoxes[bi],null);}else{placeSet();}
 }
+
 /* ── Rich-text bubble (bold / italic / link), shown over a non-empty selection.
    Two views: the formatting buttons, and a link-input view for the href. ── */
 var fmtBar=null,fmtMain=null,fmtLink=null,fmtInput=null,fmtLinkMode=false,savedRange=null;
 var LINK_SVG='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+
 function mkFmtBtn(cmd,html,extra){var b=document.createElement('button');b.setAttribute('data-cmd',cmd);b.innerHTML=html;b.style.cssText='all:unset;-webkit-appearance:none;appearance:none;background:transparent;border:none;box-shadow:none;cursor:pointer;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:5px;color:#e7e7ea;font-size:13px;transition:background .1s ease;'+(extra||'');b.onmouseenter=function(){if(this.getAttribute('data-on')!=='1')this.style.background='rgba(255,255,255,.12)';};b.onmouseleave=function(){if(this.getAttribute('data-on')!=='1')this.style.background='';};return b;}
+
 function ensureFmtBar(){
   if(fmtBar)return fmtBar;
   fmtBar=document.createElement('div');fmtBar.setAttribute('data-ss-overlay','1');
@@ -398,6 +603,7 @@ function ensureFmtBar(){
   fmtLink.appendChild(fmtInput);
   fmtLink.appendChild(mkFmtBtn('linksave','Apply','font-size:11px;padding:0 9px;background:#3b82f6;color:#fff;font-weight:600'));
   fmtBar.appendChild(fmtMain);fmtBar.appendChild(fmtLink);
+
   /* mousedown must not steal focus from the editable (blur→commit) — except on the
      link input, which is meant to take focus. */
   fmtBar.addEventListener('mousedown',function(e){if(e.target!==fmtInput)e.preventDefault();e.stopPropagation();},true);
@@ -405,11 +611,16 @@ function ensureFmtBar(){
   fmtInput.addEventListener('keydown',function(e){e.stopPropagation();if(e.key==='Enter'){e.preventDefault();applyFmt('linksave');}else if(e.key==='Escape'){e.preventDefault();showFmtMain();if(txtEl)txtEl.focus();}},true);
   document.body.appendChild(fmtBar);return fmtBar;
 }
+
 function showFmtMain(){fmtLinkMode=false;if(fmtMain)fmtMain.style.display='flex';if(fmtLink)fmtLink.style.display='none';}
+
 function showFmtLink(){fmtLinkMode=true;if(fmtMain)fmtMain.style.display='none';if(fmtLink)fmtLink.style.display='flex';fmtInput.focus();fmtInput.select();}
+
 function hideFmtBar(){if(fmtBar)fmtBar.style.display='none';showFmtMain();}
+
 /* The <a> the current selection sits inside, if any (to prefill/edit its href). */
 function anchorInSelection(){var s=window.getSelection();if(!s||!s.rangeCount)return null;var n=s.getRangeAt(0).commonAncestorContainer;while(n&&n!==txtEl){if(n.nodeType===1&&n.nodeName==='A')return n;n=n.parentNode;}return null;}
+
 function applyFmt(cmd){
   if(!txtEditing)return;
   if(cmd==='bold'){document.execCommand('bold');}
@@ -429,6 +640,7 @@ function applyFmt(cmd){
   }
   if(txtEl)place(hoverBox,txtEl);updateFmtBar();
 }
+
 function updateFmtBar(){
   if(!txtEditing||!txtEl){hideFmtBar();return;}
   if(fmtLinkMode)return; // editing the href — keep the bar put, don't react to selection
@@ -438,6 +650,7 @@ function updateFmtBar(){
   if(!txtEl.contains(rng.commonAncestorContainer)){hideFmtBar();return;}
   var rect=rng.getBoundingClientRect();if(!rect.width&&!rect.height){hideFmtBar();return;}
   var bar=ensureFmtBar();bar.style.display='flex';
+
   /* Reflect active formatting (bold/italic on the current selection) with a
      stronger highlight than hover, so the toggle state reads clearly. */
   if(fmtMain){var fbs=fmtMain.querySelectorAll('[data-cmd]');for(var fi=0;fi<fbs.length;fi++){var fb=fbs[fi],fc=fb.getAttribute('data-cmd');if(fc==='bold'||fc==='italic'){var on=false;try{on=document.queryCommandState(fc);}catch(_e){}fb.setAttribute('data-on',on?'1':'0');fb.style.background=on?'rgba(255,255,255,.22)':'';}}}
@@ -446,9 +659,13 @@ function updateFmtBar(){
   var left=Math.max(4,Math.min(rect.left+rect.width/2-bw/2,window.innerWidth-bw-4));
   bar.style.top=top+'px';bar.style.left=left+'px';
 }
+
 function onDbl(e){if(!active||txtEditing)return;var el=textTarget(e.target);if(!el||!txtEditable)return;e.preventDefault();e.stopPropagation();startText(el,e.clientX,e.clientY);}
+
 function onMove(e){if(!active||txtEditing)return;ensureHover();var t=pickTarget(e.target);if(t&&selectedSet.indexOf(t)!==-1)t=null;place(hoverBox,t);}
-function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:treeIdFor(el)},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:treeIdFor(el)},'*');}catch(e){}}}
+
+function selectEl(el){restoreSel();selectedSet=matching(el);selPrimary=el;curMark=String(++pvId);for(var i=0;i<selectedSet.length;i++)selectedSet[i].setAttribute('data-ss-sel',curMark);snapshotOrig();placeSet();place(hoverBox,null);txtEditable=true;var primaryNodeId=treeIdFor(el),affectedNodeIds=[];for(var ai=0;ai<selectedSet.length;ai++){var affectedId=treeIdFor(selectedSet[ai]);if(affectedId!==primaryNodeId)affectedNodeIds.push(affectedId);}window.parent.postMessage({type:'ss:select',signature:sig(el),count:selectedSet.length,leafText:isEditableText(el),nodeId:primaryNodeId,affectedNodeIds:affectedNodeIds},'*');if(cascadeMode){try{window.parent.postMessage({type:'ss:cascade',rules:cascade(el),nodeId:primaryNodeId},'*');}catch(e){}}}
+
 /* Re-find a previously-selected element by its signature after an HMR reload (the
    DOM is fresh, so the old handle is gone). Best-effort: match the tag, require the
    original classes to still be present (the user may have ADDED some), and score by
@@ -458,12 +675,16 @@ function findBySignature(sig){
   if(!sig)return null;
   var tag=(sig.tagName||'').toLowerCase();
   var all=document.querySelectorAll(tag||'*');
+  /* A classless empty signature has no semantic discriminator. Its structural
+     path is exact across an HMR render of the same tree, so honor it before the
+     fuzzy class/text scoring below (which would otherwise pick the first div). */
+  if(sig.domPath){for(var pi=0;pi<all.length;pi++){var pe=all[pi];if(!ssInternalNode(pe)&&ssDomPath(pe)===sig.domPath)return pe;}}
   var orig=(sig.className||'').split(/\s+/).filter(Boolean);
   var wantText=(sig.text||'').trim().slice(0,80);
   var anc=sig.ancestorClasses||[];
   var best=null,bestScore=-1;
   for(var i=0;i<all.length;i++){var el=all[i];
-    if(el.getAttribute&&el.getAttribute('data-ss-overlay'))continue;
+    if((el.getAttribute&&el.getAttribute('data-ss-overlay'))||ssInternalNode(el))continue;
     var cls=((el.getAttribute&&el.getAttribute('class'))||'').split(/\s+/).filter(Boolean);
     if(orig.length){var ok=true;for(var c=0;c<orig.length;c++){if(cls.indexOf(orig[c])===-1){ok=false;break;}}if(!ok)continue;}
     var score=orig.length?10:0;
@@ -474,27 +695,42 @@ function findBySignature(sig){
   }
   return best;
 }
+
 function onClick(e){if(!active||txtEditing)return;var el=pickTarget(e.target);if(!el)return;e.preventDefault();e.stopPropagation();selectEl(el);}
+
 /* ===== Element tree (read-only navigator) =====
    The parent requests a lightweight DOM snapshot; nodes get ephemeral ids so
    the parent can select/hover them. nodeById is rebuilt on every snapshot so
    stale elements from previous renders don't accumulate. */
 var treeIds=new WeakMap(),treeById={},treeNextId=1,treeOn=false,treeObserver=null,treeTimer=null;
 var TREE_MAX_NODES=4000,TREE_MAX_DEPTH=60;
+
 function treeIdFor(el){var id=treeIds.get(el);if(!id){id=treeNextId++;treeIds.set(el,id);}treeById[id]=el;return id;}
-function treeSkip(el){if(el.nodeType!==1)return true;var t=el.tagName;if(t==='SCRIPT'||t==='STYLE'||t==='NOSCRIPT'||t==='TEMPLATE'||t==='LINK'||t==='META')return true;if(el.getAttribute('data-ss-overlay'))return true;return false;}
+
+function treeSkip(el){if(el.nodeType!==1)return true;var t=el.tagName;if(t==='SCRIPT'||t==='STYLE'||t==='NOSCRIPT'||t==='TEMPLATE'||t==='LINK'||t==='META')return true;if(el.getAttribute('data-ss-overlay')||ssInternalNode(el))return true;return false;}
+
 function treeOwnText(el){var s='';for(var i=0;i<el.childNodes.length;i++){var c=el.childNodes[i];if(c.nodeType===3)s+=c.nodeValue;}return s.replace(/\s+/g,' ').trim().slice(0,48);}
+
 function treeBuild(el,depth,budget){var kids=[];if(depth<TREE_MAX_DEPTH){for(var i=0;i<el.children.length;i++){var c=el.children[i];if(treeSkip(c))continue;if(budget.n>=TREE_MAX_NODES)break;budget.n++;kids.push(treeBuild(c,depth+1,budget));}}return{i:treeIdFor(el),t:(el.tagName||'').toLowerCase(),c:(el.getAttribute('class')||'').trim().slice(0,120),x:treeOwnText(el),k:kids};}
+
 function treeSend(){treeById={};var budget={n:0};var root=treeBuild(document.body,0,budget);window.parent.postMessage({type:'ss:tree',tree:root,truncated:budget.n>=TREE_MAX_NODES},'*');}
+
 function treeIsSsNode(n){return n.nodeType===1&&(n.getAttribute('data-ss-overlay')||(n.id&&n.id.indexOf('ss-')===0));}
+
 function treeDirty(){if(!treeOn)return;if(treeTimer)clearTimeout(treeTimer);treeTimer=setTimeout(function(){if(treeOn)window.parent.postMessage({type:'ss:treeDirty'},'*');},300);}
+
 function treeEnsureObserver(){if(treeObserver)return;treeObserver=new MutationObserver(function(ms){for(var i=0;i<ms.length;i++){var m=ms[i],j;for(j=0;j<m.addedNodes.length;j++)if(!treeIsSsNode(m.addedNodes[j])){treeDirty();return;}for(j=0;j<m.removedNodes.length;j++)if(!treeIsSsNode(m.removedNodes[j])){treeDirty();return;}}});treeObserver.observe(document.body,{childList:true,subtree:true});}
+
 /* While something is selected, keep the host informed of the primary box's viewport
    rect (rAF-throttled) so the host-side element toolbar tracks scroll/resize. */
 var selRectRaf=0;
+
 function postSelRect(){if(selRectRaf)return;selRectRaf=requestAnimationFrame(function(){selRectRaf=0;if(!active||!selPrimary||!selPrimary.isConnected)return;var r=selPrimary.getBoundingClientRect();window.parent.postMessage({type:'ss:selRect',rect:{top:r.top,left:r.left,width:r.width,height:r.height}},'*');});}
+
 function reposition(){if(txtEditing)place(hoverBox,txtEl);else if(active){placeSet();postSelRect();}}
+
 window.addEventListener('message',function(e){
+
 /* Only accept commands from the embedding app (our parent window) or same-window
    synthetic events (our own code / tests, where source is null). A foreign page loaded
    inside the preview posts with its own window as source and is ignored — it must not be
@@ -503,42 +739,53 @@ if(e.source&&e.source!==window.parent&&e.source!==window)return;
 var d=e.data||{};
 if(d.type==='ss:activate'){active=true;cascadeMode=!!d.cascade;ensureHover();var de=document.documentElement;de.style.cursor='crosshair';de.style.userSelect='none';de.style.webkitUserSelect='none';}
 else if(d.type==='ss:deactivate'){endText(false);finalizePending();hideFmtBar();active=false;cascadeMode=false;clearRulePreview(null);restoreSel();for(var ck in pvDecls){if(String(ck).indexOf('cls:')===0)delete pvDecls[ck];}rebuildSheet();place(hoverBox,null);for(var i=0;i<selBoxes.length;i++)place(selBoxes[i],null);var de=document.documentElement;de.style.cursor='';de.style.userSelect='';de.style.webkitUserSelect='';}
+
 /* Parent's verdict on whether the current selection's text is editable in source. If
    the user already started editing optimistically (verdict hadn't arrived yet) and it
    turns out non-editable, bounce out now rather than failing silently at save. */
 else if(d.type==='ss:textInfo'){txtEditable=!!d.editable;if(!txtEditable&&txtEditing){endText(false);window.parent.postMessage({type:'ss:textBlocked'},'*');}}
+
 /* Source write was rejected — undo the optimistic edit. React: drop the kept clone
    and unhide the (still-original) element. Astro in-place: restore its innerHTML. */
 else if(d.type==='ss:textRevert'){if(txtPending){finalizePending();}else if(txtRevertEl){txtRevertEl.innerHTML=txtRevertHtml;placeSet();}txtRevertEl=null;}
 else if(d.type==='ss:mutate'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el)continue;if(typeof d.className==='string')el.setAttribute('class',d.className);}if(curMark!==null&&d.rules){var byMin=pvDecls[curMark]||(pvDecls[curMark]={});for(var r=0;r<d.rules.length;r++){var rule=d.rules[r],bucket=byMin[rule.minPx]||(byMin[rule.minPx]={});for(var p in rule.decls){if(rule.decls[p]==null)delete bucket[p];else bucket[p]=rule.decls[p];}}pendingMark=curMark;rebuildSheet();}placeSet();}
+
 /* Preview a CUSTOM CLASS edit across every instance: accumulate decls under a
    selector-scoped key (no element's class attribute is touched — the elements
    already carry the class). Persists until cleared or the next reload, so it
    survives selecting other instances while editing the class. */
 else if(d.type==='ss:mutateClass'){if(typeof d.selector==='string'&&d.rules){var ck='cls:'+d.selector;var cByMin=pvDecls[ck]||(pvDecls[ck]={});for(var cr=0;cr<d.rules.length;cr++){var crule=d.rules[cr],cbucket=cByMin[crule.minPx]||(cByMin[crule.minPx]={});for(var cp in crule.decls){if(crule.decls[cp]==null)delete cbucket[cp];else cbucket[cp]=crule.decls[cp];}}rebuildSheet();}placeSet();}
+
 /* Drop a custom-class preview (host left class-edit mode / reverted). Omit the
    selector to clear ALL class previews. */
 else if(d.type==='ss:clearClassPreview'){if(typeof d.selector==='string'){delete pvDecls['cls:'+d.selector];}else{for(var pk in pvDecls){if(String(pk).indexOf('cls:')===0)delete pvDecls[pk];}}rebuildSheet();}
+
 /* Code-first CSS editor live preview: replace the REAL matched rule in place with the
    user's edited source (selector + media supplied so we can re-locate it), so adds,
    removals and nesting all reflect exactly. */
 else if(d.type==='ss:previewRuleText'){if(d.ruleKey!=null&&typeof d.cssText==='string'){setRulePreview(d.ruleKey,d.selector,d.mediaText,d.cssText,d.order);}placeSet();}
+
 /* Discard an edit's preview (restore source text). Omit ruleKey to restore all. */
 else if(d.type==='ss:clearRulePreview'){clearRulePreview(d.ruleKey!=null?d.ruleKey:null);placeSet();}
+
 /* Edit was saved: keep the previewed rule (it now shows the saved text) and forget its
    original so deactivate won't restore the pre-edit version; HMR recompiles from source. */
 else if(d.type==='ss:commitRulePreview'){if(d.ruleKey!=null)delete pvRuleLoc[d.ruleKey];window.__ssSuppressUntil=Date.now()+2000;placeSet();}
+
 /* Rule was deleted from source — remove the live rule too (committed; HMR will
    reload to the same state). */
 else if(d.type==='ss:deleteRulePreview'){var dl=findRuleOwner(d.selector,d.mediaText,d.order);if(dl){try{dl.owner.deleteRule(dl.index);}catch(e){}}window.__ssSuppressUntil=Date.now()+2000;placeSet();}
+
 /* Edit was saved to source: clear the pending flag so the preview rule + class are kept
    (no longer reverted on deselect/deactivate) and re-baseline the class. HMR re-renders
    from source and the real compiled CSS takes over. */
+
 /* Replace the selected image(s)' src for an instant preview. The source write has
    already happened (host-initiated, like a text commit); HMR re-renders to the same
    value, so this only bridges the gap. srcset is cleared so a framework-generated
    candidate set can't keep showing the old image until then. */
 else if(d.type==='ss:setSrc'){if(typeof d.value==='string'){for(var i=0;i<selectedSet.length;i++){var el=selectedSet[i];if(!el||el.tagName!=='IMG')continue;el.setAttribute('src',d.value);if(el.hasAttribute('srcset'))el.setAttribute('srcset','');}}placeSet();}
+
 /* Variables editor live preview: set a custom property so every var() consumer updates
    instantly. Prefer editing the live :root rule in the CSSOM (HMR replaces the sheet and
    supersedes it cleanly); fall back to an inline style on <html> when there's no :root
@@ -549,14 +796,16 @@ else if(d.type==='ss:suppressReload'){window.__ssSuppressUntil=Date.now()+3000;}
 else if(d.type==='ss:commit'){pendingMark=null;txtRevertEl=null;snapshotOrig();window.__ssSuppressUntil=Date.now()+2000;}
 else if(d.type==='ss:requestTree'){treeOn=true;treeEnsureObserver();treeSend();}
 else if(d.type==='ss:treeOff'){treeOn=false;}
-else if(d.type==='ss:selectNode'){var tn=treeById[d.id];if(tn&&tn.isConnected&&active&&!txtEditing){try{tn.scrollIntoView({block:'nearest'});}catch(err){}selectEl(tn);}}
+else if(d.type==='ss:selectNode'){var tn=treeById[d.id];if(tn&&tn.isConnected&&!ssInternalNode(tn)&&active&&!txtEditing){try{tn.scrollIntoView({block:'nearest'});}catch(err){}selectEl(tn);}}
 else if(d.type==='ss:hoverNode'){if(!active)return;var th=d.id!=null?treeById[d.id]:null;ensureHover();place(hoverBox,th&&th.isConnected?th:null);}
+
 /* Re-select the element matching the given signature (after an HMR reload) so the
    panel re-reads its current source — keeps read/write instant after edits. */
 else if(d.type==='ss:reselect'){if(!active)return;var rel=findBySignature(d.signature);if(rel)selectEl(rel);}});
 document.addEventListener('mousemove',onMove,true);
 document.addEventListener('click',onClick,true);
 document.addEventListener('dblclick',onDbl,true);
+
 /* Enter inserts a line break (<br>); Cmd/Ctrl+Enter commits; Esc reverts. Clicking
    away (blur) also commits. */
 document.addEventListener('keydown',function(e){if(!txtEditing)return;
@@ -565,13 +814,17 @@ document.addEventListener('keydown',function(e){if(!txtEditing)return;
   if(mod&&(e.key==='y'||e.key==='Y')){e.preventDefault();document.execCommand('redo');place(hoverBox,txtEl);return;}
   if(e.key==='Enter'){e.preventDefault();if(mod){endText(true);}else{if(!document.execCommand('insertLineBreak'))document.execCommand('insertHTML',false,'<br>');place(hoverBox,txtEl);}}
   else if(e.key==='Escape'){e.preventDefault();endText(false);}},true);
+
 /* Clicking away commits — but not when focus moves into the format bubble (e.g. the
    link input) and not while the href is being edited. */
 document.addEventListener('focusout',function(e){if(!txtEditing||e.target!==txtEl)return;if(fmtLinkMode)return;if(e.relatedTarget&&fmtBar&&fmtBar.contains(e.relatedTarget))return;endText(true);},true);
+
 /* Robust click-away: a mousedown outside both the editable and the bubble commits. */
 document.addEventListener('mousedown',function(e){if(!txtEditing)return;if(txtEl&&txtEl.contains(e.target))return;if(fmtBar&&fmtBar.contains(e.target))return;endText(true);},true);
+
 /* Block characters that would break JSX/Astro markup before they're typed. */
 document.addEventListener('beforeinput',function(e){if(txtEditing&&e.data&&/[<{]/.test(e.data))e.preventDefault();},true);
+
 /* Paste as plain text, stripping the two chars that would break JSX/Astro markup
    (rather than dropping the whole paste). */
 document.addEventListener('paste',function(e){if(!txtEditing)return;e.preventDefault();var t=((e.clipboardData||window.clipboardData).getData('text/plain')||'').replace(/[<{]/g,'');if(t)document.execCommand('insertText',false,t);},true);

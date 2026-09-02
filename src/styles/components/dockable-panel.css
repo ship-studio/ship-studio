@@ -1,0 +1,84 @@
+.dockable-panel__placeholder {
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * Pinned panel toggles keep the idle ghost look while pinned — the pin icon
+ * itself communicates state, so no persistent pressed background. Hover and
+ * active feedback still come from the shared .button rules.
+ */
+.panel-pin-toggle[aria-pressed='true'] {
+  background: transparent;
+  color: var(--button-text-default);
+}
+
+.dockable-panel__placeholder--floating {
+  display: none;
+}
+
+.dockable-panel__surface {
+  position: fixed;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dockable-panel__surface.is-hidden {
+  /* Keep stateful contents laid out so terminals retain usable dimensions.
+     Opacity hides the complete subtree even when a descendant (such as the
+     active xterm tab) explicitly sets visibility: visible. */
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dockable-panel__surface--floating {
+  border: var(--stroke-1) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-window);
+}
+
+.dockable-panel__surface > .dockable-panel__resize-handle {
+  position: absolute;
+  align-self: auto;
+  z-index: var(--z-dropdown);
+}
+
+.dockable-panel__resize-handle--width {
+  top: var(--panel-header-h);
+  right: 0;
+  bottom: 0;
+}
+
+.dockable-panel__resize-handle--height {
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.dockable-panel__surface > * {
+  width: 100%;
+  height: 100%;
+}
+
+.dockable-panel__surface > .dockable-panel__resize-handle--width {
+  width: var(--stroke-1);
+  height: auto;
+}
+
+.dockable-panel__surface > .dockable-panel__resize-handle--height {
+  width: auto;
+  height: var(--stroke-1);
+}
+
+.dockable-panel__surface > .dockable-panel__resize-corner {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-dropdown);
+  width: var(--spacing-lg);
+  height: var(--spacing-lg);
+  cursor: nwse-resize;
+  touch-action: none;
+  outline: none;
+}

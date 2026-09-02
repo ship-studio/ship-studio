@@ -14,7 +14,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
-import { PlusIcon } from '../icons/utility';
+import { AddIcon } from '@/components/icons';
 import { suggestProperties } from '../../lib/cssProperties';
 import {
   NEST_ITEMS,
@@ -38,6 +38,8 @@ interface Props {
   /** Add a nested rule with this selector/prelude (a nested selector or keyframe step). */
   onNest: (selector: string) => void;
   mode?: AddMode;
+  /** Replace the mode's default trigger text while retaining its behavior and aria label. */
+  triggerLabel?: string;
   /** Open the menu automatically on mount — for the editing flow (e.g. right after
    *  creating a rule, jump straight to picking its first property). */
   autoOpen?: boolean;
@@ -57,17 +59,36 @@ interface Section {
   rows: MenuRow[];
 }
 
-const MENU_WIDTH = 288;
+interface MenuAnchor {
+  card: DOMRect;
+  trigger: DOMRect;
+}
+
+function getMenuAnchor(button: HTMLElement): MenuAnchor {
+  return {
+    card:
+      button.closest<HTMLElement>('.ss-cascade-card, .ss-custom-css')?.getBoundingClientRect() ??
+      button.getBoundingClientRect(),
+    trigger: button.getBoundingClientRect(),
+  };
+}
+
 const SEL_START = /^[&:>+~.#[*]/;
 const LOOKS_PROP = /^[a-zA-Z-]+$/;
 
-export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false }: Props) {
+export function AddMenu({
+  onAddProperty,
+  onNest,
+  mode = 'full',
+  triggerLabel,
+  autoOpen = false,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
-  // The trigger's rect is captured from the click event (never read from a ref
-  // during render) and used to position the portaled menu.
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  // The containing editor surface's rect is captured when the menu opens (never read
+  // from a ref during render) and used to position and size the portaled menu.
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -77,7 +98,7 @@ export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false
   // the user lands straight in property selection without a second click.
   useEffect(() => {
     if (autoOpen && btnRef.current) {
-      setAnchor(btnRef.current.getBoundingClientRect());
+      setAnchor(getMenuAnchor(btnRef.current));
       setOpen(true);
     }
     // One-shot on the autoOpen signal.
@@ -207,13 +228,15 @@ export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false
   // Position under the trigger, clamped; flip up if it would overflow below.
   const pos = useMemo(() => {
     if (!open || !anchor) return null;
-    const left = Math.max(8, Math.min(anchor.left, window.innerWidth - MENU_WIDTH - 8));
-    const below = window.innerHeight - anchor.bottom;
-    const flip = below < 300 && anchor.top > below;
+    const width = anchor.card.width;
+    const left = Math.max(8, Math.min(anchor.card.left, window.innerWidth - width - 8));
+    const below = window.innerHeight - anchor.trigger.bottom;
+    const flip = below < 300 && anchor.trigger.top > below;
     return {
       left,
-      top: flip ? undefined : anchor.bottom + 4,
-      bottom: flip ? window.innerHeight - anchor.top + 4 : undefined,
+      width,
+      top: flip ? undefined : anchor.trigger.bottom + 4,
+      bottom: flip ? window.innerHeight - anchor.trigger.top + 4 : undefined,
     };
   }, [open, anchor]);
 
@@ -222,7 +245,9 @@ export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false
     isOutside: (t) => !popRef.current?.contains(t) && !btnRef.current?.contains(t),
   });
 
-  const label = mode === 'keyframes' ? 'Add step' : mode === 'props' ? 'Add property' : 'Add';
+  const defaultLabel =
+    mode === 'keyframes' ? 'Add step' : mode === 'props' ? 'Add property' : 'Add';
+  const label = triggerLabel ?? defaultLabel;
   const placeholder =
     mode === 'keyframes'
       ? 'Add a keyframe step (from, to, 50%)…'
@@ -234,7 +259,7 @@ export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false
     <button
       ref={btnRef}
       type="button"
-      className={`ss-card__add${open ? ' is-open' : ''}`}
+      className={`ss-cascade-card__add${open ? ' is-open' : ''}`}
       aria-label={
         mode === 'keyframes'
           ? 'Add a keyframe step'
@@ -246,12 +271,12 @@ export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false
       onClick={(e) => {
         if (open) close();
         else {
-          setAnchor(e.currentTarget.getBoundingClientRect());
+          setAnchor(getMenuAnchor(e.currentTarget));
           setOpen(true);
         }
       }}
     >
-      <PlusIcon size={11} /> {label}
+      <AddIcon size={12} /> {label}
     </button>
   );
 
@@ -270,7 +295,7 @@ export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false
             left: pos.left,
             top: pos.top,
             bottom: pos.bottom,
-            width: MENU_WIDTH,
+            width: pos.width,
           }}
         >
           <input
@@ -284,7 +309,7 @@ export function AddMenu({ onAddProperty, onNest, mode = 'full', autoOpen = false
             aria-controls={listId}
             aria-activedescendant={flat.length > 0 ? optionId(active) : undefined}
             aria-autocomplete="list"
-            aria-label={label}
+            aria-label={defaultLabel}
             placeholder={placeholder}
             onChange={(e) => {
               setQuery(e.target.value);

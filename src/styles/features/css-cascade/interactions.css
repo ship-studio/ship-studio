@@ -1,0 +1,14 @@
+/* Hover affordance = brighter text/icon only, NEVER a filled background. This
+   keeps the cascade's trigger/action buttons and rows distinct from standard controls. Dropdown menu items
+   (`__combo`/`__nest-item`) are intentionally NOT included — they keep the standard
+   bg-hover, matching the Tailwind editor's `ss-enum__item`. */
+.ss-cascade-card__collapse:hover,
+.ss-cascade-card__trash:hover,
+.ss-cascade-card__add:hover,
+.ss-decl:hover,
+.ss-decl__nest-btn:hover,
+.ss-decl__remove:hover,
+.ss-settings__class-add:hover,
+.ss-settings__class-remove:hover {
+  background: none;
+}

@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { WarningIcon } from '../icons';
+import { WarningIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { sessionRegistry } from '../../lib/sessionRegistry';
 import {
@@ -63,7 +63,7 @@ export function StaleEnvBanner({ projectPath }: { projectPath: string }) {
       </span>
       <Button
         variant="ghost"
-        size="sm"
+        size="compact"
         onClick={() => sessionRegistry.clearProjectStaleEnv(projectPath)}
       >
         Dismiss

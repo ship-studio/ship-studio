@@ -1,0 +1,35 @@
+.panel-resize-handle {
+  position: relative;
+  width: var(--stroke-1);
+  align-self: stretch;
+  flex-shrink: 0;
+  background: var(--border-default);
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.panel-resize-handle::before {
+  content: '';
+  position: absolute;
+  /* Keep the visible separator one stroke wide while extending its pointer
+     target into the neighbouring panels. */
+  inset: 0 calc(var(--spacing-lg) / -2);
+}
+
+.panel-resize-handle:hover,
+.panel-resize-handle:active,
+.panel-resize-handle:focus-visible {
+  background: var(--border-strong);
+}
+
+.panel-resize-handle--horizontal {
+  width: auto;
+  height: var(--stroke-1);
+  align-self: center;
+  cursor: row-resize;
+}
+
+.panel-resize-handle--horizontal::before {
+  inset: calc(var(--spacing-lg) / -2) 0;
+}

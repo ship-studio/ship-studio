@@ -39,17 +39,13 @@ type Fn = ReturnType<typeof vi.fn>;
 
 async function openAddTab() {
   // The "Add" *tab* button (the submit button isn't rendered yet).
-  fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Add' }));
   return await screen.findByPlaceholderText(/my-server/);
 }
 
 /** The Add-tab's submit button (distinct from the "Add" tab button). */
 function clickAddSubmit() {
-  const button = screen
-    .getAllByRole('button', { name: /^add$/i })
-    .find((b) => b.className.includes('mcp-add-btn'));
-  expect(button).toBeDefined();
-  fireEvent.click(button!);
+  fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
 }
 
 describe('McpModal error flows', () => {
@@ -268,5 +264,38 @@ describe('McpModal error flows', () => {
     });
     // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the logger mock's calls, not invoking it bound
     expect(logger.error as Fn).not.toHaveBeenCalled();
+  });
+
+  it('filters connected servers through the shared search field', async () => {
+    vi.mocked(listMcpServers).mockResolvedValue([
+      {
+        name: 'Alpha Server',
+        command_or_url: 'npx alpha-server',
+        status: 'connected',
+        scope: 'user',
+      },
+      {
+        name: 'Beta Server',
+        command_or_url: 'npx beta-server',
+        status: 'error',
+        scope: 'project',
+      },
+    ]);
+
+    render(<McpModal projectPath="/tmp/project" />);
+
+    expect(await screen.findByText('Alpha Server')).toBeInTheDocument();
+    expect(screen.getByText('Beta Server')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Filter MCP servers' }), {
+      target: { value: 'beta' },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Alpha Server')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Beta Server')).toBeInTheDocument();
+    expect(screen.getByText('project')).toHaveClass('extension-scope-badge--project');
+    expect(screen.getByTitle('Error')).toHaveClass('error');
   });
 });

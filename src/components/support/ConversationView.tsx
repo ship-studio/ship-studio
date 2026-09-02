@@ -13,6 +13,7 @@ import {
 import type { WidgetMessage } from '../../lib/support';
 import { trackEvent } from '../../lib/analytics';
 import { asCommandError, formatCommandError } from '../../lib/errors';
+import { Button } from '../primitives/Button';
 
 interface ConversationViewProps {
   ticketId: string;
@@ -139,9 +140,13 @@ export function ConversationView({ ticketId }: ConversationViewProps) {
           }}
           disabled={sending}
         />
-        <button onClick={() => void handleSend()} disabled={!reply.trim() || sending}>
+        <Button
+          variant="primary"
+          onClick={() => void handleSend()}
+          disabled={!reply.trim() || sending}
+        >
           {sending ? '...' : 'Send'}
-        </button>
+        </Button>
       </div>
     </>
   );

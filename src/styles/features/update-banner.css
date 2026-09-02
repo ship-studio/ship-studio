@@ -1,101 +1,386 @@
-/* Update Banner Styles - matches app dark theme */
+/* Sidebar update indicator and release-specific details modal. */
 
-.update-banner {
+.update-indicator {
   position: relative;
-  z-index: 10;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  /* Top padding clears the macOS traffic lights (overlay title bar) */
-  padding: 40px 16px 12px;
-}
-
-.update-banner-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.update-banner-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.update-banner-badge {
-  background: var(--action);
-  color: var(--action-text);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.update-banner-version {
-  color: var(--text-primary);
-  font-size: var(--font-size-lg);
-  font-weight: 500;
-}
-
-.update-banner-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.update-banner-progress-container {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.update-banner-progress {
-  width: 140px;
-  height: 6px;
-  background: var(--bg-tertiary);
-  border-radius: 3px;
+  flex: 0 0 auto;
+  align-self: stretch;
+  max-height: calc(var(--control-height-standard) + (var(--space-02) * 2));
+  margin-bottom: var(--space-04);
+  padding: var(--space-02);
   overflow: hidden;
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--accent-active) 14%, var(--surface-control));
+  color: var(--accent-active);
+  box-shadow: var(--shadow-button);
+  transition:
+    max-height var(--transition-slow),
+    background-color var(--transition),
+    box-shadow var(--transition);
 }
 
-.update-banner-progress-bar {
-  height: 100%;
-  background: var(--action);
-  border-radius: 3px;
-  transition: width 0.3s ease;
+.update-indicator--idle:hover,
+.update-indicator--idle:focus-within,
+.update-indicator--error:hover,
+.update-indicator--error:focus-within {
+  max-height: calc(var(--space-32) * 10);
+  box-shadow: var(--shadow-sm);
 }
 
-.update-banner-progress-text {
-  color: var(--text-secondary);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  min-width: 36px;
+.update-indicator-summary {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  min-height: var(--control-height-standard);
 }
 
-.update-banner-error {
-  color: var(--error);
-  font-size: var(--font-size-base);
-  font-family: 'JetBrainsMono NF', monospace;
-  max-width: 400px;
+.update-indicator-update-action {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  align-self: stretch;
+  gap: var(--button-gap);
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--button-padding);
+  border: 0;
+  border-radius: var(--button-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition),
+    transform var(--transition);
+}
+
+.update-indicator-update-action:hover:not(:disabled),
+.update-indicator-update-action:focus-visible {
+  background: color-mix(in srgb, var(--accent-active) 18%, transparent);
+  color: var(--color-green-300);
+}
+
+.update-indicator-update-action:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.update-indicator-update-action:focus-visible {
+  outline: var(--stroke-2) solid var(--accent-active);
+  outline-offset: calc(-1 * var(--stroke-2));
+}
+
+.update-indicator-update-action:disabled {
+  cursor: progress;
+}
+
+.update-indicator-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--size-icon-sm);
+}
+
+.update-indicator-icon-default,
+.update-indicator-icon-expanded {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    opacity var(--transition-slow),
+    transform var(--transition-slow),
+    filter var(--transition-slow);
+}
+
+.update-indicator-icon-expanded {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  filter: blur(var(--space-04));
+  transform: scale(0.25);
+}
+
+.update-indicator:hover .update-indicator-icon-default,
+.update-indicator:focus-within .update-indicator-icon-default {
+  opacity: 0;
+  filter: blur(var(--space-04));
+  transform: scale(0.25);
+}
+
+.update-indicator:hover .update-indicator-icon-expanded,
+.update-indicator:focus-within .update-indicator-icon-expanded {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+
+.update-indicator-label {
+  min-width: 0;
   overflow: hidden;
+  color: currentColor;
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.update-banner-notes {
-  margin-top: 10px;
-  padding-left: 20px;
-  list-style: disc;
+.update-indicator-label-swap {
+  position: relative;
+  display: inline-grid;
 }
 
-.update-banner-notes li {
+.update-indicator-label-default,
+.update-indicator-label-expanded {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--transition-slow),
+    transform var(--transition-slow),
+    filter var(--transition-slow);
+}
+
+.update-indicator-label-expanded {
+  opacity: 0;
+  filter: blur(var(--space-04));
+  transform: scale(0.25);
+}
+
+.update-indicator:hover .update-indicator-label-default,
+.update-indicator:focus-within .update-indicator-label-default {
+  opacity: 0;
+  filter: blur(var(--space-04));
+  transform: scale(0.25);
+}
+
+.update-indicator:hover .update-indicator-label-expanded,
+.update-indicator:focus-within .update-indicator-label-expanded {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+
+.update-indicator-details {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  max-height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0 var(--space-08);
+  border: 0;
+  border-radius: var(--button-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--space-04)));
+  transition:
+    max-height var(--transition-slow),
+    margin-bottom var(--transition-slow),
+    padding-top var(--transition-slow),
+    padding-bottom var(--transition-slow),
+    background-color var(--transition),
+    opacity var(--transition),
+    transform var(--transition-slow);
+}
+
+.update-indicator--idle:hover .update-indicator-details,
+.update-indicator--idle:focus-within .update-indicator-details,
+.update-indicator--error:hover .update-indicator-details,
+.update-indicator--error:focus-within .update-indicator-details {
+  max-height: calc(var(--space-32) * 8);
+  margin-bottom: var(--space-04);
+  padding: var(--space-08);
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.update-indicator-details:hover,
+.update-indicator-details:focus-visible {
+  background: color-mix(in srgb, var(--accent-active) 12%, transparent);
+}
+
+.update-indicator-details:focus-visible {
+  outline: var(--stroke-2) solid var(--accent-active);
+  outline-offset: calc(-1 * var(--stroke-2));
+}
+
+.update-indicator-details-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.update-indicator-version {
+  color: var(--color-green-300);
+  font-size: var(--font-size-badge);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-indicator-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+  margin: var(--space-06) 0 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.35;
+}
+
+.update-indicator-note {
+  position: relative;
+  padding-left: var(--space-12);
+}
+
+.update-indicator-note::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: currentColor;
+}
+
+.update-indicator-dismiss {
+  flex: 0 0 var(--control-height-standard);
+  color: currentColor;
+  box-shadow: none;
+}
+
+.workspace-sidebar .update-indicator-dismiss:hover:not(:disabled),
+.workspace-sidebar .update-indicator-dismiss:focus-visible {
+  background: color-mix(in srgb, var(--accent-active) 20%, transparent);
+  color: var(--color-green-300);
+}
+
+.update-indicator-progress-fill {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent-active) 18%, transparent);
+  transition: width var(--transition-slow);
+}
+
+.update-indicator-progress-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--control-height-standard);
+  color: var(--color-green-300);
+  font-size: var(--font-size-badge);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-indicator--ready {
+  background: color-mix(in srgb, var(--accent-active) 14%, var(--surface-control));
+  color: var(--accent-active);
+}
+
+.update-indicator--error {
+  background: color-mix(in srgb, var(--accent-error) 12%, var(--surface-control));
+  color: var(--accent-error-light);
+}
+
+.workspace-sidebar.is-hidden .update-indicator {
+  display: none;
+}
+
+.update-details-modal {
+  width: min(90vw, 560px);
+  max-height: min(85vh, 720px);
+}
+
+.update-details-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-16) var(--space-24);
+}
+
+.update-details-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.update-details-list li {
+  position: relative;
+  padding-left: var(--space-16);
+}
+
+.update-details-list li::before {
+  content: '';
+  position: absolute;
+  top: var(--space-06);
+  left: 0;
+  width: var(--space-06);
+  height: var(--space-06);
+  border-radius: var(--radius-pill);
+  background: var(--accent-active);
+}
+
+.update-details-list h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.4;
+  text-wrap: balance;
+}
+
+.update-details-list p,
+.update-details-empty,
+.update-details-error {
+  margin: var(--space-04) 0 0;
   color: var(--text-secondary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-md);
   line-height: 1.5;
-  margin-bottom: 2px;
+  text-wrap: pretty;
 }
 
-.update-banner-notes li:last-child {
-  margin-bottom: 0;
+.update-details-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-08);
+  margin-top: var(--space-16);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-details-progress-track {
+  flex: 1;
+  height: var(--space-06);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--surface-control);
+}
+
+.update-details-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-active);
+  transition: width var(--transition-slow);
+}
+
+.update-details-error {
+  padding: var(--space-08) var(--space-12);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--accent-error) 10%, transparent);
+  color: var(--accent-error-light);
+}
+
+.update-details-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-08);
+  padding: var(--space-12) var(--space-24) var(--space-16);
+  border-top: var(--stroke-1) solid var(--border-default);
 }

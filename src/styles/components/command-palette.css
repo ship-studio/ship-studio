@@ -23,7 +23,8 @@
   align-items: center;
   gap: var(--spacing-md);
   padding: var(--spacing-lg) var(--spacing-lg);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
 }
 
 .command-palette-search-icon {
@@ -60,16 +61,16 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-lg);
-  font-size: var(--font-size-base);
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-body-md);
+  background: var(--surface-app);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .command-palette-scope-label {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
 }
 
 .command-palette-scope-value {
@@ -78,29 +79,52 @@
 }
 
 /* ===== Tab row ===== */
-.command-palette-tabs {
+.command-palette-tabs.tabs__list--stretch {
   display: flex;
   align-items: stretch;
-  gap: var(--spacing-lg);
-  padding: 0 var(--spacing-lg);
-  border-bottom: 1px solid var(--border);
+  width: 100%;
+  height: calc(var(--spacing-lg) * 2 + var(--font-size-body-lg));
+  flex-shrink: 0;
 }
 
 .command-palette-tab {
   position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
   background: transparent;
   border: none;
   border-radius: 0;
   appearance: none;
   -webkit-appearance: none;
-  padding: var(--spacing-md) 0;
-  font-size: var(--font-size-md);
+  padding: var(--spacing-lg) 0;
+  font-size: var(--font-size-body-lg);
   color: var(--text-muted);
   cursor: pointer;
   font-family: inherit;
   font-weight: 500;
   transition: color var(--transition);
   outline: none;
+}
+
+/* The shared tab primitive defaults to a compact fixed height. Let these
+   palette tabs grow with their larger vertical padding instead. */
+.command-palette-tabs .tabs__tab.button.command-palette-tab {
+  height: auto;
+  min-height: 0;
+}
+
+.command-palette > .tabs {
+  display: contents;
+}
+
+.command-palette-list-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-top: var(--stroke-1) solid var(--border-default);
 }
 
 .command-palette-tab:hover,
@@ -116,17 +140,6 @@
   color: var(--text-primary);
 }
 
-.command-palette-tab.is-active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--accent);
-  border-radius: 2px 2px 0 0;
-}
-
 /* ===== Result list ===== */
 .command-palette-list {
   flex: 1;
@@ -139,7 +152,7 @@
   padding: var(--spacing-2xl) var(--spacing-lg);
   color: var(--text-muted);
   text-align: center;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 .command-palette-group + .command-palette-group {
@@ -151,7 +164,7 @@
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
 }
 
@@ -169,13 +182,13 @@
   color: var(--text-primary);
   cursor: pointer;
   font-family: inherit;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   transition: background-color var(--transition-fast);
   min-height: 40px;
 }
 
 .command-palette-row.is-selected {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .command-palette-row-icon {
@@ -202,7 +215,7 @@
 }
 
 .command-palette-row-title {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -211,7 +224,7 @@
 }
 
 .command-palette-row-subtitle {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -233,12 +246,12 @@
   justify-content: center;
   min-width: 20px;
   padding: 2px 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
   line-height: 1;
   height: 20px;
 }
@@ -249,9 +262,9 @@
   align-items: center;
   gap: var(--spacing-lg);
   padding: var(--spacing-sm) var(--spacing-lg);
-  border-top: 1px solid var(--border);
-  background: var(--bg-primary);
-  font-size: var(--font-size-sm);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-app);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 

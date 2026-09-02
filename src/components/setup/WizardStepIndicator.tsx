@@ -6,6 +6,7 @@
  */
 
 import { WIZARD_STEPS, type WizardStepId } from '../../lib/setup';
+import { CheckIcon } from '@/components/icons';
 
 interface WizardStepIndicatorProps {
   currentStep: WizardStepId;
@@ -35,19 +36,7 @@ export function WizardStepIndicator({ currentStep, completedSteps }: WizardStepI
               />
             )}
             <div className={dotClass}>
-              {isCompleted ? (
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path
-                    d="M3 7l3 3 5-5"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              ) : (
-                <span>{index + 1}</span>
-              )}
+              {isCompleted ? <CheckIcon size={14} /> : <span>{index + 1}</span>}
             </div>
             <span
               className={`wizard-indicator-label ${isCurrent ? 'current' : ''} ${isCompleted ? 'completed' : ''}`}

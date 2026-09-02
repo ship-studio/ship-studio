@@ -5,7 +5,7 @@
  */
 
 import { Button } from '../primitives/Button';
-import { CloseIcon, TrashIcon } from '../icons';
+import { CloseIcon, TrashIcon } from '@/components/icons';
 import { projectCountLabel } from '../../hooks/useProjectBulkActions';
 
 interface ProjectBulkActionsBarProps {
@@ -38,15 +38,20 @@ export function ProjectBulkActionsBar({
         )}
       </div>
       <div className="project-bulk-actions-controls">
-        <Button variant="ghost" size="sm" onClick={onClear}>
+        <Button variant="ghost" size="compact" onClick={onClear}>
           Clear
         </Button>
-        <Button variant="secondary" size="sm" leftIcon={<CloseIcon size={14} />} onClick={onRemove}>
+        <Button
+          variant="secondary"
+          size="compact"
+          leftIcon={<CloseIcon size={14} />}
+          onClick={onRemove}
+        >
           Remove
         </Button>
         <Button
           variant="danger"
-          size="sm"
+          size="compact"
           leftIcon={<TrashIcon size={14} />}
           disabled={selectedIncludesExternalProject}
           title={

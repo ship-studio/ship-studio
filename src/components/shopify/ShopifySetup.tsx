@@ -23,7 +23,7 @@ import {
 } from '../../lib/shopify';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { Button } from '../primitives/Button';
-import { ResetIcon } from '../icons';
+import { ResetIcon } from '@/components/icons';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 
@@ -112,7 +112,7 @@ export function ShopifySetup({
   if (step === 'checking') {
     return (
       <div className="preview-install-prompt shopify-setup">
-        <p className="hint">Checking Shopify setup…</p>
+        <p className="text-style-hint">Checking Shopify setup…</p>
       </div>
     );
   }
@@ -121,17 +121,19 @@ export function ShopifySetup({
     return (
       <div className="preview-install-prompt shopify-setup">
         <h3>Set up the Shopify CLI</h3>
-        <p className="hint">
+        <p className="text-style-hint">
           Previewing Shopify themes needs the Shopify CLI, which renders your theme with real store
           data and hot reload.
         </p>
-        {onSendToAgent && <p className="hint">Let the agent install and configure it for you.</p>}
         {onSendToAgent && (
-          <Button variant="primary" size="sm" onClick={handleAgentSetup}>
+          <p className="text-style-hint">Let the agent install and configure it for you.</p>
+        )}
+        {onSendToAgent && (
+          <Button variant="primary" onClick={handleAgentSetup}>
             Set up with AI
           </Button>
         )}
-        <Button variant="secondary" size="sm" onClick={() => setAttempt((a) => a + 1)}>
+        <Button variant="secondary" onClick={() => setAttempt((a) => a + 1)}>
           <ResetIcon size={14} /> Try again
         </Button>
       </div>
@@ -141,7 +143,7 @@ export function ShopifySetup({
   return (
     <div className="preview-install-prompt shopify-setup">
       <h3>Connect your Shopify store</h3>
-      <p className="hint">
+      <p className="text-style-hint">
         The preview renders your theme against a real store. Enter your store&apos;s domain — the
         first run opens your browser to log in to Shopify.
       </p>
@@ -158,17 +160,12 @@ export function ShopifySetup({
           disabled={isSaving}
           autoFocus
         />
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => void handleConnect()}
-          disabled={isSaving}
-        >
+        <Button variant="primary" onClick={() => void handleConnect()} disabled={isSaving}>
           {isSaving ? 'Connecting…' : 'Connect store'}
         </Button>
       </div>
       {inputError && <p className="shopify-setup-error">{inputError}</p>}
-      <p className="hint">
+      <p className="text-style-hint">
         Don&apos;t have a store?{' '}
         <button
           type="button"

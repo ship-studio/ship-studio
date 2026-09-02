@@ -174,6 +174,7 @@ To get an aggregate "any modal opened" count in PostHog, use a regex match on ev
 |---|---|
 | `calendar_visibility_toggled` | `visible` |
 | `terminal_gpu_toggled` | `enabled` |
+| `compact_workspace_toolbar_toggled` | `enabled` |
 | `thumbnails_toggled` | `enabled` (the "Project thumbnails" auto-capture toggle) |
 | `projects_root_changed` | `is_custom` (false when reset to the default `~/ShipStudio`) |
 | `projects_moved` | `moved_count`, `skipped_count` (after moving projects into a newly-chosen folder) |

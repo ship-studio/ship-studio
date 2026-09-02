@@ -14,8 +14,8 @@
   height: 56px;
   object-fit: cover;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  background: var(--surface-control);
 }
 .ss-edit-image__thumb--empty {
   display: inline-block;
@@ -28,9 +28,9 @@
   gap: var(--spacing-xs);
 }
 .ss-edit-image__path {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-radius: var(--radius-sm);
   padding: 2px var(--spacing-xs);
   overflow: hidden;
@@ -39,7 +39,7 @@
 }
 .ss-edit-image__note {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   line-height: 1.45;
   color: var(--text-muted);
 }

@@ -14,23 +14,46 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Button } from '../primitives/Button';
+import { Button, buttonClassNames } from '../primitives/Button';
+import { IconButton } from '../primitives/IconButton';
+import { ToggleButton } from '../primitives/ToggleButton';
 import { EnumDropdown } from './EnumDropdown';
 import { MultiSourceControl } from './MultiSourceControl';
 import { UsageScope } from './UsageScope';
 import { CodeIcon } from './CodeIcon';
-import { SlackIcon } from '../icons/brand';
-import { PinIcon } from '../icons/layout';
+import { SlackIcon } from '@/components/icons';
+import {
+  CheckIcon,
+  CloseIcon,
+  DesktopIcon,
+  FullBreakpointIcon,
+  InfoIcon,
+  LaptopIcon,
+  MobileIcon,
+  TabletIcon,
+} from '@/components/icons';
+import { SaveIcon } from '@/components/icons';
+import { HelpIcon } from '@/components/icons';
+import { PinIcon } from '@/components/icons';
+import { Tooltip } from '../primitives/Tooltip';
 import { PropSection } from './PropSection';
 import { ImageSection } from './ImageSection';
 import { PropControlRenderer, type ControlRenderCtx } from './PropControlRenderer';
+import type { ValueFieldVariable } from '../primitives/ValueField';
 import { ClassBar } from './ClassBar';
 import type { CustomClass } from '../../lib/customClasses';
 import type { EditTarget } from '../../hooks/useVisualEditor';
 import { CONTROL_SECTIONS } from '../../lib/editControls';
-import { breakpointPrefixes, type UsageReport } from '../../lib/edit';
+import {
+  activeEnumToken,
+  breakpointPrefixes,
+  ENUM_CONTROLS,
+  readLayer,
+  type UsageReport,
+} from '../../lib/edit';
 import type {
   BoxType,
   Side,
@@ -67,24 +90,18 @@ function buildAgentRequest(sig: ElementSignature, resolution: Resolution | null)
  *  shifts height between the two (auto-save) states. */
 function StatusBadge({ saving }: { saving: boolean }) {
   return (
-    <div className="ss-edit-panel__saved" aria-live="polite">
+    <div
+      className={buttonClassNames({
+        variant: 'default',
+        className: 'ss-edit-panel__saved',
+      })}
+      aria-live="polite"
+    >
       {saving ? (
         'Saving…'
       ) : (
         <>
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <CheckIcon size={13} />
           Saved
         </>
       )}
@@ -92,42 +109,21 @@ function StatusBadge({ saving }: { saving: boolean }) {
   );
 }
 
-/** Small "?" glyph that reveals a custom tooltip on hover/focus. */
+/** Small "?" glyph that reveals the shared tooltip on hover/focus. */
 function HelpHint({ text }: { text: string }) {
   return (
-    <span className="ss-edit-panel__help" tabIndex={0} role="img" aria-label={text}>
-      <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-        <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.2" />
-        <path
-          d="M5.8 6.2c0-1.2 1-2 2.2-2s2.2.8 2.2 2c0 .8-.5 1.3-1.1 1.6-.6.4-1.1.7-1.1 1.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-        />
-        <circle cx="8" cy="11.5" r="0.7" fill="currentColor" />
-      </svg>
-      <span className="ss-edit-panel__help-tip" role="tooltip">
-        {text}
+    <Tooltip content={text}>
+      <span className="ss-edit-panel__help" tabIndex={0} role="img" aria-label={text}>
+        <HelpIcon size={12} />
       </span>
-    </span>
+    </Tooltip>
   );
 }
 
 /** Empty-state intro shown before any element is selected — explains what the
  *  visual editor is and how it works, instead of a bare one-line hint. */
 function IntroCheck() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M20 6 9 17l-5-5"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return <CheckIcon size={13} />;
 }
 
 function EditorIntro() {
@@ -198,7 +194,6 @@ function DynamicTextHelp({
       </p>
       <Button
         variant="secondary"
-        size="sm"
         block
         onClick={() => void copy(buildAgentRequest(signature, resolution))}
       >
@@ -248,13 +243,7 @@ function NoClassState({
           if (e.key === 'Enter') void submit();
         }}
       />
-      <Button
-        variant="primary"
-        size="sm"
-        block
-        disabled={!trimmed || busy}
-        onClick={() => void submit()}
-      >
+      <Button variant="primary" block disabled={!trimmed || busy} onClick={() => void submit()}>
         {busy ? 'Adding…' : 'Add class'}
       </Button>
     </div>
@@ -265,28 +254,25 @@ function NoClassState({
  *  CSS class — its tooltip explains that edits use `!important` to win the cascade. */
 function CustomCssHint() {
   return (
-    <span
-      className="ss-edit-panel__csshint"
-      tabIndex={0}
-      role="img"
-      aria-label="Styled by a custom CSS class — edits use !important so they take effect"
-    >
-      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-        <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.2" />
-        <circle cx="8" cy="4.6" r="0.8" fill="currentColor" />
-        <path
-          d="M8 7v4.4"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-        />
-      </svg>
-      <span className="ss-edit-panel__csshint-tip" role="tooltip">
-        Styled by a custom CSS class — edits use <code>!important</code> so they take effect.
+    <Tooltip content="Styled by a custom CSS class — edits use !important so they take effect.">
+      <span
+        className="ss-edit-panel__csshint"
+        tabIndex={0}
+        role="img"
+        aria-label="Styled by a custom CSS class — edits use !important so they take effect"
+      >
+        <InfoIcon size={13} />
       </span>
-    </span>
+    </Tooltip>
   );
+}
+
+function breakpointIcon(bp: Breakpoint): ReactNode {
+  if (bp.minPx === 0) return <FullBreakpointIcon />;
+  if (bp.minPx < 768) return <MobileIcon />;
+  if (bp.minPx < 1024) return <TabletIcon />;
+  if (bp.minPx < 1280) return <LaptopIcon />;
+  return <DesktopIcon />;
 }
 
 interface Props {
@@ -295,6 +281,8 @@ interface Props {
   projectPath: string;
   /** The class string currently applied live (what "Save" will persist). */
   currentClass: string;
+  /** Project CSS custom properties available to value fields. */
+  variables?: ValueFieldVariable[];
   /** Text-editability of the selection. When read-only (dynamic text), the panel
    *  offers a copy-able request to hand the edit to the coding agent. */
   textResolution?: TextResolution | null;
@@ -305,7 +293,7 @@ interface Props {
   /** Bumps each time a double-click hits dynamic text — pulses the hand-off block
    *  so the user's eye is drawn to the panel after their click did nothing. */
   textBlockedNonce?: number;
-  /** All breakpoints (Base + detected), ascending by min-width. */
+  /** All breakpoints (Base + detected), supplied in cascade order. */
   breakpoints: Breakpoint[];
   /** The breakpoint layer currently being edited (derived from the canvas width). */
   activeBreakpoint: Breakpoint;
@@ -357,7 +345,8 @@ interface Props {
   onTogglePin?: () => void;
 }
 
-const PANEL_WIDTH = 264;
+const PANEL_WIDTH = 240;
+const EMPTY_VALUE_FIELD_VARIABLES: ValueFieldVariable[] = [];
 
 /** Initial top-right resting spot (clears the toolbar). Lazy so it reads the
  *  window once on mount; drag takes over from there. */
@@ -370,6 +359,7 @@ export function VisualEditorPanel({
   selection,
   projectPath,
   currentClass,
+  variables = EMPTY_VALUE_FIELD_VARIABLES,
   textResolution,
   imageResolution,
   onReplaceImage,
@@ -431,6 +421,14 @@ export function VisualEditorPanel({
     () => ({ bp: activeBreakpoint, ordered: breakpoints, known: breakpointPrefixes(breakpoints) }),
     [activeBreakpoint, breakpoints]
   );
+  const breakpointIcons = useMemo(
+    () => Object.fromEntries(breakpoints.map((bp) => [bp.name, breakpointIcon(bp)])),
+    [breakpoints]
+  );
+  const breakpointOptions = useMemo(
+    () => [...breakpoints].sort((a, b) => b.minPx - a.minPx),
+    [breakpoints]
+  );
 
   // Shared render context for every control row (the registry renders generically).
   const controlCtx = useMemo<ControlRenderCtx>(
@@ -441,13 +439,34 @@ export function VisualEditorPanel({
       onReset,
       onSetSide,
       onStepGap,
+      variables,
       computed: {
         color: selection?.signature.computedColor,
         'background-color': selection?.signature.computedBackgroundColor,
       },
+      inherited: selection?.signature.inheritedProps,
+      projectPath,
+      onOpenInCode,
     }),
-    [currentClass, layer, onApplyEnum, onReset, onSetSide, onStepGap, selection]
+    [
+      currentClass,
+      layer,
+      onApplyEnum,
+      onReset,
+      onSetSide,
+      onStepGap,
+      selection,
+      variables,
+      projectPath,
+      onOpenInCode,
+    ]
   );
+  const displayControl = ENUM_CONTROLS.find((control) => control.label === 'Display')!;
+  const display = readLayer(currentClass, layer, (tokens) =>
+    activeEnumToken(tokens, displayControl)
+  ).value;
+  const flexLayout = display === 'flex' || display === 'inline-flex';
+  const flexOrGridLayout = flexLayout || display === 'grid';
 
   // Contextual mobile-first explainer (shown in the "?" tooltip by the label).
   const breakpointHelp =
@@ -514,18 +533,25 @@ export function VisualEditorPanel({
         <span className="ss-edit-panel__title">Edit</span>
         <span className="ss-edit-panel__header-actions">
           {onTogglePin && (
-            <button
-              className={`ss-edit-panel__pin${pinned ? ' is-pinned' : ''}`}
+            <ToggleButton
+              variant="ghost"
+              size="compact"
+              className="button--icon-only panel-pin-toggle"
               onClick={onTogglePin}
-              title={pinned ? 'Unpin — float over the preview' : 'Pin as sidebar'}
-              aria-pressed={pinned}
-            >
-              <PinIcon size={13} />
-            </button>
+              title={pinned ? 'Unpin — float over the preview' : 'Pin to the window'}
+              aria-label={pinned ? 'Unpin Edit panel' : 'Pin Edit panel to the window'}
+              pressed={pinned}
+              leftIcon={<PinIcon size={13} />}
+            />
           )}
-          <button className="ss-edit-panel__close" onClick={onClose} aria-label="Exit edit mode">
-            ×
-          </button>
+          <IconButton
+            variant="ghost"
+            size="compact"
+            onClick={onClose}
+            title="Close Edit panel"
+            aria-label="Close Edit panel"
+            icon={<CloseIcon size={14} />}
+          />
         </span>
       </div>
 
@@ -546,10 +572,11 @@ export function VisualEditorPanel({
             <EnumDropdown
               label="Breakpoint"
               value={activeBreakpoint.name}
-              options={breakpoints.map((bp) => ({
+              options={breakpointOptions.map((bp) => ({
                 label: bp.minPx > 0 ? `${bp.name} · ≥${bp.minPx}px` : 'Base · all widths',
                 token: bp.name,
               }))}
+              optionIcons={breakpointIcons}
               onChange={(name) => {
                 const bp = breakpoints.find((b) => b.name === name);
                 if (bp) onSelectBreakpoint(bp);
@@ -582,7 +609,7 @@ export function VisualEditorPanel({
         </div>
       )}
 
-      <div className="ss-edit-panel__body">
+      <div className="ss-edit-panel__body" data-value-field-menu-boundary>
         {!selection && <EditorIntro />}
 
         {textResolution?.status === 'read_only' && selection && (
@@ -621,7 +648,7 @@ export function VisualEditorPanel({
         {controlsVisible && (
           <>
             {resolution?.status === 'resolved' && (
-              <>
+              <div className="ss-edit-panel__source-context">
                 <div className="ss-edit-panel__source">
                   {onOpenInCode ? (
                     <button
@@ -661,7 +688,7 @@ export function VisualEditorPanel({
                   instanceCount={selection?.instanceCount ?? 1}
                   onOpenInCode={onOpenInCode}
                 />
-              </>
+              </div>
             )}
             {resolution?.status === 'multi' && (
               <MultiSourceControl
@@ -672,16 +699,31 @@ export function VisualEditorPanel({
             )}
 
             {CONTROL_SECTIONS.map((section) => (
-              <PropSection key={section.id} title={section.title} defaultOpen={section.defaultOpen}>
-                {section.controls.map((control) => (
-                  <PropControlRenderer key={control.key} control={control} ctx={controlCtx} />
-                ))}
+              <PropSection
+                key={section.id}
+                title={section.title}
+                sectionId={section.id}
+                defaultOpen={section.defaultOpen}
+              >
+                {section.controls.map((control) => {
+                  if (control.kind === 'enum') {
+                    const label = control.control.label;
+                    if ((label === 'Direction' || label === 'Wrap') && !flexLayout) return null;
+                    if ((label === 'Justify' || label === 'Align items') && !flexOrGridLayout)
+                      return null;
+                  }
+                  return (
+                    <PropControlRenderer key={control.key} control={control} ctx={controlCtx} />
+                  );
+                })}
               </PropSection>
             ))}
 
-            <div className="ss-edit-panel__classes" title={currentClass}>
-              {currentClass}
-            </div>
+            <PropSection title="Applied classes" sectionId="classes" defaultOpen>
+              <div className="ss-edit-panel__classes" title={currentClass}>
+                {currentClass}
+              </div>
+            </PropSection>
           </>
         )}
 
@@ -689,15 +731,16 @@ export function VisualEditorPanel({
           <strong>Visual editor is in beta.</strong> Hit a bug or have feedback? We'd genuinely
           appreciate hearing about it.
         </p>
-        <button
-          type="button"
+        <Button
+          variant="default"
+          width="fill"
+          leftIcon={<SlackIcon size={12} />}
           className="ss-edit-panel__slack"
           onClick={() => void openUrl(SLACK_INVITE_URL)}
           title="Join the Ship Studio community on Slack"
         >
-          <SlackIcon size={12} />
           Join the Slack
-        </button>
+        </Button>
       </div>
 
       {controlsVisible && (
@@ -719,7 +762,7 @@ export function VisualEditorPanel({
           ) : autoSave ? (
             <StatusBadge saving={dirty} />
           ) : dirty ? (
-            <Button size="sm" variant="primary" onClick={onCommit}>
+            <Button variant="primary" onClick={onCommit} leftIcon={<SaveIcon size={14} />}>
               Save to source
             </Button>
           ) : (

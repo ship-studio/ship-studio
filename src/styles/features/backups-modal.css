@@ -10,49 +10,10 @@
   padding: 0;
 }
 
-.backups-modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 20px 24px 16px;
-}
-
-.backups-modal-header h3 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary);
-}
-
 .backups-modal-subtitle {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   margin: 4px 0 0 0;
-}
-
-.backups-close-btn {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  transition:
-    background-color var(--transition),
-    color var(--transition);
-}
-
-.backups-close-btn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.backups-close-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .backups-modal-body {
@@ -60,7 +21,7 @@
   overflow-y: auto;
   flex: 1;
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: var(--border-default) transparent;
 }
 
 .backups-loading,
@@ -72,31 +33,31 @@
   gap: 12px;
   padding: 40px 20px;
   color: var(--text-muted);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
 }
 
 .backups-empty-hint {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   opacity: 0.7;
 }
 
 .backups-error {
-  background: rgba(var(--error-light-rgb), 0.1);
-  border: 1px solid rgba(var(--error-light-rgb), 0.3);
-  color: var(--error-light);
+  background: rgba(var(--accent-error-light-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-error-light-rgb), 0.3);
+  color: var(--accent-error-light);
   padding: 10px 12px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-base);
+  border-radius: var(--radius-card);
+  font-size: var(--font-size-body-md);
   margin-bottom: 12px;
 }
 
 .backups-success {
-  background: rgba(var(--success-light-rgb), 0.1);
-  border: 1px solid rgba(var(--success-light-rgb), 0.3);
-  color: var(--success-light);
+  background: rgba(var(--accent-success-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-success-rgb), 0.3);
+  color: var(--accent-success);
   padding: 10px 12px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-base);
+  border-radius: var(--radius-card);
+  font-size: var(--font-size-body-md);
   margin-bottom: 12px;
   display: flex;
   align-items: center;
@@ -115,13 +76,13 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px;
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
+  border-radius: var(--radius-card);
+  background: var(--surface-panel);
   transition: background-color var(--transition);
 }
 
 .backup-item:hover {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .backup-info {
@@ -130,7 +91,7 @@
 }
 
 .backup-message {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -142,22 +103,22 @@
   align-items: center;
   gap: 8px;
   margin-top: 4px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 
 .backup-hash {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   opacity: 0.7;
 }
 
 .backup-restore-btn {
   padding: 6px 12px;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
   cursor: pointer;
   transition:
@@ -170,8 +131,8 @@
 }
 
 .backup-restore-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-hover);
+  background: var(--surface-control-hover);
+  border-color: var(--border-strong);
 }
 
 .backup-restore-btn:disabled {
@@ -180,23 +141,23 @@
 }
 
 .backup-current {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   padding: 4px 8px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-radius: var(--radius-sm);
 }
 
 .backups-footer {
   padding: 12px 24px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .backups-footer-hint {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 
@@ -221,7 +182,7 @@
 }
 
 .backups-confirm-description {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
@@ -229,12 +190,12 @@
 
 .backups-confirm-backup {
   padding: 12px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border-radius: var(--radius-card);
 }
 
 .backups-confirm-backup .backup-message {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-primary);
   margin-bottom: 4px;
 }
@@ -243,7 +204,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
 }
 
@@ -256,11 +217,11 @@
 
 .backups-confirm-cancel {
   padding: 8px 16px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-secondary);
   cursor: pointer;
   transition:
@@ -270,8 +231,8 @@
 }
 
 .backups-confirm-cancel:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-hover);
+  background: var(--surface-control-hover);
+  border-color: var(--border-strong);
   color: var(--text-primary);
 }
 
@@ -282,11 +243,11 @@
 
 .backups-confirm-restore {
   padding: 8px 16px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
   cursor: pointer;
   transition:
@@ -298,8 +259,8 @@
 }
 
 .backups-confirm-restore:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-hover);
+  background: var(--surface-control-hover);
+  border-color: var(--border-strong);
 }
 
 .backups-confirm-restore:disabled {
@@ -326,8 +287,8 @@
   width: 48px;
   height: 48px;
   border-radius: var(--radius-full);
-  background: rgba(var(--success-light-rgb), 0.1);
-  color: var(--success-light);
+  background: rgba(var(--accent-success-rgb), 0.1);
+  color: var(--accent-success);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -338,12 +299,12 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-radius: var(--radius);
+  background: var(--surface-panel);
+  border-radius: var(--radius-control);
 }
 
 .backups-badge {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   text-transform: uppercase;
   padding: 3px 6px;
@@ -357,13 +318,13 @@
 }
 
 .backups-branch-name {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-md);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-lg);
   color: var(--text-primary);
 }
 
 .backups-success-description {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   margin: 0;
 }
@@ -372,7 +333,7 @@
   text-align: left;
   margin: 4px 0 12px;
   padding-left: 20px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
 }
 
@@ -390,11 +351,11 @@
 
 .backups-success-pr-btn {
   padding: 10px 16px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
   cursor: pointer;
   transition:
@@ -408,17 +369,17 @@
 }
 
 .backups-success-pr-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-hover);
+  background: var(--surface-control-hover);
+  border-color: var(--border-strong);
 }
 
 .backups-success-close-btn {
   padding: 8px 16px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 500;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-secondary);
   cursor: pointer;
   transition:
@@ -429,7 +390,7 @@
 }
 
 .backups-success-close-btn:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--border-hover);
+  background: var(--surface-control);
+  border-color: var(--border-strong);
   color: var(--text-primary);
 }

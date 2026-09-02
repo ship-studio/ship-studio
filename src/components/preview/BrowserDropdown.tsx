@@ -19,16 +19,19 @@ import {
   BraveIcon,
   EdgeIcon,
   GlobeIcon,
-} from '../icons';
+} from '@/components/icons';
 import { BrowserInfo, checkBrowserAvailability, openUrlInBrowser } from '../../lib/browser';
 import { logger } from '../../lib/logger';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { isResourcePressureError } from '../../lib/errorReporting';
+import { Button, type ButtonVariant } from '../primitives/Button';
+import { IconButton } from '../primitives/IconButton';
 
 interface BrowserDropdownProps {
   url: string;
   className?: string;
   buttonClassName?: string;
+  buttonVariant?: ButtonVariant;
   /** When true, shows only the icon without text */
   iconOnly?: boolean;
 }
@@ -45,7 +48,8 @@ const BROWSER_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
 export function BrowserDropdown({
   url,
   className = '',
-  buttonClassName = 'preview-action-btn',
+  buttonClassName = '',
+  buttonVariant = 'default',
   iconOnly = false,
 }: BrowserDropdownProps) {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -148,11 +152,28 @@ export function BrowserDropdown({
 
   // If no browsers detected, show simple button
   if (browsers.length === 0) {
+    if (iconOnly) {
+      return (
+        <IconButton
+          className={buttonClassName}
+          variant={buttonVariant}
+          icon={<ExternalLinkIcon size={iconSize} />}
+          onClick={handleDefaultOpen}
+          title="Open in Browser"
+          aria-label="Open in Browser"
+        />
+      );
+    }
     return (
-      <button className={buttonClassName} onClick={handleDefaultOpen} title="Open in Browser">
-        <ExternalLinkIcon size={iconSize} />
-        {!iconOnly && <span className="preview-toolbar-btn-label">Open</span>}
-      </button>
+      <Button
+        className={buttonClassName}
+        variant={buttonVariant}
+        onClick={handleDefaultOpen}
+        title="Open in Browser"
+        leftIcon={<ExternalLinkIcon size={iconSize} />}
+      >
+        <span className="preview-toolbar-btn-label">Open</span>
+      </Button>
     );
   }
 
@@ -162,20 +183,35 @@ export function BrowserDropdown({
       onMouseEnter={openNow}
       onMouseLeave={scheduleClose}
     >
-      <button
-        ref={triggerRef}
-        className={`${buttonClassName} browser-dropdown-trigger`}
-        onClick={handleDefaultOpen}
-        title="Open in Browser (click for default, hover for options)"
-      >
-        <ExternalLinkIcon size={iconSize} />
-        {!iconOnly && (
+      {iconOnly ? (
+        <IconButton
+          ref={triggerRef}
+          className={`${buttonClassName} browser-dropdown-trigger`}
+          variant={buttonVariant}
+          icon={<ExternalLinkIcon size={iconSize} />}
+          onClick={handleDefaultOpen}
+          title="Open in Browser (click for default, hover for options)"
+          aria-label="Open in Browser"
+          aria-haspopup="menu"
+          aria-expanded={showDropdown}
+        />
+      ) : (
+        <Button
+          ref={triggerRef}
+          className={`${buttonClassName} browser-dropdown-trigger`}
+          variant={buttonVariant}
+          onClick={handleDefaultOpen}
+          title="Open in Browser (click for default, hover for options)"
+          aria-haspopup="menu"
+          aria-expanded={showDropdown}
+        >
+          <ExternalLinkIcon size={iconSize} />
           <>
             <span className="preview-toolbar-btn-label">Open</span>
             <ChevronIcon size={10} className="preview-toolbar-btn-label browser-dropdown-chevron" />
           </>
-        )}
-      </button>
+        </Button>
+      )}
       {showDropdown && (
         <div
           className="browser-dropdown"

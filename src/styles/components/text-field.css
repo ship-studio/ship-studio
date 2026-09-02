@@ -1,0 +1,109 @@
+/* Primitive: TextField
+   The shell is optional; the input remains a normal native text input when
+   no suffix is provided.
+
+   Contract:
+   - default density is the standard editor/control field;
+   - add `ss-text-field--compact` for dense rows;
+   - add `ss-text-field--code` for commands, paths, and other code-like values;
+   - `invalid`, `:focus`, `:disabled`, and `::placeholder` are state styles;
+   - labels, help text, and validation messages belong to the owning form recipe;
+   - `suffix` uses the optional shell and remains decorative to the input. */
+.ss-text-field-shell {
+  display: inline-flex;
+  align-items: center;
+  height: var(--text-field-height);
+  min-width: 0;
+  border: var(--text-field-border-width) solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-button);
+}
+
+.ss-text-field-shell:focus-within {
+  border-color: var(--accent-active);
+}
+
+.ss-text-field-shell:has(> .ss-text-field--invalid) {
+  border-color: var(--accent-error);
+}
+
+.ss-text-field-shell:has(> .ss-text-field:disabled) {
+  border-color: var(--text-field-disabled-border);
+  background: var(--text-field-disabled-surface);
+  box-shadow: none;
+  opacity: var(--text-field-disabled-opacity);
+}
+
+.ss-text-field-shell > .ss-text-field {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+.ss-text-field__suffix {
+  flex: 0 0 var(--text-field-suffix-width);
+  width: var(--text-field-suffix-width);
+  padding-right: var(--text-field-suffix-padding);
+  text-align: right;
+  color: var(--text-secondary);
+  font: inherit;
+}
+
+.ss-text-field {
+  box-sizing: border-box;
+  height: var(--text-field-height);
+  min-width: 0;
+  padding: 0 var(--text-field-padding-inline);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-control);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+  border: var(--text-field-border-width) solid var(--border-strong);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-button);
+}
+
+.ss-text-field--compact,
+.ss-text-field-shell:has(> .ss-text-field--compact) {
+  height: var(--text-field-height-compact);
+}
+
+.ss-text-field--code {
+  font-family: var(--font-code);
+}
+
+.ss-text-field:focus {
+  outline: var(--text-field-border-width) solid var(--accent-active);
+  outline-offset: calc(-1 * var(--text-field-border-width));
+  color: var(--text-primary);
+}
+
+.ss-text-field::placeholder {
+  color: var(--text-secondary);
+}
+
+.ss-text-field:disabled {
+  color: var(--text-field-disabled-text);
+  background: var(--text-field-disabled-surface);
+  border-color: var(--text-field-disabled-border);
+  opacity: var(--text-field-disabled-opacity);
+  cursor: not-allowed;
+}
+
+.ss-text-field:disabled::placeholder {
+  color: var(--text-field-disabled-text);
+}
+
+.ss-text-field--invalid,
+.ss-text-field--invalid:focus {
+  color: var(--accent-error);
+  border-color: var(--accent-error);
+  outline-color: var(--accent-error);
+}

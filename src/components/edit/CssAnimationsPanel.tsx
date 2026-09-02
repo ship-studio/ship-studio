@@ -6,7 +6,8 @@
  */
 
 import { useState } from 'react';
-import { PlusIcon } from '../icons/utility';
+import { PlusIcon } from '@/components/icons';
+import { Button } from '../primitives/Button';
 import { Spinner } from '../primitives/Spinner';
 import { CascadeRuleCard } from './CascadeRuleCard';
 import type { RuleBody } from '../../lib/cssBody';
@@ -95,9 +96,16 @@ function AddAnimation({
 
   if (!open) {
     return (
-      <button type="button" className="ss-cascade-add-selector" onClick={() => setOpen(true)}>
-        <PlusIcon size={11} /> New animation
-      </button>
+      <div className="ss-cascade-action">
+        <Button
+          variant="default"
+          width="fill"
+          leftIcon={<PlusIcon size={11} />}
+          onClick={() => setOpen(true)}
+        >
+          New animation
+        </Button>
+      </div>
     );
   }
 

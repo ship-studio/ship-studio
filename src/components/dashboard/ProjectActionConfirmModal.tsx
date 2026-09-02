@@ -42,7 +42,7 @@ export function ProjectActionConfirmModal({
     >
       <div style={{ padding: 'var(--spacing-xl)' }}>
         <p>{body}</p>
-        <p className="hint">{hint}</p>
+        <p className="text-style-hint">{hint}</p>
         <div className="modal-actions">
           <Button variant="secondary" onClick={handleCancel} disabled={loading}>
             Cancel

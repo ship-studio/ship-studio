@@ -34,7 +34,7 @@ import { asCommandError, formatCommandError, isProjectFolderGoneError } from '..
 import { isResourcePressureError } from '../../lib/errorReporting';
 import { logger } from '../../lib/logger';
 import { invoke } from '@tauri-apps/api/core';
-import { WarningIcon } from '../icons';
+import { WarningIcon } from '@/components/icons';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 
 /**
@@ -424,31 +424,32 @@ export function PluginSlot({ name, plugins, project, actions, theme }: PluginSlo
         };
 
         return (
-          <PluginIsolationBoundary
-            key={pluginId}
-            pluginId={pluginId}
-            pluginName={pluginName}
-            compact={compact}
-            onCrash={handleCrash}
-          >
-            <PluginContext.Provider value={ctx}>
-              <PluginErrorBoundary
-                pluginId={pluginId}
-                pluginName={pluginName}
-                compact={compact}
-                onCrash={handleCrash}
-              >
-                <SafePluginWrapper
-                  Component={SlotComponent}
-                  ctx={ctx}
+          <div key={pluginId} className="plugin-slot-item" data-plugin-id={pluginId}>
+            <PluginIsolationBoundary
+              pluginId={pluginId}
+              pluginName={pluginName}
+              compact={compact}
+              onCrash={handleCrash}
+            >
+              <PluginContext.Provider value={ctx}>
+                <PluginErrorBoundary
                   pluginId={pluginId}
                   pluginName={pluginName}
                   compact={compact}
                   onCrash={handleCrash}
-                />
-              </PluginErrorBoundary>
-            </PluginContext.Provider>
-          </PluginIsolationBoundary>
+                >
+                  <SafePluginWrapper
+                    Component={SlotComponent}
+                    ctx={ctx}
+                    pluginId={pluginId}
+                    pluginName={pluginName}
+                    compact={compact}
+                    onCrash={handleCrash}
+                  />
+                </PluginErrorBoundary>
+              </PluginContext.Provider>
+            </PluginIsolationBoundary>
+          </div>
         );
       })}
     </>

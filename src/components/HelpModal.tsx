@@ -11,12 +11,110 @@ import { useEffect, useState } from 'react';
 import { listAgentSkills, AgentSkill } from '../lib/claude';
 import { trackEvent } from '../lib/analytics';
 import { logger } from '../lib/logger';
+import { kbd } from '../lib/shortcuts';
 import { ModalFrame } from './primitives/ModalFrame';
+import { Tabs, TabsList, TabsPanel, TabsTab } from './primitives/Tabs';
 import { useModal } from '../contexts/ModalContext';
 
 interface HelpModalProps {
   /** Optional project path to include project-level skills */
   projectPath?: string;
+}
+
+interface HelpShortcut {
+  id: string;
+  label: string;
+  description: string;
+  keys: string[];
+}
+
+function getHelpShortcuts(): HelpShortcut[] {
+  return [
+    {
+      id: 'command-palette',
+      label: 'Open command palette',
+      description: 'Search projects, actions, and settings',
+      keys: [kbd('mod', 'K')],
+    },
+    {
+      id: 'project-picker',
+      label: 'Open project picker',
+      description: 'Open the command palette on the Projects tab',
+      keys: [kbd('mod', 'O')],
+    },
+    {
+      id: 'switch-project',
+      label: 'Switch project',
+      description: 'Jump to a pinned project or active workspace',
+      keys: [kbd('mod', '1–9')],
+    },
+    {
+      id: 'help',
+      label: 'Open Help & Commands',
+      description: 'Show this reference',
+      keys: [kbd('mod', '/'), 'F1'],
+    },
+    {
+      id: 'switch-terminal-tab',
+      label: 'Switch terminal tab',
+      description: 'Switch to terminal tab 1–5 in the current project',
+      keys: [kbd('mod', '1–5')],
+    },
+    {
+      id: 'new-terminal-tab',
+      label: 'New terminal tab',
+      description: 'Open a new agent terminal tab',
+      keys: [kbd('mod', 'T')],
+    },
+    {
+      id: 'close-terminal-tab',
+      label: 'Close terminal tab',
+      description: 'Close the active terminal tab',
+      keys: [kbd('mod', 'W')],
+    },
+    {
+      id: 'multiline-input',
+      label: 'Multiline terminal input',
+      description: 'Insert a newline instead of sending the message',
+      keys: [kbd('shift', 'Enter')],
+    },
+    {
+      id: 'undo',
+      label: 'Undo agent changes',
+      description: 'Undo the last working-tree snapshot',
+      keys: [kbd('mod', 'Z')],
+    },
+    {
+      id: 'redo',
+      label: 'Redo agent changes',
+      description: 'Redo the last undone working-tree snapshot',
+      keys: [kbd('mod', 'shift', 'Z')],
+    },
+    {
+      id: 'save-code',
+      label: 'Save code',
+      description: 'Save the current file in Code edit mode',
+      keys: [kbd('mod', 'S')],
+    },
+    {
+      id: 'capture-preview',
+      label: 'Capture preview',
+      description: 'Capture the visible preview for your agent',
+      keys: [kbd('mod', 'shift', 'S')],
+    },
+    {
+      id: 'crop-preview',
+      label: 'Crop preview screenshot',
+      description: 'Enter crop mode for the preview',
+      keys: [kbd('mod', 'shift', 'C')],
+    },
+    {
+      id: 'escape',
+      label: 'Close or cancel',
+      description: 'Close dialogs and cancel preview crop mode',
+      keys: ['Esc'],
+    },
+  ];
 }
 
 export function HelpModal({ projectPath }: HelpModalProps) {
@@ -69,232 +167,277 @@ export function HelpModal({ projectPath }: HelpModalProps) {
 
   const userSkills = skills.filter((s) => s.scope === 'user');
   const projectSkills = skills.filter((s) => s.scope === 'project');
+  const shortcuts = getHelpShortcuts();
 
   return (
     <ModalFrame isOpen={isOpen} onClose={onClose} title="Help & Commands" className="help-modal">
       <>
-        <div className="help-modal-body">
-          {/* Custom Skills Section - shown first if user has any */}
-          {skills.length > 0 && (
-            <>
-              <div className="help-section">
-                <div className="help-section-title">Your Skills</div>
-                <div className="help-command-list">
-                  {userSkills.map((skill) => {
-                    const skillKey = `${skill.plugin}-${skill.name}`;
-                    const isExpanded = expandedSkills.has(skillKey);
-                    return (
-                      <div
-                        key={skillKey}
-                        className={`help-skill ${isExpanded ? 'expanded' : ''}`}
-                        onClick={() => toggleSkillExpanded(skillKey)}
-                      >
-                        <div className="help-skill-header">
-                          <span className="help-skill-name">/{skill.name}</span>
-                          <span className="help-skill-toggle">{isExpanded ? '−' : '+'}</span>
+        <Tabs defaultValue="shortcuts">
+          <TabsList
+            className="help-tabs"
+            variant="stretch"
+            appearance="underline"
+            aria-label="Help sections"
+          >
+            <TabsTab value="shortcuts" width="fill" className="help-tab">
+              Shortcuts
+            </TabsTab>
+            <TabsTab value="commands" width="fill" className="help-tab">
+              Commands
+            </TabsTab>
+          </TabsList>
+
+          <TabsPanel value="shortcuts" className="help-modal-body">
+            <div className="help-section">
+              <div className="help-section-title">Keyboard shortcuts</div>
+              <div className="help-shortcut-list">
+                {shortcuts.map((shortcut) => (
+                  <div key={shortcut.id} className="help-shortcut-row">
+                    <div className="help-shortcut-info">
+                      <span className="help-shortcut-label">{shortcut.label}</span>
+                      <span className="help-shortcut-description">{shortcut.description}</span>
+                    </div>
+                    <div className="help-shortcut-keys">
+                      {shortcut.keys.map((key, index) => (
+                        <span key={`${shortcut.id}-${key}`} className="help-shortcut-key-group">
+                          {index > 0 && <span className="help-shortcut-or">or</span>}
+                          <span className="workspace-sidebar-filter-shortcut">{key}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </TabsPanel>
+
+          <TabsPanel value="commands" className="help-modal-body">
+            {/* Custom Skills Section - shown first if user has any */}
+            {skills.length > 0 && (
+              <>
+                <div className="help-section">
+                  <div className="help-section-title">Your Skills</div>
+                  <div className="help-command-list">
+                    {userSkills.map((skill) => {
+                      const skillKey = `${skill.plugin}-${skill.name}`;
+                      const isExpanded = expandedSkills.has(skillKey);
+                      return (
+                        <div
+                          key={skillKey}
+                          className={`help-skill ${isExpanded ? 'expanded' : ''}`}
+                          onClick={() => toggleSkillExpanded(skillKey)}
+                        >
+                          <div className="help-skill-header">
+                            <span className="help-skill-name">/{skill.name}</span>
+                            <span className="help-skill-toggle">{isExpanded ? '−' : '+'}</span>
+                          </div>
+                          {isExpanded && <div className="help-skill-desc">{skill.description}</div>}
                         </div>
-                        {isExpanded && <div className="help-skill-desc">{skill.description}</div>}
-                      </div>
-                    );
-                  })}
-                  {projectSkills.map((skill) => {
-                    const skillKey = `${skill.plugin}-${skill.name}`;
-                    const isExpanded = expandedSkills.has(skillKey);
-                    return (
-                      <div
-                        key={skillKey}
-                        className={`help-skill ${isExpanded ? 'expanded' : ''}`}
-                        onClick={() => toggleSkillExpanded(skillKey)}
-                      >
-                        <div className="help-skill-header">
-                          <span className="help-skill-name">
-                            /{skill.name}
-                            <span className="help-skill-badge">project</span>
-                          </span>
-                          <span className="help-skill-toggle">{isExpanded ? '−' : '+'}</span>
+                      );
+                    })}
+                    {projectSkills.map((skill) => {
+                      const skillKey = `${skill.plugin}-${skill.name}`;
+                      const isExpanded = expandedSkills.has(skillKey);
+                      return (
+                        <div
+                          key={skillKey}
+                          className={`help-skill ${isExpanded ? 'expanded' : ''}`}
+                          onClick={() => toggleSkillExpanded(skillKey)}
+                        >
+                          <div className="help-skill-header">
+                            <span className="help-skill-name">
+                              /{skill.name}
+                              <span className="help-skill-badge">project</span>
+                            </span>
+                            <span className="help-skill-toggle">{isExpanded ? '−' : '+'}</span>
+                          </div>
+                          {isExpanded && <div className="help-skill-desc">{skill.description}</div>}
                         </div>
-                        {isExpanded && <div className="help-skill-desc">{skill.description}</div>}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="help-divider" />
+              </>
+            )}
+
+            {isLoadingSkills && skills.length === 0 && (
+              <>
+                <div className="help-section">
+                  <div className="help-section-title">Your Skills</div>
+                  <div className="help-loading">Loading skills...</div>
+                </div>
+                <div className="help-divider" />
+              </>
+            )}
+
+            {/* Session Commands */}
+            <div className="help-section">
+              <div className="help-section-title">Session</div>
+              <div className="help-command-list">
+                <div className="help-command">
+                  <span className="help-command-name">/clear</span>
+                  <span className="help-command-desc">Clear conversation history</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/compact</span>
+                  <span className="help-command-desc">Toggle compact output mode</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/cost</span>
+                  <span className="help-command-desc">Show token usage and cost</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/status</span>
+                  <span className="help-command-desc">Show current session status</span>
                 </div>
               </div>
-              <div className="help-divider" />
-            </>
-          )}
+            </div>
 
-          {isLoadingSkills && skills.length === 0 && (
-            <>
-              <div className="help-section">
-                <div className="help-section-title">Your Skills</div>
-                <div className="help-loading">Loading skills...</div>
-              </div>
-              <div className="help-divider" />
-            </>
-          )}
+            <div className="help-divider" />
 
-          {/* Session Commands */}
-          <div className="help-section">
-            <div className="help-section-title">Session</div>
-            <div className="help-command-list">
-              <div className="help-command">
-                <span className="help-command-name">/clear</span>
-                <span className="help-command-desc">Clear conversation history</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/compact</span>
-                <span className="help-command-desc">Toggle compact output mode</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/cost</span>
-                <span className="help-command-desc">Show token usage and cost</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/status</span>
-                <span className="help-command-desc">Show current session status</span>
+            {/* Code Actions */}
+            <div className="help-section">
+              <div className="help-section-title">Code Actions</div>
+              <div className="help-command-list">
+                <div className="help-command">
+                  <span className="help-command-name">/init</span>
+                  <span className="help-command-desc">Initialize project with CLAUDE.md</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/review</span>
+                  <span className="help-command-desc">Review code changes</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/pr-comments</span>
+                  <span className="help-command-desc">View PR comments from GitHub</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/bug</span>
+                  <span className="help-command-desc">Report a bug to Anthropic</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="help-divider" />
+            <div className="help-divider" />
 
-          {/* Code Actions */}
-          <div className="help-section">
-            <div className="help-section-title">Code Actions</div>
-            <div className="help-command-list">
-              <div className="help-command">
-                <span className="help-command-name">/init</span>
-                <span className="help-command-desc">Initialize project with CLAUDE.md</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/review</span>
-                <span className="help-command-desc">Review code changes</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/pr-comments</span>
-                <span className="help-command-desc">View PR comments from GitHub</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/bug</span>
-                <span className="help-command-desc">Report a bug to Anthropic</span>
+            {/* Configuration Commands */}
+            <div className="help-section">
+              <div className="help-section-title">Configuration</div>
+              <div className="help-command-list">
+                <div className="help-command">
+                  <span className="help-command-name">/config</span>
+                  <span className="help-command-desc">Open configuration settings</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/model</span>
+                  <span className="help-command-desc">Change AI model</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/permissions</span>
+                  <span className="help-command-desc">Manage tool permissions</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/memory</span>
+                  <span className="help-command-desc">Edit CLAUDE.md memory file</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/mcp</span>
+                  <span className="help-command-desc">Manage MCP servers</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="help-divider" />
+            <div className="help-divider" />
 
-          {/* Configuration Commands */}
-          <div className="help-section">
-            <div className="help-section-title">Configuration</div>
-            <div className="help-command-list">
-              <div className="help-command">
-                <span className="help-command-name">/config</span>
-                <span className="help-command-desc">Open configuration settings</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/model</span>
-                <span className="help-command-desc">Change AI model</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/permissions</span>
-                <span className="help-command-desc">Manage tool permissions</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/memory</span>
-                <span className="help-command-desc">Edit CLAUDE.md memory file</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/mcp</span>
-                <span className="help-command-desc">Manage MCP servers</span>
+            {/* Utility Commands */}
+            <div className="help-section">
+              <div className="help-section-title">Utility</div>
+              <div className="help-command-list">
+                <div className="help-command">
+                  <span className="help-command-name">/help</span>
+                  <span className="help-command-desc">Show all available commands</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/doctor</span>
+                  <span className="help-command-desc">Run diagnostics</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/login</span>
+                  <span className="help-command-desc">Log in to your account</span>
+                </div>
+                <div className="help-command">
+                  <span className="help-command-name">/logout</span>
+                  <span className="help-command-desc">Log out of your account</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="help-divider" />
+            <div className="help-divider" />
 
-          {/* Utility Commands */}
-          <div className="help-section">
-            <div className="help-section-title">Utility</div>
-            <div className="help-command-list">
-              <div className="help-command">
-                <span className="help-command-name">/help</span>
-                <span className="help-command-desc">Show all available commands</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/doctor</span>
-                <span className="help-command-desc">Run diagnostics</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/login</span>
-                <span className="help-command-desc">Log in to your account</span>
-              </div>
-              <div className="help-command">
-                <span className="help-command-name">/logout</span>
-                <span className="help-command-desc">Log out of your account</span>
+            {/* Ship Studio Tips */}
+            <div className="help-section">
+              <div className="help-section-title">Ship Studio Tips</div>
+              <div className="help-tip-list">
+                <div className="help-tip">Drag files onto the terminal to paste their paths</div>
+                <div className="help-tip">
+                  Use <span className="help-shortcut">Shift</span> +{' '}
+                  <span className="help-shortcut">Enter</span> for multiline input
+                </div>
+                <div className="help-tip">
+                  Status dot shows Claude state: thinking, waiting, or idle
+                </div>
+                <div className="help-tip">Use numbered tabs to run multiple Claude sessions</div>
+                <div className="help-tip">
+                  Blank preview but the site works in your browser? Auth middleware (e.g. Clerk dev
+                  keys) can redirect-loop inside the embedded preview — scope it to protected routes
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="help-divider" />
+            <div className="help-divider" />
 
-          {/* Ship Studio Tips */}
-          <div className="help-section">
-            <div className="help-section-title">Ship Studio Tips</div>
-            <div className="help-tip-list">
-              <div className="help-tip">Drag files onto the terminal to paste their paths</div>
-              <div className="help-tip">
-                Use <span className="help-shortcut">Shift</span> +{' '}
-                <span className="help-shortcut">Enter</span> for multiline input
-              </div>
-              <div className="help-tip">
-                Status dot shows Claude state: thinking, waiting, or idle
-              </div>
-              <div className="help-tip">Use numbered tabs to run multiple Claude sessions</div>
-              <div className="help-tip">
-                Blank preview but the site works in your browser? Auth middleware (e.g. Clerk dev
-                keys) can redirect-loop inside the embedded preview — scope it to protected routes
+            {/* Example Prompts */}
+            <div className="help-section">
+              <div className="help-section-title">Example Prompts</div>
+              <div className="help-example-list">
+                <div className="help-example-category">Fix & Improve</div>
+                <div className="help-example">
+                  "The contact form isn't sending emails, can you fix it?"
+                </div>
+                <div className="help-example">
+                  "The page is loading really slowly, can you speed it up?"
+                </div>
+                <div className="help-example">
+                  "The images look blurry on mobile, can you fix that?"
+                </div>
+
+                <div className="help-example-category">Design & Content</div>
+                <div className="help-example">
+                  "Change the hero section background color to dark blue"
+                </div>
+                <div className="help-example">
+                  "Make the website look good on phones and tablets"
+                </div>
+                <div className="help-example">
+                  "Add a new testimonials section below the pricing page"
+                </div>
+
+                <div className="help-example-category">Add Features</div>
+                <div className="help-example">"Add a newsletter signup form to the footer"</div>
+                <div className="help-example">
+                  "Create a FAQ accordion section for the homepage"
+                </div>
+                <div className="help-example">"Add a search bar that filters the blog posts"</div>
+
+                <div className="help-example-category">Understand Your Project</div>
+                <div className="help-example">"What pages does this website have?"</div>
+                <div className="help-example">"Where do I change the company logo?"</div>
+                <div className="help-example">"How do I add a new blog post?"</div>
               </div>
             </div>
-          </div>
-
-          <div className="help-divider" />
-
-          {/* Example Prompts */}
-          <div className="help-section">
-            <div className="help-section-title">Example Prompts</div>
-            <div className="help-example-list">
-              <div className="help-example-category">Fix & Improve</div>
-              <div className="help-example">
-                "The contact form isn't sending emails, can you fix it?"
-              </div>
-              <div className="help-example">
-                "The page is loading really slowly, can you speed it up?"
-              </div>
-              <div className="help-example">
-                "The images look blurry on mobile, can you fix that?"
-              </div>
-
-              <div className="help-example-category">Design & Content</div>
-              <div className="help-example">
-                "Change the hero section background color to dark blue"
-              </div>
-              <div className="help-example">"Make the website look good on phones and tablets"</div>
-              <div className="help-example">
-                "Add a new testimonials section below the pricing page"
-              </div>
-
-              <div className="help-example-category">Add Features</div>
-              <div className="help-example">"Add a newsletter signup form to the footer"</div>
-              <div className="help-example">"Create a FAQ accordion section for the homepage"</div>
-              <div className="help-example">"Add a search bar that filters the blog posts"</div>
-
-              <div className="help-example-category">Understand Your Project</div>
-              <div className="help-example">"What pages does this website have?"</div>
-              <div className="help-example">"Where do I change the company logo?"</div>
-              <div className="help-example">"How do I add a new blog post?"</div>
-            </div>
-          </div>
-        </div>
+          </TabsPanel>
+        </Tabs>
 
         <div className="help-footer">
           <span className="help-footer-hint">

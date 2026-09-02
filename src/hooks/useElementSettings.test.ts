@@ -54,7 +54,18 @@ function fakeIframeRef() {
 function posts(iframeRef: React.RefObject<HTMLIFrameElement | null>) {
   // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the postMessage mock's calls, not invoking it bound
   const fn = iframeRef.current!.contentWindow!.postMessage as Fn;
-  return (fn.mock.calls as Array<[{ type?: string }]>).map((c) => c[0]);
+  return (
+    fn.mock.calls as Array<
+      [
+        {
+          type?: string;
+          signature?: ElementSignature;
+          className?: string;
+          rules?: unknown[];
+        },
+      ]
+    >
+  ).map((c) => c[0]);
 }
 
 function setup(signature: ElementSignature) {
@@ -70,6 +81,19 @@ function setup(signature: ElementSignature) {
 async function add(result: { current: { addClass: (n: string) => void } }, name: string) {
   await act(async () => {
     result.current.addClass(name);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+async function rename(
+  result: { current: { renameClass: (oldName: string, newName: string) => void } },
+  oldName: string,
+  newName: string
+) {
+  await act(async () => {
+    result.current.renameClass(oldName, newName);
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -163,5 +187,33 @@ describe('useElementSettings addClass', () => {
     expect(resolveClassnameSource).toHaveBeenCalledWith('/proj', CLASSED);
     expect(applyClassnameEdit).toHaveBeenCalledWith('/proj', 'Hero.tsx', 3, 'p-3', 'p-3 mt-4');
     expect(result.current.classes).toEqual(['p-3', 'mt-4']);
+  });
+});
+
+describe('useElementSettings renameClass', () => {
+  it('rewrites the generated anchor and refreshes the live selection signature', async () => {
+    const generated = { ...CLASSED, className: 'ss-div-c098' };
+    (resolveClassnameSource as Fn).mockResolvedValue({
+      status: 'resolved',
+      file: 'app/page.tsx',
+      line: 132,
+      column: 5,
+      class_name: 'ss-div-c098',
+      confidence: 'unique',
+    });
+    const { result, iframeRef } = setup(generated);
+
+    await rename(result, 'ss-div-c098', 'content-panel');
+
+    expect(applyClassnameEdit).toHaveBeenCalledWith(
+      '/proj',
+      'app/page.tsx',
+      132,
+      'ss-div-c098',
+      'content-panel'
+    );
+    expect(result.current.classes).toEqual(['content-panel']);
+    const reselect = posts(iframeRef).find((message) => message.type === 'ss:reselect');
+    expect(reselect?.signature?.className).toBe('content-panel');
   });
 });

@@ -1,0 +1,440 @@
+/* Visual editor properties panel (v1 slice).
+   Portaled to <body> as a position:fixed layer and positioned from the measured
+   canvas rect (Preview.tsx). This is the only reliable way to float over the
+   preview iframe in WebKit — any in-tree overlay gets composited under it. */
+
+.preview-edit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--button-gap);
+  height: var(--button-height);
+  padding: 0 var(--button-padding);
+  font-size: var(--button-font-size);
+  color: var(--button-text-default);
+  background: var(--button-surface-default);
+  border: var(--stroke-1) solid var(--button-border-solid);
+  border-radius: var(--button-radius);
+  box-shadow: var(--button-shadow);
+  cursor: pointer;
+  transition:
+    background var(--transition),
+    color var(--transition);
+}
+.preview-edit-toggle:hover {
+  background: var(--button-surface-hover);
+  color: var(--text-primary);
+}
+
+/* Grayed-out toggle for preview-capable but non-editable projects. */
+.preview-edit-toggle-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.preview-edit-toggle--disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.preview-edit-toggle--disabled:hover {
+  color: var(--text-secondary);
+}
+/* iOS-style toggle pill next to the Edit label, mirroring the Inspect toggle so
+   the two side-by-side controls read as the same kind of switch. Edit mode is
+   shown by the pill flipping on (not by filling the whole button). */
+.preview-edit-toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 22px;
+  height: 12px;
+  margin-left: 2px;
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+.preview-edit-toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition:
+    transform var(--transition),
+    background var(--transition);
+}
+.preview-edit-toggle-switch.is-on {
+  background: var(--accent-success);
+  border-color: var(--accent-success);
+}
+.preview-edit-toggle-switch.is-on::after {
+  transform: translateX(10px);
+  background: var(--text-inverse);
+}
+
+.ss-edit-panel {
+  /* Floating mode is portaled to <body>; position/top/left/max-height are set
+     inline by the component (it owns drag). position:fixed at the document
+     root is the only reliable way to sit ABOVE the preview iframe in WebKit —
+     an in-tree overlay (even with z-index or a promoted layer) gets composited
+     under it. Width comes from --editor-panel-visual-w (base.css), which MUST match
+     PANEL_WIDTH in VisualEditorPanel.tsx. */
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  width: var(--editor-panel-visual-w);
+  /* Header + footer are fixed; only the body scrolls. Panel clips; max-height is
+     set inline by the component. */
+  overflow: hidden;
+  background: var(--surface-panel);
+  border: var(--stroke-1) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-window);
+  font-size: var(--font-size-11);
+}
+
+.ss-cascade-panel.ss-cascade-panel--dockable {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+}
+
+/* Pin-as-sidebar styles (pin button, header actions, pinned layout) live in
+   preview.css — they integrate the panel into the preview container's grid. */
+
+.ss-edit-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--editor-panel-inline-pad);
+  background: var(--surface-panel);
+  border-bottom: var(--stroke-1) solid var(--border-subtle);
+  /* Drag handle */
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.ss-edit-panel__header:active {
+  cursor: grabbing;
+}
+
+.ss-edit-panel__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+}
+
+/* The fixed context bar (breakpoint + edit target) lives in
+   visual-editor-classes.css. */
+
+.ss-edit-panel__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: var(--editor-panel-inline-pad);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+/* Empty body (no resolved controls yet) shouldn't keep a stray padding band. */
+.ss-edit-panel__body:empty {
+  padding: 0;
+}
+/* Body children keep their natural height — the BODY scrolls, children never get
+   compressed (which would clip their content under overflow:hidden). */
+.ss-edit-panel__body > * {
+  flex: 0 0 auto;
+}
+.ss-edit-panel__body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Pinned footer — Save / Saved is always visible regardless of scroll. */
+.ss-edit-panel__footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--editor-panel-inline-pad);
+  border-top: 1px solid var(--border-default);
+  background: var(--surface-panel);
+}
+
+/* Shown in the footer while the source location resolves (Save not ready yet). */
+.ss-edit-panel__locating {
+  font-size: var(--font-size-body-md);
+  color: var(--text-muted);
+}
+
+/* Subtle auto-save toggle (off by default). A small pill switch + label. */
+.ss-edit-panel__autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  font-size: var(--font-size-body-sm);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color var(--transition);
+}
+.ss-edit-panel__autosave:hover {
+  /* Only brighten the label; this compact control has no surface state. */
+  background: none;
+  color: var(--text-secondary);
+}
+.ss-edit-panel__switch {
+  position: relative;
+  display: inline-block;
+  width: 22px;
+  height: 12px;
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  transition:
+    background var(--transition),
+    border-color var(--transition);
+}
+.ss-edit-panel__switch::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition:
+    transform var(--transition),
+    background var(--transition);
+}
+.ss-edit-panel__switch.is-on {
+  background: var(--accent-active);
+  border-color: var(--accent-active);
+}
+.ss-edit-panel__switch.is-on::after {
+  transform: translateX(10px);
+  background: var(--text-inverse);
+}
+
+/* Segmented control — a full-width 24px tray whose selected ToggleButton owns
+   the pressed state and its accessible aria-pressed value. */
+.ss-edit-panel__segmented {
+  width: 100%;
+  box-sizing: border-box;
+  height: var(--size-control-medium);
+  gap: 0;
+  padding: var(--stroke-1);
+}
+.ss-edit-panel__align-tabs {
+  width: 100%;
+  box-sizing: border-box;
+  height: var(--size-control-medium);
+  gap: 0;
+  padding: var(--stroke-1);
+}
+.ss-edit-panel__segmented > .button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding-inline: var(--spacing-xs);
+}
+.ss-edit-panel__align-tabs > .button {
+  height: 100%;
+  min-height: 0;
+}
+.ss-edit-panel__segmented svg {
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+}
+.ss-edit-panel__segmented .ss-enum-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+  color: currentColor;
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+.ss-edit-panel__segmented--icons > .button {
+  padding-inline: 0;
+}
+
+.ss-edit-panel__align-tabs > .button {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+}
+
+.ss-edit-panel__align-tabs svg {
+  width: var(--size-icon-sm);
+  height: var(--size-icon-sm);
+}
+
+/* Plain-language explainer of the active breakpoint's reach (mobile-first cascade,
+   which trips up desktop-first habits). Sits just under the breakpoint dropdown. */
+.ss-edit-panel__help {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  color: var(--text-muted);
+  cursor: help;
+  transition: color var(--transition);
+}
+.ss-edit-panel__help:hover,
+.ss-edit-panel__help:focus-visible {
+  color: var(--text-secondary);
+  outline: none;
+}
+/* Note shown when the selected breakpoint is wider than the preview can display:
+   edits still apply, they just aren't visible until the canvas is widened. */
+.ss-edit-panel__bp-note {
+  margin: 0 0 var(--spacing-sm);
+  padding: var(--spacing-sm);
+  font-size: var(--font-size-body-sm);
+  line-height: 1.4;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-warning) 35%, transparent);
+  border-radius: var(--radius-sm);
+}
+.ss-edit-panel__bp-note strong {
+  color: var(--text-primary);
+}
+
+/* Subtle info dot by the source line when the element is styled by custom CSS.
+   Its tooltip (right-aligned so it never overflows the panel) explains the edits
+   use the important modifier. Mirrors the breakpoint "?" hint pattern. */
+.ss-edit-panel__csshint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  color: var(--text-muted);
+  cursor: help;
+  transition: color var(--transition);
+}
+.ss-edit-panel__csshint:hover,
+.ss-edit-panel__csshint:focus-visible {
+  color: var(--accent-active);
+  outline: none;
+}
+/* Beta + feedback note at the very bottom of the editor panel. */
+.ss-edit-panel__beta {
+  margin: var(--spacing-xs) 0 0;
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--border-default);
+  font-size: var(--font-size-badge);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.ss-edit-panel__beta strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+/* The shared Button owns the Slack action's geometry and interaction states. */
+.ss-edit-panel__slack {
+  margin-top: var(--spacing-xs);
+}
+
+/* Hand-off block for text that's rendered from code/data (can't be edited inline). */
+.ss-edit-panel__dynhelp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--surface-control);
+  border-radius: var(--radius-card);
+}
+.ss-edit-panel__dynhelp p {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+/* One-shot pulse when the user double-clicks the dynamic text again — draws the
+   eye to the hand-off after their click "did nothing" on the canvas. */
+.ss-edit-panel__dynhelp--pulse {
+  animation: ss-dynhelp-pulse 0.6s ease;
+}
+@keyframes ss-dynhelp-pulse {
+  0% {
+    box-shadow: 0 0 0 0 transparent;
+    background: var(--surface-control);
+  }
+  30% {
+    box-shadow: 0 0 0 2px var(--accent-active);
+    background: var(--surface-panel);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    background: var(--surface-control);
+  }
+}
+
+/* "No class yet" state — offers inserting the element's FIRST class so unstyled
+   elements aren't a dead end (the resolver has no class literal to anchor on). */
+.ss-edit-panel__noclass {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--surface-control);
+  border-radius: var(--radius-card);
+}
+.ss-edit-panel__noclass p {
+  margin: 0;
+  font-size: var(--font-size-body-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ss-edit-panel__noclass input {
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--surface-app);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-body-sm);
+  font-family: var(--font-code);
+}
+.ss-edit-panel__noclass input:focus {
+  outline: none;
+  border-color: var(--accent-active);
+}
+
+/* Set-vs-inherited indicator: a filled dot when the value is set on the active
+   breakpoint, a hollow ring when inherited from a smaller one. */
+.ss-layer-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.ss-layer-dot--here {
+  background: var(--accent-active);
+}
+.ss-layer-dot--inherited {
+  background: transparent;
+  border: 1px solid var(--text-muted);
+}

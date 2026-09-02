@@ -26,7 +26,9 @@ describe('SetupItem', () => {
     expect(screen.getByText('Node.js')).toBeInTheDocument();
     expect(screen.getByText('v20.11.0')).toBeInTheDocument();
     // Checkmark icon should be present
-    expect(document.querySelector('.setup-item-icon-check')).toBeInTheDocument();
+    const checkmark = document.querySelector('.setup-item-icon-check');
+    expect(checkmark).toBeInTheDocument();
+    expect(checkmark).toHaveAttribute('data-icon-source', 'icons/success-alert.svg');
   });
 
   it('renders "ready" with username for auth items', () => {

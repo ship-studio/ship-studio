@@ -108,6 +108,72 @@ export function setCssDeclaration(
   });
 }
 
+/** Add a new custom property to the base `:root` scope, reusing an existing rule. */
+export function addCssVariable(
+  projectPath: string,
+  file: string,
+  property: string,
+  value: string
+): Promise<void> {
+  return invoke<void>('add_css_variable', { projectPath, file, property, value });
+}
+
+/** Update one existing custom-property definition, pinned to its source rule. */
+export function setCssVariable(
+  projectPath: string,
+  file: string,
+  selector: string,
+  line: number,
+  property: string,
+  value: string
+): Promise<void> {
+  return invoke<void>('set_css_variable', {
+    projectPath,
+    file,
+    selector,
+    line,
+    property,
+    value,
+  });
+}
+
+export interface CssVariableDeleteImpact {
+  usageCount: number;
+  ruleCount: number;
+  fileCount: number;
+  definitionCount: number;
+  replacementValue: string;
+}
+
+/** Inspect the authored impact of inlining and removing a project CSS variable. */
+export function analyzeCssVariableDeletion(
+  projectPath: string,
+  property: string,
+  replacementValue: string
+): Promise<CssVariableDeleteImpact> {
+  return invoke<CssVariableDeleteImpact>('analyze_css_variable_deletion', {
+    projectPath,
+    property,
+    replacementValue,
+  });
+}
+
+/** Inline a variable's raw value everywhere and remove all of its definitions. */
+export function deleteCssVariable(
+  projectPath: string,
+  property: string,
+  replacementValue: string,
+  impact: Pick<CssVariableDeleteImpact, 'usageCount' | 'definitionCount'>
+): Promise<CssVariableDeleteImpact> {
+  return invoke<CssVariableDeleteImpact>('delete_css_variable', {
+    projectPath,
+    property,
+    replacementValue,
+    expectedUsageCount: impact.usageCount,
+    expectedDefinitionCount: impact.definitionCount,
+  });
+}
+
 /** Append a new rule for `selector` to the authored stylesheet `file`. */
 export function createCssClass(
   projectPath: string,

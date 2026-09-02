@@ -1,0 +1,141 @@
+/* Selector and media-condition chips share one structural contract. */
+
+.ss-cascade-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  min-width: 21px;
+  max-width: 100%;
+  padding: var(--space-06) var(--space-04);
+  border: 0;
+  border-radius: var(--radius-4);
+  background: var(--property-surface);
+  color: var(--text-inverse);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-default);
+  white-space: nowrap;
+  box-shadow: var(--shadow-button);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.ss-cascade-chip[data-tone='media'] {
+  background: var(--media-surface);
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ss-cascade-chip[data-tone='tag']:not(.is-editing) {
+  padding: 0;
+  background: transparent;
+  color: var(--tag-text);
+  font-family: var(--font-code);
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: none;
+}
+
+.ss-cascade-chip.is-interactive {
+  cursor: text;
+}
+
+.ss-cascade-chip.is-interactive:hover {
+  background: var(--property-surface-hover);
+}
+
+.ss-cascade-chip[data-tone='media'].is-interactive:hover {
+  background: var(--media-surface-hover);
+}
+
+.ss-cascade-chip[data-tone='tag']:not(.is-editing).is-interactive:hover {
+  background: transparent;
+}
+
+.ss-cascade-chip.is-editing {
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 100%;
+  background: var(--surface-control);
+}
+
+.ss-cascade-chip__content {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ss-cascade-chip__input {
+  flex: 0 1 auto;
+  min-width: 0;
+  width: auto;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+.ss-cascade-chip.is-editing .ss-cascade-chip__input,
+.ss-cascade-chip.is-editing .ss-cascade-chip__input::selection {
+  background: var(--property-surface);
+}
+
+.ss-cascade-chip[data-tone='media'].is-editing .ss-cascade-chip__input,
+.ss-cascade-chip[data-tone='media'].is-editing .ss-cascade-chip__input::selection {
+  background: var(--media-surface);
+}
+
+.ss-cascade-chip[data-tone='tag'].is-editing .ss-cascade-chip__input,
+.ss-cascade-chip[data-tone='tag'].is-editing .ss-cascade-chip__input::selection {
+  background: var(--tag-chip-surface);
+}
+
+/* A media condition is shown inside the block-level context row. Give the chip
+   an explicit shrink-to-fit width there, and let its input measure its actual
+   glyphs instead of the HTML `size` attribute's fixed character-cell width. */
+.ss-cascade-card__context .ss-cascade-chip[data-tone='media'] {
+  display: inline-flex;
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+}
+
+.ss-cascade-card__context .ss-cascade-chip[data-tone='media'].is-editing .ss-cascade-chip__input {
+  field-sizing: content;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.ss-cascade-chip.is-editing {
+  overflow: visible;
+}
+
+/* The static label must paint as inline text fragments. An inline-block still
+   takes the unwrapped string's intrinsic width, so its text can wrap inside a
+   box that reaches the context edge. Keep flex sizing exclusively for the
+   editor. */
+.ss-cascade-card__context .ss-cascade-chip[data-tone='media']:not(.is-editing) {
+  display: inline;
+  width: auto;
+  max-width: none;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}

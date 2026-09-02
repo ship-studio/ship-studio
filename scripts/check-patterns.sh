@@ -65,29 +65,45 @@ else
 fi
 echo
 
-# 3b. var() references to custom properties that are never defined anywhere.
-# An undefined var() makes the declaration invalid at computed-value time —
-# the style silently doesn't apply (this bit us: hover states rendering as
-# transparent for months). Definitions may live in CSS or be set from TS/TSX.
-echo "Checking for undefined CSS custom properties…"
-DEFINED=$(mktemp) && USED=$(mktemp)
-{
-  grep -rhoE '\-\-[a-zA-Z0-9-]+[[:space:]]*:' src/styles --include='*.css' 2>/dev/null | sed 's/[[:space:]]*:$//'
-  grep -rhoE "['\"]--[a-zA-Z0-9-]+['\"]" src --include='*.ts' --include='*.tsx' 2>/dev/null | tr -d "'\""
-} | sort -u > "$DEFINED"
-grep -rhoE 'var\([[:space:]]*--[a-zA-Z0-9-]+' src/styles --include='*.css' 2>/dev/null |
-  grep -oE '\-\-[a-zA-Z0-9-]+' | sort -u > "$USED"
-UNDEFINED=$(comm -13 "$DEFINED" "$USED")
-rm -f "$DEFINED" "$USED"
-if [ -n "$UNDEFINED" ]; then
-  echo "  var() references with no definition in CSS or TS/TSX:"
-  for v in $UNDEFINED; do
-    echo "    $v"
-    grep -rn "var($v" src/styles --include='*.css' | head -2 | sed 's/^/      /'
-  done
-  rule "undefined CSS custom properties" 1
+# 3b. CSS custom-property definitions, references, duplicates, and cycles.
+# A small Node parser owns this check because grep cannot distinguish scopes or
+# produce a useful dependency chain for transitive cycles.
+echo "Checking CSS custom-property graph…"
+if node scripts/check-css-tokens.mjs; then
+  rule "CSS custom-property graph" 0
 else
-  rule "undefined CSS custom properties" 0
+  rule "CSS custom-property graph" 1
+fi
+echo
+
+# 3d. Token taxonomy and direct primitive-consumer policy. Existing migration
+# consumers are recorded in scripts/token-layer-baseline.json; new usage or
+# growth beyond that baseline fails.
+echo "Checking token taxonomy and layer policy…"
+if node scripts/token-inventory.mjs --check; then
+  rule "token taxonomy and layer policy" 0
+else
+  rule "token taxonomy and layer policy" 1
+fi
+echo
+
+# 3e. CSS ownership and selector namespace policy.
+echo "Checking CSS ownership and selector namespace policy…"
+if node scripts/check-css-ownership.mjs; then
+  rule "CSS ownership and selector namespace policy" 0
+else
+  rule "CSS ownership and selector namespace policy" 1
+fi
+echo
+
+# 3f. Static inline-style delta policy. Existing signatures are intentionally
+# frozen in a checked-in baseline; computed geometry and platform API values
+# remain valid exceptions.
+echo "Checking static inline-style delta policy…"
+if node scripts/check-inline-styles.mjs; then
+  rule "static inline-style delta policy" 0
+else
+  rule "static inline-style delta policy" 1
 fi
 echo
 
@@ -122,17 +138,17 @@ else
 fi
 echo
 
-# 5. Modal files that don't import ModalFrame (heuristic — new modal files only)
-echo "Checking new *Modal.tsx files for ModalFrame usage…"
-MODAL_FILES=$(find src/components -name '*Modal.tsx' 2>/dev/null)
-MISSING_MODAL_FRAME=0
-for f in $MODAL_FILES; do
-  if ! grep -q "ModalFrame" "$f"; then
-    echo "  $f does not import ModalFrame"
-    MISSING_MODAL_FRAME=1
-  fi
-done
-rule "modal files use ModalFrame primitive" $MISSING_MODAL_FRAME
+# 5. Dialog/overlay recipes anywhere in components. This is intentionally a
+# repository scan rather than a filename heuristic: a hand-rolled shell can
+# live in WorkspaceModals, a feature panel, or a multi-step flow. Known
+# anchored/non-modal and follow-up surfaces must be explicit in the scanner's
+# allowlist with a reason.
+echo "Checking component dialog/overlay recipes for ModalFrame usage…"
+if node scripts/check-modal-shells.mjs; then
+  rule "component dialog/overlay recipes use ModalFrame or an explicit exception" 0
+else
+  rule "component dialog/overlay recipes use ModalFrame or an explicit exception" 1
+fi
 echo
 
 if [ $FAIL -ne 0 ]; then

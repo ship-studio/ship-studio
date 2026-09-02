@@ -4,15 +4,15 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-primary);
+  background: var(--surface-app);
   min-height: 0;
 }
 
 .browser-tools-tabs {
   display: flex;
   align-items: stretch;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
   padding-right: var(--spacing-md);
 }
@@ -28,7 +28,7 @@
   border-radius: 0;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   cursor: pointer;
   transition: color var(--transition);
@@ -52,7 +52,7 @@
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: var(--accent);
+  background: currentColor;
   border-radius: 2px 2px 0 0;
 }
 
@@ -63,10 +63,10 @@
   min-width: 18px;
   height: 16px;
   padding: 0 5px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
 }
 
@@ -90,10 +90,10 @@
 .browser-tools-clear {
   padding: 4px 10px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   cursor: pointer;
   transition:
     color var(--transition),
@@ -103,7 +103,7 @@
 .browser-tools-send:hover:not(:disabled),
 .browser-tools-clear:hover {
   color: var(--text-primary);
-  border-color: var(--accent);
+  border-color: var(--accent-active);
 }
 
 .browser-tools-send:disabled {
@@ -114,6 +114,10 @@
 /* Body stacks Console / Network / Elements in a single grid cell.
    Active slot is visible; inactive slots keep their full layout and
    state but are hidden — no remount on tab switch, no scroll loss. */
+.browser-tools > .tabs {
+  display: contents;
+}
+
 .browser-tools-body {
   flex: 1;
   min-height: 0;
@@ -147,7 +151,7 @@
   justify-content: center;
   flex: 1;
   color: var(--text-muted);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
 }
 
 /* ===== Console view ===== */
@@ -160,7 +164,7 @@
      content reflows horizontally on tab switch. */
   scrollbar-gutter: stable;
   font-family: 'JetBrainsMono NF', Menlo, Monaco, 'Courier New', monospace;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
 }
 
 .console-row {
@@ -168,7 +172,7 @@
   align-items: flex-start;
   gap: var(--spacing-sm);
   padding: 4px var(--spacing-md);
-  border-bottom: 1px solid rgba(var(--border-rgb), 0.3);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-default) 30%, transparent);
   line-height: 1.5;
 }
 
@@ -176,7 +180,7 @@
   flex-shrink: 0;
   min-width: 44px;
   text-transform: uppercase;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   letter-spacing: 0.5px;
   padding-top: 2px;
@@ -225,7 +229,7 @@
   display: flex;
   flex-direction: column;
   font-family: 'JetBrainsMono NF', Menlo, Monaco, 'Courier New', monospace;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
 }
 
 .network-header {
@@ -233,10 +237,10 @@
   grid-template-columns: 70px 70px 1fr 80px;
   gap: var(--spacing-md);
   padding: 6px var(--spacing-md);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-panel);
+  border-bottom: 1px solid var(--border-default);
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -254,13 +258,13 @@
   grid-template-columns: 70px 70px 1fr 80px;
   gap: var(--spacing-md);
   padding: 4px var(--spacing-md);
-  border-bottom: 1px solid rgba(var(--border-rgb), 0.3);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-default) 30%, transparent);
   color: var(--text-primary);
   cursor: default;
 }
 
 .network-row:hover {
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
 .network-col-method {
@@ -308,8 +312,8 @@
   display: flex;
   flex-direction: column;
   font-family: 'JetBrainsMono NF', Menlo, Monaco, 'Courier New', monospace;
-  font-size: var(--font-size-base);
-  background: var(--bg-primary);
+  font-size: var(--font-size-body-md);
+  background: var(--surface-app);
 }
 
 .elements-truncated-banner {
@@ -317,7 +321,7 @@
   background: rgba(var(--ansi-yellow-rgb), 0.1);
   border-bottom: 1px solid rgba(var(--ansi-yellow-rgb), 0.3);
   color: var(--ansi-yellow);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   flex-shrink: 0;
 }
 
@@ -349,7 +353,7 @@
 }
 
 .el-row.has-children:hover {
-  background: var(--bg-secondary);
+  background: var(--surface-panel);
 }
 
 .el-row-text {

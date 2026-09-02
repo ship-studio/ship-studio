@@ -28,7 +28,7 @@ import { SubmitReviewModal } from '../branches/SubmitReviewModal';
 import { WorktreeCreateModal } from '../branches/WorktreeCreateModal';
 import { ConflictResolutionModal } from '../branches/ConflictResolutionModal';
 import { OnboardingTerminal } from '../setup';
-import { DownloadIcon, ZapIcon } from '../icons';
+import { DownloadIcon, VercelIcon, ZapIcon } from '@/components/icons';
 import { ToastList } from '../primitives/ToastList';
 import type { Toast } from '../../hooks/useToasts';
 import type { NotificationSettings } from '../../lib/sounds';
@@ -38,6 +38,8 @@ import type { WorktreeInfo } from '../../lib/worktrees';
 import type { AuthTerminalConfig, IntegrationState } from '../../hooks/useIntegrationStatus';
 import type { LoadedPlugin } from '../../hooks/usePlugins';
 import { Spinner } from '../primitives/Spinner';
+import { Button } from '../primitives/Button';
+import { ModalFrame } from '../primitives/ModalFrame';
 
 export interface WorkspaceModalsProps {
   // Project context
@@ -308,73 +310,75 @@ export function WorkspaceModals({
 
       {/* Plugin Suggestion Popup */}
       {pluginSuggestion && (
-        <div className="modal-overlay" onClick={onDismissPluginSuggestion}>
-          <div className="modal plugin-suggestion-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="plugin-suggestion-icon">
-              <svg width={26} height={26} viewBox="0 0 76 65" fill="currentColor">
-                <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
-              </svg>
-            </div>
-            <h3>Plugin Available</h3>
-            <p className="plugin-suggestion-desc">
-              This project uses <strong>{pluginSuggestion.pluginName}</strong>. Install the plugin
-              to see deployment information.
-            </p>
-            <div className="plugin-suggestion-actions">
-              <button className="plugin-suggestion-dismiss" onClick={onDismissPluginSuggestion}>
-                Not Now
-              </button>
-              <button
-                className="plugin-suggestion-install"
-                disabled={pluginSuggestionInstalling}
-                onClick={onInstallSuggestedPlugin}
-              >
-                {pluginSuggestionInstalling ? (
-                  <>
-                    <Spinner size="sm" />
-                    Installing…
-                  </>
-                ) : (
-                  <>
-                    <DownloadIcon size={14} />
-                    Install Plugin
-                  </>
-                )}
-              </button>
-            </div>
+        <ModalFrame
+          isOpen
+          onClose={onDismissPluginSuggestion}
+          ariaLabel="Plugin Available"
+          className="plugin-suggestion-modal"
+          showCloseButton={false}
+        >
+          <div className="plugin-suggestion-icon">
+            <VercelIcon size={26} />
           </div>
-        </div>
+          <h3>Plugin Available</h3>
+          <p className="plugin-suggestion-desc">
+            This project uses <strong>{pluginSuggestion.pluginName}</strong>. Install the plugin to
+            see deployment information.
+          </p>
+          <div className="plugin-suggestion-actions">
+            <Button variant="secondary" width="fill" onClick={onDismissPluginSuggestion}>
+              Not Now
+            </Button>
+            <Button
+              variant="primary"
+              width="fill"
+              disabled={pluginSuggestionInstalling}
+              onClick={onInstallSuggestedPlugin}
+              leftIcon={
+                pluginSuggestionInstalling ? <Spinner size="sm" /> : <DownloadIcon size={14} />
+              }
+            >
+              {pluginSuggestionInstalling ? 'Installing…' : 'Install Plugin'}
+            </Button>
+          </div>
+        </ModalFrame>
       )}
 
       {/* Auto-Accept Warning Modal */}
       {showAutoAcceptWarning && (
-        <div className="modal-overlay" onClick={onCloseAutoAcceptWarning}>
-          <div className="modal auto-accept-warning-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="auto-accept-warning-icon">
-              <ZapIcon size={32} />
-            </div>
-            <h3>Enable Auto-Accept Mode?</h3>
-            <p>
-              This mode allows {agentDisplayName} to execute commands{' '}
-              <strong>without asking for permission</strong>. {agentDisplayName} will be able to:
-            </p>
-            <ul className="auto-accept-warning-list">
-              <li>Read and modify any files in your project</li>
-              <li>Run shell commands automatically</li>
-              <li>Make changes without confirmation</li>
-            </ul>
-            <p className="auto-accept-warning-disclaimer">
-              By enabling this mode, you acknowledge that Ship Studio and Anthropic are{' '}
-              <strong>not liable</strong> for any unintended changes or actions taken by the AI.
-            </p>
-            <div className="modal-actions">
-              <button onClick={onCloseAutoAcceptWarning}>Cancel</button>
-              <button className="btn-warning" onClick={onAcceptAutoAcceptWarning}>
-                I understand, enable it
-              </button>
-            </div>
+        <ModalFrame
+          isOpen
+          onClose={onCloseAutoAcceptWarning}
+          ariaLabel="Enable Auto-Accept Mode?"
+          className="auto-accept-warning-modal"
+          showCloseButton={false}
+        >
+          <div className="auto-accept-warning-icon">
+            <ZapIcon size={32} />
           </div>
-        </div>
+          <h3>Enable Auto-Accept Mode?</h3>
+          <p>
+            This mode allows {agentDisplayName} to execute commands{' '}
+            <strong>without asking for permission</strong>. {agentDisplayName} will be able to:
+          </p>
+          <ul className="auto-accept-warning-list">
+            <li>Read and modify any files in your project</li>
+            <li>Run shell commands automatically</li>
+            <li>Make changes without confirmation</li>
+          </ul>
+          <p className="auto-accept-warning-disclaimer">
+            By enabling this mode, you acknowledge that Ship Studio and Anthropic are{' '}
+            <strong>not liable</strong> for any unintended changes or actions taken by the AI.
+          </p>
+          <div className="modal-actions">
+            <Button variant="secondary" onClick={onCloseAutoAcceptWarning}>
+              Cancel
+            </Button>
+            <Button variant="warning" onClick={onAcceptAutoAcceptWarning}>
+              I understand, enable it
+            </Button>
+          </div>
+        </ModalFrame>
       )}
 
       {/* Submit for Review Modal */}
@@ -430,9 +434,9 @@ export function WorkspaceModals({
           <div className="onboarding-terminal-modal">
             <div className="onboarding-terminal-header">
               <span className="onboarding-terminal-title">GitHub Account</span>
-              <button className="onboarding-terminal-cancel" onClick={onCloseAuthTerminal}>
+              <Button variant="ghost" size="compact" onClick={onCloseAuthTerminal}>
                 Cancel
-              </button>
+              </Button>
             </div>
             <OnboardingTerminal
               command={authTerminalConfig.command}
@@ -452,9 +456,9 @@ export function WorkspaceModals({
               <span className="onboarding-terminal-title">
                 Installing dependencies ({installTerminalConfig.packageManager})
               </span>
-              <button className="onboarding-terminal-cancel" onClick={onCloseInstallTerminal}>
+              <Button variant="ghost" size="compact" onClick={onCloseInstallTerminal}>
                 {installTerminalExited ? 'Close' : 'Cancel'}
-              </button>
+              </Button>
             </div>
             <OnboardingTerminal
               command={installTerminalConfig.packageManager}
@@ -490,9 +494,9 @@ export function WorkspaceModals({
           <div className="onboarding-terminal-modal">
             <div className="onboarding-terminal-header">
               <span className="onboarding-terminal-title">{pluginTerminal.title}</span>
-              <button className="onboarding-terminal-cancel" onClick={onClosePluginTerminal}>
+              <Button variant="ghost" size="compact" onClick={onClosePluginTerminal}>
                 {pluginTerminalExited ? 'Close' : 'Cancel'}
-              </button>
+              </Button>
             </div>
             <OnboardingTerminal
               command={pluginTerminal.command}

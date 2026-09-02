@@ -1,16 +1,14 @@
 /* Project Grid */
 
-/* Project-grid-local colors — intentional one-offs, not part of the global scale. */
 :root {
-  --grid-on-warning-text: #000000;
-  --project-table-select-w: var(--spacing-2xl);
+  --project-table-select-w: var(--spacing-lg);
   --project-table-menu-w: calc(var(--spacing-2xl) + var(--spacing-xs));
 }
 
 .project-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
+  gap: var(--spacing-md);
 }
 
 .project-list-view-stack {
@@ -27,8 +25,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
 }
 
@@ -38,10 +36,10 @@
     var(--project-table-select-w) minmax(0, 2.4fr) minmax(0, 0.9fr) minmax(0, 0.75fr)
     minmax(0, 0.85fr) var(--project-table-menu-w);
   align-items: center;
-  gap: var(--spacing-md);
+  gap: var(--spacing-sm);
   min-height: calc(var(--spacing-2xl) + var(--spacing-md));
-  padding: 0 var(--spacing-md);
-  border-bottom: 1px solid var(--border);
+  padding: 0 var(--spacing-md) 0 var(--spacing-sm);
+  border-bottom: 1px solid var(--border-default);
   color: var(--text-secondary);
 }
 
@@ -63,9 +61,9 @@
 
 .project-table-header {
   min-height: calc(var(--spacing-2xl) + var(--spacing-xs));
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-muted);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -83,7 +81,7 @@
 .project-table-select-cell {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   width: var(--project-table-select-w);
 }
 
@@ -95,7 +93,22 @@
   width: var(--spacing-lg);
   height: var(--spacing-lg);
   margin: 0;
-  accent-color: var(--action);
+  accent-color: var(--accent-active);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-interaction-fast);
+}
+
+.project-table-row:hover .project-table-select-cell input[type='checkbox'],
+.project-table-header:hover ~ .project-table-row .project-table-select-cell input[type='checkbox'],
+.project-table-select-cell input[type='checkbox']:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.project-table.has-selection .project-table-select-cell input[type='checkbox'] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .project-table-open {
@@ -135,7 +148,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -145,12 +158,12 @@
   max-width: 38%;
   padding: 0 var(--spacing-xs);
   overflow: hidden;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -161,7 +174,7 @@
 .project-table-muted {
   min-width: 0;
   overflow: hidden;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -184,7 +197,7 @@
 }
 
 .project-table-changes.has-changes {
-  color: var(--warning);
+  color: var(--accent-warning);
 }
 
 .project-table-muted {
@@ -196,30 +209,48 @@
 }
 
 .project-card {
+  --preview-thumbnail-height: 150px;
+
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
   overflow: visible;
   transition: border-color var(--transition);
   min-width: 0;
+  min-height: 0;
+  box-shadow: var(--button-shadow);
   cursor: pointer;
+  transition:
+    background-color var(--transition),
+    color var(--transition),
+    border-color var(--transition),
+    opacity var(--transition),
+    transform var(--transition);
+}
+.project-card:hover {
+  background: var(--surface-control-hover);
+  color: var(--button-text-hover);
+  border-color: var(--button-border-solid);
 }
 
-.project-card:hover {
-  border-color: var(--text-muted);
+/* Keep the nested menu trigger's hover state visible after the card itself
+   moves to its hover surface. */
+.project-card:hover .project-card-menu-container .button--ghost:hover:not(:disabled) {
+  background: var(--button-surface-selected);
 }
 
 .project-card-thumbnail {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 8.85;
+  height: 150px;
+  flex: 0 0 150px;
   padding: 0;
   border: none;
-  border-bottom: 1px solid var(--border);
-  border-radius: 12px 12px 0 0;
-  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-default);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  background: var(--surface-selected);
   cursor: pointer;
   overflow: hidden;
 }
@@ -230,7 +261,7 @@
   left: 0;
   width: 100%;
   height: auto;
-  background: var(--bg-tertiary);
+  background: var(--surface-selected);
 }
 
 .project-card-placeholder {
@@ -240,19 +271,20 @@
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-12);
 }
 
 .project-card-info {
   display: flex;
-  align-items: flex-start;
+  align-items: start;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: var(--spacing-md);
   gap: 8px;
   overflow: visible;
-  background: var(--bg-secondary);
-  border-radius: 0 0 12px 12px;
-  cursor: pointer;
+  min-height: 52px;
+  flex: 0 0 52px;
+  box-sizing: border-box;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
 }
 
 .project-card-details {
@@ -261,12 +293,11 @@
   gap: 2px;
   min-width: 0;
   overflow: hidden;
-  cursor: pointer;
 }
 
 .project-card-name {
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-12);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -274,43 +305,23 @@
 }
 
 .project-card-path {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
-  font-family: monospace;
+  font-family: var(--font-code);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .project-card-workspace {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
-  font-family: monospace;
+  font-family: var(--font-code);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   flex-shrink: 1;
   min-width: 0;
-}
-
-.project-card-menu {
-  flex-shrink: 0;
-  padding: 4px 8px;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: var(--font-size-lg);
-  letter-spacing: 1px;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition:
-    background var(--transition),
-    color var(--transition);
-}
-
-.project-card-menu:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
 }
 
 .project-list-loading {
@@ -324,7 +335,7 @@
 }
 
 .project-list-cleanup-status {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   margin: 0;
 }
@@ -338,17 +349,17 @@
 
 .project-card-menu-container .toggle-indicator {
   margin-left: auto;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   font-weight: 600;
-  padding: 2px 6px;
+  padding: 4px 6px;
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-muted);
 }
 
 .project-card-menu-container .toggle-indicator.on {
-  background: rgba(var(--success-light-rgb), 0.2);
-  color: var(--success);
+  background: rgba(var(--accent-success-rgb), 0.2);
+  color: var(--accent-success);
 }
 
 /* Auto-accept mode badge on project card */
@@ -365,8 +376,8 @@
   width: 16px;
   height: 16px;
   border-radius: var(--radius-sm);
-  background: rgba(var(--warning-light-rgb), 0.2);
-  color: var(--warning-light);
+  background: rgba(var(--accent-warning-rgb), 0.2);
+  color: var(--accent-warning);
   flex-shrink: 0;
 }
 
@@ -384,13 +395,13 @@
   height: 64px;
   margin: 0 auto 16px;
   border-radius: var(--radius-full);
-  background: rgba(var(--warning-light-rgb), 0.15);
-  color: var(--warning-light);
+  background: rgba(var(--accent-warning-rgb), 0.15);
+  color: var(--accent-warning);
 }
 
 .auto-accept-warning-modal h3 {
   margin: 0 0 12px;
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-h3);
 }
 
 .auto-accept-warning-modal p {
@@ -412,19 +423,10 @@
 
 .auto-accept-warning-disclaimer {
   padding: 12px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-md);
+  background: var(--surface-control);
+  border-radius: var(--radius-card);
+  font-size: var(--font-size-body-lg);
   margin-bottom: 20px;
-}
-
-.btn-warning {
-  background: var(--warning-light);
-  color: var(--grid-on-warning-text);
-}
-
-.btn-warning:hover {
-  background: var(--warning);
 }
 
 /* ============ Responsive Project Grid ============ */
@@ -454,15 +456,15 @@
 @media (max-width: 700px) {
   .project-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
+    gap: var(--spacing-md);
   }
 
   .project-card-info {
-    padding: 10px 12px;
+    padding: var(--spacing-sm);
   }
 
   .project-card-name {
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-subhead);
   }
 
   .folder-card-info {
@@ -470,12 +472,11 @@
   }
 
   .folder-card-name {
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-subhead);
   }
 
   .project-table-row {
     grid-template-columns: var(--project-table-select-w) minmax(0, 1fr) var(--project-table-menu-w);
-    gap: var(--spacing-sm);
   }
 
   .project-table-header span:not(:first-of-type),
@@ -493,19 +494,19 @@
   }
 
   .project-card-info {
-    padding: 10px 12px;
+    padding: var(--spacing-sm);
   }
 
   .project-card-name {
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-subhead);
   }
 
   .project-card-meta {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-body-sm);
   }
 
   .project-card-deployment {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-body-sm);
   }
 
   .folder-card-info {
@@ -513,10 +514,10 @@
   }
 
   .folder-card-name {
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-subhead);
   }
 
   .folder-card-count {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-body-sm);
   }
 }

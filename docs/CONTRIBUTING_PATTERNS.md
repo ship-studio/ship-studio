@@ -34,7 +34,8 @@ If you're adding code:
   `useInvoke`. The mount-guard, the `finally`, the error capture — already
   handled.
 - **You don't need to pick a hex color.** Use a `--*` token. If the right
-  token doesn't exist, add it to `base.css` once and use it everywhere.
+  token doesn't exist, add it to the appropriate manifest-ordered token layer once and use it
+  everywhere.
 - **You don't need to write a `Result<T, String>` and hope the frontend can
   parse the error string.** Return `Result<T, CommandError>` and the frontend
   gets a tagged object it can branch on.
@@ -56,14 +57,23 @@ When in doubt, check what `<ModalFrame>` / `<Button>` / `useInvoke` /
 `useCopyToClipboard` / `usePolling` / `CommandError` / `run_with_timeout`
 do, and follow that pattern.
 
+### Icons and SVG artwork
+
+Use named exports from `@/components/icons` for shared icons. Do not import shared SVG assets
+directly from feature code or from an internal icon module. Do not add static inline `<svg>` markup
+to feature components; place reusable icons in `src/assets/icons/`, app-specific artwork in
+`src/assets/icons/old-icons/`, and feature graphics in `src/assets/graphics/`. The only inline SVG
+exception is the marked dynamic graph in `BranchGraph.tsx`. See [Icons and SVG graphics](design-system.md#icons-and-svg-graphics)
+for the metadata, accessibility, and extraction contracts.
+
 ## Where to look
 
 | Layer | File | Purpose |
 |---|---|---|
-| UI primitives | [src/components/primitives/](../src/components/primitives/) | `ModalFrame`, `Button`, `EmptyState`, `Skeleton` |
+| UI primitives | [src/components/primitives/](../src/components/primitives/) | `ModalFrame`, `Button`, `Dropdown`, `Tabs`, `EmptyState` |
 | Hooks | [src/hooks/](../src/hooks/) | `useModalState`, `useAsyncState`, `useInvoke`, `useCopyToClipboard`, `usePolling` |
 | Contexts | [src/contexts/](../src/contexts/) | `ToastContext` (`useToast` / `useOptionalToast`), `ModalContext` (`useModal`) |
-| Design tokens | [src/styles/global/base.css](../src/styles/global/base.css) | All `--*` variables, plugin-stable |
+| Design tokens | [src/styles/global/token-manifest.json](../src/styles/global/token-manifest.json) | Ordered core, semantic, component, and compatibility token sources |
 | Rust errors | [src-tauri/src/errors.rs](../src-tauri/src/errors.rs) | `CommandError` enum |
 | Rust externals | [src-tauri/src/external_command.rs](../src-tauri/src/external_command.rs) | `run_with_timeout`, `run_to_stdout` |
 | TS error mirror | [src/lib/errors.ts](../src/lib/errors.ts) | Tagged union mirroring `CommandError` |

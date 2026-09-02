@@ -1,16 +1,17 @@
 /**
  * Compact workspace top bar.
  *
- * Self-contained. Layout uses **inline styles** (not CSS classes) so no
- * stylesheet cascade / HMR caching / specificity quirk can prevent the right
- * cluster from sitting at the right edge of the window. The only thing CSS
- * classes are used for here is hover/active state on the buttons.
+ * Self-contained. Static layout and visual states live in the compact-workspace
+ * stylesheet; React retains only the platform modifier and behavior state for
+ * pinning and project-menu mounting.
  *
  * @module components/CompactTopbar
  */
 
-import { useCallback, useState, type CSSProperties } from 'react';
-import { PinIcon, ChevronIcon } from '../icons';
+import { useCallback, useState } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { PinIcon, ChevronIcon } from '@/components/icons';
+import { Button } from '../primitives/Button';
 import { useOpenPalette } from '../CommandPalette/paletteContext';
 import { setAlwaysOnTop } from '../../lib/window';
 import { logger } from '../../lib/logger';
@@ -26,109 +27,9 @@ interface Props {
   onGoHome: () => void;
 }
 
-// React's CSSProperties doesn't include the `WebkitAppRegion` Tauri/Electron
-// drag annotation. Extend locally so we avoid the stringified-key cast.
-type Style = CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' };
-
-// Inline styles — authoritative for layout. Kept here so CSS can't fight us.
-const topbarStyle: Style = {
-  display: 'flex',
-  alignItems: 'center',
-  width: '100vw',
-  height: 36,
-  boxSizing: 'border-box',
-  // Reserve space under the macOS traffic lights (overlay title bar). Windows
-  // and Linux use native decorations — there are no traffic lights to clear —
-  // so an 8px gutter avoids a big empty gap at the window's top-left.
-  paddingLeft: isMac() ? 78 : 8,
-  paddingRight: 8,
-  background: 'var(--bg-secondary)',
-  borderBottom: '1px solid var(--border)',
-  flexShrink: 0,
-  userSelect: 'none',
-  WebkitAppRegion: 'drag',
-};
-
-const spacerStyle: CSSProperties = {
-  flex: '1 1 auto', // grows to fill, pushes right cluster to the edge
-  alignSelf: 'stretch',
-};
-
-const rightStyle: Style = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 4,
-  flex: '0 0 auto',
-  WebkitAppRegion: 'no-drag',
-};
-
-const iconBtnStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 24,
-  height: 24,
-  padding: 0,
-  background: 'transparent',
-  border: '1px solid transparent',
-  borderRadius: 'var(--radius-sm)',
-  color: 'var(--text-muted)',
-  cursor: 'pointer',
-};
-
-const paletteBtnStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  height: 24,
-  padding: '0 8px',
-  background: 'var(--bg-tertiary)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)',
-  color: 'var(--text-secondary)',
-  fontSize: 11,
-  fontFamily: 'var(--font-mono, monospace)',
-  letterSpacing: '0.4px',
-  cursor: 'pointer',
-};
-
-const projectBtnStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  height: 24,
-  maxWidth: 220,
-  padding: '0 8px',
-  background: 'var(--bg-tertiary)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)',
-  color: 'var(--text-primary)',
-  fontSize: 11,
-  fontWeight: 500,
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-};
-
-const pickerWrapperStyle: CSSProperties = {
-  position: 'relative',
-  display: 'inline-flex',
-  alignItems: 'center',
-};
-
-const dotStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 20,
-  height: 20,
-};
-
-const dotInnerStyle: CSSProperties = {
-  width: 8,
-  height: 8,
-  borderRadius: '50%',
-  background: 'var(--success)',
-};
+// The platform modifier preserves the macOS traffic-light inset without
+// keeping static layout declarations in React style objects.
+const topbarPlatformClass = isMac() ? 'compact-topbar--mac' : 'compact-topbar--native';
 
 export function CompactTopbar({
   projectLabel,
@@ -141,6 +42,14 @@ export function CompactTopbar({
   const openProjectPalette = useCallback(() => openPalette({ tab: 'project' }), [openPalette]);
   const openAllPalette = useCallback(() => openPalette(), [openPalette]);
 
+  const handleDragStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, select, [role="menu"]')) return;
+    event.preventDefault();
+    void getCurrentWindow().startDragging();
+  }, []);
+
   const [isPinned, setIsPinned] = useState(false);
   const togglePin = useCallback(() => {
     const next = !isPinned;
@@ -151,31 +60,18 @@ export function CompactTopbar({
     });
   }, [isPinned]);
 
-  // Hover state for the project-switch menu. Inline styles win specificity
-  // over :hover CSS selectors, so we manage it in React state instead.
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  const pinStyle: CSSProperties = isPinned
-    ? {
-        ...iconBtnStyle,
-        color: 'var(--accent)',
-        background: 'rgba(45, 164, 157, 0.15)',
-        borderColor: 'rgba(45, 164, 157, 0.3)',
-      }
-    : iconBtnStyle;
-
   return (
-    <div style={topbarStyle}>
-      <div style={spacerStyle} aria-hidden="true" />
-      <div style={rightStyle}>
+    <div className={`compact-topbar ${topbarPlatformClass}`} onMouseDown={handleDragStart}>
+      <div className="compact-topbar__spacer" aria-hidden="true" />
+      <div className="compact-topbar__actions">
         {hasDevServer && (
-          <span style={dotStyle} aria-label="Dev server running">
-            <span style={dotInnerStyle} />
+          <span className="compact-topbar__dev-server" aria-label="Dev server running">
+            <span className="compact-topbar__dev-server-dot" />
           </span>
         )}
         <button
           type="button"
-          style={pinStyle}
+          className={`compact-topbar__icon-button${isPinned ? ' is-pinned' : ''}`}
           onClick={togglePin}
           aria-pressed={isPinned}
           title={isPinned ? 'Unpin window' : 'Pin window on top'}
@@ -183,88 +79,57 @@ export function CompactTopbar({
         >
           <PinIcon size={12} />
         </button>
-        <button
-          type="button"
-          style={paletteBtnStyle}
+        <Button
+          variant="default"
+          size="medium"
+          className="compact-topbar__palette-button workspace-sidebar-filter-shortcut"
           onClick={openAllPalette}
           title="Open command palette"
           aria-label="Open command palette"
         >
           {kbd('mod', 'K')}
-        </button>
-        <div
-          style={pickerWrapperStyle}
-          onMouseEnter={() => setMenuOpen(true)}
-          onMouseLeave={() => setMenuOpen(false)}
-        >
-          <button
-            type="button"
-            style={projectBtnStyle}
+        </Button>
+        <div className="compact-topbar__project-picker">
+          <Button
+            variant="default"
+            size="medium"
+            className="compact-topbar__project-button"
             onClick={openProjectPalette}
             title={`Switch project (currently ${projectLabel})`}
             aria-label={`Switch project (currently ${projectLabel})`}
           >
-            <span
-              style={{
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                maxWidth: 180,
-              }}
-            >
-              {projectLabel}
-            </span>
+            <span className="compact-topbar__project-label">{projectLabel}</span>
             <ChevronIcon size={10} />
-          </button>
-          {menuOpen && switchableProjects.length > 0 && (
-            <div
-              role="menu"
-              className="compact-topbar-project-menu"
-              style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                right: 0,
-                minWidth: 180,
-                maxHeight: 240,
-                overflowY: 'auto',
-                padding: 4,
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-md)',
-                zIndex: 100,
-              }}
-            >
-              <button type="button" className="compact-topbar-project-menu-item" onClick={onGoHome}>
-                Home
-              </button>
-              {switchableProjects.map((row) => (
-                <button
-                  key={row.projectPath}
-                  type="button"
-                  className="compact-topbar-project-menu-item"
-                  onClick={() => onSelectProject(row.projectPath)}
-                >
-                  {row.fallbackName}
-                </button>
-              ))}
-              <div
-                style={{
-                  height: 1,
-                  background: 'var(--border)',
-                  margin: '4px 2px',
-                }}
-              />
-              <button
-                type="button"
-                className="compact-topbar-project-menu-item is-subtle"
-                onClick={openProjectPalette}
-              >
-                All projects…
-              </button>
-            </div>
-          )}
+          </Button>
         </div>
       </div>
+      {switchableProjects.length > 0 && (
+        <div role="menu" className="compact-topbar-project-menu">
+          <div className="compact-topbar-project-menu__surface">
+            <button type="button" className="compact-topbar-project-menu-item" onClick={onGoHome}>
+              Home
+            </button>
+            {switchableProjects.map((row) => (
+              <button
+                key={row.projectPath}
+                type="button"
+                className="compact-topbar-project-menu-item"
+                onClick={() => onSelectProject(row.projectPath)}
+              >
+                {row.fallbackName}
+              </button>
+            ))}
+            <div className="compact-topbar-project-menu-divider" />
+            <button
+              type="button"
+              className="compact-topbar-project-menu-item is-subtle"
+              onClick={openProjectPalette}
+            >
+              All projects…
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

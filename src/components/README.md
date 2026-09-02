@@ -4,8 +4,8 @@ One folder per feature domain. Token + primitive reference: [docs/design-system.
 
 ## Folders
 
-- **`primitives/`** — The design-system building blocks (`ModalFrame`, `Button`, `Spinner`, `Dropdown`, `EmptyState`, `Skeleton`). Generic, feature-agnostic, styled in `src/styles/global/base.css`. Nothing in here may import from feature folders.
-- **`icons/`** — Shared SVG icon components, grouped by domain (`brand`, `common`, `editor`, `layout`, `status`, `utility`) and re-exported from `index.tsx`. Add new icons here, not inline in features.
+- **`primitives/`** — The design-system building blocks (`Button`, `IconButton`, `ToggleButton`, `MenuButton`, `ModalFrame`, `Dropdown`, `TextField`, `ValueField`, `PropertyField`, `Tabs`, `SegmentedControl`, `TextButton`, `DockablePanel`, `PanelResizeHandle`, `EmptyState`, `Spinner`, `PixelLoader`, `ToastList`, `Tooltip`, and `MiddleTruncate`). The complete registry is generated from [docs/design-system-registry.json](../../docs/design-system-registry.json) into [docs/design-system.generated.md](../../docs/design-system.generated.md), and drift is checked by `pnpm docs:check`. Generic, feature-agnostic primitives must not import from feature folders. Plugin-stable button selectors remain in `src/styles/global/base.css`; other primitive styles live in their named files under `src/styles/components/` or their explicitly documented feature owner.
+- **`icons/`** — Semantic SVG icon components grouped by domain (`brand`, `common`, `editor`, `editor-controls`, `layout`, `status`, `utility`) and re-exported from the public `index.tsx` barrel. Feature code imports icons from `@/components/icons`; the modules own asset imports and metadata, while `src/assets/icons/` and `src/assets/icons/old-icons/` own the SVG files. Feature-specific artwork belongs in `src/assets/graphics/` and stays with the consuming feature rather than entering the shared barrel. Static inline SVG is not used in feature components; `BranchGraph.tsx` is the marked dynamic exception.
 - **`dashboard/`** — The home screen: project grid/list and cards, folders, search/sort, project rail, create-project and template gallery, settings modal, changelog, agents panel, integration bar.
 - **`workspace/`** — The open-project shell: header, sidebar, split panes, compact mode, and workspace-scoped modals (env editor, languages, backups, project settings, notifications).
 - **`branches/`** — Git branch and PR UI: branches/PR tabs, branch indicator, diff modal, conflict resolution, submit-for-review, publish dropdown, GitHub button.
@@ -31,11 +31,12 @@ Cross-cutting components mounted at the app level (by `App.tsx` or global hosts)
 - `EducationOverlay.tsx` — Education Mode x-ray overlay (hover any UI element to learn it)
 - `ErrorBoundary.tsx` — top-level crash recovery, including plugin-crash attribution/uninstall
 - `HelpModal.tsx` — slash-command glossary, shortcuts, and tips (openable from anywhere)
-- `UpdateBanner.tsx` — auto-update available/progress banner
+- `UpdateBanner.tsx` — sidebar update indicator and release-specific update modal
 
 ## Where does my new component go?
 
 Owned by one feature view → that feature's folder. Generic and reusable across features →
 `primitives/` (and document it in `docs/design-system.md`). An SVG icon → `icons/`. Mounted
 globally across views → root level (rare; think twice). A modal → the folder of the feature
-that opens it, built on `<ModalFrame>`.
+that opens it, built on `<ModalFrame>`. The development-only primitive lab is under
+`components/design-system/`; it is query-gated and is not a product component catalog.

@@ -12,6 +12,7 @@ import {
   type ResetSpec,
 } from '../../lib/edit';
 import { ResettableLabel } from './ResettableLabel';
+import { ValueField } from '../primitives/ValueField';
 
 interface Props {
   currentClass: string;
@@ -30,19 +31,34 @@ export function OpacityControl({ currentClass, layer, onApplyEnum, onReset }: Pr
         active={layer.bp}
         onReset={() => onReset(spacingResetSpec('opacity', 'opacity'))}
       />
-      <input
-        type="range"
-        className="ss-edit-panel__slider"
-        aria-label="Opacity"
-        min={0}
-        max={100}
-        step={5}
-        value={opacity.value ?? 100}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          onApplyEnum(`opacity-${n}`, { opacity: String(n / 100) });
-        }}
-      />
+      <div className="ss-edit-panel__range-value">
+        <input
+          type="range"
+          className="ss-edit-panel__slider"
+          aria-label="Opacity"
+          min={0}
+          max={100}
+          step={5}
+          value={opacity.value ?? 100}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            onApplyEnum(`opacity-${n}`, { opacity: String(n / 100) });
+          }}
+        />
+        <ValueField
+          className="ss-edit-panel__text ss-edit-panel__opacity-value"
+          variant="number"
+          value={String(opacity.value ?? 100)}
+          aria-label="Opacity value"
+          inputMode="decimal"
+          onCommit={(next) => {
+            const n = Number(next.trim());
+            if (!Number.isFinite(n) || n < 0 || n > 100) return false;
+            onApplyEnum(`opacity-${n}`, { opacity: String(n / 100) });
+            return true;
+          }}
+        />
+      </div>
     </div>
   );
 }

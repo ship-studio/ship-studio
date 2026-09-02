@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
-import { SearchIcon } from '../icons';
+import { Tabs, TabsList, TabsPanel, TabsTab } from '../primitives/Tabs';
+import { CommandPlaceholderIcon, SearchIcon } from '@/components/icons';
 import { useConsumePendingTab, type PaletteContextKind } from './paletteContext';
 import { useRankedCommands, type RankedCommand } from '../../commands/useRankedCommands';
 import { recordRun } from '../../commands/frecency';
@@ -269,56 +270,57 @@ export function CommandPalette({
         </div>
       )}
 
-      <div className="command-palette-tabs" role="tablist">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            className={`command-palette-tab ${activeTab === tab.id ? 'is-active' : ''}`}
-            onClick={() => setActiveTab(tab.id, 'click')}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="command-palette-list" role="listbox" ref={listRef}>
-        {filtered.length === 0 ? (
-          <div className="command-palette-empty">
-            {query ? `No matches for "${query}"` : 'No commands available here yet'}
+      <Tabs value={activeTab} onValueChange={(next) => setActiveTab(next as TabId, 'click')}>
+        <TabsList
+          variant="stretch"
+          appearance="underline"
+          className="command-palette-tabs"
+          aria-label="Command categories"
+        >
+          {tabs.map((tab) => (
+            <TabsTab key={tab.id} value={tab.id} width="fill" className="command-palette-tab">
+              {tab.label}
+            </TabsTab>
+          ))}
+        </TabsList>
+        <TabsPanel value={activeTab} className="command-palette-list-panel">
+          <div className="command-palette-list" role="listbox" ref={listRef}>
+            {filtered.length === 0 ? (
+              <div className="command-palette-empty">
+                {query ? `No matches for "${query}"` : 'No commands available here yet'}
+              </div>
+            ) : grouped ? (
+              grouped.map((group) => (
+                <div key={group.category} className="command-palette-group">
+                  <div className="command-palette-group-header">{GROUP_LABEL[group.category]}</div>
+                  {group.rows.map((cmd) => {
+                    const idx = flatIdx++;
+                    return (
+                      <CommandRow
+                        key={cmd.id}
+                        cmd={cmd}
+                        selected={idx === selectedIdx}
+                        onMouseEnter={() => setSelectedIdx(idx)}
+                        onClick={() => runSelected(cmd, idx)}
+                      />
+                    );
+                  })}
+                </div>
+              ))
+            ) : (
+              filtered.map((cmd, idx) => (
+                <CommandRow
+                  key={cmd.id}
+                  cmd={cmd}
+                  selected={idx === selectedIdx}
+                  onMouseEnter={() => setSelectedIdx(idx)}
+                  onClick={() => runSelected(cmd, idx)}
+                />
+              ))
+            )}
           </div>
-        ) : grouped ? (
-          grouped.map((group) => (
-            <div key={group.category} className="command-palette-group">
-              <div className="command-palette-group-header">{GROUP_LABEL[group.category]}</div>
-              {group.rows.map((cmd) => {
-                const idx = flatIdx++;
-                return (
-                  <CommandRow
-                    key={cmd.id}
-                    cmd={cmd}
-                    selected={idx === selectedIdx}
-                    onMouseEnter={() => setSelectedIdx(idx)}
-                    onClick={() => runSelected(cmd, idx)}
-                  />
-                );
-              })}
-            </div>
-          ))
-        ) : (
-          filtered.map((cmd, idx) => (
-            <CommandRow
-              key={cmd.id}
-              cmd={cmd}
-              selected={idx === selectedIdx}
-              onMouseEnter={() => setSelectedIdx(idx)}
-              onClick={() => runSelected(cmd, idx)}
-            />
-          ))
-        )}
-      </div>
+        </TabsPanel>
+      </Tabs>
 
       <div className="command-palette-footer">
         <span className="command-palette-hint">
@@ -371,7 +373,7 @@ function CommandRow({ cmd, selected, onMouseEnter, onClick }: RowProps) {
       </span>
       {cmd.shortcut && (
         <span className="command-palette-row-meta">
-          <kbd className="command-palette-kbd">{cmd.shortcut}</kbd>
+          <kbd className="workspace-sidebar-filter-shortcut">{cmd.shortcut}</kbd>
         </span>
       )}
     </button>
@@ -379,18 +381,5 @@ function CommandRow({ cmd, selected, onMouseEnter, onClick }: RowProps) {
 }
 
 function DefaultIcon(): ReactNode {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
+  return <CommandPlaceholderIcon />;
 }

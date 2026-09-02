@@ -6,9 +6,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import '../../styles/features/notifications.css';
 import { ModalFrame } from '../primitives/ModalFrame';
 import { Button } from '../primitives/Button';
+import { TextField } from '../primitives/TextField';
 import { useModal } from '../../contexts/ModalContext';
 import { getForceStaticServe, setForceStaticServe } from '../../lib/project';
 import { logger } from '../../lib/logger';
@@ -102,25 +102,23 @@ export function ProjectSettingsModal({
       isOpen
       onClose={onClose}
       title="Project Settings"
-      className="notification-settings-content"
+      className="project-settings-content settings-form-content"
     >
       <>
-        <p
-          style={{
-            padding: 'var(--spacing-lg) var(--spacing-xl) var(--spacing-md)',
-            color: 'var(--text-secondary)',
-            fontSize: 13,
-          }}
-        >
+        <p className="project-settings-intro settings-form-intro">
           Configure settings for this project.
         </p>
-        <div className="notification-settings-body">
-          <div className="notification-setting-section">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+        <div className="project-settings-body settings-form-body">
+          <div className="project-settings-section settings-form-section">
+            <div className="project-settings-field settings-form-field">
+              <label
+                className="project-settings-label settings-form-label"
+                htmlFor="project-settings-port"
+              >
                 Dev Server Port
               </label>
-              <input
+              <TextField
+                id="project-settings-port"
                 type="number"
                 value={port}
                 onChange={(e) => setPort(Number(e.target.value))}
@@ -130,35 +128,30 @@ export function ProjectSettingsModal({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && isValid) handleSave();
                 }}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-primary)',
-                  color: 'var(--text-primary)',
-                  fontSize: 13,
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
+                invalid={!isValid}
+                aria-invalid={!isValid}
               />
               {!isValid && (
-                <span style={{ fontSize: 12, color: 'var(--error, #ef4444)' }}>
+                <span className="project-settings-error settings-form-error">
                   Port must be between 1 and 65535
                 </span>
               )}
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              <span className="project-settings-help settings-form-help">
                 The port Ship Studio uses to connect to your dev server. Default is 3000.
               </span>
             </div>
           </div>
           {showDevCommand && (
-            <div className="notification-setting-section">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+            <div className="project-settings-section settings-form-section">
+              <div className="project-settings-field settings-form-field">
+                <label
+                  className="project-settings-label settings-form-label"
+                  htmlFor="project-settings-command"
+                >
                   Dev Server Command
                 </label>
-                <input
+                <TextField
+                  id="project-settings-command"
                   type="text"
                   value={devCommand}
                   onChange={(e) => setDevCommand(e.target.value)}
@@ -166,20 +159,9 @@ export function ProjectSettingsModal({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && isValid) handleSave();
                   }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)',
-                    fontSize: 13,
-                    fontFamily: 'var(--font-mono, monospace)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
+                  className="ss-text-field--code"
                 />
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                <span className="project-settings-help settings-form-help">
                   If set, this command will start automatically and can be restarted from the
                   toolbar. Leave blank to manage the dev server yourself in the terminal.
                 </span>
@@ -187,51 +169,28 @@ export function ProjectSettingsModal({
             </div>
           )}
           {showForceStatic && (
-            <div className="notification-setting-section">
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 'var(--spacing-sm)',
-                  cursor: 'pointer',
-                }}
-              >
+            <div className="project-settings-section settings-form-section">
+              <label className="project-settings-checkbox settings-form-checkbox">
                 <input
                   type="checkbox"
                   checked={forceStatic}
                   onChange={(e) => setForceStatic(e.target.checked)}
-                  style={{ marginTop: 2 }}
                 />
-                <span
-                  style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}
-                >
-                  <span
-                    style={{
-                      fontSize: 'var(--font-size-sm)',
-                      fontWeight: 500,
-                      color: 'var(--text-primary)',
-                    }}
-                  >
+                <span className="project-settings-checkbox-copy settings-form-checkbox-copy">
+                  <span className="project-settings-checkbox-title settings-form-checkbox-title">
                     Serve as a static site
                   </span>
-                  <span
-                    style={{
-                      fontSize: 'var(--font-size-xs)',
-                      color: 'var(--text-muted)',
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    Serve this project's files directly with the built-in static server. Use this
-                    for plain HTML/CSS sites that weren't recognized automatically — e.g. ones that
-                    keep a <code>package.json</code> only for build tooling. Reopen the project to
-                    apply.
+                  <span className="project-settings-checkbox-description settings-form-checkbox-description">
+                    Serve files directly even though a <code>package.json</code> is present. Use
+                    this for plain HTML/CSS sites that keep a <code>package.json</code> only for
+                    build tooling. Reopen the project to apply.
                   </span>
                 </span>
               </label>
             </div>
           )}
         </div>
-        <div className="notification-settings-footer">
+        <div className="project-settings-footer settings-form-footer">
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>

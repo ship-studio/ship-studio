@@ -1,0 +1,930 @@
+{
+  "schemaVersion": 1,
+  "policy": "Static inline-style signatures are frozen; computed geometry and platform API values are allowed.",
+  "entries": [
+    {
+      "path": "src/components/accounts/AccountSettingsModal.tsx",
+      "property": "color",
+      "value": "'var(--text-muted)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/accounts/AccountSettingsModal.tsx",
+      "property": "fontSize",
+      "value": "'var(--font-size-xs)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/accounts/AccountSettingsModal.tsx",
+      "property": "marginTop",
+      "value": "'var(--spacing-sm)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/accounts/NewAccountModal.tsx",
+      "property": "marginTop",
+      "value": "'var(--spacing-md)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/BootLoadingScreen.tsx",
+      "property": "color",
+      "value": "'var(--text-muted)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/branches/GitHubButton.tsx",
+      "property": "whiteSpace",
+      "value": "'nowrap'",
+      "count": 1
+    },
+    {
+      "path": "src/components/code/CodeTab.tsx",
+      "property": "color",
+      "value": "'var(--accent-active)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/code/CodeTab.tsx",
+      "property": "display",
+      "value": "'block'",
+      "count": 1
+    },
+    {
+      "path": "src/components/code/CodeTab.tsx",
+      "property": "marginBottom",
+      "value": "'var(--spacing-md)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/code/CodeViewer.tsx",
+      "property": "color",
+      "value": "'var(--accent-active)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/CreateProject.tsx",
+      "property": "display",
+      "value": "'flex'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/CreateProject.tsx",
+      "property": "display",
+      "value": "'none'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/CreateProject.tsx",
+      "property": "gap",
+      "value": "'8px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/CreateProject.tsx",
+      "property": "maxHeight",
+      "value": "'200px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/CreateProject.tsx",
+      "property": "overflowY",
+      "value": "'auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/CreateProject.tsx",
+      "property": "whiteSpace",
+      "value": "'pre-line'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/MoveFolderModal.tsx",
+      "property": "color",
+      "value": "'var(--text-muted)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/MoveFolderModal.tsx",
+      "property": "padding",
+      "value": "'var(--spacing-xl)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/MoveWorkspaceModal.tsx",
+      "property": "color",
+      "value": "'var(--text-muted)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/MoveWorkspaceModal.tsx",
+      "property": "flexShrink",
+      "value": "0",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/MoveWorkspaceModal.tsx",
+      "property": "padding",
+      "value": "'var(--spacing-xl)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/NewFolderModal.tsx",
+      "property": "padding",
+      "value": "'var(--spacing-xl)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/ProjectActionConfirmModal.tsx",
+      "property": "padding",
+      "value": "'var(--spacing-xl)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/ProjectCardMenu.tsx",
+      "property": "display",
+      "value": "'inline-block'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/ProjectCardMenu.tsx",
+      "property": "textAlign",
+      "value": "'center'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/ProjectCardMenu.tsx",
+      "property": "width",
+      "value": "14",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/ProjectList.tsx",
+      "property": "color",
+      "value": "'var(--text-muted)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/ProjectList.tsx",
+      "property": "display",
+      "value": "'none'",
+      "count": 1
+    },
+    {
+      "path": "src/components/dashboard/RenameProjectModal.tsx",
+      "property": "padding",
+      "value": "'var(--spacing-xl)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "alignItems",
+      "value": "'baseline'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "boxSizing",
+      "value": "'border-box'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "display",
+      "value": "'block'",
+      "count": 2
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "display",
+      "value": "'flex'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "flex",
+      "value": "'0 0 auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "flex",
+      "value": "'1 1 auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "gap",
+      "value": "8",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "minWidth",
+      "value": "0",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "overflow",
+      "value": "'hidden'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "overflowY",
+      "value": "'auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "position",
+      "value": "'fixed'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "textAlign",
+      "value": "'left'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "textOverflow",
+      "value": "'ellipsis'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "whiteSpace",
+      "value": "'nowrap'",
+      "count": 3
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "width",
+      "value": "'100%'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/AddMenu.tsx",
+      "property": "writingMode",
+      "value": "'horizontal-tb'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/ElementToolbar.tsx",
+      "property": "color",
+      "value": "'var(--text-primary)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/ElementToolbar.tsx",
+      "property": "color",
+      "value": "'var(--text-white)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/ElementTreeContextMenu.tsx",
+      "property": "position",
+      "value": "'fixed'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/InsertMenu.tsx",
+      "property": "position",
+      "value": "'fixed'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "alignItems",
+      "value": "'baseline'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "boxSizing",
+      "value": "'border-box'",
+      "count": 2
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "columns",
+      "value": "'auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "display",
+      "value": "'flex'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "flex",
+      "value": "'0 0 auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "flex",
+      "value": "'1 1 auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "gap",
+      "value": "8",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "minWidth",
+      "value": "0",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "overflow",
+      "value": "'hidden'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "overflowX",
+      "value": "'hidden'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "overflowY",
+      "value": "'auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "position",
+      "value": "'fixed'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "textAlign",
+      "value": "'left'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "textOverflow",
+      "value": "'ellipsis'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "whiteSpace",
+      "value": "'nowrap'",
+      "count": 3
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "width",
+      "value": "'100%'",
+      "count": 1
+    },
+    {
+      "path": "src/components/edit/SuggestionPopover.tsx",
+      "property": "writingMode",
+      "value": "'horizontal-tb'",
+      "count": 2
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "alignItems",
+      "value": "'center'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "backgroundColor",
+      "value": "'#141414'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "backgroundColor",
+      "value": "'#2a2a2a'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "borderRadius",
+      "value": "'4px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "color",
+      "value": "'#666'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "color",
+      "value": "'#888'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "color",
+      "value": "'#bcbcbc'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "color",
+      "value": "'var(--accent-error)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "cursor",
+      "value": "'pointer'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "display",
+      "value": "'flex'",
+      "count": 2
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "flexDirection",
+      "value": "'column'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "fontFamily",
+      "value": "'var(--font-ui)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "fontSize",
+      "value": "'12px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "fontSize",
+      "value": "'14px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "fontSize",
+      "value": "'20px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "fontWeight",
+      "value": "600",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "gap",
+      "value": "'12px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "height",
+      "value": "'100vh'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "justifyContent",
+      "value": "'center'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "margin",
+      "value": "'0 0 24px 0'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "margin",
+      "value": "'0 0 8px 0'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "marginBottom",
+      "value": "'24px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "marginBottom",
+      "value": "'8px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "marginTop",
+      "value": "'24px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "maxWidth",
+      "value": "'400px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "maxWidth",
+      "value": "'500px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "overflow",
+      "value": "'auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "padding",
+      "value": "'12px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "padding",
+      "value": "'20px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "textAlign",
+      "value": "'center'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "textAlign",
+      "value": "'left'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "whiteSpace",
+      "value": "'pre-wrap'",
+      "count": 1
+    },
+    {
+      "path": "src/components/ErrorBoundary.tsx",
+      "property": "wordBreak",
+      "value": "'break-word'",
+      "count": 1
+    },
+    {
+      "path": "src/components/import-project/steps/Step2RepoSelection.tsx",
+      "property": "color",
+      "value": "'var(--text-primary)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/import-project/steps/Step3ImportProgress.tsx",
+      "property": "display",
+      "value": "'flex'",
+      "count": 1
+    },
+    {
+      "path": "src/components/import-project/steps/Step3ImportProgress.tsx",
+      "property": "gap",
+      "value": "'8px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/import-project/steps/Step3ImportProgress.tsx",
+      "property": "maxHeight",
+      "value": "'200px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/import-project/steps/Step3ImportProgress.tsx",
+      "property": "overflowY",
+      "value": "'auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/import-project/steps/Step3ImportProgress.tsx",
+      "property": "whiteSpace",
+      "value": "'pre-line'",
+      "count": 1
+    },
+    {
+      "path": "src/components/plugins/PluginManager.tsx",
+      "property": "color",
+      "value": "'var(--text-primary)'",
+      "count": 2
+    },
+    {
+      "path": "src/components/plugins/PluginSlot.tsx",
+      "property": "display",
+      "value": "'contents'",
+      "count": 1
+    },
+    {
+      "path": "src/components/preview/Preview.tsx",
+      "property": "color",
+      "value": "'var(--accent-active)'",
+      "count": 2
+    },
+    {
+      "path": "src/components/primitives/MiddleTruncate.test.tsx",
+      "property": "fontSize",
+      "value": "'12px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/primitives/MiddleTruncate.test.tsx",
+      "property": "fontSize",
+      "value": "'14px'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/agent-led/AgentOnboardingScreen.tsx",
+      "property": "color",
+      "value": "'var(--text-muted)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingScreen.tsx",
+      "property": "color",
+      "value": "'var(--text-muted)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "alignItems",
+      "value": "'center'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "backgroundColor",
+      "value": "'#141414'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "color",
+      "value": "'#666666'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "display",
+      "value": "'flex'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "fontFamily",
+      "value": "'var(--font-code)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "fontSize",
+      "value": "13",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "height",
+      "value": "'100%'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "inset",
+      "value": "0",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "justifyContent",
+      "value": "'center'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "position",
+      "value": "'absolute'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "position",
+      "value": "'relative'",
+      "count": 1
+    },
+    {
+      "path": "src/components/setup/OnboardingTerminal.tsx",
+      "property": "width",
+      "value": "'100%'",
+      "count": 1
+    },
+    {
+      "path": "src/components/support/SupportHome.tsx",
+      "property": "marginLeft",
+      "value": "'auto'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/DevServerStatus.tsx",
+      "property": "color",
+      "value": "'var(--text-muted)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "alignItems",
+      "value": "'center'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "backgroundColor",
+      "value": "'#141414'",
+      "count": 2
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "backgroundColor",
+      "value": "'rgba(30, 30, 30, 0.4)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "color",
+      "value": "'#666666'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "cursor",
+      "value": "'text'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "display",
+      "value": "'flex'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "fontFamily",
+      "value": "'var(--font-code)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "fontSize",
+      "value": "13",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "height",
+      "value": "'100%'",
+      "count": 2
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "inset",
+      "value": "0",
+      "count": 2
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "justifyContent",
+      "value": "'center'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "position",
+      "value": "'absolute'",
+      "count": 2
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "position",
+      "value": "'relative'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "transition",
+      "value": "'filter 150ms ease-in-out'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "transition",
+      "value": "'opacity 150ms ease-in-out'",
+      "count": 1
+    },
+    {
+      "path": "src/components/terminal/Terminal.tsx",
+      "property": "width",
+      "value": "'100%'",
+      "count": 2
+    },
+    {
+      "path": "src/components/workspace/AssetsPanel.tsx",
+      "property": "display",
+      "value": "'none'",
+      "count": 1
+    },
+    {
+      "path": "src/components/workspace/BranchPRTabContainer.tsx",
+      "property": "flex",
+      "value": "1",
+      "count": 2
+    },
+    {
+      "path": "src/components/workspace/BranchPRTabContainer.tsx",
+      "property": "position",
+      "value": "'relative'",
+      "count": 2
+    },
+    {
+      "path": "src/components/workspace/NotificationSettingsModal.tsx",
+      "property": "color",
+      "value": "'var(--text-secondary)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/workspace/NotificationSettingsModal.tsx",
+      "property": "display",
+      "value": "'none'",
+      "count": 1
+    },
+    {
+      "path": "src/components/workspace/NotificationSettingsModal.tsx",
+      "property": "fontSize",
+      "value": "13",
+      "count": 1
+    },
+    {
+      "path": "src/components/workspace/NotificationSettingsModal.tsx",
+      "property": "padding",
+      "value": "'0 var(--spacing-xl) var(--spacing-md)'",
+      "count": 1
+    },
+    {
+      "path": "src/components/workspace/WorkspacePreviewPane.tsx",
+      "property": "display",
+      "value": "'flex'",
+      "count": 3
+    },
+    {
+      "path": "src/components/workspace/WorkspacePreviewPane.tsx",
+      "property": "flex",
+      "value": "1",
+      "count": 3
+    },
+    {
+      "path": "src/components/workspace/WorkspacePreviewPane.tsx",
+      "property": "minHeight",
+      "value": "0",
+      "count": 2
+    },
+    {
+      "path": "src/components/workspace/WorkspacePreviewPane.tsx",
+      "property": "overflow",
+      "value": "'hidden'",
+      "count": 1
+    },
+    {
+      "path": "src/components/workspace/WorkspaceTerminalPane.tsx",
+      "property": "color",
+      "value": "'var(--accent-active)'",
+      "count": 2
+    }
+  ]
+}

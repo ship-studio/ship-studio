@@ -173,11 +173,21 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 {
                     main_builder = main_builder
+                        .decorations(true)
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
+                        // `y` sizes Tao's native titlebar container to 14 + 32 = 46px;
+                        // `center_macos_traffic_lights` below performs the missing Y move.
+                        .traffic_light_position(tauri::LogicalPosition::new(16.0, 32.0))
                         .hidden_title(true);
                 }
 
-                main_builder.build()?;
+                let main_window = main_builder.build()?;
+
+                #[cfg(target_os = "macos")]
+                commands::window::center_macos_traffic_lights(&main_window)?;
+
+                let selected_app_icon = commands::settings::get_app_icon()?;
+                commands::settings::apply_app_icon(_app.handle(), &selected_app_icon)?;
             }
 
             // The static asset-protocol scope (tauri.conf.json) only covers
@@ -430,6 +440,10 @@ pub fn run() {
             commands::edit_structure::delete_element,
             commands::edit_css::resolve_css_rule,
             commands::edit_css::set_css_declaration,
+            commands::edit_css::add_css_variable,
+            commands::edit_css::set_css_variable,
+            commands::edit_css::analyze_css_variable_deletion,
+            commands::edit_css::delete_css_variable,
             commands::edit_css::create_css_class,
             commands::edit_css::list_stylesheets,
             commands::edit_css::list_css_classes,
@@ -519,10 +533,16 @@ pub fn run() {
             commands::settings::set_calendar_hidden,
             commands::settings::get_slack_cta_hidden,
             commands::settings::set_slack_cta_hidden,
+            commands::settings::get_dashboard_header_hidden,
+            commands::settings::set_dashboard_header_hidden,
             commands::settings::get_terminal_gpu_enabled,
             commands::settings::set_terminal_gpu_enabled,
+            commands::settings::get_compact_workspace_toolbar_enabled,
+            commands::settings::set_compact_workspace_toolbar_enabled,
             commands::settings::get_thumbnails_enabled,
             commands::settings::set_thumbnails_enabled,
+            commands::settings::get_app_icon,
+            commands::settings::set_app_icon,
             // Accounts (Workspaces)
             commands::accounts::list_accounts,
             commands::accounts::create_account,

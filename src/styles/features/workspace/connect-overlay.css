@@ -1,17 +1,12 @@
 /* ============ Connect Overlay ============ */
 
-/* Connect-overlay-local colors — intentional one-offs, not in the global scale. */
-:root {
-  --connect-success-hover: #3dbdb5; /* darker step of --success for the CTA hover */
-}
-
 .connect-overlay {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--bg-primary);
+  background: var(--surface-app);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -35,41 +30,15 @@
 }
 
 .connect-overlay-title {
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-h3);
   font-weight: 600;
   margin-bottom: 8px;
   color: var(--text-primary);
 }
 
 .connect-overlay-description {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   color: var(--text-secondary);
   margin-bottom: 24px;
   line-height: 1.5;
-}
-
-.connect-overlay-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  font-size: var(--font-size-lg);
-  font-weight: 500;
-  border-radius: var(--radius-md);
-  border: none;
-  background: var(--success);
-  color: var(--action-text); /* dark text on success-colored button */
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    opacity 0.15s;
-}
-
-.connect-overlay-btn:hover:not(:disabled) {
-  background: var(--connect-success-hover);
-}
-
-.connect-overlay-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }

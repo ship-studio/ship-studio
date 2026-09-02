@@ -1,0 +1,31 @@
+/* Ship Studio design tokens */
+/* Frozen raw compatibility values. Do not add new product usage here. */
+
+:root {
+  --modified-yellow: #eab308;
+  --info: #3b82f6;
+  --info-hover: #2563eb;
+  --info-light: #60a5fa;
+  --info-dark: #1d4ed8;
+  --purple: #a855f7;
+  --purple-light: #a78bfa;
+  --purple-deep-rgb: 147, 51, 234;
+  --slack-pink: #e9a7fb;
+  --slack-lavender: #c4b5fd;
+  --slack-lavender-bright: #ddd6fe;
+  --modified-yellow-rgb: 234, 179, 8;
+  --info-rgb: 59, 130, 246;
+  --info-light-rgb: 96, 165, 250;
+  --purple-rgb: 168, 85, 247;
+  --purple-light-rgb: 167, 139, 250;
+  --border-rgb: 40, 40, 40;
+  --border-default-rgb: 40, 40, 40;
+  --white-rgb: 255, 255, 255;
+  --black-rgb: 0, 0, 0;
+  --tint: rgba(255, 255, 255, 0.08);
+  --radius-full: 50%;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --transition-fast: 0.1s ease;
+  --transition: 0.15s ease;
+  --transition-slow: 0.3s ease;
+}

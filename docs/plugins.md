@@ -202,11 +202,12 @@ Raw-JS plugins (like hello-world) can use the window globals directly:
 
 Prefer the SDK components — they're themed via inline styles and need no CSS.
 If you render your own elements, these classes and variables are **plugin-stable
-API** (defined in `src/styles/global/base.css`, see
+API** (selectors in `src/styles/global/base.css`, variables in the token files ordered by
+`src/styles/global/token-manifest.json`; see
 [docs/design-system.md](design-system.md)):
 
 - `toolbar-icon-btn` — icon button matching the workspace toolbar chrome
-- `btn-primary`, `btn-secondary` — standard action buttons
+- `button` with a `button--*` variant class — standard action buttons
 - CSS variables: `--bg-primary/secondary/tertiary`, `--text-primary/secondary/muted`,
   `--border`, `--accent`, `--action`, `--success`, `--warning`, `--error`,
   `--font-mono`, `--radius`, …

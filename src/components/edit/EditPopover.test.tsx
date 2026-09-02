@@ -19,13 +19,65 @@ function renderPopover(initial: string, options?: string[]) {
   return { input: screen.getByRole<HTMLInputElement>('combobox'), onCommit, onClose };
 }
 
+function renderInlineEditor(initial: string) {
+  const onCommit = vi.fn();
+  const onClose = vi.fn();
+  const { container } = render(
+    <div data-testid="value-column">
+      <EditPopover
+        inline
+        anchor={null}
+        initial={initial}
+        enableColorPicker={false}
+        onCommit={onCommit}
+        onClose={onClose}
+      />
+    </div>
+  );
+  return {
+    container,
+    input: screen.getByRole<HTMLInputElement>('combobox'),
+    onCommit,
+    onClose,
+  };
+}
+
 describe('EditPopover', () => {
+  it('keeps the body-portalled editor out of document flow', () => {
+    const { input } = renderPopover('12px');
+    expect(input.closest('.ss-value-pop')).toHaveStyle({ position: 'fixed' });
+  });
+
   it('commits the typed value on Enter', () => {
     const { input, onCommit, onClose } = renderPopover('12px');
     fireEvent.change(input, { target: { value: '20px' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCommit).toHaveBeenCalledWith('20px');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('renders in the value column and commits when focus leaves', () => {
+    const { container, input, onCommit, onClose } = renderInlineEditor('12px');
+    expect(
+      container.querySelector('[data-testid="value-column"] > .ss-value-pop--inline')
+    ).not.toBeNull();
+    expect(input.closest('.ss-value-pop')).not.toHaveStyle({ position: 'fixed' });
+
+    fireEvent.change(input, { target: { value: '18px' } });
+    fireEvent.blur(input, { relatedTarget: document.body });
+
+    expect(onCommit).toHaveBeenCalledWith('18px');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('uses a wrapping inline editor with a matching text sizer', () => {
+    const { container, input } = renderInlineEditor('var(--font-display), Impact, sans-serif');
+
+    expect(input.tagName).toBe('TEXTAREA');
+    expect(input).toHaveAttribute('aria-multiline', 'true');
+    expect(container.querySelector('.ss-value-pop__sizer')).toHaveTextContent(
+      'var(--font-display), Impact, sans-serif'
+    );
   });
 
   // ── Arrow-key stepping (ArrowUp/Down; Shift ×10, Alt ÷10) ──

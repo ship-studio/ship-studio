@@ -44,7 +44,7 @@ import {
   OnboardingTestMode,
 } from '../../../lib/agentOnboarding';
 import { initDefaultAgent, getAgentById } from '../../../lib/agent';
-import { ClaudeIcon, CodexIcon, CursorIcon, OpencodeIcon } from '../../icons';
+import { ClaudeIcon, CodexIcon, CursorIcon, OpencodeIcon } from '@/components/icons';
 import { usePolling } from '../../../hooks/usePolling';
 import { withTimeout, TimeoutError } from '../../../lib/withTimeout';
 import { trackEvent, trackPageview } from '../../../lib/analytics';
@@ -333,7 +333,7 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
         className={`onboarding-content agent-onboarding-content ${phase === 'guided' ? 'agent-guided-content' : ''}`}
       >
         <div className="onboarding-header">
-          <img src="/ship_studio_full_noshadow.svg" alt="Ship Studio" className="onboarding-logo" />
+          <img src="/ship_studio_full.png" alt="Ship Studio" className="onboarding-logo" />
           {phase === 'pick' && !detailAgent && (
             <>
               <h1>First, pick your AI agent</h1>
@@ -414,12 +414,9 @@ export function AgentOnboardingScreen({ onComplete }: AgentOnboardingScreenProps
                   {SETUP_FRIENDLY_NAMES[actions.terminalConfig.itemId] ||
                     actions.terminalConfig.itemId}
                 </span>
-                <button
-                  className="onboarding-terminal-cancel"
-                  onClick={actions.handleTerminalCancel}
-                >
+                <Button variant="ghost" size="compact" onClick={actions.handleTerminalCancel}>
                   {actions.terminalExitCode ? 'Close' : 'Cancel'}
-                </button>
+                </Button>
               </div>
               <OnboardingTerminal
                 command={actions.terminalConfig.command}

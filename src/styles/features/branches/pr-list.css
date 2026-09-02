@@ -10,7 +10,7 @@
 }
 
 .branches-tab-section-header {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -18,56 +18,32 @@
   margin-bottom: 12px;
 }
 
-/* New Branch Button & Form */
-.branches-new-branch-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: var(--bg-secondary);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: var(--font-size-md);
-  cursor: pointer;
-  transition:
-    background-color var(--transition),
-    color var(--transition),
-    border-color var(--transition);
-  width: 100%;
-}
-
-.branches-new-branch-btn:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--action);
-  color: var(--action);
-}
-
+/* New Branch Form */
 .branches-new-branch-form {
   padding: 14px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
 }
 
 .branches-new-branch-input-wrapper {
   display: flex;
   align-items: center;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   overflow: hidden;
   margin-bottom: 12px;
 }
 
 .branches-new-branch-input-wrapper:focus-within {
-  border-color: var(--action);
+  border-color: var(--accent-active);
 }
 
 .branches-new-branch-prefix {
   padding: 10px 0 10px 12px;
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   white-space: nowrap;
   user-select: none;
 }
@@ -79,7 +55,7 @@
   border: none;
   border-radius: 0;
   color: var(--text-primary);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   outline: none;
 }
 
@@ -96,7 +72,7 @@
   align-items: center;
   gap: var(--spacing-sm);
   margin-bottom: var(--spacing-md);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
 }
 
@@ -109,30 +85,30 @@
   flex: 1;
   min-width: 0;
   padding: var(--spacing-sm) var(--spacing-sm);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-primary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   cursor: pointer;
   outline: none;
 }
 
 .branches-new-branch-base-select:focus {
-  border-color: var(--action);
+  border-color: var(--accent-active);
 }
 
 /* Shown when the typed name gets sanitized (e.g. "adjust h2" → "adjust-h2") */
 .branches-new-branch-hint {
   margin: calc(-1 * var(--spacing-sm)) 0 var(--spacing-md);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-badge);
   color: var(--text-muted);
   word-break: break-all;
 }
 
 .branches-new-branch-hint-name {
   color: var(--text-secondary);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
 }
 
 .branches-new-branch-footer {
@@ -145,7 +121,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-muted);
   cursor: pointer;
   user-select: none;
@@ -156,7 +132,7 @@
   height: 14px;
   margin: 0;
   cursor: pointer;
-  accent-color: var(--action);
+  accent-color: var(--accent-active);
 }
 
 .branches-new-branch-checkbox:hover {
@@ -175,9 +151,9 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
   margin-bottom: 8px;
 }
 
@@ -188,7 +164,7 @@
 /* The current branch reads as "filled": the card is the only filled one in
    the list, and it carries the "you are here" label — no color needed. */
 .branch-card.current {
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 /* Non-current cards switch to their branch when clicked. */
@@ -201,7 +177,7 @@
 
 .branch-card.clickable:hover {
   border-color: var(--text-muted);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
 }
 
 .branch-card-info {
@@ -214,7 +190,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
   font-weight: 500;
   color: var(--text-primary);
   margin-bottom: 4px;
@@ -234,13 +210,13 @@
 }
 
 .branch-card-current-label {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   color: var(--text-muted);
   font-weight: 500;
 }
 
 .branch-card-meta {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   color: var(--text-secondary);
 }
 
@@ -252,21 +228,21 @@
 }
 
 .branch-card-badge {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   color: var(--text-muted);
 }
 
 .branch-card-badge.ahead {
-  background: rgba(var(--action-rgb), 0.1);
-  color: var(--action);
+  background: rgba(var(--accent-active-rgb), 0.1);
+  color: var(--accent-active);
 }
 
 .branch-card-badge.behind {
-  background: rgba(var(--warning-rgb), 0.1);
-  color: var(--warning);
+  background: rgba(var(--accent-warning-rgb), 0.1);
+  color: var(--accent-warning);
 }
 
 .branch-card-actions {
@@ -276,36 +252,6 @@
   flex-shrink: 0;
 }
 
-/* Grey trashcan delete — quiet by default, turns danger-red on hover. */
-.branch-card-delete-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition:
-    color var(--transition),
-    background var(--transition),
-    border-color var(--transition);
-}
-
-.branch-card-delete-btn:hover:not(:disabled) {
-  color: var(--error);
-  background: rgba(var(--error-rgb), 0.1);
-  border-color: rgba(var(--error-rgb), 0.3);
-}
-
-.branch-card-delete-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
 /* Text actions on branch/PR cards now use the <Button> primitive; this class
    remains only for the icon-only GitHub link (.pr-card-icon-btn). */
 .branch-card-action {
@@ -313,11 +259,11 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   cursor: pointer;
   transition:
     background-color var(--transition),
@@ -326,7 +272,7 @@
 }
 
 .branch-card-action:hover {
-  background: var(--border);
+  background: var(--border-default);
   color: var(--text-primary);
 }
 
@@ -345,7 +291,7 @@
   justify-content: center;
   gap: 16px;
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
 }
 
 .prs-tab-error {
@@ -356,20 +302,11 @@
   justify-content: center;
   gap: 16px;
   color: var(--text-muted);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-subhead);
 }
 
-.prs-tab-error button {
-  padding: 8px 16px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+.prs-tab-error .button {
   color: var(--text-primary);
-  cursor: pointer;
-}
-
-.prs-tab-error button:hover {
-  background: var(--bg-secondary);
 }
 
 .prs-tab-section {
@@ -377,7 +314,7 @@
 }
 
 .prs-tab-section-header {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body-sm);
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -397,8 +334,8 @@
   align-items: center;
   padding: 48px 24px;
   text-align: center;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
 }
 
@@ -408,7 +345,7 @@
   justify-content: center;
   width: 64px;
   height: 64px;
-  background: var(--bg-tertiary);
+  background: var(--surface-control);
   border-radius: var(--radius-full);
   color: var(--text-muted);
   margin-bottom: 16px;
@@ -416,7 +353,7 @@
 
 .prs-tab-empty-title {
   margin: 0 0 8px 0;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-h4);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -424,24 +361,7 @@
 .prs-tab-empty-description {
   margin: 0 0 20px 0;
   max-width: 320px;
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-body-lg);
   color: var(--text-secondary);
   line-height: 1.5;
-}
-
-.prs-tab-empty-action {
-  padding: 10px 20px;
-  background: var(--action);
-  border: none;
-  border-radius: var(--radius);
-  color: var(--action-text);
-  font-size: var(--font-size-md);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--transition);
-}
-
-.prs-tab-empty-action:hover {
-  background: var(--action-hover);
-  font-size: var(--font-size-md);
 }

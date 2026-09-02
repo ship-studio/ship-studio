@@ -4,8 +4,8 @@
  * Covers the main state matrix:
  *   - not installed             → Install button, no pill
  *   - installed / not signed in → Sign in button, kebab with Sign in + Uninstall
- *   - installed / default       → green "Default" pill (disabled), kebab
- *   - installed / not default   → "Set default" pill, clicking → Switching… → Default
+ *   - installed / signed in     → outlined "Installed" status, kebab
+ *   - ready / not default       → "Set as default" in the kebab menu
  *   - backend error on load     → toast, no rows
  */
 
@@ -82,12 +82,16 @@ vi.mock('./WorkspaceConnectTerminal', () => ({
 
 // Strip heavy icon SVGs; only need predictable DOM.
 vi.mock('../icons', () => ({
-  CheckIcon: () => <span data-testid="check-icon" />,
+  CloseIcon: () => <span data-testid="close-icon" />,
   ClaudeIcon: () => <span data-testid="claude-icon" />,
   CodexIcon: () => <span data-testid="codex-icon" />,
   OpencodeIcon: () => <span data-testid="opencode-icon" />,
   CursorIcon: () => <span data-testid="cursor-icon" />,
+  DownloadIcon: () => <span data-testid="download-icon" />,
   GitHubIcon: () => <span data-testid="github-icon" />,
+  LoginIcon: () => <span data-testid="login-icon" />,
+  MoreHorizontalIcon: () => <span data-testid="more-horizontal-icon" />,
+  PlugIcon: () => <span data-testid="plug-icon" />,
   VercelIcon: () => <span data-testid="vercel-icon" />,
 }));
 
@@ -164,8 +168,7 @@ describe('AgentsPanel', () => {
     await waitFor(() => expect(screen.getByText('Opencode')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Install' })).toBeInTheDocument();
     expect(screen.getByText('Not installed')).toBeInTheDocument();
-    // No "Set default" pill for an uninstalled agent.
-    expect(screen.queryByText('Set default')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installed')).not.toBeInTheDocument();
   });
 
   it('shows "Sign in" button and "Not signed in" status when installed but unauthed', async () => {
@@ -175,33 +178,23 @@ describe('AgentsPanel', () => {
     await waitFor(() => expect(screen.getByText('Codex')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.getByText('Not signed in')).toBeInTheDocument();
-    expect(screen.queryByText('Set default')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installed')).not.toBeInTheDocument();
   });
 
-  it('renders "Default" pill (disabled) for the current default agent', async () => {
+  it('renders an outlined "Installed" status for signed-in agents', async () => {
     mockInvoke('get_agents_status', [CLAUDE_DEFAULT, CODEX_READY]);
     render(<AgentsPanel />);
 
-    // The workspace badge can also read "Default", so target the pill by role
-    // (the badge is a span). "Set default" has a lowercase d, so /Default/ only
-    // matches the active "Default" pill.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Default/ })).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: 'Installed' })).toHaveLength(2)
     );
-    const defaultPill = screen.getByRole('button', { name: /Default/ });
-    expect(defaultPill).toBeDisabled();
+    for (const status of screen.getAllByRole('button', { name: 'Installed' })) {
+      expect(status).toBeDisabled();
+      expect(status).toHaveClass('button--secondary');
+    }
   });
 
-  it('renders "Set default" pill for ready non-default agents', async () => {
-    mockInvoke('get_agents_status', [CLAUDE_DEFAULT, CODEX_READY]);
-    render(<AgentsPanel />);
-
-    await waitFor(() => expect(screen.getByText('Set default')).toBeInTheDocument());
-    const setDefaultPill = screen.getByRole('button', { name: /Set default/ });
-    expect(setDefaultPill).not.toBeDisabled();
-  });
-
-  it('set-default flow shows Switching… state then settles on the new default', async () => {
+  it('sets the default agent from its overflow menu', async () => {
     mockInvoke('get_agents_status', [CLAUDE_DEFAULT, CODEX_READY]);
 
     // Hold the backend write until we release it, so we can observe the
@@ -215,40 +208,35 @@ describe('AgentsPanel', () => {
     });
 
     render(<AgentsPanel />);
-    await waitFor(() => expect(screen.getByText('Set default')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Codex')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole('button', { name: /Set default/ }));
+    fireEvent.click(screen.getByRole('button', { name: /More actions for Codex/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Set as default' }));
 
-    // Mid-flight: Switching… is visible, "Set default" has been replaced.
-    await waitFor(() => expect(screen.getByText('Switching…')).toBeInTheDocument());
-    expect(screen.queryByText('Set default')).not.toBeInTheDocument();
-
-    // Release the backend and expect the new default to settle on Codex.
+    // Release the backend and expect the default state to settle on Codex.
     releaseBackend();
-    await waitFor(() => expect(screen.queryByText('Switching…')).not.toBeInTheDocument());
-
-    // Codex row should now own the Default pill; Claude Code should show "Set default".
-    // (Query the pill by role — the workspace badge also reads "Default".)
-    expect(screen.getByRole('button', { name: /Default/ })).toBeInTheDocument();
-    expect(screen.getByText('Set default')).toBeInTheDocument();
 
     // Confirm the backend was actually called with the right agent id.
-    const setDefaultCall = invokeCalls.find((c) => c.cmd === 'set_default_agent_id');
-    expect(setDefaultCall?.args).toMatchObject({ agentId: 'codex' });
+    await waitFor(() => {
+      const setDefaultCall = invokeCalls.find((c) => c.cmd === 'set_default_agent_id');
+      expect(setDefaultCall?.args).toMatchObject({ agentId: 'codex' });
+    });
   });
 
-  it('kebab menu surfaces Update / Sign out / Uninstall for a ready agent', async () => {
+  it('kebab menu surfaces Update / Sign out / Uninstall for the default ready agent', async () => {
     mockInvoke('get_agents_status', [CLAUDE_DEFAULT]);
     render(<AgentsPanel />);
 
     await waitFor(() => expect(screen.getByText('Claude Code')).toBeInTheDocument());
 
     const kebab = screen.getByRole('button', { name: /More actions for Claude Code/ });
+    expect(kebab).toHaveClass('button--ghost');
     fireEvent.click(kebab);
 
     expect(screen.getByRole('menuitem', { name: 'Update' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Uninstall' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Set as default' })).not.toBeInTheDocument();
   });
 
   it('kebab menu offers Sign in (not Sign out) when the agent is unauthed', async () => {
@@ -342,11 +330,11 @@ describe('AgentsPanel', () => {
     await waitFor(() => expect(screen.getByText('Claude Code')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
     expect(screen.getByText('circa@circabranding.com · Reconnect needed')).toBeInTheDocument();
-    // The card carries the red stroke class, not the green connected one.
+    // The card carries the red attention class, not the connected state class.
     expect(container.querySelector('.agents-panel-row.needs-reconnect')).toBeInTheDocument();
     expect(container.querySelector('.agents-panel-row.is-connected')).not.toBeInTheDocument();
-    // No "Set default" pill while a reconnect is pending.
-    expect(screen.queryByText('Set default')).not.toBeInTheDocument();
+    // Reconnect takes the place of the installed status while attention is needed.
+    expect(screen.queryByText('Installed')).not.toBeInTheDocument();
   });
 
   it('keeps the neutral never-connected UI (no red, plain "Sign in")', async () => {
@@ -448,7 +436,7 @@ describe('AgentsPanel', () => {
     mockInvoke('list_accounts', [account]);
   }
 
-  it('names the active workspace and groups rows under Coding agents / Services', async () => {
+  it('names the active workspace and groups rows under AGENTS / SERVICES', async () => {
     mockInvoke('get_agents_status', [CLAUDE_DEFAULT]);
     mockWorkspace(CIRCA);
     render(<AgentsPanel />);
@@ -457,8 +445,8 @@ describe('AgentsPanel', () => {
     // Workspace badge names the active workspace.
     await waitFor(() => expect(screen.getAllByText(/Circa/).length).toBeGreaterThan(0));
     // The two section subheaders are present.
-    expect(screen.getByText('Coding agents')).toBeInTheDocument();
-    expect(screen.getByText('Services')).toBeInTheDocument();
+    expect(screen.getByText('AGENTS')).toBeInTheDocument();
+    expect(screen.getByText('SERVICES')).toBeInTheDocument();
     // The Services rows render for GitHub + Vercel.
     expect(screen.getByText('GitHub')).toBeInTheDocument();
     expect(screen.getByText('Vercel')).toBeInTheDocument();
@@ -475,7 +463,8 @@ describe('AgentsPanel', () => {
 
     await waitFor(() => expect(screen.getByText('circa-team')).toBeInTheDocument());
     expect(screen.getByText('octocat@github.com')).toBeInTheDocument();
-    // Connected services show a kebab, not a Connect button.
+    // Connected services show an outlined state label and a kebab, not Connect.
+    expect(screen.getAllByRole('button', { name: 'Connected' })).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
   });
 

@@ -8,7 +8,7 @@
  * @module components/ImportTypePicker
  */
 
-import { GitHubIcon, FolderIcon } from '../icons';
+import { GitHubIcon, FolderIcon } from '@/components/icons';
 import { ModalFrame } from '../primitives/ModalFrame';
 
 interface ImportTypePickerProps {

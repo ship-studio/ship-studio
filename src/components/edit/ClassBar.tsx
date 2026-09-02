@@ -19,9 +19,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { PropertyField } from '../primitives/PropertyField';
 import { useDismissOnOutsidePointer } from '../../hooks/useDismissOnOutsidePointer';
-import { PlusIcon } from '../icons/utility';
-import { CheckIcon, SearchIcon } from '../icons/common';
+import { PlusIcon } from '@/components/icons';
+import { CheckIcon, ChevronIcon, SearchIcon } from '@/components/icons';
 import type { CustomClass } from '../../lib/customClasses';
 import type { EditTarget } from '../../hooks/useVisualEditor';
 import { logger } from '../../lib/logger';
@@ -53,14 +54,6 @@ type Row =
   | { kind: 'applied'; id: string; cls: CustomClass }
   | { kind: 'available'; id: string; cls: CustomClass }
   | { kind: 'create'; id: string };
-
-function Chevron() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-      <polyline points="6 9 12 15 18 9" strokeWidth="2.5" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 export function ClassBar({
   customClasses,
@@ -258,17 +251,17 @@ export function ClassBar({
   return (
     <div className="ss-edit-panel__control">
       <span className="ss-edit-panel__label">Editing</span>
-      <button
+      <PropertyField
         ref={triggerRef}
-        type="button"
+        variant="select"
         className={`ss-enum__trigger ss-classedit__trigger${activeName ? ' is-class' : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
         <span className="ss-classedit__name">{activeName ?? 'This element'}</span>
-        <Chevron />
-      </button>
+        <ChevronIcon />
+      </PropertyField>
 
       {open &&
         menuRect &&

@@ -160,6 +160,10 @@ const OS_SKIP_SELECTOR = [
   '.dashboard-scroll-container',
   '.changelog-list',
   '.support-panel',
+  // ValueField menus are fixed, body-portaled listboxes. OverlayScrollbars
+  // rewrites their children and collapses the menu's max-content width in
+  // WebKit, leaving an open listbox mounted but visually hidden.
+  '.value-field__menu',
   // Workspace sidebar scroll owns its own webkit scrollbar styling and
   // applies `!important` block layout to its direct children. Letting
   // OverlayScrollbars wrap it breaks the scrollbar entirely (the OS
@@ -171,6 +175,11 @@ const OS_SKIP_SELECTOR = [
   // out of CodeMirror's flex row — the line-number gutter collapses to full
   // width and the code stacks below it (Code tab editor, visual editor).
   '.cm-editor',
+  // The Code file browser hides its native scrollbar and owns a flex layout.
+  // OverlayScrollbars changes the sidebar's child layout while relocating the
+  // tree into a viewport, which can leave visible file rows outside the
+  // clickable hit-test area in WKWebView.
+  '.code-tab-sidebar-content',
 ].join(', ');
 
 function initScrollbars() {

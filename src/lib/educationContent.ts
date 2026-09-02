@@ -55,7 +55,7 @@ export const educationContent: Record<string, EducationItem> = {
   'settings-button': {
     title: 'Settings',
     description:
-      'Customize your dashboard — show or hide the activity calendar and community banner, and manage analytics preferences.',
+      'Customize your dashboard — show or hide the home screen header, activity calendar, and community banner, and manage analytics preferences.',
   },
   'machine-tools': {
     title: 'Tools on this Mac',

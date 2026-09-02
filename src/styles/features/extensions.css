@@ -1,0 +1,162 @@
+/* Shared extension-management contracts. Domain content remains in the
+   MCP, Skills, and Plugins stylesheets. */
+
+.extension-manager-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.extension-manager-layout__tabs,
+.extension-manager-layout__controls,
+.extension-manager-layout__footer {
+  flex: 0 0 auto;
+}
+
+.extension-manager-layout__panels {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.extension-manager-layout__panels > .tabs__panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-color: var(--border-default) transparent;
+  scrollbar-width: thin;
+}
+
+.extension-manager-layout__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--extension-manager-footer-padding-block)
+    var(--extension-manager-footer-padding-inline);
+  border-top: var(--stroke-1) solid var(--border-default);
+}
+
+.extension-manager-layout__footer-hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+}
+
+.extension-search-field {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-height: var(--extension-manager-search-height);
+  padding: 0 var(--extension-manager-search-padding-inline);
+  color: var(--text-muted);
+  background: var(--surface-control);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-control);
+  transition: border-color var(--transition);
+}
+
+.extension-search-field:focus-within {
+  border-color: var(--text-muted);
+}
+
+.extension-search-field__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  opacity: 0.6;
+}
+
+.extension-search-field__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-body);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.extension-search-field__input::placeholder {
+  color: var(--text-muted);
+}
+
+.extension-list-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--extension-manager-row-gap);
+  padding: var(--extension-manager-row-padding);
+  background: var(--surface-control);
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-card);
+  transition: border-color var(--transition);
+}
+
+.extension-list-row:hover,
+.extension-list-row:focus-within {
+  border-color: var(--text-muted);
+}
+
+.extension-list-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.extension-list-row__action {
+  flex: 0 0 auto;
+}
+
+.extension-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--extension-manager-scope-padding-block)
+    var(--extension-manager-scope-padding-inline);
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  line-height: var(--line-height-body);
+  letter-spacing: var(--tracking-control);
+  text-transform: uppercase;
+  background: transparent;
+  border: var(--stroke-1) solid var(--border-default);
+  border-radius: var(--radius-control);
+}
+
+.extension-scope-badge--project {
+  color: var(--accent-scope-project);
+  border-color: var(--extension-scope-project-border);
+}
+
+.extension-state {
+  padding: var(--extension-manager-state-padding-block) var(--spacing-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-body);
+  text-align: center;
+}
+
+.extension-state--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.extension-state__spinner {
+  color: var(--accent-active);
+}
+
+.extension-state--error {
+  margin-bottom: var(--spacing-md);
+  color: var(--accent-error);
+  text-align: left;
+  background: var(--extension-state-error-surface);
+  border: var(--stroke-1) solid var(--extension-state-error-border);
+  border-radius: var(--radius-control);
+}

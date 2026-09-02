@@ -1,9 +1,9 @@
 /* Workspace Tabs
-   The tab row stretches to fill the full toolbar height so active-state
-   underlines can sit flush with the toolbar's bottom border. Each tab has
+   The tab row stretches to fill the full titlebar height so active-state
+   underlines can sit flush with the titlebar's bottom border. Each tab has
    no background/border — hover/active states are communicated by color +
    a 2px underline pinned to the bottom via ::after (overlaps the parent
-   toolbar's border-bottom at `bottom: -1px`). */
+   titlebar's border-bottom at `bottom: -1px`). */
 .workspace-tabs {
   display: flex;
   align-self: stretch;
@@ -11,55 +11,78 @@
   gap: 0;
 }
 
-/* The tabs live in the single header row (right cluster). Cancel the header's
-   vertical padding so they span its full height and the active underline pins
-   flush to the header's bottom border, as the tab design intends. */
-.workspace-header .workspace-tabs {
-  margin-top: calc(var(--spacing-sm) * -1);
-  margin-bottom: calc(var(--spacing-sm) * -1);
+.workspace-tabs-list {
+  display: flex;
+  align-items: stretch;
+  height: auto;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
-.workspace-tab {
+/* The tabs live in the titlebar and span its full height so the active
+   underline pins flush to the titlebar's bottom border. */
+.workspace-titlebar .workspace-tabs {
+  align-self: stretch;
+}
+
+.workspace-titlebar .workspace-tabs-list {
+  height: 100%;
+}
+
+/* In classic layout the mode tabs occupy the padded second toolbar. */
+.workspace-header .workspace-tabs {
+  margin-block: calc(var(--spacing-sm) * -1);
+}
+
+.workspace-tab.button {
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
+  height: auto;
+  min-height: 0;
   padding: 0 var(--spacing-md);
   min-width: 0;
   background: transparent;
   border: none;
   border-radius: 0;
+  box-shadow: none;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   cursor: pointer;
   transition: color 0.15s;
   outline: none;
 }
 
-.workspace-tab:hover,
-.workspace-tab:focus-visible {
+.workspace-tab.button:hover:not(:disabled),
+.workspace-tab.button:focus-visible {
   color: var(--text-secondary);
 }
 
-.workspace-tab.active {
+.workspace-tab.button.is-active,
+.workspace-focus-tab.button[aria-pressed='true'] {
   color: var(--text-primary);
 }
 
-.workspace-tab.active::after {
+.workspace-focus-tab.button[aria-pressed='true']::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: var(--accent);
+  background: currentColor;
   border-radius: 2px 2px 0 0;
 }
 
-.workspace-tab.attention {
-  color: var(--success-light);
+.workspace-tab.button.attention {
+  color: var(--accent-success);
 }
 
 .workspace-tab svg {
@@ -69,7 +92,7 @@
 .agent-toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--button-gap);
 }
 
 /* Open in Browser Button */
@@ -80,9 +103,9 @@
   padding: 6px 12px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   color: var(--text-muted);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -95,8 +118,8 @@
 
 .open-in-browser-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border-color: var(--border);
+  background: var(--surface-control);
+  border-color: var(--border-default);
 }
 
 .open-in-browser-btn svg {
@@ -113,7 +136,7 @@
   padding: 0;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--radius-control);
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -127,15 +150,15 @@
 
 .hide-preview-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border-color: var(--border);
+  background: var(--surface-control);
+  border-color: var(--border-default);
 }
 
 /* Preview Tabs Divider */
 .preview-tabs-divider {
   width: 1px;
   height: 20px;
-  background: var(--border);
+  background: var(--border-default);
   margin: 0 8px;
   flex-shrink: 0;
 }
@@ -144,7 +167,7 @@
 .preview-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--button-gap);
 }
 
 /* Preview Action Buttons */
@@ -153,11 +176,11 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -170,7 +193,7 @@
 
 .preview-action-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-hover);
+  background: var(--surface-control-hover);
 }
 
 .preview-action-btn svg {
@@ -185,9 +208,9 @@
   width: 28px;
   height: 28px;
   padding: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-muted);
   cursor: pointer;
   transition:
@@ -200,7 +223,7 @@
 
 .preview-action-btn-icon:hover {
   color: var(--text-secondary);
-  background: var(--border);
+  background: var(--border-default);
   border-color: var(--text-muted);
 }
 
@@ -208,7 +231,7 @@
 .preview-hidden-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--button-gap);
 }
 
 /* Show Preview Button (when preview is hidden) */
@@ -217,11 +240,11 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface-control);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   color: var(--text-secondary);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -235,7 +258,7 @@
 
 .show-preview-btn:hover {
   color: var(--text-primary);
-  background: var(--bg-hover);
+  background: var(--surface-control-hover);
 }
 
 .show-preview-btn svg {

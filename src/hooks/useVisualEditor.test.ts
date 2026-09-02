@@ -504,6 +504,29 @@ describe('useVisualEditor custom classes', () => {
   });
 });
 
+describe('useVisualEditor CSS variable deletion reconciliation', () => {
+  it('replaces the deleted variable in the live class and advances the selection baseline', async () => {
+    const { result, iframeRef } = setup();
+    act(() => result.current.toggleEditMode());
+    await select('text-[var(--test-token)]', iframeRef.current!.contentWindow!);
+
+    act(() => result.current.reconcileDeletedVariable('--test-token', 'hsla(0, 100%, 50%, 0.8)'));
+
+    const next = 'text-[hsla(0,_100%,_50%,_0.8)]';
+    expect(result.current.currentClass).toBe(next);
+    expect(result.current.selection?.signature.className).toBe(next);
+    expect(result.current.selection?.resolution).toMatchObject({ class_name: next });
+
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- inspecting the postMessage mock's calls
+    const post = iframeRef.current!.contentWindow!.postMessage as Fn;
+    expect(post.mock.calls).toContainEqual([
+      { type: 'ss:mutate', className: next, rules: [] },
+      '*',
+    ]);
+    expect(post.mock.calls).toContainEqual([{ type: 'ss:commit' }, '*']);
+  });
+});
+
 describe('useVisualEditor class gestures (apply / unapply / extract / delete)', () => {
   /** Enter edit mode with a set of project classes loaded, then select `cls`. */
   async function withSelection(

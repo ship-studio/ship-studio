@@ -1,252 +1,266 @@
-/**
- * File and code operation icons.
- *
- * Code, terminal, edit, file, folder, trash, upload, download, copy, reset, image, and bug icons.
- */
+import CodeBlockSvg from '../../assets/icons/code-block.svg?react';
+import TerminalSvg from '../../assets/icons/terminal.svg?react';
+import EditModeSvg from '../../assets/icons/edit-mode.svg?react';
+import EditFieldSvg from '../../assets/icons/edit-field.svg?react';
+import FileSvg from '../../assets/icons/file.svg?react';
+import FileTextSvg from '../../assets/icons/file-text.svg?react';
+import FolderSvg from '../../assets/icons/folder.svg?react';
+import FolderOpenSvg from '../../assets/icons/folder-open.svg?react';
+import NewFolderSvg from '../../assets/icons/new-folder.svg?react';
+import MoveToFolderSvg from '../../assets/icons/move-to-folder.svg?react';
+import TrashSvg from '../../assets/icons/trash.svg?react';
+import UpSvg from '../../assets/icons/up.svg?react';
+import DownSvg from '../../assets/icons/down.svg?react';
+import CopySvg from '../../assets/icons/copy.svg?react';
+import ColorPickerSvg from '../../assets/icons/color-picker.svg?react';
+import DuplicateSvg from '../../assets/icons/duplicate.svg?react';
+import ReloadSvg from '../../assets/icons/reload.svg?react';
+import ImageSvg from '../../assets/icons/image.svg?react';
+import ImageUploadSvg from '../../assets/icons/image-upload.svg?react';
+import SaveSvg from '../../assets/icons/save.svg?react';
+import VariablesSvg from '../../assets/icons/import/variables.svg?react';
+import ElementButtonSvg from '../../assets/icons/element-button.svg?react';
+import ElementDivSvg from '../../assets/icons/element-div.svg?react';
+import ElementHeadingSvg from '../../assets/icons/element-heading.svg?react';
+import ElementHeading1Svg from '../../assets/icons/element-heading1.svg?react';
+import ElementHeading2Svg from '../../assets/icons/element-heading2.svg?react';
+import ElementHeading3Svg from '../../assets/icons/element-heading3.svg?react';
+import ElementLinkSvg from '../../assets/icons/element-link.svg?react';
+import ElementListSvg from '../../assets/icons/element-list.svg?react';
+import ElementSectionSvg from '../../assets/icons/element-section.svg?react';
+import NestRuleSvg from '../../assets/icons/old-icons/nest-rule.svg?react';
+import ScrubHorizontalSvg from '../../assets/icons/old-icons/scrub-horizontal.svg?react';
+import PasteSvg from '../../assets/icons/old-icons/paste.svg?react';
+import { createIcon } from './icon-base';
 
-interface IconProps {
-  size?: number;
-  className?: string;
-}
-
-export function CodeIcon({ size = 16 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="16 18 22 12 16 6" />
-      <polyline points="8 6 2 12 8 18" />
-    </svg>
-  );
-}
-
-export function TerminalIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="4 17 10 11 4 5" />
-      <line x1="12" y1="19" x2="20" y2="19" />
-    </svg>
-  );
-}
-
-export function EditIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  );
-}
-
-export function FileIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-    </svg>
-  );
-}
-
-export function FolderIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-export function FolderPlusIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-      <line x1="12" y1="11" x2="12" y2="17" />
-      <line x1="9" y1="14" x2="15" y2="14" />
-    </svg>
-  );
-}
-
-export function TrashIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}
-
-export function UploadIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
-    </svg>
-  );
-}
-
-export function DownloadIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  );
-}
-
-export function CopyIcon({ size = 12 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-export function ResetIcon({ size = 12 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
-  );
-}
-
-export function ImageIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-      <circle cx="8.5" cy="8.5" r="1.5" />
-      <polyline points="21 15 16 10 5 21" />
-    </svg>
-  );
-}
-
-export function BugIcon({ size = 14 }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 2l1.88 1.88" />
-      <path d="M14.12 3.88L16 2" />
-      <path d="M9 7.13v-1a3.003 3.003 0 116 0v1" />
-      <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6" />
-      <path d="M12 20v-9" />
-      <path d="M6.53 9C4.6 8.8 3 7.1 3 5" />
-      <path d="M6 13H2" />
-      <path d="M3 21c0-2.1 1.7-3.9 3.8-4" />
-      <path d="M20.97 5c0 2.1-1.6 3.8-3.5 4" />
-      <path d="M22 13h-4" />
-      <path d="M17.2 17c2.1.1 3.8 1.9 3.8 4" />
-    </svg>
-  );
-}
+export const CodeIcon = createIcon(CodeBlockSvg, {
+  name: 'CodeIcon',
+  source: 'icons/code-block.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const TerminalIcon = createIcon(TerminalSvg, {
+  name: 'TerminalIcon',
+  source: 'icons/terminal.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const EditIcon = createIcon(EditModeSvg, {
+  name: 'EditIcon',
+  source: 'icons/edit-mode.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const EditFieldIcon = createIcon(EditFieldSvg, {
+  name: 'EditFieldIcon',
+  source: 'icons/edit-field.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const FileIcon = createIcon(FileSvg, {
+  name: 'FileIcon',
+  source: 'icons/file.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const FileTextIcon = createIcon(FileTextSvg, {
+  name: 'FileTextIcon',
+  source: 'icons/file-text.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const FolderIcon = createIcon(FolderSvg, {
+  name: 'FolderIcon',
+  source: 'icons/folder.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const FolderOpenIcon = createIcon(FolderOpenSvg, {
+  name: 'FolderOpenIcon',
+  source: 'icons/folder-open.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const FolderPlusIcon = createIcon(NewFolderSvg, {
+  name: 'FolderPlusIcon',
+  source: 'icons/new-folder.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const MoveToFolderIcon = createIcon(MoveToFolderSvg, {
+  name: 'MoveToFolderIcon',
+  source: 'icons/move-to-folder.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const TrashIcon = createIcon(TrashSvg, {
+  name: 'TrashIcon',
+  source: 'icons/trash.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const UploadIcon = createIcon(UpSvg, {
+  name: 'UploadIcon',
+  source: 'icons/up.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const DownloadIcon = createIcon(DownSvg, {
+  name: 'DownloadIcon',
+  source: 'icons/down.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const CopyIcon = createIcon(CopySvg, {
+  name: 'CopyIcon',
+  source: 'icons/copy.svg',
+  kind: 'ui',
+  defaultSize: 14,
+  compact: true,
+  strokeWidth: '1px',
+});
+export const ColorPickerIcon = createIcon(ColorPickerSvg, {
+  name: 'ColorPickerIcon',
+  source: 'icons/color-picker.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const DuplicateIcon = createIcon(DuplicateSvg, {
+  name: 'DuplicateIcon',
+  source: 'icons/duplicate.svg',
+  kind: 'ui',
+  defaultSize: 14,
+  compact: true,
+  strokeWidth: '1px',
+});
+export const ResetIcon = createIcon(ReloadSvg, {
+  name: 'ResetIcon',
+  source: 'icons/reload.svg',
+  kind: 'ui',
+  defaultSize: 14,
+  compact: true,
+  strokeWidth: '1px',
+});
+export const ImageIcon = createIcon(ImageSvg, {
+  name: 'ImageIcon',
+  source: 'icons/image.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ImageUploadIcon = createIcon(ImageUploadSvg, {
+  name: 'ImageUploadIcon',
+  source: 'icons/image-upload.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const VariablesIcon = createIcon(VariablesSvg, {
+  name: 'VariablesIcon',
+  source: 'icons/import/variables.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementButtonIcon = createIcon(ElementButtonSvg, {
+  name: 'ElementButtonIcon',
+  source: 'icons/element-button.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementDivIcon = createIcon(ElementDivSvg, {
+  name: 'ElementDivIcon',
+  source: 'icons/element-div.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementHeadingIcon = createIcon(ElementHeadingSvg, {
+  name: 'ElementHeadingIcon',
+  source: 'icons/element-heading.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementHeading1Icon = createIcon(ElementHeading1Svg, {
+  name: 'ElementHeading1Icon',
+  source: 'icons/element-heading1.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementHeading2Icon = createIcon(ElementHeading2Svg, {
+  name: 'ElementHeading2Icon',
+  source: 'icons/element-heading2.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementHeading3Icon = createIcon(ElementHeading3Svg, {
+  name: 'ElementHeading3Icon',
+  source: 'icons/element-heading3.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementLinkIcon = createIcon(ElementLinkSvg, {
+  name: 'ElementLinkIcon',
+  source: 'icons/element-link.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementListIcon = createIcon(ElementListSvg, {
+  name: 'ElementListIcon',
+  source: 'icons/element-list.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const ElementSectionIcon = createIcon(ElementSectionSvg, {
+  name: 'ElementSectionIcon',
+  source: 'icons/element-section.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const SaveIcon = createIcon(SaveSvg, {
+  name: 'SaveIcon',
+  source: 'icons/save.svg',
+  kind: 'ui',
+  defaultSize: 16,
+  strokeWidth: '1px',
+});
+export const NestRuleIcon = createIcon(NestRuleSvg, {
+  name: 'NestRuleIcon',
+  source: 'icons/old-icons/nest-rule.svg',
+  kind: 'ui',
+  defaultSize: 11,
+});
+export const ScrubHorizontalIcon = createIcon(ScrubHorizontalSvg, {
+  name: 'ScrubHorizontalIcon',
+  source: 'icons/old-icons/scrub-horizontal.svg',
+  kind: 'ui',
+  defaultSize: 12,
+});
+export const PasteIcon = createIcon(PasteSvg, {
+  name: 'PasteIcon',
+  source: 'icons/old-icons/paste.svg',
+  kind: 'ui',
+  defaultSize: 14,
+});
