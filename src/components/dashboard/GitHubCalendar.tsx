@@ -8,11 +8,12 @@
  * @module components/GitHubCalendar
  */
 
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo, Component, ReactNode } from 'react';
 import { GitHubCalendar as GitHubCalendarLib } from 'react-github-calendar';
 import { Tooltip } from 'react-tooltip';
 import 'react-tooltip/dist/react-tooltip.css';
 import { EyeOffIcon } from '../icons';
+import { logger } from '../../lib/logger';
 
 interface Activity {
   date: string;
@@ -107,6 +108,32 @@ function CalendarSkeleton() {
   );
 }
 
+// react-activity-calendar validates its data *during render* and throws on anything
+// it dislikes — most commonly "Activity data must not be empty.", which happens
+// whenever the contributions API answers 200 with an empty list (accounts with no
+// public contributions in the requested year, EMU/enterprise accounts, brand new
+// accounts). An uncaught throw there reaches the app-level ErrorBoundary and replaces
+// the entire dashboard with the crash screen, so the calendar gets its own boundary:
+// a decorative widget must never be able to take the app down.
+class CalendarErrorBoundary extends Component<
+  { onError: (error: Error) => void; children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
+
 // Stable renderBlock callback — avoids creating a new function reference every render,
 // which would cause react-github-calendar to re-render all 365+ SVG blocks.
 const renderBlock = (block: React.ReactElement, activity: Activity) => (
@@ -123,11 +150,26 @@ export const GitHubCalendar = memo(function GitHubCalendar({
 }: GitHubCalendarProps) {
   const currentYear = new Date().getFullYear();
   const [dataLoaded, setDataLoaded] = useState(false);
+  // Username the calendar blew up for, rather than a plain boolean: the reset
+  // effect below runs *after* the boundary's componentDidCatch on mount, so a
+  // flag cleared there would immediately un-hide a calendar that just failed.
+  const [failedFor, setFailedFor] = useState<string | null>(null);
 
   // Reset data loaded state when username changes
   useEffect(() => {
     setDataLoaded(false); // eslint-disable-line react-hooks/set-state-in-effect -- intentional: reset loading state when username prop changes
   }, [username]);
+
+  const handleCalendarError = useCallback(
+    (error: Error) => {
+      logger.warn('GitHub contribution calendar failed to render, hiding it', {
+        error: error.message,
+        username,
+      });
+      setFailedFor(username ?? null);
+    },
+    [username]
+  );
 
   // Stable transformData callback — prevents the library from re-fetching/re-processing
   // data on every parent re-render (unstable function refs trigger library effects).
@@ -152,6 +194,12 @@ export const GitHubCalendar = memo(function GitHubCalendar({
     return null;
   }
 
+  // The calendar threw for this user (no contribution data, unsupported CSS color
+  // function, …). Drop the whole widget rather than leaving an empty frame behind.
+  if (username && failedFor === username) {
+    return null;
+  }
+
   // Show skeleton while waiting for auth check OR waiting for data
   const showSkeleton = !isAuthCheckDone || !username || !dataLoaded;
 
@@ -170,20 +218,22 @@ export const GitHubCalendar = memo(function GitHubCalendar({
       {showSkeleton && <CalendarSkeleton />}
       {username && (
         <div style={{ display: dataLoaded ? 'block' : 'none' }}>
-          <GitHubCalendarLib
-            username={username}
-            colorScheme="dark"
-            theme={theme}
-            blockSize={12}
-            blockMargin={4}
-            blockRadius={3}
-            fontSize={12}
-            showColorLegend={false}
-            showTotalCount={false}
-            year={currentYear}
-            renderBlock={renderBlock}
-            transformData={handleTransformData}
-          />
+          <CalendarErrorBoundary key={username} onError={handleCalendarError}>
+            <GitHubCalendarLib
+              username={username}
+              colorScheme="dark"
+              theme={theme}
+              blockSize={12}
+              blockMargin={4}
+              blockRadius={3}
+              fontSize={12}
+              showColorLegend={false}
+              showTotalCount={false}
+              year={currentYear}
+              renderBlock={renderBlock}
+              transformData={handleTransformData}
+            />
+          </CalendarErrorBoundary>
         </div>
       )}
       <Tooltip id="github-calendar-tooltip" className="github-calendar-tooltip" />
