@@ -83,6 +83,7 @@ Single-file domains:
 - `settings.rs` - App-level settings persistence
 - `snapshots.rs` - Project snapshots / backups (rewind)
 - `static_server.rs` - Static file server for plain HTML projects
+- `studio_talk.rs` - Frontend access to the cross-project exchange registry (the engine — `studio_projects`/`studio_ask` MCP tools, headless answering agent, live exchange events — lives in `src-tauri/src/studio_talk.rs`; the tools are served by the agent bridge)
 - `support.rs` - In-app support requests
 - `templates.rs` - Project template export/extraction
 - `window.rs` - Window management helpers
@@ -141,6 +142,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `project.ts` - Project metadata and file operations
 - `projectSessions.ts` / `sessionRegistry.ts` / `ptySession.ts` - Hot project sessions (backend authority + frontend mirror)
 - `setup.ts` - Setup wizard step definitions and integration status
+- `studioTalk.ts` - Cross-project agent exchanges: registry snapshot + live `studio-exchange-updated` event (visualized by `workspace/StudioTalkSection.tsx` and the project rail pulse)
 - `terminalLinks.ts` - Clickable URLs in terminals (web-links addon)
 - `updater.ts` - Auto-update functionality and version checking
 

@@ -1,0 +1,279 @@
+/* Studio Talk — cross-project agent exchanges (sidebar section + transcript
+   modal). Rendered by workspace/StudioTalkSection.tsx. */
+
+/* ============ Sidebar section ============ */
+
+.studio-talk-section {
+  margin: var(--spacing-xs) var(--spacing-sm);
+  padding: var(--spacing-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.studio-talk-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.studio-talk-header-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.studio-talk-live-badge {
+  margin-left: auto;
+  padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--success-rgb), 0.15);
+  color: var(--success);
+  font-size: var(--font-size-xs);
+  text-transform: lowercase;
+  letter-spacing: normal;
+  animation: studioTalkPulse 2s ease-in-out infinite;
+}
+
+@keyframes studioTalkPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.studio-talk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.studio-talk-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px; /* css-ok: sub-token nudge between the two text lines */
+  width: 100%;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.studio-talk-row:hover {
+  background: var(--tint-subtle);
+}
+
+.studio-talk-row-top {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.studio-talk-direction {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
+.studio-talk-project {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-talk-arrow {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.studio-talk-glyph {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+}
+
+.studio-talk-glyph.is-completed {
+  color: var(--success);
+}
+
+.studio-talk-glyph.is-failed {
+  color: var(--error);
+}
+
+.studio-talk-row-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.studio-talk-row.is-running .studio-talk-row-detail {
+  color: var(--text-secondary);
+}
+
+.studio-talk-view-all {
+  width: 100%;
+  padding: var(--spacing-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+
+.studio-talk-view-all:hover {
+  color: var(--text-secondary);
+}
+
+/* ============ Transcript modal ============ */
+
+.studio-talk-modal {
+  max-width: 640px;
+  width: 90vw;
+}
+
+.studio-talk-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.studio-talk-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.studio-talk-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.studio-talk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.studio-talk-chip:hover {
+  background: var(--tint-subtle);
+}
+
+.studio-talk-chip.is-selected {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.studio-talk-chip-time {
+  color: var(--text-muted);
+}
+
+.studio-talk-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.studio-talk-transcript-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.studio-talk-block-label {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.studio-talk-question,
+.studio-talk-answer {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.studio-talk-error {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: rgba(var(--error-rgb), 0.1);
+  color: var(--error);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.studio-talk-activity {
+  list-style: none;
+  margin: 0;
+  padding: var(--spacing-xs) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  border-left: 2px solid var(--border);
+  padding-left: var(--spacing-md);
+}
+
+.studio-talk-activity-line {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  overflow-wrap: break-word;
+}
+
+.studio-talk-activity-line.is-text {
+  font-family: inherit;
+  font-style: italic;
+}
+
+.studio-talk-activity-line.is-status {
+  color: var(--text-muted);
+}
+
+.studio-talk-activity-line.is-live {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--text-muted);
+  font-family: inherit;
+}

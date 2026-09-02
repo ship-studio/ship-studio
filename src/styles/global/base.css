@@ -82,6 +82,7 @@
 
   /* RGB triplets — for alpha tints only: rgba(var(--error-rgb), 0.1).
    * Keep each in sync with its solid token above. */
+  --accent-rgb: 255, 255, 255;
   --action-rgb: 84, 227, 110;
   --success-rgb: 78, 205, 196;
   --success-light-rgb: 34, 197, 94;

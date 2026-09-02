@@ -40,6 +40,7 @@ pub mod shopify;
 pub mod skills;
 pub mod snapshots;
 pub mod static_server;
+pub mod studio_talk;
 pub mod support;
 pub mod templates;
 pub mod window;

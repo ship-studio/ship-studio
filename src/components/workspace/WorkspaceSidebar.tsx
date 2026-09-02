@@ -27,6 +27,7 @@ import type { TerminalTab } from '../../hooks/useTerminalManagement';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
 import { useActiveAccount } from '../../hooks/useActiveAccount';
 import { useCommands } from '../../commands/useCommands';
+import { StudioTalkSection } from './StudioTalkSection';
 import { kbd } from '../../lib/shortcuts';
 import { basename } from '../../lib/paths';
 import '../../styles/features/account-select.css';
@@ -782,6 +783,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
       </button>
 
       <div className="workspace-sidebar-scroll">
+        <StudioTalkSection currentProjectPath={currentProjectPath} />
         <SidebarGroupHeader
           label="Pinned"
           count={pinnedRows.length}

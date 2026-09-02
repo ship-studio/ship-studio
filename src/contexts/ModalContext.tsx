@@ -41,7 +41,8 @@ export type ModalId =
   | 'quitConfirm'
   | 'commandPalette'
   | 'shopifyStore'
-  | 'worktreeCreate';
+  | 'worktreeCreate'
+  | 'studioTalk';
 
 interface ModalContextValue {
   isOpen: (id: ModalId) => boolean;

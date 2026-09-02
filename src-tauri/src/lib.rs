@@ -21,6 +21,7 @@ pub mod logging;
 pub mod proxy;
 pub mod state;
 pub mod static_server;
+pub mod studio_talk;
 pub mod types;
 pub mod utils;
 pub mod webview_scripts;
@@ -619,6 +620,7 @@ pub fn run() {
             commands::static_server::start_static_server,
             commands::static_server::stop_static_server,
             // Agent Preview Bridge (MCP server for the workspace agent)
+            commands::studio_talk::list_studio_exchanges,
             commands::agent_bridge::get_agent_bridge_url,
             commands::agent_bridge::get_agent_bridge_active_url,
             commands::agent_bridge::register_cursor_mcp,

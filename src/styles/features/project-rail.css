@@ -138,6 +138,23 @@ body.rail-drag-active iframe {
   border-color: var(--action);
 }
 
+/* Live cross-project exchange (Studio Talk): both ends of the conversation
+   pulse so "these two are talking" reads at a glance. */
+.project-rail-item.is-talking {
+  border-color: var(--accent);
+  animation: rail-talk-pulse 2s ease-in-out infinite;
+}
+
+@keyframes rail-talk-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0);
+  }
+}
+
 .project-rail-thumb {
   display: block;
   width: 100%;

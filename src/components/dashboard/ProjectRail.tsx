@@ -24,6 +24,7 @@
 
 import { useEffect, useRef, useState, useLayoutEffect, useCallback } from 'react';
 import type { PinnedProjectRow } from '../../hooks/usePinnedProjects';
+import { useStudioExchanges } from '../../hooks/useStudioExchanges';
 import { getProjectThumbnail, listProjects } from '../../lib/project';
 import { asCommandError, formatCommandError } from '../../lib/errors';
 import { logger } from '../../lib/logger';
@@ -87,6 +88,13 @@ export function ProjectRail({
   const pendingDragRef = useRef<PendingDrag | null>(null);
   const rowsRef = useRef(rows);
   const onReorderRef = useRef(onReorder);
+
+  // Projects currently in a live cross-project exchange pulse on the rail —
+  // the "these two are talking" signal, visible even from the dashboard.
+  const exchanges = useStudioExchanges();
+  const talkingPaths = new Set(
+    exchanges.filter((e) => e.status === 'running').flatMap((e) => [e.fromProject, e.toProject])
+  );
 
   // Context menu state (lifted from RailItem so it renders outside the list)
   const [contextMenu, setContextMenu] = useState<{
@@ -367,6 +375,7 @@ export function ProjectRail({
             // Suppress click when ANY drag was active in this gesture.
             // The check happens at click time using a closure over dragSource.
             suppressClickAfterDrag={dragSource !== null}
+            isTalking={talkingPaths.has(row.projectPath)}
           />
         ))}
         {onAddProject && (
@@ -465,6 +474,8 @@ interface RailItemProps {
   isReorderable: boolean;
   onPointerDown: (projectPath: string, e: React.PointerEvent) => void;
   suppressClickAfterDrag: boolean;
+  /** True while this project is in a live cross-project exchange (Studio Talk). */
+  isTalking: boolean;
 }
 
 function RailItem({
@@ -478,6 +489,7 @@ function RailItem({
   isReorderable,
   onPointerDown,
   suppressClickAfterDrag,
+  isTalking,
 }: RailItemProps) {
   // Lazy-init from the in-memory cache so the cache hit doesn't require a
   // setState inside an effect (which the project's lint flags as an
@@ -546,6 +558,7 @@ function RailItem({
     row.isCurrent ? 'is-current' : '',
     `status-${row.status}`,
     isReorderable ? 'is-reorderable' : '',
+    isTalking ? 'is-talking' : '',
   ]
     .filter(Boolean)
     .join(' ');

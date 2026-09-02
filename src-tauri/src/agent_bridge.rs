@@ -49,6 +49,8 @@ const DEFAULT_TOOL_TIMEOUT_SECS: u64 = 20;
 /// Screenshots go through Playwright; the first run may install a headless
 /// Chromium, which takes minutes.
 const SCREENSHOT_TOOL_TIMEOUT_SECS: u64 = 240;
+/// studio_ask runs a full headless agent session in the target project.
+const STUDIO_ASK_TOOL_TIMEOUT_SECS: u64 = 300;
 
 /// MCP protocol revisions this server knows. We echo the client's requested
 /// version when it's one of these; otherwise we answer with our latest.
@@ -462,7 +464,7 @@ fn initialize_result(params: Option<&Value>) -> Value {
             "name": "ship-studio-preview",
             "version": env!("CARGO_PKG_VERSION"),
         },
-        "instructions": "PREFERRED tools for anything involving THIS project's own site: viewing pages, clicking buttons, filling forms, reading console/network output, taking screenshots. They drive the live preview inside Ship Studio that the user is already watching — always use these instead of generic browser automation (Chrome extensions, Playwright, opening a browser) when the target is this project's pages; they are faster, need no setup, and the user sees an agent cursor mark every action. Start with preview_status to see what's running and which pages exist. After making code changes, use preview_console to check for runtime errors and preview_screenshot to see the rendered result. preview_click/preview_type/preview_scroll interact with the page like a user would; preview_navigate switches pages. When NOT to use these: (1) other websites, the deployed production site, or tasks needing an existing logged-in browser session — use a browser automation tool if one is available; (2) anything requiring the user personally — signing in with real credentials, OAuth/social-login popups, payments or checkout, camera/microphone permissions, or judging how the site feels on their real devices and browsers — there, ask the user to check it themselves in their own browser and tell them what to look for.",
+        "instructions": "PREFERRED tools for anything involving THIS project's own site: viewing pages, clicking buttons, filling forms, reading console/network output, taking screenshots. They drive the live preview inside Ship Studio that the user is already watching — always use these instead of generic browser automation (Chrome extensions, Playwright, opening a browser) when the target is this project's pages; they are faster, need no setup, and the user sees an agent cursor mark every action. Start with preview_status to see what's running and which pages exist. After making code changes, use preview_console to check for runtime errors and preview_screenshot to see the rendered result. preview_click/preview_type/preview_scroll interact with the page like a user would; preview_navigate switches pages. When NOT to use these: (1) other websites, the deployed production site, or tasks needing an existing logged-in browser session — use a browser automation tool if one is available; (2) anything requiring the user personally — signing in with real credentials, OAuth/social-login popups, payments or checkout, camera/microphone permissions, or judging how the site feels on their real devices and browsers — there, ask the user to check it themselves in their own browser and tell them what to look for. CROSS-PROJECT: whenever the user references another of their projects in ANY phrasing ('my other project', 'my dashboard', 'like I did in X', 'my backend/frontend') — never say you can't see it and never ask them to paste code from it. Call studio_projects to find it, then either read its files directly or use studio_ask to have a read-only agent inside that project answer from its real code.",
     })
 }
 
@@ -598,6 +600,25 @@ const TOOLS: &[ToolDef] = &[
         }),
     },
     ToolDef {
+        name: "studio_projects",
+        description: "List the user's other Ship Studio projects on this machine: name, absolute path, whether each is open in Ship Studio, and its reserved local preview port when open. Call this whenever the user mentions 'my other project', 'my other app', a companion frontend/backend/dashboard, or any project by name that isn't this one — it tells you what exists and where, instead of asking the user for paths or URLs. After finding a path you can read that project's files directly with your own tools, or use studio_ask to have its agent answer.",
+        timeout_secs: DEFAULT_TOOL_TIMEOUT_SECS,
+        input_schema: || json!({ "type": "object", "properties": {} }),
+    },
+    ToolDef {
+        name: "studio_ask",
+        description: "Ask a question to another local Ship Studio project. A read-only agent session runs inside that project and answers from its real code, config, and conventions. Reach for this when the user says things like 'see how I did this in my other project', 'ask the dashboard', 'make it match my other app', 'how does my backend handle X' — or whenever you'd otherwise guess about a sibling project or ask the user to copy-paste context between projects. It takes a while (often 30s-2min) and uses the user's normal agent plan, so ask substantial questions (API shapes, behavior, architecture, which pattern to follow); for a quick look at specific files, get the path from studio_projects and read them directly. The user watches the exchange live in Ship Studio.",
+        timeout_secs: STUDIO_ASK_TOOL_TIMEOUT_SECS,
+        input_schema: || json!({
+            "type": "object",
+            "properties": {
+                "project": { "type": "string", "description": "Target project: its folder name (e.g. 'dashboard') or absolute path. Use studio_projects to list them." },
+                "question": { "type": "string", "description": "The question, with enough context to be answered by an agent that knows nothing about your project. Include why you're asking and what you'll do with the answer." }
+            },
+            "required": ["project", "question"]
+        }),
+    },
+    ToolDef {
         name: "preview_screenshot",
         description: "Take a screenshot of the current preview page and return it as an image (also saved under .shipstudio/screenshots/). The first use may take a few minutes while a headless browser is installed.",
         timeout_secs: SCREENSHOT_TOOL_TIMEOUT_SECS,
@@ -676,6 +697,13 @@ async fn dispatch_tool(
         project_path.to_string()
     };
     let project_path = resolved_project.as_str();
+
+    // Studio Talk tools are answered here in Rust (registry + subprocess) —
+    // they don't involve the preview iframe, so the window/attached checks
+    // below don't apply to them.
+    if tool.name == "studio_projects" || tool.name == "studio_ask" {
+        return dispatch_studio_tool(app, project_path, tool.name, arguments).await;
+    }
 
     let Some(window_label) = crate::state::get_window_for_project(project_path) else {
         return tool_error_result(
@@ -781,6 +809,68 @@ fn tool_error_result(message: &str) -> Value {
         "content": [{ "type": "text", "text": message }],
         "isError": true,
     })
+}
+
+fn tool_text_result(text: String) -> Value {
+    json!({
+        "content": [{ "type": "text", "text": text }],
+    })
+}
+
+/// Handle the cross-project Studio Talk tools (`studio_projects`,
+/// `studio_ask`). `asking_project` is the canonical path the bridge resolved
+/// for this MCP registration — the project whose agent is calling.
+async fn dispatch_studio_tool(
+    app: &tauri::AppHandle,
+    asking_project: &str,
+    tool_name: &str,
+    arguments: Value,
+) -> Value {
+    match tool_name {
+        "studio_projects" => {
+            let projects = crate::studio_talk::known_projects(asking_project);
+            match serde_json::to_string_pretty(&projects) {
+                Ok(listing) => tool_text_result(listing),
+                Err(e) => tool_error_result(&format!("Could not serialize project list: {e}")),
+            }
+        }
+        "studio_ask" => {
+            let project_ref = arguments
+                .get("project")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let question = arguments
+                .get("question")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if question.is_empty() {
+                return tool_error_result("Provide a non-empty 'question'.");
+            }
+            let target =
+                match crate::studio_talk::resolve_target_project(project_ref, asking_project) {
+                    Ok(path) => path,
+                    Err(message) => return tool_error_result(&message),
+                };
+            tracing::info!(
+                "[StudioTalk] studio_ask from '{}' to '{}'",
+                asking_project,
+                target.display()
+            );
+            match crate::studio_talk::run_studio_ask(
+                app.clone(),
+                asking_project.to_string(),
+                target,
+                question.to_string(),
+            )
+            .await
+            {
+                Ok(answer) => tool_text_result(answer),
+                Err(message) => tool_error_result(&message),
+            }
+        }
+        _ => tool_error_result(&format!("Unknown studio tool: {tool_name}")),
+    }
 }
 
 #[cfg(test)]
