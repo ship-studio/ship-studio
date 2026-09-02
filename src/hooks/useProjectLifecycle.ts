@@ -652,7 +652,8 @@ export function useProjectLifecycle({
     try {
       port = await findAndReservePort(project.path, preferredPort);
     } catch (error) {
-      logger.error('Failed to find and reserve port, using default', { error });
+      // Recoverable: we fall back to the preferred port — not a bug report.
+      logger.warn('Failed to find and reserve port, using default', { error });
     }
     // Kill any orphaned process on the newly reserved port — but only when
     // we aren't reusing a live server. Otherwise we'd kill the very
@@ -1087,7 +1088,8 @@ export function useProjectLifecycle({
       try {
         port = await findAndReservePort(path, preferredPort);
       } catch (error) {
-        logger.error('[StartDevServer] Failed to reserve port, using default', { error });
+        // Recoverable: we fall back to the preferred port — not a bug report.
+        logger.warn('[StartDevServer] Failed to reserve port, using default', { error });
       }
       // Kill any orphaned process on the reserved port so the fresh spawn
       // can actually bind it.

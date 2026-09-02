@@ -335,8 +335,9 @@ export function useElementSettings({
           void trackEvent('visual_class_renamed', { mode: 'css-code' });
         }
       } catch (err) {
-        logger.error('[ElementSettings] rename class failed', { error: toastText(err) });
-        onToast(toastText(err), 'error');
+        // Same refusal ladder as the other settings mutations — by-design
+        // ambiguity/validation refusals must not file bug reports (#818).
+        reportSettingsFailure('rename class', err, onToast);
       } finally {
         setBusy(false);
       }
