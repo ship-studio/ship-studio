@@ -116,7 +116,7 @@ export function RoutineRow({
             {isRunning && <Spinner size="sm" />}
             {lastRunLabel(routine)}
           </span>
-          {countdown && <span className="routine-row-next">Next {countdown}</span>}
+          {countdown && <span className="routine-row-next">Due {countdown}</span>}
         </div>
 
         <div className="routine-row-actions">
@@ -138,7 +138,7 @@ export function RoutineRow({
           >
             {isRunning ? 'Running' : 'Run'}
           </Button>
-          {canAutoRun && (
+          {canAutoRun ? (
             <button
               type="button"
               className={`settings-toggle ${routine.autoRun ? 'on' : 'off'}`}
@@ -152,6 +152,10 @@ export function RoutineRow({
                 <span className="settings-toggle-thumb" />
               </span>
             </button>
+          ) : (
+            /* A manual routine has no switch, but the slot is held so Run stays
+               in the same column down the list. */
+            <span className="routine-row-toggle-slot" aria-hidden />
           )}
         </div>
       </div>

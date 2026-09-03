@@ -28,17 +28,48 @@ export type RoutinePermission = 'read-only' | 'can-edit';
 /**
  * What sets a routine off.
  *
- * Deliberately no wall-clock schedules. A routine runs the agent CLI on this
- * machine, so "daily at 09:00" is a promise the architecture cannot keep — if
- * the app is closed at 09:00 the day is simply skipped, and the UI ends up
- * reporting a failure for something it never could have done. An interval is
- * measured from the last run and only advances while Ship Studio is open, so
- * it is always eventually honoured: it runs late, never "missed".
+ * Pressing Run is the default and always works. Everything else is an opt-in on
+ * top of it, and what is honestly possible depends on where the trigger is
+ * evaluated — see {@link RoutineHost}.
  */
 export type RoutineTrigger =
   | { kind: 'manual' }
   | { kind: 'interval'; everyMinutes: number }
+  | { kind: 'daily'; atHour: number; atMinute: number }
+  | { kind: 'weekly'; weekday: number; atHour: number; atMinute: number }
   | { kind: 'event'; event: RoutineEvent };
+
+/**
+ * Where a trigger is evaluated, which is the whole honesty question.
+ *
+ * `app` — Ship Studio's own scheduler, a tokio tick in the running app. Nothing
+ * is installed and nothing touches the system, but nothing fires while the app
+ * is closed either.
+ *
+ * `background` — a per-user launchd agent in `~/Library/LaunchAgents` (Windows:
+ * a Task Scheduler task) running the *same* `claude -p` command. It fires at the
+ * wall-clock time whether or not Ship Studio is open, so the findings are
+ * waiting in the Inbox when you next open the app.
+ *
+ * `man launchd.plist` on the exact semantics that make this worth offering:
+ *
+ *   "Unlike cron which skips job invocations when the computer is asleep,
+ *   launchd will start the job the next time the computer wakes up. If multiple
+ *   intervals transpire before the computer is woken, those events will be
+ *   coalesced into one event upon wake from sleep."
+ *
+ * So a daily 10:00 routine survives a closed lid: it runs on wake, once, not
+ * once per missed day. The conditions it cannot escape, and which the UI states
+ * plainly: the Mac has to be powered on or asleep (a shut-down machine runs
+ * nothing), and you have to be logged in, because LaunchAgents are per-user.
+ *
+ * Background is offered for `daily` and `weekly` only, and that falls straight
+ * out of the primitive: launchd's `StartInterval` explicitly *misses* a firing
+ * if the system is asleep for it, while `StartCalendarInterval` catches up. An
+ * interval that silently skips overnight would be exactly the dishonest
+ * scheduling this design is trying to avoid.
+ */
+export type RoutineHost = 'app' | 'background';
 
 /**
  * Non-time triggers, all of which Ship Studio already observes today. These
@@ -91,7 +122,9 @@ export interface Routine {
   autoRun: boolean;
   /** Absolute path of the markdown file this routine lives in. */
   filePath: string;
-  /** When the interval next elapses. Null for manual and event routines. */
+  /** Where the trigger is evaluated. Meaningless for manual and event triggers. */
+  host: RoutineHost;
+  /** When the trigger next comes due. Null for manual and event routines. */
   nextRunAt: number | null;
   runs: RoutineRun[];
 }
@@ -151,7 +184,13 @@ const EVENT_LABELS: Record<RoutineEvent, string> = {
   'project-open': 'When the project opens',
 };
 
-/** Human label for a trigger, e.g. "Every 30 min" or "After every push". */
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function pad(value: number): string {
+  return value.toString().padStart(2, '0');
+}
+
+/** Human label for a trigger, e.g. "Every 30 min" or "Daily at 10:00". */
 export function formatTrigger(trigger: RoutineTrigger): string {
   switch (trigger.kind) {
     case 'manual':
@@ -160,43 +199,69 @@ export function formatTrigger(trigger: RoutineTrigger): string {
       const minutes = trigger.everyMinutes;
       if (minutes < 60) return `Every ${minutes} min`;
       const hours = minutes / 60;
-      if (hours === 1) return 'Every hour';
-      if (hours < 24) return `Every ${hours} hours`;
-      const days = hours / 24;
-      return days === 1 ? 'Every day' : `Every ${days} days`;
+      return hours === 1 ? 'Every hour' : `Every ${hours} hours`;
     }
+    case 'daily':
+      return `Daily at ${pad(trigger.atHour)}:${pad(trigger.atMinute)}`;
+    case 'weekly':
+      return `${WEEKDAYS[trigger.weekday]}s at ${pad(trigger.atHour)}:${pad(trigger.atMinute)}`;
     case 'event':
       return EVENT_LABELS[trigger.event];
   }
 }
 
+/** Whether a trigger can be handed to launchd — calendar entries only. */
+export function supportsBackground(trigger: RoutineTrigger): boolean {
+  return trigger.kind === 'daily' || trigger.kind === 'weekly';
+}
+
+/** Whether a trigger is a clock/interval one at all (vs manual or an event). */
+export function isTimeTrigger(trigger: RoutineTrigger): boolean {
+  return trigger.kind === 'interval' || supportsBackground(trigger);
+}
+
+/** Short form of where a routine runs, for the list row. */
+export function formatHost(host: RoutineHost): string {
+  return host === 'background' ? 'in the background' : 'when Ship Studio is open';
+}
+
 /**
- * The list-row schedule line, including whether the trigger is actually armed.
+ * The list-row schedule line: what fires it, and — the part that actually
+ * matters — whether it can fire while the app is closed.
  *
- * Repeating "while Ship Studio is open" on every armed row is deliberate: it is
- * the one thing about this feature the user has to internalise, and a footnote
- * at the bottom of the page does not do that job. A disarmed routine must not
- * advertise a cadence it is not keeping.
+ * A disarmed routine must not advertise a cadence it is not keeping.
  */
-export function describeSchedule(routine: Pick<Routine, 'trigger' | 'autoRun'>): string {
-  if (routine.trigger.kind === 'manual') return 'Manual — runs when you press Run';
-  if (!routine.autoRun) return `${formatTrigger(routine.trigger)} — auto-run off`;
-  return `${formatTrigger(routine.trigger)}, while Ship Studio is open`;
+export function describeSchedule(routine: Pick<Routine, 'trigger' | 'autoRun' | 'host'>): string {
+  const { trigger } = routine;
+  if (trigger.kind === 'manual') return 'Manual — runs when you press Run';
+  if (!routine.autoRun) return `${formatTrigger(trigger)} — auto-run off`;
+  if (trigger.kind === 'event') return `${formatTrigger(trigger)}, when Ship Studio is open`;
+  return `${formatTrigger(trigger)}, ${formatHost(routine.host)}`;
 }
 
 /** The honest sentence about when a trigger can actually fire. */
-export function describeTriggerReality(trigger: RoutineTrigger): string {
+export function describeTriggerReality(trigger: RoutineTrigger, host: RoutineHost): string {
   switch (trigger.kind) {
     case 'manual':
       return 'Runs only when you press Run. Nothing happens on its own.';
-    case 'interval':
-      return 'The timer only advances while Ship Studio is open, so a routine runs late rather than being skipped. Close the app for a day and it runs once when you come back, not five times.';
     case 'event':
       return 'Fires when Ship Studio sees the event, which is while you are working in it. Events that happen elsewhere are not replayed.';
+    case 'interval':
+      return 'Not a clock — a minimum gap. While Ship Studio is open it checks whether that long has passed since the last run, and runs if it has. Close the app for a day and it runs once when you reopen, never a backlog.';
+    case 'daily':
+    case 'weekly':
+      return host === 'background'
+        ? 'Fires at this time whether or not Ship Studio is open, and if the Mac is asleep, once when it next wakes — not once per missed day.'
+        : 'Ship Studio checks this while it is open. If the app is closed at this time nothing happens and that run is skipped — switch it to the background if it has to happen regardless.';
   }
 }
 
-/** Short countdown to the next run, e.g. "in 12 min". Null when not scheduled. */
+/**
+ * How long until the routine is eligible to run again, e.g. "in 12 min".
+ *
+ * "Due", not "next": the gap elapsing makes it eligible, and it runs at the
+ * first check while the app is open. Null when nothing is armed.
+ */
 export function formatCountdown(nextRunAt: number | null, now = Date.now()): string | null {
   if (nextRunAt === null) return null;
   const ms = nextRunAt - now;
@@ -390,6 +455,7 @@ export const FIXTURE_ROUTINES: Routine[] = [
     severityFloor: 'warning',
     notify: true,
     autoRun: true,
+    host: 'app',
     filePath: 'hexa-storefront/.shipstudio/routines/security-sweep.md',
     nextRunAt: NOW + 12 * MINUTE,
     prompt: `Review everything that changed since your last run for security regressions: secrets committed to source, unvalidated user input reaching the filesystem or a shell, auth checks removed from a route, dependencies pulled in from an unfamiliar registry.
@@ -431,11 +497,12 @@ Report each finding with ship_studio_report. Include the exact file and line. If
     description: 'Daily advisory check plus a read on which majors are worth taking.',
     agentId: 'codex',
     scope: { kind: 'all-projects' },
-    trigger: { kind: 'interval', everyMinutes: 24 * 60 },
+    trigger: { kind: 'daily', atHour: 9, atMinute: 0 },
     permission: 'read-only',
     severityFloor: 'info',
     notify: false,
     autoRun: true,
+    host: 'background',
     filePath: '~/ShipStudio/.shipstudio/routines/dependency-drift.md',
     nextRunAt: NOW + 19 * HOUR,
     prompt: `Run the project's audit and outdated commands. For each advisory above "low", tell me whether the vulnerable path is actually reachable from this codebase — I don't want noise about a transitive dev dependency I never call.
@@ -477,6 +544,7 @@ For major versions we're behind on, give me a one-line read on whether the migra
     severityFloor: 'info',
     notify: false,
     autoRun: false,
+    host: 'app',
     filePath: 'hexa-storefront/.shipstudio/routines/competitor-watch.md',
     nextRunAt: null,
     prompt: `Read the blog and changelog of linear.app, vercel.com and railway.com.
@@ -511,6 +579,7 @@ Group the digest by theme, not by company, and end with one paragraph on what it
     severityFloor: 'warning',
     notify: false,
     autoRun: true,
+    host: 'app',
     filePath: 'client-atlas/.shipstudio/routines/design-drift.md',
     nextRunAt: null,
     prompt: `Read CLAUDE.md and the design-system docs first, then review the pushed diff for drift: raw hex colours, off-scale spacing, a hand-rolled component where a primitive exists, a new button class.
@@ -538,11 +607,12 @@ Only report things the docs actually forbid. If you're unsure whether something 
       projectName: 'portfolio-v3',
       projectPath: '~/ShipStudio/portfolio-v3',
     },
-    trigger: { kind: 'interval', everyMinutes: 12 * 60 },
+    trigger: { kind: 'weekly', weekday: 1, atHour: 18, atMinute: 0 },
     permission: 'read-only',
     severityFloor: 'warning',
     notify: false,
     autoRun: false,
+    host: 'app',
     filePath: 'portfolio-v3/.shipstudio/routines/broken-links.md',
     nextRunAt: null,
     prompt: `Crawl every page of the running dev server. Report links that 404, images that fail to load, and any page that throws in the console on first paint.
@@ -829,7 +899,7 @@ Report each finding with ship_studio_report. Include the exact file and line. If
     name: 'Dependency drift',
     description: 'Daily advisory check plus a read on which majors are worth taking.',
     category: 'Maintenance',
-    trigger: { kind: 'interval', everyMinutes: 24 * 60 },
+    trigger: { kind: 'daily', atHour: 9, atMinute: 0 },
     permission: 'read-only',
     scopeKind: 'all-projects',
     prompt: `Run the project's audit and outdated commands. For each advisory above "low", tell me whether the vulnerable path is actually reachable from this codebase. For majors we're behind on, give me a one-line read on whether the migration is worth doing now, later, or never.`,
@@ -875,7 +945,7 @@ For each finding, give me the concrete inputs that produce the wrong output. If 
     name: 'Broken links & images',
     description: 'Crawls the running preview and reports anything that 404s.',
     category: 'Quality',
-    trigger: { kind: 'interval', everyMinutes: 12 * 60 },
+    trigger: { kind: 'daily', atHour: 18, atMinute: 0 },
     permission: 'read-only',
     scopeKind: 'project',
     prompt: `Crawl every page of the running dev server. Report links that 404, images that fail to load, and any page that throws in the console on first paint.

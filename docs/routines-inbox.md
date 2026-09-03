@@ -114,46 +114,74 @@ Runs are serialized per project (one agent per repo at a time — they share a
 working tree) with a small global concurrency cap. A run that overruns its
 timeout is killed and filed as a failed run, visible in the routine's history.
 
-## 3. Manual first, and no wall clock
+## 3. Manual first, and two honest tiers of automation
 
-Routines run the agent CLI on this machine. Nothing runs while Ship Studio is
-closed or the Mac is asleep. That is not a gap to paper over — it decides the
-whole shape of the feature.
+Routines run the agent CLI on this machine. That constraint decides the shape of
+the feature, so it is stated in the UI rather than papered over.
 
 **Pressing Run is the primary trigger.** A routine is a saved instruction you
-fire when you want it. Every row has a Run button and it is always live.
+fire when you want it. Every row has a Run button and it is always live. That is
+the default for a new routine, and for a lot of them it is the only trigger
+anyone needs.
 
-**Automation is an opt-in interval, never a time of day.** "Daily at 09:00" is a
-promise this architecture cannot keep: close the laptop at 08:00 and the day is
-silently skipped, and the UI ends up reporting a failure for something it never
-could have done. An interval is measured from the last run and only advances
-while the app is open, so it is always eventually honoured — it runs late, and
-"late" needs no error state. Close the app for a day and it runs *once* when you
-come back, not five times.
+Automation is an opt-in on top, and what is honestly possible depends entirely
+on *where the trigger is evaluated*:
 
-That single decision removes an entire category of UI: no missed windows, no
-catch-up toggle, no amber warning card explaining why the app failed at
-something it never promised.
+### Tier A — while Ship Studio is open
 
-The scheduler itself is small: `src-tauri/src/routines/scheduler.rs`, one tokio
-task on a 30-second tick comparing `now` to each armed routine's `next_run_at`.
-It belongs in Rust beside the PTY sessions, not in a React view — multi-window
-is a first-class feature here, and two windows must not mean two schedulers.
+Ship Studio's own scheduler: one tokio task on a 30-second tick, in Rust beside
+the PTY sessions (multi-window is a first-class feature here, so two windows
+must not mean two schedulers). Nothing is installed and nothing touches the
+system.
 
-Triggers, in rough order of how well they fit the model:
+This tier owns the triggers that only make sense while you are working anyway:
 
-- `on: push` / `on: pr-opened` / `on: branch-merged` — the best fit by far.
-  They fire during work, which is exactly when the app is open, and Ship Studio
-  already polls git and PR state.
+- `on: push` / `on: pr-opened` / `on: branch-merged` — the best fit by far. They
+  fire during work, and Ship Studio already polls git and PR state.
 - `on: project-open`
-- `every 15m / 30m / 1h / 4h / 24h` — interval since the last run
+- `every 15m / 30m / hourly` — a minimum gap since the last run, not a clock.
 - `on: dev-server-error` — the preview proxy already sees console and network
-  failures
+  failures.
 
-If we ever want true background execution, the escape hatch is the same
-piggyback move: emit a `launchd` plist (or Windows Task Scheduler entry) that
-runs the *identical* command. Same runtime, different trigger — and only then
-does a wall-clock schedule become honest.
+### Tier B — even when Ship Studio is closed
+
+A per-user launchd agent in `~/Library/LaunchAgents` (Windows: a Task Scheduler
+task) running the *identical* `claude -p` command. The findings are waiting in
+the Inbox when you next open the app.
+
+This is worth offering because of what `man launchd.plist` actually guarantees:
+
+> Unlike cron which skips job invocations when the computer is asleep, launchd
+> will start the job the next time the computer wakes up. If multiple intervals
+> transpire before the computer is woken, those events will be coalesced into
+> one event upon wake from sleep.
+
+So a 10:00 routine survives a closed lid: it runs on wake, **once**, not once
+per missed day. The conditions it cannot escape, and which the editor states as
+a list rather than a footnote:
+
+- the Mac has to be powered on or asleep — a shut-down machine runs nothing;
+- you have to be signed in, because LaunchAgents are per-user;
+- the agent CLI needs a session it can use non-interactively.
+
+**Background is offered for `daily` and `weekly` only**, and that falls straight
+out of the primitive rather than being a product opinion: launchd's
+`StartInterval` explicitly *misses* a firing if the system is asleep for it,
+while `StartCalendarInterval` catches up. An interval that silently skipped
+overnight would be exactly the dishonest scheduling this design avoids.
+
+**Background runs are read-only, enforced.** Nobody is watching, there is no UI
+to approve a permission prompt, and an unattended agent editing a repository
+while you sleep is not a feature.
+
+### What this removes
+
+There is no "missed run" state anywhere in the UI, because no tier can produce
+one. Tier A cannot miss a window — an interval is a minimum age, so it runs late
+and late needs no error. Tier B cannot miss one either — launchd coalesces and
+fires on wake. What the UI *does* say, on every row and in the editor, is which
+tier a routine is on: "Every 30 min, when Ship Studio is open" versus "Daily at
+10:00, in the background".
 
 ## 4. Delivery: one MCP tool, backed by files
 

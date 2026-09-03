@@ -104,6 +104,25 @@ export function RoutinesView() {
                     New routine
                   </Button>
                 </div>
+                {routines.length > 0 && (
+                  <div className="dashboard-section-actions-right routines-summary">
+                    <span className="routines-summary-item">
+                      <strong>{armedCount}</strong> on auto-run
+                    </span>
+                    <span className="routines-summary-sep" aria-hidden>
+                      ·
+                    </span>
+                    <span className="routines-summary-item">
+                      <strong>{week.runs}</strong> runs this week
+                    </span>
+                    <span className="routines-summary-sep" aria-hidden>
+                      ·
+                    </span>
+                    <span className="routines-summary-item">
+                      <strong>{formatTokens(week.tokens)}</strong> tokens
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -133,32 +152,6 @@ export function RoutinesView() {
               </div>
             )}
           </section>
-
-          {routines.length > 0 && (
-            <section className="dashboard-panel routines-summary">
-              <span className="routines-summary-item">
-                <strong>{armedCount}</strong> on auto-run
-              </span>
-              <span className="routines-summary-sep" aria-hidden>
-                ·
-              </span>
-              <span className="routines-summary-item">
-                <strong>{week.runs}</strong> runs this week
-              </span>
-              <span className="routines-summary-sep" aria-hidden>
-                ·
-              </span>
-              <span className="routines-summary-item">
-                <strong>{week.findings}</strong> findings
-              </span>
-              <span className="routines-summary-sep" aria-hidden>
-                ·
-              </span>
-              <span className="routines-summary-item">
-                <strong>{formatTokens(week.tokens)}</strong> tokens on your own plan
-              </span>
-            </section>
-          )}
 
           <p className="routines-page-footer">
             Routines run the agent CLI installed on this Mac, inside your project folder — there is

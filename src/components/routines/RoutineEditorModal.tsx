@@ -28,6 +28,8 @@ import {
   describeTriggerReality,
   formatTrigger,
   type Routine,
+  supportsBackground,
+  type RoutineHost,
   type RoutinePermission,
   type RoutineTemplate,
   type RoutineTrigger,
@@ -45,28 +47,33 @@ interface RoutineEditorModalProps {
   onSave: (routine: Routine) => void;
 }
 
-type TriggerPreset = 'manual' | '15m' | '30m' | '1h' | '4h' | '24h' | 'push' | 'pr-opened';
+type TriggerPreset = 'manual' | '15m' | '30m' | '1h' | 'daily' | 'weekly' | 'push' | 'pr-opened';
 
 const TRIGGER_PRESETS: Record<TriggerPreset, RoutineTrigger> = {
   manual: { kind: 'manual' },
   '15m': { kind: 'interval', everyMinutes: 15 },
   '30m': { kind: 'interval', everyMinutes: 30 },
   '1h': { kind: 'interval', everyMinutes: 60 },
-  '4h': { kind: 'interval', everyMinutes: 4 * 60 },
-  '24h': { kind: 'interval', everyMinutes: 24 * 60 },
+  daily: { kind: 'daily', atHour: 10, atMinute: 0 },
+  weekly: { kind: 'weekly', weekday: 1, atHour: 10, atMinute: 0 },
   push: { kind: 'event', event: 'push' },
   'pr-opened': { kind: 'event', event: 'pr-opened' },
 };
 
 function presetFor(trigger: RoutineTrigger): TriggerPreset {
-  if (trigger.kind === 'manual') return 'manual';
-  if (trigger.kind === 'event') return trigger.event === 'pr-opened' ? 'pr-opened' : 'push';
-  const minutes = trigger.everyMinutes;
-  if (minutes <= 15) return '15m';
-  if (minutes <= 30) return '30m';
-  if (minutes <= 60) return '1h';
-  if (minutes <= 4 * 60) return '4h';
-  return '24h';
+  switch (trigger.kind) {
+    case 'manual':
+      return 'manual';
+    case 'event':
+      return trigger.event === 'pr-opened' ? 'pr-opened' : 'push';
+    case 'daily':
+      return 'daily';
+    case 'weekly':
+      return 'weekly';
+    case 'interval':
+      if (trigger.everyMinutes <= 15) return '15m';
+      return trigger.everyMinutes <= 30 ? '30m' : '1h';
+  }
 }
 
 const ALL_PROJECTS = 'all';
@@ -89,6 +96,7 @@ interface Draft {
   severityFloor: Severity;
   notify: boolean;
   autoRun: boolean;
+  host: RoutineHost;
 }
 
 function draftFrom(routine: Routine): Draft {
@@ -106,6 +114,7 @@ function draftFrom(routine: Routine): Draft {
     severityFloor: routine.severityFloor,
     notify: routine.notify,
     autoRun: routine.autoRun,
+    host: routine.host,
   };
 }
 
@@ -122,6 +131,7 @@ const BLANK: Draft = {
   severityFloor: 'warning',
   notify: false,
   autoRun: true,
+  host: 'app',
 };
 
 export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorModalProps) {
@@ -132,6 +142,10 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
 
   const trigger = TRIGGER_PRESETS[draft.trigger];
   const canAutoRun = trigger.kind !== 'manual';
+  const canRunInBackground = supportsBackground(trigger);
+  const host: RoutineHost = canRunInBackground ? draft.host : 'app';
+  // Nobody is watching a background run, so it never gets write access.
+  const permission = host === 'background' ? 'read-only' : draft.permission;
 
   const commandPreview = useMemo(
     () => buildCommandPreview({ agentId: draft.agentId, permission: draft.permission }),
@@ -182,11 +196,12 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
               projectPath: `~/ShipStudio/${draft.scopeProject}`,
             },
       trigger,
-      permission: draft.permission,
+      permission,
       prompt: draft.prompt,
       severityFloor: draft.severityFloor,
       notify: draft.notify,
       autoRun: canAutoRun ? draft.autoRun : false,
+      host,
       filePath:
         base?.filePath ??
         (draft.scopeProject === ALL_PROJECTS
@@ -358,36 +373,72 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
                 { value: '15m', label: 'Every 15m' },
                 { value: '30m', label: 'Every 30m' },
                 { value: '1h', label: 'Hourly' },
-                { value: '4h', label: 'Every 4h' },
-                { value: '24h', label: 'Daily' },
+                { value: 'daily', label: 'Daily' },
+                { value: 'weekly', label: 'Weekly' },
                 { value: 'push', label: 'On push' },
                 { value: 'pr-opened', label: 'On PR' },
               ]}
             />
 
-            <div className="routine-note">
-              <InfoIcon size={12} />
-              <span className="routine-note-text">
-                <strong>{formatTrigger(trigger)}.</strong> {describeTriggerReality(trigger)}
-              </span>
-            </div>
-
-            {canAutoRun && (
-              <label className="settings-form-checkbox">
-                <input
-                  type="checkbox"
-                  checked={draft.autoRun}
-                  onChange={(event) => setDraft({ ...draft, autoRun: event.target.checked })}
-                />
-                <span className="settings-form-checkbox-copy">
-                  <span className="settings-form-checkbox-title">Arm this trigger</span>
-                  <span className="settings-form-checkbox-description">
-                    Leave it off to keep the routine on the list and run it by hand. You can flip
-                    this from the row without opening the editor.
+            <div className="routine-trigger-detail">
+              {canRunInBackground && (
+                <div className="routine-field routine-host-field">
+                  <span className="routine-field-label text-style-label">
+                    Even when Ship Studio is closed
                   </span>
+                  <SegmentedControl
+                    aria-label="Where it runs"
+                    size="default"
+                    value={host}
+                    onValueChange={(value) => setDraft({ ...draft, host: value })}
+                    options={[
+                      { value: 'app', label: 'Only while the app is open' },
+                      { value: 'background', label: 'Run in the background' },
+                    ]}
+                  />
+                </div>
+              )}
+
+              <div className="routine-note">
+                <InfoIcon size={12} />
+                <span className="routine-note-text">
+                  <strong>{formatTrigger(trigger)}.</strong> {describeTriggerReality(trigger, host)}
                 </span>
-              </label>
-            )}
+              </div>
+
+              {host === 'background' && (
+                <ul className="routine-conditions">
+                  <li>
+                    Installs a login-scoped scheduled job (<code>~/Library/LaunchAgents</code>)
+                    running the exact command below. Deleting the routine removes it.
+                  </li>
+                  <li>
+                    Needs this Mac powered on or asleep, and you signed in. Shut down or signed out,
+                    nothing runs until the next scheduled time.
+                  </li>
+                  <li>
+                    Read-only is enforced — nobody is watching, so it reports but never edits.
+                  </li>
+                </ul>
+              )}
+
+              {canAutoRun && (
+                <label className="settings-form-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={draft.autoRun}
+                    onChange={(event) => setDraft({ ...draft, autoRun: event.target.checked })}
+                  />
+                  <span className="settings-form-checkbox-copy">
+                    <span className="settings-form-checkbox-title">Arm this trigger</span>
+                    <span className="settings-form-checkbox-description">
+                      Leave it off to keep the routine on the list and run it by hand. You can flip
+                      this from the row without opening the editor.
+                    </span>
+                  </span>
+                </label>
+              )}
+            </div>
           </div>
 
           <div className="routine-field">
@@ -395,17 +446,23 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
             <SegmentedControl
               aria-label="Permission"
               size="default"
-              value={draft.permission}
+              value={permission}
               onValueChange={(value) => setDraft({ ...draft, permission: value })}
               options={[
                 { value: 'read-only', label: 'Read-only' },
-                { value: 'can-edit', label: 'Can edit files' },
+                {
+                  value: 'can-edit',
+                  label: 'Can edit files',
+                  disabled: host === 'background',
+                },
               ]}
             />
             <span className="routine-field-hint">
-              {draft.permission === 'read-only'
-                ? 'The agent can read the repository and report. It cannot change anything.'
-                : 'The agent may edit files unattended. Every change lands in git, but nobody is watching it happen.'}
+              {host === 'background'
+                ? 'Background runs are read-only. The agent reads the repository and reports; it cannot change anything while nobody is watching.'
+                : permission === 'read-only'
+                  ? 'The agent can read the repository and report. It cannot change anything.'
+                  : 'The agent may edit files unattended. Every change lands in git, but nobody is watching it happen.'}
             </span>
           </div>
 

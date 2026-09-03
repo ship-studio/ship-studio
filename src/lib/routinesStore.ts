@@ -18,7 +18,37 @@ import {
   type InboxItem,
   type Routine,
   type RoutineRun,
+  type RoutineTrigger,
 } from './routines';
+
+/**
+ * When a trigger next comes due, from now.
+ *
+ * PROTOTYPE-grade: the real scheduler computes this in Rust, and a background
+ * routine's timing is launchd's business rather than ours.
+ */
+function nextDueAt(trigger: RoutineTrigger): number | null {
+  const now = new Date();
+  switch (trigger.kind) {
+    case 'interval':
+      return Date.now() + trigger.everyMinutes * 60_000;
+    case 'daily':
+    case 'weekly': {
+      const next = new Date(now);
+      next.setHours(trigger.atHour, trigger.atMinute, 0, 0);
+      if (trigger.kind === 'weekly') {
+        const delta = (trigger.weekday - next.getDay() + 7) % 7;
+        next.setDate(next.getDate() + delta);
+      }
+      if (next.getTime() <= now.getTime()) {
+        next.setDate(next.getDate() + (trigger.kind === 'weekly' ? 7 : 1));
+      }
+      return next.getTime();
+    }
+    default:
+      return null;
+  }
+}
 
 interface RoutinesState {
   routines: Routine[];
@@ -59,10 +89,7 @@ export function setAutoRun(id: string, autoRun: boolean): void {
         ? {
             ...routine,
             autoRun,
-            nextRunAt:
-              autoRun && routine.trigger.kind === 'interval'
-                ? Date.now() + routine.trigger.everyMinutes * 60_000
-                : null,
+            nextRunAt: autoRun ? nextDueAt(routine.trigger) : null,
           }
         : routine
     ),
@@ -120,10 +147,7 @@ export function runRoutineNow(id: string): void {
               ...r,
               // A manual run also restarts the interval — the point of the
               // interval is "this long since it last ran", not a wall clock.
-              nextRunAt:
-                r.autoRun && r.trigger.kind === 'interval'
-                  ? Date.now() + r.trigger.everyMinutes * 60_000
-                  : null,
+              nextRunAt: r.autoRun ? nextDueAt(r.trigger) : null,
               runs: r.runs.map((run) =>
                 run.id === runId
                   ? {

@@ -2,21 +2,22 @@
    Layout mirrors the dashboard's 900px centred column so the two views feel
    like the same app. */
 
-/* ---- summary strip ----
-   A dashboard-panel whose content is a single line of counts. */
+/* ---- summary ----
+   Section metadata, right-aligned on the controls row rather than a second
+   panel holding one line of text. */
 
 .routines-summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--spacing-xs);
-  padding: var(--spacing-md) var(--spacing-lg);
-  color: var(--text-secondary);
+  color: var(--text-muted);
   font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
 }
 
 .routines-summary-item strong {
-  color: var(--text-primary);
+  color: var(--text-secondary);
   font-weight: var(--font-weight-label);
 }
 
@@ -40,8 +41,8 @@
 
 .routine-row {
   display: flex;
-  align-items: stretch;
-  gap: var(--spacing-md);
+  align-items: center;
+  gap: var(--spacing-lg);
   padding: var(--spacing-md);
   background: var(--surface-panel);
   border: var(--border-width-default) solid var(--border-subtle);
@@ -72,7 +73,7 @@
 .routine-row-dot {
   width: 8px;
   height: 8px;
-  margin-top: var(--spacing-xs);
+  margin-top: var(--spacing-2xs);
   border-radius: var(--radius-pill);
   flex-shrink: 0;
   background: var(--text-faint);
@@ -181,12 +182,13 @@
   color: var(--text-faint);
 }
 
+/* Status and actions sit on one line, vertically centred against the whole row.
+   Stacking them made the right column taller than the left and left a band of
+   dead space under the description. */
 .routine-row-side {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
+  align-items: center;
+  gap: var(--spacing-lg);
   flex-shrink: 0;
 }
 
@@ -223,6 +225,12 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
+}
+
+/* Matches the switch's track width so Run lines up on every row. */
+.routine-row-toggle-slot {
+  width: 36px;
+  flex-shrink: 0;
 }
 
 /* Run and the auto-run switch stay visible — pressing Run is the point of the
@@ -357,6 +365,41 @@
   padding: 0 var(--spacing-2xs);
   background: rgba(var(--accent-warning-rgb), 0.12);
   border-radius: var(--radius-sm);
+}
+
+/* The conditions a background schedule cannot escape. Stated as a list because
+   each line is a separate thing that can be false. */
+.routine-conditions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  margin: 0;
+  padding: 0 0 0 var(--spacing-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  max-width: 74ch;
+}
+
+.routine-conditions code {
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
+/* Everything that follows from the trigger choice — where it runs, what that
+   means, its conditions, and the arm switch — grouped so the block breathes
+   without loosening the 4px label-to-control gap every other field uses. */
+.routine-trigger-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-2xs);
+  min-width: 0;
+}
+
+.routine-host-field {
+  gap: var(--spacing-xs);
 }
 
 .routine-note {

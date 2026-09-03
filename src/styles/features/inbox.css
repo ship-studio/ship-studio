@@ -43,6 +43,13 @@
   border-right: var(--border-width-default) solid var(--border-subtle);
   padding: var(--spacing-sm);
   gap: var(--spacing-3xs);
+  /* Same treatment as .workspace-sidebar-scroll: WKWebView otherwise paints a
+   * permanent light track, which here doubles up with the pane divider. */
+  scrollbar-width: none;
+}
+
+.inbox-list::-webkit-scrollbar {
+  display: none;
 }
 
 /* With nothing to list there is nothing to select, so the two panes collapse
@@ -199,6 +206,11 @@
 .inbox-detail-pane {
   overflow-y: auto;
   min-width: 0;
+  scrollbar-width: none;
+}
+
+.inbox-detail-pane::-webkit-scrollbar {
+  display: none;
 }
 
 .inbox-detail {
