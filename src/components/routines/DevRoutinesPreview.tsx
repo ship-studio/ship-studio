@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { ToastList } from '../primitives/ToastList';
 import { ToastProvider, useToast } from '../../contexts/ToastContext';
+import { ModalProvider } from '../../contexts/ModalContext';
 import { TooltipProvider } from '../primitives/Tooltip';
 import { RoutinesView } from './RoutinesView';
 import { InboxView } from '../inbox/InboxView';
@@ -34,7 +35,11 @@ export function DevRoutinesPreviewRoot() {
   return (
     <TooltipProvider>
       <ToastProvider>
-        <DevRoutinesPreview />
+        {/* The shared dashboard header/search read ModalContext for the
+            command palette, so the harness supplies the same providers. */}
+        <ModalProvider>
+          <DevRoutinesPreview />
+        </ModalProvider>
       </ToastProvider>
     </TooltipProvider>
   );

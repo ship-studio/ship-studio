@@ -1,6 +1,11 @@
 /**
  * Inbox — what the routines found.
  *
+ * Same placement as Home and Routines: the centred `dashboard-column` and the
+ * `dashboard-panel` section card, with the reader living inside the card. The
+ * two-pane layout is the only thing that differs, because reading a report is
+ * the job.
+ *
  * PROTOTYPE. Items come from the in-memory store in `lib/routinesStore`. In the
  * real feature each item is a markdown file under `.shipstudio/inbox/`, written
  * by the agent through one MCP tool — see `docs/routines-inbox.md`.
@@ -15,8 +20,11 @@ import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { EmptyState } from '../primitives/EmptyState';
 import { MenuButton } from '../primitives/MenuButton';
 import { SegmentedControl } from '../primitives/SegmentedControl';
+import { DashboardHeader } from '../dashboard/DashboardHeader';
+import { DashboardSearch } from '../dashboard/DashboardSearch';
 import { InboxDetail } from './InboxDetail';
 import { useOptionalToast } from '../../contexts/ToastContext';
+import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
 import { formatAge, type InboxItem, type Severity } from '../../lib/routines';
 import {
   getSnapshot,
@@ -39,6 +47,7 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 export function InboxView() {
   const { inbox } = useSyncExternalStore(subscribe, getSnapshot);
   const { showToast } = useOptionalToast();
+  const { dashboardHeaderHidden, hideDashboardHeader } = useDashboardVisibility();
 
   const [filter, setFilter] = useState<InboxFilter>('unread');
   const [project, setProject] = useState<string>('all');
@@ -82,118 +91,140 @@ export function InboxView() {
   );
 
   return (
-    <div className="inbox-page">
-      <header className="inbox-header">
-        <div className="inbox-header-heading">
-          <h1 className="inbox-title">Inbox</h1>
-          <p className="inbox-subtitle">
-            {unread > 0
-              ? `${unread} unread from ${new Set(inbox.filter((i) => !i.read && !i.archived).map((i) => i.routineName)).size} routines`
-              : 'Nothing unread.'}
-          </p>
-        </div>
+    <div className="dashboard-with-changelog">
+      <div className="dashboard-scroll-container">
+        <div className="dashboard-column">
+          {!dashboardHeaderHidden && (
+            <DashboardHeader title="What did your routines find?" onHide={hideDashboardHeader} />
+          )}
 
-        <div className="inbox-header-controls">
-          <SegmentedControl
-            aria-label="Filter inbox"
-            value={filter}
-            onValueChange={setFilter}
-            options={[
-              { value: 'unread', label: 'Unread' },
-              { value: 'all', label: 'All' },
-              { value: 'archived', label: 'Archived' },
-            ]}
-          />
-          <Dropdown
-            align="right"
-            trigger={(props) => (
-              <MenuButton
-                variant="secondary"
-                size="compact"
-                expanded={props['aria-expanded']}
-                {...props}
-              >
-                {project === 'all' ? 'All projects' : project}
-                <ChevronIcon
-                  size={10}
-                  className={props['aria-expanded'] ? 'chevron-flipped' : undefined}
-                />
-              </MenuButton>
-            )}
-          >
-            <DropdownItem active={project === 'all'} onSelect={() => setProject('all')}>
-              All projects
-            </DropdownItem>
-            {projects.map((name) => (
-              <DropdownItem key={name} active={project === name} onSelect={() => setProject(name)}>
-                {name}
-              </DropdownItem>
-            ))}
-          </Dropdown>
-          <Button
-            variant="ghost"
-            size="compact"
-            leftIcon={<CheckIcon size={12} />}
-            onClick={markAllRead}
-            disabled={unread === 0}
-          >
-            Mark all read
-          </Button>
-        </div>
-      </header>
+          <DashboardSearch />
 
-      {visible.length === 0 ? (
-        <div className="inbox-empty">
-          <EmptyState
-            icon={<BellIcon size={26} />}
-            title={filter === 'unread' ? 'You are all caught up' : 'Nothing here'}
-            description={
-              filter === 'unread'
-                ? 'Your routines have not found anything new.'
-                : 'No findings match this filter.'
-            }
-          />
-        </div>
-      ) : (
-        <div className="inbox-body">
-          <div className="inbox-list" role="list" aria-label="Findings">
-            {visible.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="listitem"
-                className={`inbox-item${item.id === selected?.id ? ' is-selected' : ''}${item.read ? '' : ' is-unread'}`}
-                onClick={() => handleSelect(item)}
-              >
-                <span
-                  className="inbox-item-severity"
-                  data-severity={item.severity}
-                  role="img"
-                  aria-label={SEVERITY_LABEL[item.severity]}
-                />
-                <span className="inbox-item-body">
-                  <span className="inbox-item-top">
-                    <span className="inbox-item-title">{item.title}</span>
-                    <span className="inbox-item-age">{formatAge(item.createdAt)}</span>
-                  </span>
-                  <span className="inbox-item-summary">{item.summary}</span>
-                  <span className="inbox-item-meta">
-                    <span className="inbox-chip">{item.projectName}</span>
-                    <span className="inbox-item-routine">{item.routineName}</span>
-                    {item.occurrences > 1 && (
-                      <span className="inbox-item-repeat">seen {item.occurrences}×</span>
+          <section className="dashboard-panel inbox-panel">
+            <div className="dashboard-section-header">
+              <div className="dashboard-section-heading">
+                <div className="dashboard-section-heading-title">
+                  <span className="dashboard-section-title text-style-h4">Inbox</span>
+                  {unread > 0 && (
+                    <span className="dashboard-section-count text-style-h4 font-weight-heading">
+                      {unread}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="dashboard-section-controls">
+                <div className="dashboard-section-actions-left">
+                  <SegmentedControl
+                    aria-label="Filter inbox"
+                    value={filter}
+                    onValueChange={setFilter}
+                    options={[
+                      { value: 'unread', label: 'Unread' },
+                      { value: 'all', label: 'All' },
+                      { value: 'archived', label: 'Archived' },
+                    ]}
+                  />
+                  <Dropdown
+                    trigger={(props) => (
+                      <MenuButton
+                        variant="secondary"
+                        size="compact"
+                        expanded={props['aria-expanded']}
+                        {...props}
+                      >
+                        {project === 'all' ? 'All projects' : project}
+                        <ChevronIcon
+                          size={10}
+                          className={props['aria-expanded'] ? 'chevron-flipped' : undefined}
+                        />
+                      </MenuButton>
                     )}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
+                  >
+                    <DropdownItem active={project === 'all'} onSelect={() => setProject('all')}>
+                      All projects
+                    </DropdownItem>
+                    {projects.map((name) => (
+                      <DropdownItem
+                        key={name}
+                        active={project === name}
+                        onSelect={() => setProject(name)}
+                      >
+                        {name}
+                      </DropdownItem>
+                    ))}
+                  </Dropdown>
+                </div>
+                <div className="dashboard-section-actions-right">
+                  <Button
+                    variant="ghost"
+                    size="compact"
+                    leftIcon={<CheckIcon size={12} />}
+                    onClick={markAllRead}
+                    disabled={unread === 0}
+                  >
+                    Mark all read
+                  </Button>
+                </div>
+              </div>
+            </div>
 
-          <div className="inbox-detail-pane">
-            {selected && <InboxDetail item={selected} onArchive={handleArchive} />}
-          </div>
+            {visible.length === 0 ? (
+              <div className="inbox-empty">
+                <EmptyState
+                  icon={<BellIcon size={26} />}
+                  title={filter === 'unread' ? 'You are all caught up' : 'Nothing here'}
+                  description={
+                    filter === 'unread'
+                      ? 'Your routines have not found anything new.'
+                      : 'No findings match this filter.'
+                  }
+                />
+              </div>
+            ) : (
+              <div className="inbox-body">
+                <div className="inbox-list" role="list" aria-label="Findings">
+                  {visible.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="listitem"
+                      className={`inbox-item${item.id === selected?.id ? ' is-selected' : ''}${item.read ? '' : ' is-unread'}`}
+                      onClick={() => handleSelect(item)}
+                    >
+                      <span
+                        className="inbox-item-severity"
+                        data-severity={item.severity}
+                        role="img"
+                        aria-label={SEVERITY_LABEL[item.severity]}
+                      />
+                      <span className="inbox-item-body">
+                        <span className="inbox-item-top">
+                          <span className="inbox-item-title">{item.title}</span>
+                          <span className="inbox-item-age">{formatAge(item.createdAt)}</span>
+                        </span>
+                        <span className="inbox-item-summary">{item.summary}</span>
+                        <span className="inbox-item-meta">
+                          <span className="inbox-chip">{item.projectName}</span>
+                          <span className="inbox-item-routine">{item.routineName}</span>
+                          {item.occurrences > 1 && (
+                            <span className="inbox-item-repeat">seen {item.occurrences}×</span>
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="inbox-detail-pane">
+                  {selected && <InboxDetail item={selected} onArchive={handleArchive} />}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <div className="dashboard-bottom-spacer" aria-hidden />
         </div>
-      )}
+      </div>
     </div>
   );
 }

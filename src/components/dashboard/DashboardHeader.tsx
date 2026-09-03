@@ -1,19 +1,30 @@
 /**
- * DashboardHeader — the presentation-only hero for the dashboard home screen.
+ * DashboardHeader — the presentation-only hero shared by the home-level screens
+ * (Home, Routines, Inbox). The mark and its pulse stay identical; only the
+ * headline changes per view.
  *
  * @module components/DashboardHeader
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { EyeOffIcon } from '@/components/icons';
 import { IconButton } from '../primitives/IconButton';
 
 interface DashboardHeaderProps {
   /** Called when the user hides the home screen header. */
   onHide?: () => void;
+  /**
+   * The headline under the mark. Home-level screens share this hero and each
+   * asks its own question, so the three views read as one app rather than three
+   * unrelated destinations.
+   */
+  title?: ReactNode;
 }
 
-export function DashboardHeader({ onHide }: DashboardHeaderProps) {
+export function DashboardHeader({
+  onHide,
+  title = 'What will you Ship today?',
+}: DashboardHeaderProps) {
   const [clickPulseCount, setClickPulseCount] = useState(0);
   const [isHoverSuppressed, setIsHoverSuppressed] = useState(false);
 
@@ -49,7 +60,7 @@ export function DashboardHeader({ onHide }: DashboardHeaderProps) {
           }}
         />
       </button>
-      <h1 className="dashboard-hero-title text-style-h1">What will you Ship today?</h1>
+      <h1 className="dashboard-hero-title text-style-h1">{title}</h1>
     </header>
   );
 }

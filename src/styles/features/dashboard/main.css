@@ -41,7 +41,8 @@
 }
 
 /* Adjust dashboard padding when beside changelog */
-.dashboard-with-changelog .project-list.dashboard {
+.dashboard-with-changelog .project-list.dashboard,
+.dashboard-with-changelog .dashboard-column {
   padding-left: 0;
   padding-right: 0;
   margin: 0;
@@ -80,8 +81,13 @@
   top: calc(var(--control-height-standard) + (var(--space-08) * 2));
 }
 
-/* Dashboard Layout */
-.project-list.dashboard {
+/* Dashboard Layout.
+ *
+ * `.dashboard-column` is the same content column for home-level screens that
+ * are not the project list (Routines, Inbox). Grouped rather than duplicated so
+ * the three views cannot drift apart. */
+.project-list.dashboard,
+.dashboard-column {
   display: flex;
   flex-direction: column;
   /* Top padding accounts for macOS traffic lights in overlay mode;
@@ -97,7 +103,8 @@
   overflow-y: visible;
 }
 
-.app.workspace-home.has-workspace-titlebar .project-list.dashboard {
+.app.workspace-home.has-workspace-titlebar .project-list.dashboard,
+.app.workspace-home.has-workspace-titlebar .dashboard-column {
   padding-top: 0;
 }
 
@@ -326,7 +333,10 @@
   color: currentColor;
 }
 
-.dashboard-projects-panel {
+/* The section card. `.dashboard-panel` is the same recipe for sections outside
+   the project list. */
+.dashboard-projects-panel,
+.dashboard-panel {
   padding: var(--spacing-lg);
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);

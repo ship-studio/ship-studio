@@ -2,58 +2,12 @@
    Two-pane reading layout: list on the left, report on the right. Unlike the
    dashboard column this fills the window, because reading is the whole job. */
 
-.inbox-page {
+/* The reader lives inside a dashboard-panel, so the card owns the padding and
+   the two panes are laid out edge to edge within it. */
+.inbox-panel {
   display: flex;
   flex-direction: column;
-  flex: 1;
   min-height: 0;
-  min-width: 0;
-}
-
-.inbox-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--spacing-md) var(--spacing-lg);
-  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-md);
-  border-bottom: var(--border-width-default) solid var(--border-subtle);
-  flex-shrink: 0;
-  /* Controls drop to their own line before anything gets clipped. */
-  flex-wrap: wrap;
-}
-
-.app.workspace-home.has-workspace-titlebar .inbox-header {
-  padding-top: var(--spacing-lg);
-}
-
-.inbox-header-heading {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-3xs);
-  min-width: 0;
-}
-
-.inbox-title {
-  margin: 0;
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  font-size: var(--font-size-h2);
-  font-weight: var(--font-weight-heading);
-  line-height: var(--line-height-heading);
-}
-
-.inbox-subtitle {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-body-md);
-  line-height: var(--line-height-compact);
-}
-
-.inbox-header-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
 }
 
 .inbox-body {
@@ -61,9 +15,21 @@
   /* Both tracks need an explicit 0 minimum: the default `auto` minimum lets a
      long report title push the list track past its max and out from under the
      divider. */
-  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
-  flex: 1;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  height: min(720px, 68vh);
   min-height: 0;
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--surface-recessed);
+}
+
+.inbox-empty {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-2xl);
 }
 
 /* ---- list ---- */

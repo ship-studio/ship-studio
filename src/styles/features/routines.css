@@ -2,64 +2,15 @@
    Layout mirrors the dashboard's 900px centred column so the two views feel
    like the same app. */
 
-.routines-page {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 900px;
-  margin: 0 auto;
-  padding: var(--spacing-2xl) var(--spacing-xl) 0;
-  gap: var(--spacing-lg);
-}
-
-.app.workspace-home.has-workspace-titlebar .routines-page {
-  padding-top: var(--spacing-lg);
-}
-
-.routines-page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--spacing-lg);
-}
-
-.routines-page-heading {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  min-width: 0;
-}
-
-/* Page titles use the h2 role, matching the setup screen. h1 (40px) is the
-   dashboard hero and would swamp an 11-13px list. */
-.routines-page-title {
-  margin: 0;
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  font-size: var(--font-size-h2);
-  font-weight: var(--font-weight-heading);
-  line-height: var(--line-height-heading);
-}
-
-.routines-page-subtitle {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-body-lg);
-  line-height: var(--line-height-compact);
-  max-width: 64ch;
-}
-
-/* ---- summary strip ---- */
+/* ---- summary strip ----
+   A dashboard-panel whose content is a single line of counts. */
 
 .routines-summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--spacing-xs);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--surface-recessed);
-  border: var(--border-width-default) solid var(--border-subtle);
-  border-radius: var(--radius-card);
+  padding: var(--spacing-md) var(--spacing-lg);
   color: var(--text-secondary);
   font-size: var(--font-size-body-md);
 }
@@ -79,6 +30,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+}
+
+/* Inside the section card the rows are already on --surface-panel, so they use
+   the recessed well instead of stacking panel-on-panel. */
+.routines-list .routine-row {
+  background: var(--surface-recessed);
 }
 
 .routine-row {
@@ -289,12 +246,11 @@
 }
 
 .routines-page-footer {
+  margin: 0 0 var(--dashboard-section-gap);
   color: var(--text-muted);
   font-size: var(--font-size-body-md);
   line-height: var(--line-height-help);
   max-width: 74ch;
-  padding-top: var(--spacing-sm);
-  border-top: var(--border-width-default) solid var(--border-subtle);
 }
 
 /* ---- editor modal ---- */
