@@ -29,7 +29,6 @@ const STATUS_LABEL: Record<RoutineRun['status'], string> = {
   findings: 'Findings',
   failed: 'Failed',
   running: 'Running',
-  missed: 'Missed',
 };
 
 export function RunHistoryModal({ routine, onClose }: RunHistoryModalProps) {

@@ -114,29 +114,46 @@ Runs are serialized per project (one agent per repo at a time — they share a
 working tree) with a small global concurrency cap. A run that overruns its
 timeout is killed and filed as a failed run, visible in the routine's history.
 
-## 3. Scheduling is a tokio loop, not a daemon
+## 3. Manual first, and no wall clock
 
-`src-tauri/src/routines/scheduler.rs`: one task, 30-second tick, compares `now`
-to each enabled routine's computed `next_run_at`.
+Routines run the agent CLI on this machine. Nothing runs while Ship Studio is
+closed or the Mac is asleep. That is not a gap to paper over — it decides the
+whole shape of the feature.
 
-**Routines only fire while Ship Studio is open.** For v1 that's a feature, not a
-limitation — no background daemon, no login item, no agent burning tokens on a
-laptop the user thought was idle. Missed windows show in the UI as *"Missed —
-runs when you next open Ship Studio"*, and a routine can opt into `catch_up` to
-fire once on launch.
+**Pressing Run is the primary trigger.** A routine is a saved instruction you
+fire when you want it. Every row has a Run button and it is always live.
 
-If we later want true background execution, the escape hatch is the same
-piggyback move: write a `launchd` plist (or Windows Task Scheduler entry) that
-runs the *identical* command. Same runtime, different trigger.
+**Automation is an opt-in interval, never a time of day.** "Daily at 09:00" is a
+promise this architecture cannot keep: close the laptop at 08:00 and the day is
+silently skipped, and the UI ends up reporting a failure for something it never
+could have done. An interval is measured from the last run and only advances
+while the app is open, so it is always eventually honoured — it runs late, and
+"late" needs no error state. Close the app for a day and it runs *once* when you
+come back, not five times.
 
-Triggers worth having, in rough order of value:
+That single decision removes an entire category of UI: no missed windows, no
+catch-up toggle, no amber warning card explaining why the app failed at
+something it never promised.
 
-- `every 30m`, `daily at 09:00`, `weekly on mon`
-- `on: push` / `on: pr-opened` / `on: branch-merged` — Ship Studio already
-  polls git and PR state; these are the triggers people will actually reach for
+The scheduler itself is small: `src-tauri/src/routines/scheduler.rs`, one tokio
+task on a 30-second tick comparing `now` to each armed routine's `next_run_at`.
+It belongs in Rust beside the PTY sessions, not in a React view — multi-window
+is a first-class feature here, and two windows must not mean two schedulers.
+
+Triggers, in rough order of how well they fit the model:
+
+- `on: push` / `on: pr-opened` / `on: branch-merged` — the best fit by far.
+  They fire during work, which is exactly when the app is open, and Ship Studio
+  already polls git and PR state.
 - `on: project-open`
+- `every 15m / 30m / 1h / 4h / 24h` — interval since the last run
 - `on: dev-server-error` — the preview proxy already sees console and network
   failures
+
+If we ever want true background execution, the escape hatch is the same
+piggyback move: emit a `launchd` plist (or Windows Task Scheduler entry) that
+runs the *identical* command. Same runtime, different trigger — and only then
+does a wall-clock schedule become honest.
 
 ## 4. Delivery: one MCP tool, backed by files
 
@@ -205,10 +222,13 @@ and the file path.
 
 ## What the prototype covers
 
-- Routines list: scope, trigger, agent, permission badge, last result, next run,
-  enable/disable, run-now
-- Routine editor: template picker, prompt, trigger builder, permission, delivery,
-  and the live command preview
+- Routines list: scope, schedule, agent, permission badge, last result, next
+  run, always-visible Run, and an auto-run switch for armed triggers
+- Creation flow: two steps matching Create Project — grouped template cards with
+  a selected state and an explicit Continue, then a form split into *what it
+  does* (name, instruction) and *how it runs* (project, agent, trigger,
+  permission, command preview), with unreplaced template blanks flagged before
+  you can create a routine that would report nothing useful
 - Run log: a realistic headless transcript, so the "it's just `claude -p`" story
   is visible
 - Inbox: list/detail, severity, unread, per-project and per-routine filtering,
@@ -218,3 +238,20 @@ and the file path.
 
 Scheduling, spawning, MCP tooling, file writes, dedup logic, cost accounting,
 notifications, and the terminal handoff. All fixtures.
+
+## Open questions
+
+Three things the prototype does not answer, in the order they would bite:
+
+1. **Working-tree contention.** A routine shelling into a project you are
+   actively editing reads a dirty tree, and a `can-edit` routine fights your
+   interactive agent outright. Worktrees already exist here; a routine probably
+   wants a dedicated one pinned to the last known commit.
+2. **Quota.** A half-hourly routine spends the same agent allowance you need for
+   real work, and Ship Studio does not own that meter. It can only show the cost
+   and back off — likely a budget ceiling plus a "not while I'm working" rule.
+   This is also the argument for keeping `all-projects` scope out of v1: a
+   half-hourly sweep across twelve repos is a quota bomb.
+3. **Deduplication.** A routine that refiles the same finding every thirty
+   minutes is uninstalled within a day. The fingerprint is modelled in the data
+   but the matching rules are not designed.

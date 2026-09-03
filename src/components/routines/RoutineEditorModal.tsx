@@ -45,27 +45,28 @@ interface RoutineEditorModalProps {
   onSave: (routine: Routine) => void;
 }
 
-type TriggerPreset = '15m' | '30m' | '1h' | 'daily' | 'weekly' | 'push' | 'pr-opened';
+type TriggerPreset = 'manual' | '15m' | '30m' | '1h' | '4h' | '24h' | 'push' | 'pr-opened';
 
 const TRIGGER_PRESETS: Record<TriggerPreset, RoutineTrigger> = {
+  manual: { kind: 'manual' },
   '15m': { kind: 'interval', everyMinutes: 15 },
   '30m': { kind: 'interval', everyMinutes: 30 },
   '1h': { kind: 'interval', everyMinutes: 60 },
-  daily: { kind: 'daily', atHour: 9, atMinute: 0 },
-  weekly: { kind: 'weekly', weekday: 1, atHour: 8, atMinute: 30 },
+  '4h': { kind: 'interval', everyMinutes: 4 * 60 },
+  '24h': { kind: 'interval', everyMinutes: 24 * 60 },
   push: { kind: 'event', event: 'push' },
   'pr-opened': { kind: 'event', event: 'pr-opened' },
 };
 
 function presetFor(trigger: RoutineTrigger): TriggerPreset {
-  if (trigger.kind === 'interval') {
-    if (trigger.everyMinutes <= 15) return '15m';
-    if (trigger.everyMinutes <= 30) return '30m';
-    return '1h';
-  }
-  if (trigger.kind === 'daily') return 'daily';
-  if (trigger.kind === 'weekly') return 'weekly';
-  return trigger.event === 'pr-opened' ? 'pr-opened' : 'push';
+  if (trigger.kind === 'manual') return 'manual';
+  if (trigger.kind === 'event') return trigger.event === 'pr-opened' ? 'pr-opened' : 'push';
+  const minutes = trigger.everyMinutes;
+  if (minutes <= 15) return '15m';
+  if (minutes <= 30) return '30m';
+  if (minutes <= 60) return '1h';
+  if (minutes <= 4 * 60) return '4h';
+  return '24h';
 }
 
 const ALL_PROJECTS = 'all';
@@ -87,7 +88,7 @@ interface Draft {
   prompt: string;
   severityFloor: Severity;
   notify: boolean;
-  catchUpOnLaunch: boolean;
+  autoRun: boolean;
 }
 
 function draftFrom(routine: Routine): Draft {
@@ -104,7 +105,7 @@ function draftFrom(routine: Routine): Draft {
     prompt: routine.prompt,
     severityFloor: routine.severityFloor,
     notify: routine.notify,
-    catchUpOnLaunch: routine.catchUpOnLaunch,
+    autoRun: routine.autoRun,
   };
 }
 
@@ -113,40 +114,51 @@ const BLANK: Draft = {
   description: '',
   agentId: 'claude-code',
   scopeProject: PROJECTS[0],
-  trigger: '30m',
+  // Manual is the default. Putting a routine on a timer is a deliberate,
+  // separate decision with a cost attached.
+  trigger: 'manual',
   permission: 'read-only',
   prompt: '',
   severityFloor: 'warning',
   notify: false,
-  catchUpOnLaunch: true,
+  autoRun: true,
 };
 
 export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorModalProps) {
   const isNew = routine === 'new';
-  const [pickingTemplate, setPickingTemplate] = useState(isNew);
+  const [step, setStep] = useState<'template' | 'form'>(isNew ? 'template' : 'form');
+  const [template, setTemplate] = useState<RoutineTemplate | null>(null);
   const [draft, setDraft] = useState<Draft>(() => (isNew ? BLANK : draftFrom(routine)));
 
   const trigger = TRIGGER_PRESETS[draft.trigger];
-  const isTimeTrigger = trigger.kind !== 'event';
+  const canAutoRun = trigger.kind !== 'manual';
 
   const commandPreview = useMemo(
     () => buildCommandPreview({ agentId: draft.agentId, permission: draft.permission }),
     [draft.agentId, draft.permission]
   );
 
-  const applyTemplate = (template: RoutineTemplate) => {
-    const isBlank = template.id === 'tpl-blank';
+  const selectTemplate = (next: RoutineTemplate) => {
+    const isBlank = next.id === 'tpl-blank';
+    setTemplate(next);
     setDraft({
       ...BLANK,
-      name: isBlank ? '' : template.name,
-      description: isBlank ? '' : template.description,
-      scopeProject: template.scopeKind === 'all-projects' ? ALL_PROJECTS : PROJECTS[0],
-      trigger: presetFor(template.trigger),
-      permission: template.permission,
-      prompt: template.prompt,
+      name: isBlank ? '' : next.name,
+      description: isBlank ? '' : next.description,
+      scopeProject: next.scopeKind === 'all-projects' ? ALL_PROJECTS : PROJECTS[0],
+      trigger: presetFor(next.trigger),
+      permission: next.permission,
+      prompt: next.prompt,
     });
-    setPickingTemplate(false);
   };
+
+  /**
+   * Templates ship angle-bracket blanks (`<competitor 1>`). Creating a routine
+   * that still contains them produces an agent run that does nothing useful, so
+   * the form says so instead of letting it through silently.
+   */
+  const placeholders = draft.prompt.match(/<[^<>\n]{2,40}>/g) ?? [];
+  const promptIsEmpty = draft.prompt.trim().length === 0;
 
   const commit = () => {
     const base = routine === 'new' ? null : routine;
@@ -174,20 +186,21 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
       prompt: draft.prompt,
       severityFloor: draft.severityFloor,
       notify: draft.notify,
-      enabled: base?.enabled ?? true,
+      autoRun: canAutoRun ? draft.autoRun : false,
       filePath:
         base?.filePath ??
         (draft.scopeProject === ALL_PROJECTS
           ? `~/ShipStudio/.shipstudio/routines/${slug}.md`
           : `${draft.scopeProject}/.shipstudio/routines/${slug}.md`),
-      nextRunAt: isTimeTrigger ? Date.now() + 30 * 60_000 : null,
-      catchUpOnLaunch: isTimeTrigger ? draft.catchUpOnLaunch : false,
-      missedSince: base?.missedSince ?? null,
+      nextRunAt:
+        canAutoRun && draft.autoRun && trigger.kind === 'interval'
+          ? Date.now() + trigger.everyMinutes * 60_000
+          : null,
       runs: base?.runs ?? [],
     });
   };
 
-  if (pickingTemplate) {
+  if (step === 'template') {
     return (
       <ModalFrame
         isOpen
@@ -195,7 +208,16 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
         title="New routine"
         className="routine-editor-modal routine-template-modal"
       >
-        <RoutineTemplatePicker onPick={applyTemplate} />
+        <RoutineTemplatePicker selectedId={template?.id ?? null} onSelect={selectTemplate} />
+
+        <div className="routine-editor-actions">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={!template} onClick={() => setStep('form')}>
+            Continue
+          </Button>
+        </div>
       </ModalFrame>
     );
   }
@@ -210,168 +232,207 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
       className="routine-editor-modal"
     >
       <div className="routine-editor">
-        <label className="routine-field">
-          <span className="routine-field-label text-style-label">Name</span>
-          <TextField
-            value={draft.name}
-            placeholder="Security sweep"
-            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-          />
-        </label>
+        {isNew && template && (
+          <p className="routine-editor-context">
+            Starting from <strong>{template.name}</strong>
+          </p>
+        )}
 
-        <div className="routine-field-pair">
-          <div className="routine-field">
-            <span className="routine-field-label text-style-label">Runs against</span>
-            <Dropdown
-              trigger={(props) => (
-                <MenuButton
-                  variant="secondary"
-                  width="fill"
-                  className="routine-scope-trigger"
-                  expanded={props['aria-expanded']}
-                  {...props}
-                >
-                  <span className="routine-scope-label">{scopeLabel}</span>
-                  <ChevronIcon
-                    size={10}
-                    className={props['aria-expanded'] ? 'chevron-flipped' : undefined}
-                  />
-                </MenuButton>
-              )}
-            >
-              <DropdownItem
-                active={draft.scopeProject === ALL_PROJECTS}
-                onSelect={() => setDraft({ ...draft, scopeProject: ALL_PROJECTS })}
-              >
-                All projects
-              </DropdownItem>
-              {PROJECTS.map((project) => (
-                <DropdownItem
-                  key={project}
-                  active={draft.scopeProject === project}
-                  onSelect={() => setDraft({ ...draft, scopeProject: project })}
-                >
-                  {project}
-                </DropdownItem>
-              ))}
-            </Dropdown>
-          </div>
+        {/* What it does — the instruction is the routine. Everything below it
+            is configuration with a sensible default. */}
+        <section className="routine-section">
+          <h4 className="routine-section-title">What it does</h4>
 
-          <div className="routine-field">
-            <span className="routine-field-label text-style-label">Agent</span>
-            <SegmentedControl
-              aria-label="Agent"
-              size="default"
-              value={draft.agentId}
-              onValueChange={(value) => setDraft({ ...draft, agentId: value })}
-              options={AGENT_OPTIONS.map((option) => ({
-                value: option.value,
-                ariaLabel: option.label,
-                label: (
-                  <>
-                    {option.glyph}
-                    {option.label}
-                  </>
-                ),
-              }))}
+          <label className="routine-field">
+            <span className="routine-field-label text-style-label">Name</span>
+            <TextField
+              value={draft.name}
+              placeholder="Security sweep"
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
             />
+          </label>
+
+          <label className="routine-field">
+            <span className="routine-field-label text-style-label">Instructions</span>
+            <textarea
+              className="routine-prompt"
+              rows={9}
+              value={draft.prompt}
+              spellCheck={false}
+              placeholder="Tell the agent what to look for, and what not to bother you about."
+              onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
+            />
+            {placeholders.length > 0 ? (
+              <span className="routine-field-warning">
+                Replace{' '}
+                {placeholders.slice(0, 3).map((token, index) => (
+                  <span key={token}>
+                    {index > 0 && ', '}
+                    <code>{token}</code>
+                  </span>
+                ))}
+                {placeholders.length > 3 && ` and ${placeholders.length - 3} more`} before this
+                routine will be any use.
+              </span>
+            ) : (
+              <span className="routine-field-hint">
+                Ship Studio prepends the diff since the last run, the findings this routine already
+                filed, and how to report new ones. Everything else is yours.
+              </span>
+            )}
+          </label>
+        </section>
+
+        {/* How it runs — configuration, deliberately secondary. */}
+        <section className="routine-section routine-section--config">
+          <h4 className="routine-section-title">How it runs</h4>
+
+          <div className="routine-field-pair">
+            <div className="routine-field">
+              <span className="routine-field-label text-style-label">Runs against</span>
+              <Dropdown
+                trigger={(props) => (
+                  <MenuButton
+                    variant="secondary"
+                    width="fill"
+                    className="routine-scope-trigger"
+                    expanded={props['aria-expanded']}
+                    {...props}
+                  >
+                    <span className="routine-scope-label">{scopeLabel}</span>
+                    <ChevronIcon
+                      size={10}
+                      className={props['aria-expanded'] ? 'chevron-flipped' : undefined}
+                    />
+                  </MenuButton>
+                )}
+              >
+                <DropdownItem
+                  active={draft.scopeProject === ALL_PROJECTS}
+                  onSelect={() => setDraft({ ...draft, scopeProject: ALL_PROJECTS })}
+                >
+                  All projects
+                </DropdownItem>
+                {PROJECTS.map((project) => (
+                  <DropdownItem
+                    key={project}
+                    active={draft.scopeProject === project}
+                    onSelect={() => setDraft({ ...draft, scopeProject: project })}
+                  >
+                    {project}
+                  </DropdownItem>
+                ))}
+              </Dropdown>
+            </div>
+
+            <div className="routine-field">
+              <span className="routine-field-label text-style-label">Agent</span>
+              <SegmentedControl
+                aria-label="Agent"
+                size="default"
+                value={draft.agentId}
+                onValueChange={(value) => setDraft({ ...draft, agentId: value })}
+                options={AGENT_OPTIONS.map((option) => ({
+                  value: option.value,
+                  ariaLabel: option.label,
+                  label: (
+                    <>
+                      {option.glyph}
+                      {option.label}
+                    </>
+                  ),
+                }))}
+              />
+            </div>
           </div>
-        </div>
 
-        <div className="routine-field">
-          <span className="routine-field-label text-style-label">Trigger</span>
-          <SegmentedControl
-            aria-label="Trigger"
-            size="default"
-            value={draft.trigger}
-            onValueChange={(value) => setDraft({ ...draft, trigger: value })}
-            options={[
-              { value: '15m', label: '15 min' },
-              { value: '30m', label: '30 min' },
-              { value: '1h', label: 'Hourly' },
-              { value: 'daily', label: 'Daily' },
-              { value: 'weekly', label: 'Weekly' },
-              { value: 'push', label: 'On push' },
-              { value: 'pr-opened', label: 'On PR' },
-            ]}
-          />
+          <div className="routine-field">
+            <span className="routine-field-label text-style-label">When it runs</span>
+            <SegmentedControl
+              aria-label="When it runs"
+              size="default"
+              value={draft.trigger}
+              onValueChange={(value) => setDraft({ ...draft, trigger: value })}
+              options={[
+                { value: 'manual', label: 'Manual' },
+                { value: '15m', label: 'Every 15m' },
+                { value: '30m', label: 'Every 30m' },
+                { value: '1h', label: 'Hourly' },
+                { value: '4h', label: 'Every 4h' },
+                { value: '24h', label: 'Daily' },
+                { value: 'push', label: 'On push' },
+                { value: 'pr-opened', label: 'On PR' },
+              ]}
+            />
 
-          <div className="routine-note">
-            <InfoIcon size={12} />
-            <span className="routine-note-text text-style-hint">
-              <strong>{formatTrigger(trigger)}.</strong> {describeTriggerReality(trigger)}
+            <div className="routine-note">
+              <InfoIcon size={12} />
+              <span className="routine-note-text">
+                <strong>{formatTrigger(trigger)}.</strong> {describeTriggerReality(trigger)}
+              </span>
+            </div>
+
+            {canAutoRun && (
+              <label className="settings-form-checkbox">
+                <input
+                  type="checkbox"
+                  checked={draft.autoRun}
+                  onChange={(event) => setDraft({ ...draft, autoRun: event.target.checked })}
+                />
+                <span className="settings-form-checkbox-copy">
+                  <span className="settings-form-checkbox-title">Arm this trigger</span>
+                  <span className="settings-form-checkbox-description">
+                    Leave it off to keep the routine on the list and run it by hand. You can flip
+                    this from the row without opening the editor.
+                  </span>
+                </span>
+              </label>
+            )}
+          </div>
+
+          <div className="routine-field">
+            <span className="routine-field-label text-style-label">Permission</span>
+            <SegmentedControl
+              aria-label="Permission"
+              size="default"
+              value={draft.permission}
+              onValueChange={(value) => setDraft({ ...draft, permission: value })}
+              options={[
+                { value: 'read-only', label: 'Read-only' },
+                { value: 'can-edit', label: 'Can edit files' },
+              ]}
+            />
+            <span className="routine-field-hint">
+              {draft.permission === 'read-only'
+                ? 'The agent can read the repository and report. It cannot change anything.'
+                : 'The agent may edit files unattended. Every change lands in git, but nobody is watching it happen.'}
             </span>
           </div>
 
-          {isTimeTrigger && (
-            <label className="settings-form-checkbox">
-              <input
-                type="checkbox"
-                checked={draft.catchUpOnLaunch}
-                onChange={(event) => setDraft({ ...draft, catchUpOnLaunch: event.target.checked })}
-              />
-              <span className="settings-form-checkbox-copy">
-                <span className="settings-form-checkbox-title">
-                  Catch up when Ship Studio next opens
-                </span>
-                <span className="settings-form-checkbox-description">
-                  Runs once for the window that passed while the app was closed, instead of waiting
-                  for the next one.
-                </span>
-              </span>
-            </label>
-          )}
-        </div>
-
-        <label className="routine-field">
-          <span className="routine-field-label text-style-label">Instructions</span>
-          <textarea
-            className="routine-prompt"
-            rows={8}
-            value={draft.prompt}
-            spellCheck={false}
-            placeholder="Tell the agent what to look for, and what not to bother you about."
-            onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
-          />
-          <span className="routine-field-hint text-style-hint">
-            Ship Studio prepends the diff since the last run, the findings this routine already
-            filed, and how to report new ones. Everything else is yours.
-          </span>
-        </label>
-
-        <div className="routine-field">
-          <span className="routine-field-label text-style-label">Permission</span>
-          <SegmentedControl
-            aria-label="Permission"
-            size="default"
-            value={draft.permission}
-            onValueChange={(value) => setDraft({ ...draft, permission: value })}
-            options={[
-              { value: 'read-only', label: 'Read-only' },
-              { value: 'can-edit', label: 'Can edit files' },
-            ]}
-          />
-          <span className="routine-field-hint text-style-hint">
-            {draft.permission === 'read-only'
-              ? 'The agent can read the repository and report. It cannot change anything.'
-              : 'The agent may edit files unattended. Every change lands in git, but nobody is watching it happen.'}
-          </span>
-        </div>
-
-        <div className="routine-command">
-          <div className="routine-command-header">
-            <TerminalIcon size={12} />
-            <span className="text-style-label">What actually runs</span>
+          <div className="routine-command">
+            <div className="routine-command-header">
+              <TerminalIcon size={12} />
+              <span className="text-style-label">What actually runs</span>
+            </div>
+            <pre className="routine-command-body">{commandPreview}</pre>
           </div>
-          <pre className="routine-command-body">{commandPreview}</pre>
-        </div>
+        </section>
       </div>
 
       <div className="routine-editor-actions">
+        {isNew && (
+          <Button
+            variant="ghost"
+            className="routine-editor-back"
+            onClick={() => setStep('template')}
+          >
+            Back
+          </Button>
+        )}
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
-        <Button variant="primary" onClick={commit}>
+        <Button variant="primary" disabled={promptIsEmpty} onClick={commit}>
           {isNew ? 'Create routine' : 'Save changes'}
         </Button>
       </div>

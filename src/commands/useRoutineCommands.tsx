@@ -55,14 +55,14 @@ export function useRoutineCommands({ setView, showToast }: UseRoutineCommandsPar
         category: 'navigation',
         keywords: ['trigger', 'sweep'],
         run: () => {
-          const enabled = snapshot.routines.filter((routine) => routine.enabled);
-          if (enabled.length === 0) {
-            showToast('No routines are enabled', 'info');
+          const { routines } = snapshot;
+          if (routines.length === 0) {
+            showToast('No routines yet', 'info');
             return;
           }
-          for (const routine of enabled) runRoutineNow(routine.id);
+          for (const routine of routines) runRoutineNow(routine.id);
           setView('routines');
-          showToast(`Running ${enabled.length} routines…`, 'info');
+          showToast(`Running ${routines.length} routines…`, 'info');
         },
       },
     ],

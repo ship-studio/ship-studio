@@ -20,19 +20,31 @@ import { CLAUDE_CODE, CODEX, OPENCODE, type AgentConfig } from './agent';
 export type Severity = 'critical' | 'warning' | 'info';
 
 /** Outcome of a single routine run. */
-export type RunStatus = 'ok' | 'findings' | 'failed' | 'running' | 'missed';
+export type RunStatus = 'ok' | 'findings' | 'failed' | 'running';
 
 /** What a routine's agent is allowed to do while it runs. */
 export type RoutinePermission = 'read-only' | 'can-edit';
 
-/** What sets a routine off. */
+/**
+ * What sets a routine off.
+ *
+ * Deliberately no wall-clock schedules. A routine runs the agent CLI on this
+ * machine, so "daily at 09:00" is a promise the architecture cannot keep — if
+ * the app is closed at 09:00 the day is simply skipped, and the UI ends up
+ * reporting a failure for something it never could have done. An interval is
+ * measured from the last run and only advances while Ship Studio is open, so
+ * it is always eventually honoured: it runs late, never "missed".
+ */
 export type RoutineTrigger =
+  | { kind: 'manual' }
   | { kind: 'interval'; everyMinutes: number }
-  | { kind: 'daily'; atHour: number; atMinute: number }
-  | { kind: 'weekly'; weekday: number; atHour: number; atMinute: number }
   | { kind: 'event'; event: RoutineEvent };
 
-/** Non-time triggers, all of which Ship Studio already observes today. */
+/**
+ * Non-time triggers, all of which Ship Studio already observes today. These
+ * are the best fit for the model: they fire during work, which is exactly when
+ * the app is open.
+ */
 export type RoutineEvent = 'push' | 'pr-opened' | 'branch-merged' | 'project-open';
 
 /** Which project(s) a routine runs against. */
@@ -72,21 +84,15 @@ export interface Routine {
   severityFloor: Severity;
   /** Send an OS notification as well as filing to the inbox. */
   notify: boolean;
-  enabled: boolean;
+  /**
+   * Whether the trigger is armed. Irrelevant for a manual routine, which is
+   * always runnable from its Run button — pressing Run is the whole trigger.
+   */
+  autoRun: boolean;
   /** Absolute path of the markdown file this routine lives in. */
   filePath: string;
+  /** When the interval next elapses. Null for manual and event routines. */
   nextRunAt: number | null;
-  /**
-   * Run the window that elapsed while Ship Studio was closed, once, on next
-   * launch. Only meaningful for time triggers — event triggers have no window
-   * to miss, they simply do not observe events while the app is closed.
-   */
-  catchUpOnLaunch: boolean;
-  /**
-   * When a time trigger's window passed while the app was closed. Drives the
-   * "Missed" row state; null once the catch-up run happens.
-   */
-  missedSince: number | null;
   runs: RoutineRun[];
 }
 
@@ -138,8 +144,6 @@ export interface RoutineTemplate {
 
 /* -------------------------------------------------------------- formatting */
 
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
 const EVENT_LABELS: Record<RoutineEvent, string> = {
   push: 'After every push',
   'pr-opened': 'When a PR opens',
@@ -147,40 +151,49 @@ const EVENT_LABELS: Record<RoutineEvent, string> = {
   'project-open': 'When the project opens',
 };
 
-function pad(n: number): string {
-  return n.toString().padStart(2, '0');
-}
-
-/** Human label for a trigger, e.g. "Every 30 minutes" or "Daily at 09:00". */
+/** Human label for a trigger, e.g. "Every 30 min" or "After every push". */
 export function formatTrigger(trigger: RoutineTrigger): string {
   switch (trigger.kind) {
+    case 'manual':
+      return 'Manual';
     case 'interval': {
-      const m = trigger.everyMinutes;
-      if (m < 60) return `Every ${m} minutes`;
-      const hours = m / 60;
-      return hours === 1 ? 'Every hour' : `Every ${hours} hours`;
+      const minutes = trigger.everyMinutes;
+      if (minutes < 60) return `Every ${minutes} min`;
+      const hours = minutes / 60;
+      if (hours === 1) return 'Every hour';
+      if (hours < 24) return `Every ${hours} hours`;
+      const days = hours / 24;
+      return days === 1 ? 'Every day' : `Every ${days} days`;
     }
-    case 'daily':
-      return `Daily at ${pad(trigger.atHour)}:${pad(trigger.atMinute)}`;
-    case 'weekly':
-      return `${WEEKDAYS[trigger.weekday]}s at ${pad(trigger.atHour)}:${pad(trigger.atMinute)}`;
     case 'event':
       return EVENT_LABELS[trigger.event];
   }
 }
 
 /**
- * The honest one-liner about when a trigger can actually fire.
+ * The list-row schedule line, including whether the trigger is actually armed.
  *
- * Routines run the agent CLI on this machine, so nothing fires while Ship
- * Studio is closed or the Mac is asleep. The UI says so next to every trigger
- * rather than burying it in a footnote.
+ * Repeating "while Ship Studio is open" on every armed row is deliberate: it is
+ * the one thing about this feature the user has to internalise, and a footnote
+ * at the bottom of the page does not do that job. A disarmed routine must not
+ * advertise a cadence it is not keeping.
  */
+export function describeSchedule(routine: Pick<Routine, 'trigger' | 'autoRun'>): string {
+  if (routine.trigger.kind === 'manual') return 'Manual — runs when you press Run';
+  if (!routine.autoRun) return `${formatTrigger(routine.trigger)} — auto-run off`;
+  return `${formatTrigger(routine.trigger)}, while Ship Studio is open`;
+}
+
+/** The honest sentence about when a trigger can actually fire. */
 export function describeTriggerReality(trigger: RoutineTrigger): string {
-  if (trigger.kind === 'event') {
-    return 'Fires when Ship Studio sees the event, so only while the app is open. Events that happen while it is closed are not replayed.';
+  switch (trigger.kind) {
+    case 'manual':
+      return 'Runs only when you press Run. Nothing happens on its own.';
+    case 'interval':
+      return 'The timer only advances while Ship Studio is open, so a routine runs late rather than being skipped. Close the app for a day and it runs once when you come back, not five times.';
+    case 'event':
+      return 'Fires when Ship Studio sees the event, which is while you are working in it. Events that happen elsewhere are not replayed.';
   }
-  return 'Fires only while Ship Studio is open and this Mac is awake. A window that passes while the app is closed is marked missed.';
 }
 
 /** Short countdown to the next run, e.g. "in 12 min". Null when not scheduled. */
@@ -231,11 +244,6 @@ export function formatDuration(ms: number): string {
 export function formatTokens(tokens: number): string {
   if (tokens < 1000) return `${tokens}`;
   return `${(tokens / 1000).toFixed(1)}k`;
-}
-
-/** Routines whose window elapsed while Ship Studio was closed. */
-export function missedRoutines(routines: Routine[]): Routine[] {
-  return routines.filter((routine) => routine.enabled && routine.missedSince !== null);
 }
 
 /** Rolling seven-day rollup for the Routines summary strip. */
@@ -381,11 +389,9 @@ export const FIXTURE_ROUTINES: Routine[] = [
     permission: 'read-only',
     severityFloor: 'warning',
     notify: true,
-    enabled: true,
+    autoRun: true,
     filePath: 'hexa-storefront/.shipstudio/routines/security-sweep.md',
     nextRunAt: NOW + 12 * MINUTE,
-    catchUpOnLaunch: true,
-    missedSince: null,
     prompt: `Review everything that changed since your last run for security regressions: secrets committed to source, unvalidated user input reaching the filesystem or a shell, auth checks removed from a route, dependencies pulled in from an unfamiliar registry.
 
 Report each finding with ship_studio_report. Include the exact file and line. If nothing is wrong, report nothing — do not file an "all clear".`,
@@ -425,15 +431,13 @@ Report each finding with ship_studio_report. Include the exact file and line. If
     description: 'Daily advisory check plus a read on which majors are worth taking.',
     agentId: 'codex',
     scope: { kind: 'all-projects' },
-    trigger: { kind: 'daily', atHour: 9, atMinute: 0 },
+    trigger: { kind: 'interval', everyMinutes: 24 * 60 },
     permission: 'read-only',
     severityFloor: 'info',
     notify: false,
-    enabled: true,
+    autoRun: true,
     filePath: '~/ShipStudio/.shipstudio/routines/dependency-drift.md',
-    nextRunAt: NOW + 14 * HOUR,
-    catchUpOnLaunch: true,
-    missedSince: NOW - 19 * HOUR,
+    nextRunAt: NOW + 19 * HOUR,
     prompt: `Run the project's audit and outdated commands. For each advisory above "low", tell me whether the vulnerable path is actually reachable from this codebase — I don't want noise about a transitive dev dependency I never call.
 
 For major versions we're behind on, give me a one-line read on whether the migration is worth doing now, later, or never.`,
@@ -468,15 +472,13 @@ For major versions we're behind on, give me a one-line read on whether the migra
       projectName: 'hexa-storefront',
       projectPath: '~/ShipStudio/hexa-storefront',
     },
-    trigger: { kind: 'weekly', weekday: 1, atHour: 8, atMinute: 30 },
+    trigger: { kind: 'manual' },
     permission: 'read-only',
     severityFloor: 'info',
     notify: false,
-    enabled: true,
+    autoRun: false,
     filePath: 'hexa-storefront/.shipstudio/routines/competitor-watch.md',
-    nextRunAt: NOW + 3 * DAY,
-    catchUpOnLaunch: false,
-    missedSince: null,
+    nextRunAt: null,
     prompt: `Read the blog and changelog of linear.app, vercel.com and railway.com.
 
 Report anything published since your last run that changes what we should be building. Skip launch posts for things we don't compete with, skip hiring posts, and skip anything you've already told me about.
@@ -508,11 +510,9 @@ Group the digest by theme, not by company, and end with one paragraph on what it
     permission: 'read-only',
     severityFloor: 'warning',
     notify: false,
-    enabled: true,
+    autoRun: true,
     filePath: 'client-atlas/.shipstudio/routines/design-drift.md',
     nextRunAt: null,
-    catchUpOnLaunch: false,
-    missedSince: null,
     prompt: `Read CLAUDE.md and the design-system docs first, then review the pushed diff for drift: raw hex colours, off-scale spacing, a hand-rolled component where a primitive exists, a new button class.
 
 Only report things the docs actually forbid. If you're unsure whether something is a rule or a preference, don't file it.`,
@@ -538,15 +538,13 @@ Only report things the docs actually forbid. If you're unsure whether something 
       projectName: 'portfolio-v3',
       projectPath: '~/ShipStudio/portfolio-v3',
     },
-    trigger: { kind: 'daily', atHour: 18, atMinute: 0 },
+    trigger: { kind: 'interval', everyMinutes: 12 * 60 },
     permission: 'read-only',
     severityFloor: 'warning',
     notify: false,
-    enabled: false,
+    autoRun: false,
     filePath: 'portfolio-v3/.shipstudio/routines/broken-links.md',
     nextRunAt: null,
-    catchUpOnLaunch: true,
-    missedSince: null,
     prompt: `Crawl every page of the running dev server. Report links that 404, images that fail to load, and any page that throws in the console on first paint.
 
 Use the Ship Studio preview bridge rather than starting your own browser.`,
@@ -831,7 +829,7 @@ Report each finding with ship_studio_report. Include the exact file and line. If
     name: 'Dependency drift',
     description: 'Daily advisory check plus a read on which majors are worth taking.',
     category: 'Maintenance',
-    trigger: { kind: 'daily', atHour: 9, atMinute: 0 },
+    trigger: { kind: 'interval', everyMinutes: 24 * 60 },
     permission: 'read-only',
     scopeKind: 'all-projects',
     prompt: `Run the project's audit and outdated commands. For each advisory above "low", tell me whether the vulnerable path is actually reachable from this codebase. For majors we're behind on, give me a one-line read on whether the migration is worth doing now, later, or never.`,
@@ -841,7 +839,7 @@ Report each finding with ship_studio_report. Include the exact file and line. If
     name: 'Competitor watch',
     description: 'Reads competitor blogs and changelogs, reports what changed.',
     category: 'Research',
-    trigger: { kind: 'weekly', weekday: 1, atHour: 8, atMinute: 30 },
+    trigger: { kind: 'manual' },
     permission: 'read-only',
     scopeKind: 'project',
     prompt: `Read the blog and changelog of <competitor 1>, <competitor 2> and <competitor 3>.
@@ -877,7 +875,7 @@ For each finding, give me the concrete inputs that produce the wrong output. If 
     name: 'Broken links & images',
     description: 'Crawls the running preview and reports anything that 404s.',
     category: 'Quality',
-    trigger: { kind: 'daily', atHour: 18, atMinute: 0 },
+    trigger: { kind: 'interval', everyMinutes: 12 * 60 },
     permission: 'read-only',
     scopeKind: 'project',
     prompt: `Crawl every page of the running dev server. Report links that 404, images that fail to load, and any page that throws in the console on first paint.
@@ -889,7 +887,7 @@ Use the Ship Studio preview bridge rather than starting your own browser.`,
     name: 'Blank routine',
     description: 'Start from an empty prompt.',
     category: 'Quality',
-    trigger: { kind: 'daily', atHour: 9, atMinute: 0 },
+    trigger: { kind: 'manual' },
     permission: 'read-only',
     scopeKind: 'project',
     prompt: '',

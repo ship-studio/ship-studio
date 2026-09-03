@@ -10,6 +10,7 @@
  * @module components/dashboard/TemplateCard
  */
 
+import type { ReactNode } from 'react';
 import { Button } from '../primitives/Button';
 import { CheckIcon } from '@/components/icons';
 
@@ -19,9 +20,11 @@ interface TemplateCardProps {
   /** Whether this card is the active selection (drives the ring + check). */
   selected: boolean;
   onSelect: () => void;
+  /** Optional third line under the description, e.g. a cadence or size. */
+  meta?: ReactNode;
 }
 
-export function TemplateCard({ name, description, selected, onSelect }: TemplateCardProps) {
+export function TemplateCard({ name, description, selected, onSelect, meta }: TemplateCardProps) {
   return (
     <Button
       variant="ghost"
@@ -31,6 +34,7 @@ export function TemplateCard({ name, description, selected, onSelect }: Template
     >
       <span className="stack-card-name">{name}</span>
       <span className="stack-card-desc">{description}</span>
+      {meta && <span className="stack-card-meta">{meta}</span>}
       {selected && (
         <div className="stack-card-check">
           <CheckIcon size={14} />

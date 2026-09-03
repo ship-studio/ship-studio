@@ -50,19 +50,19 @@ export function getSnapshot(): RoutinesState {
 
 /* ------------------------------------------------------------- routines */
 
-/** Flip a routine's enabled flag. Disabling clears its next run. */
-export function toggleRoutine(id: string, enabled: boolean): void {
+/** Arm or disarm a routine's trigger. Disarming clears its countdown. */
+export function setAutoRun(id: string, autoRun: boolean): void {
   emit({
     ...state,
     routines: state.routines.map((routine) =>
       routine.id === id
         ? {
             ...routine,
-            enabled,
+            autoRun,
             nextRunAt:
-              enabled && routine.trigger.kind !== 'event' ? Date.now() + 30 * 60_000 : null,
-            // A paused routine has no window to miss.
-            missedSince: enabled ? routine.missedSince : null,
+              autoRun && routine.trigger.kind === 'interval'
+                ? Date.now() + routine.trigger.everyMinutes * 60_000
+                : null,
           }
         : routine
     ),
@@ -118,10 +118,12 @@ export function runRoutineNow(id: string): void {
         r.id === id
           ? {
               ...r,
-              nextRunAt: r.trigger.kind === 'event' ? null : Date.now() + 30 * 60_000,
-              // A completed run closes any window that was missed while the
-              // app was closed.
-              missedSince: null,
+              // A manual run also restarts the interval — the point of the
+              // interval is "this long since it last ran", not a wall clock.
+              nextRunAt:
+                r.autoRun && r.trigger.kind === 'interval'
+                  ? Date.now() + r.trigger.everyMinutes * 60_000
+                  : null,
               runs: r.runs.map((run) =>
                 run.id === runId
                   ? {

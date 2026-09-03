@@ -13,17 +13,16 @@ import { PlusIcon, ZapIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { EmptyState } from '../primitives/EmptyState';
 import { RoutineRow } from './RoutineRow';
-import { RoutineCoverageCard } from './RoutineCoverageCard';
 import { RoutineEditorModal } from './RoutineEditorModal';
 import { RunHistoryModal } from './RunHistoryModal';
 import { useOptionalToast } from '../../contexts/ToastContext';
-import { formatTokens, missedRoutines, summarizeWeek, type Routine } from '../../lib/routines';
+import { formatTokens, summarizeWeek, type Routine } from '../../lib/routines';
 import {
   getSnapshot,
   runRoutineNow,
   saveRoutine,
+  setAutoRun,
   subscribe,
-  toggleRoutine,
 } from '../../lib/routinesStore';
 
 export function RoutinesView() {
@@ -33,14 +32,15 @@ export function RoutinesView() {
   const [editing, setEditing] = useState<Routine | 'new' | null>(null);
   const [historyFor, setHistoryFor] = useState<Routine | null>(null);
 
-  const activeCount = routines.filter((routine) => routine.enabled).length;
+  const armedCount = routines.filter(
+    (routine) => routine.autoRun && routine.trigger.kind !== 'manual'
+  ).length;
   const week = summarizeWeek(routines);
-  const missed = missedRoutines(routines);
 
-  const handleToggle = useCallback(
-    (routine: Routine, enabled: boolean) => {
-      toggleRoutine(routine.id, enabled);
-      showToast(`${routine.name} ${enabled ? 'enabled' : 'paused'}`, 'info');
+  const handleToggleAutoRun = useCallback(
+    (routine: Routine, autoRun: boolean) => {
+      setAutoRun(routine.id, autoRun);
+      showToast(`Auto-run ${autoRun ? 'on' : 'off'} for ${routine.name}`, 'info');
     },
     [showToast]
   );
@@ -69,7 +69,7 @@ export function RoutinesView() {
           <div className="routines-page-heading">
             <h1 className="routines-page-title">Routines</h1>
             <p className="routines-page-subtitle">
-              Standing instructions your agent runs on a trigger. Findings land in your Inbox.
+              Saved instructions you run with one press. Findings land in your Inbox.
             </p>
           </div>
           <Button
@@ -84,7 +84,7 @@ export function RoutinesView() {
         {routines.length > 0 && (
           <div className="routines-summary">
             <span className="routines-summary-item">
-              <strong>{activeCount}</strong> active
+              <strong>{armedCount}</strong> on auto-run
             </span>
             <span className="routines-summary-sep" aria-hidden>
               ·
@@ -107,14 +107,12 @@ export function RoutinesView() {
           </div>
         )}
 
-        {routines.length > 0 && <RoutineCoverageCard missed={missed} />}
-
         <section className="routines-list" aria-label="Routines">
           {routines.length === 0 ? (
             <EmptyState
               icon={<ZapIcon size={28} />}
               title="No routines yet"
-              description="A routine is a prompt, a trigger, and a project. Ship Studio runs it with the agent CLI you already use and files what it finds in your Inbox."
+              description="A routine is a prompt and a project. Press Run whenever you want it, or put it on an interval that ticks while Ship Studio is open. It uses the agent CLI you already have, and files what it finds in your Inbox."
               action={
                 <Button variant="primary" onClick={() => setEditing('new')}>
                   Create your first routine
@@ -128,7 +126,7 @@ export function RoutinesView() {
                 routine={routine}
                 onEdit={setEditing}
                 onRunNow={handleRunNow}
-                onToggle={handleToggle}
+                onToggleAutoRun={handleToggleAutoRun}
                 onOpenHistory={setHistoryFor}
               />
             ))
@@ -136,9 +134,12 @@ export function RoutinesView() {
         </section>
 
         <footer className="routines-page-footer">
-          Each routine is a markdown file in its project under <code>.shipstudio/routines/</code>,
-          so it reviews and travels with the repository like any other source file. Tokens are
-          billed to the agent plan you already pay for.
+          Routines run the agent CLI installed on this Mac, inside your project folder — there is no
+          Ship Studio server and no copy of your code anywhere else. Nothing runs while the app is
+          closed, so auto-run is an interval that only ticks while Ship Studio is open rather than a
+          time of day it has to hit. Each routine is a markdown file under{' '}
+          <code>.shipstudio/routines/</code>, and tokens are billed to the agent plan you already
+          pay for.
         </footer>
 
         <div className="dashboard-bottom-spacer" aria-hidden />
