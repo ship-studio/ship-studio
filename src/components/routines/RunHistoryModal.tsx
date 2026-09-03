@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { ModalFrame } from '../primitives/ModalFrame';
 import {
-  formatAge,
+  formatAgo,
   formatDuration,
   formatTokens,
   type Routine,
@@ -64,7 +64,7 @@ export function RunHistoryModal({ routine, onClose }: RunHistoryModalProps) {
                   {run.findings > 0 && ` · ${run.findings}`}
                 </span>
                 <span className="run-history-item-meta text-style-hint">
-                  {formatAge(run.startedAt)} ago
+                  {formatAgo(run.startedAt)}
                   {run.status !== 'running' && ` · ${formatDuration(run.durationMs)}`}
                   {run.tokens > 0 && ` · ${formatTokens(run.tokens)} tok`}
                 </span>

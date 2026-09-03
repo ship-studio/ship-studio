@@ -142,22 +142,22 @@ export function InboxView() {
         </div>
       </header>
 
-      <div className="inbox-body">
-        <div className="inbox-list" role="list" aria-label="Findings">
-          {visible.length === 0 ? (
-            <div className="inbox-list-empty">
-              <EmptyState
-                icon={<BellIcon size={26} />}
-                title={filter === 'unread' ? 'You are all caught up' : 'Nothing here'}
-                description={
-                  filter === 'unread'
-                    ? 'Your routines have not found anything new.'
-                    : 'No findings match this filter.'
-                }
-              />
-            </div>
-          ) : (
-            visible.map((item) => (
+      {visible.length === 0 ? (
+        <div className="inbox-empty">
+          <EmptyState
+            icon={<BellIcon size={26} />}
+            title={filter === 'unread' ? 'You are all caught up' : 'Nothing here'}
+            description={
+              filter === 'unread'
+                ? 'Your routines have not found anything new.'
+                : 'No findings match this filter.'
+            }
+          />
+        </div>
+      ) : (
+        <div className="inbox-body">
+          <div className="inbox-list" role="list" aria-label="Findings">
+            {visible.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -186,18 +186,14 @@ export function InboxView() {
                   </span>
                 </span>
               </button>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
 
-        <div className="inbox-detail-pane">
-          {selected ? (
-            <InboxDetail item={selected} onArchive={handleArchive} />
-          ) : (
-            <div className="inbox-detail-empty text-style-hint">Select a finding to read it.</div>
-          )}
+          <div className="inbox-detail-pane">
+            {selected && <InboxDetail item={selected} onArchive={handleArchive} />}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

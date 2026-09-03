@@ -176,20 +176,20 @@
   text-overflow: ellipsis;
 }
 
+/* Shares the app's badge recipe — see .branch-card-badge. */
 .routine-badge {
-  padding: 0 var(--spacing-xs);
-  border: var(--border-width-default) solid var(--border-default);
+  padding: var(--spacing-2xs) var(--spacing-xs);
   border-radius: var(--radius-sm);
+  background: var(--surface-control);
   color: var(--text-muted);
-  font-size: var(--font-size-badge);
-  line-height: 1.5;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
   white-space: nowrap;
 }
 
 .routine-badge--edit {
-  color: var(--accent-warning);
-  border-color: rgba(var(--accent-warning-rgb), 0.45);
   background: rgba(var(--accent-warning-rgb), 0.1);
+  color: var(--accent-warning);
 }
 
 .routine-row-description {
@@ -389,13 +389,18 @@
 
 .routine-editor-modal {
   width: min(680px, 92vw);
+  /* The body scrolls, not the dialog — otherwise the footer actions scroll
+     away and the form below the fold reads as the end of the dialog. */
+  max-height: 86vh;
+  overflow: hidden;
 }
 
 .routine-editor {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-lg);
-  max-height: 58vh;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-lg);
 }
@@ -415,6 +420,13 @@
 
 .routine-field-label {
   color: var(--text-secondary);
+}
+
+/* SegmentedControl is inline-flex, but a column flex parent stretches it to
+   full width and leaves an empty rail past the last option. */
+.routine-field > .segmented-control {
+  align-self: flex-start;
+  max-width: 100%;
 }
 
 .routine-field-hint {
@@ -505,6 +517,7 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--spacing-sm);
+  flex-shrink: 0;
   padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg);
   border-top: var(--border-width-default) solid var(--border-default);
 }
@@ -513,13 +526,16 @@
 
 .routine-template-modal {
   width: min(720px, 92vw);
+  max-height: 86vh;
+  overflow: hidden;
 }
 
 .routine-templates {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-lg);
-  max-height: 64vh;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
 }
@@ -599,13 +615,16 @@
 
 .run-history-modal {
   width: min(820px, 94vw);
+  max-height: 86vh;
+  overflow: hidden;
 }
 
 .run-history {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
   gap: var(--spacing-md);
-  height: 52vh;
+  flex: 1;
+  min-height: 0;
   padding: var(--spacing-lg) var(--spacing-xl) 0;
 }
 
@@ -704,6 +723,7 @@
 
 .run-history-note {
   margin: 0;
+  flex-shrink: 0;
   padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg);
   color: var(--text-muted);
   font-size: var(--font-size-body-md);

@@ -79,8 +79,15 @@
   gap: var(--spacing-3xs);
 }
 
-.inbox-list-empty {
-  padding: var(--spacing-2xl) var(--spacing-md);
+/* With nothing to list there is nothing to select, so the two panes collapse
+   into one centred empty state instead of showing it twice. */
+.inbox-empty {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-2xl);
 }
 
 .inbox-item {
@@ -204,16 +211,16 @@
   white-space: nowrap;
 }
 
-/* Matches the project-table workspace chip: mono, badge size, control fill. */
+/* Same pill geometry as the severity badge; mono is what marks it as an
+   identifier rather than a status. */
 .inbox-chip {
-  padding: 0 var(--spacing-xs);
+  padding: var(--spacing-2xs) var(--spacing-xs);
   background: var(--surface-control);
-  border: var(--border-width-default) solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   font-family: var(--font-code);
-  font-size: var(--font-size-badge);
-  line-height: 1.5;
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
   white-space: nowrap;
 }
 
@@ -226,12 +233,6 @@
 .inbox-detail-pane {
   overflow-y: auto;
   min-width: 0;
-}
-
-.inbox-detail-empty {
-  padding: var(--spacing-2xl);
-  color: var(--text-muted);
-  font-size: var(--font-size-body-md);
 }
 
 .inbox-detail {
@@ -248,34 +249,31 @@
   gap: var(--spacing-sm);
 }
 
+/* Same recipe as .branch-card-badge / .publish-row-badge: a quiet tinted
+   pill, sentence case, no border and no tracking. */
 .inbox-detail-severity {
   align-self: flex-start;
-  padding: 0 var(--spacing-xs);
+  padding: var(--spacing-2xs) var(--spacing-xs);
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-badge);
-  font-weight: var(--font-weight-label);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-control);
+  background: var(--surface-control);
   color: var(--text-muted);
-  border: var(--border-width-default) solid var(--border-default);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-compact);
 }
 
 .inbox-detail-severity[data-severity='critical'] {
+  background: rgba(var(--accent-error-rgb), 0.1);
   color: var(--accent-error);
-  border-color: rgba(var(--accent-error-rgb), 0.5);
-  background: rgba(var(--accent-error-rgb), 0.12);
 }
 
 .inbox-detail-severity[data-severity='warning'] {
+  background: rgba(var(--accent-warning-rgb), 0.1);
   color: var(--accent-warning);
-  border-color: rgba(var(--accent-warning-rgb), 0.5);
-  background: rgba(var(--accent-warning-rgb), 0.12);
 }
 
 .inbox-detail-severity[data-severity='info'] {
+  background: rgba(var(--accent-active-rgb), 0.1);
   color: var(--accent-active);
-  border-color: rgba(var(--accent-active-rgb), 0.5);
-  background: rgba(var(--accent-active-rgb), 0.12);
 }
 
 .inbox-detail-title {

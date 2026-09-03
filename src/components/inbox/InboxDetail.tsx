@@ -23,7 +23,7 @@ import {
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
-import { formatAge, type InboxItem, type Severity } from '../../lib/routines';
+import { formatAgo, type InboxItem, type Severity } from '../../lib/routines';
 
 interface InboxDetailProps {
   item: InboxItem;
@@ -58,12 +58,12 @@ export function InboxDetail({ item, onArchive }: InboxDetailProps) {
           <span className="inbox-chip">{item.projectName}</span>
           <span>{item.routineName}</span>
           <span aria-hidden>·</span>
-          <span>{formatAge(item.createdAt)} ago</span>
+          <span>{formatAgo(item.createdAt)}</span>
           {item.occurrences > 1 && (
             <>
               <span aria-hidden>·</span>
-              <span title={`First seen ${formatAge(item.firstSeenAt)} ago`}>
-                reported {item.occurrences}× since {formatAge(item.firstSeenAt)} ago
+              <span>
+                reported {item.occurrences}× since {formatAgo(item.firstSeenAt)}
               </span>
             </>
           )}

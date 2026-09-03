@@ -13,7 +13,7 @@
  */
 
 import { InfoIcon, WarningIcon } from '@/components/icons';
-import { formatAge, type Routine } from '../../lib/routines';
+import { formatAgo, type Routine } from '../../lib/routines';
 
 interface RoutineCoverageCardProps {
   /** Routines whose window elapsed while Ship Studio was closed. */
@@ -61,7 +61,7 @@ export function RoutineCoverageCard({ missed }: RoutineCoverageCardProps) {
                 <span className="routine-coverage-item-meta">
                   {routine.missedSince === null
                     ? 'window passed'
-                    : `window passed ${formatAge(routine.missedSince)} ago`}{' '}
+                    : `window passed ${formatAgo(routine.missedSince)}`}{' '}
                   · {routine.catchUpOnLaunch ? 'will catch up' : 'window skipped'}
                 </span>
               </li>

@@ -327,7 +327,7 @@ export function RoutineEditorModal({ routine, onClose, onSave }: RoutineEditorMo
           <span className="routine-field-label text-style-label">Instructions</span>
           <textarea
             className="routine-prompt"
-            rows={10}
+            rows={8}
             value={draft.prompt}
             spellCheck={false}
             placeholder="Tell the agent what to look for, and what not to bother you about."

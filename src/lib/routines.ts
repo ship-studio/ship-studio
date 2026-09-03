@@ -208,6 +208,17 @@ export function formatAge(timestamp: number, now = Date.now()): string {
   return `${Math.floor(days / 7)}w`;
 }
 
+/**
+ * Past-tense age for a timestamp: "just now", "18m ago", "2d ago".
+ *
+ * Callers must not append " ago" to `formatAge` themselves — the sub-minute
+ * case reads "now", and "now ago" is not a thing.
+ */
+export function formatAgo(timestamp: number, now = Date.now()): string {
+  const age = formatAge(timestamp, now);
+  return age === 'now' ? 'just now' : `${age} ago`;
+}
+
 /** Run duration as "1.4s" / "48s" / "2m 10s". */
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;

@@ -11,7 +11,7 @@ import { IconButton } from '../primitives/IconButton';
 import { Spinner } from '../primitives/Spinner';
 import {
   agentForRoutine,
-  formatAge,
+  formatAgo,
   formatCountdown,
   formatTrigger,
   type Routine,
@@ -36,13 +36,13 @@ function lastRunLabel(routine: Routine): string {
   const run = routine.runs[0];
   if (run?.status === 'running') return 'Running now';
   if (routine.enabled && routine.missedSince !== null) {
-    return `Missed ${formatAge(routine.missedSince)} ago`;
+    return `Missed ${formatAgo(routine.missedSince)}`;
   }
   if (!run) return 'Never run';
-  if (run.status === 'failed') return `Failed ${formatAge(run.startedAt)} ago`;
-  if (run.findings === 0) return `Clean ${formatAge(run.startedAt)} ago`;
+  if (run.status === 'failed') return `Failed ${formatAgo(run.startedAt)}`;
+  if (run.findings === 0) return `Clean ${formatAgo(run.startedAt)}`;
   const plural = run.findings === 1 ? 'finding' : 'findings';
-  return `${run.findings} ${plural} ${formatAge(run.startedAt)} ago`;
+  return `${run.findings} ${plural} ${formatAgo(run.startedAt)}`;
 }
 
 export function RoutineRow({
