@@ -16,6 +16,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ActivityIcon,
   AddIcon,
+  BellIcon,
   ChevronIcon,
   CloseIcon,
   HomeIcon,
@@ -27,6 +28,7 @@ import {
   SlackIcon,
   NewWorkspaceIcon,
   SwitchWorkspaceIcon,
+  ZapIcon,
 } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
@@ -96,6 +98,17 @@ interface Props {
   onToggleSidebar?: () => void;
   /** Hide the sidebar-owned navigation row when the workspace titlebar owns it. */
   showNavigationControls?: boolean;
+  /**
+   * PROTOTYPE (routines/inbox): which top-level destination is showing, so the
+   * nav row can mark it current. Defaults to Home when omitted.
+   */
+  activeNav?: 'home' | 'routines' | 'inbox';
+  /** PROTOTYPE: open the Routines page. Hides the nav button when omitted. */
+  onGoRoutines?: () => void;
+  /** PROTOTYPE: open the Inbox. Hides the nav button when omitted. */
+  onGoInbox?: () => void;
+  /** PROTOTYPE: unread findings, rendered as a badge on the Inbox button. */
+  inboxUnreadCount?: number;
 
   // Projects
   /** Pinned projects (in pin order). Have live registry data. */
@@ -273,6 +286,10 @@ function projectDotState(
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   isHomeActive,
+  activeNav,
+  onGoRoutines,
+  onGoInbox,
+  inboxUnreadCount = 0,
   onGoHome,
   onOpenProjectPicker,
   isSidebarHidden,
@@ -843,6 +860,37 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               title="Home"
               aria-label="Home"
             />
+            {onGoRoutines && (
+              <IconButton
+                variant="ghost"
+                className={`workspace-sidebar-home ${activeNav === 'routines' ? 'is-active' : ''}`}
+                icon={<ZapIcon size={12} />}
+                onClick={onGoRoutines}
+                disabled={activeNav === 'routines'}
+                aria-current={activeNav === 'routines' ? 'page' : undefined}
+                title="Routines"
+                aria-label="Routines"
+              />
+            )}
+            {onGoInbox && (
+              <span className="workspace-sidebar-inbox">
+                <IconButton
+                  variant="ghost"
+                  className={`workspace-sidebar-home ${activeNav === 'inbox' ? 'is-active' : ''}`}
+                  icon={<BellIcon size={12} />}
+                  onClick={onGoInbox}
+                  disabled={activeNav === 'inbox'}
+                  aria-current={activeNav === 'inbox' ? 'page' : undefined}
+                  title="Inbox"
+                  aria-label={inboxUnreadCount > 0 ? `Inbox — ${inboxUnreadCount} unread` : 'Inbox'}
+                />
+                {inboxUnreadCount > 0 && (
+                  <span className="workspace-sidebar-inbox-badge" aria-hidden>
+                    {inboxUnreadCount > 9 ? '9+' : inboxUnreadCount}
+                  </span>
+                )}
+              </span>
+            )}
           </div>
         )}
 

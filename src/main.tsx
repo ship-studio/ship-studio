@@ -16,6 +16,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { reactErrorHandler } from '@sentry/react';
 import App from './App';
+import {
+  DevRoutinesPreviewRoot,
+  isDevRoutinesPreviewRequested,
+} from './components/routines/DevRoutinesPreview';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { exposeReactGlobals, lookupBlobOwner, markPluginCrashed } from './lib/plugin-loader';
 import { uninstallPlugin } from './lib/plugins';
@@ -180,6 +184,12 @@ const OS_SKIP_SELECTOR = [
   // tree into a viewport, which can leave visible file rows outside the
   // clickable hit-test area in WKWebView.
   '.code-tab-sidebar-content',
+  // PROTOTYPE (routines/inbox): the two inbox panes are grid tracks with an
+  // explicit 0 minimum. OverlayScrollbars relocates their children into a
+  // viewport that is sized wider than the host track, so rows paint past the
+  // divider instead of eliding. Same reason .workspace-sidebar-scroll opts out.
+  '.inbox-list',
+  '.inbox-detail-pane',
 ].join(', ');
 
 function initScrollbars() {
@@ -258,7 +268,14 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement, {
 }).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App initialProjectPath={initialProjectPath} />
+      {/* PROTOTYPE: ?routinesPreview=1 renders the Routines/Inbox prototype on
+          its own, so it can be reviewed in a plain browser where the Tauri
+          backend the real app needs is not available. DEV-only. */}
+      {isDevRoutinesPreviewRequested(window.location.search) ? (
+        <DevRoutinesPreviewRoot />
+      ) : (
+        <App initialProjectPath={initialProjectPath} />
+      )}
     </ErrorBoundary>
   </React.StrictMode>
 );

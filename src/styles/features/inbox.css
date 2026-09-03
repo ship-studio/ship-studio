@@ -1,0 +1,462 @@
+/* Inbox — what the routines found (prototype).
+   Two-pane reading layout: list on the left, report on the right. Unlike the
+   dashboard column this fills the window, because reading is the whole job. */
+
+.inbox-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.inbox-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--spacing-md) var(--spacing-lg);
+  padding: var(--spacing-xl) var(--spacing-xl) var(--spacing-md);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+  flex-shrink: 0;
+  /* Controls drop to their own line before anything gets clipped. */
+  flex-wrap: wrap;
+}
+
+.app.workspace-home.has-workspace-titlebar .inbox-header {
+  padding-top: var(--spacing-lg);
+}
+
+.inbox-header-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+}
+
+.inbox-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-heading);
+}
+
+.inbox-subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+}
+
+.inbox-header-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.inbox-body {
+  display: grid;
+  /* Both tracks need an explicit 0 minimum: the default `auto` minimum lets a
+     long report title push the list track past its max and out from under the
+     divider. */
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- list ---- */
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-right: var(--border-width-default) solid var(--border-subtle);
+  padding: var(--spacing-sm);
+  gap: var(--spacing-3xs);
+}
+
+.inbox-list-empty {
+  padding: var(--spacing-2xl) var(--spacing-md);
+}
+
+.inbox-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: none;
+  border: var(--border-width-default) solid transparent;
+  border-radius: var(--radius-card);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition: background var(--transition-interaction);
+}
+
+.inbox-item:hover {
+  background: var(--surface-control-hover);
+}
+
+.inbox-item.is-selected {
+  background: var(--surface-selected);
+  border-color: var(--border-default);
+}
+
+.inbox-item-severity {
+  width: 8px;
+  height: 8px;
+  margin-top: var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  background: var(--text-faint);
+}
+
+.inbox-item-severity[data-severity='critical'] {
+  background: var(--accent-error);
+}
+
+.inbox-item-severity[data-severity='warning'] {
+  background: var(--accent-warning);
+}
+
+.inbox-item-severity[data-severity='info'] {
+  background: var(--accent-active);
+}
+
+/* A read item keeps its severity meaning but drops the visual shout. */
+.inbox-item:not(.is-unread) .inbox-item-severity {
+  opacity: 0.4;
+}
+
+.inbox-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+  flex: 1;
+}
+
+.inbox-item-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-width: 0;
+}
+
+.inbox-item-top > .inbox-item-title {
+  min-width: 0;
+}
+
+.inbox-item-title {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-compact);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.inbox-item.is-unread .inbox-item-title {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-label);
+}
+
+.inbox-item-age {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  flex-shrink: 0;
+}
+
+.inbox-item-summary {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-item-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+  margin-top: var(--spacing-3xs);
+  flex-wrap: wrap;
+}
+
+.inbox-item-routine {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Matches the project-table workspace chip: mono, badge size, control fill. */
+.inbox-chip {
+  padding: 0 var(--spacing-xs);
+  background: var(--surface-control);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font-code);
+  font-size: var(--font-size-badge);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.inbox-item-repeat {
+  color: var(--accent-warning);
+}
+
+/* ---- detail ---- */
+
+.inbox-detail-pane {
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.inbox-detail-empty {
+  padding: var(--spacing-2xl);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+}
+
+.inbox-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-xl);
+  max-width: 74ch;
+}
+
+.inbox-detail-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.inbox-detail-severity {
+  align-self: flex-start;
+  padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-control);
+  color: var(--text-muted);
+  border: var(--border-width-default) solid var(--border-default);
+}
+
+.inbox-detail-severity[data-severity='critical'] {
+  color: var(--accent-error);
+  border-color: rgba(var(--accent-error-rgb), 0.5);
+  background: rgba(var(--accent-error-rgb), 0.12);
+}
+
+.inbox-detail-severity[data-severity='warning'] {
+  color: var(--accent-warning);
+  border-color: rgba(var(--accent-warning-rgb), 0.5);
+  background: rgba(var(--accent-warning-rgb), 0.12);
+}
+
+.inbox-detail-severity[data-severity='info'] {
+  color: var(--accent-active);
+  border-color: rgba(var(--accent-active-rgb), 0.5);
+  background: rgba(var(--accent-active-rgb), 0.12);
+}
+
+.inbox-detail-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-heading);
+}
+
+.inbox-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs) var(--spacing-xs);
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+}
+
+.inbox-detail-locations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  list-style: none;
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.inbox-location {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+}
+
+.inbox-location-path {
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox-location-note {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Agent-authored markdown. Kept deliberately plain — this is a report, not a
+   marketing page. */
+.inbox-detail-body {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-reading);
+  overflow-wrap: break-word;
+}
+
+.inbox-detail-body > *:first-child {
+  margin-top: 0;
+}
+
+.inbox-detail-body p {
+  margin: 0 0 var(--spacing-md);
+}
+
+.inbox-detail-body h3 {
+  margin: var(--spacing-xl) 0 var(--spacing-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-subhead);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-compact);
+}
+
+.inbox-detail-body > h3:first-child {
+  margin-top: 0;
+}
+
+.inbox-detail-body strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-label);
+}
+
+.inbox-detail-body code {
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-md);
+  padding: var(--spacing-3xs) var(--spacing-2xs);
+  background: var(--surface-control);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.inbox-detail-body pre {
+  margin: 0 0 var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  overflow-x: auto;
+}
+
+.inbox-detail-body pre code {
+  padding: 0;
+  background: none;
+  color: var(--text-terminal);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+}
+
+.inbox-detail-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+}
+
+.inbox-detail-body th,
+.inbox-detail-body td {
+  padding: var(--spacing-2xs) var(--spacing-sm);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+  text-align: left;
+}
+
+.inbox-detail-body th {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-label);
+}
+
+/* ---- handoff ---- */
+
+.inbox-handoff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+}
+
+.inbox-handoff-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  color: var(--text-muted);
+}
+
+.inbox-handoff-prompt {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--surface-recessed);
+  border-radius: var(--radius-control);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-reading);
+  color: var(--text-secondary);
+}
+
+.inbox-handoff-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.inbox-detail-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}

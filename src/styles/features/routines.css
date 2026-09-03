@@ -1,0 +1,768 @@
+/* Routines — the standing-instructions page (prototype).
+   Layout mirrors the dashboard's 900px centred column so the two views feel
+   like the same app. */
+
+.routines-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--spacing-2xl) var(--spacing-xl) 0;
+  gap: var(--spacing-lg);
+}
+
+.app.workspace-home.has-workspace-titlebar .routines-page {
+  padding-top: var(--spacing-lg);
+}
+
+.routines-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+}
+
+.routines-page-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+/* Page titles use the h2 role, matching the setup screen. h1 (40px) is the
+   dashboard hero and would swamp an 11-13px list. */
+.routines-page-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-heading);
+}
+
+.routines-page-subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-compact);
+  max-width: 64ch;
+}
+
+/* ---- summary strip ---- */
+
+.routines-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+}
+
+.routines-summary-item strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-label);
+}
+
+.routines-summary-sep {
+  color: var(--text-faint);
+}
+
+/* ---- list ---- */
+
+.routines-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.routine-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  transition:
+    border-color var(--transition-interaction),
+    background var(--transition-interaction);
+}
+
+.routine-row:hover {
+  border-color: var(--border-default);
+}
+
+.routine-row.is-disabled {
+  opacity: 0.62;
+}
+
+.routine-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.routine-row-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  background: var(--text-faint);
+}
+
+.routine-row-dot[data-state='ok'] {
+  background: var(--accent-success);
+}
+
+.routine-row-dot[data-state='failed'] {
+  background: var(--accent-error);
+}
+
+.routine-row-dot[data-state='missed'] {
+  background: var(--accent-warning);
+  box-shadow: 0 0 0 var(--border-width-default) rgba(var(--accent-warning-rgb), 0.35);
+}
+
+.routine-row-dot[data-state='running'] {
+  background: var(--accent-active);
+  animation: routine-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes routine-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.routine-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+}
+
+.routine-row-title-line {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.routine-row-name {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.routine-badge {
+  padding: 0 var(--spacing-xs);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-badge);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.routine-badge--edit {
+  color: var(--accent-warning);
+  border-color: rgba(var(--accent-warning-rgb), 0.45);
+  background: rgba(var(--accent-warning-rgb), 0.1);
+}
+
+.routine-row-description {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routine-row-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  white-space: nowrap;
+}
+
+/* Only the project name gives way — the agent and trigger are short and are
+   the two facts that make the row legible at a glance. */
+.routine-row-meta-item {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.routine-row-agent,
+.routine-row-meta-item:last-child {
+  flex-shrink: 0;
+}
+
+.routine-row-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+}
+
+.routine-row-meta-sep {
+  color: var(--text-faint);
+}
+
+.routine-row-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.routine-row-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-2xs);
+  text-align: right;
+}
+
+.routine-row-last {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  white-space: nowrap;
+}
+
+/* Amber is reserved for something the user has to act on. A routine that
+   simply found something is doing its job — the count carries that. */
+.routine-row-last[data-state='failed'] {
+  color: var(--accent-error);
+}
+
+.routine-row-last[data-state='missed'] {
+  color: var(--accent-warning);
+}
+
+.routine-row-next {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  white-space: nowrap;
+}
+
+.routine-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+/* Buttons are hover-revealed; the enable switch stays visible because it
+   communicates state, not just an action. */
+.routine-row-actions .button {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-interaction);
+}
+
+.routine-row:hover .routine-row-actions .button,
+.routine-row:focus-within .routine-row-actions .button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.routines-page-footer code {
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  color: var(--text-secondary);
+}
+
+.routines-page-footer {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  max-width: 74ch;
+  padding-top: var(--spacing-sm);
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+/* ---- coverage card ----
+   The standing "routines only run while the app is open" explanation. */
+
+.routine-coverage {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.routine-coverage[data-state='attention'] {
+  border-color: rgba(var(--accent-warning-rgb), 0.45);
+  background: var(--surface-warning);
+}
+
+.routine-coverage-icon {
+  display: flex;
+  flex-shrink: 0;
+  margin-top: var(--spacing-3xs);
+  color: var(--accent-active);
+}
+
+.routine-coverage[data-state='attention'] .routine-coverage-icon {
+  color: var(--accent-warning);
+}
+
+.routine-coverage-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  min-width: 0;
+}
+
+.routine-coverage-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-compact);
+}
+
+.routine-coverage-copy {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  max-width: 78ch;
+}
+
+.routine-coverage-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  margin: var(--spacing-2xs) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.routine-coverage-item {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--spacing-2xs) var(--spacing-xs);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+}
+
+.routine-coverage-item-name {
+  color: var(--text-secondary);
+}
+
+/* ---- editor modal ---- */
+
+.routine-editor-modal {
+  width: min(680px, 92vw);
+}
+
+.routine-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  max-height: 58vh;
+  overflow-y: auto;
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-lg);
+}
+
+.routine-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.routine-field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.routine-field-label {
+  color: var(--text-secondary);
+}
+
+.routine-field-hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  max-width: 74ch;
+}
+
+.routine-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--surface-recessed);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+}
+
+.routine-note-text {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+  max-width: 74ch;
+}
+
+.routine-note-text strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-label);
+}
+
+.routine-scope-trigger {
+  justify-content: space-between;
+}
+
+.routine-scope-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routine-prompt {
+  width: 100%;
+  padding: var(--spacing-sm);
+  background: var(--surface-recessed);
+  color: var(--text-primary);
+  border: var(--border-width-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  font-family: var(--font-code);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-help);
+  resize: vertical;
+}
+
+.routine-prompt:focus-visible {
+  outline: var(--focus-ring-width) solid var(--accent-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.routine-command {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.routine-command-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  color: var(--text-muted);
+}
+
+.routine-command-body {
+  margin: 0;
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-terminal);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.routine-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg);
+  border-top: var(--border-width-default) solid var(--border-default);
+}
+
+/* ---- template picker ---- */
+
+.routine-template-modal {
+  width: min(720px, 92vw);
+}
+
+.routine-templates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  max-height: 64vh;
+  overflow-y: auto;
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+}
+
+.routine-templates-lede {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-help);
+  max-width: 64ch;
+}
+
+.routine-template-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.routine-template-group-title {
+  margin: 0;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-control);
+}
+
+.routine-template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.routine-template-card,
+.routine-template-blank {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  padding: var(--spacing-md);
+  text-align: left;
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  transition:
+    border-color var(--transition-interaction),
+    background var(--transition-interaction);
+}
+
+.routine-template-card:hover,
+.routine-template-blank:hover {
+  border-color: var(--accent-active);
+  background: var(--surface-control-hover);
+}
+
+.routine-template-name {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-lg);
+  font-weight: var(--font-weight-label);
+}
+
+.routine-template-description {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+}
+
+.routine-template-trigger {
+  margin-top: var(--spacing-2xs);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+}
+
+.routine-template-blank {
+  gap: var(--spacing-3xs);
+}
+
+/* ---- run history ---- */
+
+.run-history-modal {
+  width: min(820px, 94vw);
+}
+
+.run-history {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: var(--spacing-md);
+  height: 52vh;
+  padding: var(--spacing-lg) var(--spacing-xl) 0;
+}
+
+.run-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+  overflow-y: auto;
+  padding-right: var(--spacing-2xs);
+}
+
+.run-history-empty {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+}
+
+.run-history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm);
+  background: none;
+  border: var(--border-width-default) solid transparent;
+  border-radius: var(--radius-control);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.run-history-item:hover {
+  background: var(--surface-control-hover);
+}
+
+.run-history-item.is-selected {
+  background: var(--surface-selected);
+  border-color: var(--border-default);
+}
+
+.run-history-item-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: var(--spacing-xs);
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  background: var(--accent-success);
+}
+
+.run-history-item-dot[data-state='findings'] {
+  background: var(--accent-warning);
+}
+
+.run-history-item-dot[data-state='failed'] {
+  background: var(--accent-error);
+}
+
+.run-history-item-dot[data-state='running'] {
+  background: var(--accent-active);
+}
+
+.run-history-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+}
+
+.run-history-item-status {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-label);
+}
+
+.run-history-item-meta {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-compact);
+}
+
+.run-history-transcript {
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  overflow: auto;
+}
+
+.run-history-transcript-body {
+  margin: 0;
+  padding: var(--spacing-md);
+  font-family: var(--font-code);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  color: var(--text-terminal);
+  white-space: pre;
+}
+
+.run-history-note {
+  margin: 0;
+  padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+}
+
+.run-history-note code {
+  font-family: var(--font-code);
+  color: var(--text-secondary);
+}
+
+/* ---- development-only prototype preview (?routinesPreview=1) ----
+   Mirrors the primitive lab's overlay geometry so the prototype can be
+   reviewed in a browser without booting a project. */
+
+.dev-routines-preview {
+  position: fixed;
+  inset: var(--spacing-lg);
+  /* Below the modal tier: the harness is a fullscreen stand-in for the app
+     window, and dialogs opened inside it must still stack above. */
+  z-index: var(--z-preview-fullscreen);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  background: var(--surface-app);
+  border: var(--border-width-default) solid var(--border-strong);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-ui);
+}
+
+.dev-routines-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+  background: var(--surface-panel);
+}
+
+.dev-routines-preview__eyebrow {
+  margin: 0;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-control);
+}
+
+.dev-routines-preview__body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dev-routines-preview__body > * {
+  flex: 1;
+  min-width: 0;
+}

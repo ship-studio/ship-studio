@@ -22,7 +22,7 @@
  * @module App
  */
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useTerminalManagement } from './hooks/useTerminalManagement';
@@ -41,6 +41,9 @@ import { useAppSetup } from './hooks/useAppSetup';
 import { ProjectsView } from './components/dashboard/ProjectsView';
 import { AccountSelectScreen } from './components/accounts/AccountSelectScreen';
 import { WorkspaceView } from './components/workspace/WorkspaceView';
+import { HomeSidebar } from './components/workspace/HomeSidebar';
+import { RoutinesView } from './components/routines/RoutinesView';
+import { InboxView } from './components/inbox/InboxView';
 import { WorkspaceSidebar } from './components/workspace/WorkspaceSidebar';
 import { WorkspaceNavigation, WorkspaceTitlebar } from './components/workspace/WorkspaceHeader';
 import { useProjectRail } from './hooks/useProjectRail';
@@ -66,6 +69,7 @@ import {
   useSetPaletteContext,
 } from './components/CommandPalette/paletteContext';
 import { useAppCommands } from './commands/useAppCommands';
+import { useRoutineCommands } from './commands/useRoutineCommands';
 import { useProjectNumberShortcuts } from './hooks/useProjectNumberShortcuts';
 import { ToastList } from './components/primitives/ToastList';
 import { TooltipProvider } from './components/primitives/Tooltip';
@@ -73,6 +77,11 @@ import { DevDesignSystemTools } from './components/design-system/DevDesignSystem
 import { logger } from './lib/logger';
 import { asCommandError, formatCommandError } from './lib/errors';
 import { trackEvent, trackPageview } from './lib/analytics';
+import {
+  getSnapshot as getRoutinesSnapshot,
+  subscribe as subscribeRoutines,
+  unreadCount,
+} from './lib/routinesStore';
 import { useCompactWorkspaceToolbar } from './hooks/useCompactWorkspaceToolbar';
 import { installAppLifecycleTracking, quitAppWithTracking } from './lib/appLifecycle';
 import type { AppView } from './lib/types';
@@ -544,6 +553,9 @@ function AppContents({ initialProjectPath }: AppProps) {
     showToast,
   });
 
+  // PROTOTYPE (routines/inbox) — see src/commands/useRoutineCommands.tsx
+  useRoutineCommands({ setView, showToast });
+
   // Close an active session from the sidebar (dashboard, collapsed rail, or
   // workspace). Ordering and the auto-open sentinel are load-bearing — see
   // hooks/useCloseProject.
@@ -952,6 +964,41 @@ function AppContents({ initialProjectPath }: AppProps) {
     [loadedPlugins, pluginFailures, getSlotPlugins, reloadPlugins]
   );
 
+  // PROTOTYPE (routines/inbox): shared configuration for the home-level
+  // sidebar, used by the Projects, Routines, and Inbox screens.
+  const routinesSnapshot = useSyncExternalStore(subscribeRoutines, getRoutinesSnapshot);
+  const inboxUnread = unreadCount(routinesSnapshot);
+
+  const homeSidebarProps = useMemo(
+    () => ({
+      onGoHome: () => setView('projects'),
+      onGoRoutines: () => setView('routines'),
+      onGoInbox: () => setView('inbox'),
+      inboxUnreadCount: inboxUnread,
+      onOpenProjectPicker: openProjectPicker,
+      isSidebarHidden,
+      onToggleSidebar: toggleSidebar,
+      projects: pinnedProjects.rows,
+      onSelectProject: handleRailClick,
+      onCloseProject: handleCloseProject,
+      onSelectProjectTab: handleSelectProjectTab,
+      isProjectDevServerRunning: isServerRunning,
+      onSwitchAccount: () => setView('account-select'),
+    }),
+    [
+      inboxUnread,
+      openProjectPicker,
+      isSidebarHidden,
+      toggleSidebar,
+      pinnedProjects.rows,
+      handleRailClick,
+      handleCloseProject,
+      handleSelectProjectTab,
+      isServerRunning,
+      setView,
+    ]
+  );
+
   // Stable wrappers for async callbacks passed to ProjectsView (prevents memo-busting)
   const handleSelectProjectCallback = useCallback(
     (project: Project) => {
@@ -1091,38 +1138,7 @@ function AppContents({ initialProjectPath }: AppProps) {
             className={`projects-with-rail${isCompact ? ' is-compact' : ''}`}
             key="view-projects"
           >
-            {!isCompact && (
-              <WorkspaceSidebar
-                key="sidebar-projects"
-                isHomeActive={true}
-                onGoHome={() => {
-                  /* already on Home */
-                }}
-                onOpenProjectPicker={openProjectPicker}
-                isSidebarHidden={isSidebarHidden}
-                onToggleSidebar={toggleSidebar}
-                showNavigationControls
-                projects={pinnedProjects.rows}
-                currentProjectPath={null}
-                currentProjectName={null}
-                onSelectProject={handleRailClick}
-                onCloseProject={handleCloseProject}
-                onSelectProjectTab={handleSelectProjectTab}
-                terminalTabs={[]}
-                activeTerminalTab={0}
-                tabTitles={EMPTY_TAB_TITLES}
-                attentionTabs={EMPTY_ATTENTION_TABS}
-                maxTabs={5}
-                onSelectTab={noop}
-                onAddTab={noop}
-                onCloseTab={noop}
-                hasDevServer={false}
-                isRestartingDevServer={false}
-                devServerRunning={false}
-                isProjectDevServerRunning={isServerRunning}
-                onSwitchAccount={() => setView('account-select')}
-              />
-            )}
+            {!isCompact && <HomeSidebar {...homeSidebarProps} activeNav="home" />}
             <ProjectsView
               onSelectProject={handleSelectProjectCallback}
               onCreateProject={handleCreateProject}
@@ -1165,6 +1181,25 @@ function AppContents({ initialProjectPath }: AppProps) {
             onCancel={() => void handleCancelMonorepoPick()}
           />
         )}
+        <ToastList toasts={toasts} onDismiss={dismissToast} />
+        {quitConfirmModal}
+      </>
+    );
+  }
+
+  // PROTOTYPE (routines/inbox): two home-level screens sharing the home sidebar.
+  if (view === 'routines' || view === 'inbox') {
+    return (
+      <>
+        <div className="app workspace workspace-home">
+          <div
+            className={`projects-with-rail${isCompact ? ' is-compact' : ''}`}
+            key="view-standing"
+          >
+            {!isCompact && <HomeSidebar {...homeSidebarProps} activeNav={view} />}
+            {view === 'routines' ? <RoutinesView /> : <InboxView />}
+          </div>
+        </div>
         <ToastList toasts={toasts} onDismiss={dismissToast} />
         {quitConfirmModal}
       </>

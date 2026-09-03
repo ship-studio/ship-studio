@@ -89,6 +89,10 @@
   --line-height-control: var(--line-height-default);
   --line-height-compact: var(--line-height-medium);
   --line-height-help: var(--line-height-relaxed);
+  /* Multi-paragraph reading copy — agent reports, article bodies. The other
+     roles resolve to 1, which is correct for single-line controls and wrong
+     the moment a block wraps. */
+  --line-height-reading: var(--line-height-loose);
 
   --transition-interaction-fast: var(--duration-fast) var(--ease-standard);
   --transition-interaction: var(--duration-standard) var(--ease-standard);

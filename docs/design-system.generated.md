@@ -38,8 +38,8 @@ one row, while the export list is checked exactly against the source file.
 
 | Layer | Definition files | Token count | Sample names |
 | --- | --- | ---: | --- |
-| core | `src/styles/global/fonts.css`<br>`src/styles/global/tokens-core.css` | 110 | `--color-white`, `--color-white-o15`, `--color-black`, `--color-black-o15`, `--color-black-o38`, `--color-black-o75` |
-| semantic | `src/styles/global/tokens-semantic.css` | 125 | `--font-size-micro`, `--tracking-micro`, `--surface-app`, `--surface-panel`, `--surface-control`, `--surface-control-hover` |
+| core | `src/styles/global/fonts.css`<br>`src/styles/global/tokens-core.css` | 111 | `--color-white`, `--color-white-o15`, `--color-black`, `--color-black-o15`, `--color-black-o38`, `--color-black-o75` |
+| semantic | `src/styles/global/tokens-semantic.css` | 126 | `--font-size-micro`, `--tracking-micro`, `--surface-app`, `--surface-panel`, `--surface-control`, `--surface-control-hover` |
 | components | `src/styles/global/tokens-components.css` | 238 | `--size-control-standard`, `--size-control-large`, `--size-control-medium`, `--size-control-compact`, `--size-titlebar-project-path`, `--size-element-toolbar-selector` |
 | compatibility | `src/styles/global/tokens-compatibility.css` | 55 | `--bg-primary`, `--bg-secondary`, `--bg-tertiary`, `--bg-deep`, `--bg-hover`, `--text-bright` |
 

@@ -111,6 +111,8 @@
 @import './features/support-panel.css';
 @import './features/project-rail.css';
 @import './features/shopify.css';
+@import './features/routines.css';
+@import './features/inbox.css';
 
 /* Modes */
 @import './modes/education-mode.css';

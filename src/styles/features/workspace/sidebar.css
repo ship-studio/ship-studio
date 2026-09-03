@@ -1263,3 +1263,30 @@
 }
 
 /* Project picker styles removed — replaced by the command palette (⌘O). */
+
+/* PROTOTYPE (routines/inbox): the Inbox nav button carries an unread badge.
+   The wrapper exists only to anchor the badge to the icon button. */
+.workspace-sidebar-inbox {
+  position: relative;
+  display: inline-flex;
+}
+
+.workspace-sidebar-inbox-badge {
+  position: absolute;
+  top: calc(var(--spacing-2xs) * -1);
+  right: calc(var(--spacing-2xs) * -1);
+  min-width: var(--spacing-md);
+  height: var(--spacing-md);
+  padding: 0 var(--spacing-2xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--accent-error);
+  color: var(--text-white);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-badge);
+  font-weight: var(--font-weight-label);
+  line-height: 1;
+  pointer-events: none;
+}
