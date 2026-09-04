@@ -16,12 +16,14 @@
 //!   agent subscription. Five armed workflows coming due in the same minute
 //!   must not fire five agents at once and eat someone's quota before they've
 //!   noticed the feature exists.
-//! - **It skips a project that already has a run in flight.** Two agents
+//! - **It skips the tick entirely while any run is in flight.** Two agents
 //!   reading and reasoning about the same working tree at once is confusing at
-//!   best; if either has `can-edit`, it's a corruption risk.
+//!   best; if either has `can-edit`, it's a corruption risk. The guard is
+//!   global rather than per-project because a run started by hand in one
+//!   project is still the user's quota and still their machine's CPU.
 
 use crate::commands::workflows::{
-    next_due_at, projects_with_workflows, read_project_workflows, Workflow,
+    due_at, projects_with_workflows, read_project_workflows, Workflow,
 };
 use std::path::PathBuf;
 use std::time::Duration;
@@ -63,12 +65,12 @@ fn most_overdue(now: i64) -> Option<Workflow> {
                 continue;
             }
             let last = state.last_run_at.get(&workflow.id).copied();
-            let Some(due) = next_due_at(workflow.trigger, last, now) else {
+            // `due_at`, not `next_due_at`: the next occurrence of a daily
+            // trigger is always in the future, so asking that question here
+            // means daily and weekly workflows never run at all.
+            let Some(due) = due_at(workflow.trigger, last, workflow.updated_at, now) else {
                 continue;
             };
-            if due > now {
-                continue;
-            }
             // Most overdue first, so a backlog drains oldest-first rather than
             // letting one workflow's cadence starve another's.
             if best.as_ref().is_none_or(|(best_due, _)| due < *best_due) {
@@ -94,10 +96,11 @@ async fn tick(app: &AppHandle) -> Result<(), crate::errors::CommandError> {
     info!(workflow = %workflow.name, "workflow came due");
     // A failure is already recorded against the run and surfaced in the
     // workflow's history and status dot; the loop keeps going.
-    if let Err(err) = crate::commands::workflows::run_workflow(
+    if let Err(err) = crate::commands::workflows::run_workflow_from(
         app.clone(),
         workflow.project_path.clone(),
         workflow.slug.clone(),
+        crate::commands::workflows::RunSource::Schedule,
     )
     .await
     {
@@ -130,10 +133,11 @@ pub async fn fire_event(
 
     for workflow in matching {
         info!(workflow = %workflow.name, ?event, "event-triggered workflow firing");
-        if let Err(err) = crate::commands::workflows::run_workflow(
+        if let Err(err) = crate::commands::workflows::run_workflow_from(
             app.clone(),
             workflow.project_path.clone(),
             workflow.slug.clone(),
+            crate::commands::workflows::RunSource::Event,
         )
         .await
         {

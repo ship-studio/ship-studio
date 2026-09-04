@@ -190,6 +190,24 @@ To get an aggregate "any modal opened" count in PostHog, use a regex match on ev
 | `skills_searched` | search query |
 | `mcp_server_added` / `mcp_server_removed` | `scope` |
 
+### Workflows & Inbox
+
+Shape only. No workflow name, no instruction text, no finding title, no project
+path — everything this feature touches is someone's private repository, and the
+questions worth asking ("does anyone arm a schedule?", "do runs fail?", "does a
+finding ever become work?") are all answerable without any of it.
+
+| Event | Fired when | Properties | Question it answers |
+|---|---|---|---|
+| `workflow_created` / `workflow_edited` | A workflow file is saved from the editor | `trigger_kind`, `permission`, `agent`, `auto_run`, `severity_floor` | Do people schedule them, or only ever press Run? |
+| `workflow_run_finished` | Every run completes or fails — **emitted from Rust**, so scheduled and event-triggered runs count too | `source` (`manual`/`schedule`/`event`), `trigger_kind`, `permission`, `agent`, `auto_run`, `status`, `findings`, `duration_ms`, `tokens` | Does the unattended half work, what does it cost, and how often does it fail? |
+| `workflow_finding_action` | A finding is sent to an agent, archived, restored, or deleted | `action`, `severity`, `occurrences` | Does the inbox turn into work, or into a graveyard? |
+
+`workflow_run_finished` is the one event in the app sent directly from the
+backend (`track_backend_event`), because a scheduled run fires with no window
+involved and routing it through the frontend would drop exactly the runs the
+feature exists to perform.
+
 ### Onboarding funnel
 
 | Event | Properties |

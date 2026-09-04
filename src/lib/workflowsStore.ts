@@ -59,6 +59,7 @@ let unlisten: UnlistenFn | null = null;
 let unlistenProgress: UnlistenFn | null = null;
 let pollTimer: number | null = null;
 let inFlight: Promise<void> | null = null;
+let queued: Promise<void> | null = null;
 
 function emit(next: WorkflowsState): void {
   state = next;
@@ -146,30 +147,43 @@ function stop(): void {
   unlistenProgress = null;
 }
 
+async function load(): Promise<void> {
+  try {
+    const [workflows, inbox] = await Promise.all([
+      invoke<Workflow[]>('list_all_workflows'),
+      invoke<InboxItem[]>('list_inbox_items'),
+    ]);
+    emit({ ...state, workflows, inbox, loaded: true, error: null });
+  } catch (err) {
+    logger.error('[Workflows] Failed to load', { error: String(err) });
+    emit({ ...state, loaded: true, error: String(err) });
+  }
+}
+
 /**
  * Reload workflows and inbox from disk.
  *
- * Concurrent calls share one round trip: the event and the poll routinely land
- * together, and two overlapping loads can otherwise resolve out of order and
- * flip the list back to a stale snapshot.
+ * Concurrent calls collapse into at most one follow-up round trip rather than
+ * sharing the one already in flight. Sharing looks tidier and is wrong: every
+ * mutation here is "write, then refresh", and a load whose request went out
+ * *before* the write answers with pre-write data — so archiving a finding would
+ * see it bounce back into the list until the next poll. One extra round trip in
+ * a rare race is much cheaper than a UI that undoes the user's click.
  */
-export async function refresh(): Promise<void> {
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
-    try {
-      const [workflows, inbox] = await Promise.all([
-        invoke<Workflow[]>('list_all_workflows'),
-        invoke<InboxItem[]>('list_inbox_items'),
-      ]);
-      emit({ ...state, workflows, inbox, loaded: true, error: null });
-    } catch (err) {
-      logger.error('[Workflows] Failed to load', { error: String(err) });
-      emit({ ...state, loaded: true, error: String(err) });
-    } finally {
+export function refresh(): Promise<void> {
+  if (inFlight === null) {
+    inFlight = load().finally(() => {
       inFlight = null;
-    }
-  })();
-  return inFlight;
+    });
+    return inFlight;
+  }
+  queued ??= inFlight
+    .catch(() => {})
+    .then(() => {
+      queued = null;
+      return refresh();
+    });
+  return queued;
 }
 
 /* ------------------------------------------------------------- workflows */

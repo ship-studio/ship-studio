@@ -44,6 +44,14 @@ pub struct Workflow {
     pub severity_floor: Severity,
     pub auto_run: bool,
     pub file_path: String,
+    /// When the file was last written, in epoch ms, or `None` if the
+    /// filesystem wouldn't say.
+    ///
+    /// This is the scheduler's arming baseline. Without it, "daily at 09:00"
+    /// created at 14:00 would look overdue the moment it was saved — today's
+    /// 09:00 is in the past — and fire immediately, which is the opposite of
+    /// what the person just asked for.
+    pub updated_at: Option<i64>,
     /// Keys the parser didn't recognise, kept so a round-trip is lossless.
     #[serde(skip)]
     pub extra: BTreeMap<String, String>,
@@ -226,9 +234,21 @@ pub fn parse_workflow(project: &Path, file_path: &Path, contents: &str) -> Workf
         project_name: project_name_of(project),
         project_path,
         file_path: file_path.to_string_lossy().to_string(),
+        updated_at: file_modified_ms(file_path),
         slug,
         extra,
     }
+}
+
+/// A file's mtime in epoch ms. `None` for a path that isn't really there,
+/// which is the case in unit tests and for a file deleted mid-scan.
+fn file_modified_ms(path: &Path) -> Option<i64> {
+    std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as i64)
 }
 
 /// Render a workflow back to its file form.
@@ -347,7 +367,7 @@ pub async fn list_all_workflows() -> Result<Vec<WorkflowView>, CommandError> {
         for workflow in read_project_workflows(&project) {
             let last_run_at = state.last_run_at.get(&workflow.id).copied();
             let next_run_at = if workflow.auto_run {
-                super::runs::next_due_at(workflow.trigger, last_run_at, now)
+                super::runs::next_due_at(workflow.trigger, last_run_at, workflow.updated_at, now)
             } else {
                 None
             };
@@ -424,7 +444,7 @@ pub async fn save_workflow_file(
         .map(|c| parse_workflow(&project, &file_path, &c).extra)
         .unwrap_or_default();
 
-    let workflow = Workflow {
+    let mut workflow = Workflow {
         id: format!("{}::{slug}", project.to_string_lossy()),
         name: draft.name.trim().to_string(),
         icon: draft.icon.as_deref().and_then(sanitize_icon),
@@ -438,12 +458,17 @@ pub async fn save_workflow_file(
         project_name: project_name_of(&project),
         project_path: project.to_string_lossy().to_string(),
         file_path: file_path.to_string_lossy().to_string(),
+        // Filled in after the write, since the write is what sets it.
+        updated_at: None,
         slug,
         extra,
     };
 
     std::fs::write(&file_path, serialize_workflow(&workflow))
         .map_err(|e| classify_fs_error("write the workflow file", &file_path, &e))?;
+    // The write is the arming moment: a schedule saved now must count from
+    // now, not from whenever the file happened to exist before.
+    workflow.updated_at = file_modified_ms(&file_path);
     Ok(workflow)
 }
 

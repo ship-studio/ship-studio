@@ -184,6 +184,16 @@ fn get_device_id() -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Emit an event from the backend, without a frontend round trip.
+///
+/// Needed by anything that happens with no window involved — a scheduled
+/// workflow run fires while the user is in another app entirely, and routing it
+/// through the frontend would silently drop exactly the runs the feature exists
+/// to perform. Fire-and-forget and opt-out-aware, like every other send.
+pub(crate) fn track_backend_event(event_name: &str, properties: serde_json::Value) {
+    send_event(event_name, &get_distinct_id(), properties);
+}
+
 // ============ Tauri Commands ============
 
 /// Track an analytics event. Properties are optional key-value pairs.

@@ -16,7 +16,14 @@
 import { useMemo } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { CodeIcon, CopyIcon, ResetIcon, TerminalIcon, TrashIcon } from '@/components/icons';
+import {
+  CodeIcon,
+  CopyIcon,
+  PackageIcon,
+  ResetIcon,
+  TerminalIcon,
+  TrashIcon,
+} from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
@@ -133,15 +140,15 @@ export function InboxDetail({ item, onArchive, onDelete, onFix }: InboxDetailPro
             Copy prompt
           </Button>
         </div>
-        {/* Archiving and deleting are different promises, so they get
-            different icons and live side by side once a finding is archived:
-            archive mutes the fingerprint, delete forgets it and lets a future
-            run file it again. */}
+        {/* Archiving and deleting are different promises and must not share a
+            glyph: archive mutes the fingerprint and keeps the finding, delete
+            forgets it and lets a future run file it again. A trash can on both
+            said "destroy" twice. */}
         <div className="inbox-detail-actions-secondary">
           <Button
             variant="ghost"
             size="compact"
-            leftIcon={item.archived ? <ResetIcon size={12} /> : <TrashIcon size={12} />}
+            leftIcon={item.archived ? <ResetIcon size={12} /> : <PackageIcon size={12} />}
             onClick={() => onArchive(item)}
           >
             {item.archived ? 'Restore' : 'Archive'}

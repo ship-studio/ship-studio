@@ -20,6 +20,12 @@ const MAX_RUNS_PER_WORKFLOW: usize = 20;
 /// chatter; the tail is the part with the answer in it.
 const MAX_TRANSCRIPT_BYTES: usize = 16_000;
 
+/// Cap on filed findings. Runs are already pruned per workflow, but the inbox
+/// was not bounded at all: a couple of armed workflows finding new things every
+/// day grow this file forever, and it is read in full on every scheduler tick
+/// and every list. Dropping starts with what the user has already dealt with.
+const MAX_INBOX_ITEMS: usize = 500;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RunStatus {
@@ -132,16 +138,39 @@ pub fn state_path() -> Result<PathBuf, CommandError> {
 /// Read the state file. A missing or corrupt file reads as empty rather than
 /// failing: losing run history is an annoyance, but refusing to open the Inbox
 /// because one JSON byte went bad is a broken app.
+///
+/// A file that is present but unparseable is set aside as `.corrupt` before the
+/// next write replaces it, so "the Inbox came up empty" leaves something a
+/// person can look at instead of being a silent, total loss.
 pub fn load_state() -> WorkflowsState {
     let Ok(path) = state_path() else {
         return WorkflowsState::default();
     };
-    std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .unwrap_or_default()
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+        return WorkflowsState::default();
+    };
+    match serde_json::from_str(&contents) {
+        Ok(state) => state,
+        Err(err) => {
+            let quarantine = path.with_extension("json.corrupt");
+            tracing::error!(
+                error = %err,
+                path = %path.display(),
+                kept_at = %quarantine.display(),
+                "workflows state was unreadable; keeping a copy before it is replaced"
+            );
+            let _ = std::fs::rename(&path, &quarantine);
+            WorkflowsState::default()
+        }
+    }
 }
 
+/// Write the state file, atomically.
+///
+/// Temp file then rename, the same shape `removed-projects.json` and the setup
+/// state use. This file holds the entire inbox and every run record, so a
+/// half-written one — a crash, a full disk, a laptop lid closing on a sleeping
+/// process — would read back as corrupt and take the lot with it.
 pub fn save_state(state: &WorkflowsState) -> Result<(), CommandError> {
     let path = state_path()?;
     if let Some(parent) = path.parent() {
@@ -151,8 +180,18 @@ pub fn save_state(state: &WorkflowsState) -> Result<(), CommandError> {
     }
     let contents = serde_json::to_string_pretty(state)
         .map_err(|e| format!("Failed to serialize workflows state: {e}"))?;
-    std::fs::write(&path, contents)
-        .map_err(|e| crate::utils::classify_fs_error("save workflows state", &path, &e))
+
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("workflows-state.json");
+    let temp_path = path.with_file_name(format!(".{file_name}.tmp"));
+    std::fs::write(&temp_path, contents)
+        .map_err(|e| crate::utils::classify_fs_error("save workflows state", &temp_path, &e))?;
+    std::fs::rename(&temp_path, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        crate::utils::classify_fs_error("save workflows state", &path, &e)
+    })
 }
 
 /// Read, mutate, write — under the lock.
@@ -160,6 +199,7 @@ pub fn mutate_state<T>(f: impl FnOnce(&mut WorkflowsState) -> T) -> Result<T, Co
     let _guard = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut state = load_state();
     let out = f(&mut state);
+    prune_inbox(&mut state);
     state.version = 1;
     save_state(&state)?;
     Ok(out)
@@ -182,6 +222,42 @@ pub fn trim_transcript(raw: &str) -> String {
         .find(|i| raw.is_char_boundary(*i))
         .unwrap_or(raw.len());
     format!("…\n{}", &raw[start..])
+}
+
+/// Hold the inbox at `MAX_INBOX_ITEMS`, dropping what the user is least likely
+/// to miss first.
+///
+/// The order is archived, then read, then unread — and within each group the
+/// oldest goes first. An unread critical finding from this morning is the last
+/// thing in the file to be dropped, which is the only ordering that lets a cap
+/// exist at all without the cap itself becoming the bug.
+pub fn prune_inbox(state: &mut WorkflowsState) {
+    if state.inbox.len() <= MAX_INBOX_ITEMS {
+        return;
+    }
+    let mut order: Vec<usize> = (0..state.inbox.len()).collect();
+    // Least valuable first: this is the order things are dropped in.
+    order.sort_by_key(|&i| {
+        let item = &state.inbox[i];
+        let tier = if item.archived {
+            0
+        } else if item.read {
+            1
+        } else {
+            2
+        };
+        (tier, item.created_at)
+    });
+    let doomed: std::collections::HashSet<usize> = order
+        .into_iter()
+        .take(state.inbox.len() - MAX_INBOX_ITEMS)
+        .collect();
+    let mut index = 0;
+    state.inbox.retain(|_| {
+        let keep = !doomed.contains(&index);
+        index += 1;
+        keep
+    });
 }
 
 /// Drop the oldest runs of `workflow_id` beyond the retention cap.
@@ -339,6 +415,82 @@ mod tests {
     #[test]
     fn short_transcripts_are_untouched() {
         assert_eq!(trim_transcript("hello"), "hello");
+    }
+
+    fn item(id: &str, created_at: i64, read: bool, archived: bool) -> InboxItem {
+        InboxItem {
+            id: id.to_string(),
+            workflow_id: "w".to_string(),
+            workflow_name: "W".to_string(),
+            project_name: "p".to_string(),
+            project_path: "/p".to_string(),
+            severity: Severity::Warning,
+            title: id.to_string(),
+            summary: String::new(),
+            body_md: String::new(),
+            created_at,
+            read,
+            archived,
+            fingerprint: id.to_string(),
+            occurrences: 1,
+            first_seen_at: created_at,
+            locations: Vec::new(),
+            suggested_prompt: String::new(),
+            run_id: "r".to_string(),
+        }
+    }
+
+    #[test]
+    fn an_inbox_under_the_cap_is_left_alone() {
+        let mut state = WorkflowsState::default();
+        for i in 0..10 {
+            state.inbox.push(item(&format!("i{i}"), i, false, false));
+        }
+        prune_inbox(&mut state);
+        assert_eq!(state.inbox.len(), 10);
+    }
+
+    #[test]
+    fn pruning_drops_archived_before_read_and_read_before_unread() {
+        let mut state = WorkflowsState::default();
+        // Newest first in each group, so age is never what saves an item here.
+        for i in 0..MAX_INBOX_ITEMS {
+            state
+                .inbox
+                .push(item(&format!("archived{i}"), 9_000 + i as i64, true, true));
+        }
+        for i in 0..MAX_INBOX_ITEMS {
+            state
+                .inbox
+                .push(item(&format!("read{i}"), 8_000 + i as i64, true, false));
+        }
+        state.inbox.push(item("unread-oldest", 1, false, false));
+        prune_inbox(&mut state);
+
+        assert_eq!(state.inbox.len(), MAX_INBOX_ITEMS);
+        assert!(
+            state.inbox.iter().any(|i| i.id == "unread-oldest"),
+            "the oldest unread finding outranks every archived and read one"
+        );
+        assert!(
+            !state.inbox.iter().any(|i| i.archived),
+            "archived findings go first"
+        );
+    }
+
+    #[test]
+    fn pruning_within_a_group_drops_the_oldest() {
+        let mut state = WorkflowsState::default();
+        for i in 0..(MAX_INBOX_ITEMS + 2) {
+            state
+                .inbox
+                .push(item(&format!("u{i}"), i as i64, false, false));
+        }
+        prune_inbox(&mut state);
+        assert_eq!(state.inbox.len(), MAX_INBOX_ITEMS);
+        assert!(!state.inbox.iter().any(|i| i.id == "u0"));
+        assert!(!state.inbox.iter().any(|i| i.id == "u1"));
+        assert!(state.inbox.iter().any(|i| i.id == "u2"));
     }
 
     #[test]

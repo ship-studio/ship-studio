@@ -436,10 +436,6 @@
   color: var(--text-muted);
 }
 
-.inbox-handoff-copy {
-  margin-left: auto;
-}
-
 .inbox-handoff-prompt {
   margin: 0;
   padding: var(--spacing-sm) var(--spacing-md);
@@ -456,19 +452,6 @@
 .inbox-handoff-note {
   margin: 0;
   line-height: var(--line-height-help);
-}
-
-.inbox-handoff-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  flex-wrap: wrap;
-}
-
-.inbox-detail-provenance {
-  display: flex;
-  align-items: center;
-  padding-top: var(--spacing-2xs);
 }
 
 /* Pinned to the foot of the pane — see InboxDetail. Sits on the panel surface

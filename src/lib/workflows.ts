@@ -98,6 +98,12 @@ export interface Workflow {
   autoRun: boolean;
   /** Absolute path of the markdown file this workflow lives in. */
   filePath: string;
+  /**
+   * When the file was last written, in epoch ms. The scheduler treats this as
+   * the arming moment, so a schedule saved this afternoon doesn't count this
+   * morning's slot as one it missed.
+   */
+  updatedAt: number | null;
   /** When the trigger next comes due. Null for manual, event, and disarmed. */
   nextRunAt: number | null;
   isRunning: boolean;
@@ -401,9 +407,13 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     id: 'tpl-security',
     icon: '🔒',
     name: 'Security sweep',
-    description: 'Reviews each new diff for secrets, auth gaps, and unsafe input.',
+    description: 'Reviews what you just pushed for secrets, auth gaps, and unsafe input.',
     category: 'Security',
-    trigger: { kind: 'interval', everyMinutes: 30 },
+    // Push, not a 30-minute loop. The prompt is diff-shaped — "what changed
+    // since the last run" — so a timer spends the user's quota re-reading an
+    // unchanged tree 48 times a day, and the one moment this is worth running
+    // is the moment code leaves the machine.
+    trigger: { kind: 'event', event: 'push' },
     permission: 'read-only',
     prompt: `Review everything that changed since your last run for security regressions: secrets committed to source, unvalidated user input reaching the filesystem or a shell, auth checks removed from a route, dependencies from an unfamiliar registry.
 
@@ -468,6 +478,42 @@ For each finding, give me the concrete inputs that produce the wrong output. If 
     prompt: `Crawl the pages of this project's running dev-server preview. Report links that 404, images that fail to load, and any page that throws in the console on first paint.
 
 If no preview is running, report nothing and stop. Do not start a server yourself.`,
+  },
+  {
+    id: 'tpl-a11y',
+    icon: '♿️',
+    name: 'Accessibility pass',
+    description: 'Reads the components you changed for the accessibility basics.',
+    category: 'Quality',
+    trigger: { kind: 'manual' },
+    permission: 'read-only',
+    prompt: `Review the components that changed for accessibility problems that are real, not theoretical: an interactive element that is a div, an icon-only button with no accessible name, an input with no label, a colour pair that fails contrast, a dialog that traps nothing, an ARIA role that contradicts the element it sits on.
+
+For each one, name the file, the element, and the fix in a sentence. Skip anything you cannot verify by reading the code.`,
+  },
+  {
+    id: 'tpl-copy',
+    icon: '✍️',
+    name: 'Copy review',
+    description: 'Checks user-facing strings for typos, tone, and inconsistent naming.',
+    category: 'Quality',
+    trigger: { kind: 'weekly', weekday: 1, atHour: 9, atMinute: 0 },
+    permission: 'read-only',
+    prompt: `Read the user-facing strings in this project — page copy, button labels, empty states, error messages — and report only things that would embarrass us in front of a user: typos, a product or feature name spelled differently in different places, an error message that tells the user nothing they can act on, sentence case fighting title case in the same surface.
+
+Quote the exact string and give the file. Ignore code comments, tests, and anything the user never sees.`,
+  },
+  {
+    id: 'tpl-perf',
+    icon: '📉',
+    name: 'Bundle watch',
+    description: 'Weekly read on what is making the app heavier.',
+    category: 'Maintenance',
+    trigger: { kind: 'weekly', weekday: 1, atHour: 9, atMinute: 0 },
+    permission: 'read-only',
+    prompt: `Build the project if it has a build command, and look at what the bundle is made of. Report anything that grew meaningfully since your last run, any dependency pulling in far more weight than the job needs, and anything heavy being imported at the top level that could be loaded when it is actually used.
+
+Give sizes. If the build fails, report that as the finding and stop — do not try to fix it.`,
   },
   {
     id: 'tpl-blank',

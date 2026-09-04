@@ -26,6 +26,7 @@ import { MenuButton } from '../primitives/MenuButton';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
 import { TextField } from '../primitives/TextField';
 import { SegmentedControl } from '../primitives/SegmentedControl';
+import { ProjectActionConfirmModal } from '../dashboard/ProjectActionConfirmModal';
 import { WorkflowTemplatePicker } from './WorkflowTemplatePicker';
 import { WorkflowIconPicker } from './WorkflowIconPicker';
 import {
@@ -186,6 +187,8 @@ export function WorkflowEditorModal({
     isNew ? blankDraft(initialProject) : draftFrom(workflow)
   );
   const [saving, setSaving] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [projectQuery, setProjectQuery] = useState('');
 
@@ -567,6 +570,36 @@ export function WorkflowEditorModal({
         {saveError && <p className="workflow-field-warning">{saveError}</p>}
       </div>
 
+      {confirmingDelete && onDelete && !isNew && (
+        /* Deleting removes a file from the user's repository, and the button
+           sits next to Cancel. Destructive actions get a confirm — the house
+           rule, and the only thing standing between a misclick and a workflow
+           somebody spent time writing. */
+        <ProjectActionConfirmModal
+          title={`Delete "${workflow.name}"?`}
+          body={
+            <>
+              This deletes <code>{workflow.slug}.md</code> from <code>.shipstudio/workflows/</code>{' '}
+              in {workflow.projectName}.
+            </>
+          }
+          hint="Findings it already filed stay in your Inbox. If the project is under version control you can restore the file from git."
+          loading={deleting}
+          confirmLabel="Delete workflow"
+          loadingLabel="Deleting…"
+          confirmVariant="danger"
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => {
+            setDeleting(true);
+            void Promise.resolve(onDelete(workflow)).catch((err: unknown) => {
+              setDeleting(false);
+              setConfirmingDelete(false);
+              setSaveError(String(err));
+            });
+          }}
+        />
+      )}
+
       <div className="workflow-editor-actions">
         {isNew ? (
           <Button
@@ -582,7 +615,7 @@ export function WorkflowEditorModal({
               variant="ghost"
               className="workflow-editor-back"
               leftIcon={<TrashIcon size={12} />}
-              onClick={() => void onDelete(workflow)}
+              onClick={() => setConfirmingDelete(true)}
             >
               Delete
             </Button>

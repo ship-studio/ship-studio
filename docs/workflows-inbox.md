@@ -119,6 +119,26 @@ above instead of fighting it.
 mode that kills an inbox is a workflow that files "no issues found" every thirty
 minutes.
 
+### Where it is kept, and how carefully
+
+`workflows-state.json` holds the entire inbox and every run record, so it is
+written the way the rest of the app writes state it cannot lose: to a temp file
+in the same directory, then renamed over the original. A half-written file — a
+crash, a full disk, a lid closing on a sleeping process — would otherwise read
+back as corrupt and take the lot with it.
+
+A file that is present but unparseable is moved aside as `.json.corrupt` before
+anything replaces it. "The Inbox came up empty" then leaves something a person
+can look at, instead of being a silent, total loss. (This earned its keep
+immediately: renaming the feature changed `routineId` to `workflowId`, and the
+quarantine is what turned a vanished inbox into a file that could be migrated
+back.)
+
+The inbox is capped at 500 findings, dropping archived first, then read, then —
+only if it somehow comes to it — the oldest unread. Run history was already
+capped per workflow; the inbox was not capped at all, and it is the half that
+grows forever.
+
 ### Dedup
 
 A finding's identity is `hash(workflow_id + agent_fingerprint_or_normalized_title)`.
@@ -141,6 +161,30 @@ One tokio tick, once a minute, over every armed workflow in every known project:
   workflows coming due in the same minute must not fire five agents at once.
 - **It skips anything already in flight.** Two agents reasoning about the same
   working tree is confusing at best, and a corruption risk if either can edit.
+
+### "When is the next one" is not "is one due"
+
+These are different questions and conflating them cost this feature two of its
+five trigger shapes.
+
+`next_due_at` answers the first: the next occurrence, used for the countdown in
+the row. For a daily trigger that answer is **always in the future** — that is
+what "next" means. The scheduler originally asked `next_due_at` and fired when
+the answer was in the past, so `daily` and `weekly` parsed, serialized, rendered
+a countdown, and never ran once.
+
+`due_at` answers the second, and looks backwards: has an occurrence passed that
+we haven't run since? Two things floor it, and both matter:
+
+- **the last run**, so one occurrence is one run rather than one run per tick
+  for the rest of the day;
+- **the workflow file's mtime**, so saving "daily at 09:00" at two in the
+  afternoon doesn't count this morning's slot as one it missed and fire
+  immediately. The same floor makes "every 30 minutes" start counting from when
+  you armed it.
+
+Only the *most recent* occurrence is ever considered, which is what makes "never
+catches up" true rather than aspirational: a week away costs one run, not seven.
 
 Event triggers (`on push`, `on pr`) fire from the backend at the tail of the
 commands that complete those actions (`push_branch`, `create_pull_request`),
@@ -252,7 +296,10 @@ git repo. It is `#[ignore]`d because it spends quota and needs a signed-in CLI:
 cd src-tauri && cargo test e2e_runs_a_workflow_against_the_real_agent -- --ignored --nocapture
 ```
 
-It asserts the run completes **and** that a read-only workflow wrote nothing.
+It asserts the run completes, that a read-only workflow wrote nothing, that the
+run and its findings actually reached the state file (a run that completes
+without filing looks identical to one that found nothing), and that no run
+output landed in the project repo.
 
 It sets `SHIPSTUDIO_WORKFLOWS_STATE` to a path inside its own tempdir. Without
 that it files the throwaway project's findings into the developer's real inbox,
@@ -266,7 +313,16 @@ exactly what happened the first two times it ran.
   not a corrupt write), and the in-flight guard stops two runs colliding. A
   `git worktree` per run is the eventual answer.
 - **Quota.** Nothing stops someone arming a dozen 15-minute workflows and burning
-  a month's allowance in a week. There is no budget, cap, or projection yet.
+  a month's allowance in a week. There is no budget, cap, or projection yet. No
+  *template* ships a cadence faster than weekly, and a test enforces that, but
+  the editor will happily let you pick every 15 minutes.
+- **Prompt injection from the repository.** A run's prompt includes recent
+  commit messages and `git status`, which anyone who can land a commit can
+  write. Under `read-only` — the default, enforced by the CLI — the worst case
+  is a bogus finding, which is visible and deletable. Under `can-edit` it is a
+  path to an unattended agent taking instructions from a commit message. That is
+  the strongest argument for read-only being the default, and it is why the
+  suggested prompt is shown verbatim in the reader before anyone sends it.
 - **Fingerprint drift.** Dedup leans on the agent producing a stable fingerprint,
   with a normalised title as fallback. A model that rewords a finding *and* omits
   the fingerprint files a duplicate.

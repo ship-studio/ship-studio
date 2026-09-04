@@ -13,7 +13,7 @@
  * @module components/inbox/InboxView
  */
 
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { BellIcon, CheckIcon, ChevronIcon } from '@/components/icons';
 import { Button } from '../primitives/Button';
 import { Dropdown, DropdownItem } from '../primitives/Dropdown';
@@ -25,6 +25,7 @@ import { DashboardSearch } from '../dashboard/DashboardSearch';
 import { InboxDetail } from './InboxDetail';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
+import { trackEvent } from '../../lib/analytics';
 import { formatAge, type InboxItem, type Severity } from '../../lib/workflows';
 import { queueHandoff } from '../../lib/workflowHandoff';
 import type { Project } from '../../lib/project';
@@ -60,6 +61,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
   const [filter, setFilter] = useState<InboxFilter>('unread');
   const [project, setProject] = useState<string>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const projects = useMemo(
     () => Array.from(new Set(inbox.map((item) => item.projectName))).sort(),
@@ -70,7 +72,12 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
     const matches = inbox.filter((item) => {
       if (filter === 'archived' && !item.archived) return false;
       if (filter !== 'archived' && item.archived) return false;
-      if (filter === 'unread' && item.read) return false;
+      // The item being read stays listed even once it is no longer unread.
+      // Without this, opening a finding under the Unread filter marks it read,
+      // drops it out of the list mid-click, and the reader lands on a
+      // different finding — which makes the default filter unusable for the
+      // one thing it is for.
+      if (filter === 'unread' && item.read && item.id !== selectedId) return false;
       if (project !== 'all' && item.projectName !== project) return false;
       return true;
     });
@@ -78,7 +85,7 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
       const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
       return bySeverity !== 0 ? bySeverity : b.createdAt - a.createdAt;
     });
-  }, [inbox, filter, project]);
+  }, [inbox, filter, project, selectedId]);
 
   const selected: InboxItem | null =
     visible.find((item) => item.id === selectedId) ?? visible[0] ?? null;
@@ -90,24 +97,72 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
     if (!item.read) void setItemRead(item.id, true);
   }, []);
 
+  /** The finding to land on once the current one leaves the list. */
+  const neighbourOf = useCallback(
+    (item: InboxItem): string | null => {
+      const index = visible.findIndex((candidate) => candidate.id === item.id);
+      if (index === -1) return null;
+      return visible[index + 1]?.id ?? visible[index - 1]?.id ?? null;
+    },
+    [visible]
+  );
+
+  /** ↑/↓ through the list, Home/End to the ends. A reader is a reading tool. */
+  const handleListKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
+      if (!keys.includes(event.key)) return;
+      event.preventDefault();
+      const index = visible.findIndex((item) => item.id === selected?.id);
+      const next =
+        event.key === 'Home'
+          ? 0
+          : event.key === 'End'
+            ? visible.length - 1
+            : Math.min(
+                visible.length - 1,
+                Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1))
+              );
+      const target = visible[next];
+      if (!target) return;
+      handleSelect(target);
+      listRef.current
+        ?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(target.id)}"]`)
+        ?.focus();
+    },
+    [visible, selected, handleSelect]
+  );
+
   const handleArchive = useCallback(
     (item: InboxItem) => {
+      setSelectedId(neighbourOf(item));
+      void trackEvent('workflow_finding_action', {
+        action: item.archived ? 'restore' : 'archive',
+        severity: item.severity,
+        occurrences: item.occurrences,
+      });
       setItemArchived(item.id, !item.archived)
         .then(() =>
           showToast(item.archived ? 'Restored to inbox' : `Archived — "${item.title}"`, 'info')
         )
         .catch((err: unknown) => showToast(String(err), 'error'));
     },
-    [showToast]
+    [showToast, neighbourOf]
   );
 
   const handleDelete = useCallback(
     (item: InboxItem) => {
+      setSelectedId(neighbourOf(item));
+      void trackEvent('workflow_finding_action', {
+        action: 'delete',
+        severity: item.severity,
+        occurrences: item.occurrences,
+      });
       deleteItem(item.id)
         .then(() => showToast(`Deleted — "${item.title}"`, 'info'))
         .catch((err: unknown) => showToast(String(err), 'error'));
     },
-    [showToast]
+    [showToast, neighbourOf]
   );
 
   /**
@@ -118,6 +173,12 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
   const handleFix = useCallback(
     (item: InboxItem, prompt: string) => {
       if (!onOpenProject) return;
+      // The action the whole feature is pointed at: a finding becoming work.
+      void trackEvent('workflow_finding_action', {
+        action: 'fix',
+        severity: item.severity,
+        occurrences: item.occurrences,
+      });
       queueHandoff(item.projectPath, prompt);
       showToast(`Handing this to your agent in ${item.projectName}…`, 'info');
       void onOpenProject({ name: item.projectName, path: item.projectPath, thumbnail: null });
@@ -218,12 +279,28 @@ export function InboxView({ onOpenProject }: InboxViewProps) {
               </div>
             ) : (
               <div className="inbox-body">
-                <div className="inbox-list" role="list" aria-label="Findings">
+                {/* A listbox, not a list of buttons: `role="listitem"` on a
+                    button overrides the button role, so the row stops being
+                    announced as something you can activate. Options in a
+                    listbox are selectable by definition, which is exactly what
+                    these are — each one drives the reader beside it. */}
+                <div
+                  className="inbox-list"
+                  role="listbox"
+                  aria-label="Findings"
+                  aria-activedescendant={selected ? `inbox-item-${selected.id}` : undefined}
+                  ref={listRef}
+                  onKeyDown={handleListKeyDown}
+                >
                   {visible.map((item) => (
                     <button
                       key={item.id}
+                      id={`inbox-item-${item.id}`}
+                      data-item-id={item.id}
                       type="button"
-                      role="listitem"
+                      role="option"
+                      aria-selected={item.id === selected?.id}
+                      tabIndex={item.id === selected?.id ? 0 : -1}
                       className={`inbox-item${item.id === selected?.id ? ' is-selected' : ''}${item.read ? '' : ' is-unread'}`}
                       onClick={() => handleSelect(item)}
                     >

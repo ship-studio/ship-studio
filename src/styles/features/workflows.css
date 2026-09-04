@@ -537,18 +537,6 @@
   border-radius: var(--radius-card);
 }
 
-.workflow-editor-context {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-body-md);
-  line-height: var(--line-height-compact);
-}
-
-.workflow-editor-context strong {
-  color: var(--text-primary);
-  font-weight: var(--font-weight-label);
-}
-
 .workflow-field {
   display: flex;
   flex-direction: column;
@@ -620,26 +608,6 @@
   border-radius: var(--radius-sm);
 }
 
-/* The conditions a background schedule cannot escape. Stated as a list because
-   each line is a separate thing that can be false. */
-.workflow-conditions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-2xs);
-  margin: 0;
-  padding: 0 0 0 var(--spacing-lg);
-  color: var(--text-muted);
-  font-size: var(--font-size-body-md);
-  line-height: var(--line-height-help);
-  max-width: 74ch;
-}
-
-.workflow-conditions code {
-  font-family: var(--font-code);
-  font-size: var(--font-size-body-sm);
-  color: var(--text-secondary);
-}
-
 /* Everything that follows from the trigger choice — where it runs, what that
    means, its conditions, and the arm switch — grouped so the block breathes
    without loosening the 4px label-to-control gap every other field uses. */
@@ -649,10 +617,6 @@
   gap: var(--spacing-md);
   margin-top: var(--spacing-2xs);
   min-width: 0;
-}
-
-.workflow-host-field {
-  gap: var(--spacing-xs);
 }
 
 .workflow-note {

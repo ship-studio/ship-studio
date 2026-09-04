@@ -27,6 +27,7 @@ import { RunHistoryModal } from './RunHistoryModal';
 import { useOptionalToast } from '../../contexts/ToastContext';
 import { useDashboardVisibility } from '../../hooks/useDashboardVisibility';
 import { listProjects } from '../../lib/project';
+import { trackEvent } from '../../lib/analytics';
 import { logger } from '../../lib/logger';
 import {
   formatTokens,
@@ -137,6 +138,16 @@ export function WorkflowsView({ currentProjectPath }: WorkflowsViewProps) {
   const handleSave = useCallback(
     async (projectPath: string, slug: string | null, draft: WorkflowDraft) => {
       const saved = await saveWorkflow(projectPath, slug, draft);
+      // Shape only — never the name, the instruction, or the project. The
+      // question worth answering is whether people arm schedules or only ever
+      // press Run.
+      void trackEvent(slug === null ? 'workflow_created' : 'workflow_edited', {
+        trigger_kind: draft.trigger.kind,
+        permission: draft.permission,
+        agent: draft.agentId ?? 'default',
+        auto_run: draft.autoRun,
+        severity_floor: draft.severityFloor,
+      });
       setEditing(null);
       showToast(`Saved ${saved.name}`, 'success');
     },

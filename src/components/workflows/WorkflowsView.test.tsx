@@ -49,6 +49,7 @@ function workflow(overrides: Partial<Workflow> = {}): Workflow {
     severityFloor: 'info',
     autoRun: true,
     filePath: '/p/demo/.shipstudio/workflows/security-sweep.md',
+    updatedAt: null,
     nextRunAt: Date.now() + 12 * 60_000,
     isRunning: false,
     runningSince: null,

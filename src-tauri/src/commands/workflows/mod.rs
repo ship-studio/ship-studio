@@ -96,7 +96,7 @@ impl WorkflowPermission {
         }
     }
 
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             WorkflowPermission::ReadOnly => "read-only",
             WorkflowPermission::CanEdit => "can-edit",
@@ -153,6 +153,19 @@ const WEEKDAYS: [&str; 7] = [
 ];
 
 impl WorkflowTrigger {
+    /// The shape of the trigger, with none of its detail — the safe half to
+    /// report in analytics, where "daily" is the interesting fact and "09:00"
+    /// is somebody's working day.
+    pub fn kind_name(self) -> &'static str {
+        match self {
+            WorkflowTrigger::Manual => "manual",
+            WorkflowTrigger::Interval { .. } => "interval",
+            WorkflowTrigger::Daily { .. } => "daily",
+            WorkflowTrigger::Weekly { .. } => "weekly",
+            WorkflowTrigger::Event { .. } => "event",
+        }
+    }
+
     /// Parse the frontmatter `trigger:` phrase.
     ///
     /// The grammar is deliberately a human sentence rather than a nested

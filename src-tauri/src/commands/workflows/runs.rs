@@ -709,6 +709,28 @@ fn parse_claude_stream(stdout: &str) -> AgentReply {
 
 /* ------------------------------------------------------------------- run */
 
+/// What set a run going. Reported with the run, since "does anyone actually
+/// arm these?" is the one question about this feature worth measuring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunSource {
+    /// Someone pressed Run.
+    Manual,
+    /// The tick found it due.
+    Schedule,
+    /// A push or a PR opening.
+    Event,
+}
+
+impl RunSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            RunSource::Manual => "manual",
+            RunSource::Schedule => "schedule",
+            RunSource::Event => "event",
+        }
+    }
+}
+
 /// Run one workflow now and file whatever it reports.
 #[tauri::command]
 #[tracing::instrument(skip(app), fields(project = %project_path, slug = %slug))]
@@ -716,6 +738,16 @@ pub async fn run_workflow(
     app: AppHandle,
     project_path: String,
     slug: String,
+) -> Result<WorkflowRun, CommandError> {
+    run_workflow_from(app, project_path, slug, RunSource::Manual).await
+}
+
+/// The body of `run_workflow`, plus who asked.
+pub async fn run_workflow_from(
+    app: AppHandle,
+    project_path: String,
+    slug: String,
+    source: RunSource,
 ) -> Result<WorkflowRun, CommandError> {
     let project = validate_project_path(&project_path)?;
     let slug = slugify(&slug);
@@ -741,7 +773,7 @@ pub async fn run_workflow(
             workflow.name
         )));
     }
-    let outcome = execute(Some(&app), &project, &workflow).await;
+    let outcome = execute(Some(&app), &project, &workflow, source).await;
     release(&workflow.id);
     let _ = app.emit(WORKFLOWS_CHANGED_EVENT, ());
     outcome
@@ -753,6 +785,7 @@ async fn execute(
     app: Option<&AppHandle>,
     project: &Path,
     workflow: &Workflow,
+    source: RunSource,
 ) -> Result<WorkflowRun, CommandError> {
     let agent = workflow
         .agent_id
@@ -822,6 +855,7 @@ async fn execute(
             run.error = Some(err.to_string());
             run.transcript = err.to_string();
             record_run(&run, workflow, None)?;
+            report_run(&run, workflow, source);
             // The run is recorded as failed and shown in history; the caller
             // still gets the error so the click that started it can say why.
             return Err(err);
@@ -841,10 +875,41 @@ async fn execute(
                 RunStatus::Findings
             };
             record_run(&run, workflow, Some((kept, head)))?;
+            report_run(&run, workflow, source);
         }
     }
 
     Ok(run)
+}
+
+/// Tell analytics a run happened.
+///
+/// Deliberately carries no content: not the workflow's name, not the project,
+/// not a finding title, not a line of the prompt. Shape only — what kind of
+/// trigger, which agent, whether it found anything, what it cost. Everything
+/// this feature touches is someone's private repository, and the questions
+/// worth asking about it ("do people arm schedules?", "do runs fail?") are all
+/// answerable from shape alone.
+fn report_run(run: &WorkflowRun, workflow: &Workflow, source: RunSource) {
+    crate::commands::analytics::track_backend_event(
+        "workflow_run_finished",
+        serde_json::json!({
+            "source": source.as_str(),
+            "trigger_kind": workflow.trigger.kind_name(),
+            "permission": workflow.permission.as_str(),
+            "agent": workflow.agent_id.as_deref().unwrap_or("default"),
+            "auto_run": workflow.auto_run,
+            "status": match run.status {
+                RunStatus::Ok => "ok",
+                RunStatus::Findings => "findings",
+                RunStatus::Failed => "failed",
+                RunStatus::Running => "running",
+            },
+            "findings": run.findings,
+            "duration_ms": run.duration_ms,
+            "tokens": run.tokens,
+        }),
+    );
 }
 
 type RunPayload = (Vec<ReportedFindingPublic>, Option<String>);
@@ -922,17 +987,24 @@ fn record_run(
     })
 }
 
-/// When an armed trigger next comes due, in epoch ms.
+/// When an armed trigger next comes due, in epoch ms. **Display only.**
 ///
-/// An interval is measured from the last run, not from a wall clock: "every 30
-/// minutes" means "at least 30 minutes since it last looked", which is the only
-/// reading that stays true across an app restart.
-pub fn next_due_at(trigger: WorkflowTrigger, last_run_at: Option<i64>, now: i64) -> Option<i64> {
+/// This answers "when is the next one", which is what the row shows. It is
+/// deliberately *not* what the scheduler asks — see `due_at`. An interval is
+/// measured from the last run, not from a wall clock: "every 30 minutes" means
+/// "at least 30 minutes since it last looked", which is the only reading that
+/// stays true across an app restart.
+pub fn next_due_at(
+    trigger: WorkflowTrigger,
+    last_run_at: Option<i64>,
+    armed_at: Option<i64>,
+    now: i64,
+) -> Option<i64> {
     match trigger {
         WorkflowTrigger::Manual | WorkflowTrigger::Event { .. } => None,
         WorkflowTrigger::Interval { every_minutes } => {
-            let gap = every_minutes as i64 * 60_000;
-            Some(last_run_at.map_or(now, |last| last + gap))
+            let anchor = last_run_at.or(armed_at).unwrap_or(now);
+            Some(anchor + every_minutes as i64 * 60_000)
         }
         WorkflowTrigger::Daily { at_hour, at_minute } => {
             Some(next_clock(now, at_hour, at_minute, None))
@@ -943,6 +1015,107 @@ pub fn next_due_at(trigger: WorkflowTrigger, last_run_at: Option<i64>, now: i64)
             at_minute,
         } => Some(next_clock(now, at_hour, at_minute, Some(weekday))),
     }
+}
+
+/// The moment an armed trigger *became* due, or `None` if it isn't due yet.
+///
+/// This is the scheduler's question, and it is not the same one `next_due_at`
+/// answers. A daily trigger's next occurrence is always in the future by
+/// definition, so a scheduler that asked "is the next occurrence in the past?"
+/// would never fire a daily workflow at all — which is exactly what this
+/// codebase did until it was caught: `daily` and `weekly` parsed, serialized,
+/// rendered a countdown, and never ran once.
+///
+/// The right question is backwards-looking: has an occurrence passed that we
+/// haven't run since?
+///
+/// `armed_at` is the workflow file's mtime, and it floors everything. Saving
+/// "daily at 09:00" at two in the afternoon must not fire instantly just
+/// because 09:00 already went by today.
+pub fn due_at(
+    trigger: WorkflowTrigger,
+    last_run_at: Option<i64>,
+    armed_at: Option<i64>,
+    now: i64,
+) -> Option<i64> {
+    match trigger {
+        WorkflowTrigger::Manual | WorkflowTrigger::Event { .. } => None,
+        WorkflowTrigger::Interval { every_minutes } => {
+            // Never run and never armed (only reachable for a file the
+            // filesystem wouldn't stat) counts as due: an interval workflow
+            // that can never start is worse than one that starts early.
+            let anchor = last_run_at.or(armed_at)?;
+            let due = anchor + every_minutes as i64 * 60_000;
+            (due <= now).then_some(due)
+        }
+        WorkflowTrigger::Daily { at_hour, at_minute } => {
+            due_clock(now, at_hour, at_minute, None, last_run_at, armed_at)
+        }
+        WorkflowTrigger::Weekly {
+            weekday,
+            at_hour,
+            at_minute,
+        } => due_clock(
+            now,
+            at_hour,
+            at_minute,
+            Some(weekday),
+            last_run_at,
+            armed_at,
+        ),
+    }
+}
+
+/// The most recent occurrence of a wall-clock trigger, if we owe a run for it.
+///
+/// Owed means the occurrence is later than both the last run and the moment the
+/// workflow was armed. One occurrence is at most one run: reopening the app
+/// after a week away runs a daily workflow once, not seven times, because only
+/// the latest occurrence is ever considered.
+fn due_clock(
+    now: i64,
+    at_hour: u32,
+    at_minute: u32,
+    weekday: Option<u32>,
+    last_run_at: Option<i64>,
+    armed_at: Option<i64>,
+) -> Option<i64> {
+    let occurrence = prev_clock(now, at_hour, at_minute, weekday)?;
+    let floor = last_run_at.max(armed_at);
+    match floor {
+        Some(floor) if occurrence <= floor => None,
+        _ => Some(occurrence),
+    }
+}
+
+/// Previous occurrence of a local wall-clock time at or before `now`.
+///
+/// The mirror of `next_clock`, walking backwards a local calendar day at a
+/// time for the same DST reason. `None` if nothing matched inside the window,
+/// which for a weekly trigger can only mean the clock is unusable.
+fn prev_clock(now_ms_utc: i64, at_hour: u32, at_minute: u32, weekday: Option<u32>) -> Option<i64> {
+    use chrono::{Datelike, Local, TimeZone};
+
+    let now = Local.timestamp_millis_opt(now_ms_utc).single()?;
+    let mut day = now.date_naive();
+    // A week plus slack: enough to find any weekday, and to step over a local
+    // time that doesn't exist on a spring-forward night.
+    for _ in 0..15 {
+        let matches_weekday = weekday.is_none_or(|w| day.weekday().num_days_from_sunday() == w);
+        if matches_weekday {
+            if let Some(candidate) = day
+                .and_hms_opt(at_hour, at_minute, 0)
+                .and_then(|naive| Local.from_local_datetime(&naive).single())
+            {
+                let ms = candidate.timestamp_millis();
+                if ms <= now_ms_utc {
+                    return Some(ms);
+                }
+            }
+        }
+        day = day.pred_opt()?;
+    }
+    None
 }
 
 /// Next occurrence of a local wall-clock time, optionally on a given weekday.
@@ -1072,37 +1245,25 @@ mod tests {
         let due = next_due_at(
             WorkflowTrigger::Interval { every_minutes: 30 },
             Some(now - 60_000),
+            None,
             now,
         );
         assert_eq!(due, Some(now - 60_000 + 30 * 60_000));
     }
 
     #[test]
-    fn an_interval_that_has_never_run_is_due_immediately() {
-        let now = 1_000_000_000;
-        assert_eq!(
-            next_due_at(WorkflowTrigger::Interval { every_minutes: 30 }, None, now),
-            Some(now)
-        );
-    }
-
-    #[test]
     fn manual_and_event_triggers_are_never_due() {
-        assert_eq!(next_due_at(WorkflowTrigger::Manual, None, 0), None);
-        assert_eq!(
-            next_due_at(
-                WorkflowTrigger::Event {
-                    event: super::super::WorkflowEvent::Push
-                },
-                None,
-                0
-            ),
-            None
-        );
+        assert_eq!(next_due_at(WorkflowTrigger::Manual, None, None, 0), None);
+        assert_eq!(due_at(WorkflowTrigger::Manual, None, None, 0), None);
+        let push = WorkflowTrigger::Event {
+            event: super::super::WorkflowEvent::Push,
+        };
+        assert_eq!(next_due_at(push, None, None, 0), None);
+        assert_eq!(due_at(push, None, None, 0), None);
     }
 
     #[test]
-    fn daily_is_always_in_the_future() {
+    fn the_next_daily_occurrence_is_always_in_the_future() {
         let now = now_ms();
         let due = next_due_at(
             WorkflowTrigger::Daily {
@@ -1110,10 +1271,11 @@ mod tests {
                 at_minute: 0,
             },
             None,
+            None,
             now,
         )
         .unwrap();
-        assert!(due > now, "a daily trigger must never be due in the past");
+        assert!(due > now, "a countdown must never point at the past");
         assert!(due - now <= 86_400_000, "and never more than a day out");
     }
 
@@ -1128,12 +1290,175 @@ mod tests {
                     at_minute: 0,
                 },
                 None,
+                None,
                 now,
             )
             .unwrap();
             assert!(due > now);
             assert!(due - now <= 8 * 86_400_000, "weekday {weekday} overshot");
         }
+    }
+
+    /* ------------------------------------------------ is it due right now? */
+
+    /// A local wall-clock time today, in epoch ms. Built through `Local` so
+    /// these tests mean the same thing in every timezone CI might run in.
+    fn local_today_at(hour: u32, minute: u32) -> i64 {
+        use chrono::{Local, TimeZone};
+        let day = Local::now().date_naive();
+        Local
+            .from_local_datetime(&day.and_hms_opt(hour, minute, 0).unwrap())
+            .single()
+            // The one hour a year that doesn't exist locally: step off it.
+            .unwrap_or_else(|| {
+                Local
+                    .from_local_datetime(
+                        &day.and_hms_opt(hour.wrapping_add(1) % 24, minute, 0)
+                            .unwrap(),
+                    )
+                    .single()
+                    .expect("a usable local hour")
+            })
+            .timestamp_millis()
+    }
+
+    const DAILY_9AM: WorkflowTrigger = WorkflowTrigger::Daily {
+        at_hour: 9,
+        at_minute: 0,
+    };
+
+    #[test]
+    fn a_daily_workflow_actually_becomes_due() {
+        // The regression this whole function exists for: the scheduler used to
+        // ask `next_due_at`, whose answer is in the future by construction, so
+        // no daily workflow ever ran.
+        let nine = local_today_at(9, 0);
+        let armed_yesterday = nine - 86_400_000;
+
+        assert_eq!(
+            due_at(DAILY_9AM, None, Some(armed_yesterday), nine - 60_000),
+            None,
+            "not due a minute before nine"
+        );
+        assert_eq!(
+            due_at(DAILY_9AM, None, Some(armed_yesterday), nine + 60_000),
+            Some(nine),
+            "due a minute after nine, dated to the occurrence"
+        );
+    }
+
+    #[test]
+    fn a_daily_workflow_does_not_re_fire_after_it_has_run() {
+        let nine = local_today_at(9, 0);
+        let armed_yesterday = nine - 86_400_000;
+        let ran_at = nine + 30_000;
+        assert_eq!(
+            due_at(
+                DAILY_9AM,
+                Some(ran_at),
+                Some(armed_yesterday),
+                nine + 3_600_000
+            ),
+            None,
+            "one occurrence is one run, not one run per tick for the rest of the day"
+        );
+    }
+
+    #[test]
+    fn a_week_away_costs_one_run_not_seven() {
+        // Only the most recent occurrence is ever considered, so there is no
+        // backlog to catch up on when the app reopens.
+        let nine = local_today_at(9, 0);
+        let ran_a_week_ago = nine - 7 * 86_400_000;
+        let due = due_at(
+            DAILY_9AM,
+            Some(ran_a_week_ago),
+            Some(ran_a_week_ago),
+            nine + 60_000,
+        );
+        assert_eq!(
+            due,
+            Some(nine),
+            "the run owed is today's, not last Tuesday's"
+        );
+    }
+
+    #[test]
+    fn saving_a_daily_workflow_after_its_hour_waits_for_tomorrow() {
+        // Someone writing "daily at 09:00" at two in the afternoon has not
+        // asked for a run right now, and firing one would spend their quota on
+        // a schedule they were still typing.
+        let armed_at_two = local_today_at(14, 0);
+        assert_eq!(
+            due_at(DAILY_9AM, None, Some(armed_at_two), armed_at_two + 60_000),
+            None
+        );
+    }
+
+    #[test]
+    fn a_weekly_workflow_only_owes_a_run_on_its_own_weekday() {
+        use chrono::{Datelike, Local};
+        let today = Local::now().weekday().num_days_from_sunday();
+        let nine = local_today_at(9, 0);
+        let armed_yesterday = nine - 86_400_000;
+
+        let due_today = due_at(
+            WorkflowTrigger::Weekly {
+                weekday: today,
+                at_hour: 9,
+                at_minute: 0,
+            },
+            None,
+            Some(armed_yesterday),
+            nine + 60_000,
+        );
+        assert_eq!(due_today, Some(nine), "its own weekday, after its hour");
+
+        let tomorrow = (today + 1) % 7;
+        let due_other = due_at(
+            WorkflowTrigger::Weekly {
+                weekday: tomorrow,
+                at_hour: 9,
+                at_minute: 0,
+            },
+            None,
+            // Armed a fortnight ago, so the floor cannot be what stops it.
+            Some(nine - 14 * 86_400_000),
+            nine + 60_000,
+        );
+        assert_ne!(
+            due_other,
+            Some(nine),
+            "a different weekday is not due today"
+        );
+    }
+
+    #[test]
+    fn an_interval_counts_from_when_it_was_armed_not_from_zero() {
+        let now = 1_000_000_000;
+        let every_30 = WorkflowTrigger::Interval { every_minutes: 30 };
+        let armed_a_minute_ago = now - 60_000;
+        assert_eq!(
+            due_at(every_30, None, Some(armed_a_minute_ago), now),
+            None,
+            "arming a 30-minute workflow must not fire it instantly"
+        );
+        let armed_an_hour_ago = now - 3_600_000;
+        assert_eq!(
+            due_at(every_30, None, Some(armed_an_hour_ago), now),
+            Some(armed_an_hour_ago + 30 * 60_000)
+        );
+    }
+
+    #[test]
+    fn an_interval_is_due_once_the_gap_has_passed_since_the_last_run() {
+        let now = 1_000_000_000;
+        let every_30 = WorkflowTrigger::Interval { every_minutes: 30 };
+        assert_eq!(due_at(every_30, Some(now - 29 * 60_000), None, now), None);
+        assert_eq!(
+            due_at(every_30, Some(now - 31 * 60_000), None, now),
+            Some(now - 31 * 60_000 + 30 * 60_000)
+        );
     }
 
     /// End-to-end against the real agent CLI, in a real git repo, with a
@@ -1180,7 +1505,7 @@ mod tests {
         assert_eq!(workflow.name, "Security sweep");
         assert_eq!(workflow.permission, WorkflowPermission::ReadOnly);
 
-        let run = execute(None, project, &workflow)
+        let run = execute(None, project, &workflow, RunSource::Manual)
             .await
             .expect("run should succeed");
         println!(
@@ -1198,6 +1523,38 @@ mod tests {
         assert!(
             !project.join("PWNED.txt").exists(),
             "a read-only workflow must not have written anything"
+        );
+
+        // The run has to have landed in the state file, not just been returned:
+        // the inbox is fed by `record_run`, and a run that completes without
+        // filing anything looks identical to one that found nothing.
+        let state = super::super::state::load_state();
+        assert_eq!(state.runs.len(), 1, "the run should be in history");
+        assert_eq!(state.runs[0].workflow_id, workflow.id);
+        assert_eq!(
+            state.inbox.len(),
+            run.findings,
+            "every kept finding should be filed exactly once"
+        );
+        assert!(
+            state.last_run_at.contains_key(&workflow.id),
+            "the next interval has to be measured from somewhere"
+        );
+        for filed in &state.inbox {
+            assert!(
+                !filed.suggested_prompt.trim().is_empty(),
+                "a finding with no prompt has no primary action"
+            );
+            assert!(!filed.read && !filed.archived, "a fresh finding is unread");
+            assert_eq!(filed.occurrences, 1);
+        }
+
+        // Nothing may be written into the project itself: definitions live in
+        // the repo, results do not.
+        assert!(
+            !project.join(".shipstudio/workflows-state.json").exists()
+                && !project.join(".shipstudio/routines-state.json").exists(),
+            "run output must never land in the user's repo"
         );
     }
 

@@ -3782,7 +3782,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 421
+      "consumerCount": 420
     },
     {
       "name": "--text-secondary",
@@ -3791,7 +3791,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 327
+      "consumerCount": 325
     },
     {
       "name": "--text-muted",
@@ -3800,7 +3800,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 581
+      "consumerCount": 580
     },
     {
       "name": "--text-faint",
@@ -4061,7 +4061,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": true,
-      "consumerCount": 139
+      "consumerCount": 138
     },
     {
       "name": "--font-symbol",
@@ -4142,7 +4142,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 210
+      "consumerCount": 208
     },
     {
       "name": "--font-size-body-sm",
@@ -4151,7 +4151,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 227
+      "consumerCount": 226
     },
     {
       "name": "--font-size-control",
@@ -4250,7 +4250,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 20
+      "consumerCount": 19
     },
     {
       "name": "--font-weight-heading",
@@ -4304,7 +4304,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 22
+      "consumerCount": 21
     },
     {
       "name": "--line-height-help",
@@ -4313,7 +4313,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 22
+      "consumerCount": 21
     },
     {
       "name": "--line-height-reading",
@@ -4466,7 +4466,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 54
+      "consumerCount": 52
     },
     {
       "name": "--spacing-xs",
@@ -4475,7 +4475,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 238
+      "consumerCount": 236
     },
     {
       "name": "--spacing-sm",
@@ -4502,7 +4502,7 @@
       "owner": "global/semantic",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 117
+      "consumerCount": 116
     },
     {
       "name": "--spacing-xl",

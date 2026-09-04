@@ -53,6 +53,7 @@ function workflow(overrides: Partial<Workflow> = {}): Workflow {
     severityFloor: 'info',
     autoRun: true,
     filePath: '/p/.shipstudio/workflows/r.md',
+    updatedAt: null,
     nextRunAt: null,
     isRunning: false,
     runningSince: null,
@@ -266,6 +267,24 @@ describe('WORKFLOW_TEMPLATES', () => {
     for (const template of WORKFLOW_TEMPLATES.filter((t) => t.id !== 'tpl-blank')) {
       expect(template.prompt.trim().length).toBeGreaterThan(0);
       expect(template.description.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('ships no template that fires more often than hourly', () => {
+    // Templates are picked before anyone has watched a single run, so their
+    // cadence is the one nobody thinks about. An agent on a 15-minute loop
+    // spends real quota on an unchanged tree ~96 times a day; that is a choice
+    // to make deliberately in the editor, never a default we handed out.
+    for (const template of WORKFLOW_TEMPLATES) {
+      if (template.trigger.kind === 'interval') {
+        expect(template.trigger.everyMinutes).toBeGreaterThanOrEqual(60);
+      }
+    }
+  });
+
+  it('gives every template an icon, so no row falls back to a bare dot', () => {
+    for (const template of WORKFLOW_TEMPLATES) {
+      expect(template.icon.trim().length).toBeGreaterThan(0);
     }
   });
 });
