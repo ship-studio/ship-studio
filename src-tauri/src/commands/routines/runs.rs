@@ -1141,6 +1141,16 @@ mod tests {
 
         let dir = tempfile::tempdir().expect("tempdir");
         let project = dir.path();
+        // Redirect the state file, or this test files its throwaway findings
+        // into the developer's own inbox — where they show up as a project
+        // that no longer exists.
+        // SAFETY: single-threaded test, set before anything reads it.
+        unsafe {
+            std::env::set_var(
+                super::super::state::STATE_PATH_ENV,
+                dir.path().join("routines-state.json"),
+            );
+        }
         std::fs::create_dir_all(project.join("src/api")).unwrap();
         std::fs::write(
             project.join("src/api/checkout.js"),

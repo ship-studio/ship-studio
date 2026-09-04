@@ -109,7 +109,18 @@ pub struct RoutinesState {
 /// findings through a read-modify-write race.
 static STATE_LOCK: Mutex<()> = Mutex::new(());
 
+/// Overrides where run history and findings are stored.
+///
+/// Exists so a test that executes a real run cannot write into the developer's
+/// own inbox. It could, and did: the end-to-end test builds a throwaway
+/// `tempdir` project, and its findings landed in the real state file as items
+/// from a project called `.tmpwlS1C3` that no longer existed.
+pub const STATE_PATH_ENV: &str = "SHIPSTUDIO_ROUTINES_STATE";
+
 pub fn state_path() -> Result<PathBuf, CommandError> {
+    if let Some(override_path) = std::env::var_os(STATE_PATH_ENV) {
+        return Ok(PathBuf::from(override_path));
+    }
     let home = dirs::home_dir()
         .ok_or_else(|| CommandError::expected("Could not find your home directory"))?;
     Ok(home

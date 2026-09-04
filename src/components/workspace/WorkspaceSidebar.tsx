@@ -323,7 +323,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onSwitchAccount,
 }: Props) {
   const appSettingsModal = useModal('settings');
-  const [sidebarWidth, setSidebarWidth] = useState(214);
+  // 219, not 214: the top row gained Routines and Inbox beside Home, and at the
+  // old default the last one sat hard against the resize edge.
+  const [sidebarWidth, setSidebarWidth] = useState(219);
   const { activeAccount, accounts } = useActiveAccount(currentProjectPath);
   // The Workspaces feature is invisible until you actually have more than one.
   // For the ~80% single-workspace users the footer switcher stays hidden; the

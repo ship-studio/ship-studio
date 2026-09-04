@@ -248,6 +248,11 @@ cd src-tauri && cargo test e2e_runs_a_routine_against_the_real_agent -- --ignore
 
 It asserts the run completes **and** that a read-only routine wrote nothing.
 
+It sets `SHIPSTUDIO_ROUTINES_STATE` to a path inside its own tempdir. Without
+that it files the throwaway project's findings into the developer's real inbox,
+where they appear as items from a project that no longer exists — which is
+exactly what happened the first two times it ran.
+
 ## Open questions
 
 - **Working-tree contention.** A routine shelling into a repo you're actively
