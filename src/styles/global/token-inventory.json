@@ -3215,7 +3215,7 @@
       "owner": "global/core",
       "status": "canonical",
       "pluginStable": false,
-      "consumerCount": 52
+      "consumerCount": 53
     },
     {
       "name": "--space-09",

@@ -83,8 +83,11 @@
   height: calc(var(--control-height-standard) + (var(--space-08) * 2));
   min-height: calc(var(--control-height-standard) + (var(--space-08) * 2));
   gap: 0;
+  /* The left inset clears the traffic lights. The extra --space-08 gives the
+     nav row a little air off them now that it carries four buttons rather
+     than one. */
   padding: 0 var(--space-08) 0
-    calc(var(--space-32) + var(--space-32) + var(--space-12) + var(--button-gap));
+    calc(var(--space-32) + var(--space-32) + var(--space-12) + var(--button-gap) + var(--space-08));
 }
 
 /* Match the titlebar's icon-only Home control instead of stretching with the
