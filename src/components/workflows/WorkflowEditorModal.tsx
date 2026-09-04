@@ -28,6 +28,13 @@ import { TextField } from '../primitives/TextField';
 import { SegmentedControl } from '../primitives/SegmentedControl';
 import { ProjectActionConfirmModal } from '../dashboard/ProjectActionConfirmModal';
 import { WorkflowTemplatePicker } from './WorkflowTemplatePicker';
+import {
+  browsableTemplates,
+  isBlankTemplate,
+  WORKFLOW_TEMPLATES,
+  BLANK_TEMPLATE_ID,
+  type WorkflowTemplate,
+} from '../../lib/workflowTemplates';
 import { WorkflowIconPicker } from './WorkflowIconPicker';
 import {
   buildCommandPreview,
@@ -37,7 +44,6 @@ import {
   type Workflow,
   type WorkflowDraft,
   type WorkflowPermission,
-  type WorkflowTemplate,
   type WorkflowTrigger,
   type Severity,
 } from '../../lib/workflows';
@@ -182,7 +188,12 @@ export function WorkflowEditorModal({
     (isNew ? (defaultProjectPath ?? projects[0]?.path) : workflow.projectPath) ?? '';
 
   const [step, setStep] = useState<'template' | 'form'>(isNew ? 'template' : 'form');
-  const [template, setTemplate] = useState<WorkflowTemplate | null>(null);
+  // Preselected rather than empty: an unchosen picker shows a blank preview
+  // pane and a dead Continue button, which reads as a broken screen rather
+  // than as an invitation.
+  const [template, setTemplate] = useState<WorkflowTemplate>(
+    () => browsableTemplates().find((candidate) => candidate.starter) ?? WORKFLOW_TEMPLATES[0]
+  );
   const [draft, setDraft] = useState<Draft>(() =>
     isNew ? blankDraft(initialProject) : draftFrom(workflow)
   );
@@ -212,7 +223,7 @@ export function WorkflowEditorModal({
   );
 
   const selectTemplate = (next: WorkflowTemplate) => {
-    const isBlank = next.id === 'tpl-blank';
+    const isBlank = isBlankTemplate(next);
     setTemplate(next);
     setDraft({
       ...blankDraft(draft.projectPath),
@@ -223,6 +234,13 @@ export function WorkflowEditorModal({
       permission: next.permission,
       prompt: next.prompt,
     });
+  };
+
+  /** The escape hatch: an empty prompt, straight to the form. */
+  const startFromScratch = () => {
+    const blank = WORKFLOW_TEMPLATES.find((candidate) => candidate.id === BLANK_TEMPLATE_ID);
+    if (blank) selectTemplate(blank);
+    setStep('form');
   };
 
   /**
@@ -268,15 +286,18 @@ export function WorkflowEditorModal({
         title="New workflow"
         className="workflow-editor-modal workflow-template-modal"
       >
-        <WorkflowTemplatePicker selectedId={template?.id ?? null} onSelect={selectTemplate} />
+        <WorkflowTemplatePicker selectedId={template.id} onSelect={selectTemplate} />
 
         <div className="workflow-editor-actions">
+          <Button variant="ghost" className="workflow-editor-back" onClick={startFromScratch}>
+            Start from scratch
+          </Button>
           <span className="workflow-editor-step text-style-hint">Step 1 of 2</span>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={!template} onClick={() => setStep('form')}>
-            Continue
+          <Button variant="primary" onClick={() => setStep('form')}>
+            Use this template
           </Button>
         </div>
       </ModalFrame>

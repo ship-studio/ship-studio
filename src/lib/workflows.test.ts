@@ -10,7 +10,6 @@ import {
   formatTokens,
   formatTrigger,
   isTimeTrigger,
-  WORKFLOW_TEMPLATES,
   summarizeWeek,
   triggerPhrase,
   type Workflow,
@@ -245,46 +244,5 @@ describe('buildCommandPreview', () => {
     expect(buildCommandPreview({ agentId: 'nonsense', permission: 'read-only' })).toContain(
       'claude'
     );
-  });
-});
-
-describe('WORKFLOW_TEMPLATES', () => {
-  it('has unique ids and a blank option', () => {
-    const ids = WORKFLOW_TEMPLATES.map((t) => t.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toContain('tpl-blank');
-  });
-
-  it('ships every template read-only', () => {
-    // A starter that can edit files unattended is not a starting point, it's a
-    // trap. Opting into can-edit must be a deliberate act in the editor.
-    for (const template of WORKFLOW_TEMPLATES) {
-      expect(template.permission).toBe('read-only');
-    }
-  });
-
-  it('gives every non-blank template a prompt and a description', () => {
-    for (const template of WORKFLOW_TEMPLATES.filter((t) => t.id !== 'tpl-blank')) {
-      expect(template.prompt.trim().length).toBeGreaterThan(0);
-      expect(template.description.trim().length).toBeGreaterThan(0);
-    }
-  });
-
-  it('ships no template that fires more often than hourly', () => {
-    // Templates are picked before anyone has watched a single run, so their
-    // cadence is the one nobody thinks about. An agent on a 15-minute loop
-    // spends real quota on an unchanged tree ~96 times a day; that is a choice
-    // to make deliberately in the editor, never a default we handed out.
-    for (const template of WORKFLOW_TEMPLATES) {
-      if (template.trigger.kind === 'interval') {
-        expect(template.trigger.everyMinutes).toBeGreaterThanOrEqual(60);
-      }
-    }
-  });
-
-  it('gives every template an icon, so no row falls back to a bare dot', () => {
-    for (const template of WORKFLOW_TEMPLATES) {
-      expect(template.icon.trim().length).toBeGreaterThan(0);
-    }
   });
 });

@@ -112,6 +112,7 @@
 @import './features/project-rail.css';
 @import './features/shopify.css';
 @import './features/workflows.css';
+@import './features/workflow-templates.css';
 @import './features/inbox.css';
 
 /* Modes */

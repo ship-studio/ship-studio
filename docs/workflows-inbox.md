@@ -209,6 +209,36 @@ rather than a switch that sits there doing nothing. It writes to
 `~/Library/LaunchAgents`, needs a clean uninstall path, and has no Windows
 equivalent yet.
 
+## 4b. The picker has to sell the idea, not list it
+
+Nobody arrives at an empty prompt box knowing what a good standing instruction
+looks like, so the first screen of the new-workflow modal is the one that
+decides whether this feature gets used at all.
+
+It is a chooser and a preview, on the Inbox's own two-pane geometry — twenty
+templates grouped by category on the left, and on the right the thing the
+decision actually turns on: **an example of the finding that template would
+file**, above the exact instruction it would run. A description says what a
+workflow looks at; only an example says what comes back.
+
+Three rules hold it together:
+
+- **Something is always selected**, so the preview is never blank and the
+  primary button is never dead. It opens on a starter — one that produces
+  something the first time you press Run, which rules out the event-triggered
+  ones and anything with a `requires`.
+- **Every template's prompt says what *not* to report**, enforced by a test.
+  The way a workflow fails is by being noisy, and an agent asked to find
+  problems will always find some.
+- **No template is armed faster than hourly**, also enforced by a test. A
+  template's cadence is the one nobody thinks about, and it spends the user's
+  own subscription.
+
+The same three facts sit pinned at the foot of every preview: read-only is
+enforced, it runs your own agent on your own plan, and what the cadence really
+promises. And the picker points at the other way in — asking your own agent —
+because most people will never open this modal a second time.
+
 ## 5. Discovery: the agent introduces the feature
 
 This is the part that makes the file format load-bearing rather than incidental.

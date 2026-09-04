@@ -1,0 +1,362 @@
+/* Template picker — the first screen of the new-workflow modal.
+ *
+ * Its own file rather than more of workflows.css: this is a self-contained
+ * screen with a two-pane layout of its own, and workflows.css was already at
+ * three quarters of its LOC ceiling.
+ *
+ * The geometry is deliberately the Inbox's (`.inbox-body`): the first
+ * list-and-report pane a new user meets is this one, and the second is the
+ * Inbox itself. Same shape, so the second one is already familiar. */
+
+.workflow-template-modal {
+  /* Wider than the editor: a list beside a readable report needs the room, and
+     the prompt block below it wraps badly under ~40em. */
+  width: min(1000px, 94vw);
+  max-height: 88vh;
+  overflow: hidden;
+}
+
+.workflow-templates {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.workflow-templates-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-bottom: var(--border-width-default) solid var(--border-subtle);
+}
+
+.workflow-templates-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xs);
+}
+
+.workflow-templates-aside {
+  margin: 0;
+  color: var(--text-faint);
+}
+
+.workflow-templates-lede {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-help);
+  max-width: 78ch;
+}
+
+.workflow-templates-filter {
+  align-self: flex-start;
+}
+
+/* ---- the two panes ---- */
+
+.workflow-templates-body {
+  display: grid;
+  /* Explicit 0 minimums, or a long template name pushes the list track past
+     its max and out from under the divider. */
+  grid-template-columns: minmax(0, 312px) minmax(0, 1fr);
+  min-height: 0;
+  /* Basis 0, not auto: with `auto` the basis is the content height, so the
+     longest prompt stretches the dialog past the bottom of the window and the
+     panes' own scrolling never engages. */
+  flex: 1 1 0;
+}
+
+.workflow-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-md) var(--spacing-sm);
+  border-right: var(--border-width-default) solid var(--border-subtle);
+  /* Same treatment as the Inbox list: WKWebView otherwise paints a permanent
+     light track that doubles up with the pane divider. */
+  scrollbar-width: none;
+}
+
+.workflow-template-list::-webkit-scrollbar {
+  display: none;
+}
+
+.workflow-template-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+}
+
+/* Sticky, because twenty templates is more than one screen of list and the
+   category you are scrolling through is the thing that stops it feeling like
+   an undifferentiated pile. */
+.workflow-template-group-label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-2xs);
+  /* The dialog's own surface, so rows scroll under it cleanly. */
+  background: var(--surface-panel);
+  color: var(--text-muted);
+}
+
+.workflow-template-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  width: 100%;
+  min-width: 0;
+  padding: var(--spacing-sm) var(--spacing-sm);
+  background: none;
+  border: var(--border-width-default) solid transparent;
+  border-radius: var(--radius-card);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition:
+    background var(--transition-interaction),
+    border-color var(--transition-interaction);
+}
+
+.workflow-template-option:hover {
+  background: var(--surface-control-hover);
+}
+
+/* The app's list-selection recipe, shared with .inbox-item and
+   .run-history-item: a filled surface and the ordinary border. */
+.workflow-template-option.is-selected {
+  background: var(--surface-selected);
+  border-color: var(--border-default);
+}
+
+.workflow-template-option-icon {
+  flex-shrink: 0;
+  width: var(--size-icon-md);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-compact);
+  text-align: center;
+}
+
+.workflow-template-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+}
+
+.workflow-template-option-name {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-label);
+}
+
+.workflow-template-option-description {
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+}
+
+/* ---- the preview ---- */
+
+.workflow-template-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-xl);
+}
+
+.workflow-template-preview-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
+.workflow-template-preview-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-control-large);
+  height: var(--size-control-large);
+  border-radius: var(--radius-card);
+  background: var(--surface-control);
+  font-size: var(--font-size-h3);
+  line-height: 1;
+}
+
+.workflow-template-preview-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+}
+
+.workflow-template-preview-name {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-h4);
+  font-weight: var(--font-weight-heading);
+}
+
+/* Category and cadence as muted text with a middot — the same treatment
+   .workflow-row-meta gives the identical facts in the list. */
+.workflow-template-preview-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-2xs);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+}
+
+.workflow-template-preview-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-lg);
+  line-height: var(--line-height-help);
+}
+
+.workflow-template-requires {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2xs);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-body-md);
+}
+
+.workflow-template-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.workflow-template-section-label {
+  color: var(--text-muted);
+}
+
+/* ---- the example finding ---- */
+
+/* Built to the Inbox item's shape on purpose: this is a picture of what the
+   feature produces, and a picture that doesn't match the real thing teaches
+   the wrong lesson. */
+.workflow-template-example {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--surface-panel);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.workflow-template-example-severity {
+  flex-shrink: 0;
+  /* The Inbox's own dot, to the pixel — this is a picture of that. */
+  width: 8px;
+  height: 8px;
+  margin-top: var(--spacing-2xs);
+  border-radius: var(--radius-pill);
+  background: var(--text-faint);
+}
+
+.workflow-template-example-severity[data-severity='critical'] {
+  background: var(--accent-error);
+}
+
+.workflow-template-example-severity[data-severity='warning'] {
+  background: var(--accent-warning);
+}
+
+.workflow-template-example-severity[data-severity='info'] {
+  background: var(--accent-active);
+}
+
+.workflow-template-example-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3xs);
+  min-width: 0;
+}
+
+.workflow-template-example-title {
+  color: var(--text-primary);
+  font-size: var(--font-size-body-md);
+  font-weight: var(--font-weight-label);
+}
+
+.workflow-template-example-summary {
+  color: var(--text-secondary);
+  font-size: var(--font-size-body-md);
+  line-height: var(--line-height-help);
+}
+
+.workflow-template-example-location {
+  align-self: flex-start;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+}
+
+.workflow-template-example-note,
+.workflow-template-prompt-note {
+  color: var(--text-faint);
+}
+
+/* ---- the instruction ---- */
+
+.workflow-template-prompt {
+  margin: 0;
+  padding: var(--spacing-md);
+  background: var(--surface-recessed);
+  border: var(--border-width-default) solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* Long prompts get a scroll of their own rather than pushing the facts
+     below them out of the pane. */
+  max-height: 15em;
+  overflow-y: auto;
+}
+
+/* ---- the three standing facts ---- */
+
+/* Pinned to the foot of the pane. These three sentences are true of every
+   template, so they belong in one fixed place rather than floating wherever
+   the prompt above them happens to end. */
+.workflow-template-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin-top: auto;
+  padding-top: var(--spacing-md);
+  border-top: var(--border-width-default) solid var(--border-subtle);
+}
+
+/* Grid, not flex: a wrapped second line stays in the text column instead of
+   running back underneath the icon. */
+.workflow-template-fact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--spacing-xs);
+  color: var(--text-muted);
+  font-size: var(--font-size-body-sm);
+  line-height: var(--line-height-help);
+}
+
+.workflow-template-fact svg {
+  margin-top: var(--spacing-3xs);
+}

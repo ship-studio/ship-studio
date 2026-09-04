@@ -153,7 +153,7 @@ Key modules in `src/lib/` (not exhaustive — `ls src/lib` for the full list):
 - `mobile.ts` / `androidMirror.ts` - Mobile app preview and device mirror
 - `polling.ts` - Exponential backoff utilities for async operations
 - `project.ts` - Project metadata and file operations
-- `workflows.ts` / `workflowsStore.ts` / `workflowHandoff.ts` - Workflows & Inbox: types mirroring the Rust shapes, the store over the Tauri commands, and the queue that carries a finding's prompt into a workspace terminal
+- `workflows.ts` / `workflowsStore.ts` / `workflowHandoff.ts` / `workflowTemplates.ts` - Workflows & Inbox: types mirroring the Rust shapes, the store over the Tauri commands, the queue that carries a finding's prompt into a workspace terminal, and the template library the new-workflow picker is built from
 - `projectSessions.ts` / `sessionRegistry.ts` / `ptySession.ts` - Hot project sessions (backend authority + frontend mirror)
 - `setup.ts` - Setup wizard step definitions and integration status
 - `terminalLinks.ts` - Clickable URLs in terminals (web-links addon)
